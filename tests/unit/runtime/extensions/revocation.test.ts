@@ -77,8 +77,8 @@ describe('evaluateRevocation (P03-08 revocation + freshness)', () => {
     );
   });
 
+  /** The list has a valid signature and is not expired, but it is older than the freshness horizon. */
   it('Revocation_StalePastHorizon_Unavailable', () => {
-    // Validly signed and unexpired, but older than the freshness horizon.
     const list = signedList({ issuedAt: NOW - (HORIZON + 1), expiresAt: NOW + 3_600_000 });
     const result = evaluateRevocation(context({ list }), EXT, 3);
     expect(result.status).toBe('unavailable');
@@ -95,9 +95,11 @@ describe('evaluateRevocation (P03-08 revocation + freshness)', () => {
     expect(evaluateRevocation(context({ list }), EXT, 3).status).toBe('unavailable');
   });
 
+  /**
+   * A key that is not a configured trust root signs the list. Such a forged list must not clear
+   * or hide a revocation.
+   */
   it('Revocation_ForgedSignature_Unavailable', () => {
-    // Signed by a key that is NOT a configured trust root: a forged "fresh"
-    // list must not be trusted to clear (or mask) revocations.
     const attacker = makeSigner('root.attacker');
     const body = RevocationListBodyV1Schema.parse({
       schemaVersion: '1',

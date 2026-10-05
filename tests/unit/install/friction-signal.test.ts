@@ -9,7 +9,7 @@ import {
   type FailureObservation,
 } from '../../../src/install/friction-signal.js';
 
-// Real error text observed on this program run.
+/** Error text from a real failure. The next two fixtures have the same origin. */
 const NPM_SSL =
   'npm error code ERR_SSL_… request to https://registry.npmjs.org/vitest failed, ' +
   'reason: 40E7…: error:0A000410:SSL routines::sslv3 alert handshake failure';
@@ -42,7 +42,6 @@ describe('classifyFailure', () => {
     expect(v.cause).toBe('worktree-nonatomic');
   });
 
-  // The load-bearing distinction: a GENUINE red test is never "infrastructure".
   it('Classify_GenuineTestFailure_IsTestFailure_NotInfrastructure', () => {
     const v = classifyFailure({
       operation: 'vitest run',
@@ -53,9 +52,8 @@ describe('classifyFailure', () => {
     expect(v.cause).toBe('');
   });
 
+  /** The message matches the worker RPC signature, but a positive failing count wins. */
   it('Classify_PositiveFailingCount_DominatesInfraSignature', () => {
-    // Even if the log happens to contain a worker-RPC line, a positive failing
-    // count means a real red test dominates — do NOT call it infrastructure.
     const v = classifyFailure({
       operation: 'vitest run',
       message: VITEST_WORKER_RPC,
@@ -82,11 +80,9 @@ describe('FrictionMonitor', () => {
   it('Friction_RepeatedInfraFailure_EmitsStopAndSimplify', () => {
     const m = new FrictionMonitor();
     const obs: FailureObservation = { operation: 'npm install', message: NPM_SSL };
-    // Below threshold — no signal yet.
     for (let i = 1; i < FRICTION_THRESHOLD; i++) {
       expect(m.observe(obs)).toBeNull();
     }
-    // The FRICTION_THRESHOLD-th consecutive same-cause infra failure fires.
     const sig = m.observe(obs);
     expect(sig).not.toBeNull();
     expect(sig?.kind).toBe('stop-and-simplify');
@@ -105,8 +101,8 @@ describe('FrictionMonitor', () => {
     expect(sig).toBeNull();
   });
 
+  /** A test that stays red is not a broken tool. */
   it('Friction_RepeatedGenuineTestFailures_NeverSignal', () => {
-    // A red test that stays red is NOT a broken tool — no stop-and-simplify.
     const m = new FrictionMonitor();
     for (let i = 0; i < FRICTION_THRESHOLD + 2; i++) {
       expect(
@@ -115,9 +111,11 @@ describe('FrictionMonitor', () => {
     }
   });
 
+  /**
+   * One operation alternates between two infrastructure causes. Each cause has
+   * its own streak, so neither reaches the threshold.
+   */
   it('Friction_DifferentCauses_DoNotAccumulateIntoOneSignal', () => {
-    // Same operation, alternating infra causes — each streak is tracked
-    // separately, so neither reaches the threshold.
     const m = new FrictionMonitor();
     const npm: FailureObservation = { operation: 'ci step', message: NPM_SSL };
     const wt: FailureObservation = { operation: 'ci step', message: WORKTREE_ORPHAN };
@@ -131,15 +129,14 @@ describe('FrictionMonitor', () => {
     expect(m.streakFor('ci step', 'worktree-nonatomic')).toBe(FRICTION_THRESHOLD - 1);
   });
 
+  /** After the reset, a signal needs a full new run of infrastructure failures. */
   it('Friction_NonInfraOutcome_ResetsTheStreak', () => {
     const m = new FrictionMonitor();
     const npm: FailureObservation = { operation: 'npm install', message: NPM_SSL };
     m.observe(npm);
     m.observe(npm);
-    // A genuine test failure (or success) for the operation clears the infra streak.
     m.observe({ operation: 'npm install', message: 'expect failed', failingTests: 1 });
     expect(m.streakFor('npm install', 'npm-registry-unreachable')).toBe(0);
-    // Now it must take a fresh full run of infra failures to signal.
     for (let i = 1; i < FRICTION_THRESHOLD; i++) expect(m.observe(npm)).toBeNull();
     expect(m.observe(npm)).not.toBeNull();
   });
@@ -166,14 +163,18 @@ describe('FrictionMonitor', () => {
 });
 
 describe('evaluateFrictionRun', () => {
+  /**
+   * The red test belongs to a different operation, so it does not reset the npm
+   * streak. The third npm failure gives the signal.
+   */
   it('Friction_BatchLog_EmitsExactlyTheInfraStopSignals', () => {
     const npm = { operation: 'npm install', message: NPM_SSL };
     const redTest = { operation: 'vitest run', message: 'expect failed', failingTests: 1 };
     const log: FailureObservation[] = [
       npm,
       npm,
-      redTest, // a single genuine red test — no signal, unrelated operation
-      npm, // 3rd npm → stop-and-simplify
+      redTest,
+      npm,
     ];
     const signals = evaluateFrictionRun(log);
     expect(signals).toHaveLength(1);

@@ -1,79 +1,18 @@
-// ─── The delegate skill's posture table is a REPRESENTATION, so it is bound ──
+// Binds the posture table in the delegate skill to `POSTURE_DISPATCH_MAP`. Prose that restates a
+// contract is a representation of the contract, so a test must hold it to the shipped map.
 //
-// Task 048 documented the posture → dispatch contract in the delegate skill's
-// `parallel-strategy.md`. That made the prose a FIFTH representation of one
-// contract — alongside the agent-spec YAML, `dispatch-shape.ts`, the MCP
-// handshake, and INV-11 — and nothing held it to the shipped map. Task 048
-// mitigated it the only way a docs task could: by declaring in the prose that
-// the emitted `dispatch` field wins. That is a convention someone must
-// remember, which is the exact anti-pattern row DR-25 exists to close.
+// Covered: the row key set must equal the key set of the map, in both directions. Each row must
+// state `subagent` and `workspace`, and a row with `subagent: true` must state `naming`. Each
+// stated cell must agree with the map.
 //
-// This is also the SECOND boundary to grow an unbound prose representation
-// (the spec's authority-topology table already records "skill prose" as an
-// unbound representation of the event catalog). Two occurrences make it a
-// pattern: documentation that restates a contract is a representation, and
-// representations get bound.
+// Not covered: `requires`, `fallback`, `rationale`, and the "At the call site" column. The section
+// gives them in sentences, and a parser over free prose turns vacuous before it catches drift.
 //
-// ── What this binding COVERS ────────────────────────────────────────────────
-//
-//   posture    — the table's row key set must EQUAL the map's key set, both
-//                directions. A posture added to the map without a documented
-//                row reddens; so does a documented row for a posture the map
-//                does not bind.
-//   subagent   — every row must state it, and it must agree.
-//   workspace  — every row must state it, and it must agree.
-//   naming     — every row stating `subagent: true` must state it, and it must
-//                agree. A row stating `subagent: false` may omit it (there is
-//                no spawn to address); such a row still binds the map to "not
-//                `named`", which is the weaker half of the claim.
-//
-// ── What this binding DOES NOT COVER — stated plainly ───────────────────────
-//
-//   requires  — the capability list is not in the table. The section's closing
-//     paragraph describes degradation in sentences; sentences are not parsed
-//     here, because a parser over free prose degrades to vacuous far faster
-//     than it catches drift.
-//   fallback  — likewise unbound. The prose narrates both fallbacks
-//     ("inline in the caller's own context", "anonymous into the shared
-//     checkout"); neither is machine-compared.
-//   rationale — unbound by construction; it is operator prose with no
-//     canonical rendering.
-//   the third column ("At the call site") — normative English
-//     ("**Omit `name`.**"). Unbound.
-//
-// A partial binding that is honestly described beats one that overclaims.
-//
-// ── CLOSED by task 059: naming for `shared-mutating` ────────────────────────
-//
-// That row used to state only `subagent: false` and `workspace: "main-worktree"`,
-// so the map's `naming: 'anonymous'` was pinned by rule (3) below only to "not
-// `named`" — 1 of 9 posture-field cells unbindable. The row now states
-// `naming: "anonymous"` and the cell is compared like any other, which takes
-// `MIN_BOUND_CELLS` from 8 to 9 and makes the table TOTALLY bound: 3 rows ×
-// 3 fields. `ProseBinding_SharedMutatingNaming_IsNowBound` pins that.
-//
-// Rule (3) — the weaker "not `named`" claim for a row that omits `naming` — is
-// KEPT rather than deleted: it is the correct behaviour for any future
-// `subagent: false` row that legitimately omits the field. No shipped row
-// exercises it any more, so it is exercised below against a fixture map.
-//
-// ── The two authorities (DR-30) ─────────────────────────────────────────────
-//
-//   the skill markdown  — hand-authored English + a Markdown table, read from
-//                         `content/` (the AUTHORING surface). Deliberately
-//                         NOT a rendered `skills/<runtime>/` copy: binding a
-//                         generated artifact would only re-check the renderer,
-//                         and the drift this test exists to catch happens where
-//                         a human edits.
-//   `./dispatch-shape.ts` — the shipped map, read off the frozen object.
-//
-// Neither reaches the other: the markdown has no import edges at all, and no
-// module imports it. The comparison can genuinely disagree, and
-// `ProseBinding_SeededProseDrift_FailsTheBinding` proves it does.
+// The two authorities are the skill Markdown under `content/` and the frozen map in
+// `dispatch-shape.ts`. The test reads the authored file, because a rendered copy only checks the
+// renderer. The Markdown has no import edge, and no module imports it.
 //
 // @oracle-sources: ../../../../content/delivery/skills/delegate/references/parallel-strategy.md, ../../../../src/runtime/agents/dispatch-shape.ts
-//
-// Implements: DR-25.
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -84,42 +23,32 @@ import { POSTURE_DISPATCH_MAP, type DispatchShape } from '../../../../src/runtim
 import { skillReference as resolveSkillReference } from '../../../../tools/test-helpers/content-tree.js';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-/** repository root — `src/runtime/agents` is four levels down. */
+/** The repository root, four levels above this directory. */
 const REPO_ROOT = path.resolve(HERE, '../../../..');
 
-/** The authoring surface. `skills/<runtime>/**` is a render of THIS file. */
+/** The authoring surface. Each rendered skill tree holds a render of this file. */
 const SKILL_SOURCE = resolveSkillReference('delegate', 'parallel-strategy.md');
 
-/** Repo-relative, forward-slashed — so a failure message reads the same on
- *  every machine and in CI logs rather than quoting a worktree path. */
+/** The repo-relative path with forward slashes, so a failure message is the same on each machine. */
 const SKILL_LABEL = path.relative(REPO_ROOT, SKILL_SOURCE).split(path.sep).join('/');
 
 /**
- * The shipped map, keyed by plain string.
- *
- * Read through `Object.entries` so a posture the prose invents can be looked up
- * (and reported as unbound) without a cast, and so the key set compared below
- * is the map's OWN, not a list retyped in this file.
+ * The shipped map, keyed by plain string. `Object.entries` gives the own key set of the map, not a
+ * list retyped here. A string key also lets the binding look up a posture that only the prose
+ * names, without a cast.
  */
 const boundShapes: ReadonlyMap<string, DispatchShape> = new Map(
   Object.entries(POSTURE_DISPATCH_MAP),
 );
 
 /**
- * The floor on how many prose cells this binding actually compares.
- *
- * Hand-counted against the shipped table (task 059, 2026-08-07): all three
- * rows state all three fields — 3 × 3 = 9. It was 8 until `shared-mutating`
- * gained its `naming` cell. Written by hand ON PURPOSE: a floor derived from
- * the parse would agree with a parser that had stopped seeing cells, which is
- * the vacuity this whole test is guarding against. A row that loses a cell
- * reddens the mandatory-cell rule; this floor is the second, cruder tooth
- * under the same property.
+ * The floor on the count of prose cells that the binding compares: 3 rows of 3 fields. The count is
+ * written by hand on purpose, because a floor derived from the parse agrees with a parser that sees
+ * no cells. This floor is a second, cruder check behind the mandatory-cell rule.
  */
 const MIN_BOUND_CELLS = 9;
 
-// ─── Failure mode: a prose parse that resolves nothing must never read clean ─
-
+/** Thrown when the prose table cannot be read. A parse that resolves nothing must fail, not pass as agreement. */
 class ProseBindingError extends Error {
   constructor(message: string) {
     super(message);
@@ -127,15 +56,12 @@ class ProseBindingError extends Error {
   }
 }
 
-// ─── The fields the prose can carry ─────────────────────────────────────────
-
 const BOUND_FIELDS = ['subagent', 'naming', 'workspace'] as const;
 type BoundField = (typeof BOUND_FIELDS)[number];
 
 /**
- * Fields EVERY row must state. `naming` is deliberately not here: it is
- * conditionally mandatory (see `bindProseToMap`), because a row that spawns no
- * subagent has nothing to name.
+ * The fields that each row must state. `naming` is mandatory only for a row with `subagent: true`,
+ * because a row that spawns no subagent has nothing to name. See `bindProseToMap`.
  */
 const MANDATORY_FIELDS: readonly BoundField[] = ['subagent', 'workspace'];
 
@@ -154,8 +80,6 @@ function mapValue(shape: DispatchShape, field: BoundField): string {
       return shape.workspace;
   }
 }
-
-// ─── Markdown reading, guard-comment aware ──────────────────────────────────
 
 interface ProseLine {
   /** The line with every `<!-- … -->` region blanked out. */
@@ -188,8 +112,6 @@ function proseLines(markdown: string): readonly ProseLine[] {
       guardOnly: text.trim().length === 0 && (raw[index] ?? '').trim().length > 0,
     }));
 }
-
-// ─── Locating the table ─────────────────────────────────────────────────────
 
 const SECTION_HEADING = /^##\s+Dispatch Shape by Posture\s*$/;
 const TOP_LEVEL_HEADING = /^#{1,2}\s/;
@@ -244,12 +166,14 @@ function isDelimiterRow(cells: readonly string[]): boolean {
   return cells.length > 0 && cells.every((cell) => /^:?-{2,}:?$/.test(cell));
 }
 
+/**
+ * Reads a pipe block as a table. A header and a delimiter with no body row is still a table, so the
+ * caller reports "zero rows" and not "no table".
+ */
 function toTable(block: readonly ProseLine[]): RawTable | undefined {
   if (block.length < 2) return undefined;
   const header = splitCells(block[0]?.text ?? '');
   if (!isDelimiterRow(splitCells(block[1]?.text ?? ''))) return undefined;
-  // A header + delimiter with NO body rows is still a table. It is returned so
-  // the zero-row failure is reported as "zero rows", not as "no table".
   const body = block
     .slice(2)
     .map((line) => ({ cells: splitCells(line.text), lineNo: line.lineNo }));
@@ -257,11 +181,9 @@ function toTable(block: readonly ProseLine[]): RawTable | undefined {
 }
 
 /**
- * Every pipe table in `lines`.
- *
- * Guard-comment lines are SKIPPED rather than treated as blank, so a
- * `<!-- requires:… -->` placed between two rows cannot split one table into
- * two half-tables (which would silently shrink the parsed row count).
+ * Every pipe table in `lines`. The scan skips a guard-comment line and does not treat it as blank.
+ * Thus a `<!-- requires:… -->` line between two rows cannot split one table into two, which
+ * silently shrinks the parsed row count.
  */
 function tablesIn(lines: readonly ProseLine[]): readonly RawTable[] {
   const tables: RawTable[] = [];
@@ -300,8 +222,6 @@ function postureTable(section: readonly ProseLine[], label: string): RawTable {
   }
   return found;
 }
-
-// ─── Parsing a row ──────────────────────────────────────────────────────────
 
 interface ProseRow {
   readonly posture: string;
@@ -394,8 +314,6 @@ function parseProseDispatchTable(markdown: string, label: string): ParsedProseTa
   return { label, rows };
 }
 
-// ─── The binding ────────────────────────────────────────────────────────────
-
 interface CellComparison {
   readonly posture: string;
   readonly field: BoundField;
@@ -410,6 +328,16 @@ interface BindingReport {
   readonly mismatches: readonly string[];
 }
 
+/**
+ * Compares each parsed row with the map. The two key sets must be equal in both directions, and no
+ * posture can have two rows. Three rules apply to each row:
+ *
+ * 1. Each cell that the prose states must agree with the map.
+ * 2. Each row must state the mandatory fields, and a row with `subagent: true` must state `naming`.
+ *    Without this rule, a deleted cell shrinks the binding and the test stays green.
+ * 3. A row with `subagent: false` can omit `naming`, because there is no spawn to address. The map
+ *    must then not bind `naming: "named"` for that posture.
+ */
 function bindProseToMap(
   parsed: ParsedProseTable,
   shapes: ReadonlyMap<string, DispatchShape>,
@@ -440,9 +368,8 @@ function bindProseToMap(
 
   for (const row of parsed.rows) {
     const shape = shapes.get(row.posture);
-    if (shape === undefined) continue; // already reported as an unbound posture
+    if (shape === undefined) continue;
 
-    // (1) Every cell the prose STATES must agree with the map.
     for (const field of BOUND_FIELDS) {
       const prose = row.stated.get(field);
       if (prose === undefined) continue;
@@ -456,8 +383,6 @@ function bindProseToMap(
       }
     }
 
-    // (2) The binding may not erode by DELETION. Without this, dropping a cell
-    //     from the table would silently shrink the binding and stay green.
     for (const field of MANDATORY_FIELDS) {
       if (!row.stated.has(field)) {
         mismatches.push(
@@ -474,10 +399,6 @@ function bindProseToMap(
       );
     }
 
-    // (3) A row that spawns nothing may legitimately omit `naming` — there is
-    //     no spawn to address. It still binds the WEAKER half of the claim: the
-    //     map may not answer `named` for a shape the prose says is not a
-    //     subagent at all. This is the honest partial binding, not a skip.
     if (
       row.stated.get('subagent') === 'false' &&
       !row.stated.has('naming') &&
@@ -516,32 +437,38 @@ function withDelimiterRowRemoved(markdown: string): string {
   return markdown;
 }
 
-// ─── The three cases ────────────────────────────────────────────────────────
-
 describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () => {
+  /**
+   * The source must be under `content/`, the authoring surface. The test asserts the row count and
+   * the cell count before the agreement, because a parse that resolves nothing gives an empty
+   * `mismatches` list.
+   */
   it('ProseBinding_SkillTableAndPostureMap_Agree', () => {
-    // The AUTHORING surface. A rendered `skills/<runtime>/` copy would make
-    // this a test of the renderer, not of the contract.
     const segments = path.relative(REPO_ROOT, SKILL_SOURCE).split(path.sep);
     expect(segments[0]).toBe('content');
 
     const markdown = readFileSync(SKILL_SOURCE, 'utf8');
     const parsed = parseProseDispatchTable(markdown, SKILL_LABEL);
 
-    // DENOMINATOR. A parse that resolved nothing must never read as agreement,
-    // so the row count is asserted BEFORE the agreement claim.
     expect(parsed.rows.length).toBeGreaterThan(0);
     expect(parsed.rows.length).toBe(boundShapes.size);
 
     const report = bindProseToMap(parsed, boundShapes);
 
-    // …and the same for the CELL denominator: three rows that stated nothing
-    // would produce zero comparisons and an empty `mismatches`.
     expect(report.comparisons.length).toBeGreaterThanOrEqual(MIN_BOUND_CELLS);
 
     expect(report.mismatches).toEqual([]);
   });
 
+  /**
+   * The `shared-mutating` row states `naming`, and the binding compares that cell with the map. The
+   * expected cell count comes from the map and the field list, which the parse never reads. Thus the
+   * table is totally bound: each row states each bound field.
+   *
+   * A seeded drift in this cell must fail the binding. No shipped row omits `naming`, so a fixture
+   * exercises rule 3 of `bindProseToMap`. A row with `subagent: false` and no `naming` passes
+   * against the shipped map. It fails against a map that binds `naming: "named"`.
+   */
   it('ProseBinding_SharedMutatingNaming_IsNowBound', () => {
     const markdown = readFileSync(SKILL_SOURCE, 'utf8');
     const parsed = parseProseDispatchTable(markdown, SKILL_LABEL);
@@ -550,13 +477,8 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
     expect(row, 'the posture table must document `shared-mutating`').toBeDefined();
     if (row === undefined) throw new Error('unreachable');
 
-    // The cell that used to be missing. While it was, the map's
-    // `naming: 'anonymous'` was pinned only to "not `named`".
     expect(row.stated.get('naming')).toBe('anonymous');
 
-    // …and it is genuinely COMPARED against the map, not merely present in the
-    // prose. Presence without a comparison would be exactly the overclaim the
-    // header warns about.
     const report = bindProseToMap(parsed, boundShapes);
     expect(report.mismatches).toEqual([]);
     expect(
@@ -565,17 +487,9 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
       { posture: 'shared-mutating', field: 'naming', prose: 'anonymous', map: 'anonymous' },
     ]);
 
-    // The table is now TOTALLY bound: every row states every bound field. The
-    // expectation is derived from the MAP and the field list — two authorities
-    // the parse never touches — so it is a real denominator, not a restatement
-    // of what the parser happened to find.
     expect(report.comparisons.length).toBe(boundShapes.size * BOUND_FIELDS.length);
     expect(MIN_BOUND_CELLS).toBe(boundShapes.size * BOUND_FIELDS.length);
 
-    // ── FALSIFIABILITY ──────────────────────────────────────────────────────
-    // The newly-bound cell has teeth: seed a drift into exactly this cell and
-    // the binding reddens. Before the cell was stated there was nothing here
-    // to seed, which is what "unbindable" meant.
     const needle = '`naming: "anonymous"`, `workspace: "main-worktree"`';
     const seeded = '`naming: "named"`, `workspace: "main-worktree"`';
     expect(markdown.split(needle).length - 1).toBe(1);
@@ -592,10 +506,6 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
     expect(reported).toContain('naming: named');
     expect(reported).toContain('naming: anonymous');
 
-    // ── The weaker rule (3) survives for a FUTURE row that omits `naming` ────
-    // No shipped row exercises it now, so it is exercised against a fixture
-    // map: prose that omits `naming` on a `subagent: false` row still refuses
-    // a map binding `naming: 'named'`.
     const omitted = markdown.replace(
       '`subagent: false`, `naming: "anonymous"`',
       '`subagent: false`',
@@ -603,11 +513,8 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
     expect(omitted).not.toBe(markdown);
     const parsedOmitted = parseProseDispatchTable(omitted, '<naming-omitted fixture>');
 
-    // Against the SHIPPED map (`anonymous`) omission is legal — under-specified,
-    // not a disagreement…
     expect(bindProseToMap(parsedOmitted, boundShapes).mismatches).toEqual([]);
 
-    // …but against a map that answered `named`, it is a mismatch.
     const sharedMutating = boundShapes.get('shared-mutating');
     if (sharedMutating === undefined) throw new Error('unreachable');
     const namedMutator: ReadonlyMap<string, DispatchShape> = new Map(boundShapes).set(
@@ -618,26 +525,24 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
     expect(weak.mismatches.join('\n')).toContain('nothing can be named');
   });
 
+  /**
+   * The seed changes the `naming` cell of the `read-only` row from `anonymous` to `named`, the drift
+   * that produces phantom teammates. The needle must occur exactly once. If it does not, the fixture
+   * is not mutated and the probe measures the shipped file. The row count proves that the fixture
+   * still parses, so the failure is a disagreement. The unmutated file must still agree, which
+   * proves that the binding does not fail on everything.
+   */
   it('ProseBinding_SeededProseDrift_FailsTheBinding', () => {
     const markdown = readFileSync(SKILL_SOURCE, 'utf8');
 
-    // Mutate the `read-only` row's naming cell: `anonymous` → `named`. That is
-    // the exact drift with teeth — a named read-only spawn is the shape that
-    // produced three phantom teammates and zero verdicts on 2026-08-07.
     const needle = '`naming: "anonymous"`, `workspace: "inherited"`';
     const seeded = '`naming: "named"`, `workspace: "inherited"`';
 
-    // The mutation must BITE, and bite in exactly one place. If the prose were
-    // reformatted so this text no longer occurs (or occurs twice), the fixture
-    // would be silently unmutated and the assertions below would be measuring
-    // the shipped file — a kill probe that kills nothing.
     expect(markdown.split(needle).length - 1).toBe(1);
     const fixture = markdown.replace(needle, seeded);
     expect(fixture).not.toBe(markdown);
 
     const parsed = parseProseDispatchTable(fixture, '<seeded-drift fixture>');
-    // Still a WELL-FORMED table — only a value changed. This isolates the red
-    // below to disagreement rather than to a parse failure.
     expect(parsed.rows.length).toBe(boundShapes.size);
 
     const report = bindProseToMap(parsed, boundShapes);
@@ -648,22 +553,21 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
     expect(reported).toContain('naming: named');
     expect(reported).toContain('naming: anonymous');
 
-    // NEGATIVE TWIN — the unmutated file still agrees, so the red above is
-    // attributable to the seeded cell and not to a parser that reddens on
-    // everything.
     const control = bindProseToMap(parseProseDispatchTable(markdown, SKILL_LABEL), boundShapes);
     expect(control.mismatches).toEqual([]);
   });
 
+  /**
+   * A control proves first that the unmutated file parses to real rows. Without it, the three throws
+   * cannot be told from a parser that resolves nothing. The three fixtures are a renamed heading, a
+   * table with each data row deleted, and a delimiter row replaced by a sentence. The `dropped`
+   * count proves that the second fixture removed the rows.
+   */
   it('ProseBinding_ZeroRowsParsed_FailsClosed', () => {
     const markdown = readFileSync(SKILL_SOURCE, 'utf8');
 
-    // CONTROL — unmutated, the parse resolves real rows. Without this arm the
-    // three throws below would be indistinguishable from a broken parser that
-    // never resolves anything.
     expect(parseProseDispatchTable(markdown, SKILL_LABEL).rows.length).toBeGreaterThan(0);
 
-    // (a) RENAMED HEADING — the anchor moves and the section is gone.
     const renamed = markdown.replace(
       '## Dispatch Shape by Posture',
       '## Dispatch Shapes, By Posture',
@@ -676,7 +580,6 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
       /exactly ONE .* heading, found 0/,
     );
 
-    // (b) ZERO DATA ROWS — header and delimiter survive, every row is deleted.
     const rowPattern = new RegExp(
       `^\\|\\s*\`(?:${[...boundShapes.keys()].map(escapeRegExp).join('|')})\`\\s*\\|`,
     );
@@ -689,14 +592,11 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
       }
       kept.push(line);
     }
-    // The fixture must actually have removed the rows it claims to remove.
     expect(dropped).toBe(boundShapes.size);
     expect(() => parseProseDispatchTable(kept.join('\n'), '<zero-row fixture>')).toThrow(
       /resolved ZERO data rows/,
     );
 
-    // (c) REFORMATTED TABLE — the delimiter row is replaced by a sentence, so
-    //     the pipe block is no longer a table at all.
     const reformatted = withDelimiterRowRemoved(markdown);
     expect(reformatted).not.toBe(markdown);
     expect(() => parseProseDispatchTable(reformatted, '<reformatted fixture>')).toThrow(

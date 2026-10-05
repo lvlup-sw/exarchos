@@ -1,26 +1,17 @@
 /**
- * Characterization (golden-master) tests for `installSkills()` — DR-9, task 003.
+ * Characterization tests for `installSkills()`. They pin the outputs that the
+ * code gives now. They are regression oracles, not behavior specifications.
  *
- * These tests PIN the *current* observable outputs of the `install-skills`
- * entry point so the onboard/doctor consolidation (DR-1–DR-8) can prove the
- * post-fold `onboard` reproduces the same writes. They are regression oracles,
- * NOT behavioral specs: they assert what the code does today, not what it ought
- * to do. They must PASS against the current `install-skills.ts` with no source
- * changes.
+ * The tests pin two surfaces:
+ *   1. The local-copy targets: which skill directories `installSkills()` copies,
+ *      and to which expanded destination. `installSkills()` creates the real
+ *      destination root itself, so a temp dir stands in for `$HOME`. An injected
+ *      `copyDir` recorder captures each skill copy.
+ *   2. The JSON object that `registerExarchosInClaudeJson()` merges into
+ *      `~/.claude.json`.
  *
- * Two surfaces are pinned (Feathers characterization, per the design's
- * "guard the fold" baseline):
- *   1. The skills-dir local-copy targets — which runtime skill directories get
- *      written, and to which expanded destination path. `copyLocalSkills()`
- *      mkdir's the real destination root itself (it does not route the mkdir
- *      through the injected `copyDir`), so a freshly-created temp dir stands in
- *      for `$HOME`; the per-skill copy is still captured via an injected
- *      `copyDir` recorder rather than a real recursive copy.
- *   2. The `registerExarchosInClaudeJson()` write shape — the exact JSON object
- *      merged into `~/.claude.json`.
- *
- * Absolute paths (the injected home dir) are normalized to a stable `<HOME>`
- * token so the golden values are environment-independent.
+ * The tests replace the absolute home path with a `<HOME>` token, so the pinned
+ * values do not depend on the environment.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -35,18 +26,12 @@ import {
 } from '../../../src/install/install-skills.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Fixtures & helpers ─────────────────────────────────────────────────────
-
 /** Create a fresh, writable temp dir to stand in for `$HOME`. */
 function makeTmpHome(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-char-home-'));
 }
 
-/**
- * Build a normalizer that replaces every occurrence of `home` with a stable
- * `<HOME>` token so the pinned golden values do not depend on the absolute
- * temp/home path.
- */
+/** Build a normalizer that replaces each occurrence of `home` with a `<HOME>` token. */
 function homeNormalizer(home: string): (value: string) => string {
   return (value: string) => value.split(home).join('<HOME>');
 }
@@ -74,16 +59,15 @@ function makeRuntime(overrides: Partial<RuntimeMap> = {}): RuntimeMap {
   };
 }
 
-/** Fake spawn — the local-copy fast path never spawns, but the dep is required. */
+/** Fake spawn. The local-copy path does not spawn, and the fake keeps a real `npx` launch out of the test. */
 function fakeSpawn(): (cmd: string, args: string[]) => Promise<SpawnResult> {
   return vi.fn(async (): Promise<SpawnResult> => ({ code: 0, stderr: '' }));
 }
 
 /**
- * Build a temporary `skills/` source tree with a per-runtime subtree
- * `<root>/<runtime>/<skill>/SKILL.md`. Returns the source root and a disposer.
- * Only the source tree touches disk; the copy destinations are captured via
- * injected recorders, never written.
+ * Build a temporary `skills/` source tree with one
+ * `<root>/<runtime>/<skill>/SKILL.md` file for each skill. Return the source
+ * root and a disposer.
  */
 function makeSkillsSource(
   runtimeName: string,
@@ -103,10 +87,15 @@ function makeSkillsSource(
 }
 
 describe('install-skills characterization (DR-9, task 003)', () => {
+  /**
+   * Pins one `copyDir` call for each skill. The source is relative to the source
+   * root, and the destination is `<HOME>/.claude/skills/<skill>`. It also pins
+   * one MCP registration with the home dir. The copy order follows `readdir`, so
+   * the test sorts the calls. `platform: 'linux'` and a no-op `symlink` select
+   * the POSIX placement branch on each host. A real symlink needs elevated
+   * privileges on Windows.
+   */
   it('InstallSkills_LocalCopyAndRegister_PinnedWrites', async () => {
-    // Two skills in a claude source tree; the copy must target the expanded
-    // skillsInstallPath, one copyDir call per skill subdir, and (for claude)
-    // exactly one MCP registration against the home dir.
     const home = makeTmpHome();
     const normalizeHome = homeNormalizer(home);
     const { skillsSource, dispose } = makeSkillsSource('claude', [
@@ -114,17 +103,14 @@ describe('install-skills characterization (DR-9, task 003)', () => {
       'alpha-skill',
     ]);
 
-    // copyDir recorder: pins which source skill dir → which dest dir.
     const copyDirCalls: Array<{ src: string; dest: string }> = [];
     const copyDir = (src: string, dest: string): void => {
       copyDirCalls.push({
-        src: normalizeHome(src.slice(skillsSource.length)), // relative-to-source
+        src: normalizeHome(src.slice(skillsSource.length)),
         dest: normalizeHome(dest),
       });
     };
 
-    // registerMcp recorder: pins that claude triggers exactly one registration
-    // and the home dir it receives.
     const registerCalls: string[] = [];
     const registerMcp = (h: string): void => {
       registerCalls.push(normalizeHome(h));
@@ -141,13 +127,6 @@ describe('install-skills characterization (DR-9, task 003)', () => {
         skillsSource,
         copyDir,
         registerMcp,
-        // Pin the exercised branch independent of the CI runner's actual OS:
-        // this test is about the per-runtime copy/register contract, not the
-        // win32-vs-POSIX canonical-dir placement strategy (INV-16, covered by
-        // its own `installSkills_Win32_UsesCopyNotSymlink` test). A `symlink`
-        // no-op keeps the non-win32 canonical placement branch from invoking
-        // the real `fs.symlinkSync` (which needs elevated privileges on an
-        // actual Windows host, irrespective of this override).
         platform: 'linux',
         symlink: () => {},
       });
@@ -156,10 +135,6 @@ describe('install-skills characterization (DR-9, task 003)', () => {
       rmrf(home);
     }
 
-    // ── PINNED: local-copy targets ──────────────────────────────────────────
-    // One copyDir call per skill, each from `/<runtime>/<skill>` (relative to
-    // the source root) to `<HOME>/.claude/skills/<skill>`. Order follows the
-    // readdir enumeration; sort the captured pairs to make the golden stable.
     const sortedCopies = [...copyDirCalls].sort((a, b) =>
       a.dest.localeCompare(b.dest),
     );
@@ -174,14 +149,10 @@ describe('install-skills characterization (DR-9, task 003)', () => {
       },
     ]);
 
-    // ── PINNED: MCP registration is invoked once for claude with the home ───
     expect(registerCalls).toEqual(['<HOME>']);
   });
 
   it('InstallSkills_LocalCopyNonClaude_DoesNotRegisterMcp', async () => {
-    // Non-claude runtimes copy skills but MUST NOT register the MCP server.
-    // Pinning this guards the consolidation against accidentally widening the
-    // MCP-registration trigger beyond the claude runtime.
     const home = makeTmpHome();
     const normalizeHome = homeNormalizer(home);
     const { skillsSource, dispose } = makeSkillsSource('codex', ['only-skill']);
@@ -215,8 +186,6 @@ describe('install-skills characterization (DR-9, task 003)', () => {
         skillsSource,
         copyDir,
         registerMcp,
-        // See the pinned-writes test above: pin the exercised branch
-        // independent of the CI runner's actual OS.
         platform: 'linux',
         symlink: () => {},
       });
@@ -231,25 +200,22 @@ describe('install-skills characterization (DR-9, task 003)', () => {
         dest: `<HOME>${path.sep}.codex${path.sep}skills${path.sep}only-skill`,
       },
     ]);
-    // PINNED: no MCP registration for a non-claude runtime.
     expect(registerCalls).toEqual([]);
   });
 
+  /**
+   * Pins the full text that `registerExarchosInClaudeJson` writes into a new
+   * `~/.claude.json`: 2-space indent and a trailing newline. The file is JSON
+   * text, so `JSON.stringify` doubles each backslash of a Windows home path. The
+   * test escapes `home` in the same way before it replaces the path.
+   */
   it('RegisterExarchosInClaudeJson_FreshHome_PinnedJsonShape', () => {
-    // Pin the exact bytes `registerExarchosInClaudeJson` writes into a fresh
-    // `~/.claude.json`. This is the MCP-registration write `install-skills`
-    // performs for the claude runtime; the consolidation must reproduce it
-    // verbatim (modulo home-path normalization).
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-char-cj-'));
     try {
       registerExarchosInClaudeJson(home);
       const raw = fs.readFileSync(path.join(home, '.claude.json'), 'utf8');
-      // `raw` is JSON TEXT: any backslash in `home` (a native Windows path) is
-      // doubled by JSON.stringify, so a plain `raw.split(home)` never matches
-      // on win32 — escape `home` to its JSON-serialized form before splitting.
       const normalized = raw.split(home.replace(/\\/g, '\\\\')).join('<HOME>');
 
-      // PINNED: the full serialized file content (2-space indent + trailing \n).
       const expected =
         JSON.stringify(
           {
@@ -278,9 +244,11 @@ describe('install-skills characterization (DR-9, task 003)', () => {
     }
   });
 
+  /**
+   * The merge keeps the existing top-level keys and the sibling `mcpServers`
+   * entries. It writes only `mcpServers.exarchos`.
+   */
   it('RegisterExarchosInClaudeJson_ExistingConfig_MergesPreservingOthers', () => {
-    // Pin the merge shape: existing top-level keys and sibling mcpServers
-    // entries are preserved; only `mcpServers.exarchos` is (re)written.
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-char-cj2-'));
     try {
       const existing = {
@@ -302,11 +270,8 @@ describe('install-skills characterization (DR-9, task 003)', () => {
       ) as Record<string, unknown>;
       const mcp = parsed.mcpServers as Record<string, unknown>;
 
-      // PINNED: pre-existing top-level key preserved.
       expect(parsed.numberOfStartups).toBe(7);
-      // PINNED: sibling MCP server preserved untouched.
       expect(mcp['user-thing']).toEqual({ type: 'stdio', command: 'whatever' });
-      // PINNED: exarchos entry shape.
       expect(mcp.exarchos).toEqual({
         type: 'stdio',
         command: 'exarchos',

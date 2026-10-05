@@ -2,23 +2,23 @@ import { describe, it, expect } from 'vitest';
 import { IsolationPolicySchema, evaluateIsolation } from '../../../../src/runtime/extensions/isolation.js';
 
 describe('evaluateIsolation (P03-08 posture-boundary integration)', () => {
+  /** The `task-isolated` posture grants `fs:read` and `fs:write`. */
   it('Isolation_CapabilitiesSubsetOfPosture_Contained', () => {
     const policy = IsolationPolicySchema.parse({
       allowedCapabilities: ['fs:read', 'fs:write'],
       filesystem: 'worktree',
       network: false,
     });
-    // task-isolated grants fs:read + fs:write + shell:exec + isolation:worktree.
     expect(evaluateIsolation(policy, 'task-isolated').contained).toBe(true);
   });
 
+  /** The `read-only` posture grants only `fs:read` and `mcp:exarchos:readonly`, so `shell:exec` escalates. */
   it('Isolation_CapabilityOutsidePosture_FailsClosed', () => {
     const policy = IsolationPolicySchema.parse({
       allowedCapabilities: ['fs:read', 'shell:exec'],
       filesystem: 'none',
       network: false,
     });
-    // read-only grants only fs:read + mcp:exarchos:readonly — shell:exec escalates.
     const result = evaluateIsolation(policy, 'read-only');
     expect(result.contained).toBe(false);
     if (!result.contained) expect(result.detail).toContain('shell:exec');

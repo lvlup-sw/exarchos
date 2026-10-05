@@ -1,12 +1,8 @@
-// ─── EFF-008: atomic configuration writes + corruption recovery ──────────────
-//
+// Tests for the atomic JSON configuration writers and for the readers that reject corruption.
 // `~/.claude.json` and the Exarchos config are user-owned files. A failed
-// `writeFileSync` leaves the target neither the old configuration nor the new
-// one, and the next read fails on a file the user never edited. These are the
-// one effect class where "partially applied" is strictly worse than "not
-// applied", so the writers must be all-or-nothing and the readers must refuse to
-// treat corruption as absence.
-// ─────────────────────────────────────────────────────────────────────────────
+// `writeFileSync` leaves the target with neither the old configuration nor the new one.
+// Thus each writer must apply the whole document or nothing, and each reader
+// must not treat a corrupt file as an absent file.
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -58,10 +54,10 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
   it('AtomicWrite_HappyPath_ReplacesTargetWithReparseableContent', () => {
     writeJsonConfigAtomic(target, { version: 1, servers: ['a'] });
     expect(readJsonConfig<{ version: number }>(target)?.version).toBe(1);
-    // No temp artifacts survive a clean write.
     expect(tempArtifacts()).toEqual([]);
   });
 
+  /** The target keeps the exact bytes of the previous configuration, and no temp file stays. */
   it.each([
     ['write', 'writeSync'],
     ['fsync', 'fsyncSync'],
@@ -69,7 +65,6 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
   ] as const)(
     'AtomicWrite_FailureAt_%s_PreservesThePriorConfiguration',
     (_label, failingCall) => {
-      // Seed a valid prior configuration.
       writeJsonConfigAtomic(target, { version: 1, keep: 'me' });
       const before = fs.readFileSync(target, 'utf-8');
 
@@ -83,11 +78,8 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
         boom,
       );
 
-      // The target is byte-identical to the prior valid configuration — never a
-      // truncated or half-written document.
       expect(fs.readFileSync(target, 'utf-8')).toBe(before);
       expect(readJsonConfig<{ keep: string }>(target)?.keep).toBe('me');
-      // And no temp artifact is left behind to be mistaken for the real file.
       expect(tempArtifacts()).toEqual([]);
     },
   );
@@ -99,29 +91,20 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
     };
 
     expect(() => writeJsonConfigAtomic(target, { version: 1 }, io)).toThrow();
-    // Never a partially-created target for a first write.
     expect(fs.existsSync(target)).toBe(false);
     expect(tempArtifacts()).toEqual([]);
   });
 
-  // ─── The short-write hazard ────────────────────────────────────────────────
-  //
-  // `fs.writeSync` may transfer fewer bytes than asked; that is its contract,
-  // not an error. The module used to discard the return value, so a short write
-  // produced a truncated temp file which was then fsync'd and renamed over the
-  // user's good configuration. Nothing threw and nothing logged — the loss
-  // surfaced at the user's NEXT read, on a file they never edited.
-  //
-  // These fixtures perform real, partial writes against a real fd rather than
-  // inspecting a mock's arguments: what is asserted is the bytes on disk.
-
+  /**
+   * `fs.writeSync` can write fewer bytes than requested, and that is not an error.
+   * This filesystem writes half of the bytes and reports the full count. Only a
+   * read of the temp file can show the truncation. The fixture does real partial
+   * writes to a real descriptor, and the test asserts the bytes on disk.
+   */
   it('AtomicJson_ShortWrite_FailsRatherThanPromotingPartialContents', () => {
     writeJsonConfigAtomic(target, { version: 1, keep: 'me', padding: 'x'.repeat(4096) });
     const before = fs.readFileSync(target, 'utf-8');
 
-    // A filesystem that accepts half of what it is handed and ACKNOWLEDGES the
-    // full amount. The truncation is invisible to the caller's return value —
-    // only reading the file back can see it.
     const io = realFs();
     io.writeSync = (fd, data, offset, length) => {
       const half = Math.max(1, Math.floor(length / 2));
@@ -133,19 +116,19 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
       writeJsonConfigAtomic(target, { version: 2, keep: 'gone', padding: 'y'.repeat(4096) }, io),
     ).toThrow(AtomicWriteError);
 
-    // The prior configuration is byte-identical: the partial document never
-    // reached the target.
     expect(fs.readFileSync(target, 'utf-8')).toBe(before);
     expect(readJsonConfig<{ keep: string }>(target)?.keep).toBe('me');
     expect(tempArtifacts()).toEqual([]);
   });
 
+  /**
+   * This filesystem writes zero bytes and raises no error. A retry loop on that
+   * result never ends, so the writer must throw.
+   */
   it('AtomicJson_StalledWrite_ThrowsInsteadOfSpinning', () => {
     writeJsonConfigAtomic(target, { version: 1, keep: 'me' });
     const before = fs.readFileSync(target, 'utf-8');
 
-    // Zero bytes transferred and no error raised. Looping on this would hang, so
-    // "no forward progress" is a failure, not a short write to retry.
     const io = realFs();
     io.writeSync = () => 0;
 
@@ -156,11 +139,11 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
     expect(tempArtifacts()).toEqual([]);
   });
 
+  /**
+   * A filesystem that writes part of the buffer and reports the true count is legal.
+   * The writer must complete the write, so the target holds the whole new document.
+   */
   it('AtomicJson_TruthfulShortWrite_IsCompletedNotAbandoned', () => {
-    // The ordinary case the loop exists for: a filesystem that transfers part of
-    // the buffer and says so. That is legal, so the write must COMPLETE — the
-    // target ends up holding the whole new document, not a prefix of it and not
-    // the old one.
     const io = realFs();
     io.writeSync = (fd, data, offset, length) => {
       const chunk = Math.max(1, Math.floor(length / 3));
@@ -174,20 +157,18 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
     expect(tempArtifacts()).toEqual([]);
   });
 
+  /** `JSON.stringify` returns `undefined` for this value, so no JSON document exists to write. */
   it('AtomicJson_UnserializableValue_IsRefusedBeforeTouchingTheTarget', () => {
     writeJsonConfigAtomic(target, { version: 1, keep: 'me' });
     const before = fs.readFileSync(target, 'utf-8');
 
-    // `JSON.stringify` returns `undefined` here, which the old code detected
-    // only indirectly by parsing the literal string "undefined\n".
     expect(() => writeJsonConfigAtomic(target, undefined)).toThrow(AtomicWriteError);
     expect(fs.readFileSync(target, 'utf-8')).toBe(before);
     expect(tempArtifacts()).toEqual([]);
   });
 
+  /** The fixture is a truncated document, such as a non-atomic write or an incomplete manual edit leaves. */
   it('ReadJsonConfig_CorruptFile_ThrowsTypedErrorNotSilentDefault', () => {
-    // A truncated write from a pre-atomic version of this code, or an operator's
-    // half-finished edit.
     fs.writeFileSync(target, '{ "mcpServers": { "exarchos": ', 'utf-8');
 
     expect(() => readJsonConfig(target)).toThrow(ConfigParseError);
@@ -199,9 +180,11 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
     }
   });
 
+  /**
+   * An absent file is a normal first-run state. A reader that gives the same result
+   * for an absent file and a corrupt file lets a later write replace a config silently.
+   */
   it('ReadJsonConfig_MissingFile_IsAbsentNotCorrupt', () => {
-    // Absence is a normal first-run state and must stay distinguishable from
-    // corruption — conflating them is how a config gets silently overwritten.
     expect(readJsonConfig(path.join(dir, 'nope.json'))).toBeNull();
   });
 });
@@ -236,9 +219,11 @@ describe('config writers route through the atomic primitive (EFF-008)', () => {
     expect(readMcpConfig(filePath).mcpServers?.exarchos).toEqual({ command: 'exarchos' });
   });
 
+  /**
+   * A reader that returns `{}` for a corrupt file makes the next merge-and-write
+   * delete each server that the user configured.
+   */
   it('ReadMcpConfig_CorruptFile_ThrowsRatherThanReturningEmpty', () => {
-    // Returning `{}` here would make the next merge-and-write silently DELETE
-    // every server the user had configured.
     const filePath = path.join(dir, 'claude.json');
     fs.writeFileSync(filePath, '{ "mcpServers": ', 'utf-8');
     expect(() => readMcpConfig(filePath)).toThrow(ConfigParseError);

@@ -36,10 +36,11 @@ describe('detectRuntime', () => {
     expect(mockExecSync).toHaveBeenCalledWith('node --version', { stdio: 'pipe' });
   });
 
+  /** The first `execSync` call is the node probe, and it throws. The second call is the bun probe. */
   it('returns bun when only bun is available', () => {
     mockExecSync
-      .mockImplementationOnce(() => { throw new Error('not found'); }) // node fails
-      .mockReturnValueOnce(Buffer.from('1.3.4\n')); // bun succeeds
+      .mockImplementationOnce(() => { throw new Error('not found'); })
+      .mockReturnValueOnce(Buffer.from('1.3.4\n'));
 
     const result = detectRuntime();
 
@@ -174,12 +175,12 @@ describe('checkPrerequisite', () => {
   });
 });
 
+/** Each prerequisite check calls `execSync` one time. Thus the mocked results apply to the `prereqs` entries in order. */
 describe('checkAllPrerequisites', () => {
   it('returns all found when all prerequisites are present', () => {
-    // Each checkPrerequisite call invokes getVersion which calls execSync once
     mockExecSync
-      .mockReturnValueOnce(Buffer.from('1.5.0\n')) // bun
-      .mockReturnValueOnce(Buffer.from('2.0.0\n')); // some-tool
+      .mockReturnValueOnce(Buffer.from('1.5.0\n'))
+      .mockReturnValueOnce(Buffer.from('2.0.0\n'));
 
     const prereqs: Prerequisite[] = [
       { command: 'bun', args: ['--version'], required: true, minVersion: '1.0.0', installHint: 'install bun' },
@@ -196,8 +197,8 @@ describe('checkAllPrerequisites', () => {
 
   it('blocks install when a required prerequisite is missing', () => {
     mockExecSync
-      .mockImplementationOnce(() => { throw new Error('not found'); }) // bun missing
-      .mockReturnValueOnce(Buffer.from('2.0.0\n')); // some-tool found
+      .mockImplementationOnce(() => { throw new Error('not found'); })
+      .mockReturnValueOnce(Buffer.from('2.0.0\n'));
 
     const prereqs: Prerequisite[] = [
       { command: 'bun', args: ['--version'], required: true, minVersion: '1.0.0', installHint: 'install bun' },
@@ -213,8 +214,8 @@ describe('checkAllPrerequisites', () => {
 
   it('warns but continues when optional prerequisite is missing', () => {
     mockExecSync
-      .mockReturnValueOnce(Buffer.from('1.5.0\n')) // bun found
-      .mockImplementationOnce(() => { throw new Error('not found'); }); // node missing (optional)
+      .mockReturnValueOnce(Buffer.from('1.5.0\n'))
+      .mockImplementationOnce(() => { throw new Error('not found'); });
 
     const prereqs: Prerequisite[] = [
       { command: 'bun', args: ['--version'], required: true, minVersion: '1.0.0', installHint: 'install bun' },
@@ -228,6 +229,7 @@ describe('checkAllPrerequisites', () => {
     expect(report.results[1].found).toBe(false);
   });
 
+  /** `some-tool` is required and its version is less than the minimum, so the report blocks the install. */
   it('returns structured report with all results', () => {
     mockExecSync
       .mockReturnValueOnce(Buffer.from('1.5.0\n'))
@@ -247,7 +249,6 @@ describe('checkAllPrerequisites', () => {
     expect(report.results[0].meetsMinVersion).toBe(true);
     expect(report.results[1].found).toBe(true);
     expect(report.results[1].meetsMinVersion).toBe(false);
-    // some-tool is required but below min version → blocks
     expect(report.canProceed).toBe(false);
     expect(report.blockers.length).toBeGreaterThan(0);
   });

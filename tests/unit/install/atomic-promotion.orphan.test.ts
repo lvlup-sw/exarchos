@@ -1,34 +1,15 @@
 /**
- * atomic-promotion.orphan.test.ts — DR-17: a backup is never destroyed without a
- * consumable journal.
+ * Tests that a promotion never destroys a backup that has no usable journal. The fatal state
+ * is: `target` absent, the backup holds the old tree, and the journal is absent or unreadable.
+ * A process kill between the two renames, then a lost journal, leaves that state. The backup
+ * is then the only copy of the old tree.
  *
- * The fatal state is narrow and entirely mechanical:
+ * The tests run the real {@link promoteTreeSync} on a real temp filesystem. They make the crash
+ * state with faults through the {@link PromotionIo} seam, then remove or corrupt the journal.
+ * The assertions compare the content digest of the backup tree.
  *
- *     target ABSENT   +   backup = the OLD tree   +   journal gone or garbage
- *
- * It is what a process kill between `rename(target → backup)` and
- * `rename(staging → target)` leaves behind once the journal that recorded those
- * two paths is lost (deleted by a cleanup script, truncated by a crash, or
- * written by a version that spelled it differently). The backup directory is
- * then the ONLY copy of the old tree in existence, and `promoteTreeSync` used to
- * open with an unconditional `safeRemove(plan.backupDir)` — deleting it, on the
- * strength of a comment that inferred "recovery already consumed any
- * journal-tracked backup", an inference that only holds when a journal was
- * actually found.
- *
- * These proofs run the REAL {@link promoteTreeSync} against a REAL temp
- * filesystem and construct the crash state the way the crash does — by faulting
- * both the commit rename and the rollback restore through the injectable
- * {@link PromotionIo} seam, then removing/corrupting the journal — rather than
- * by hand-placing directories. What is asserted is the surviving bytes: the
- * backup tree's content digest, byte-for-byte, before and after.
- *
- * The other half of the job is proving the refusal is NARROW. A guard that
- * refuses too eagerly would brick every install, so the legitimate states are
- * pinned explicitly: a clean first install, a normal replace-the-old-tree
- * promotion (including its own post-commit backup cleanup), a promotion that
- * finds a stale backup next to a PRESENT target, and a promotion that finds a
- * genuinely consumable journal.
+ * The second suite pins that the refusal is narrow. A first install, a normal replacement, a
+ * stale backup beside a present `target`, and a usable journal all promote.
  */
 
 import * as fs from 'node:fs';
@@ -49,8 +30,6 @@ import {
   type PromotionExecutedRecord,
   type PromotionIo,
 } from '../../../src/install/atomic-promotion.js';
-
-// ─── Fixtures ─────────────────────────────────────────────────────────────────
 
 const OLD_TREE: DigestEntry[] = [
   { path: 'a.md', content: 'OLD alpha\n' },
@@ -131,14 +110,10 @@ function wrapIo(
 class InjectedFault extends Error {}
 
 /**
- * Drive the REAL promotion into the post-crash state a SIGKILL between the two
- * renames leaves: `target` absent, `backup` holding the complete OLD tree, and
- * the journal on disk. Faults both the commit rename and the in-line rollback
- * restore, which is exactly the "hard crash" the module documents.
- *
- * Returns with the journal STILL PRESENT — each test then decides how the
- * journal is lost (deleted / truncated / wrong shape), because that is the axis
- * DR-17 is about.
+ * Drive the real promotion into the state that a kill between the two renames leaves. In that
+ * state `target` is absent, the backup holds the full old tree, and the journal is on disk.
+ * It faults the commit rename and the rollback restore, then asserts that state. Each test
+ * then decides how the journal is lost.
  */
 function crashBetweenRenames(): void {
   writeTree(target, OLD_TREE);
@@ -149,13 +124,12 @@ function crashBetweenRenames(): void {
 
   expect(() => promoteTreeSync({ target, entries: NEW_TREE }, io)).toThrow(PromotionError);
 
-  // Precondition of every DR-17 proof below: this is the state on disk.
   expect(fs.existsSync(target)).toBe(false);
   expect(diskDigest(backupDir())).toBe(OLD_DIGEST);
   expect(fs.existsSync(journalFile())).toBe(true);
 }
 
-/** Capture a thrown value without `expect(...).toThrow`'s type erasure. */
+/** Return the value that `run` throws, or `undefined`. `expect(...).toThrow` does not give the value. */
 function caught(run: () => unknown): unknown {
   try {
     run();
@@ -165,26 +139,24 @@ function caught(run: () => unknown): unknown {
   }
 }
 
-// ─── DR-17: the orphan backup is preserved, not discarded ────────────────────
-
 describe('DR-17 — an orphan backup is refused, never destroyed', () => {
+  /**
+   * The journal is the only record of where the old tree went, and it is lost. The backup must
+   * keep each byte of the old tree. The error names the backup, the target and the journal
+   * path, so an operator can find the tree.
+   */
   it('PromoteTree_OrphanBackupNoJournal_PreservesBackup', () => {
     crashBetweenRenames();
-    // The journal — the only record of where the old tree went — is lost.
     fs.rmSync(journalFile());
     const survivingBefore = readTree(backupDir());
     expect(digestTree(survivingBefore)).toBe(OLD_DIGEST);
 
     const err = caught(() => promoteTreeSync({ target, entries: NEW_TREE }));
 
-    // The point of the whole exercise, asserted FIRST: the last copy of OLD is
-    // still there, byte-for-byte — not merely "a directory still exists".
     expect(diskDigest(backupDir())).toBe(OLD_DIGEST);
     expect(fs.existsSync(backupDir())).toBe(true);
     expect(readTree(backupDir())).toEqual(survivingBefore);
 
-    // Refused, with a typed identity and an actionable message that NAMES the
-    // orphan (an operator has to be able to find the bytes we would not touch).
     expect(err).toBeInstanceOf(PromotionError);
     expect((err as PromotionError).code).toBe('ORPHAN_BACKUP');
     expect((err as PromotionError).message).toContain(backupDir());
@@ -193,17 +165,17 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
     expect((err as PromotionError).message).toContain('ABSENT');
   });
 
+  /**
+   * The staging directory of the crashed attempt is on disk, and the refusal must not change it.
+   * The IO hook records each mutating call, and the refused call must make none. No journal
+   * appears, `target` stays absent, and the backup holds only the old files.
+   */
   it('PromoteTree_OrphanBackupNoJournal_DoesNotStageOverOldTree', () => {
     crashBetweenRenames();
     fs.rmSync(journalFile());
-    // The crashed attempt's staging dir is still on disk. A refusal must leave it
-    // exactly as it found it — no re-stage, and above all no promotion of it.
     const stagedBefore = diskDigest(stageDir());
     expect(stagedBefore).toBe(NEW_DIGEST);
 
-    // Record every filesystem MUTATION the refused call performs. "Refuses
-    // rather than overwriting destructively" is a claim about what did not
-    // happen, so observe the seam, not just the wreckage afterwards.
     const mutations: string[] = [];
     const io = wrapIo(defaultPromotionIo(), (op, first, second) => {
       if (op === 'mkdirp' || op === 'writeFile' || op === 'removeTree' || op === 'rename') {
@@ -213,13 +185,8 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
 
     const err = caught(() => promoteTreeSync({ target, entries: NEW_TREE }, io));
 
-    // Not one mutating operation: no `removeTree` of the backup, no staging
-    // write, no `target → backup` rename, no commit.
     expect(mutations).toEqual([]);
 
-    // Refusal is a REFUSAL, not a half-promotion: nothing re-staged, no journal
-    // rewritten over the evidence, and the destination still absent — so no
-    // commit could have clobbered the old tree.
     expect(diskDigest(stageDir())).toBe(stagedBefore);
     expect(fs.existsSync(journalFile())).toBe(false);
     expect(fs.existsSync(target)).toBe(false);
@@ -228,8 +195,6 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
     expect(err).toBeInstanceOf(PromotionError);
     expect((err as PromotionError).code).toBe('ORPHAN_BACKUP');
 
-    // And the old tree was not partially overwritten in place: every OLD file is
-    // intact with OLD bytes, and no NEW-only file leaked into it.
     for (const entry of OLD_TREE) {
       const full = path.join(backupDir(), ...entry.path.split('/'));
       expect(fs.readFileSync(full, 'utf8')).toBe(entry.content);
@@ -238,10 +203,12 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
     expect(diskDigest(backupDir())).not.toBe(NEW_DIGEST);
   });
 
+  /**
+   * The journal is truncated, not deleted. The error must say `UNREADABLE`, not `ABSENT`. The
+   * refusal must not overwrite the corrupt journal, because it is evidence.
+   */
   it('PromoteTree_OrphanBackupCorruptJournal_PreservesBackupAndReportsUnreadable', () => {
     crashBetweenRenames();
-    // Not deleted — TRUNCATED. `readJournal` used to fold this into the same
-    // `undefined` as "absent", which is why the corrupt case was invisible.
     fs.writeFileSync(journalFile(), '{"target":"C:\\\\part', 'utf8');
 
     const err = caught(() => promoteTreeSync({ target, entries: NEW_TREE }));
@@ -250,19 +217,15 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
     expect(err).toBeInstanceOf(PromotionError);
     expect((err as PromotionError).code).toBe('ORPHAN_BACKUP');
     expect((err as PromotionError).message).toContain(backupDir());
-    // The diagnosis distinguishes a corrupt journal from a missing one.
     expect((err as PromotionError).message).toContain('UNREADABLE');
     expect((err as PromotionError).message).not.toContain('is ABSENT');
 
-    // The corrupt journal is EVIDENCE — a refusal must not overwrite it with a
-    // fresh one, which is precisely what proceeding to promote would do.
     expect(fs.readFileSync(journalFile(), 'utf8')).toBe('{"target":"C:\\\\part');
   });
 
+  /** The journal parses as JSON but is not a promotion journal. The error must say `UNREADABLE`, not `ABSENT`. */
   it('PromoteTree_OrphanBackupWrongShapeJournal_PreservesBackupAndReportsUnreadable', () => {
     crashBetweenRenames();
-    // Parses fine; is not a promotion journal. `isPromotionJournal` rejects it,
-    // and that rejection must reach the operator as "unreadable", not "absent".
     fs.writeFileSync(journalFile(), JSON.stringify({ version: 2, note: 'not a journal' }), 'utf8');
 
     const err = caught(() => promoteTreeSync({ target, entries: NEW_TREE }));
@@ -274,23 +237,25 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
     expect((err as PromotionError).message).not.toContain('is ABSENT');
   });
 
+  /** Recovery cannot consume an unreadable journal. It returns `false` and keeps the backup and the journal. */
   it('RecoverInterruptedPromotion_UnreadableJournal_ReportsNothingRecoveredAndKeepsBackup', () => {
     crashBetweenRenames();
     fs.writeFileSync(journalFile(), 'not json at all', 'utf8');
 
-    // Standalone recovery cannot consume an unreadable journal — and does not
-    // pretend to, nor "clean up" the backup it cannot account for.
     expect(recoverInterruptedPromotion(target)).toBe(false);
     expect(diskDigest(backupDir())).toBe(OLD_DIGEST);
     expect(fs.existsSync(journalFile())).toBe(true);
   });
 
+  /**
+   * Through the effect carrier, a refusal must arrive as an error outcome, not as a throw. The
+   * recorder gets no call, because the run promoted nothing. The `cause` keeps the typed
+   * `ORPHAN_BACKUP` error, so a caller can tell it from each other install failure.
+   */
   it('PromoteTree_OrphanBackup_SurfacesRefusalThroughTheEffectCarrier', async () => {
     crashBetweenRenames();
     fs.rmSync(journalFile());
 
-    // The carrier is the seam callers (onboard install) use: a refusal has to
-    // arrive as a structured error outcome, not an unhandled throw.
     const recorded: PromotionExecutedRecord[] = [];
     const outcome = await promoteTree(
       { target, entries: NEW_TREE },
@@ -302,27 +267,22 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
     );
 
     expect(isError(outcome)).toBe(true);
-    // A refused promotion promoted nothing, so it recorded nothing — the
-    // recorder was available throughout and was still never reached.
     expect(recorded).toEqual([]);
     if (isError(outcome)) {
       expect(outcome.error.code).toBe('INSTALL_EFFECT_FAILED');
       expect(outcome.error.message).toContain(backupDir());
-      // The typed refusal survives as the carrier's `cause`, so a caller can
-      // still tell ORPHAN_BACKUP from any other install failure.
       expect(outcome.error.cause).toBeInstanceOf(PromotionError);
       expect((outcome.error.cause as PromotionError).code).toBe('ORPHAN_BACKUP');
     }
     expect(diskDigest(backupDir())).toBe(OLD_DIGEST);
   });
 
+  /** The operator renames the orphan backup to `target`, as the error says. The next run then promotes the new tree. */
   it('PromoteTree_OrphanBackupRestoredByOperator_ConvergesOnRetry', () => {
     crashBetweenRenames();
     fs.rmSync(journalFile());
     expect(() => promoteTreeSync({ target, entries: NEW_TREE })).toThrow(PromotionError);
 
-    // The refusal is not a dead end: it tells the operator to restore the orphan,
-    // and doing exactly that makes the very next run converge to NEW.
     fs.renameSync(backupDir(), target);
     expect(diskDigest(target)).toBe(OLD_DIGEST);
 
@@ -335,11 +295,9 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
   });
 });
 
-// ─── The refusal must be NARROW: legitimate promotions are untouched ─────────
-
 describe('DR-17 — the refusal does not fire on any legitimate promotion', () => {
+  /** A first install has no target, no backup and no journal. */
   it('PromoteTree_CleanFirstInstall_PromotesNormally', () => {
-    // No target, no backup, no journal — the state every fresh install is in.
     expect(fs.existsSync(target)).toBe(false);
     expect(fs.existsSync(backupDir())).toBe(false);
     expect(fs.existsSync(journalFile())).toBe(false);
@@ -354,6 +312,7 @@ describe('DR-17 — the refusal does not fire on any legitimate promotion', () =
     expect(fs.existsSync(journalFile())).toBe(false);
   });
 
+  /** The promotion removes the backup that it made, so the guard leaves no permanent orphan. */
   it('PromoteTree_ExistingTargetNoJournal_PromotesAndCleansItsOwnBackup', () => {
     writeTree(target, OLD_TREE);
     expect(diskDigest(target)).toBe(OLD_DIGEST);
@@ -362,17 +321,16 @@ describe('DR-17 — the refusal does not fire on any legitimate promotion', () =
 
     expect(report.promoted).toBe(true);
     expect(diskDigest(target)).toBe(NEW_DIGEST);
-    // The backup this promotion made for itself is still cleaned up afterwards —
-    // the guard did not turn normal scaffolding into a permanent orphan.
     expect(fs.existsSync(backupDir())).toBe(false);
     expect(fs.existsSync(stageDir())).toBe(false);
     expect(fs.existsSync(journalFile())).toBe(false);
   });
 
+  /**
+   * An interrupted cleanup after the commit leaves a complete `target` and a redundant backup.
+   * The removal of that backup loses nothing, so the guard must not fire.
+   */
   it('PromoteTree_StaleBackupBesidePresentTarget_StillPromotesAndDiscardsIt', () => {
-    // Post-commit cleanup interrupted: the destination is a COMPLETE tree and the
-    // backup is a redundant second copy. Discarding it loses nothing, so the
-    // guard must NOT fire here — this is the common leftover in the wild.
     writeTree(target, OLD_TREE);
     writeTree(backupDir(), OLD_TREE);
     expect(fs.existsSync(journalFile())).toBe(false);
@@ -384,10 +342,11 @@ describe('DR-17 — the refusal does not fire on any legitimate promotion', () =
     expect(fs.existsSync(backupDir())).toBe(false);
   });
 
+  /**
+   * An unreadable journal is fatal only when the backup is the last copy. Here `target` is
+   * present, so the promotion continues.
+   */
   it('PromoteTree_StaleBackupBesidePresentTargetCorruptJournal_StillPromotes', () => {
-    // Same as above but the leftover journal is garbage. An unreadable journal is
-    // only fatal when the backup is the LAST copy; with the target present it is
-    // not, so the promotion proceeds rather than refusing.
     writeTree(target, OLD_TREE);
     writeTree(backupDir(), OLD_TREE);
     fs.writeFileSync(journalFile(), '<<<corrupt>>>', 'utf8');
@@ -400,10 +359,9 @@ describe('DR-17 — the refusal does not fire on any legitimate promotion', () =
     expect(fs.existsSync(journalFile())).toBe(false);
   });
 
+  /** The journal is intact, so recovery restores the old tree from the backup. Then the promotion continues. */
   it('PromoteTree_ConsumableJournalAfterCrash_RecoversAndPromotesAsBefore', () => {
     crashBetweenRenames();
-    // Journal left intact: recovery restores OLD from the backup, then the
-    // promotion proceeds. Nothing about DR-17 may perturb this path.
     const report = promoteTreeSync({ target, entries: NEW_TREE });
 
     expect(report.recoveredPriorAttempt).toBe(true);
@@ -414,9 +372,8 @@ describe('DR-17 — the refusal does not fire on any legitimate promotion', () =
     expect(fs.existsSync(journalFile())).toBe(false);
   });
 
+  /** The guard runs on each call, so a false refusal shows as a throw on the second or third promotion. */
   it('PromoteTree_RepeatedPromotionsOfTheSameTree_NeverRefuse', () => {
-    // Convergence loop: the guard runs on every call, so a spurious refusal
-    // would surface as a throw on the 2nd or 3rd identical promotion.
     promoteTreeSync({ target, entries: OLD_TREE });
     promoteTreeSync({ target, entries: NEW_TREE });
     const third = promoteTreeSync({ target, entries: NEW_TREE });
@@ -426,8 +383,6 @@ describe('DR-17 — the refusal does not fire on any legitimate promotion', () =
     expect(fs.existsSync(backupDir())).toBe(false);
   });
 });
-
-// ─── The guard's own contract, pinned directly ───────────────────────────────
 
 describe('assertNoOrphanBackup — the guard in isolation', () => {
   it('AssertNoOrphanBackup_TargetAbsentBackupPresent_ThrowsOrphanBackup', () => {
@@ -455,10 +410,11 @@ describe('assertNoOrphanBackup — the guard in isolation', () => {
     expect(() => { assertNoOrphanBackup(target); }).not.toThrow();
   });
 
+  /**
+   * A valid journal is on disk while `target` is absent. The state is still an orphan, and the
+   * error says `UNCONSUMED`.
+   */
   it('AssertNoOrphanBackup_UnconsumedValidJournal_ReportsItAsUnconsumed', () => {
-    // A valid journal that recovery somehow left behind while the target is still
-    // absent: still an orphan, and the diagnosis says so rather than claiming the
-    // journal is missing.
     writeTree(backupDir(), OLD_TREE);
     fs.writeFileSync(
       journalFile(),

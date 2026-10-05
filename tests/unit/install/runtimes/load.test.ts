@@ -23,26 +23,17 @@ const REQUIRED_RUNTIMES = [
   'cursor',
 ] as const;
 
-/**
- * Write a YAML fixture into a temp directory under a given base filename
- * (without the `.yaml` extension). Used by the LoadAllRuntimes_* tests to
- * assemble temp runtime directories on disk.
- */
+/** Writes `<baseName>.yaml` into `tmpDir` and returns its path. */
 function writeFixtureYaml(tmpDir: string, baseName: string, content: string): string {
   const target = join(tmpDir, `${baseName}.yaml`);
   writeFileSync(target, content, 'utf8');
   return target;
 }
 
-/**
- * Snapshot of the canonical valid YAML fixture — read once from disk so that
- * temp-dir tests can seed multiple files from the same source of truth.
- */
+/** Returns the text of the valid fixture. A `nameOverride` replaces the value of the top-level `name:` line. */
 function readValidFixtureContent(nameOverride?: string): string {
   const raw = readFileSync(VALID_FIXTURE, 'utf8');
   if (nameOverride === undefined) return raw;
-  // Replace the `name:` line with the override. Matches only the top-level
-  // `name:` field (the fixture has no indented `name:` keys).
   return raw.replace(/^name:.*$/m, `name: ${nameOverride}`);
 }
 
@@ -108,7 +99,6 @@ describe('loadAllRuntimes', () => {
   });
 
   it('LoadAllRuntimes_MissingOneRequiredRuntime_Throws', () => {
-    // Write 5 of the 6 required runtimes — omit `cursor`.
     for (const runtimeName of REQUIRED_RUNTIMES) {
       if (runtimeName === 'cursor') continue;
       writeFixtureYaml(tmpDir, runtimeName, readValidFixtureContent(runtimeName));
@@ -122,7 +112,6 @@ describe('loadAllRuntimes', () => {
     for (const runtimeName of REQUIRED_RUNTIMES) {
       writeFixtureYaml(tmpDir, runtimeName, readValidFixtureContent(runtimeName));
     }
-    // Add an unknown extra runtime.
     writeFixtureYaml(tmpDir, 'experimental', readValidFixtureContent('experimental'));
 
     const warn = vi.fn();
@@ -132,20 +121,17 @@ describe('loadAllRuntimes', () => {
     const names = result.map((r) => r.name).sort();
     expect(names).toContain('experimental');
 
-    // The warning must have been produced, must mention the unknown runtime's
-    // filename or name, and must NOT have caused a throw.
     expect(warn).toHaveBeenCalled();
     const warnMessages = warn.mock.calls.map((call) => String(call[0]));
     const mentionsExperimental = warnMessages.some((msg) => /experimental/.test(msg));
     expect(mentionsExperimental).toBe(true);
   });
 
+  /**
+   * Reads the runtime YAML files that the repository ships.
+   * Hosts with native MCP (claude, cursor, codex) prefer `mcp`. Runtimes with thin or no MCP support prefer `cli`.
+   */
   it('LoadAllRuntimes_PreferredFacadeAssignments_MatchCapabilityMatrix', () => {
-    // Loads every YAML file shipped in `content/harness/runtimes/` at the repo root and
-    // asserts that each runtime declares the `preferredFacade` value dictated
-    // by the DR-1 capability matrix. MCP-native hosts (Claude Code, Cursor,
-    // Codex) default to `mcp`; runtimes whose MCP support is thin or absent
-    // (OpenCode, Copilot, generic fallback) default to `cli`.
     const runtimes = loadAllRuntimes(REPO_RUNTIMES_DIR, { warn: () => {} });
     const byName = Object.fromEntries(
       runtimes.map((runtime) => [runtime.name, runtime.preferredFacade] as const),

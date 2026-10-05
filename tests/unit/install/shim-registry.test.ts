@@ -27,7 +27,7 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
-/** A far-future clock so real registry expiries are never "in the past". */
+/** A fixed clock that is earlier than each expiry in the real registry. */
 const CLOCK = new Date('2026-01-01T00:00:00Z');
 
 /** Build a well-formed registry entry, overridable field-by-field. */
@@ -55,8 +55,7 @@ function discovered(over: Partial<DiscoveredShim> = {}): DiscoveredShim {
   };
 }
 
-// The literal marker token is spliced so this test file never accidentally
-// self-declares a shim that a future tree scan could pick up.
+/** The marker token, spliced so that a tree scan finds no shim marker in this test file. */
 const MARK = 'SHIM' + '(';
 
 describe('parseShimMarkers', () => {
@@ -118,7 +117,6 @@ describe('validateEntryGovernance', () => {
 });
 
 describe('verifyShimRatchet — exit proofs', () => {
-  // (e) current authored set, against a matching discovered set, passes.
   it('ShimRatchet_MatchingRegistryAndDiscovery_Passes', () => {
     const result = verifyShimRatchet({
       registry: [entry()],
@@ -129,7 +127,6 @@ describe('verifyShimRatchet — exit proofs', () => {
     expect(result.violations).toEqual([]);
   });
 
-  // (c) adding a shim on disk with no registry entry FAILS.
   it('ShimRatchet_UnregisteredDiscoveredShim_Fails', () => {
     const result = verifyShimRatchet({
       registry: [entry()],
@@ -146,8 +143,7 @@ describe('verifyShimRatchet — exit proofs', () => {
     expect(unregistered[0]?.runtime).toBe('opencode');
   });
 
-  // (c) a multi-runtime marker where only SOME runtimes are registered fails
-  //     on the unregistered runtime only.
+  /** The violation names only the runtime that has no registry row. */
   it('ShimRatchet_PartiallyRegisteredMultiRuntimeMarker_FailsOnGap', () => {
     const result = verifyShimRatchet({
       registry: [entry({ runtime: 'cursor' })],
@@ -159,7 +155,6 @@ describe('verifyShimRatchet — exit proofs', () => {
     expect(unregistered.map((v) => v.runtime)).toEqual(['copilot']);
   });
 
-  // (d) an expired registry entry FAILS.
   it('ShimRatchet_ExpiredRegistryEntry_Fails', () => {
     const result = verifyShimRatchet({
       registry: [entry({ expires: '2020-01-01' })],
@@ -223,19 +218,18 @@ describe('discoverShims (injected fs)', () => {
     expect(found[0]?.runtimes).toEqual(['cursor']);
   });
 
+  /** The scan skips `SELF_PATH`, although the file content holds a marker. */
   it('discoverShims_ExcludesSelfModule', () => {
     const fs: ShimDiscoveryFs = {
       listTsFiles: () => [`/repo/${SELF_PATH}`],
-      // Even if the module contained a marker, it must be skipped.
       readFile: () => `// ${MARK}runtimes: cursor, capability: x)`,
     };
     const found = discoverShims({ repoRoot: '/repo', roots: ['src'], fs });
     expect(found).toEqual([]);
   });
 
+  /** `src/runtime` contains `src/runtime/agents/adapters`. A scan of both roots must report the marker one time. */
   it('discoverShims_NestedRoots_VisitsEachFileOnce', () => {
-    // `src/runtime` contains `src/runtime/agents/adapters`; listing both must
-    // not report the same marker twice.
     const fs: ShimDiscoveryFs = {
       listTsFiles: (absRoot) =>
         absRoot.endsWith('adapters')
@@ -258,14 +252,15 @@ describe('discoverShims (injected fs)', () => {
 describe('SHIM_REGISTRY — real repo (exit proof e)', () => {
   it('registry entries are internally well-formed', () => {
     for (const e of SHIM_REGISTRY) {
-      // Governance is valid as of the fixed clock (well before real expiries).
       expect(validateEntryGovernance(e, CLOCK)).toEqual([]);
     }
   });
 
+  /**
+   * This test checks only the path prefix.
+   * When a registered file is absent, `RealShimSet_MatchesRegistry_RatchetPasses` fails.
+   */
   it('registry files exist on disk', () => {
-    // (indirectly) — discovery must find each registered file's marker below,
-    // which requires the file to exist. This asserts the paths are real.
     const files = new Set(SHIM_REGISTRY.map((e) => e.file));
     for (const f of files) {
       expect(f.startsWith('servers/') || f.startsWith('src/')).toBe(true);
@@ -286,19 +281,13 @@ describe('SHIM_REGISTRY — real repo (exit proof e)', () => {
   });
 });
 
-// ─── DR-14: structural, marker-independent renderer discovery ────────────────
-
-/**
- * Source text of a real per-harness renderer, reduced to the three structural
- * facts the detector keys on. The port identifier is spliced so this test file
- * can never itself be mistaken for a renderer by a future tree scan.
- */
+/** The port type name, spliced so that a tree scan does not take this test file for a renderer. */
 const PORT = 'Runtime' + 'Adapter';
 
 interface RendererFixtureOptions {
-  /** Runtime id the module declares. `null` ⇒ declare none. */
+  /** The runtime id that the module declares. With `null`, the module declares none. */
   readonly runtime?: string | null;
-  /** Emit a `SHIM(...)` marker too. Default: NO marker (the DR-14 case). */
+  /** The fields of a shim marker to add. The default is no marker. */
   readonly withMarker?: string;
   /** Local alias for the imported port type. */
   readonly alias?: string;
@@ -308,7 +297,7 @@ interface RendererFixtureOptions {
   readonly asSatisfies?: boolean;
 }
 
-/** A syntactically real per-harness renderer module. */
+/** The source text of a per-harness renderer, reduced to the structural facts that the detector reads. */
 function rendererSource(opts: RendererFixtureOptions = {}): string {
   const local = opts.alias ?? PORT;
   const imported = opts.alias ? `${PORT} as ${opts.alias}` : PORT;
@@ -340,7 +329,7 @@ function rendererSource(opts: RendererFixtureOptions = {}): string {
   );
 }
 
-/** A disposable repo-shaped temp tree; `seed` writes repo-relative files. */
+/** Runs `body` against a temp tree shaped like the repository. `seed` maps repo-relative paths to file contents. */
 function withTempRepo(
   seed: Record<string, string>,
   body: (repoRoot: string) => void,
@@ -358,8 +347,7 @@ function withTempRepo(
   }
 }
 
-/** Roots used against the temp trees below (mirrors the real root shape). */
-// One root since task 019 folded the two source trees together.
+/** The scan roots for the temp trees, the same as `RENDERER_SCAN_ROOTS`. */
 const TEMP_ROOTS = ['src'];
 
 /** A complete, valid registry row for the seeded renderer. */
@@ -379,9 +367,7 @@ function rendererEntry(over: Partial<ShimEntry> = {}): ShimEntry {
 const RENDERER_PATH = 'src/runtime/agents/adapters/newharness.ts';
 
 describe('DR-14 acceptance — an ungoverned per-harness renderer fails the ratchet', () => {
-  // THE headline criterion: a renderer is added to the tree with NO approved
-  // capability reason and NO expiry (i.e. no registry row at all). Seeded into
-  // a real directory tree and run through the real discovery + ratchet.
+  /** The renderer has no registry row. The test seeds it into a real directory tree and runs the real discovery and ratchet. */
   it('ShimRatchet_RendererAddedWithNoReasonOrExpiry_FailsEndToEnd', () => {
     withTempRepo({ [RENDERER_PATH]: rendererSource() }, (repoRoot) => {
       const renderers = discoverRenderers({ repoRoot, roots: TEMP_ROOTS });
@@ -401,8 +387,7 @@ describe('DR-14 acceptance — an ungoverned per-harness renderer fails the ratc
     });
   });
 
-  // Same seeded renderer, but with a row whose reason and expiry are BLANK —
-  // the "governed on paper" case. Must still fail end-to-end.
+  /** The renderer has a registry row, but the reason and the expiry of the row are blank. */
   it('ShimRatchet_RendererRowWithBlankReasonAndExpiry_FailsEndToEnd', () => {
     withTempRepo({ [RENDERER_PATH]: rendererSource() }, (repoRoot) => {
       const renderers = discoverRenderers({ repoRoot, roots: TEMP_ROOTS });
@@ -419,7 +404,6 @@ describe('DR-14 acceptance — an ungoverned per-harness renderer fails the ratc
     });
   });
 
-  // The exit proof: the SAME renderer, once fully governed, passes.
   it('ShimRatchet_RendererWithApprovedReasonAndExpiry_PassesEndToEnd', () => {
     withTempRepo({ [RENDERER_PATH]: rendererSource() }, (repoRoot) => {
       const renderers = discoverRenderers({ repoRoot, roots: TEMP_ROOTS });
@@ -434,8 +418,7 @@ describe('DR-14 acceptance — an ungoverned per-harness renderer fails the ratc
     });
   });
 
-  // A renderer that declares no runtime id cannot be keyed to governance, so it
-  // fails loudly instead of silently escaping the (file, runtime) join.
+  /** A renderer without a runtime id has no (file, runtime) key, so the ratchet reports it and does not skip it. */
   it('ShimRatchet_RendererWithNoRuntimeId_FailsUndeclaredRuntime', () => {
     withTempRepo({ [RENDERER_PATH]: rendererSource({ runtime: null }) }, (repoRoot) => {
       const renderers = discoverRenderers({ repoRoot, roots: TEMP_ROOTS });
@@ -451,8 +434,7 @@ describe('DR-14 acceptance — an ungoverned per-harness renderer fails the ratc
     });
   });
 
-  // Omitting the renderers input entirely must not pass silently: the rows it
-  // would have backed become stale covers.
+  /** Without the `renderers` input, a renderer row has no artefact, so the row is a `missing-on-disk` violation. */
   it('ShimRatchet_RenderersInputOmitted_FailsLoudlyNotSilently', () => {
     const result = verifyShimRatchet({
       registry: [rendererEntry()],
@@ -465,15 +447,12 @@ describe('DR-14 acceptance — an ungoverned per-harness renderer fails the ratc
 });
 
 describe('discoverRenderers — marker independence (the DR-14 defect)', () => {
-  // THE specific defect: the five shipped renderers carry no marker, so the
-  // opt-in scan could not see them. Discovery must not need one.
+  /** The renderer holds no marker, so the marker scan does not find it. Structural discovery needs no marker. */
   it('DiscoverRenderers_RendererWithNoShimMarker_IsStillDiscovered', () => {
     const source = rendererSource();
     expect(source).not.toContain(MARK);
     withTempRepo({ [RENDERER_PATH]: source }, (repoRoot) => {
-      // The marker scan sees nothing at all…
       expect(discoverShims({ repoRoot, roots: TEMP_ROOTS })).toEqual([]);
-      // …but structural discovery finds it anyway.
       const renderers = discoverRenderers({ repoRoot, roots: TEMP_ROOTS });
       expect(renderers).toHaveLength(1);
       expect(renderers[0]?.file).toBe(RENDERER_PATH);
@@ -496,9 +475,8 @@ describe('discoverRenderers — marker independence (the DR-14 defect)', () => {
     });
   });
 
+  /** A `satisfies` export without a type annotation is also an implementing position, so discovery must find it. */
   it('DiscoverRenderers_SatisfiesForm_IsDiscovered', () => {
-    // An untyped `satisfies` export is still an implementing position — it must
-    // not become the escape hatch that the annotation requirement leaves open.
     const source = rendererSource({ asSatisfies: true });
     expect(source).toContain('satisfies');
     expect(source).not.toContain(`newHarnessAdapter: ${PORT}`);
@@ -520,8 +498,7 @@ describe('discoverRenderers — marker independence (the DR-14 defect)', () => {
 });
 
 describe('discoverRenderers — false-positive guard', () => {
-  // The port module DECLARES the interface and names the render member, but
-  // never imports the port — it is not a renderer.
+  /** The port module declares the interface and names the render member, but it does not import the port. */
   it('DiscoverRenderers_PortDeclarationModule_YieldsNoDiscovery', () => {
     const portModule =
       `export interface ${PORT} {\n` +
@@ -536,8 +513,10 @@ describe('discoverRenderers — false-positive guard', () => {
     );
   });
 
-  // The fan-out consumer imports the port and CALLS the render member, but only
-  // ever mentions the port inside a generic — never an implementing position.
+  /**
+   * The consumer imports the port and calls the render member.
+   * It names the port only inside other types, never in an implementing position.
+   */
   it('DiscoverRenderers_PortConsumerInGenericPosition_YieldsNoDiscovery', () => {
     const consumer =
       `import type { ${PORT} } from './adapters/types.js';\n` +
@@ -555,7 +534,7 @@ describe('discoverRenderers — false-positive guard', () => {
     );
   });
 
-  // Merely mentioning the tokens in prose/strings is not evidence.
+  /** The tokens occur only in a comment and in strings. */
   it('DiscoverRenderers_FileMentioningTokensOnly_YieldsNoDiscovery', () => {
     const prose =
       `// This module documents how a ${PORT} lowers a spec via lowerSpec().\n` +
@@ -566,7 +545,7 @@ describe('discoverRenderers — false-positive guard', () => {
     });
   });
 
-  // An implementing export that renders nothing is a port stub, not a renderer.
+  /** An implementing export without the render member is a port stub. */
   it('DiscoverRenderers_ImplementorWithoutRenderMember_YieldsNoDiscovery', () => {
     const stub =
       `import type { ${PORT} } from './types.js';\n` +
@@ -579,7 +558,7 @@ describe('discoverRenderers — false-positive guard', () => {
     );
   });
 
-  // Test/fixture files are not production surface.
+  /** Discovery skips test files. */
   it('DiscoverRenderers_TestFileShapedLikeRenderer_YieldsNoDiscovery', () => {
     withTempRepo(
       { 'src/runtime/agents/adapters/fake.test.ts': rendererSource() },
@@ -593,12 +572,10 @@ describe('discoverRenderers — false-positive guard', () => {
     expect(detectRenderer('', 'x.ts')).toBeNull();
   });
 
+  /** The detector keys on the port type and the render member, and it scans the whole `src` tree, not one directory. */
   it('RendererSubject_IsThePortAndRenderMember_NotAPathConvention', () => {
-    // The detector's subject is pinned to the port + render member, so a
-    // future reader can see the shape rule is not keyed on a directory name.
     expect(RENDERER_PORT_TYPE).toBe(PORT);
     expect(RENDERER_RENDER_MEMBER).toBe('lowerSpec');
-    // Scan roots are the whole product source tree, not the adapters folder.
     expect(RENDERER_SCAN_ROOTS).toContain('src');
   });
 });
@@ -637,7 +614,6 @@ describe('DR-14 field completeness — reason and expiry are enforced, not decor
   });
 
   it('ShimRatchet_AlreadyExpiredExpiry_Fails', () => {
-    // An expiry that is never checked is decoration.
     const result = verifyShimRatchet({
       registry: [entry({ expires: '2025-12-31' })],
       discovered: [discovered()],
@@ -667,8 +643,8 @@ describe('DR-14 field completeness — reason and expiry are enforced, not decor
 });
 
 describe('DR-14 stale cover — a row whose artefact left the tree fails', () => {
+  /** The temp tree holds a different renderer, and the registered renderer is absent. */
   it('ShimRatchet_RegisteredRendererAbsentFromDisk_FailsMissingOnDisk', () => {
-    // Temp tree contains a DIFFERENT renderer; the registered one is gone.
     withTempRepo(
       { 'src/runtime/agents/adapters/other.ts': rendererSource({ runtime: 'other' }) },
       (repoRoot) => {
@@ -687,8 +663,8 @@ describe('DR-14 stale cover — a row whose artefact left the tree fails', () =>
     );
   });
 
+  /** Renderer discovery needs no marker, but a marker without a registry row is still a violation. */
   it('ShimRatchet_StrayMarkerWithNoRow_StillFails', () => {
-    // The marker is supplementary after DR-14 — but not inert.
     withTempRepo(
       {
         'src/runtime/stray.ts':
@@ -711,8 +687,8 @@ describe('DR-14 stale cover — a row whose artefact left the tree fails', () =>
   });
 });
 
+/** `SHIPPED_RENDERERS` pins the five shipped per-harness renderers by path and runtime. */
 describe('DR-14 live tree — the inventory reflects the shipped renderers', () => {
-  /** The five shipped per-harness renderers, pinned by path and runtime. */
   const SHIPPED_RENDERERS: ReadonlyArray<readonly [string, string]> = [
     ['src/runtime/agents/adapters/claude.ts', 'claude'],
     ['src/runtime/agents/adapters/codex.ts', 'codex'],
@@ -721,15 +697,15 @@ describe('DR-14 live tree — the inventory reflects the shipped renderers', () 
     ['src/runtime/agents/adapters/opencode.ts', 'opencode'],
   ];
 
+  /** The list is exact, so a sixth renderer fails this test. */
   it('DiscoverRenderers_RealRepo_FindsExactlyTheFiveShippedRenderers', () => {
     const renderers = discoverRenderers({ repoRoot: REPO_ROOT, roots: RENDERER_SCAN_ROOTS });
     expect(renderers.map((r) => [r.file, r.runtime] as const)).toEqual(SHIPPED_RENDERERS);
-    // Pinned so a sixth ungoverned renderer trips this immediately.
     expect(renderers).toHaveLength(5);
   });
 
+  /** This test shows that the marker scan cannot find the shipped renderers. */
   it('DiscoverRenderers_RealRepo_NoneOfTheFiveCarriesAShimMarker', () => {
-    // The proof that marker-driven discovery could never have seen them.
     const markers = discoverShims({ repoRoot: REPO_ROOT, roots: SHIM_SCAN_ROOTS });
     const markerFiles = new Set(markers.map((m) => m.file));
     for (const [file] of SHIPPED_RENDERERS) {
@@ -747,11 +723,11 @@ describe('DR-14 live tree — the inventory reflects the shipped renderers', () 
     }
   });
 
+  /**
+   * A scan root that does not exist gives no files, so the scan cannot report an ungoverned shim or renderer below it.
+   * This test fails on a stale root or a stale `SELF_PATH`.
+   */
   it('ScanRoots_RealRepo_EveryConfiguredRootExists', () => {
-    // A root that no longer exists scans nothing and reports nothing, so the
-    // ratchet stays green while governing an empty tree. Task 019 left three
-    // such stale path constants in this module alone; assert the roots are
-    // real so the next move fails here instead of going quiet.
     for (const root of [...SHIM_SCAN_ROOTS, ...RENDERER_SCAN_ROOTS]) {
       expect(existsSync(join(REPO_ROOT, root)), `scan root ${root} does not exist`).toBe(true);
     }

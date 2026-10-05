@@ -1,9 +1,6 @@
-// ─── Spawn-time injection-channel probe (DR-6 / DR-8) ────────────────────────
-//
-// Unit coverage for `resolveInjectionChannel` — the cached-per-process help
-// probe that narrows a harness's preference-ordered candidate list to ONE
-// resolved channel. Every test injects a deterministic `helpProbe` seam (no real
-// CLI on the host), so the probe path is hermetic. The cache is cleared per test.
+// Unit tests for `resolveInjectionChannel`. It narrows the ordered candidate list of a harness to
+// one resolved channel, and it caches the help probe for the process. Each test injects a
+// `helpProbe` seam, so no real CLI runs. `beforeEach` clears the cache.
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -22,9 +19,8 @@ describe('resolveInjectionChannel — spawn-time channel probe (DR-6)', () => {
     clearHelpProbeCache();
   });
 
+  /** The help text names the two flags. The walk must select the file flag, which the registry lists first. */
   it('channelProbe_FlagPresent_SelectsPrimary', () => {
-    // Help advertises BOTH flags — the probe must pick the PRIMARY (file) flag,
-    // which the registry orders first (preference-ordered walk).
     const helpProbe: HelpProbe = () =>
       `Usage: claude [options]\n  ${FILE_FLAG} FILE   append system prompt file\n  ${STRING_FLAG} TEXT   append system prompt`;
 
@@ -38,10 +34,8 @@ describe('resolveInjectionChannel — spawn-time channel probe (DR-6)', () => {
     }
   });
 
+  /** The help text names only the string flag, so the walk must select the second candidate. */
   it('channelProbe_FlagAbsent_FallsBackToStringFlag', () => {
-    // Help advertises ONLY the string flag — the file flag is absent, so the walk
-    // must fall back to the second (string) candidate. The boundary match ensures
-    // `--append-system-prompt` is NOT mistaken for `--append-system-prompt-file`.
     const helpProbe: HelpProbe = () =>
       `Usage: claude [options]\n  ${STRING_FLAG} TEXT   append system prompt`;
 
@@ -55,10 +49,11 @@ describe('resolveInjectionChannel — spawn-time channel probe (DR-6)', () => {
     }
   });
 
+  /**
+   * The probe returns `null`, as it does for a CLI that cannot spawn. The function cannot verify a
+   * flag candidate, so it returns `none` with a degradation and does not throw.
+   */
   it('channelProbe_CliMissing_ChannelNoneWithDegradation', () => {
-    // The CLI cannot be spawned (probe returns null) — every flag candidate is
-    // unverifiable, so the channel degrades to `none` + a recorded degradation
-    // (DR-8 fail-open).
     const helpProbe: HelpProbe = () => null;
 
     const res = resolveInjectionChannel(CLAUDE_CANDIDATES, 'claude', { helpProbe });
@@ -69,9 +64,11 @@ describe('resolveInjectionChannel — spawn-time channel probe (DR-6)', () => {
     expect(res.degradation).toContain('probe failed');
   });
 
+  /**
+   * The help probe runs at most one time for each command in a process. A different command is a
+   * different cache key, so the probe runs again.
+   */
   it('channelProbe_ResultCachedPerProcess', () => {
-    // The help probe runs AT MOST ONCE per process per command — two resolutions
-    // for the same command must reuse the cached help output.
     const helpProbe = vi.fn<HelpProbe>(
       () => `Usage: claude\n  ${FILE_FLAG} FILE`,
     );
@@ -79,20 +76,16 @@ describe('resolveInjectionChannel — spawn-time channel probe (DR-6)', () => {
     const first = resolveInjectionChannel(CLAUDE_CANDIDATES, 'claude', { helpProbe });
     const second = resolveInjectionChannel(CLAUDE_CANDIDATES, 'claude', { helpProbe });
 
-    // Same resolution both times…
     expect(first.channel.kind).toBe('flag');
     expect(second.channel.kind).toBe('flag');
-    // …but the underlying (expensive) help spawn happened exactly once.
     expect(helpProbe).toHaveBeenCalledTimes(1);
 
-    // A DIFFERENT command is a distinct cache key — it probes again.
     resolveInjectionChannel(CLAUDE_CANDIDATES, 'claude-next', { helpProbe });
     expect(helpProbe).toHaveBeenCalledTimes(2);
   });
 
+  /** The function selects an `env` candidate directly, and it does not run the help probe. */
   it('channelProbe_EnvHarness_SelectsEnvWithoutProbing', () => {
-    // An `env` candidate (Copilot / OpenCode) is a contract channel — selected
-    // directly, with NO help probe spawn.
     const helpProbe = vi.fn<HelpProbe>(() => 'unused');
 
     const res = resolveInjectionChannel(
@@ -106,9 +99,8 @@ describe('resolveInjectionChannel — spawn-time channel probe (DR-6)', () => {
     expect(helpProbe).not.toHaveBeenCalled();
   });
 
+  /** Cursor declares `none`. A declared `none` is not a failure, so the result has no degradation. */
   it('channelProbe_CursorNone_ResolvesNoneWithoutDegradation', () => {
-    // Cursor declares `none` — the documented out-of-band fallback is NOT a
-    // failure, so it resolves to `none` WITHOUT a degradation.
     const helpProbe = vi.fn<HelpProbe>(() => 'unused');
 
     const res = resolveInjectionChannel(

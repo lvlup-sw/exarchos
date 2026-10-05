@@ -2,10 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { RuntimeMapSchema } from '../../../../src/install/runtimes/types.js';
 import type { RuntimeMap } from '../../../../src/install/runtimes/types.js';
 
-/**
- * Canonical valid fixture matching the full RuntimeMap schema shape.
- * Individual tests derive invalid variants from this baseline by mutation.
- */
+/** A valid `RuntimeMap`. Each test derives its variant from this value. */
 const validFixture: RuntimeMap = {
   name: 'claude',
   capabilities: {
@@ -70,6 +67,7 @@ describe('RuntimeMapSchema', () => {
     }
   });
 
+  /** A strict Zod object rejects an unknown key with an `unrecognized_keys` issue. */
   it('RuntimeMapSchema_UnknownTopLevelField_Rejected', () => {
     const invalid = {
       ...validFixture,
@@ -79,7 +77,6 @@ describe('RuntimeMapSchema', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       const hasUnknownKeyError = result.error.issues.some((issue) =>
-        // Zod raises an "unrecognized_keys" issue for strict-mode rejections
         String(issue.code ?? '').includes('unrecognized') ||
         (Array.isArray((issue as { keys?: unknown }).keys) &&
           ((issue as { keys: unknown[] }).keys).includes('rogueField')),
@@ -97,12 +94,12 @@ describe('RuntimeMapSchema', () => {
     expect(parsed.placeholders).toEqual({});
   });
 
+  /** A string in a boolean capability field must fail the parse. */
   it('RuntimeMapSchema_CapabilityBooleans_TypedCorrectly', () => {
     const invalid = {
       ...validFixture,
       capabilities: {
         ...validFixture.capabilities,
-        // deliberately wrong type to assert strict boolean enforcement
         hasSubagents: 'yes' as unknown as boolean,
       },
     };
@@ -119,11 +116,7 @@ describe('RuntimeMapSchema', () => {
     }
   });
 
-  // preferredFacade (DR-1): each runtime declares its preferred skill-authoring
-  // facade — `"mcp"` for runtimes where agents call Exarchos via MCP tools,
-  // `"cli"` for runtimes that prefer bash-style CLI invocations. The field is
-  // required so the renderer always has an explicit answer per runtime.
-
+  /** `preferredFacade` is required, so the renderer always has an explicit facade (`mcp` or `cli`) for each runtime. */
   it('RuntimeMapSchema_MissingPreferredFacade_ThrowsValidationError', () => {
     const { preferredFacade: _preferredFacade, ...withoutFacade } = validFixture;
     const result = RuntimeMapSchema.safeParse(withoutFacade);
@@ -136,6 +129,10 @@ describe('RuntimeMapSchema', () => {
     }
   });
 
+  /**
+   * The issue code must be an invalid enum value.
+   * A schema without the field gives an unrecognized-key issue, which must not pass this test.
+   */
   it('RuntimeMapSchema_InvalidPreferredFacade_ThrowsValidationError', () => {
     const invalid = {
       ...validFixture,
@@ -147,8 +144,6 @@ describe('RuntimeMapSchema', () => {
       const enumIssue = result.error.issues.find(
         (issue) => issue.path.length === 1 && issue.path[0] === 'preferredFacade',
       );
-      // Must be an enum-invalid-value error, not an unrecognized-keys error —
-      // otherwise the test would pass trivially against the pre-DR-1 schema.
       expect(enumIssue).toBeDefined();
       expect(String(enumIssue?.code ?? '')).toMatch(/invalid_enum_value|invalid_value/);
     }
@@ -190,8 +185,8 @@ describe('RuntimeMapSchema', () => {
     expect(parsed.capabilities.hooks?.sessionStartEvent).toBeNull();
   });
 
+  /** The capabilities schema is strict and has no `hasHooks` field, so a bare `hasHooks` boolean must fail the parse. */
   it('CapabilitiesSchema_RejectsBareHasHooks_Throws', () => {
-    // #1485: the legacy `hasHooks` boolean was removed; `.strict()` must reject it.
     const legacy = {
       ...validFixture,
       capabilities: { ...validFixture.capabilities, hasHooks: true },
@@ -216,9 +211,8 @@ describe('RuntimeMapSchema', () => {
     expect(() => RuntimeMapSchema.parse(badProfile)).toThrow();
   });
 
+  /** A cross-field refinement rejects the `none` profile together with context injection or an event name. */
   it('CapabilitiesSchema_NoneProfileWithInjection_Throws', () => {
-    // The .refine cross-field guard: profile `none` must not claim injection or
-    // carry event names.
     const inconsistent = {
       ...validFixture,
       capabilities: {

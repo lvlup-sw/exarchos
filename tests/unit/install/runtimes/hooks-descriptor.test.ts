@@ -2,11 +2,9 @@ import { describe, it, expect } from 'vitest';
 import { resolve } from 'node:path';
 import { loadAllRuntimes } from '../../../../src/install/runtimes/load.js';
 
-// #1485: assert every runtime's hooks descriptor matches design §4.3. The data
-// is also drift-guarded (runtimes:guard) and exercised via the renderer
-// integration test; these assertions lock the per-runtime capability values.
 const RUNTIMES_DIR = resolve(__dirname, '../../../../content/harness/runtimes');
 
+/** The hooks descriptor values that each runtime YAML must declare. */
 const EXPECTED: Record<string, { profile: string; canInjectContext: boolean; start: string | null; end: string | null }> = {
   claude: { profile: 'claude-json', canInjectContext: true, start: 'SessionStart', end: 'SessionEnd' },
   codex: { profile: 'claude-json', canInjectContext: true, start: 'SessionStart', end: 'Stop' },

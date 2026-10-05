@@ -61,6 +61,7 @@ describe('TrustRootSet.verify (P03-08 trust chaining)', () => {
     if (!result.trusted) expect(result.detail).toContain('no configured trust root');
   });
 
+  /** The attacker signs with a different key, but the signature claims the id of the configured root. */
   it('TrustRoot_SignedByDifferentKey_FailsClosed', () => {
     const configured = makeKeyPair();
     const attacker = makeKeyPair();
@@ -71,7 +72,6 @@ describe('TrustRootSet.verify (P03-08 trust chaining)', () => {
         publicKeyPem: configured.publicKeyPem,
       },
     ]);
-    // Attacker signs with their own key but claims the configured root's id.
     const signature: DetachedSignature = {
       keyId: 'root.a',
       algorithm: SIGNATURE_ALGORITHM,

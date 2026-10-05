@@ -34,9 +34,7 @@ describe('Content Hash Utilities (A4)', () => {
 
       const hash = computeFileHash(filePath);
 
-      // SHA-256 hex digest is always 64 characters
       expect(hash).toHaveLength(64);
-      // Must be lowercase hex
       expect(hash).toMatch(/^[0-9a-f]{64}$/);
     });
 
@@ -73,7 +71,6 @@ describe('Content Hash Utilities (A4)', () => {
 
   describe('computeDirectoryHashes', () => {
     it('computeDirectoryHashes_Directory_ReturnsAllFileHashes', () => {
-      // Create a directory structure
       fs.writeFileSync(path.join(tmpDir, 'file1.txt'), 'content 1', 'utf-8');
       fs.mkdirSync(path.join(tmpDir, 'sub'));
       fs.writeFileSync(path.join(tmpDir, 'sub', 'file2.txt'), 'content 2', 'utf-8');
@@ -81,20 +78,17 @@ describe('Content Hash Utilities (A4)', () => {
 
       const hashes = computeDirectoryHashes(tmpDir);
 
-      // Should include all three files with relative paths
       expect(Object.keys(hashes)).toHaveLength(3);
       expect(hashes['file1.txt']).toBeDefined();
       expect(hashes[path.join('sub', 'file2.txt')]).toBeDefined();
       expect(hashes[path.join('sub', 'file3.md')]).toBeDefined();
 
-      // Each hash should be a valid SHA-256 hex
       for (const hash of Object.values(hashes)) {
         expect(hash).toMatch(/^[0-9a-f]{64}$/);
       }
     });
 
     it('computeDirectoryHashes_SkipsHiddenFiles_ReturnsOnlyVisible', () => {
-      // Create visible and hidden files
       fs.writeFileSync(path.join(tmpDir, 'visible.txt'), 'visible', 'utf-8');
       fs.writeFileSync(path.join(tmpDir, '.hidden'), 'hidden', 'utf-8');
       fs.mkdirSync(path.join(tmpDir, '.hidden-dir'));
@@ -106,7 +100,6 @@ describe('Content Hash Utilities (A4)', () => {
 
       const hashes = computeDirectoryHashes(tmpDir);
 
-      // Should only include the visible file
       expect(Object.keys(hashes)).toHaveLength(1);
       expect(hashes['visible.txt']).toBeDefined();
       expect(hashes['.hidden']).toBeUndefined();
@@ -143,13 +136,10 @@ describe('copyFile (B1)', () => {
 
     const result: CopyResult = copyFile(source, target);
 
-    // Target file should exist with same content
     expect(fs.existsSync(target)).toBe(true);
     expect(fs.readFileSync(target, 'utf-8')).toBe(content);
-    // Hash should match the source file hash
     expect(result.hash).toBe(computeFileHash(source));
     expect(result.hash).toMatch(/^[0-9a-f]{64}$/);
-    // Bytes written should match content length
     expect(result.bytesWritten).toBe(Buffer.byteLength(content, 'utf-8'));
   });
 
@@ -272,7 +262,6 @@ describe('copyDirectory (B2)', () => {
 
     expect(result.hashes['file1.txt']).toMatch(/^[0-9a-f]{64}$/);
     expect(result.hashes[path.join('sub', 'file2.txt')]).toMatch(/^[0-9a-f]{64}$/);
-    // Hashes should match the source files
     expect(result.hashes['file1.txt']).toBe(computeFileHash(path.join(srcDir, 'file1.txt')));
     expect(result.hashes[path.join('sub', 'file2.txt')]).toBe(
       computeFileHash(path.join(srcDir, 'sub', 'file2.txt')),
@@ -291,12 +280,12 @@ describe('smartCopy (B3)', () => {
     rmrf(tmpDir);
   });
 
+  /** A call with no existing hash reports the file as `created`. */
   it('smartCopy_NewFile_CopiesFile', () => {
     const source = path.join(tmpDir, 'source.txt');
     const target = path.join(tmpDir, 'target.txt');
     fs.writeFileSync(source, 'new file content', 'utf-8');
 
-    // No existing hash — file is new
     const result: SmartCopyResult = smartCopy(source, target);
 
     expect(result.action).toBe('created');
@@ -337,7 +326,6 @@ describe('smartCopy (B3)', () => {
     const target = path.join(tmpDir, 'target.txt');
     fs.writeFileSync(target, 'will be removed', 'utf-8');
     const existingHash = computeFileHash(target);
-    // Source does not exist — it was deleted
 
     const result = smartCopy(source, target, existingHash);
 
@@ -357,23 +345,25 @@ describe('smartCopyDirectory (B3)', () => {
     rmrf(tmpDir);
   });
 
+  /**
+   * The source holds one new file, one unchanged file and one changed file. The
+   * existing hashes also name `removed.txt`, which the source does not hold. The
+   * result hashes omit that file.
+   */
   it('smartCopyDirectory_MixedChanges_ReturnsUpdateSummary', () => {
     const srcDir = path.join(tmpDir, 'src');
     const tgtDir = path.join(tmpDir, 'tgt');
 
-    // Set up source with 3 files: new, unchanged, changed
     fs.mkdirSync(srcDir);
     fs.mkdirSync(tgtDir);
     fs.writeFileSync(path.join(srcDir, 'new.txt'), 'brand new', 'utf-8');
     fs.writeFileSync(path.join(srcDir, 'same.txt'), 'same content', 'utf-8');
     fs.writeFileSync(path.join(srcDir, 'changed.txt'), 'updated content', 'utf-8');
 
-    // Set up target with existing files
     fs.writeFileSync(path.join(tgtDir, 'same.txt'), 'same content', 'utf-8');
     fs.writeFileSync(path.join(tgtDir, 'changed.txt'), 'original content', 'utf-8');
     fs.writeFileSync(path.join(tgtDir, 'removed.txt'), 'to be removed', 'utf-8');
 
-    // Existing hashes reflect what was previously installed
     const existingHashes: Record<string, string> = {
       'same.txt': computeFileHash(path.join(tgtDir, 'same.txt')),
       'changed.txt': computeFileHash(path.join(tgtDir, 'changed.txt')),
@@ -386,12 +376,11 @@ describe('smartCopyDirectory (B3)', () => {
       existingHashes,
     );
 
-    expect(result.created).toBe(1);   // new.txt
-    expect(result.updated).toBe(1);   // changed.txt
-    expect(result.skipped).toBe(1);   // same.txt
-    expect(result.removed).toBe(1);   // removed.txt
+    expect(result.created).toBe(1);
+    expect(result.updated).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(result.removed).toBe(1);
 
-    // Hashes should include all current files (not removed ones)
     expect(Object.keys(result.hashes)).toHaveLength(3);
     expect(result.hashes['new.txt']).toMatch(/^[0-9a-f]{64}$/);
     expect(result.hashes['same.txt']).toMatch(/^[0-9a-f]{64}$/);

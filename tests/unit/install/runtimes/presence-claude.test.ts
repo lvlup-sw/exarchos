@@ -1,12 +1,7 @@
 /**
  * Presence test for `content/harness/runtimes/claude.yaml`.
- *
- * Claude Code is the reference runtime: it supports every capability we
- * care about (subagents via `Task`, slash commands, hooks, skill chaining
- * via `Skill`). Exarchos ships as a Claude Code plugin, so `mcpPrefix`
- * uses the plugin-scoped naming convention.
- *
- * Implements: DR-4, DR-5 (claude branch)
+ * Claude Code is the reference runtime: it has subagents (`Task`), slash commands, hooks and skill chaining (`Skill`).
+ * Exarchos ships as a Claude Code plugin, so `mcpPrefix` uses the plugin-scoped name.
  */
 
 import { describe, it, expect } from 'vitest';

@@ -51,8 +51,8 @@ describe('evaluateContentQuota (P03-08)', () => {
     if (!result.withinBudget) expect(result.detail).toContain('declared maxContentBytes');
   });
 
+  /** The content fits the declared ceiling, but it exceeds the smaller host budget. */
   it('Quota_ContentExceedsBudget_FailsClosed', () => {
-    // declared ceiling is generous but the host budget is the harder cap.
     const result = evaluateContentQuota(
       declared({ maxContentBytes: 100_000 }),
       BUDGET,

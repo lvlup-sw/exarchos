@@ -19,8 +19,6 @@ import {
 import type { WizardSelections } from '../../../../src/install/operations/config.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── A1: Type definition tests ───────────────────────────────────────────────
-
 /** A complete, valid manifest fixture used throughout the test suite. */
 function createValidManifest(): Manifest {
   return {
@@ -98,19 +96,16 @@ describe('Manifest Type Definitions (A1)', () => {
   it('loadManifest_ValidManifest_ReturnsTypedObject', () => {
     const manifest = createValidManifest();
 
-    // Verify top-level structure
     expect(manifest.version).toBe('1.0.0');
     expect(manifest.components).toBeDefined();
     expect(manifest.defaults).toBeDefined();
 
-    // Verify CoreComponent fields
     const core = manifest.components.core[0];
     expect(core.id).toBe('commands');
     expect(core.source).toBe('commands');
     expect(core.target).toBe('commands');
     expect(core.type).toBe('directory');
 
-    // Verify McpServerComponent fields
     const bundled = manifest.components.mcpServers[0];
     expect(bundled.id).toBe('exarchos');
     expect(bundled.name).toBe('Exarchos');
@@ -124,13 +119,11 @@ describe('Manifest Type Definitions (A1)', () => {
     expect(external.args).toEqual(['-y', '@anthropic/github-mcp']);
     expect(external.prerequisite).toBe('gh auth status');
 
-    // Verify PluginComponent fields
     const plugin = manifest.components.plugins[0];
     expect(plugin.id).toBe('serena');
     expect(plugin.required).toBe(false);
     expect(plugin.default).toBe(true);
 
-    // Verify RuleSetComponent fields
     const ruleSet = manifest.components.ruleSets[0];
     expect(ruleSet.id).toBe('coding-standards');
     expect(ruleSet.files).toEqual([
@@ -139,13 +132,10 @@ describe('Manifest Type Definitions (A1)', () => {
     ]);
     expect(ruleSet.default).toBe(true);
 
-    // Verify ManifestDefaults fields
     expect(manifest.defaults.model).toBe('claude-sonnet-4-20250514');
     expect(manifest.defaults.mode).toBe('standard');
   });
 });
-
-// ─── A2: Manifest Loader tests ──────────────────────────────────────────────
 
 describe('Manifest Loader (A2)', () => {
   let tmpDir: string;
@@ -158,7 +148,6 @@ describe('Manifest Loader (A2)', () => {
     rmrf(tmpDir);
   });
 
-  /** Helper: write a manifest JSON file and return its path. */
   function writeManifestFile(data: unknown, filename = 'manifest.json'): string {
     const filePath = path.join(tmpDir, filename);
     fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
@@ -195,7 +184,6 @@ describe('Manifest Loader (A2)', () => {
     });
 
     it('loadManifest_MissingRequiredField_ThrowsError', () => {
-      // Missing 'version' field
       const incomplete = {
         components: {
           core: [],
@@ -237,20 +225,18 @@ describe('Manifest Loader (A2)', () => {
   });
 
   describe('getDefaultSelections', () => {
+    /**
+     * The selection holds no MCP servers. Optional servers have no `default`
+     * flag, and required servers always install.
+     */
     it('getDefaultSelections_Manifest_ReturnsDefaults', () => {
       const manifest = createValidManifest();
 
       const selections = getDefaultSelections(manifest);
 
-      // 'serena' plugin has default: true; 'context7' has default: false
       expect(selections.plugins).toEqual(['serena']);
-      // 'coding-standards' ruleset has default: true; 'dotnet' has default: false
       expect(selections.ruleSets).toEqual(['coding-standards']);
-      // mcpServers with required: true should NOT be in selections
-      // (they're always installed); only optional servers with default behavior
-      // For now, no optional servers have a default flag, so empty
       expect(selections.mcpServers).toEqual([]);
-      // model from defaults
       expect(selections.model).toBe('claude-sonnet-4-20250514');
     });
   });
@@ -261,15 +247,11 @@ describe('Manifest Loader (A2)', () => {
 
       const required = getRequiredComponents(manifest);
 
-      // 'exarchos' server is required: true; 'github' is required: false
       expect(required.servers).toEqual(['exarchos']);
-      // No plugins have required: true in our fixture
       expect(required.plugins).toEqual([]);
     });
   });
 });
-
-// ─── E5: Real manifest.json tests ────────────────────────────────────────────
 
 describe('Real Manifest File (E5)', () => {
   const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -282,13 +264,14 @@ describe('Real Manifest File (E5)', () => {
     expect(() => JSON.parse(content)).not.toThrow();
   });
 
+  /**
+   * The assertion is exact. No production code reads `components.core`, so no
+   * other guard sees an entry that nothing installs. A new entry must change
+   * this test.
+   */
   it('manifest_ContainsAllCoreComponents', () => {
     const manifest = loadManifest(manifestPath);
     const coreIds = manifest.components.core.map((c) => c.id);
-    // Exact, not toContain: a `core` entry nothing reads is invisible to every
-    // other guard. `scripts` sat here for releases as pure dead config — no code
-    // reads components.core, so its `target` never materialized under ~/.claude.
-    // Adding an entry should require saying so here.
     expect(coreIds).toEqual(['commands', 'skills']);
   });
 

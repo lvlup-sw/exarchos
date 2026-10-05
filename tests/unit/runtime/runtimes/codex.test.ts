@@ -1,27 +1,15 @@
-// ─── codex.yaml supportedCapabilities contract tests (Task 7b) ─────────────
-//
-// Asserts that `content/harness/runtimes/codex.yaml` declares a `supportedCapabilities` map
-// that mirrors the `codexAdapter.supportLevels` three-state classification
-// from Task 4f. The YAML map is the user-facing surface that downstream
-// consumers (skill renderer, capability-matrix README generator, install
-// validation) read — it MUST stay in lockstep with the adapter that
-// actually emits agent definition files.
-//
-// Codex's classification (see docs/research/2026-04-25-delegation-platform-
-// agnosticity.md §3 and docs/designs/archive/2026-04-25-delegation-runtime-parity.md
-// §4):
-//
-//   native (5):
-//     - fs:read, fs:write, shell:exec, subagent:spawn, mcp:exarchos
-//   advisory (2):
-//     - isolation:worktree, session:resume
-//   unsupported (3, omitted from the YAML map):
-//     - subagent:completion-signal, subagent:start-signal, team:agent-teams
-//
-// The YAML map only enumerates `native` and `advisory` capabilities;
-// `unsupported` capabilities are deliberately absent so consumers can
-// detect them by absence instead of by an explicit "unsupported" sentinel.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests that the `supportedCapabilities` map in `content/harness/runtimes/codex.yaml` agrees with
+ * `codexAdapter.supportLevels`. The skills renderer reads the YAML map, and the adapter emits the agent
+ * definition files, so the two must agree.
+ *
+ * The Codex levels:
+ * - native: `fs:read`, `fs:write`, `shell:exec`, `subagent:spawn`, `mcp:exarchos`, `mcp:exarchos:readonly`
+ * - advisory: `isolation:worktree`, `session:resume`
+ * - unsupported: `subagent:completion-signal`, `subagent:start-signal`, `team:agent-teams`
+ *
+ * The YAML map omits each `unsupported` capability, so a consumer detects it by its absence.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -34,7 +22,7 @@ import { Capability } from '../../../../src/runtime/agents/capabilities.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// src/runtime/runtimes → repo root is four parents up.
+/** The repository root is four directories above this file. */
 const REPO_ROOT = resolve(__dirname, '../../../..');
 const CODEX_YAML_PATH = resolve(REPO_ROOT, 'content/harness/runtimes', 'codex.yaml');
 
@@ -54,13 +42,16 @@ function loadCodexYaml(): CodexYamlShape {
 }
 
 describe('content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)', () => {
+  /**
+   * Codex has a first-class primitive for each native capability and none for an advisory capability.
+   * The map must hold exactly these eight keys.
+   */
   it('CodexYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const yaml = loadCodexYaml();
 
     expect(yaml.supportedCapabilities).toBeDefined();
     const map = yaml.supportedCapabilities ?? {};
 
-    // Native (6): the runtime has a first-class primitive for each.
     expect(map['fs:read']).toBe('native');
     expect(map['fs:write']).toBe('native');
     expect(map['shell:exec']).toBe('native');
@@ -68,12 +59,9 @@ describe('content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)', 
     expect(map['mcp:exarchos']).toBe('native');
     expect(map['mcp:exarchos:readonly']).toBe('native');
 
-    // Advisory (2): the spec may declare these but Codex has no primitive
-    // to enforce them — orchestrator-managed.
     expect(map['isolation:worktree']).toBe('advisory');
     expect(map['session:resume']).toBe('advisory');
 
-    // Exactly 8 keys total (6 native + 2 advisory).
     expect(Object.keys(map)).toHaveLength(8);
   });
 
@@ -81,19 +69,19 @@ describe('content/harness/runtimes/codex.yaml supportedCapabilities (Task 7b)', 
     const yaml = loadCodexYaml();
     const map = yaml.supportedCapabilities ?? {};
 
-    // Unsupported capabilities are omitted — consumers detect by absence.
     expect(map['subagent:completion-signal']).toBeUndefined();
     expect(map['subagent:start-signal']).toBeUndefined();
     expect(map['team:agent-teams']).toBeUndefined();
   });
 
+  /**
+   * For each capability in the vocabulary, the YAML level must equal the adapter level.
+   * For an `unsupported` adapter level, the YAML must omit the key.
+   */
   it('CodexYaml_AdapterAlignment_MatchesSupportLevels', () => {
     const yaml = loadCodexYaml();
     const map = yaml.supportedCapabilities ?? {};
 
-    // For every capability in the canonical vocabulary, the YAML and the
-    // adapter must agree. `unsupported` collapses to "not present in the
-    // YAML map" — that is the contract.
     for (const cap of Capability.options) {
       const adapterLevel = codexAdapter.supportLevels[cap];
       const yamlLevel = map[cap];

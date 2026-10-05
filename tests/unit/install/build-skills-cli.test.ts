@@ -1,9 +1,6 @@
 /**
- * CLI-level tests for `build-skills`. Isolated from the renderer unit
- * tests in `build-skills.test.ts` so CLI concerns (argv parsing, exit
- * codes, stdout/stderr plumbing) stay separate from the library surface.
- *
- * Implements: DR-2 (npm script integration).
+ * Tests for the `build-skills` command-line entry point: default paths, exit codes, and the
+ * stdout and stderr output. The renderer tests are in `build-skills.test.ts`.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -19,20 +16,21 @@ function makeTempDir(): string {
   tempDirs.push(dir);
   return dir;
 }
+/** Remove each temp directory. A removal error does not fail the test. */
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
       rmrf(d);
     } catch {
-      /* best-effort */
     }
   }
 });
 
 /**
- * Write a minimal valid runtime map YAML. All six required runtimes must
- * be laid down before `loadAllRuntimes` will accept the directory.
+ * Write a minimal valid runtime map YAML for each of the six required runtimes, because
+ * `loadAllRuntimes` rejects a directory that lacks one. Each file declares every
+ * `RuntimeTokenKey` placeholder, because `assertRuntimeTokenCoverage` rejects a missing token.
  */
 function writeRuntimeFixtures(runtimesDir: string): void {
   mkdirSync(runtimesDir, { recursive: true });
@@ -53,10 +51,6 @@ function writeRuntimeFixtures(runtimesDir: string): void {
         `  binaries: []`,
         `  envVars: []`,
         `placeholders:`,
-        // Wave A: every runtime YAML must declare every RuntimeTokenKey
-        // entry, so the CLI fixture needs the full canonical set or
-        // `assertRuntimeTokenCoverage` rejects the build before main()
-        // can produce any summary output.
         `  AGENT_LABEL: "agent"`,
         `  MCP_PREFIX: "mcp__${name}__"`,
         `  COMMAND_PREFIX: "/"`,
@@ -71,13 +65,13 @@ function writeRuntimeFixtures(runtimesDir: string): void {
   }
 }
 
-/** Build a standard happy-path fixture tree rooted at `root`. */
+/**
+ * Build a valid fixture tree at `root`. The `{{TASK_TOOL}}` token makes `foo` an orchestration
+ * skill, so it renders one time for each of the six runtimes. A procedural skill renders
+ * only to the `standard` tree.
+ */
 function writeHappyFixture(root: string): void {
   mkdirSync(join(root, 'content', 'foo'), { recursive: true });
-  // {{TASK_TOOL}} classifies `foo` as an orchestration skill (DR-2) so it
-  // renders once per runtime (6 variants) under `skills/<runtime>/foo/`. The
-  // CLI tests below assert the per-runtime path and the 6-variant count; a
-  // procedural skill would collapse to a single `skills/standard/foo/` render.
   writeFileSync(
     join(root, 'content', 'foo', 'SKILL.md'),
     'Hello {{AGENT_LABEL}} {{TASK_TOOL}}',
@@ -85,10 +79,7 @@ function writeHappyFixture(root: string): void {
   writeRuntimeFixtures(join(root, 'content/harness/runtimes'));
 }
 
-/**
- * Invoke `main()` with in-memory stubs for `cwd`, `exit`, `log`, `errLog`.
- * `exit` is captured rather than allowed to terminate the test process.
- */
+/** The stub dependencies of `main()` and the output that they capture. */
 interface CapturedDeps {
   cwd: () => string;
   exit: (code: number) => never;
@@ -98,6 +89,10 @@ interface CapturedDeps {
   stderr: string[];
   exitCode: number | null;
 }
+/**
+ * Build the stubs. `exit` records the code and throws a sentinel error. Thus `main()` stops
+ * and the test process continues.
+ */
 function makeDeps(cwdValue: string): CapturedDeps {
   const stdout: string[] = [];
   const stderr: string[] = [];
@@ -105,9 +100,6 @@ function makeDeps(cwdValue: string): CapturedDeps {
     cwd: () => cwdValue,
     exit: ((code: number) => {
       captured.exitCode = code;
-      // Throwing here prevents fall-through after exit is called but
-      // allows the test to capture the exit code. The caller catches
-      // this sentinel error.
       throw new Error(`__exit_${code}__`);
     }) as (code: number) => never,
     log: (msg: string) => {
@@ -123,10 +115,7 @@ function makeDeps(cwdValue: string): CapturedDeps {
   return captured;
 }
 
-/**
- * Run `main()` and swallow the sentinel exit error so tests can inspect
- * `deps.exitCode` / `deps.stdout` / `deps.stderr` after the fact.
- */
+/** Run `main()` and catch only the sentinel exit error. Each other error fails the test. */
 async function runMain(argv: string[], deps: CapturedDeps): Promise<void> {
   try {
     await main(argv, {
@@ -136,8 +125,6 @@ async function runMain(argv: string[], deps: CapturedDeps): Promise<void> {
       errLog: deps.errLog,
     });
   } catch (err) {
-    // Swallow only the synthetic exit sentinel — anything else is a real
-    // test failure and should propagate.
     if (!(err instanceof Error && err.message.startsWith('__exit_'))) {
       throw err;
     }
@@ -145,6 +132,7 @@ async function runMain(argv: string[], deps: CapturedDeps): Promise<void> {
 }
 
 describe('build-skills CLI — task 008', () => {
+  /** `main()` writes under `rendered/skills` in the working directory. It does not call `exit` on success. */
   it('BuildSkillsCli_NoArgs_UsesDefaultPaths', async () => {
     const root = makeTempDir();
     writeHappyFixture(root);
@@ -152,17 +140,15 @@ describe('build-skills CLI — task 008', () => {
 
     await runMain([], deps);
 
-    // Default paths: srcDir='content', outDir='skills', runtimesDir='runtimes'.
     expect(existsSync(join(root, 'rendered', 'skills', 'claude', 'foo', 'SKILL.md'))).toBe(true);
-    expect(deps.exitCode).toBeNull(); // success does not call exit
+    expect(deps.exitCode).toBeNull();
   });
 
+  /** The tree has no `content/harness/runtimes` directory, so the runtime load throws and `main()` exits with code 1. */
   it('BuildSkillsCli_OnError_ExitsNonZeroWithMessage', async () => {
-    // Missing runtimes directory → loadAllRuntimes throws → CLI exits 1.
     const root = makeTempDir();
     mkdirSync(join(root, 'content', 'foo'), { recursive: true });
     writeFileSync(join(root, 'content', 'foo', 'SKILL.md'), 'Hello {{AGENT_LABEL}}');
-    // No `content/harness/runtimes/` dir at all.
     const deps = makeDeps(root);
 
     await runMain([], deps);
@@ -181,6 +167,7 @@ describe('build-skills CLI — task 008', () => {
     expect(deps.stdout.join('\n')).toMatch(/build:skills/);
   });
 
+  /** One orchestration skill and six runtimes give 6 variants. */
   it('BuildSkillsCli_ReportContainsVariantCount', async () => {
     const root = makeTempDir();
     writeHappyFixture(root);
@@ -188,8 +175,6 @@ describe('build-skills CLI — task 008', () => {
 
     await runMain([], deps);
 
-    // One skill × six runtimes = 6 variants. The summary must mention
-    // the count sourced from BuildReport.variantsWritten.
     const combined = deps.stdout.join('\n');
     expect(combined).toMatch(/6.*variants?/);
   });

@@ -1,14 +1,8 @@
 /**
  * Presence test for `content/harness/runtimes/codex.yaml`.
- *
- * Codex CLI exposes a first-class multi-agent surface via the `spawn_agent`
- * / `close_agent` / `wait_agent` / `send_input` / `resume_agent` tool
- * family (see `codex-rs/core/src/tools/handlers/multi_agents.rs` and
- * `codex-rs/tools/src/agent_tool.rs` in openai/codex). This runtime map
- * therefore advertises `hasSubagents: true` and routes delegation through
- * `spawn_agent`.
- *
- * Implements: DR-4, DR-5 (codex branch), OQ-1
+ * Codex CLI has a multi-agent tool family: `spawn_agent`, `wait_agent`, `close_agent`, `send_input` and `resume_agent`.
+ * The tool name in `codex-rs/tools/src/agent_tool.rs` of openai/codex is the literal string `spawn_agent`.
+ * Thus the runtime map declares `hasSubagents: true` and delegates through `spawn_agent`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -32,8 +26,6 @@ describe('content/harness/runtimes/codex.yaml presence', () => {
 
   it('CodexYaml_SpawnAgentCall_UsesMultiAgentPrimitive', () => {
     const runtime = loadRuntime(CODEX_YAML);
-    // Recon (openai/codex @ main, codex-rs/tools/src/agent_tool.rs) confirmed
-    // the function-call tool name is the literal string "spawn_agent".
     expect(runtime.placeholders.SPAWN_AGENT_CALL).toContain('spawn_agent');
   });
 

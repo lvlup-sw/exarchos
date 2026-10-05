@@ -76,14 +76,12 @@ describe('createSymlink (B4)', () => {
     expect(fs.lstatSync(target).isSymbolicLink()).toBe(true);
     expect(fs.readlinkSync(target)).toBe(source);
 
-    // Verify backup directory exists
     const entries = fs.readdirSync(tmpDir);
     const backupEntry = entries.find(
       (e) => e.startsWith('existing-dir.backup.'),
     );
     expect(backupEntry).toBeDefined();
 
-    // Verify backup contents preserved
     const backupPath = path.join(tmpDir, backupEntry!);
     expect(
       fs.readFileSync(path.join(backupPath, 'file.txt'), 'utf-8'),
@@ -121,7 +119,6 @@ describe('removeSymlink (B4)', () => {
     const result = removeSymlink(target);
 
     expect(result).toBe('skipped');
-    // Directory should still exist
     expect(fs.existsSync(target)).toBe(true);
   });
 
@@ -170,7 +167,6 @@ describe('validateSymlinks (B5)', () => {
   it('validateSymlinks_BrokenLink_ReturnsBroken', () => {
     const src = path.join(tmpDir, 'deleted-source');
     const tgt = path.join(tmpDir, 'link');
-    // Create link then remove source
     fs.mkdirSync(src);
     fs.symlinkSync(src, tgt);
     rmrf(src);
@@ -187,7 +183,6 @@ describe('validateSymlinks (B5)', () => {
     const src = path.join(tmpDir, 'source');
     const tgt = path.join(tmpDir, 'missing-link');
     fs.mkdirSync(src);
-    // Link does not exist at all
 
     const report = validateSymlinks({ [tgt]: src });
 
@@ -197,6 +192,10 @@ describe('validateSymlinks (B5)', () => {
     expect(report.missing).toContain(tgt);
   });
 
+  /**
+   * The fixture holds one link of each class. The healthy link has its source. The
+   * broken link has no source. The missing link does not exist.
+   */
   it('validateSymlinks_MixedState_ReturnsDetailedReport', () => {
     const healthySrc = path.join(tmpDir, 'healthy-src');
     const healthyTgt = path.join(tmpDir, 'healthy-link');
@@ -205,16 +204,13 @@ describe('validateSymlinks (B5)', () => {
     const missingSrc = path.join(tmpDir, 'missing-src');
     const missingTgt = path.join(tmpDir, 'missing-link');
 
-    // Healthy: source exists, link correct
     fs.mkdirSync(healthySrc);
     fs.symlinkSync(healthySrc, healthyTgt);
 
-    // Broken: link exists but source was removed
     fs.mkdirSync(brokenSrc);
     fs.symlinkSync(brokenSrc, brokenTgt);
     rmrf(brokenSrc);
 
-    // Missing: source exists but link does not
     fs.mkdirSync(missingSrc);
 
     const report = validateSymlinks({

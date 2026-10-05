@@ -1,18 +1,9 @@
-// ─── Production launcher wiring — composed deps behavior (DR-6) ───────────────
-//
-// HIGH-tier suite for the seam that turns the DI-only lifecycle into a LIVE one.
-// It proves the composed `RunLifecycleDeps` actually carry the fail-closed
-// teardown + real signal handlers a real launch needs — the gap that let every
-// non-dry-run launch fall through to `NOT_WIRED`:
-//
-//   - R-2: the wired `installSignals` seam installs the REAL signal handlers —
-//     a trapped SIGTERM is forwarded to the child, teardown + the guaranteed
-//     terminal run, and the returned uninstaller detaches the trap.
-//   - R-3: the wired `teardown` RELEASES the worktree reservation on a trusted
-//     (local-only) target, and FAIL-CLOSES (no release) on a non-git target —
-//     while always emitting the guaranteed terminal, and NEVER `reset --hard`.
-//   - R-4: `recoverBeforeLaunch` invokes the crash-recovery pass and swallows a
-//     recovery failure so it can never block a launch.
+/**
+ * Tests for the production launcher wiring, `makeLauncherLifecycleDeps` and `recoverBeforeLaunch`.
+ *
+ * The composed `RunLifecycleDeps` must carry the fail-closed teardown and the real signal handlers.
+ * Each test uses a real `EventStore` and injects the git, process-table and signal seams.
+ */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -38,9 +29,7 @@ import {
   recoverBeforeLaunch,
 } from '../../../../src/runtime/launcher/production-deps.js';
 
-// ── Fakes ─────────────────────────────────────────────────────────────────────
-
-/** A GitRunner whose per-arg-prefix statuses are scripted; unknown → status 0. */
+/** A `GitRunner` that returns the scripted status of the first key that is a prefix of the joined args. An unknown command gets status 0. */
 function makeGitRunner(script: Record<string, number>): GitRunner {
   return {
     run(args) {
@@ -53,13 +42,13 @@ function makeGitRunner(script: Record<string, number>): GitRunner {
   };
 }
 
-/** A process table that provably has NO occupants (so the in-use probe never holds). */
+/** A supported process table with no process, so the in-use probe finds no occupant. */
 const EMPTY_TABLE: ProcessTableSource = {
   list: () => [],
   isSupported: () => true,
 };
 
-/** A minimal in-memory SignalRegistrar (captured listeners, driven by `fire`). */
+/** A `SignalRegistrar` that holds listeners in memory. `fire` calls each listener of a signal. */
 function makeFakeRegistrar(): {
   registrar: SignalRegistrar;
   fire(signal: TrappedSignal): Promise<void>;
@@ -84,8 +73,6 @@ function makeFakeRegistrar(): {
 
 const HOLDER_PID = 987654;
 const HOLDER_STARTED_AT = 'prod-deps-holder-fingerprint';
-
-// ── Suite ───────────────────────────────────────────────────────────────────
 
 describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring (DR-6)', () => {
   let stateDir: string;
@@ -129,7 +116,10 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
     return list.find((w) => w.worktreeId === worktreeId)?.state;
   }
 
-  // ── R-3: the wired teardown RELEASES the reservation on a trusted target ─────
+  /**
+   * The scripted git has no `origin`, so the target is local-only and trusted.
+   * The wired teardown releases the reservation of the same owner and writes one terminal.
+   */
   it('ProdDeps_Teardown_ReleasesReservation', async () => {
     const worktreeId = '/wt/exarchos-claude-code';
     const worktreePath = '/wt/exarchos-claude-code';
@@ -139,7 +129,6 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
     const deps = makeLauncherLifecycleDeps(ctx, {
       holderPid: HOLDER_PID,
       holderStartedAt: HOLDER_STARTED_AT,
-      // A real git worktree with NO origin configured → local-only → trustworthy.
       gitRunner: makeGitRunner({ 'rev-parse': 0, 'remote get-url origin': 1 }),
       processTableSource: EMPTY_TABLE,
       realpath: (p) => p,
@@ -153,13 +142,11 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
       emitExecuted: emitLaunchExecuted,
     });
 
-    // The reservation was cleanly relinquished (same-owner) and the guaranteed
-    // terminal landed exactly once.
     expect(await stateOf(worktreeId)).toBe('released');
     expect(terminals()).toHaveLength(1);
   });
 
-  // ── R-3: the wired teardown FAIL-CLOSES on a non-git target ──────────────────
+  /** When `git rev-parse` fails, the wired teardown keeps the reservation and still writes one terminal. */
   it('ProdDeps_Teardown_FailClosed_NonGitTarget_NoRelease', async () => {
     const worktreeId = '/wt/exarchos-codex';
     const worktreePath = '/wt/exarchos-codex';
@@ -168,7 +155,6 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
     const deps = makeLauncherLifecycleDeps(ctx, {
       holderPid: HOLDER_PID,
       holderStartedAt: HOLDER_STARTED_AT,
-      // `rev-parse --is-inside-work-tree` fails → non-git target → fail closed.
       gitRunner: makeGitRunner({ 'rev-parse': 128 }),
       processTableSource: EMPTY_TABLE,
       realpath: (p) => p,
@@ -182,13 +168,15 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
       emitExecuted: emitLaunchExecuted,
     });
 
-    // Fail-closed: the reservation is HELD (never released against an untrusted
-    // target), yet the guaranteed terminal still landed.
     expect(await stateOf(worktreeId)).toBe('reserved');
     expect(terminals()).toHaveLength(1);
   });
 
-  // ── R-2: the wired installSignals installs the REAL handlers ─────────────────
+  /**
+   * The wired `installSignals` registers a `SIGTERM` listener on the injected registrar.
+   * On the signal, it forwards to the child, runs teardown and emits the terminal.
+   * The uninstaller removes the listener.
+   */
   it('ProdDeps_InstallSignals_ForwardsAndTearsDown', async () => {
     const registrar = makeFakeRegistrar();
     const deps = makeLauncherLifecycleDeps(ctx, {
@@ -225,20 +213,18 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
 
     await registrar.fire('SIGTERM');
 
-    // The real installer forwarded the signal to the child, ran teardown, and
-    // fired the guaranteed terminal.
     expect(killCalls).toEqual(['SIGTERM']);
     expect(log).toContain('teardown:SIGTERM');
     expect(terminalCount).toBe(1);
 
-    // The uninstaller detaches the trap so nothing outlives the launch.
     uninstall();
     expect(registrar.listenerCount('SIGTERM')).toBe(0);
   });
 
-  // ── DR-6 review polish: a signal-path failure is LOGGED, not swallowed ───────
-  // Guards against a future refactor silently reverting to `signals.ts`'s `noop`
-  // onError default — the exact silent-swallow class this fix closes.
+  /**
+   * A teardown that throws on the signal path reaches `launcherLogger.error` with the error, the signal and the holder PID.
+   * The default `onError` of `installSignalHandlers` is a no-op, so this test fails when the wiring passes no `onError`.
+   */
   it('ProdDeps_InstallSignals_OnError_LogsSignalPathFailure', async () => {
     const registrar = makeFakeRegistrar();
     const deps = makeLauncherLifecycleDeps(ctx, {
@@ -269,8 +255,6 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
     deps.installSignals!(sigCtx);
     await registrar.fire('SIGTERM');
 
-    // The wired `onError` funnels the failure to the launcher logger with
-    // structured context (err/signal/holderPid) instead of vanishing.
     expect(errorSpy).toHaveBeenCalledWith(
       expect.objectContaining({ err: teardownError, signal: 'SIGTERM', holderPid: HOLDER_PID }),
       'signal-path teardown/terminal failed',
@@ -279,7 +263,7 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
     errorSpy.mockRestore();
   });
 
-  // ── R-4: recoverBeforeLaunch invokes the recovery pass ───────────────────────
+  /** `recoverBeforeLaunch` calls the injected recovery pass with the event store and the repo root. */
   it('RecoverBeforeLaunch_InvokesRecovery', async () => {
     let calledWith: { repoRoot: string } | undefined;
     await recoverBeforeLaunch(ctx, '/repo/root', {
@@ -292,7 +276,7 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
     expect(calledWith).toEqual({ repoRoot: '/repo/root' });
   });
 
-  // ── R-4: a recovery failure NEVER blocks a launch ────────────────────────────
+  /** A recovery pass that throws does not make `recoverBeforeLaunch` reject. */
   it('RecoverBeforeLaunch_SwallowsFailure', async () => {
     await expect(
       recoverBeforeLaunch(ctx, '/repo/root', {

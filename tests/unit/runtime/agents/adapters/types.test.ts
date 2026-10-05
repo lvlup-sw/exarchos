@@ -1,10 +1,7 @@
-// ─── RuntimeAdapter type contract tests ────────────────────────────────────
-//
-// Mix of runtime assertions (RUNTIMES enumeration) and compile-time
-// assertions (`satisfies` and `@ts-expect-error`). If this file
-// type-checks AND the runtime tests pass, the contract holds.
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §4.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Type contract tests for `RuntimeAdapter`. The `RUNTIMES` enumeration and the stub values get runtime assertions.
+ * The `satisfies` and `@ts-expect-error` assertions are compile-time checks, so they hold only when a typecheck includes this file.
+ */
 
 import { describe, it, expect } from 'vitest';
 import type { AgentSpec } from '../../../../../src/runtime/agents/types.js';
@@ -26,8 +23,8 @@ describe('RuntimeAdapter type contract', () => {
     expect(stub.validateSupport({} as AgentSpec)).toEqual({ ok: true });
   });
 
+  /** The typed constants and the `@ts-expect-error` lines are compile-time checks. The `RUNTIMES` assertions are runtime checks. */
   it('Runtime_EnumLiterals_FiveTier1Names', () => {
-    // Compile-time: each tier-1 runtime is assignable to `Runtime`.
     const claude: Runtime = 'claude';
     const codex: Runtime = 'codex';
     const opencode: Runtime = 'opencode';
@@ -39,7 +36,6 @@ describe('RuntimeAdapter type contract', () => {
     // @ts-expect-error — arbitrary strings are rejected
     const bogus: Runtime = 'something-else';
 
-    // Runtime: the canonical enumeration is exposed as a frozen tuple.
     expect(RUNTIMES).toEqual(['claude', 'codex', 'opencode', 'cursor', 'copilot']);
     expect(RUNTIMES).toHaveLength(5);
     expect([claude, codex, opencode, cursor, copilot]).toEqual([...RUNTIMES]);

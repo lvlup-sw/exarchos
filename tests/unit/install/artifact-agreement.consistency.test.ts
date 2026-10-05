@@ -1,16 +1,12 @@
 /**
- * Cross-consistency: the digest primitives in `artifact-agreement.ts` are a
- * hand-copied mirror of two MCP-package modules (they can't be imported in
- * production because the root package's `rootDir` is `./src`). This test imports
- * both upstreams and asserts byte-identical digests so the mirror cannot drift:
- *
- *   - {@link digestText}  ≡  P03-01 authority-digest `digestText`
- *   - {@link digestTree}  ≡  P05-04 install-identity `digestTree`
+ * `artifact-agreement.ts` holds copies of two digests: `digestText` in
+ * `src/contract/authority-digest.ts` and `digestTree` in `src/install/install-identity.ts`.
+ * These tests assert that each copy gives the same digest as its source.
  */
 import { describe, it, expect, beforeAll } from 'vitest';
 import { digestText, digestTree } from '../../../src/install/artifact-agreement.js';
 
-// Minimal typed surfaces so no `any` leaks in from the dynamic imports.
+/** The part of the dynamically imported `authority-digest` module that these tests use. */
 type TextDigester = { digestText: (t: string) => string };
 type TreeDigester = {
   digestTree: (e: ReadonlyArray<{ path: string; content: string }>) => string;
@@ -45,6 +41,10 @@ describe('digestText mirrors P03-01 authority-digest', () => {
   }
 });
 
+/**
+ * Tree 3 holds two entries that give the same bytes when no delimiter divides path and content.
+ * Tree 4 starts with a BOM.
+ */
 describe('digestTree mirrors P05-04 install-identity', () => {
   const trees: ReadonlyArray<ReadonlyArray<{ path: string; content: string }>> = [
     [],
@@ -53,12 +53,10 @@ describe('digestTree mirrors P05-04 install-identity', () => {
       { path: 'b/two.md', content: 'y\r\n' },
       { path: 'a/one.md', content: 'x\n' },
     ],
-    // ambiguity guard: {a,b} vs {ab,''} must not collide (NUL delimiter).
     [
       { path: 'a', content: 'b' },
       { path: 'ab', content: '' },
     ],
-    // BOM stripping
     [{ path: 'bom.md', content: '\uFEFFhello' }],
   ];
   for (const [i, tree] of trees.entries()) {

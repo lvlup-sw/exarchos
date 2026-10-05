@@ -1,17 +1,8 @@
 /**
  * Presence test for `content/harness/runtimes/cursor.yaml`.
- *
- * Cursor 2.5 (early 2026) shipped native sub-agents: Markdown with YAML
- * frontmatter at `.cursor/agents/<name>.md`, invoked via the `Task` tool.
- * Exarchos targets that primitive directly — `cursor.yaml` declares
- * `hasSubagents: true` and renders `SPAWN_AGENT_CALL` as a native
- * Cursor `Task({ ... })` invocation, mirroring Claude's shape.
- *
- * `supportedCapabilities` mirrors `CursorAdapter.supportLevels` from
- * `src/runtime/agents/adapters/cursor.ts` so the YAML and
- * adapter can never drift on the capability classification.
- *
- * Implements: DR-4, DR-5 (cursor), DR-6, OQ-4
+ * Cursor 2.5 has native sub-agents: Markdown files with YAML frontmatter at `.cursor/agents/<name>.md`, called through `Task`.
+ * Thus `cursor.yaml` declares `hasSubagents: true`, and `SPAWN_AGENT_CALL` is a `Task({ ... })` call as for Claude.
+ * `supportedCapabilities` must agree with `CursorAdapter.supportLevels` in `src/runtime/agents/adapters/cursor.ts`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -27,10 +18,7 @@ const __dirname = dirname(__filename);
 const RUNTIMES_DIR = resolve(__dirname, '../../../../content/harness/runtimes');
 const CURSOR_YAML = resolve(RUNTIMES_DIR, 'cursor.yaml');
 
-/**
- * Read `cursor.yaml` as a raw object so tests can assert on fields that
- * may not yet be modeled in `RuntimeMapSchema` (e.g. `supportedCapabilities`).
- */
+/** Reads `cursor.yaml` as a raw object, without `RuntimeMapSchema` validation. */
 function loadCursorYamlRaw(): Record<string, unknown> {
   const raw = readFileSync(CURSOR_YAML, 'utf8');
   const parsed = yamlLoad(raw);
@@ -43,30 +31,26 @@ function loadCursorYamlRaw(): Record<string, unknown> {
 describe('content/harness/runtimes/cursor.yaml presence', () => {
   it('CursorYaml_HasSubagents_True', () => {
     const runtime = loadRuntime(CURSOR_YAML);
-    // Cursor 2.5+ ships native sub-agents — the stale `false` claim must be gone.
     expect(runtime.capabilities.hasSubagents).toBe(true);
   });
 
+  /** The spawn call is a `Task(` call, and it holds no phrase of the prose fallback for sequential work. */
   it('CursorYaml_SpawnAgentCall_UsesNativeTaskTool', () => {
     const runtime = loadRuntime(CURSOR_YAML);
     const spawn = runtime.placeholders.SPAWN_AGENT_CALL;
 
-    // Native Cursor 2.5 Task-tool invocation, not the prose fallback.
     expect(spawn).toMatch(/Task\(\s*\{|Task\(/);
 
-    // The prose-degradation marker phrases must be GONE.
     expect(spawn).not.toContain('no in-session subagent primitive');
     expect(spawn).not.toContain('sequentially');
     expect(spawn).not.toContain('sequential execution');
   });
 
+  /** The Cursor adapter writes `.cursor/agents/<id>.md`. The spawn template takes that id through the `{{agent}}` placeholder. */
   it('CursorYaml_SpawnAgentCall_ReferencesGeneratedAgentName', async () => {
     const runtime = loadRuntime(CURSOR_YAML);
     const spawn = runtime.placeholders.SPAWN_AGENT_CALL;
 
-    // The Cursor adapter (Task 4d) writes `.cursor/agents/<id>.md` with
-    // frontmatter `name: <id>`. The spawn template must accept that
-    // generated name via the `{{agent}}` placeholder rendered at dispatch.
     expect(spawn).toContain('{{agent}}');
 
     const { CursorAdapter } = await import(
@@ -78,11 +62,10 @@ describe('content/harness/runtimes/cursor.yaml presence', () => {
     const agentName = match![1];
     expect(agentName).toBe('implementer');
 
-    // Renderer substitution: `{{agent}}` → adapter-generated name yields
-    // a call that references the literal agent name.
     expect(spawn.replaceAll('{{agent}}', agentName)).toContain(agentName);
   });
 
+  /** The YAML omits an unsupported capability, so no entry has the value `unsupported`. */
   it('CursorYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const raw = loadCursorYamlRaw();
     const sc = raw.supportedCapabilities;
@@ -96,8 +79,6 @@ describe('content/harness/runtimes/cursor.yaml presence', () => {
     const advisory = Object.entries(map).filter(([, v]) => v === 'advisory');
     const unsupported = Object.entries(map).filter(([, v]) => v === 'unsupported');
 
-    // Per discovery §3 + Task 4f + #1192 T09 readonly tier:
-    // 6 native + 2 advisory + 0 unsupported (omitted).
     expect(native).toHaveLength(6);
     expect(advisory).toHaveLength(2);
     expect(unsupported).toHaveLength(0);
@@ -118,6 +99,10 @@ describe('content/harness/runtimes/cursor.yaml presence', () => {
     expect(advisoryKeys).toEqual(['isolation:worktree', 'session:resume'].sort());
   });
 
+  /**
+   * The check runs in both directions. Each YAML entry agrees with the adapter.
+   * Each native or advisory capability of the adapter is in the YAML, and each unsupported one is absent.
+   */
   it('CursorYaml_AdapterAlignment_MatchesSupportLevels', async () => {
     const raw = loadCursorYamlRaw();
     const yamlMap = raw.supportedCapabilities as Record<string, string>;
@@ -127,13 +112,10 @@ describe('content/harness/runtimes/cursor.yaml presence', () => {
     );
     const adapterLevels = CursorAdapter.supportLevels;
 
-    // Every entry in the YAML must match the adapter's classification.
     for (const [cap, level] of Object.entries(yamlMap)) {
       expect(adapterLevels[cap as keyof typeof adapterLevels]).toBe(level);
     }
 
-    // Every native/advisory adapter capability must be present in the YAML;
-    // unsupported capabilities are intentionally omitted.
     for (const [cap, level] of Object.entries(adapterLevels)) {
       if (level === 'unsupported') {
         expect(yamlMap[cap]).toBeUndefined();

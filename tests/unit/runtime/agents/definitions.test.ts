@@ -1,17 +1,9 @@
-// ─── Capability-Declared Agent Spec Tests ──────────────────────────────────
+// Agent specs declare a `posture`, not Claude-shaped `tools`. Runtime tool names
+// belong in the adapters.
 //
-// Verifies that agent specs declare runtime-agnostic capabilities instead
-// of Claude-shaped `tools`. Runtime tool naming belongs in adapters, not in
-// the domain registry.
-//
-// Post-#1333: capabilities are derived from `posture` + `id` via the
-// resolver in `capabilities/posture-mapping.ts`. The runtime interface
-// no longer carries a `capabilities[]` field; tests assert against the
-// resolved set instead.
-//
-// See docs/designs/archive/2026-04-25-delegation-runtime-parity.md §3 and
-// docs/designs/archive/2026-05-09-v2-10-0-preview-1-substrate-stabilization.md.
-// ────────────────────────────────────────────────────────────────────────────
+// `resolveCapabilities` derives the capability set from `posture` and `id`. An
+// `AgentSpec` holds no `capabilities` field, so the tests assert against the
+// resolved set.
 
 import { describe, it, expect } from 'vitest';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from '../../../../src/runtime/agents/definitions.js';
@@ -20,13 +12,11 @@ import { resolveCapabilities } from '../../../../src/workflow/capabilities/postu
 
 describe('AgentSpec capability declarations', () => {
   it('AgentSpec_DeclaresCapabilities_NotClaudeTools', () => {
-    // IMPLEMENTER must derive capability vocabulary, not Claude tool names.
     const caps = resolveCapabilities(IMPLEMENTER.posture, IMPLEMENTER.id);
     for (const cap of ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'isolation:worktree'] as const) {
       expect(caps.has(cap)).toBe(true);
     }
 
-    // No top-level Claude-shaped `tools` field on the domain spec.
     expect((IMPLEMENTER as unknown as Record<string, unknown>).tools).toBeUndefined();
   });
 
@@ -44,36 +34,32 @@ describe('AgentSpec capability declarations', () => {
     }
   });
 
+  /** The `mcp:exarchos:readonly` capability tier enforces the trust boundary of the reviewer. */
   it('AgentSpec_ReviewerCapabilities_ReadOnly', () => {
     const caps = resolveCapabilities(REVIEWER.posture, REVIEWER.id);
     expect(caps.has('fs:read')).toBe(true);
     expect(caps.has('mcp:exarchos:readonly')).toBe(true);
-    // Reviewer is read-only: must not declare write capability. The
-    // mutating-MCP trust boundary is now capability-enforced via the
-    // `mcp:exarchos:readonly` tier (T03/T04) rather than prompt-enforced.
     expect(caps.has('fs:write')).toBe(false);
   });
 
+  /**
+   * The dispatch gate denies a mutating action only when the readonly tier is present and
+   * `mcp:exarchos` is absent.
+   */
   it('REVIEWER_Capabilities_UsesReadonlyMCP', () => {
-    // T11: REVIEWER migrates from `mcp:exarchos` to `mcp:exarchos:readonly`.
-    // The dispatch-layer gate (T04) only fires when the readonly tier is
-    // present AND the full tier is NOT — so we must drop `mcp:exarchos`.
     const caps = resolveCapabilities(REVIEWER.posture, REVIEWER.id);
     expect(caps.has('mcp:exarchos:readonly')).toBe(true);
     expect(caps.has('mcp:exarchos')).toBe(false);
   });
 
+  /** The dispatch gate enforces the trust boundary, so the prompt holds no "Forbidden MCP Actions" block. */
   it('REVIEWER_SystemPrompt_LacksForbiddenActionsBlock', () => {
-    // T11: with the dispatch-layer gate enforcing the trust boundary
-    // structurally, the prose-layer "Forbidden MCP Actions" block is
-    // redundant and removed.
     expect(REVIEWER.systemPrompt).not.toContain('Forbidden MCP Actions');
     expect(REVIEWER.systemPrompt).not.toContain('You MUST NOT call any other MCP action');
     expect(REVIEWER.systemPrompt).not.toContain('exarchos_event append/batch_append');
   });
 
   it('REVIEWER_SystemPrompt_PreservesNonForbiddenSections', () => {
-    // The deletion must be scoped — other systemPrompt sections survive.
     expect(REVIEWER.systemPrompt).toContain('## Review Scope');
     expect(REVIEWER.systemPrompt).toContain('## Design Requirements');
     expect(REVIEWER.systemPrompt).toContain('## Review Protocol');
@@ -90,16 +76,11 @@ describe('AgentSpec capability declarations', () => {
     }
   });
 
-  // ─── C5 (#1220): isolation:worktree on write-capable specs ────────────────
-  //
-  // The Claude adapter only renders `isolation: worktree` frontmatter when the
-  // spec declares the `'isolation:worktree'` capability (see
-  // `adapters/claude.ts:135–137`). FIXER and SCAFFOLDER both have `fs:write`
-  // and `shell:exec`, so they must declare `isolation:worktree` — otherwise
-  // parallel dispatch corrupts the orchestrator's main worktree (#1220).
-  // REVIEWER is read-only and intentionally does NOT declare it; this test
-  // pins that posture so the C5 fix doesn't over-correct.
-
+  /**
+   * The Claude adapter renders `isolation: worktree` only when the resolved set holds
+   * `isolation:worktree`. Without it, parallel dispatch of a write-capable agent corrupts the
+   * main worktree of the orchestrator.
+   */
   it('FIXER_capabilities_includesIsolationWorktree', () => {
     const caps = resolveCapabilities(FIXER.posture, FIXER.id);
     expect(caps.has('isolation:worktree')).toBe(true);
@@ -110,10 +91,8 @@ describe('AgentSpec capability declarations', () => {
     expect(caps.has('isolation:worktree')).toBe(true);
   });
 
+  /** The reviewer holds no write or shell capability, so it needs no worktree isolation. */
   it('REVIEWER_capabilities_readOnlyDoesNotRequireIsolation', () => {
-    // Pin the read-only posture: REVIEWER must not have write/shell caps,
-    // and correspondingly does not need worktree isolation. This prevents
-    // C5 from accidentally adding isolation everywhere.
     const caps = resolveCapabilities(REVIEWER.posture, REVIEWER.id);
     expect(caps.has('fs:write')).toBe(false);
     expect(caps.has('shell:exec')).toBe(false);
@@ -135,37 +114,31 @@ describe('AgentSpec capability declarations', () => {
     expect(bad).toBeDefined();
   });
 
-  // DR-2 (T-08, #1204): IMPLEMENTER prompt must include an explicit
-  // "Working Directory Setup" recovery step BEFORE the verification block.
-  // Some runtimes (Copilot CLI, generic MCP) spawn subagents in the parent
-  // repo cwd. Without an explicit `cd <worktree>` first, the verification
-  // `pwd | grep .worktrees` fails on turn 0 and the agent aborts before
-  // doing any work. The recovery step makes the prompt robust across all
-  // runtime environments — basileus-forward (#1109 Constraint 3).
+  /**
+   * Some runtimes (Copilot CLI, generic MCP) start a subagent in the cwd of the parent repository.
+   * Without a `cd` into the worktree first, the worktree verification fails and the agent stops.
+   * The setup section must come before the verification and give a bash form and a PowerShell form.
+   */
   it('ImplementerSpec_PromptBody_IncludesCdIntoWorktreeBeforeVerification', () => {
     const prompt = IMPLEMENTER.systemPrompt;
 
-    // The new section header must be present.
     const wdSetupIndex = prompt.indexOf('## Working Directory Setup');
     expect(wdSetupIndex, 'IMPLEMENTER systemPrompt must include "## Working Directory Setup"').toBeGreaterThan(-1);
 
-    // It must come BEFORE the verification block, not after.
     const verificationIndex = prompt.indexOf('## Worktree Verification');
     expect(verificationIndex).toBeGreaterThan(-1);
     expect(wdSetupIndex).toBeLessThan(verificationIndex);
 
-    // Both bash and PowerShell entry forms must be available.
     const setupSection = prompt.slice(wdSetupIndex, verificationIndex);
     expect(setupSection).toMatch(/\bcd\b/);
     expect(setupSection).toMatch(/Set-Location/);
   });
 
-  // #1470/#1483 (F1): post-test validation commands must be toolchain-neutral.
-  // The command is the fixed runtime-resolving `exarchos run-tests`, which
-  // resolves the project's test command at the CONSUMER's runtime (their cwd's
-  // `.exarchos.yml` / project markers). It must NOT be a gen-time-resolved
-  // literal — the shipped artifacts are static, so any baked toolchain command
-  // (e.g. npm) would defeat agnosticism for non-Node consumers (INV-4).
+  /**
+   * `exarchos run-tests` resolves the test command of the consumer at runtime, from its cwd. The
+   * agent files ship static, so a toolchain command resolved at generation time fails for a
+   * consumer on another toolchain.
+   */
   it('Hooks_PostTestCommand_IsRuntimeResolvingExarchosRunTests_NotBakedToolchain', () => {
     for (const spec of ALL_AGENT_SPECS) {
       const postTestRules = (spec.validationRules ?? []).filter(
@@ -173,11 +146,9 @@ describe('AgentSpec capability declarations', () => {
       );
       for (const rule of postTestRules) {
         const cmd = rule.command as string;
-        // Must delegate resolution to the runtime via `exarchos run-tests`.
         expect(cmd, `${spec.id} post-test command must be 'exarchos run-tests'`).toBe(
           'exarchos run-tests',
         );
-        // Must NOT bake any toolchain-specific invocation (the whole point).
         expect(
           /npm |yarn |pnpm |cargo |pytest|dotnet |\{\{testCommand\}\}/.test(cmd),
           `${spec.id} post-test command must not bake a toolchain command: ${cmd}`,
@@ -186,15 +157,13 @@ describe('AgentSpec capability declarations', () => {
     }
   });
 
-  // #1470 (T13): the worktree-hygiene prose in agent system prompts must be
-  // toolchain-neutral — no hardcoded `npm --prefix` examples. The neutral
-  // principle (`git -C <worktree>` for git ops, "run the project test command
-  // from the worktree") must be present so non-Node projects (Cargo, pytest,
-  // dotnet) are not implicitly assumed.
+  /**
+   * Only the isolated agents carry the worktree-hygiene section. The section must name no `npm`
+   * command, so that it also fits a Cargo, pytest or dotnet project.
+   */
   it('WorktreeHygiene_Prose_IsToolchainNeutral_NoHardcodedNpm', () => {
     for (const spec of ALL_AGENT_SPECS) {
       const prompt = spec.systemPrompt;
-      // Only the isolated agents carry the worktree-hygiene contract.
       if (!prompt.includes('Worktree Hygiene')) continue;
 
       expect(
@@ -206,7 +175,6 @@ describe('AgentSpec capability declarations', () => {
         `${spec.id} worktree-hygiene prose must not hardcode 'npm run typecheck'`,
       ).toBe(false);
 
-      // The toolchain-neutral principles must be present.
       expect(prompt, `${spec.id} must keep 'git -C <worktree>' guidance`).toContain(
         'git -C',
       );

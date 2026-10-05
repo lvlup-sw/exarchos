@@ -1,3 +1,8 @@
+/**
+ * Tests for the install identity collector and its recorded lock.
+ * The mock of `atomic-write.js` is a spy that keeps the real functions, so a test can
+ * assert that the default lock write calls `atomicWriteFile`.
+ */
 import { describe, it, expect, vi } from 'vitest';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -18,13 +23,9 @@ import { InstallIdentitySchema } from '../../../src/install/install-identity.js'
 import { SCHEMA_VERSION } from '../../../src/storage/sqlite-backend.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// Spy-wrap (real implementations retained) so the torn-write regression below
-// can assert the DEFAULT lock write routes through the atomic publish.
 vi.mock('../../../src/utils/atomic-write.js', { spy: true });
 
-// ─── In-memory filesystem seams ──────────────────────────────────────────────
-
-/** Build injectable read seams from a path→content map (keys are exact paths). */
+/** Build the read seams from a map of exact path to content. */
 function readSeams(files: ReadonlyMap<string, string>): Pick<IdentityDeps, 'readFileText' | 'readTree' | 'pathExists'> {
   return {
     readFileText: (p) => files.get(p),
@@ -49,10 +50,8 @@ function readSeams(files: ReadonlyMap<string, string>): Pick<IdentityDeps, 'read
 }
 
 /**
- * A coherent installed layout under `/opt/exarchos` with cache at `/opt/cache`,
- * built so the map keys are the EXACT paths the collector will request
- * (computed via the same `path.join` / `resolveCacheDir` the production code
- * uses, so the fixture matches on any platform).
+ * Plugin root of the fixture install. The fixture builds its map keys with `path.join` and
+ * `resolveCacheDir`, as the collector does, so the keys match on every platform.
  */
 const PLUGIN_ROOT = '/opt/exarchos';
 const ENV = { EXARCHOS_CACHE_DIR: '/opt/cache' } as const;
@@ -82,8 +81,6 @@ function coherentFiles(overrides?: Partial<{
 function collectFrom(files: Map<string, string>) {
   return collectInstallIdentity(PLUGIN_ROOT, { env: ENV, homedir: '/home/u', ...readSeams(files) });
 }
-
-// ─── detectInstallPosture ─────────────────────────────────────────────────────
 
 describe('detectInstallPosture', () => {
   it('installed via EXARCHOS_PLUGIN_ROOT', () => {
@@ -120,8 +117,6 @@ describe('detectInstallPosture', () => {
     expect(posture.kind).toBe('dev-checkout');
   });
 });
-
-// ─── collectInstallIdentity ───────────────────────────────────────────────────
 
 describe('collectInstallIdentity', () => {
   it('materializes a schema-valid identity from disk', () => {
@@ -168,6 +163,7 @@ describe('collectInstallIdentity', () => {
     expect(changed.binary).toEqual(base.binary);
   });
 
+  /** The same manifest content under either file name must give the same plugin digest. */
   it('falls back to manifest.json when .claude-plugin/plugin.json is absent', () => {
     const files = new Map<string, string>([
       [path.join(PLUGIN_ROOT, 'package.json'), JSON.stringify({ version: '2.11.0' })],
@@ -175,7 +171,6 @@ describe('collectInstallIdentity', () => {
       [cacheDescriptorPath(), '{}'],
     ]);
     const withManifest = collectInstallIdentity(PLUGIN_ROOT, { env: ENV, homedir: '/home/u', ...readSeams(files) });
-    // Same manifest content under plugin.json must yield the same plugin digest.
     const viaPlugin = collectFrom(coherentFiles({ manifest: JSON.stringify({ name: 'mkt' }) }));
     expect(withManifest.plugin).toEqual(viaPlugin.plugin);
   });
@@ -187,8 +182,6 @@ describe('collectInstallIdentity', () => {
     expect(() => InstallIdentitySchema.parse(id)).not.toThrow();
   });
 });
-
-// ─── recorded lock read/write ─────────────────────────────────────────────────
 
 describe('recorded install-identity lock', () => {
   it('readRecordedIdentity returns undefined when no lock exists (first run)', () => {
@@ -218,31 +211,27 @@ describe('recorded install-identity lock', () => {
     expect(readRecordedIdentity('/state', deps)).toEqual(id);
   });
 
+  /**
+   * `readRecordedIdentity` treats a torn lock as no lock. Thus a crash during a plain write
+   * can change a blocked freshness verdict into `bootstrapped`, and the default write seam
+   * must call `atomicWriteFile`. `EXARCHOS_INSTALL_STATE_DIR` sends the lock to a temp
+   * directory. Without it, the default path is in the real home directory.
+   * The publish must leave no staged temp file beside the lock.
+   */
   it('default lock write publishes atomically (tmp+fsync+rename), never a torn plain write', () => {
-    // Regression: the lock used to be written with a plain `fs.writeFileSync`.
-    // `readRecordedIdentity` treats a corrupt/torn lock as "no lock" (so a
-    // re-record can heal it), so a crash mid-write silently converted a
-    // would-be BLOCKED freshness verdict into 'bootstrapped'. The DEFAULT
-    // write seam must therefore route through `atomicWriteFile`.
     const installDir = fs.mkdtempSync(path.join(os.tmpdir(), 'identity-lock-'));
-    // The lock is keyed to the INSTALLATION, so the temp dir is redirected via
-    // the install-state env seam rather than passed as a state dir. Without
-    // this the default path would publish into the real home directory.
     const env = { EXARCHOS_INSTALL_STATE_DIR: installDir } as const;
     const pluginRoot = '/opt/exarchos';
     try {
       const id = collectFrom(coherentFiles());
-      writeRecordedIdentity(pluginRoot, id, { env }); // fs seams left at their defaults
+      writeRecordedIdentity(pluginRoot, id, { env });
       const lockPath = installIdentityLockPath(pluginRoot, { env });
 
-      // The write went through the atomic publish, targeting the lock path.
       const atomicSpy = vi.mocked(atomicWrite.atomicWriteFile);
       expect(atomicSpy).toHaveBeenCalledTimes(1);
       expect(atomicSpy.mock.calls[0]?.[0]).toBe(lockPath);
 
-      // Read-side semantics unchanged: the lock round-trips off the real fs…
       expect(readRecordedIdentity(pluginRoot, { env })).toEqual(id);
-      // …and the publish left no staged `*.tmp` beside the lock.
       expect(fs.readdirSync(installDir)).toEqual([path.basename(lockPath)]);
     } finally {
       vi.clearAllMocks();

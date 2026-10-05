@@ -1,26 +1,17 @@
 /**
- * Real-tree acceptance + packaging-declaration proof for generated projection
- * containment (P05-03; ART-008).
+ * Containment checks over the committed repository tree, and the proof that
+ * `package.json` ships each projection root.
  *
- * Unlike the pure unit tests, this reads the ACTUAL committed repo tree, derives
- * the governed inventory from the renderers' own outputs, and proves:
+ *   1. Each projection kind has at least one projection.
+ *   2. The tree passes containment for presence and selection.
+ *   3. For each kind, a seeded removal, replacement or stale duplicate of a real
+ *      projection fails.
+ *   4. `package.json` `files[]` declares each projection root, or its embedded-binary carrier.
  *
- *   1. every projection kind is populated (the enumeration is not vacuous);
- *   2. the real tree PASSES containment (presence + selection) — exit-proof (a);
- *   3. per kind, a seeded removal / replacement / stale-duplicate over the REAL
- *      projections fails closed — exit-proof (b)/(c)/(d);
- *   4. every projection root is actually declared in `package.json` `files[]`
- *      (or its embedded-binary carrier) — the packaging-manifest proof that
- *      surfaced the real `command-aliases` shipping gap this work package fixed.
- *
- * ### Verified vs. simulated (honesty note)
- *
- * `dist/` is not built in this worktree and there is no published package here,
- * so the "packaged layer" is a faithful in-memory MIRROR of the committed
- * generated trees (what `npm pack` would ship, per `package.json` `files[]`),
- * NOT bytes pulled from a real tarball. The presence/selection PROPERTIES are
- * genuinely exercised over that mirror; the packaging-manifest proof (#4) is a
- * genuine check of the real `package.json`.
+ * The packaged layer is an in-memory copy of the committed generated trees, not the
+ * bytes of a real tarball. It comes from the same read as the required inventory,
+ * so an unchanged copy always passes. `tests/core/packaged/containment.test.ts`
+ * proves containment against the bytes of a real `npm pack`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -41,10 +32,9 @@ import {
   type RequiredProjection,
 } from '../../../src/install/projection-containment.js';
 
-// `src/` → repo root is one level up (mirrors packaging-consistency.test.ts).
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
-// Enumerate once; every test reads from this authored source of truth.
+/** One enumeration of the repository tree, which every test reads. */
 const { projections, contents } = enumerateProjections(repoRoot);
 
 function byKind(kind: ProjectionKind): readonly RequiredProjection[] {
@@ -62,10 +52,7 @@ describe('generated projection containment — real tree', () => {
     for (const kind of PROJECTION_KINDS) {
       expect(byKind(kind).length, `no ${kind} projections enumerated`).toBeGreaterThan(0);
     }
-    // The rendered fan-out is substantial: 16 standard skills + per-runtime
-    // residuals + references + aliases + agents + hooks + runtimes.
     expect(projections.length).toBeGreaterThan(40);
-    // Unique ids — the inventory has no accidental duplicates.
     expect(new Set(projections.map((p) => p.id)).size).toBe(projections.length);
   });
 
@@ -76,16 +63,20 @@ describe('generated projection containment — real tree', () => {
     expect(res.checked).toBe(projections.length);
   });
 
+  /** The packaged layer has the highest priority, so each projection resolves to the packaged copy. */
   it('(a) a planted stale SOURCE-FALLBACK at lower priority does not win selection', () => {
     const packaged = packagedLayerFromContents(contents);
     const staleFiles = new Map<string, string>();
     for (const [p, c] of contents) staleFiles.set(p, `${c}\n// STALE DUPLICATE`);
     const stale: ProjectionLayer = { name: 'source-fallback', packaged: false, files: staleFiles };
 
-    // Packaged highest priority → every projection still resolves to packaged.
     expect(verifyContainment({ required: projections, layers: [packaged, stale] }).ok).toBe(true);
   });
 
+  /**
+   * The packaged layer still holds the correct bytes, so presence passes. Each
+   * violation is `not-selected`, because the stale copy wins the search order.
+   */
   it('a stale layer AHEAD of the package shadows every projection (not-selected)', () => {
     const packaged = packagedLayerFromContents(contents);
     const staleFiles = new Map<string, string>();
@@ -94,14 +85,12 @@ describe('generated projection containment — real tree', () => {
 
     const res = verifyContainment({ required: projections, layers: [stale, packaged] });
     expect(res.ok).toBe(false);
-    // Presence is unaffected (packaged still has the right bytes); the failure is
-    // purely selection — a stale copy wins the search order for every projection.
     expect(res.violations.every((v) => v.kind === 'not-selected')).toBe(true);
     expect(res.violations).toHaveLength(projections.length);
   });
 });
 
-// Exit-proof (b)/(c)/(d) against the REAL projections of each kind.
+/** Seeded removal, replacement and stale-duplicate cases against a real projection of each kind. */
 describe.each(PROJECTION_KINDS)('exit-proof against real %s projections', (kind) => {
   it('(b) removing a real projection fails closed with `missing`', () => {
     const sample = firstOfKind(kind);
@@ -142,17 +131,15 @@ describe.each(PROJECTION_KINDS)('exit-proof against real %s projections', (kind)
       files: new Map([[sample.path, `${original}\n<!-- stale -->`]]),
     };
 
-    // Lower priority: the packaged copy wins, no violation for this projection.
     const low = verifyContainment({ required: projections, layers: [packaged, stale] });
     expect(low.violations.filter((v) => v.id === sample.id)).toHaveLength(0);
 
-    // Higher priority: the stale copy shadows the packaged projection.
     const high = verifyContainment({ required: projections, layers: [stale, packaged] });
     expect(high.violations.some((v) => v.kind === 'not-selected' && v.id === sample.id)).toBe(true);
   });
 });
 
-// The packaging-manifest proof — the level at which the real finding lives.
+/** These cases read the real `package.json` and make sure that `files[]` ships each projection root. */
 describe('projection roots are actually shipped (package.json files[])', () => {
   const pkg = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')) as {
     files?: unknown;
@@ -170,10 +157,11 @@ describe('projection roots are actually shipped (package.json files[])', () => {
     );
   });
 
+  /**
+   * `findCommandAliasesSourceDir` resolves `rendered/command-aliases` at install time,
+   * so `files[]` must hold the `rendered` root.
+   */
   it('the command-aliases projection root ships (regression for the P05-03 packaging gap)', () => {
-    // `command-aliases/` is resolved at install time from the packaged root
-    // (`findCommandAliasesSourceDir` probes `<pluginRoot>/command-aliases`), so
-    // it MUST be in files[] or the installed opencode alias copy silently no-ops.
     expect(files).toContain('rendered');
   });
 
@@ -184,10 +172,10 @@ describe('projection roots are actually shipped (package.json files[])', () => {
     }
   });
 
+  /** The generated `embedded.ts` table carries the runtime projection, and `runtimes:guard` keeps it equal to the YAML sources. */
   it('the runtime projection is carried by the codegen-embedded table (embedded-binary delivery)', () => {
     const runtimeSpec = PROJECTION_ROOT_SPECS.find((s) => s.kind === 'runtime');
     expect(runtimeSpec?.shipped.via).toBe('embedded-binary');
-    // The embedded table is the shipped carrier; runtimes:guard enforces parity.
     expect(existsSync(join(repoRoot, 'src', 'install', 'runtimes', 'embedded.ts'))).toBe(true);
   });
 });

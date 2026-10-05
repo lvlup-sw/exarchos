@@ -1,37 +1,17 @@
-// ─── Posture → dispatch-shape contract (DR-25) ─────────────────────────────
+// The contract from agent posture to dispatch shape. The suite proves three properties:
 //
-// Three properties, one per acceptance criterion:
+//   1. Totality: each declared posture has exactly one dispatch entry. The census reads
+//      `AgentPosture.options`, because a posture list retyped here makes the test vacuous.
+//   2. Binding: `prepare_review` emits the anonymous shape for its `read-only` posture, through the
+//      real handler and a real event store.
+//   3. Self-test: validation rejects a provisioning result whose `dispatch` contradicts its `posture`.
 //
-//   1. TOTALITY — every DECLARED posture has exactly one dispatch entry. The
-//      enumeration reads `AgentPosture.options` (the Zod declaration in
-//      `spec.ts`), never a list retyped here. A retyped list would make the
-//      test vacuous, which is precisely the defect the surrounding program
-//      exists to eliminate.
-//   2. BINDING — `prepare_review` actually emits the anonymous-async shape for
-//      its `read-only` posture, in production composition (the real handler,
-//      real event store), not against a mock.
-//   3. SELF-TEST — a seeded provisioning result whose `dispatch` contradicts
-//      its `posture` is REJECTED, so guard-execution failure cannot pass as
-//      success.
+// When the runtime does not declare a required capability, the shape resolves to the declared
+// fallback or to a typed error. It never degrades silently.
 //
-// Plus the INV-4 error path: a shape naming a capability the runtime does not
-// declare resolves to the DECLARED fallback, never to a silent degrade.
-//
-// ── The two authorities behind the totality census (DR-30) ─────────────────
-//
-// The census claim is "the dispatch table's key set == the declared posture
-// vocabulary". Its two sides must not be one authority wearing two names:
-//
-//   `./spec.ts`           — the Zod `AgentPosture` enum. Runtime-enumerable,
-//                           and the declaration every inbound spec is parsed
-//                           against.
-//   `./dispatch-shape.ts` — the hand-written table, whose key set is read off
-//                           the frozen object at runtime.
-//
-// They are genuinely independent: the table is typed off the interface twin in
-// `types.ts`, so `dispatch-shape.ts` never reaches `spec.ts` in the import
-// graph. A posture added to one declaration and not the other turns this suite
-// RED rather than silently agreeing with itself.
+// The census compares two independent authorities: the Zod `AgentPosture` enum in `spec.ts`, and
+// the key set of the frozen table in `dispatch-shape.ts`. The table takes its posture type from
+// `types.ts`, so `dispatch-shape.ts` never imports `spec.ts`.
 //
 // @oracle-sources: ../../../../src/runtime/agents/spec.ts, ../../../../src/runtime/agents/dispatch-shape.ts
 
@@ -62,24 +42,24 @@ import { EventStore } from '../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import type { ToolResult } from '../../../../src/format.js';
 
-// ─── 1. Totality over the DECLARED posture set ──────────────────────────────
-
 describe('DispatchShape totality (DR-25)', () => {
+  /**
+   * Compares the Zod enum in `spec.ts` with the own key set of the frozen table. Five checks:
+   *
+   * - Each declared posture has an entry, so the mapping cannot be partial.
+   * - The table has no entry for an undeclared posture.
+   * - Each entry names its own key, so a copied row cannot pass as a distinct entry.
+   * - The launches are distinct. Two postures with one launch bind nothing.
+   * - Each entry requires at least one capability, and each capability is in the declared
+   *   vocabulary. An empty `requires` makes the runtime resolution unfalsifiable.
+   */
   it('DispatchShape_EveryDeclaredPosture_HasExactlyOneEntry', () => {
-    // AUTHORITY 1 — the declared vocabulary, read from the Zod enum in
-    // `spec.ts`. NOT retyped here: a retyped list would compare the table
-    // against a copy of itself and prove nothing.
     const declared = AgentPosture.options;
     expect(declared.length).toBeGreaterThan(0);
 
-    // AUTHORITY 2 — the table's OWN key set, read off the frozen object. The
-    // table is typed from `types.ts`, so it never reaches `spec.ts`: the two
-    // sides of this census can genuinely disagree.
     const entryKeys = Object.keys(POSTURE_DISPATCH_MAP);
     expect(posturesWithDispatchShape()).toEqual(entryKeys);
 
-    // (a) Every DECLARED posture has an entry. A posture added to the enum
-    //     without a table row fails here — the mapping cannot be partial.
     for (const posture of declared) {
       expect(
         Object.prototype.hasOwnProperty.call(POSTURE_DISPATCH_MAP, posture),
@@ -88,28 +68,19 @@ describe('DispatchShape totality (DR-25)', () => {
       expect(dispatchShapeFor(posture)).toBeDefined();
     }
 
-    // (b) EXACTLY one — no extra rows for postures the enum does not declare.
     expect([...entryKeys].sort()).toEqual([...declared].sort());
     expect(entryKeys.length).toBe(declared.length);
 
-    // (c) Each entry self-identifies as its own key, so a copy-paste row that
-    //     kept a neighbour's posture cannot masquerade as a distinct entry.
     for (const posture of declared) {
       expect(dispatchShapeFor(posture).posture).toBe(posture);
     }
 
-    // (d) The three shapes are genuinely distinct launches — a table where two
-    //     postures collapse to the same launch would satisfy (a)-(c) while
-    //     binding nothing.
     const launches = declared.map((p) => {
       const s = dispatchShapeFor(p);
       return `${s.subagent}|${s.naming}|${s.workspace}`;
     });
     expect(new Set(launches).size).toBe(declared.length);
 
-    // (e) Every required capability is drawn from the declared vocabulary, and
-    //     each entry actually requires something (an empty `requires` would
-    //     make the INV-4 resolution unfalsifiable).
     for (const posture of declared) {
       const shape = dispatchShapeFor(posture);
       expect(shape.requires.length).toBeGreaterThan(0);
@@ -119,9 +90,8 @@ describe('DispatchShape totality (DR-25)', () => {
     }
   });
 
+  /** Pins the three rows of the policy, so a change to the table must be deliberate. */
   it('DispatchShape_DeclaredPostures_BindTheDocumentedLaunchShapes', () => {
-    // The three rows DR-25 names, pinned. This is the policy itself; if it
-    // changes, the change must be deliberate.
     expect(dispatchShapeFor('read-only')).toMatchObject({
       subagent: true,
       naming: 'anonymous',
@@ -138,8 +108,6 @@ describe('DispatchShape totality (DR-25)', () => {
     });
   });
 });
-
-// ─── 2. The verb actually emits the bound shape ─────────────────────────────
 
 describe('prepare_review emits its bound dispatch shape (DR-25)', () => {
   let stateDir: string;
@@ -161,6 +129,11 @@ describe('prepare_review emits its bound dispatch shape (DR-25)', () => {
     return result.data;
   };
 
+  /**
+   * `validateProvisionedDispatch` rejects a payload that binds no dispatch, or a contradictory one.
+   * The `anonymous` naming is the important field: a named read-only spawn is an idle mailbox
+   * teammate that never runs the prompt. The emitted shape must also match the table entry.
+   */
   it('PrepareReview_ReadOnlyPosture_EmitsAnonymousAsyncShape', async () => {
     const data = dataOf(
       await handlePrepareReview(
@@ -174,9 +147,6 @@ describe('prepare_review emits its bound dispatch shape (DR-25)', () => {
       ),
     );
 
-    // Validated through the SAME structural guard the kill fixture is checked
-    // with — a payload that declares a posture without binding a dispatch, or
-    // binds a contradictory one, fails here.
     const validation = validateProvisionedDispatch(data);
     expect(validation.ok ? null : validation.reason).toBeNull();
 
@@ -185,20 +155,19 @@ describe('prepare_review emits its bound dispatch shape (DR-25)', () => {
       dispatch: {
         posture: 'read-only',
         subagent: true,
-        // The load-bearing bit: `name` is FORBIDDEN. A named read-only spawn is
-        // the idle mailbox teammate that never runs the prompt.
         naming: 'anonymous',
         workspace: 'inherited',
       },
     });
 
-    // The emitted shape is the table's, not a restatement that could drift.
     expect(data).toMatchObject({ dispatch: dispatchShapeFor('read-only') });
   });
 
+  /**
+   * The code-review scope also dispatches a reviewer. It is the more common path, so its payload
+   * must bind the shape too.
+   */
   it('PrepareReview_CodeReviewScope_AlsoEmitsAnonymousAsyncShape', async () => {
-    // The back-of-pipeline catalog path dispatches a reviewer too; leaving it
-    // unbound would preserve the improvisation gap on the more common path.
     const data = dataOf(
       await handlePrepareReview({ featureId: 'dr25-code-review' }, stateDir, eventStore),
     );
@@ -208,12 +177,15 @@ describe('prepare_review emits its bound dispatch shape (DR-25)', () => {
   });
 });
 
-// ─── 3. Self-test: a contradictory shape is rejected ────────────────────────
-
 describe('DispatchShape validation self-test (DR-25)', () => {
+  /**
+   * The contradiction is a `read-only` provisioning with a named, worktree-isolated launch. The test
+   * also rejects a named launch without isolation, which produces phantom teammates, and a
+   * `shared-mutating` result that claims a subagent. The last loop proves that the validator runs:
+   * the canonical shape of each declared posture must pass. A validator that rejects everything
+   * satisfies the negative checks and enforces nothing.
+   */
   it('DispatchShape_ShapeContradictsPosture_FailsValidation', () => {
-    // The exact contradiction DR-25 names: a `read-only` provisioning carrying
-    // a named, worktree-isolated launch.
     const contradictory: DispatchLaunch = {
       subagent: true,
       naming: 'named',
@@ -224,8 +196,6 @@ describe('DispatchShape validation self-test (DR-25)', () => {
     expect(direct.ok).toBe(false);
     expect(direct.ok ? '' : direct.reason).toContain('contradicts posture "read-only"');
 
-    // …and through the payload guard, which is what a seeded provisioning
-    // result goes through.
     const seeded = validateProvisionedDispatch({
       mode: 'plan-review',
       posture: 'read-only',
@@ -233,24 +203,18 @@ describe('DispatchShape validation self-test (DR-25)', () => {
     });
     expect(seeded.ok).toBe(false);
 
-    // The named-without-isolation shape — the one that produced the 2026-08-07
-    // phantom teammates — is rejected for read-only too.
     const namedNoIsolation = validateProvisionedDispatch({
       posture: 'read-only',
       dispatch: { subagent: true, naming: 'named', workspace: 'inherited' },
     });
     expect(namedNoIsolation.ok).toBe(false);
 
-    // A shared-mutating result claiming to be a subagent is rejected.
     const subagentMutator = validateProvisionedDispatch({
       posture: 'shared-mutating',
       dispatch: { subagent: true, naming: 'anonymous', workspace: 'worktree' },
     });
     expect(subagentMutator.ok).toBe(false);
 
-    // Guard-execution proof: the CANONICAL shape for each declared posture
-    // passes. A validator that rejected everything would satisfy the negatives
-    // above while enforcing nothing.
     for (const posture of AgentPosture.options) {
       const ok = validateProvisionedDispatch({
         posture,
@@ -260,9 +224,11 @@ describe('DispatchShape validation self-test (DR-25)', () => {
     }
   });
 
+  /**
+   * The payload declares a posture and binds no launch. The frozen payload in
+   * `tests/unit/verbs/dispatch-shape.kill-fixture.test.ts` is of this class.
+   */
   it('DispatchShape_PayloadWithoutDispatchField_FailsValidation', () => {
-    // The pre-DR-25 shape: a declared posture with no bound launch. This is the
-    // class task 047's frozen kill fixture belongs to.
     const unbound = validateProvisionedDispatch({
       mode: 'plan-review',
       posture: 'read-only',
@@ -273,15 +239,16 @@ describe('DispatchShape validation self-test (DR-25)', () => {
   });
 });
 
-// ─── 4. INV-4 error path: undeclared capability → declared fallback ─────────
-
 describe('DispatchShape runtime resolution (DR-25, INV-4)', () => {
   const codex: RuntimeCapabilityDeclaration = codexAdapter;
 
+  /**
+   * Codex declares `isolation:worktree` as `advisory`, which has no primitive behind it. Thus the
+   * `task-isolated` shape resolves to its declared fallback. The fallback still runs the prompt and
+   * is anonymous, because a named shape without isolation spawns a teammate that never runs. The
+   * result names the unmet capability and the declared shape, so the degrade is visible.
+   */
   it('DispatchShape_RuntimeLacksWorktreeIsolation_ResolvesDeclaredFallback', () => {
-    // Codex declares `isolation:worktree` as `advisory`, not `native` —
-    // tolerated but with no primitive behind it. The task-isolated shape
-    // therefore cannot be honoured as declared.
     expect(codex.supportLevels['isolation:worktree']).not.toBe('native');
 
     const resolved = resolveDispatchShape('task-isolated', codex);
@@ -290,18 +257,14 @@ describe('DispatchShape runtime resolution (DR-25, INV-4)', () => {
     expect(resolved.degraded).toBe(true);
     if (!resolved.degraded) throw new Error('unreachable');
 
-    // The DECLARED fallback — and it still runs the prompt.
     expect(resolved.shape).toBe(dispatchShapeFor('task-isolated').fallback);
     expect(resolved.shape.subagent).toBe(true);
 
-    // Crucially NOT named-without-isolation: that is the shape that spawns
-    // something which never executes.
     expect(resolved.shape.naming).toBe('anonymous');
     expect(
       resolved.shape.naming === 'named' && resolved.shape.workspace !== 'worktree',
     ).toBe(false);
 
-    // The degrade is visible, not silent: the caller can see what it lost.
     expect(resolved.unmet).toContain('isolation:worktree');
     expect(resolved.declaredShape).toBe(dispatchShapeFor('task-isolated'));
   });
@@ -316,10 +279,11 @@ describe('DispatchShape runtime resolution (DR-25, INV-4)', () => {
     }
   });
 
+  /**
+   * A runtime that declares nothing native meets no shape and no fallback. Each posture must give a
+   * typed error, never a silently degraded shape.
+   */
   it('DispatchShape_NoRuntimeSupportsRequirement_ReturnsTypedErrorNotNoOp', () => {
-    // A runtime that declares nothing native. `shared-mutating` has no fallback
-    // (nothing can honour a mutating dispatch without write), so the result is
-    // a TYPED error — never a silently-degraded shape.
     const inert: RuntimeCapabilityDeclaration = {
       runtime: 'inert-harness',
       supportLevels: buildSupportMap('unsupported'),
@@ -336,10 +300,11 @@ describe('DispatchShape runtime resolution (DR-25, INV-4)', () => {
     }
   });
 
+  /**
+   * The provisioning verbs do not know which harness launches the agent. They emit the canonical
+   * shape with its `requires` and `fallback`, and the host runs this same resolution.
+   */
   it('DispatchShape_NoRuntimeDeclarationSupplied_ReturnsCanonicalShape', () => {
-    // The provisioning verbs do not know which harness will launch the agent,
-    // so they emit the canonical shape (with its `requires` / `fallback`) and
-    // let the host run this same resolution.
     for (const posture of AgentPosture.options) {
       const resolved = resolveDispatchShape(posture);
       expect(resolved.honoured).toBe(true);
@@ -350,49 +315,33 @@ describe('DispatchShape runtime resolution (DR-25, INV-4)', () => {
   });
 });
 
-// ─── 5. The table is immutable at RUNTIME, transitively (DR-25, task 059) ───
-//
-// `readonly` on `DispatchShape` is a COMPILE-TIME claim, and asserting it in a
-// test would be circular — it would only restate the declaration the compiler
-// already enforces. The claim worth proving is the RUNTIME one, because the
-// table is handed out by reference: `dispatchShapeFor` returns the shared
-// entry and `resolveDispatchShape` returns the shared `fallback` object to
-// every capability-degraded caller. One mutation would corrupt every
-// subsequent degraded dispatch process-wide.
-//
-// So these tests attempt REAL mutations — `Reflect.set` / `Reflect.defineProperty`
-// / `Reflect.deleteProperty` (which report refusal by returning `false`) and
-// `Object.assign` (which throws on a frozen target in strict mode) — and each
-// probe is paired with a CONTROL run against an unfrozen structural twin, so a
-// probe that could never mutate anything cannot pass as proof of immutability.
-
+/**
+ * `readonly` on `DispatchShape` is a compile-time claim. The runtime claim needs proof, because
+ * `dispatchShapeFor` and `resolveDispatchShape` hand out shared references. One mutation corrupts
+ * each later degraded dispatch in the process.
+ *
+ * The tests attempt real mutations. A `Reflect` probe returns `false` on a refusal, and
+ * `Object.assign` throws on a frozen target. The control arm runs the set, delete and assign
+ * probes on `unfrozenTwin`, an unfrozen copy, to prove that those probes can mutate.
+ *
+ * `noSpawn` cannot spawn but meets the `requires` of the `read-only` fallback. Thus the resolution
+ * degrades and returns the shared fallback object. `reachable` collects each object under a root,
+ * through own enumerable properties.
+ */
 describe('DispatchShape immutability (DR-25)', () => {
-  /**
-   * A harness that reads and writes natively but cannot spawn. Enough to force
-   * `read-only` onto its declared fallback while still MEETING that fallback's
-   * own `requires`, so the resolution DEGRADES rather than erroring — which is
-   * what puts the shared fallback object in a caller's hands.
-   */
   const noSpawn: RuntimeCapabilityDeclaration = {
     runtime: 'no-spawn-harness',
     supportLevels: buildSupportMap('native', { 'subagent:spawn': 'unsupported' }),
   };
 
-  /** A structurally identical shape that is deliberately NOT frozen. */
   function unfrozenTwin(shape: DispatchShape): DispatchShape {
     return { ...shape, requires: [...shape.requires] };
   }
 
-  /**
-   * Widening guard used by the reachability walk. A type guard, not a cast:
-   * arrays and plain objects both satisfy it, which is what a structural walk
-   * needs, and nothing here asserts a type the compiler has not checked.
-   */
   function isWalkable(value: unknown): value is Readonly<Record<string, unknown>> {
     return typeof value === 'object' && value !== null;
   }
 
-  /** Every object reachable from `root` by own enumerable properties. */
   function reachable(root: unknown, seen: object[] = []): readonly object[] {
     if (!isWalkable(root) || seen.includes(root)) return seen;
     seen.push(root);
@@ -400,8 +349,14 @@ describe('DispatchShape immutability (DR-25)', () => {
     return seen;
   }
 
+  /**
+   * The subject is the fallback object that a degraded runtime receives. The control arm runs first:
+   * without it, a probe that mutates nothing proves immutability for any implementation. The shipped
+   * fallback must then refuse each probe, which includes an in-place write and an append on
+   * `requires`. `Object.assign` covers the throwing form of a plain assignment in strict mode. Last,
+   * a later resolution must still return the declared shape.
+   */
   it('DispatchShape_FallbackMutationAttempt_LeavesTheSharedShapeIntact', () => {
-    // The object a capability-degraded runtime is ACTUALLY handed.
     const first = resolveDispatchShape('read-only', noSpawn);
     expect(first.honoured).toBe(true);
     if (!first.honoured) throw new Error('unreachable');
@@ -410,10 +365,6 @@ describe('DispatchShape immutability (DR-25)', () => {
     const degraded = first.shape;
     expect(degraded).toBe(dispatchShapeFor('read-only').fallback);
 
-    // ── PROBE CONTROL ───────────────────────────────────────────────────────
-    // The same four techniques against an UNFROZEN structural twin all land.
-    // Without this arm, a probe that mutates nothing anywhere would "prove"
-    // immutability against any implementation, frozen or not.
     const twin = unfrozenTwin(degraded);
     expect(Reflect.set(twin, 'naming', 'named')).toBe(true);
     expect(twin.naming).toBe('named');
@@ -423,8 +374,6 @@ describe('DispatchShape immutability (DR-25)', () => {
     expect(twin.rationale).toBeUndefined();
     expect(() => Object.assign(unfrozenTwin(degraded), { naming: 'named' })).not.toThrow();
 
-    // ── THE RUNTIME GUARANTEE ───────────────────────────────────────────────
-    // Every probe above, replayed against the SHIPPED fallback. All refused.
     expect(Object.isFrozen(degraded)).toBe(true);
     expect(Object.isFrozen(degraded.requires)).toBe(true);
 
@@ -433,25 +382,16 @@ describe('DispatchShape immutability (DR-25)', () => {
     expect(Reflect.set(degraded, 'subagent', true)).toBe(false);
     expect(Reflect.defineProperty(degraded, 'rationale', { value: 'rewritten' })).toBe(false);
     expect(Reflect.deleteProperty(degraded, 'rationale')).toBe(false);
-    // The `requires` array too — an entry rewritten in place…
     expect(Reflect.set(degraded.requires, 0, 'fs:write')).toBe(false);
-    // …and no APPEND either: a frozen array is non-extensible.
     expect(Reflect.set(degraded.requires, degraded.requires.length, 'fs:write')).toBe(false);
-    // The strict-mode THROWING form, which is what an ordinary
-    // `shape.naming = 'named'` compiles to at runtime.
     expect(() => Object.assign(degraded, { naming: 'named' })).toThrow(TypeError);
 
-    // ── NOTHING MOVED ───────────────────────────────────────────────────────
     expect(degraded.subagent).toBe(false);
     expect(degraded.naming).toBe('anonymous');
     expect(degraded.workspace).toBe('inherited');
     expect([...degraded.requires]).toEqual(['fs:read']);
     expect(degraded.rationale).toContain('Still runs the prompt');
 
-    // ── …AND THE NEXT DEGRADED DISPATCH IS UNAFFECTED ───────────────────────
-    // The point of the whole guarantee. Process-wide corruption through one
-    // shared reference is what freezing prevents, so the observable claim is
-    // that a LATER resolution still gets the declared shape.
     const second = resolveDispatchShape('read-only', noSpawn);
     expect(second.honoured).toBe(true);
     if (!second.honoured) throw new Error('unreachable');
@@ -463,13 +403,15 @@ describe('DispatchShape immutability (DR-25)', () => {
     expect([...second.shape.requires]).toEqual(['fs:read']);
   });
 
+  /**
+   * The expected node count comes from the structure of the table, not from the walk. The table has
+   * one container, and an object and a `requires` array for each shape and each fallback. Thus an
+   * empty walk cannot pass. A control proves that `Object.isFrozen` can return `false` for a node of
+   * this shape.
+   */
   it('DispatchShape_EveryNodeReachableFromTheTable_IsFrozenTransitively', () => {
     const nodes = reachable(POSTURE_DISPATCH_MAP);
 
-    // DENOMINATOR — a walk that resolved nothing would satisfy the `filter`
-    // below vacuously. The expectation is derived from the table's STRUCTURE
-    // (one container, plus an object and a `requires` array per shape and per
-    // declared fallback), not from the walk itself.
     const expectedNodes = AgentPosture.options.reduce((total, posture) => {
       const shape = dispatchShapeFor(posture);
       return total + 2 + (shape.fallback === null ? 0 : 2);
@@ -477,7 +419,6 @@ describe('DispatchShape immutability (DR-25)', () => {
     expect(expectedNodes).toBeGreaterThan(1);
     expect(nodes.length).toBe(expectedNodes);
 
-    // …and it found the specific nodes the old partial freeze left writable.
     expect(nodes).toContain(POSTURE_DISPATCH_MAP);
     for (const posture of AgentPosture.options) {
       const shape = dispatchShapeFor(posture);
@@ -489,8 +430,6 @@ describe('DispatchShape immutability (DR-25)', () => {
       }
     }
 
-    // CONTROL — `Object.isFrozen` must be capable of answering `false` on a
-    // node of this shape, or the sweep below is measuring nothing.
     expect(Object.isFrozen(unfrozenTwin(dispatchShapeFor('read-only')))).toBe(false);
 
     const unfrozen = nodes.filter((node) => !Object.isFrozen(node));

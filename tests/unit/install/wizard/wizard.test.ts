@@ -96,34 +96,36 @@ function createTestManifest(): Manifest {
   };
 }
 
+/**
+ * `MockPromptAdapter` returns its preset responses in order, and it ignores the prompt options.
+ * `runWizard` asks for the mode, the optional MCP servers, the optional plugins, the rule sets, and the confirmation, in that order.
+ */
 describe('runWizard', () => {
   it('returns standard mode selections', async () => {
     const manifest = createTestManifest();
-    // Responses: mode, mcpServers, plugins, ruleSets, confirm
     const prompts = new MockPromptAdapter([
-      'standard',                          // mode
-      ['context7'],                         // optional mcpServers
-      ['serena'],                           // optional plugins
-      ['coding-standards'],                  // ruleSets
-      true,                                 // confirm
+      'standard',
+      ['context7'],
+      ['serena'],
+      ['coding-standards'],
+      true,
     ]);
 
     const result = await runWizard(manifest, prompts);
 
     expect(result.mode).toBe('standard');
     expect(result.selections.mcpServers).toContain('context7');
-    // Required server always included
     expect(result.selections.mcpServers).toContain('exarchos');
   });
 
   it('returns dev mode selections', async () => {
     const manifest = createTestManifest();
     const prompts = new MockPromptAdapter([
-      'dev',                                // mode
-      ['context7', 'microsoft-learn'],      // optional mcpServers
-      ['serena'],                            // optional plugins
-      ['coding-standards', 'pr-descriptions'], // ruleSets
-      true,                                 // confirm
+      'dev',
+      ['context7', 'microsoft-learn'],
+      ['serena'],
+      ['coding-standards', 'pr-descriptions'],
+      true,
     ]);
 
     const result = await runWizard(manifest, prompts);
@@ -134,20 +136,17 @@ describe('runWizard', () => {
 
   it('always includes required servers regardless of selection', async () => {
     const manifest = createTestManifest();
-    // User selects no optional servers
     const prompts = new MockPromptAdapter([
-      'standard',                           // mode
-      [],                                   // no optional mcpServers selected
-      [],                                   // no optional plugins
-      [],                                   // no ruleSets
-      true,                                 // confirm
+      'standard',
+      [],
+      [],
+      [],
+      true,
     ]);
 
     const result = await runWizard(manifest, prompts);
 
-    // Required server 'exarchos' must still be included
     expect(result.selections.mcpServers).toContain('exarchos');
-    // Required plugin 'github' must still be included
     expect(result.selections.plugins).toContain('github');
   });
 
@@ -182,6 +181,10 @@ describe('runWizard', () => {
     expect(result.selections.model).toBe('claude-opus-4-6');
   });
 
+  /**
+   * The responses repeat the values of `existingConfig`, and the mock ignores the pre-selected options.
+   * Thus the asserted mode and servers come from the responses, not from `existingConfig`.
+   */
   it('uses existing config as defaults', async () => {
     const manifest = createTestManifest();
     const existingConfig: ExarchosConfig = {
@@ -197,8 +200,6 @@ describe('runWizard', () => {
       hashes: {},
     };
 
-    // Wizard should use existing config as defaults
-    // User accepts all defaults by selecting same values
     const prompts = new MockPromptAdapter([
       'dev',
       ['context7'],
@@ -211,11 +212,12 @@ describe('runWizard', () => {
 
     expect(result.mode).toBe('dev');
     expect(result.selections.mcpServers).toContain('context7');
-    expect(result.selections.mcpServers).toContain('exarchos'); // required always included
+    expect(result.selections.mcpServers).toContain('exarchos');
   });
 });
 
 describe('runNonInteractive', () => {
+  /** The result holds the required components and the components that the manifest marks as default. */
   it('uses manifest defaults with useDefaults flag', () => {
     const manifest = createTestManifest();
 
@@ -223,13 +225,9 @@ describe('runNonInteractive', () => {
 
     expect(result.mode).toBe('standard');
     expect(result.selections.model).toBe('claude-opus-4-6');
-    // Required servers always included
     expect(result.selections.mcpServers).toContain('exarchos');
-    // Required plugins always included
     expect(result.selections.plugins).toContain('github');
-    // Default plugins included
     expect(result.selections.plugins).toContain('serena');
-    // Default rule sets included
     expect(result.selections.ruleSets).toContain('coding-standards');
   });
 
@@ -256,8 +254,8 @@ describe('runNonInteractive', () => {
     expect(result.mode).toBe('dev');
     expect(result.selections.model).toBe('claude-sonnet-4-20250514');
     expect(result.selections.mcpServers).toContain('context7');
-    expect(result.selections.mcpServers).toContain('exarchos'); // required always included
-    expect(result.selections.plugins).toContain('github'); // required always included
+    expect(result.selections.mcpServers).toContain('exarchos');
+    expect(result.selections.plugins).toContain('github');
     expect(result.selections.plugins).toContain('serena');
     expect(result.selections.ruleSets).toContain('pr-descriptions');
   });

@@ -14,11 +14,10 @@ describe('hooks.json configuration', () => {
     hooksConfig = JSON.parse(content);
   });
 
-  // #1485: SessionStart is re-added as an observe-only binding hook (NOT the
-  // T-40 auto-resume driver — it injects orientation + emits session.started,
-  // never rehydrates). PreCompact stays removed. The unused SubagentStop
-  // observer was retired.
-
+  /**
+   * `SessionStart` is an observe-only hook. It returns the orientation directive
+   * and never rehydrates a workflow.
+   */
   it('hooksJson_SessionStart_DefinedAsObserveOnlyBinding', () => {
     const hooks = (hooksConfig as { hooks: Record<string, Array<{ matcher?: string; hooks: Array<{ type: string; command: string }> }>> }).hooks;
     expect(hooks.SessionStart).toBeDefined();
@@ -31,8 +30,8 @@ describe('hooks.json configuration', () => {
     expect(entry.hooks[0].command).toContain('session-start');
   });
 
+  /** `SubagentStop` is an observe-only hook that records token telemetry. */
   it('hooksJson_SubagentStop_Restored', () => {
-    // #1525 W2 Half 1 — restored as an observe-only token-telemetry hook.
     const hooks = (hooksConfig as { hooks: Record<string, unknown> }).hooks;
     expect(hooks.SubagentStop).toBeDefined();
     const entry = (hooks.SubagentStop as Array<{ hooks: Array<{ command: string }> }>)[0];

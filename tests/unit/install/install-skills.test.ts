@@ -1,13 +1,10 @@
 /**
- * Unit tests for the `installSkills()` function.
+ * Unit tests for `installSkills()` and its provenance helpers.
  *
- * All side effects (spawn, log, errLog, homeDir) are injected so the tests are
- * deterministic: no child processes, no filesystem, no environment leakage.
- *
- * Fixtures are built as in-memory `RuntimeMap` arrays and passed via the
- * `runtimes` dep — we do not touch the `content/harness/runtimes/` directory on disk.
- *
- * Implements: DR-7 (install-skills CLI scaffold), DR-9 (docs), DR-10 (errors).
+ * The tests inject spawn, log, errLog and homeDir, so no test starts a child
+ * process. The runtime fixtures are in-memory `RuntimeMap` values, and no test
+ * reads `content/harness/runtimes/`. A test that writes files uses a temp
+ * directory.
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -35,9 +32,6 @@ import {
   type LegacySkillRenderManifest,
   type SpawnResult,
 } from '../../../src/install/install-skills.js';
-// Boundary check (Task 011): the migration's newline-normalized SKILL.md hash
-// MUST equal the Task 023 generator's `normalizeAndHash`, so a CRLF-checkout
-// install hash-matches the committed legacy manifest.
 import { normalizeAndHash } from '../../../tools/release/generate-legacy-skill-hashes.mjs';
 import { expandTilde } from '../../../src/install/install-skills.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
@@ -94,6 +88,7 @@ function fakeSpawn(result: SpawnResult = { code: 0, stderr: '' }) {
 }
 
 describe('installSkills scaffold (task 019)', () => {
+  /** The `--agent claude-code` argument proves that runtime resolution selected the claude runtime. */
   it('InstallSkills_WithAgentFlag_LoadsMatchingRuntime', async () => {
     const spawn = fakeSpawn();
     const logs: string[] = [];
@@ -107,10 +102,6 @@ describe('installSkills scaffold (task 019)', () => {
       registerMcp: () => {},
     });
 
-    // After the #1217 non-interactive fix, spawn must include the upstream
-    // skills CLI agent identifier (claude → claude-code) and the
-    // non-interactive flag set. Asserting `--agent claude-code` is enough
-    // to prove runtime resolution drove the correct argv.
     expect(spawn.calls).toHaveLength(1);
     const args = spawn.calls[0].args;
     const agentIdx = args.indexOf('--agent');
@@ -118,6 +109,7 @@ describe('installSkills scaffold (task 019)', () => {
     expect(args[agentIdx + 1]).toBe('claude-code');
   });
 
+  /** The flags make the upstream `skills` CLI install each skill for the agent with no prompt. */
   it('InstallSkills_WithAgentFlag_ConstructsCorrectNpxCommand', async () => {
     const spawn = fakeSpawn();
 
@@ -133,10 +125,6 @@ describe('installSkills scaffold (task 019)', () => {
     expect(spawn.calls).toHaveLength(1);
     const { cmd, args } = spawn.calls[0];
     expect(cmd).toBe('npx');
-    // Post-#1217 argv: non-interactive flags drive the upstream `skills`
-    // CLI to install every skill into the claude-code agent home without
-    // any prompts. `--target`/`skills/<name>` were never valid upstream
-    // flags and have been removed.
     expect(args).toEqual([
       '--yes',
       'skills',
@@ -169,8 +157,6 @@ describe('installSkills scaffold (task 019)', () => {
       registerMcp: () => {},
     });
 
-    // Find the log line that contains the command and assert it precedes
-    // the spawn invocation.
     const logIdx = events.findIndex(
       (e) =>
         e.kind === 'log' &&
@@ -184,11 +170,11 @@ describe('installSkills scaffold (task 019)', () => {
     expect(logIdx).toBeLessThan(spawnIdx);
   });
 
+  /**
+   * `--target` is not a flag of the upstream `skills` CLI. The install passes
+   * `--agent <id>`, and `mapRuntimeToSkillsCliAgent` gives the id.
+   */
   it('InstallSkills_WithAgentFlag_MapsRuntimeToUpstreamAgentId', async () => {
-    // Post-#1217: `--target` is not a valid upstream `skills` CLI flag
-    // (it was always silently ignored). The fix routes installs through
-    // `--agent <id>` instead, where <id> is the upstream agent identifier
-    // mapped from our internal runtime name.
     const spawn = fakeSpawn();
 
     await installSkills({
@@ -203,9 +189,7 @@ describe('installSkills scaffold (task 019)', () => {
     const args = spawn.calls[0].args;
     const agentIdx = args.indexOf('--agent');
     expect(agentIdx).toBeGreaterThanOrEqual(0);
-    // claude → claude-code per mapRuntimeToSkillsCliAgent.
     expect(args[agentIdx + 1]).toBe('claude-code');
-    // Sanity: the dead `--target` flag really is gone.
     expect(args).not.toContain('--target');
   });
 
@@ -222,10 +206,8 @@ describe('installSkills scaffold (task 019)', () => {
       }),
     ).rejects.toThrow(/Unknown runtime.*nonesuch/);
 
-    // Spawn must not have been called.
     expect(spawn.calls).toHaveLength(0);
 
-    // Error message must name every supported runtime.
     let caught: unknown;
     try {
       await installSkills({
@@ -246,9 +228,8 @@ describe('installSkills scaffold (task 019)', () => {
   });
 });
 
-// ─── Task 021 — error handling and interactive/non-interactive modes ─────────
-
 describe('installSkills error handling (task 021)', () => {
+  /** The error carries the exit code of the child, so the CLI can exit with it. */
   it('InstallSkills_NpxFailure_ExitsWithChildCode', async () => {
     const spawn = vi.fn(async (): Promise<SpawnResult> => ({
       code: 2,
@@ -268,8 +249,6 @@ describe('installSkills error handling (task 021)', () => {
       caught = err;
     }
     expect(caught).toBeInstanceOf(Error);
-    // The thrown Error should carry the child's exit code so the CLI main()
-    // can call process.exit with it.
     expect((caught as Error & { exitCode?: number }).exitCode).toBe(2);
   });
 
@@ -289,21 +268,20 @@ describe('installSkills error handling (task 021)', () => {
         homeDir: () => '/home/tester',
       });
     } catch {
-      /* expected */
     }
-    // Exact command for manual retry must appear in errLog output.
     const joined = errLines.join('\n');
     expect(joined).toContain(
       'npx --yes skills add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
     );
   });
 
+  /**
+   * Two runtimes match through PATH and none through the environment.
+   * Interactive mode calls the injected prompt to select one.
+   */
   it('InstallSkills_AmbiguousDetection_InteractivePrompt', async () => {
-    // Two runtimes match via PATH, none via env. Interactive mode should
-    // call the injected prompt to disambiguate.
     const spawn = fakeSpawn();
     const prompt = vi.fn(async (_q: string, choices: string[]) => {
-      // Sanity: the choices include both ambiguous candidates.
       expect(choices).toEqual(expect.arrayContaining(['claude', 'codex']));
       return 'claude';
     });
@@ -326,13 +304,12 @@ describe('installSkills error handling (task 021)', () => {
 
     expect(prompt).toHaveBeenCalledTimes(1);
     expect(spawn.calls).toHaveLength(1);
-    // Post-#1217: `skills/claude` positional is gone; agent identity is
-    // now expressed through `--agent claude-code`.
     const args = spawn.calls[0].args;
     const agentIdx = args.indexOf('--agent');
     expect(args[agentIdx + 1]).toBe('claude-code');
   });
 
+  /** The error or the `errLog` output must name `--agent` as the remedy. */
   it('InstallSkills_AmbiguousDetection_NonInteractiveExitsNonZero', async () => {
     const spawn = fakeSpawn();
     const errLines: string[] = [];
@@ -356,16 +333,12 @@ describe('installSkills error handling (task 021)', () => {
       caught = err;
     }
     expect(caught).toBeInstanceOf(Error);
-    // Remediation hint should name --agent in the error or errLog.
     const combined = `${(caught as Error).message}\n${errLines.join('\n')}`;
     expect(combined).toContain('--agent');
-    // Spawn must NOT have run.
     expect(spawn.calls).toHaveLength(0);
   });
 
   it('InstallSkills_UnknownRuntimeFlag_PrintsSupportedList', async () => {
-    // Strengthened version of the task 019 test: assert the error message
-    // names every runtime we passed in.
     const spawn = fakeSpawn();
     let caught: unknown;
     try {
@@ -382,17 +355,14 @@ describe('installSkills error handling (task 021)', () => {
     }
     expect(caught).toBeInstanceOf(Error);
     const msg = (caught as Error).message;
-    // Every runtime in ALL_RUNTIMES must appear, in some order.
     for (const r of ALL_RUNTIMES) {
       expect(msg).toContain(r.name);
     }
     expect(msg).toContain('bogus');
   });
 
+  /** The stderr text of the failed spawn must reach `errLog` unchanged. */
   it('InstallSkills_NetworkError_PropagatesStderrVerbatim', async () => {
-    // Simulate npx failing because the package couldn't be fetched. The
-    // stderr bytes from the spawn call must reach errLog unchanged — no
-    // wrapping, no re-encoding.
     const STDERR =
       'npm ERR! code ENOTFOUND\nnpm ERR! network request to https://... failed\n';
     const spawn = vi.fn(async (): Promise<SpawnResult> => ({
@@ -410,12 +380,12 @@ describe('installSkills error handling (task 021)', () => {
         homeDir: () => '/home/tester',
       });
     } catch {
-      /* expected */
     }
     const joined = errLines.join('\n');
     expect(joined).toContain(STDERR);
   });
 
+  /** The `generic` runtime maps to the upstream `universal` agent. */
   it('InstallSkills_NoDetectedAgent_InstallsGenericWithMessage', async () => {
     const spawn = fakeSpawn();
     const logs: string[] = [];
@@ -430,23 +400,17 @@ describe('installSkills error handling (task 021)', () => {
       detectDeps: { which: () => null, env: {} },
     });
 
-    // Should have spawned for the upstream `universal` agent (our
-    // `generic` runtime maps to upstream `universal` per
-    // mapRuntimeToSkillsCliAgent).
     expect(spawn.calls).toHaveLength(1);
     const args = spawn.calls[0].args;
     const agentIdx = args.indexOf('--agent');
     expect(agentIdx).toBeGreaterThanOrEqual(0);
     expect(args[agentIdx + 1]).toBe('universal');
 
-    // A clear fallback message should be logged.
     const joined = logs.join('\n');
     expect(joined.toLowerCase()).toContain('no agent detected');
     expect(joined.toLowerCase()).toContain('generic');
   });
 });
-
-// ─── #1217 — non-interactive support ─────────────────────────────────────────
 
 describe('mapRuntimeToSkillsCliAgent (#1217)', () => {
   it('mapRuntimeToSkillsCliAgent_claude_returnsClaudeCode', () => {
@@ -461,10 +425,8 @@ describe('mapRuntimeToSkillsCliAgent (#1217)', () => {
   it('mapRuntimeToSkillsCliAgent_codex_passesThrough', () => {
     expect(mapRuntimeToSkillsCliAgent('codex')).toBe('codex');
   });
+  /** A name with no mapping passes through, so a new runtime works when its name is an upstream agent ID. */
   it('mapRuntimeToSkillsCliAgent_unknown_passesThrough', () => {
-    // Forward-compat: unmapped names go through unchanged so a future
-    // runtime added in runtimes/<name>.yaml works automatically as long
-    // as <name> matches an upstream agent ID.
     expect(mapRuntimeToSkillsCliAgent('zencoder')).toBe('zencoder');
   });
 });
@@ -528,6 +490,7 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
     }
   });
 
+  /** The test waits 20 ms before the second call, so a second write gives a different `mtimeMs`. */
   it('registerExarchosInClaudeJson_idempotent_secondCallPreservesMtime', async () => {
     const home = makeTmpHome();
     try {
@@ -535,9 +498,6 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
       const configPath = path.join(home, '.claude.json');
       const beforeMtime = fs.statSync(configPath).mtimeMs;
 
-      // Force a small wall-clock delay so any second write would visibly
-      // bump mtimeMs. 20ms is comfortably above filesystem mtime resolution
-      // on every supported platform.
       await new Promise((r) => setTimeout(r, 20));
 
       registerExarchosInClaudeJson(home);
@@ -549,22 +509,18 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
   });
 });
 
-// ─── T3 — install canonical command aliases + post-install summary ───────────
-// (#1471/#1472, v2.10.1 Bundle A)
-//
-// When a runtime declares `commandsInstallPath` AND a generated
-// `command-aliases/<runtime>/` source tree exists, install-skills must also
-// copy those `*.md` alias files into the expanded commands directory and print
-// a post-install summary (skills dest + commands dest + restart hint). The gate
-// is the presence of `commandsInstallPath` + source tree — never an "opencode"
-// literal (INV-4).
-
+/**
+ * When a runtime declares `commandsInstallPath` and a `command-aliases/<runtime>/`
+ * source tree exists, the install copies the alias files into the expanded
+ * commands directory. Then it prints the skills destination, the commands
+ * destination and a restart hint. The gate is those two conditions, never a
+ * runtime name.
+ *
+ * `OPENCODE` declares `commandsInstallPath`, as `content/harness/runtimes/opencode.yaml`
+ * does. `makeAliasFixture` builds a skills tree with one skill and an alias tree
+ * with two files.
+ */
 describe('installSkills command aliases (T3, #1471/#1472)', () => {
-  /**
-   * opencode runtime fixture: declares `commandsInstallPath`, mirroring the
-   * real `content/harness/runtimes/opencode.yaml`. The other fields match the production map
-   * closely enough for the install path resolution.
-   */
   const OPENCODE = makeRuntime({
     name: 'opencode',
     capabilities: {
@@ -579,13 +535,6 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
     detection: { binaries: ['opencode'], envVars: [] },
   });
 
-  /**
-   * Build a temporary `skills/` source tree containing the per-runtime
-   * subtree `<root>/<runtime>/<skill>/SKILL.md`, plus a sibling
-   * `command-aliases/<runtime>/<name>.md` tree. Returns the two source roots
-   * and a disposer. The skills source is needed so the local-copy fast path
-   * (which the alias copy hangs off of) engages.
-   */
   function makeAliasFixture(runtimeName: string): {
     skillsSource: string;
     aliasesSource: string;
@@ -596,12 +545,10 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
     const skillsSource = path.join(tmp, 'skills');
     const aliasesSource = path.join(tmp, 'command-aliases');
 
-    // One trivial skill so copyLocalSkills finds something to copy.
     const skillDir = path.join(skillsSource, runtimeName, 'sample-skill');
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(path.join(skillDir, 'SKILL.md'), '# sample\n', 'utf8');
 
-    // Two alias files under command-aliases/<runtime>/.
     const aliasDir = path.join(aliasesSource, runtimeName);
     fs.mkdirSync(aliasDir, { recursive: true });
     const aliasFiles = ['ideate.md', 'plan.md'];
@@ -633,7 +580,6 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
         registerMcp: () => {},
       });
 
-      // Alias files must land in the expanded commandsInstallPath.
       const destDir = expandTilde('~/.config/opencode/commands', home);
       for (const f of fx.aliasFiles) {
         expect(fs.existsSync(path.join(destDir, f))).toBe(true);
@@ -644,10 +590,11 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
     }
   });
 
+  /**
+   * With no `skillsSource`, the skills install through `npx skills add`. The
+   * alias install runs after that branch too.
+   */
   it('InstallSkills_OpencodeShellOutPath_StillCopiesAliasFiles', async () => {
-    // When skillsSource is undefined, skills install via the upstream
-    // `npx skills add` shell-out. Alias install runs *after* that branch too,
-    // so opencode must still get its /ideate, /plan, ... commands.
     const fx = makeAliasFixture('opencode');
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-home-'));
     try {
@@ -673,9 +620,8 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
     }
   });
 
+  /** The runtime has no `commandsInstallPath`, so the install must not copy the alias tree for `generic`. */
   it('InstallSkills_RuntimeWithoutCommandsPath_WritesNoAliasFiles', async () => {
-    // generic has no commandsInstallPath — even if an aliases source tree
-    // happens to exist, nothing must be written for it.
     const fx = makeAliasFixture('generic');
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-home-'));
     const GENERIC_NO_CMDS = makeRuntime({
@@ -696,10 +642,8 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
         registerMcp: () => {},
       });
 
-      // No commands directory should have been created at all.
       const commandsRoot = path.join(home, '.config', 'opencode', 'commands');
       expect(fs.existsSync(commandsRoot)).toBe(false);
-      // And the generic agents dir must contain no `.md` alias files.
       const genericCmds = expandTilde('~/.agents/commands', home);
       expect(fs.existsSync(genericCmds)).toBe(false);
     } finally {
@@ -728,10 +672,8 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
       const joined = logs.join('\n');
       const skillsDest = expandTilde('~/.config/opencode/skills', home);
       const cmdsDest = expandTilde('~/.config/opencode/commands', home);
-      // Summary names both destinations.
       expect(joined).toContain(skillsDest);
       expect(joined).toContain(cmdsDest);
-      // ...and includes a restart hint.
       expect(joined.toLowerCase()).toContain('restart');
     } finally {
       fx.dispose();
@@ -740,22 +682,20 @@ describe('installSkills command aliases (T3, #1471/#1472)', () => {
   });
 });
 
-// ─── Task 010 — canonical `.agents/skills` layout + copy-mode + provenance ────
-// (DR-4, DR-8). The canonical set = procedural skills (`skills/standard/`) +
-// the runtime's orchestration skills (`skills/<runtime>/`). It lands both at the
-// cross-client convention path (`~/.agents/skills` user scope) AND the harness's
-// native dir. On `win32` the convention copy is a file copy, never a symlink
-// (INV-16). Every install writes/updates a per-scope provenance manifest, and
-// `detectLayoutDrift` reports a stale/modified canonical copy read-only.
-
+/**
+ * The canonical skill set is the procedural skills in `skills/standard/` and the
+ * orchestration skills of the runtime in `skills/<runtime>/`. The install places
+ * the set at the cross-client path (`~/.agents/skills` for user scope) and in
+ * the native dir of the harness. On `win32` the cross-client entry is a file
+ * copy, never a symlink. Each install updates the provenance manifest of the
+ * scope, and `detectLayoutDrift` reports a changed copy and writes nothing.
+ *
+ * `makeSkillsTree` writes a real source tree, so placement and hashing use the
+ * filesystem.
+ */
 describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', () => {
   const IS_WIN = process.platform === 'win32';
 
-  /**
-   * Build a real `skills/` source tree with `standard/<proc>/SKILL.md`
-   * procedural skills plus per-runtime `<runtime>/<orch>/SKILL.md` orchestration
-   * skills. Real disk so the placement + hashing exercise the filesystem boundary.
-   */
   function makeSkillsTree(spec: {
     standard: string[];
     runtimes: Record<string, string[]>;
@@ -778,6 +718,7 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
     return fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-canon-home-'));
   }
 
+  /** On POSIX each canonical entry is a symlink to the native copy. The win32 copy has its own test. */
   it('installSkills_CanonicalLayout_PlacesAgentsSkillsDir', async () => {
     const src = makeSkillsTree({ standard: ['plan'], runtimes: { claude: ['ideate'] } });
     const home = makeTmpHome();
@@ -794,19 +735,14 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
         version: 'test-1.0.0',
       });
 
-      // Per-harness native dir got both the procedural + orchestration skill.
       const nativeDir = expandTilde('~/.claude/skills', home);
       expect(fs.existsSync(path.join(nativeDir, 'plan', 'SKILL.md'))).toBe(true);
       expect(fs.existsSync(path.join(nativeDir, 'ideate', 'SKILL.md'))).toBe(true);
 
-      // Cross-client canonical convention path got the same set (resolving
-      // through the POSIX symlink to the native copy).
       const canonicalDir = expandTilde('~/.agents/skills', home);
       expect(fs.existsSync(path.join(canonicalDir, 'plan', 'SKILL.md'))).toBe(true);
       expect(fs.existsSync(path.join(canonicalDir, 'ideate', 'SKILL.md'))).toBe(true);
 
-      // On POSIX the canonical entries are symlinks (dedup to the native copy);
-      // on win32 they would be real copies (asserted separately).
       if (!IS_WIN) {
         expect(fs.lstatSync(path.join(canonicalDir, 'plan')).isSymbolicLink()).toBe(true);
         expect(fs.lstatSync(path.join(canonicalDir, 'ideate')).isSymbolicLink()).toBe(true);
@@ -817,9 +753,11 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
     }
   });
 
+  /**
+   * The test injects `platform: 'win32'`. Recorders for `copyDir` and `symlink`
+   * show which one ran for each placement.
+   */
   it('installSkills_Win32_UsesCopyNotSymlink', async () => {
-    // Inject platform='win32': the canonical placement MUST copy, never symlink
-    // (INV-16). copyDir/symlink recorders capture which primitive ran.
     const src = makeSkillsTree({ standard: ['plan'], runtimes: { claude: ['ideate'] } });
     const home = makeTmpHome();
     const copyCalls: Array<{ src: string; dest: string }> = [];
@@ -840,13 +778,10 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
         symlink: (t, l) => symlinkCalls.push({ target: t, link: l }),
       });
 
-      // No symlink was ever created on win32.
       expect(symlinkCalls).toHaveLength(0);
-      // The canonical `.agents/skills` copy went through copyDir (file copy).
       const canonicalDir = expandTilde('~/.agents/skills', home);
       const copiedIntoCanonical = copyCalls.some((c) => c.dest.startsWith(canonicalDir));
       expect(copiedIntoCanonical).toBe(true);
-      // ...and the native dir was likewise a copy.
       const nativeDir = expandTilde('~/.claude/skills', home);
       const copiedIntoNative = copyCalls.some((c) => c.dest.startsWith(nativeDir));
       expect(copiedIntoNative).toBe(true);
@@ -856,6 +791,11 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
     }
   });
 
+  /**
+   * The manifest lists the canonical and native placements of the harness, with
+   * a content hash for each skill. A second install into the same scope merges
+   * into the manifest, so the native placements of both harnesses stay.
+   */
   it('installSkills_EveryInstall_WritesScopedProvenanceManifest', async () => {
     const src = makeSkillsTree({
       standard: ['plan'],
@@ -884,8 +824,6 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
       expect(m1.scope).toBe('user');
       expect(m1.skills).toEqual(expect.arrayContaining(['ideate', 'plan']));
 
-      // The manifest enumerates the per-harness placement paths (canonical +
-      // native) with newline-normalized content hashes per skill.
       const claudeNative = m1.placements.find(
         (p) => p.harness === 'claude' && p.kind === 'native',
       );
@@ -895,8 +833,6 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
         true,
       );
 
-      // A SECOND install into the same scope UPDATES (merges into) the manifest
-      // rather than clobbering it — both harnesses' native placements survive.
       await installSkills({
         agent: 'codex',
         runtimes: [CLAUDE, CODEX],
@@ -921,6 +857,11 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
     }
   });
 
+  /**
+   * A new install reports no drift. Then the test appends to a skill file at the
+   * canonical path. On POSIX that write goes through the symlink to the native
+   * copy.
+   */
   it('doctor_CanonicalCopyStale_ReportsDrift', async () => {
     const src = makeSkillsTree({ standard: ['plan'], runtimes: { claude: ['ideate'] } });
     const home = makeTmpHome();
@@ -937,12 +878,8 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
         version: 'test-1.0.0',
       });
 
-      // Freshly installed: the on-disk copies match the recorded provenance
-      // hashes, so `doctor` reports NO drift.
       expect(detectLayoutDrift({ scope: 'user', home, projectRoot: home })).toEqual([]);
 
-      // Mutate a skill file at the canonical path (on POSIX this writes through
-      // the symlink to the native copy) → the recorded hash no longer matches.
       const canonicalSkill = path.join(expandTilde('~/.agents/skills', home), 'plan', 'SKILL.md');
       fs.appendFileSync(canonicalSkill, '\nlocally edited\n', 'utf8');
 
@@ -956,35 +893,33 @@ describe('installSkills canonical layout + provenance (Task 010, DR-4/DR-8)', ()
   });
 });
 
-// ─── Rename-migration provenance helpers (Task 011, DR-3/DR-8) ────────────────
-
 describe('legacy-render + install-manifest provenance helpers', () => {
+  /**
+   * `hashSkillMdContent` must equal `normalizeAndHash` of the legacy hash
+   * generator. CRLF must hash as LF, so an install from a Windows checkout
+   * matches the committed legacy manifest.
+   */
   it('hashSkillMdContent_MatchesLegacyGeneratorNormalizeAndHash', () => {
-    // The migration's SKILL.md hash is the load-bearing cross-format contract: it
-    // MUST be byte-identical to the Task 023 generator's `normalizeAndHash`, and
-    // CRLF must normalize to LF so a Windows-checkout install still matches.
     const lf = '# ideate\n\nOrient the workflow.\n';
     const crlf = lf.replace(/\n/g, '\r\n');
 
     expect(hashSkillMdContent(lf)).toBe(normalizeAndHash(lf));
-    // CRLF and LF hash identically (newline-normalized) — the CRLF-install case.
     expect(hashSkillMdContent(crlf)).toBe(hashSkillMdContent(lf));
     expect(hashSkillMdContent(crlf)).toBe(normalizeAndHash(crlf));
   });
 
+  /** The file on disk holds CRLF. A directory with no `SKILL.md` gives `undefined`. */
   it('hashSkillMdFile_ReadsSkillMd_NormalizesCrlf', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'skillmd-'));
     try {
       const lf = '# delegate\n\nDelegate to sub-agents.\n';
       fs.mkdirSync(path.join(dir, 'delegation'), { recursive: true });
-      // Write CRLF bytes on disk — the reader must newline-normalize before hashing.
       fs.writeFileSync(
         path.join(dir, 'delegation', 'SKILL.md'),
         lf.replace(/\n/g, '\r\n'),
         'utf8',
       );
       expect(hashSkillMdFile(path.join(dir, 'delegation'))).toBe(hashSkillMdContent(lf));
-      // A dir with no SKILL.md → undefined (not a skill dir).
       fs.mkdirSync(path.join(dir, 'empty'), { recursive: true });
       expect(hashSkillMdFile(path.join(dir, 'empty'))).toBeUndefined();
     } finally {
@@ -1008,33 +943,33 @@ describe('legacy-render + install-manifest provenance helpers', () => {
       ],
     };
     const index = indexLegacyHashesBySkill(manifest);
-    // "matches ANY release" ⇒ the per-skill set unions every historical hash.
     expect(index.get('brainstorming')).toEqual(new Set(['h1', 'h2', 'h3']));
     expect(index.get('delegation')).toEqual(new Set(['h4']));
     expect(index.get('nonexistent')).toBeUndefined();
   });
 
+  /**
+   * The test reads the committed legacy manifest, which must index the skills
+   * that the rename migration targets. An absent manifest path gives `undefined`,
+   * and the migration then keeps the directories.
+   */
   it('loadLegacyHashIndex_ParsesRealCommittedManifest', () => {
-    // Consume the REAL committed Task 023 manifest (no invented parallel format):
-    // it resolves on disk, parses, and indexes renamed-away skills.
     const manifestPath = findLegacyHashManifestPath();
     expect(manifestPath).toBeDefined();
 
     const index = loadLegacyHashIndex();
     expect(index).toBeDefined();
-    // The renamed-away skills the migration targets are all covered historically.
     expect((index!.get('brainstorming')?.size ?? 0)).toBeGreaterThan(0);
     expect((index!.get('delegation')?.size ?? 0)).toBeGreaterThan(0);
     expect((index!.get('workflow-state')?.size ?? 0)).toBeGreaterThan(0);
 
-    // Every hash in a set is a full 64-hex sha256 digest (the generator's shape).
     const someHash = [...index!.get('brainstorming')!][0];
     expect(someHash).toMatch(/^[0-9a-f]{64}$/);
 
-    // Absent manifest path ⇒ undefined (the conservative PRESERVE default).
     expect(loadLegacyHashIndex({ manifestPath: path.join(os.tmpdir(), 'nope.json') })).toBeUndefined();
   });
 
+  /** A different hash for the skill, or a skill that the manifest does not record, gives `false`. */
   it('installManifestVouchesForDir_MatchesRecordedWholeDirHash', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'provdir-'));
     try {
@@ -1054,9 +989,7 @@ describe('legacy-render + install-manifest provenance helpers', () => {
       };
 
       expect(installManifestVouchesForDir([manifest], 'synthesis', dirHash)).toBe(true);
-      // A different content hash for the same skill does NOT vouch (modified dir).
       expect(installManifestVouchesForDir([manifest], 'synthesis', 'deadbeef')).toBe(false);
-      // A skill the manifest never recorded is not vouched for.
       expect(installManifestVouchesForDir([manifest], 'discovery', dirHash)).toBe(false);
     } finally {
       rmrf(dir);

@@ -1,9 +1,5 @@
-// ─── Agent Spec Anti-Drift Tests ───────────────────────────────────────────
-//
-// Bidirectional sync tests that prevent agent spec definitions from drifting
-// out of valid constraints. These tests catch issues at commit time rather
-// than at runtime.
-// ────────────────────────────────────────────────────────────────────────────
+// The agent specs must stay inside their constraints. Capability and tool names are known, ids are
+// unique, template variables are well-formed, and no spec both grants and disallows a tool.
 
 import { describe, it, expect } from 'vitest';
 import { ALL_AGENT_SPECS } from '../../../../src/runtime/agents/definitions.js';
@@ -11,19 +7,13 @@ import { CAPABILITY_KEYS } from '../../../../src/runtime/agents/capabilities.js'
 import { deriveClaudeToolsFromCapabilities } from '../../../../src/runtime/agents/adapters/claude.js';
 import { resolveCapabilities } from '../../../../src/workflow/capabilities/posture-mapping.js';
 
-// ─── Known Names ───────────────────────────────────────────────────────────
-
 const KNOWN_DISALLOWED_TOOLS: ReadonlySet<string> = new Set([
   'Read', 'Write', 'Edit', 'Bash', 'Grep', 'Glob', 'Agent', 'WebFetch', 'WebSearch',
 ]);
 
-// ─── Template Var Pattern ──────────────────────────────────────────────────
-
-/** Matches any content between {{ and }} — captures the raw token for validation. */
+/** Captures the raw token between `{{` and `}}`. */
 const TEMPLATE_VAR_PATTERN = /\{\{(.+?)\}\}/g;
 const VALID_IDENTIFIER = /^[a-zA-Z_]\w*$/;
-
-// ─── Drift Tests ───────────────────────────────────────────────────────────
 
 describe('Agent Spec Drift Prevention', () => {
   it('AllAgentSpecs_ReferenceValidCapabilities_KnownNames', () => {
@@ -69,10 +59,11 @@ describe('Agent Spec Drift Prevention', () => {
     }
   });
 
+  /**
+   * The Claude adapter renders the `tools` of each agent file with `deriveClaudeToolsFromCapabilities`,
+   * so this check reads what the Claude agent files grant. Each other adapter has its own test.
+   */
   it('AllAgentSpecs_DisallowedToolsNotInDerivedTools_NoOverlap', () => {
-    // Use the canonical Claude derivation helper so this check stays in lock-step
-    // with what `agents/*.md` actually grants. Cross-adapter coverage lives in
-    // each adapter's own snapshot test (see runtimes/*.test.ts).
     for (const spec of ALL_AGENT_SPECS) {
       if (!spec.disallowedTools) continue;
       const derived = new Set<string>(deriveClaudeToolsFromCapabilities(spec));

@@ -1,27 +1,14 @@
-// ─── runtimes/copilot.yaml supportedCapabilities + spawn-call tests ────────
-//
-// Pins the corrections from Task 7e:
-//
-//   1. SPAWN_AGENT_CALL must use the LOCAL Copilot CLI subagent primitive
-//      (`task --agent <name>`), not `/delegate` (which ships work to the
-//      cloud Copilot Coding Agent and opens a PR — wrong shape for our
-//      worktree fan-out). See discovery §3 (Copilot row) + §4 Class 2.
-//
-//   2. The spawn call must reference an agent NAME — the bare-name form
-//      derived from `copilotAdapter.agentFilePath('implementer')` —
-//      because Copilot's local custom-agent loader keys off the filename
-//      (`<name>.agent.md`), not the full path.
-//
-//   3. `supportedCapabilities` must be a YAML mapping that mirrors
-//      `copilotAdapter.supportLevels`: 5 native + 2 advisory entries
-//      (the 3 unsupported capabilities are absent by contract).
-//
-//   4. The previous YAML's "we knowingly picked the wrong primitive"
-//      justification block must be removed — the comment was load-bearing
-//      documentation for the wrong choice and is misleading once corrected.
-//
-// Implements: Task 7e of docs/plans/archive/2026-04-25-delegation-runtime-parity.md.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests for `content/harness/runtimes/copilot.yaml`.
+ *
+ * - `SPAWN_AGENT_CALL` must use the local Copilot CLI primitive `task --agent <name>`, not `/delegate`.
+ *   `/delegate` sends the work to the cloud Copilot Coding Agent, which opens a PR.
+ * - The spawn call must give the bare agent name, because the local agent loader of Copilot uses the
+ *   file name `<name>.agent.md` as the key.
+ * - `supportedCapabilities` must be a YAML mapping that agrees with the `supportLevels` of `CopilotAdapter`.
+ *   It holds six native and two advisory entries, and omits the three unsupported capabilities.
+ * - The YAML must not hold the comment text that justified `/delegate`.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -33,8 +20,7 @@ import { CopilotAdapter } from '../../../../src/runtime/agents/adapters/copilot.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// `content/harness/runtimes/copilot.yaml` lives at the repo root, four levels up from this
-// test file (src/runtime/runtimes/copilot.test.ts).
+/** The path of the Copilot runtime map. The repository root is four directories above this file. */
 const COPILOT_YAML_PATH = resolve(
   __dirname,
   '../../../../content/harness/runtimes/copilot.yaml');
@@ -55,14 +41,18 @@ function loadCopilotYaml(): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-/** Derive the bare agent name from the adapter's path, e.g. "implementer". */
+/** Returns the agent name from an adapter path of the form `.github/agents/<name>.agent.md`. */
 function bareAgentName(adapterPath: string): string {
-  // adapterPath looks like ".github/agents/<name>.agent.md".
   const filename = adapterPath.split('/').pop() ?? '';
   return filename.replace(/\.agent\.md$/, '');
 }
 
 describe('content/harness/runtimes/copilot.yaml — local task --agent primitive', () => {
+  /**
+   * Copilot CLI runs a local custom agent through the `task` tool with the `--agent <name>` flag.
+   * `/delegate` is remote and asynchronous, so it does not fit the in-session worktree fan-out.
+   * Reference: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
+   */
   it('CopilotYaml_SpawnAgentCall_UsesLocalTaskAgentNotDelegate', () => {
     const data = loadCopilotYaml();
     const placeholders = data.placeholders as Record<string, unknown>;
@@ -71,49 +61,38 @@ describe('content/harness/runtimes/copilot.yaml — local task --agent primitive
     expect(typeof spawn).toBe('string');
     const spawnStr = spawn as string;
 
-    // Must invoke the local custom-agent path. Copilot CLI exposes this
-    // via the `task` tool with a `--agent <name>` programmatic flag.
-    // Reference: https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/create-custom-agents-for-cli
     expect(spawnStr).toContain('task --agent');
 
-    // Must NOT use `/delegate`. That primitive ships work to the cloud
-    // Copilot Coding Agent and opens a PR — async, remote, wrong shape
-    // for Exarchos's in-session worktree fan-out. (Discovery §3 row,
-    // Class 2 leak.)
     expect(spawnStr).not.toContain('/delegate');
   });
 
+  /**
+   * The value after `--agent` must be the bare agent name from the adapter path, not the full file path.
+   * The test accepts the literal `--agent implementer`, or any `{{word}}` placeholder after `--agent`.
+   */
   it('CopilotYaml_SpawnAgentCall_ReferencesGeneratedAgentName', () => {
     const data = loadCopilotYaml();
     const placeholders = data.placeholders as Record<string, unknown>;
     const spawn = placeholders?.SPAWN_AGENT_CALL as string;
 
-    // The agent identifier passed to `--agent` must be the bare name
-    // generated by the Copilot adapter (not the full file path).
-    // copilotAdapter.agentFilePath('implementer') → ".github/agents/implementer.agent.md"
-    // bare name → "implementer".
     const adapter = new CopilotAdapter();
     const expectedName = bareAgentName(adapter.agentFilePath('implementer'));
     expect(expectedName).toBe('implementer');
 
-    // The placeholder template uses {{agent}} / a literal name slot — the
-    // contract is that the bare name "implementer" appears as the natural
-    // referent. Either a literal substring or the templated form
-    // `--agent implementer` must be present.
     const referencesBareName =
       spawn.includes(`--agent ${expectedName}`) ||
-      // Allow templated form so the renderer can substitute per-spec.
       /--agent\s+\{\{\s*\w+\s*\}\}/.test(spawn);
     expect(referencesBareName).toBe(true);
   });
 
+  /**
+   * `supportedCapabilities` must be a YAML mapping, not a list, because the renderer reads one support level per capability.
+   * The mapping must hold the six native keys and the two advisory keys, and no other key.
+   */
   it('CopilotYaml_SupportedCapabilities_SixNativeTwoAdvisory', () => {
     const data = loadCopilotYaml();
     const supported = data.supportedCapabilities;
 
-    // Must be a YAML mapping (object), not a list/array. The prose
-    // renderer (Tasks 8/9) needs per-capability support-level strings
-    // to gate `<!-- requires:* -->` vs `<!-- requires:native:* -->`.
     expect(supported).toBeDefined();
     expect(supported).not.toBeNull();
     expect(Array.isArray(supported)).toBe(false);
@@ -121,12 +100,6 @@ describe('content/harness/runtimes/copilot.yaml — local task --agent primitive
 
     const map = supported as Record<string, unknown>;
 
-    // Per COPILOT_SUPPORT_LEVELS (Task 4f + #1192 T08 readonly tier):
-    //   native (6):    fs:read, fs:write, shell:exec, subagent:spawn,
-    //                  mcp:exarchos, mcp:exarchos:readonly
-    //   advisory (2):  isolation:worktree, session:resume
-    //   unsupported (3, omitted): subagent:completion-signal,
-    //                             subagent:start-signal, team:agent-teams
     const expectedNative = [
       'fs:read',
       'fs:write',
@@ -146,13 +119,12 @@ describe('content/harness/runtimes/copilot.yaml — local task --agent primitive
       expect(map[key], `'${key}' should be 'advisory'`).toBe('advisory');
     }
 
-    // The 3 unsupported capabilities are absent from the mapping by
-    // contract. No additional keys beyond the 5 + 2 above.
     expect(Object.keys(map).sort()).toEqual(
       [...expectedNative, ...expectedAdvisory].sort(),
     );
   });
 
+  /** The YAML must omit each capability that the adapter marks `unsupported`, and must agree on each other level. */
   it('CopilotYaml_AdapterAlignment_MatchesSupportLevels', () => {
     const data = loadCopilotYaml();
     const supported = data.supportedCapabilities as Record<string, unknown>;
@@ -160,7 +132,6 @@ describe('content/harness/runtimes/copilot.yaml — local task --agent primitive
 
     for (const [cap, level] of Object.entries(adapter.supportLevels)) {
       if (level === 'unsupported') {
-        // Unsupported capabilities are absent from the YAML by contract.
         expect(
           Object.prototype.hasOwnProperty.call(supported, cap),
           `unsupported capability '${cap}' must NOT appear in supportedCapabilities`,
@@ -174,14 +145,13 @@ describe('content/harness/runtimes/copilot.yaml — local task --agent primitive
     }
   });
 
+  /**
+   * The YAML text must not hold the phrases of a comment block that justified `/delegate` over the local `task` tool.
+   * Each pattern ignores case.
+   */
   it('CopilotYaml_StaleJustificationComment_Removed', () => {
     const text = loadCopilotYamlText();
 
-    // The previous YAML had a comment block justifying the wrong-primitive
-    // pick over the local `task` tool. Once we switch to `task --agent`,
-    // that comment is misleading and must be removed entirely. Match on
-    // the load-bearing phrases (case-insensitive) — small wording drift
-    // shouldn't false-pass.
     const forbiddenPhrases = [
       /async\s+cloud\s+worker/i,
       /we\s+pick\s+\/delegate/i,

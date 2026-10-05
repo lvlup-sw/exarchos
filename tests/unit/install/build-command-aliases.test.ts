@@ -1,16 +1,8 @@
 /**
- * Tests for canonical-name command alias emission (T2, v2.10.1 Bundle A, #1472).
- *
- * The emitter renders one thin "alias" command file per `COMMAND_TO_SKILL`
- * entry, but ONLY for runtimes that declare the `canonicalCommandAliases`
- * capability. Today that is opencode alone; cursor/generic/codex/copilot
- * declare no such capability and must receive ZERO alias files (INV-4: the
- * gate is a declared per-runtime capability, never a hardcoded "opencode"
- * literal).
- *
- * These tests consume the REAL `COMMAND_TO_SKILL` map and the REAL command
- * files, writing into a temp output dir so they assert the production
- * behavior end-to-end.
+ * Tests for the emission of canonical-name command aliases. The emitter writes one alias file
+ * for each `COMMAND_TO_SKILL` entry, only for a runtime that declares the
+ * `canonicalCommandAliases` capability. The gate is the capability, not a runtime name. The
+ * tests read the real `COMMAND_TO_SKILL` map and the real command files.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -37,13 +29,13 @@ function makeTempDir(): string {
   return dir;
 }
 
+/** Remove each temp directory. A removal error does not fail the test. */
 afterEach(() => {
   while (tempDirs.length > 0) {
     const dir = tempDirs.pop()!;
     try {
       rmrf(dir);
     } catch {
-      /* best-effort */
     }
   }
 });
@@ -117,9 +109,11 @@ describe('buildCommandAliases — capability gating', () => {
   });
 });
 
+/**
+ * `writeToggleRuntimes` writes all six runtime maps, because `loadAllRuntimes` requires each
+ * one. Only the `canonicalCommandAliases` flag of opencode follows `opencodeEnabled`.
+ */
 describe('emitCommandAliases — stale cleanup across all runtimes', () => {
-  // loadAllRuntimes requires every runtime map present, so write all six;
-  // only opencode's `canonicalCommandAliases` is toggled by `opencodeEnabled`.
   function writeToggleRuntimes(runtimesDir: string, opencodeEnabled: boolean): void {
     mkdirSync(runtimesDir, { recursive: true });
     const names = ['generic', 'claude', 'codex', 'opencode', 'copilot', 'cursor'];
@@ -157,11 +151,14 @@ describe('emitCommandAliases — stale cleanup across all runtimes', () => {
     }
   }
 
+  /**
+   * The first pass has the capability on and writes the full alias tree. The second pass has
+   * it off and must remove each alias file, although the runtime emits nothing.
+   */
   it('prunes a runtime alias tree after canonicalCommandAliases is disabled', () => {
     const runtimesDir = makeTempDir();
     const outDir = makeTempDir();
 
-    // First pass: capability ON → full alias tree emitted.
     writeToggleRuntimes(runtimesDir, true);
     emitCommandAliases({ runtimesDir, commandsDir: REPO_COMMANDS_DIR, outDir });
     const aliasDir = join(outDir, 'opencode');
@@ -169,9 +166,6 @@ describe('emitCommandAliases — stale cleanup across all runtimes', () => {
       readdirSync(aliasDir).filter((f) => f.endsWith('.md')).length,
     ).toBe(COMMAND_KEYS.length);
 
-    // Second pass: capability OFF → the now-orphaned tree must be pruned,
-    // even though the runtime no longer emits (regression guard for the
-    // cleanup-only-emitting-runtimes bug).
     writeToggleRuntimes(runtimesDir, false);
     emitCommandAliases({ runtimesDir, commandsDir: REPO_COMMANDS_DIR, outDir });
     const remaining = existsSync(aliasDir)
@@ -196,8 +190,6 @@ describe('buildCommandAliases — alias file shape', () => {
   it('lifts the description from the command frontmatter', () => {
     const aliasDir = emitOpencode();
     const ideate = readFileSync(join(aliasDir, 'ideate.md'), 'utf8');
-    // commands/ideate.md frontmatter:
-    //   description: Start collaborative design exploration for a feature or problem
     const cmdSrc = readFileSync(join(REPO_COMMANDS_DIR, 'ideate.md'), 'utf8');
     const cmdDesc = cmdSrc.match(/^description:\s*(.+)$/m)?.[1].trim();
     expect(cmdDesc).toBeTruthy();
@@ -209,16 +201,14 @@ describe('buildCommandAliases — alias file shape', () => {
   it('body references the single mapped skill and passes $ARGUMENTS', () => {
     const aliasDir = emitOpencode();
     const ideate = readFileSync(join(aliasDir, 'ideate.md'), 'utf8');
-    // ideate → ideate (identity-collapsed skill name)
     expect(ideate).toContain('`ideate`');
     expect(ideate).toContain('$ARGUMENTS');
   });
 
+  /** The search includes the backticks, so the plain word in the command title and the description does not match. */
   it('multi-skill commands name every mapped skill in order (review)', () => {
     const aliasDir = emitOpencode();
     const review = readFileSync(join(aliasDir, 'review.md'), 'utf8');
-    // review → [mutation-adequacy, review] (map order). Match the backtick-quoted
-    // skill tokens so `review` does not collide with the command title/description.
     expect(review).toContain('`mutation-adequacy`');
     expect(review).toContain('`review`');
     expect(review.indexOf('`mutation-adequacy`')).toBeLessThan(
@@ -230,7 +220,6 @@ describe('buildCommandAliases — alias file shape', () => {
   it('multi-skill commands name every mapped skill in order (delegate)', () => {
     const aliasDir = emitOpencode();
     const delegate = readFileSync(join(aliasDir, 'delegate.md'), 'utf8');
-    // delegate → [delegate, git-worktrees] (identity-collapsed skill name)
     expect(delegate).toContain('`delegate`');
     expect(delegate).toContain('`git-worktrees`');
     expect(delegate.indexOf('`delegate`')).toBeLessThan(

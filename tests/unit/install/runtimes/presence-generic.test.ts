@@ -1,11 +1,7 @@
 /**
  * Presence test for `content/harness/runtimes/generic.yaml`.
- *
- * This is the lowest-common-denominator runtime map: no subagents, no slash
- * commands, no hooks, no skill chaining. Any target runtime the installer
- * does not explicitly recognise falls back to this map.
- *
- * Implements: DR-4, DR-5 (generic branch)
+ * When the installer detects no agent runtime, it uses this map.
+ * The map has no subagents, no slash commands, no hook system and no skill chaining.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -16,8 +12,6 @@ import { loadRuntime } from '../../../../src/install/runtimes/load.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-// Production runtimes directory lives at the repo root of the worktree. From
-// `src/runtimes/` that's two levels up.
 const RUNTIMES_DIR = resolve(__dirname, '../../../../content/harness/runtimes');
 const GENERIC_YAML = resolve(RUNTIMES_DIR, 'generic.yaml');
 
@@ -31,7 +25,6 @@ describe('content/harness/runtimes/generic.yaml presence', () => {
     expect(runtime.capabilities.hasSkillChaining).toBe(false);
     expect(runtime.capabilities.mcpPrefix).toBe('mcp__exarchos__');
 
-    // #1485: generic has no hook system — `none` profile, AGENTS.md binding only.
     expect(runtime.capabilities.hooks?.profile).toBe('none');
     expect(runtime.capabilities.hooks?.canInjectContext).toBe(false);
     expect(runtime.capabilities.hooks?.sessionStartEvent).toBeNull();

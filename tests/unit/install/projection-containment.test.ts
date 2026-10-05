@@ -1,11 +1,9 @@
 /**
- * Unit tests for the projection-containment verifier core (P05-03; ART-008).
- *
- * These exercise the PURE model with synthetic, in-memory layers so every rule
- * — presence-by-digest, selection-by-resolution-order, the typed diagnostics,
- * and the shipped-`files` coverage proof — is pinned without touching the real
- * repo. The real-tree acceptance + the genuine packaging finding live in
- * `projection-containment.packaging.test.ts`.
+ * Unit tests for the projection-containment verifier core. They use synthetic
+ * in-memory layers and do not read the real repository. The rules under test are
+ * presence by digest, selection by resolution order, the typed diagnostics, and the
+ * `files[]` coverage check. `projection-containment.packaging.test.ts` holds the
+ * checks over the real tree.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -28,8 +26,6 @@ import {
   type RepoReadFs,
 } from '../../../src/install/projection-containment.js';
 
-// ─── helpers ─────────────────────────────────────────────────────────────────
-
 function layer(
   name: string,
   packaged: boolean,
@@ -41,8 +37,6 @@ function layer(
 function required(kind: ProjectionKind, path: string, content: string): RequiredProjection {
   return { id: `${kind}:${path}`, kind, path, digest: digestText(content) };
 }
-
-// ─── PROJECTION_KINDS / spec coverage ────────────────────────────────────────
 
 describe('projection kinds & spec coverage', () => {
   it('enumerates exactly the seven governed kinds, uniquely', () => {
@@ -60,8 +54,6 @@ describe('projection kinds & spec coverage', () => {
   });
 });
 
-// ─── resolveWinningLayer ─────────────────────────────────────────────────────
-
 describe('resolveWinningLayer', () => {
   it('returns the first (highest-priority) layer carrying the path', () => {
     const a = layer('a', false, [['x', 'A']]);
@@ -74,8 +66,6 @@ describe('resolveWinningLayer', () => {
     expect(resolveWinningLayer('missing', [layer('a', true, [['x', 'A']])])).toBeUndefined();
   });
 });
-
-// ─── verifyContainment: structural guards ────────────────────────────────────
 
 describe('verifyContainment structural guards', () => {
   const r = required('skill', 'skills/s/SKILL.md', 'body');
@@ -114,8 +104,6 @@ describe('verifyContainment structural guards', () => {
   });
 });
 
-// ─── Exit-proof matrix, per kind, over synthetic layers ──────────────────────
-
 describe.each(PROJECTION_KINDS)('exit-proof (synthetic): %s projection', (kind) => {
   const path = `synthetic/${kind}/example`;
   const authored = `authored ${kind} projection content\n`;
@@ -136,7 +124,6 @@ describe.each(PROJECTION_KINDS)('exit-proof (synthetic): %s projection', (kind) 
     const v = res.violations.find((x) => x.kind === 'missing');
     expect(v?.projection).toBe(kind);
     expect(v?.path).toBe(path);
-    // The assertion helper throws a typed error naming the projection kind + id.
     let thrown: unknown;
     try {
       assertContainment({ required: req, layers });
@@ -179,8 +166,6 @@ describe.each(PROJECTION_KINDS)('exit-proof (synthetic): %s projection', (kind) 
     expect(res.violations.some((x) => x.kind === 'not-selected')).toBe(true);
   });
 });
-
-// ─── enumerateProjections (I/O adapter over an injected fs) ───────────────────
 
 describe('enumerateProjections (injected fs)', () => {
   const REPO = 'C:/repo';
@@ -225,11 +210,12 @@ describe('enumerateProjections (injected fs)', () => {
     },
   ];
 
+  /** `notes.txt` does not match the `include` filter of the spec, so it is not a projection. */
   it('derives required projections with digests from the authored bytes', () => {
     const fs = fakeFs({
       'C:/repo/skills/std/plan/SKILL.md': 'plan body\n',
       'C:/repo/skills/std/plan/references/x.md': 'ref\n',
-      'C:/repo/skills/std/plan/notes.txt': 'not a projection', // excluded by include
+      'C:/repo/skills/std/plan/notes.txt': 'not a projection',
       'C:/repo/AGENTS.md': 'orientation\n',
     });
     const { projections, contents } = enumerateProjections(REPO, specs, fs);
@@ -248,19 +234,18 @@ describe('enumerateProjections (injected fs)', () => {
     expect(() => enumerateProjections(REPO, specs, fs)).toThrow(/instruction projection file 'AGENTS.md' is missing/);
   });
 
+  /** The `skills` directory exists, but no file in it matches the `include` filter. */
   it('throws when a required DIR root matches zero projection files (empty render)', () => {
     const fs = fakeFs({
-      'C:/repo/skills/std/plan/notes.txt': 'nope', // present dir, but nothing matches include
+      'C:/repo/skills/std/plan/notes.txt': 'nope',
       'C:/repo/AGENTS.md': 'a\n',
     });
     expect(() => enumerateProjections(REPO, specs, fs)).toThrow(/skill root 'skills' matched zero projection files/);
   });
 });
 
-// ─── Shipped-`files` coverage proof ──────────────────────────────────────────
-
+/** `complete` is a `files[]` list that ships the root of each projection kind. */
 describe('checkShippedCoverage', () => {
-  // A files[] set that ships every kind's root (the desired end state).
   const complete = [
     'dist/bin',
     'agents',
@@ -289,7 +274,6 @@ describe('checkShippedCoverage', () => {
   });
 
   it('ignores files[] negation entries (they never satisfy a root)', () => {
-    // A negation that happens to mention a root name must not count as shipping it.
     const res = checkShippedCoverage(['skills', 'agents', 'hooks', '.claude-plugin', 'AGENTS.md', 'dist/bin', '!command-aliases']);
     expect(res.violations.some((v) => v.kind === 'alias')).toBe(true);
   });

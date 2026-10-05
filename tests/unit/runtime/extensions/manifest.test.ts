@@ -61,9 +61,9 @@ describe('manifest schema + helpers (P03-08)', () => {
     expect(parseManifest({ ...manifest, extra: 'nope' }).ok).toBe(false);
   });
 
+  /** The signed bytes and the bytes that verification derives again must match. */
   it('Manifest_CanonicalBytesMatchBodyBytes', () => {
     const manifest = buildSignedManifest(BODY, makeSigner('root.a'));
-    // The bytes signed and the bytes re-derived for verification must match.
     expect(canonicalManifestBytes(manifest).equals(canonicalBodyBytes(BODY))).toBe(true);
   });
 

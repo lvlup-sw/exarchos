@@ -1,24 +1,9 @@
 /**
- * T043 (DR-5) — the rehydrate **skill** must invoke the first-class
- * `exarchos_workflow.rehydrate` MCP action (registered in T033) rather than
- * the legacy CLI/pipeline-based flow.
- *
- * DR-3 (harness conform-and-shrink, Task 007): the fat `commands/rehydrate.md`
- * body was collapsed into a thin shim and its invocation + Output Format
- * content migrated into `content/continuity/skills/rehydrate/SKILL.md`. This suite now pins
- * that contract in its new home — the skill source.
- *
- * Prior legacy invocation:
- *   1. `exarchos_view pipeline` to discover active workflows
- *   2. `exarchos_workflow get featureId="<id>" fields=[...]` to fetch playbook
- *
- * New canonical invocation: `exarchos_workflow` tool with
- * `action: "rehydrate"` + `featureId: <arg>` — returns an envelope
- * containing the rehydration document (workflowState, taskProgress,
- * artifacts, blockers, etc.) in a single call.
- *
- * Scope: content-only validation of the skill source markdown. No runtime
- * execution required — the skill is consumed by the agent as a prompt.
+ * Content checks on the rehydrate skill source, `content/continuity/skills/rehydrate/SKILL.md`.
+ * The skill must call the `rehydrate` action of `exarchos_workflow` with a `featureId`.
+ * That one call returns the rehydration document. The skill must not send the agent to
+ * `exarchos_view pipeline` and then to `exarchos_workflow get` with a `fields` array.
+ * The checks read the Markdown only and run no skill.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -37,10 +22,11 @@ describe('RehydrateSkill_InvocationReturnsDocument (T043, DR-5; DR-3 fold-in)', 
     expect(body).toContain('exarchos_workflow');
   });
 
+  /**
+   * Accepts `action: "rehydrate"`, `action="rehydrate"`, or the word `rehydrate` within
+   * 200 characters after `exarchos_workflow`.
+   */
   it('references the "rehydrate" action on exarchos_workflow', () => {
-    // Accept either the structured MCP form (`action: "rehydrate"` /
-    // `action="rehydrate"`) or the bare `exarchos_workflow rehydrate`
-    // composite form — both map to handleRehydrate in composite.ts.
     const mentionsRehydrateAction =
       /exarchos_workflow[\s\S]{0,200}\brehydrate\b/.test(body) ||
       /\baction\s*[:=]\s*["']rehydrate["']/.test(body);
@@ -51,34 +37,28 @@ describe('RehydrateSkill_InvocationReturnsDocument (T043, DR-5; DR-3 fold-in)', 
     expect(body).toMatch(/featureId/);
   });
 
+  /**
+   * One `rehydrate` call returns the document. The skill must not tell the agent to
+   * assemble it from `exarchos_workflow get` calls with a `fields` array.
+   */
   it('does NOT invoke the legacy `exarchos_workflow get` fields-array flow', () => {
-    // The legacy flow called `exarchos_workflow get` with a `fields` array
-    // to assemble the rehydration document client-side. T043 collapses that
-    // into a single `rehydrate` action call — so the skill must no longer
-    // steer the agent toward the legacy multi-call composition.
     expect(body).not.toMatch(/exarchos_workflow\s+get[\s\S]{0,100}fields\s*=\s*\[/);
     expect(body).not.toMatch(/fields\s*=\s*\[\s*["']playbook["']/);
   });
 
+  /**
+   * The `rehydrate` action takes `featureId` directly, so pipeline discovery is not the
+   * first step. The check rejects only a numbered step 1 that reads
+   * "Discover active workflow(s) via MCP: `exarchos_view pipeline`".
+   */
   it('does NOT rely on `exarchos_view pipeline` as the primary discovery step', () => {
-    // Legacy step 1 was: `exarchos_view pipeline` then ask user which
-    // workflow to rehydrate. The `rehydrate` action now takes featureId
-    // directly; discovery (if needed) is a fallback, not the canonical
-    // primary step — the skill body must not frame pipeline-discovery
-    // as the canonical first call.
     expect(body).not.toMatch(/1\.\s*Discover\s+active\s+workflow\(s\)\s+via\s+MCP:\s*`exarchos_view\s+pipeline`/i);
   });
 });
 
 /**
- * T-30 (rehydration-machinery-refactor) — the rehydrate skill Output Format
- * must render the §5.4 brief sketch: a `### House Rules` block (skill / tools
- * / required + auto-emitted events / transition / validation scripts), an
- * `### Event Emission Hints` block with a missing-events fallback, a
- * phase-with-no-playbook fallback, and a verbatim discipline reminder that
- * names the workflow event stream and the delegate path.
- *
- * Scope: content-only validation of the skill source. No runtime execution.
+ * The Output Format of the rehydrate skill must hold a `### House Rules` block, an
+ * `### Event Emission Hints` block, both fallbacks, and the verbatim discipline reminder.
  */
 describe('RehydrateSkill_HouseRulesBlock (T-30, P3; DR-3 fold-in)', () => {
   const body = readFileSync(skillPath, 'utf-8');
@@ -103,12 +83,11 @@ describe('RehydrateSkill_HouseRulesBlock (T-30, P3; DR-3 fold-in)', () => {
     expect(body).toContain('(no playbook for this phase)');
   });
 
+  /**
+   * The checkpoint skill test pins the same sentence. The neutral render uses the bare
+   * verb `delegate`, with no `/exarchos:` prefix.
+   */
   it('renders the discipline reminder sentence verbatim per brief §5.4', () => {
-    // Verbatim sketch from
-    // docs/research/2026-05-08-rehydrate-machinery-reinit.md:183 (mirrored
-    // in the brief). Any reword desyncs against the RCA reference and
-    // must be caught here. Post-DR-3 the collapsed vocabulary uses the bare
-    // verb `delegate` (the neutral render carries no `/exarchos:` prefix).
     const disciplineReminder =
       '> **Discipline reminder:** every task transition this turn forward MUST land on the workflow event stream via `exarchos_event.append` or `delegate` subagent emission. Direct `Edit` / `Bash` / `git` actions on task branches without corresponding events will desync the workflow tracker (see RCA `docs/rca/2026-05-08-rehydrate-behavioral-gap.md`).';
     expect(body).toContain(disciplineReminder);

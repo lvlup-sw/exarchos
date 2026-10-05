@@ -1,23 +1,13 @@
 /**
- * T1 (v2.10.1 Bundle A, #1472) — Canonical command → skill map drift guard.
+ * Drift guard for the command-to-skill map in `canonical-skills.ts`.
  *
- * `COMMAND_TO_SKILL` (in `./canonical-skills.ts`) is the single source-of-truth
- * mapping from a canonical workflow command name to the underlying skill
- * directory name(s) it delegates to. This test derives the *expected* mapping
- * from the actual `commands/*.md` files at test time and asserts the map agrees,
- * so the human-readable "Skill Reference" prose in the command files cannot drift
- * away from the machine-readable map without failing CI.
+ * The test derives the expected map from the command files in `rendered/commands`
+ * and compares it with `COMMAND_TO_SKILL`. A command file can reference more than
+ * one skill. Only `@skills/<dir>/SKILL.md` references count. A path under
+ * `@skills/<dir>/references/` is not a skill entry point.
  *
- * A command file may reference MORE THAN ONE skill (e.g. `delegate.md` ->
- * `delegate` + `git-worktrees`; `review.md` -> `review` + `mutation-adequacy`).
- * Only `@skills/<dir>/SKILL.md` references count — `@skills/<dir>/references/*.md`
- * include paths are NOT skill entry points and must be ignored.
- *
- * Commands that delegate to no skill (`autocompact`, `tag`) are declared in
- * `COMMAND_ONLY` and must NOT appear in `COMMAND_TO_SKILL`.
- *
- * Scope: content-only validation of the markdown command templates against the
- * map. No runtime execution required.
+ * A command that references no skill must be in `COMMAND_ONLY` and not in
+ * `COMMAND_TO_SKILL`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -28,12 +18,11 @@ import { fileURLToPath } from 'node:url';
 import { COMMAND_TO_SKILL, COMMAND_ONLY, canonicalCommandSet } from '../../../../src/install/config/canonical-skills.js';
 import { findSkillDir } from '../../../../tools/test-helpers/content-tree.js';
 
-// `src/config/` → repo root is two levels up.
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../../..');
 const commandsDir = join(repoRoot, 'rendered', 'commands');
 const skillsSrcDir = join(repoRoot, 'content');
 
-/** Matches a skill *entry-point* reference, e.g. `@skills/spec-review/SKILL.md`. */
+/** Matches a skill entry-point reference such as `@skills/spec-review/SKILL.md`. */
 const SKILL_REF = /@skills\/([^/]+)\/SKILL\.md/g;
 
 /** All command file base names (without `.md`). */
@@ -63,7 +52,6 @@ describe('canonical-skills map (T1, #1472)', () => {
         mapped || commandOnly,
         `command "${command}" is neither in COMMAND_TO_SKILL nor COMMAND_ONLY`,
       ).toBe(true);
-      // A command is one or the other, never both.
       expect(
         mapped && commandOnly,
         `command "${command}" appears in BOTH COMMAND_TO_SKILL and COMMAND_ONLY`,
@@ -75,7 +63,6 @@ describe('canonical-skills map (T1, #1472)', () => {
     for (const command of commandNames) {
       const actual = referencedSkills(command);
       if (actual.length === 0) {
-        // No skill entry-point reference → must be declared command-only.
         expect(
           COMMAND_ONLY.has(command),
           `command "${command}" references no skill but is not in COMMAND_ONLY`,
@@ -123,9 +110,6 @@ describe('canonical-skills map (T1, #1472)', () => {
   });
 
   it('CanonicalCommandSet_MatchesCommandsDir', () => {
-    // The accessor is the canonical "which /commands exist" surface. It must
-    // equal exactly the set of command names derived from commands/*.md at
-    // test time — no missing commands, no phantom entries.
     expect(canonicalCommandSet()).toEqual(commandNames);
   });
 });

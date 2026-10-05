@@ -14,8 +14,6 @@ import {
 } from '../../../../src/install/onramp/managed-block.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Fixtures / helpers ───────────────────────────────────────────────────────
-
 let tmpDir: string;
 let counter = 0;
 
@@ -49,12 +47,14 @@ function outsideContent(text: string): string {
   return text.trim();
 }
 
-// ─── insertManagedBlock — core semantics ──────────────────────────────────────
-
 describe('insertManagedBlock', () => {
+  /**
+   * The file holds a lone `START` marker beside consumer content. The function
+   * appends a new block and keeps the original bytes. The result then holds
+   * two `START` markers: the stray one and the new one.
+   */
   it('insertManagedBlock_IncompletePair_TreatsAbsentAppendsFresh', () => {
     const filePath = freshPath();
-    // Only a START marker (a broken pair) plus consumer content.
     const original = `# Consumer notes\n${BINDING_MARKER_START}\nleftover fragment\n`;
     fs.writeFileSync(filePath, original, 'utf8');
 
@@ -62,24 +62,25 @@ describe('insertManagedBlock', () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    // Treated as ABSENT → append a fresh block, never claiming the stray marker.
     expect(result.action).toBe('created');
     expect(result.warnings.length).toBeGreaterThan(0);
     expect(result.warnings.join(' ')).toMatch(/incomplete|duplicated/i);
 
     const written = fs.readFileSync(filePath, 'utf8');
-    // Original consumer content (and the stray marker) preserved verbatim.
     expect(written.startsWith(original)).toBe(true);
     expect(written).toContain('leftover fragment');
-    // Exactly one END and a freshly-appended complete block now exist.
     expect(occurrences(written, BINDING_MARKER_END)).toBe(1);
-    expect(occurrences(written, BINDING_MARKER_START)).toBe(2); // stray + fresh
+    expect(occurrences(written, BINDING_MARKER_START)).toBe(2);
     expect(written).toContain('Use Exarchos for SDLC.');
   });
 
+  /**
+   * The first append leaves the file malformed: a stray `START` and one clean
+   * block. A second insert with the same content must write nothing, and must
+   * not warn about a concurrent writer.
+   */
   it('insertManagedBlock_SecondInsertOnMalformedFile_IdempotentNoAccumulation', () => {
     const filePath = freshPath();
-    // A broken pair (stray START) beside consumer content — the malformed path.
     const original = `# Consumer notes\n${BINDING_MARKER_START}\nleftover fragment\n`;
     fs.writeFileSync(filePath, original, 'utf8');
 
@@ -88,12 +89,9 @@ describe('insertManagedBlock', () => {
     if (!first.ok) return;
     expect(first.action).toBe('created');
     const afterFirst = fs.readFileSync(filePath, 'utf8');
-    // First append leaves the file STILL malformed (stray START + our clean block).
     expect(occurrences(afterFirst, BINDING_MARKER_START)).toBe(2);
     expect(occurrences(afterFirst, BINDING_MARKER_END)).toBe(1);
 
-    // Second insert with the SAME content must NOT stack another block (the
-    // pre-fix bug: each run re-appends because locateBlock still sees 'malformed').
     let writes = 0;
     const second = insertManagedBlock(
       { filePath, content: 'Use Exarchos for SDLC.', provenance: 'binding.md' },
@@ -101,25 +99,21 @@ describe('insertManagedBlock', () => {
     );
     expect(second.ok).toBe(true);
     if (!second.ok) return;
-    expect(second.action).toBe('unchanged'); // no-op: our block is already present
-    expect(writes).toBe(0); // no write at all
-    // No spurious "concurrent writer" round-trip warning on the no-op path.
+    expect(second.action).toBe('unchanged');
+    expect(writes).toBe(0);
     expect(second.warnings.join(' ')).not.toMatch(/concurrent writer/i);
 
     const afterSecond = fs.readFileSync(filePath, 'utf8');
-    expect(afterSecond).toBe(afterFirst); // byte-identical — nothing accumulated
-    // Still exactly ONE managed block (the stray START is unchanged; our block once).
+    expect(afterSecond).toBe(afterFirst);
     expect(occurrences(afterSecond, BINDING_MARKER_END)).toBe(1);
   });
 
   it('insertManagedBlock_IdenticalContent_NoWriteNoBackup', () => {
     const filePath = freshPath();
-    // Seed a real block via a first (default-deps) insert.
     const seed = insertManagedBlock({ filePath, content: 'Same content', provenance: 'binding.md' });
     expect(seed.ok).toBe(true);
     const seededBytes = fs.readFileSync(filePath, 'utf8');
 
-    // Second insert with identical content: assert NO write and NO backup happen.
     let writes = 0;
     let copies = 0;
     const deps: InsertManagedBlockDeps = {
@@ -138,15 +132,16 @@ describe('insertManagedBlock', () => {
     expect(result.backupPath).toBeUndefined();
     expect(writes).toBe(0);
     expect(copies).toBe(0);
-    // File bytes untouched.
     expect(fs.readFileSync(filePath, 'utf8')).toBe(seededBytes);
-    // No backup file was created alongside.
     expect(fs.existsSync(`${filePath}.exarchos.bak`)).toBe(false);
   });
 
+  /**
+   * The backup must hold the bytes from before the change. The bytes outside
+   * the block must not change.
+   */
   it('insertManagedBlock_ChangedBlock_BacksUpOnceThenReplacesInPlace', () => {
     const filePath = freshPath();
-    // Build a file with a v1 block AND surrounding consumer content.
     insertManagedBlock({ filePath, content: 'VERSION ONE', provenance: 'binding.md' });
     const withHeader = `TOP HEADER\n\n${fs.readFileSync(filePath, 'utf8')}\nBOTTOM FOOTER\n`;
     fs.writeFileSync(filePath, withHeader, 'utf8');
@@ -164,26 +159,23 @@ describe('insertManagedBlock', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.action).toBe('replaced');
-    // Backed up EXACTLY once, to the returned path, with the pre-change bytes.
     expect(copies).toBe(1);
     expect(result.backupPath).toBe(`${filePath}.exarchos.bak`);
     expect(fs.readFileSync(result.backupPath!, 'utf8')).toBe(beforeReplace);
 
     const after = fs.readFileSync(filePath, 'utf8');
-    // Block replaced in place; surrounding content untouched.
     expect(after).toContain('VERSION TWO');
     expect(after).not.toContain('VERSION ONE');
     expect(after).toContain('TOP HEADER');
     expect(after).toContain('BOTTOM FOOTER');
     expect(occurrences(after, BINDING_MARKER_START)).toBe(1);
     expect(occurrences(after, BINDING_MARKER_END)).toBe(1);
-    // Consumer-owned bytes are byte-invariant across the replace.
     expect(outsideContent(after)).toBe(outsideContent(beforeReplace));
   });
 
+  /** The block content arrives with LF. After the write, each newline in the file is CRLF. */
   it('insertManagedBlock_CrlfFile_PreservesLineEndings', () => {
     const filePath = freshPath();
-    // A CRLF consumer file.
     fs.writeFileSync(filePath, `# Header\r\nsome consumer text\r\n`, 'utf8');
 
     const result = insertManagedBlock({
@@ -197,13 +189,12 @@ describe('insertManagedBlock', () => {
     expect(result.lineEnding).toBe('crlf');
 
     const written = fs.readFileSync(filePath, 'utf8');
-    // Every newline is a CRLF — after stripping all CRLF, no stray LF remains.
     expect(written.split('\r\n').join('').includes('\n')).toBe(false);
-    // Block markers present with CRLF; internal content LF was normalized to CRLF.
     expect(written).toContain(`${BINDING_MARKER_START}\r\n`);
     expect(written).toContain(`Line A\r\nLine B`);
   });
 
+  /** The new file must hold only the block. */
   it('insertManagedBlock_MissingFile_CreatesWithBlock', () => {
     const filePath = freshPath('does-not-exist-yet.md');
     expect(fs.existsSync(filePath)).toBe(false);
@@ -216,7 +207,6 @@ describe('insertManagedBlock', () => {
     expect(result.lineEnding).toBe('lf');
 
     const written = fs.readFileSync(filePath, 'utf8');
-    // File contains ONLY the block (one clean pair, nothing outside it).
     expect(occurrences(written, BINDING_MARKER_START)).toBe(1);
     expect(occurrences(written, BINDING_MARKER_END)).toBe(1);
     expect(written.trim().startsWith(BINDING_MARKER_START)).toBe(true);
@@ -241,7 +231,6 @@ describe('insertManagedBlock', () => {
     expect(result.error.suggestedFix).toBeTruthy();
     expect(result.error.suggestedFix.length).toBeGreaterThan(0);
     expect(result.error.cause).toContain('EACCES');
-    // The failed write left no file behind.
     expect(fs.existsSync(filePath)).toBe(false);
   });
 
@@ -250,19 +239,18 @@ describe('insertManagedBlock', () => {
     const result = insertManagedBlock({ filePath, content: 'B', provenance: 'binding.md v9' });
     expect(result.ok).toBe(true);
     const written = fs.readFileSync(filePath, 'utf8');
-    // Provenance descriptor + a content hash live inside the fenced region.
     expect(written).toContain('exarchos-managed:');
     expect(written).toContain('binding.md v9');
     expect(written).toMatch(/content-sha256:[0-9a-f]{16}/);
   });
 });
 
-// ─── Cross-package equality guard ─────────────────────────────────────────────
-
 describe('fence constants', () => {
+  /**
+   * `managed-block.ts` holds a copy of the fence markers in `src/install/binding.ts`.
+   * The test reads the two literals from the source text of `binding.ts`.
+   */
   it('fenceConstants_MatchRootBindingSource', () => {
-    // Read the ROOT package's binding.ts SOURCE TEXT (no runtime import — the MCP
-    // server cannot import across the package boundary; this catches drift).
     const here = path.dirname(fileURLToPath(import.meta.url));
     const rootBindingPath = path.resolve(here, '../../../../src/install/binding.ts');
     const source = fs.readFileSync(rootBindingPath, 'utf8');
@@ -270,7 +258,6 @@ describe('fence constants', () => {
     const startLiteral = source.match(/BINDING_MARKER_START\s*=\s*'([^']*)'/)?.[1];
     const endLiteral = source.match(/BINDING_MARKER_END\s*=\s*'([^']*)'/)?.[1];
 
-    // Guard against a regex miss producing a vacuous pass.
     expect(startLiteral).toBeTruthy();
     expect(endLiteral).toBeTruthy();
 
@@ -279,11 +266,13 @@ describe('fence constants', () => {
   });
 });
 
-// ─── Property: consumer-owned content is invariant ────────────────────────────
-
 describe('managed block properties', () => {
+  /**
+   * The generated consumer content and payloads hold no Exarchos marker. After
+   * each sequence of inserts, the trimmed consumer content is the same and the
+   * file holds one clean block.
+   */
   it('outsideContent_InvariantUnderAnyBlockOperationSequence', () => {
-    // Consumer content and block payloads never embed the Exarchos markers.
     const noMarker = (s: string): boolean => !s.includes('exarchos:binding');
     const arbConsumer = fc.string({ maxLength: 200 }).filter(noMarker);
     const arbPayloads = fc.array(fc.string({ maxLength: 120 }).filter(noMarker), {
@@ -302,9 +291,7 @@ describe('managed block properties', () => {
         }
 
         const final = fs.readFileSync(filePath, 'utf8');
-        // Consumer-owned bytes survive ANY sequence of block operations.
         expect(outsideContent(final)).toBe(consumer.trim());
-        // Never accumulates: exactly one clean block always.
         expect(occurrences(final, BINDING_MARKER_START)).toBe(1);
         expect(occurrences(final, BINDING_MARKER_END)).toBe(1);
       }),

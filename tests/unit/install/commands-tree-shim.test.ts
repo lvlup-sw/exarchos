@@ -1,20 +1,11 @@
 /**
- * DR-3 (harness conform-and-shrink, Task 007) — commands tree thin-shim guard.
+ * Guards that each skill-backed command file in `rendered/commands` is a thin shim.
+ * A skill-backed command is a key of `COMMAND_TO_SKILL`. Its body holds a short directive
+ * that points at the backing skills through `@skills/<dir>/SKILL.md`, and no procedure.
+ * The skill source is the only copy of the procedure.
  *
- * Every **skill-backed** `commands/<verb>.md` (a key of `COMMAND_TO_SKILL`) must
- * be a *thin shim*: its body carries no duplicated procedure — just a short
- * directive that delegates to the backing skill(s) via `@skills/<dir>/SKILL.md`.
- * The fat procedure bodies were migrated INTO the corresponding
- * `content/<verb>/SKILL.md` sources so the skill is the single source of
- * truth. No command file is deleted this cycle (older-Claude compatibility).
- *
- * **Command-only** surfaces (`autocompact`, `tag` — declared in `COMMAND_ONLY`,
- * absent from `COMMAND_TO_SKILL`) are EXEMPT: they carry their own inline prompt
- * and are never subject to the no-duplication guard, which is scoped to
- * skill-backed commands.
- *
- * These are content-only assertions over the markdown command templates — the
- * command files are consumed by the harness as prompts, not parsed by our TS.
+ * Each member of `COMMAND_ONLY` holds its own inline prompt, and the guard does not apply to it.
+ * The assertions read the Markdown command files as text.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -33,14 +24,12 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const commandsDir = join(repoRoot, 'rendered', 'commands');
 const skillsSrcDir = join(repoRoot, 'content');
 
-/** Matches a skill *entry-point* reference, e.g. `@skills/discover/SKILL.md`. */
+/** Matches a skill entry-point reference such as `@skills/discover/SKILL.md`. */
 const SKILL_REF = /@skills\/([^/]+)\/SKILL\.md/g;
 
 /**
- * A thin shim is allowed at most this many non-blank body lines (after the YAML
- * frontmatter). Real shims are one directive line; every pre-collapse fat body
- * was 30-170 lines, so the ceiling has a wide margin while still going red the
- * moment a duplicated procedure body is reintroduced.
+ * Maximum number of non-blank body lines, after the YAML frontmatter, in a thin shim.
+ * A shim holds one directive line, so the limit has a margin and still fails a procedure body.
  */
 const MAX_SHIM_BODY_LINES = 8;
 
@@ -71,14 +60,15 @@ const sorted = (xs: readonly string[]): string[] => [...xs].sort();
 describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
   const skillBacked = Object.keys(COMMAND_TO_SKILL).sort();
 
+  /**
+   * A thin body stays under the line limit and holds no fenced code block.
+   * It references exactly the skills that its `COMMAND_TO_SKILL` entry declares.
+   */
   it('commandsTree_SkillBackedCommands_NoBodyDuplication', () => {
     for (const command of skillBacked) {
       const body = commandBody(command);
       const lines = nonBlankLines(body);
 
-      // 1. Thin: no duplicated procedure body — under the line ceiling and
-      //    carrying no fenced code block (the clearest tell of a migrated
-      //    procedure). A fat body fails both.
       expect(
         lines.length,
         `commands/${command}.md body has ${lines.length} non-blank lines ` +
@@ -92,8 +82,6 @@ describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
           `to the skill and must not embed a duplicated procedure.`,
       ).toBe(false);
 
-      // 2. Delegates: references EXACTLY the skills its map entry declares, so
-      //    the shim still points a resolver at the backing skill(s).
       expect(
         referencedSkills(body),
         `commands/${command}.md must reference exactly its mapped skill(s) via ` +
@@ -102,29 +90,26 @@ describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
     }
   });
 
+  /**
+   * `COMMAND_ONLY` is not empty and shares no member with `COMMAND_TO_SKILL`, so the
+   * thin-shim guard never reads these files. Each member has a command file.
+   * One member or more must exceed the line limit, which proves that the exemption has an effect.
+   */
   it('commandsTree_CommandOnlySurfaces_Exempt', () => {
-    // The command-only set is non-empty and disjoint from the skill-backed map,
-    // so the no-duplication guard above never iterates over these surfaces.
     expect(COMMAND_ONLY.size).toBeGreaterThan(0);
 
     let sawFatExemptBody = false;
     for (const command of COMMAND_ONLY) {
-      // Exempt surfaces are real files that carry their own inline prompt.
       expect(
         existsSync(join(commandsDir, `${command}.md`)),
         `COMMAND_ONLY entry "${command}" has no commands/${command}.md file`,
       ).toBe(true);
 
-      // Scoping invariant: a command-only surface is NOT skill-backed, so it is
-      // structurally excluded from the thin-shim guard.
       expect(
         command in COMMAND_TO_SKILL,
         `command-only "${command}" must not appear in COMMAND_TO_SKILL`,
       ).toBe(false);
 
-      // Exempt means "allowed to be fat": at least one command-only surface
-      // legitimately exceeds the shim ceiling, proving the guard is genuinely
-      // scoped rather than trivially satisfied.
       const lines = nonBlankLines(commandBody(command));
       if (lines.length > MAX_SHIM_BODY_LINES) sawFatExemptBody = true;
     }
@@ -136,14 +121,17 @@ describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
     ).toBe(true);
   });
 
-  // Trigger-tests: resolve every canonical verb to its backing surface.
+  /**
+   * Each canonical verb is skill-backed or command-only, never both, and has a command file.
+   * A skill-backed verb references skill sources that exist on disk.
+   * A command-only verb references no skill.
+   */
   describe('resolves each canonical verb', () => {
     for (const verb of canonicalCommandSet()) {
       it(`resolves /${verb}`, () => {
         const isSkillBacked = verb in COMMAND_TO_SKILL;
         const isCommandOnly = COMMAND_ONLY.has(verb);
 
-        // Every verb resolves to exactly one surface class.
         expect(
           isSkillBacked !== isCommandOnly,
           `verb "${verb}" must be exactly one of skill-backed / command-only`,
@@ -152,7 +140,6 @@ describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
         expect(existsSync(join(commandsDir, `${verb}.md`))).toBe(true);
 
         if (isSkillBacked) {
-          // The shim resolves to on-disk skill sources — the verb is reachable.
           const skills = COMMAND_TO_SKILL[verb];
           expect(referencedSkills(commandBody(verb))).toEqual(sorted(skills));
           for (const dir of skills) {
@@ -162,7 +149,6 @@ describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
             ).toBe(true);
           }
         } else {
-          // Command-only: resolves to its own inline body, not a skill.
           expect(referencedSkills(commandBody(verb))).toEqual([]);
         }
       });

@@ -96,7 +96,6 @@ describe('evaluateInstallFreshness — posture & bootstrap', () => {
     const files = coherentFiles();
     const outcome = evaluateInstallFreshness(gateDeps(files));
     expect(outcome.status).toBe('bootstrapped');
-    // The lock is now persisted so subsequent runs have something to compare.
     expect(files.has(lockPath())).toBe(true);
   });
 
@@ -108,9 +107,12 @@ describe('evaluateInstallFreshness — posture & bootstrap', () => {
   });
 });
 
+/**
+ * `blockOn` records a lock built from the given files. Then it evaluates the
+ * gate against the base install and returns the mismatched dimensions.
+ */
 describe('evaluateInstallFreshness — five independently-seeded mismatches block', () => {
   function blockOn(lockFiles: Map<string, string>): ReadonlyArray<string> {
-    // Observed = base coherent install; lock = identity built from lockFiles.
     const observedFiles = coherentFiles();
     seedLock(observedFiles, identityFrom(lockFiles));
     const outcome = evaluateInstallFreshness(gateDeps(observedFiles));
@@ -134,9 +136,11 @@ describe('evaluateInstallFreshness — five independently-seeded mismatches bloc
     expect(blockOn(coherentFiles({ cache: JSON.stringify({ owner: 'exarchos@1.0.0' }) }))).toContain('cache');
   });
 
+  /**
+   * The gate blocks when the schema of the running binary is newer than the
+   * schema in the lock. The test records a lock that is one version older.
+   */
   it('SCHEMA mismatch blocks when the store/lock schema is NEWER than the binary', () => {
-    // Directional: observed(binary SCHEMA_VERSION) must be > expected(lock) to block.
-    // Seed a lock recording an OLDER schema so the running binary is "newer".
     const files = coherentFiles();
     const base = identityFrom(files);
     const olderLock: InstallIdentity = { ...base, schema: { version: SCHEMA_VERSION - 1 } };
@@ -148,13 +152,13 @@ describe('evaluateInstallFreshness — five independently-seeded mismatches bloc
     }
   });
 
+  /** The test records a lock that is one schema version newer than the binary. */
   it('does NOT block when the store/lock schema is OLDER than the binary (forward-migrate)', () => {
     const files = coherentFiles();
     const base = identityFrom(files);
     const newerLock: InstallIdentity = { ...base, schema: { version: SCHEMA_VERSION + 1 } };
     seedLock(files, newerLock);
     const outcome = evaluateInstallFreshness(gateDeps(files));
-    // observed(SCHEMA_VERSION) < expected(SCHEMA_VERSION+1) ⇒ schema does not block here.
     if (outcome.status === 'blocked') {
       expect(outcome.mismatches.map((m) => m.dimension)).not.toContain('schema');
     } else {
@@ -164,12 +168,14 @@ describe('evaluateInstallFreshness — five independently-seeded mismatches bloc
 });
 
 describe('evaluateInstallFreshness — memoization', () => {
+  /**
+   * The test changes `package.json` after the first call. The memoized gate
+   * returns `fresh` and does not collect the identity again.
+   */
   it('caches a non-blocking outcome (evaluated once per process)', () => {
     const files = coherentFiles();
     seedLock(files, identityFrom(files));
     expect(evaluateInstallFreshness(gateDeps(files)).status).toBe('fresh');
-    // Now corrupt the install — a memoized gate must NOT re-run and must return
-    // the cached 'fresh' rather than re-collecting.
     files.set(path.join(PLUGIN_ROOT, 'package.json'), JSON.stringify({ version: '9.9.9' }));
     expect(evaluateInstallFreshness(gateDeps(files)).status).toBe('fresh');
   });
@@ -181,12 +187,11 @@ describe('evaluateInstallFreshness — memoization', () => {
     expect(evaluateInstallFreshness(gateDeps(files)).status).toBe('blocked');
   });
 
+  /** The repair writes a lock that matches the files on disk. */
   it('a block clears once the install is repaired (re-evaluation, then memoized fresh)', () => {
     const files = coherentFiles();
-    // Stale lock → blocked.
     files.set(lockPath(), `${JSON.stringify(identityFrom(coherentFiles({ pkg: JSON.stringify({ version: '9.9.9' }) })), null, 2)}\n`);
     expect(evaluateInstallFreshness(gateDeps(files)).status).toBe('blocked');
-    // Repair: rewrite the lock to match on-disk state.
     seedLock(files, identityFrom(files));
     expect(evaluateInstallFreshness(gateDeps(files)).status).toBe('fresh');
   });

@@ -1,17 +1,11 @@
-// ─── Spawn-seam integration: probe → apply → spawn (DR-6 / DR-8, high tier) ──
+// A cross-process integration test of the injection spawn seam. `writeFakeHarness` writes a fake
+// harness binary, a POSIX shell script. On `--help` the script prints the given help text and
+// appends a line to a probe-count file. On a normal run it writes its argv and the injected env to
+// a capture file.
 //
-// A REAL cross-process integration test of the injection spawn seam. It writes a
-// FAKE harness binary (a POSIX shell script) that:
-//   - on `--help`, prints a controllable help text AND appends to a probe-count
-//     file (so per-process caching is provable), and
-//   - on a normal run, captures its argv + the injected env to a capture file.
-//
-// The test drives the ACTUAL seam end-to-end — `resolveInjectionChannel` (the
-// real win32-safe `--help` probe via `spawnCommandSync`), `applyOrientationChannel`
-// (real temp-file materialization for the `file` form), and `spawnHarnessChild`
-// (the real cross-OS spawn) — then reads the capture file to assert the resolved
-// channel actually reached the child. POSIX-only (skipped on win32, whose spawn
-// path is covered by the win32-safe unit seam + the `test-windows` lane).
+// `runSeam` runs the real seam: `resolveInjectionChannel` with the default `--help` probe,
+// `applyOrientationChannel` with a real temp file, and `spawnHarnessChild`. It then parses the
+// capture file, which shows what reached the child. The suite does not run on win32.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
@@ -28,7 +22,7 @@ const FILE_FLAG = '--append-system-prompt-file';
 const STRING_FLAG = '--append-system-prompt';
 const ORIENT = 'INTEGRATION-ORIENTATION-BODY';
 
-/** Parse a capture file's `KEY=value` lines + the fenced ARGS block. */
+/** Parses the `KEY=value` lines and the `ARGS_START` to `ARGS_END` block of a capture file. */
 function parseCapture(text: string): { args: string[]; env: Record<string, string> } {
   const lines = text.split('\n');
   const args: string[] = [];
@@ -67,11 +61,6 @@ describe.skipIf(process.platform === 'win32')(
       rmrf(workDir);
     });
 
-    /**
-     * Write an executable fake-harness script whose `--help` prints `helpText`
-     * (and bumps `probeCountFile`) and whose normal run captures argv/env to
-     * `captureFile`. Returns the script's absolute path (the spawn `command`).
-     */
     function writeFakeHarness(name: string, helpText: string): {
       binPath: string;
       captureFile: string;
@@ -105,7 +94,6 @@ describe.skipIf(process.platform === 'win32')(
       return { binPath, captureFile, probeCountFile };
     }
 
-    /** Resolve + apply + spawn the fake harness, returning the parsed capture. */
     async function runSeam(
       binPath: string,
       captureFile: string,
@@ -130,6 +118,11 @@ describe.skipIf(process.platform === 'win32')(
       return { resolvedFlag, capture };
     }
 
+    /**
+     * The probe selects the file flag. The flag reaches the argv of the child with a temp-file path,
+     * and the temp file holds the orientation. The orientation env key reaches the child too, and
+     * the directive key stays unset.
+     */
     it('channelProbe_FlagPresent_SelectsPrimary (spawn seam)', async () => {
       const { binPath, captureFile } = writeFakeHarness(
         'fake-claude-file',
@@ -138,20 +131,20 @@ describe.skipIf(process.platform === 'win32')(
 
       const { resolvedFlag, capture } = await runSeam(binPath, captureFile);
 
-      // The probe selected the PRIMARY (file) flag…
       expect(resolvedFlag).toBe(FILE_FLAG);
-      // …and it reached the child's argv, followed by a real temp-file path…
       const flagIdx = capture.args.indexOf(FILE_FLAG);
       expect(flagIdx).toBeGreaterThanOrEqual(0);
       const filePath = capture.args[flagIdx + 1];
       expect(filePath).toBeTruthy();
-      // …whose contents are the orientation payload (materialized, no repo write).
       expect(readFileSync(filePath, 'utf8')).toBe(ORIENT);
-      // The file-free EXARCHOS_ORIENTATION tag rode the env too; DIRECTIVE never did.
       expect(capture.env.EXARCHOS_ORIENTATION).toBe(ORIENT);
       expect(capture.env.EXARCHOS_DIRECTIVE).toBe('<unset>');
     });
 
+    /**
+     * The help text does not name the file flag, so the probe selects the string flag. The
+     * orientation text is the next argv token, and the file flag is not in argv.
+     */
     it('channelProbe_FlagAbsent_FallsBackToStringFlag (spawn seam)', async () => {
       const { binPath, captureFile } = writeFakeHarness(
         'fake-claude-string',
@@ -160,19 +153,18 @@ describe.skipIf(process.platform === 'win32')(
 
       const { resolvedFlag, capture } = await runSeam(binPath, captureFile);
 
-      // The file flag is absent from help → fall back to the string flag…
       expect(resolvedFlag).toBe(STRING_FLAG);
-      // …delivered INLINE (the orientation string is the very next argv token).
       const flagIdx = capture.args.indexOf(STRING_FLAG);
       expect(flagIdx).toBeGreaterThanOrEqual(0);
       expect(capture.args[flagIdx + 1]).toBe(ORIENT);
-      // The file flag never leaked into argv.
       expect(capture.args).not.toContain(FILE_FLAG);
     });
 
+    /**
+     * The command does not exist on disk, so the real probe cannot spawn it. The result is `none`
+     * with a degradation.
+     */
     it('channelProbe_CliMissing_ChannelNoneWithDegradation (spawn seam)', () => {
-      // A command that does not exist on disk — the real probe cannot spawn it, so
-      // the channel degrades to none + a recorded degradation, no injection.
       const missing = path.join(workDir, 'does-not-exist-harness');
       const resolution = resolveInjectionChannel(CLAUDE_CANDIDATES, missing);
 
@@ -181,20 +173,21 @@ describe.skipIf(process.platform === 'win32')(
       expect(resolution.degradation).toContain('probe failed');
     });
 
+    /**
+     * Two resolutions for one command spawn the real `--help` process one time, so the probe-count
+     * file holds one line. The second resolution reads the cache.
+     */
     it('channelProbe_ResultCachedPerProcess (spawn seam)', () => {
       const { binPath, probeCountFile } = writeFakeHarness(
         'fake-claude-cache',
         `Usage: fake\n  ${FILE_FLAG} FILE`,
       );
 
-      // Two resolutions for the SAME command…
       const a = resolveInjectionChannel(CLAUDE_CANDIDATES, binPath);
       const b = resolveInjectionChannel(CLAUDE_CANDIDATES, binPath);
       expect(a.channel.kind).toBe('flag');
       expect(b.channel.kind).toBe('flag');
 
-      // …spawned the real `--help` process EXACTLY once (the probe count file has
-      // a single line); the second resolution hit the per-process cache.
       const probeLines = readFileSync(probeCountFile, 'utf8').trim().split('\n');
       expect(probeLines).toHaveLength(1);
     });
