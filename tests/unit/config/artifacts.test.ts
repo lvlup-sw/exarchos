@@ -135,7 +135,7 @@ describe('classifyArtifactLayout — configured prefixes', () => {
   });
 
   /**
-   * With the spec directory moved, a path under `docs/specs/` is not a unified signal.
+   * With the spec directory moved, a path under the default spec directory is not a unified signal.
    * Thus the legacy design doc decides the layout.
    */
   it('ArtifactDir_ConfiguredPrefix_ClassifiesUnifiedSpecCorrectly: the OLD default no longer wins on its own', () => {
