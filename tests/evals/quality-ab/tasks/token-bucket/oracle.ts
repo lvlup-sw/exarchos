@@ -1,5 +1,7 @@
-// HIDDEN ORACLE — the agent never sees this. Grades impl.ts against the spec's
-// edge cases. Run: `tsx oracle.ts` in a dir containing the produced `impl.ts`.
+/**
+ * Hidden oracle. The agent under test never sees this file. The oracle grades `impl.ts` against the edge cases of the spec.
+ * Run `tsx oracle.ts` in a directory that holds the `impl.ts` to grade.
+ */
 import { TokenBucket, type Clock } from './impl.ts';
 
 class FakeClock implements Clock {
@@ -43,46 +45,50 @@ const checks: Array<[string, () => void]> = [
       assert(b.tryRemove(3) === true, 'full bucket still intact after denied over-cap request');
     },
   ],
+  /** The rate is 2 tokens per second, so 1 second adds 2 tokens. */
   [
     'proportional refill over time',
     () => {
       const c = new FakeClock();
-      const b = new TokenBucket(10, 2, c); // 2 tokens/sec
+      const b = new TokenBucket(10, 2, c);
       assert(b.tryRemove(10) === true, 'drain');
-      c.advance(1000); // +2 tokens
+      c.advance(1000);
       assert(b.tryRemove(2) === true, 'refilled 2 after 1s');
       assert(b.tryRemove(1) === false, 'no more than refilled');
     },
   ],
+  /** 10 seconds at 100 tokens per second give 1000 tokens, and the capacity of 5 must cap the balance. */
   [
     'refill caps at capacity',
     () => {
       const c = new FakeClock();
       const b = new TokenBucket(5, 100, c);
       assert(b.tryRemove(5) === true, 'drain');
-      c.advance(10_000); // would be +1000, must cap at 5
+      c.advance(10_000);
       assert(b.tryRemove(5) === true, 'capped refill grants exactly capacity');
       assert(b.tryRemove(1) === false, 'not more than capacity');
     },
   ],
+  /** The rate is 2 tokens per second, so 500 ms add exactly 1 token. */
   [
     'fractional refill (sub-token) accrues correctly',
     () => {
       const c = new FakeClock();
-      const b = new TokenBucket(10, 2, c); // 2/sec => 1 token per 500ms
+      const b = new TokenBucket(10, 2, c);
       assert(b.tryRemove(10) === true, 'drain');
-      c.advance(500); // +1 token
+      c.advance(500);
       assert(b.tryRemove(1) === true, 'half second refills exactly 1');
       assert(b.tryRemove(1) === false, 'nothing left');
     },
   ],
+  /** The rate is 1 token per second, so 2 seconds give a balance of 2. The denied request for 3 must leave both tokens. */
   [
     'failed request consumes nothing (no partial consumption)',
     () => {
       const c = new FakeClock();
-      const b = new TokenBucket(5, 1, c); // 1/sec
+      const b = new TokenBucket(5, 1, c);
       assert(b.tryRemove(5) === true, 'drain');
-      c.advance(2000); // +2 tokens => balance 2
+      c.advance(2000);
       assert(b.tryRemove(3) === false, 'insufficient, must deny');
       assert(b.tryRemove(2) === true, 'the 2 tokens were NOT consumed by the failed call');
     },
@@ -96,15 +102,16 @@ const checks: Array<[string, () => void]> = [
       assert(b.tryRemove(1) === false, 'still empty (no negative balance)');
     },
   ],
+  /** The rate is 1 token per second, so each 500 ms step adds 0.5 token. The denied read must not discard the first 0.5. */
   [
     'refill accrues across multiple reads without losing time',
     () => {
       const c = new FakeClock();
-      const b = new TokenBucket(10, 1, c); // 1/sec
+      const b = new TokenBucket(10, 1, c);
       assert(b.tryRemove(10) === true, 'drain');
-      c.advance(500); // +0.5
+      c.advance(500);
       assert(b.tryRemove(1) === false, 'only 0.5 accrued');
-      c.advance(500); // +0.5 => total 1.0 (must not have dropped the first 0.5)
+      c.advance(500);
       assert(b.tryRemove(1) === true, 'two half-seconds accrue to a full token');
     },
   ],

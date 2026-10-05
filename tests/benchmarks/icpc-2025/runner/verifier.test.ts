@@ -44,7 +44,6 @@ describe('verify', () => {
   });
 
   it('AnyOutput_MatchesItself', () => {
-    // Property test: for various non-empty strings, verify(s, s) passes
     const samples = [
       'hello',
       '42\n',

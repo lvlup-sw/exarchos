@@ -1,25 +1,19 @@
-// The semantic plane's normal path, end to end through the real dispatcher:
-// one `prepare`, one `settle`, and nothing in between.
+// The normal path of the semantic plane through the real dispatcher: one `prepare`, one `settle`,
+// and nothing between them.
 //
-// Every call goes through `dispatch` with a real caller identity and capability
-// resolver, so admission, the economy cap and the reserved-type guard all apply
-// exactly as they do for an agent. What this proves that no handler test can:
-// the capsule a caller receives from `prepare` is one `settle` accepts when
-// named by version, a retry of the same batch is answered from the claim, a
-// capsule edited after compilation is refused, the record that makes all of
-// it trustworthy cannot be written by anyone but `prepare`, and a settled
-// batch has VERIFIED its tasks — the production static-analysis gate really
-// ran against a real on-disk project, its verdict really persisted — and left
-// them complete on the stream, in the projection, and on the document the
-// transition guards read, so the transition that follows is admitted as the
-// third call. A project whose lint fails is the negative twin: the same call,
-// the same gate, and a batch rejected with the halt named.
+// Every call goes through `dispatch` with a real caller identity and capability resolver. Thus
+// admission, the economy cap and the reserved-type guard apply as they do for an agent.
 //
-// The tasks are stamped low-risk and off the boundary, so the ladder's
-// resolved sequence is static analysis alone: the kill probe and the
-// contract-drift gate are policy-skipped, and nothing here needs a git
-// repository or a test runner. `node -e ""` is the cheapest script that
-// exits 0; `process.exit(1)` the cheapest that does not.
+// `settle` accepts the capsule from `prepare` by version, and answers a retry of the same batch
+// from the claim. It refuses an edited capsule, and only `prepare` can write the prepared record.
+// To settle a batch, `settle` runs the production static-analysis gate on a real project and
+// persists the verdict. The tasks are then complete on the stream, in the projection and on the
+// state document, so the guards admit the next transition. When the lint of the project fails,
+// the same call rejects the batch and names the halt.
+//
+// The tasks are low-risk and off the boundary, so the ladder runs static analysis only. Policy
+// skips the kill probe, the contract-drift gate and the mock-boundary gate. No test needs a git
+// repository.
 //
 // @oracle-sources: ../../src/verbs/prepare/handler.ts, the settlement record and bundle blobs counted out of the real event store and content-addressed store after each dispatched call
 
@@ -104,9 +98,9 @@ const TASKS = [
 ];
 
 /**
- * A feature workflow standing in `delegate` with three ready tasks and the
- * integration branch they fork from: the events the projection folds, and the
- * document the transition guards read, saying the same thing.
+ * Seeds a feature workflow in `delegate` with three ready tasks and their integration branch.
+ * The events that the projection folds and the document that the transition guards read hold the
+ * same facts.
  */
 async function seedDelegatingFeature(): Promise<void> {
   await initStateFile(stateDir, STREAM, 'feature', {
@@ -163,6 +157,12 @@ interface PreparedReceipt {
 }
 
 describe('prepare then settle, through the dispatcher', () => {
+  /**
+   * `prepare` announces its tasks with `task.assigned`, and no earlier call does. The capsule
+   * arrives whole, not capped, because the harness runs the batch from it. The test measures the
+   * capsule against its declared budget. `settle` runs the verification: one segment record for
+   * each task, and the verdict of the production gate with each.
+   */
   it('PrepareSettle_TheNormalPath_IsTwoCallsAndOneDecision', async () => {
     await seedDelegatingFeature();
 
@@ -171,15 +171,11 @@ describe('prepare then settle, through the dispatcher', () => {
     const receipt = prepared.data as PreparedReceipt;
     expect(receipt.capsuleVersion).toBe(1);
     expect(receipt.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-a', 'task-b', 'task-c']);
-    // The compilation announced its tasks; nothing had to before it.
     expect((await rowsOf('task.assigned')).map((e) => (e as { data: { taskId: string } }).data.taskId)).toEqual([
       'task-a',
       'task-b',
       'task-c',
     ]);
-    // The capsule arrives whole rather than capped: the harness runs the batch
-    // from it, and a cut capsule would cost the call this path exists to save.
-    // Measured here, against the budget it is declared under.
     const estimatedTokens = Math.ceil(Buffer.byteLength(JSON.stringify(prepared.data), 'utf8') / 4);
     expect(estimatedTokens).toBeLessThan(PREPARE_ECONOMY_BUDGET_TOKENS);
 
@@ -194,13 +190,15 @@ describe('prepare then settle, through the dispatcher', () => {
     expect((settled.data as { outcome: string }).outcome).toBe('settled');
     expect(await rowsOf('workflow.prepared')).toHaveLength(1);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
-    // The decision ran the work's verification: one segment record per task,
-    // and the production gate's own verdict beside each.
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(3);
     const gates = (await rowsOf('gate.executed')) as { data: { gateName: string; passed: boolean } }[];
     expect(gates.filter((g) => g.data.gateName === 'static-analysis' && g.data.passed)).toHaveLength(3);
   });
 
+  /**
+   * The retry returns the first answer. It appends no row, verifies nothing a second time and
+   * writes no blob.
+   */
   it('PrepareSettle_ARetriedBatch_IsAnsweredFromTheClaim', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -215,11 +213,21 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await rowsOf('execution.settled')).toHaveLength(1);
     expect(await rowsOf('task.assigned')).toHaveLength(3);
     expect(await rowsOf('task.completed')).toHaveLength(3);
-    // Nothing was verified a second time either.
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(3);
     expect(await blobCount()).toBe(blobs);
   });
 
+  /**
+   * Each task leaves the `task.completed` fact of the primitive path on the feature stream, from
+   * the same leaf. `verified` is the flag of that leaf for caller-attached evidence, and a settled
+   * claim attaches none. The verification is the durable gate row, not a field on the fact.
+   *
+   * Each of the four ladder gates leaves an evidence row for each task, and a policy-skipped gate
+   * records the skip. The three static-analysis rows hold the verdicts that decided the batch.
+   *
+   * The projection reads the facts as progress. The transition is a separate call with its own
+   * guard, and the guard admits it.
+   */
   it('PrepareSettle_ASettledBatch_CompletesItsTasksAndAdmitsTheTransition', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -234,15 +242,9 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(settled.success, JSON.stringify(settled)).toBe(true);
     expect((settled.data as { outcome: string }).outcome).toBe('settled');
 
-    // The fact the primitive path leaves, one per task, on the feature stream,
-    // from the same leaf. `verified` is that leaf's flag for caller-attached
-    // evidence, and a settled claim attaches none: the verification is the
-    // durable gate row beside the fact, not a field on it.
     const completions = (await rowsOf('task.completed')) as { data: { taskId: string; verified: boolean; worktreePath: string } }[];
     expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
     expect(completions.every((e) => e.data.verified === false && e.data.worktreePath === greenWorktree)).toBe(true);
-    // Every ladder gate leaves its row, the policy-skipped ones recording the
-    // skip; the static-analysis rows are the three verdicts that decided.
     const evidence = (await rowsOf('admission.evidence-recorded')) as {
       data: { evidence: { requirementId: string; verdict: string } };
     }[];
@@ -250,27 +252,31 @@ describe('prepare then settle, through the dispatcher', () => {
     const decided = evidence.filter((e) => e.data.evidence.requirementId === 'verification-ladder:static-analysis');
     expect(decided.map((e) => e.data.evidence.verdict)).toEqual(['pass', 'pass', 'pass']);
 
-    // The projection reads them as progress, through the fold it already has.
     const got = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
     expect(got.success, JSON.stringify(got)).toBe(true);
     const tasks = (got.data as { tasks: { id: string; status: string }[] }).tasks;
     expect(tasks.map((t) => t.status)).toEqual(['complete', 'complete', 'complete']);
 
-    // And the transition — still its own call, with its own guard — is admitted.
     const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
     expect(moved.success, JSON.stringify(moved)).toBe(true);
     const transitions = (await rowsOf('workflow.transition')) as { data: { to: string } }[];
     expect(transitions.at(-1)?.data.to).toBe('review');
   });
 
+  /**
+   * A worker reports that a capsule assumption is wrong. The compiled envelope admits the
+   * deviation kind and requires approval, so `settle` holds the batch. It verifies nothing,
+   * completes nothing, and names the pending deviation.
+   *
+   * The second `settle` call names the same batch and carries the decision and no claims. With
+   * the deviation accepted, `settle` verifies the work and settles the batch. The decision is a
+   * fact next to the proposal. The guards then admit the transition, as after any settled batch.
+   */
   it('PrepareSettle_AHeldBatchDecided_IsThreeCallsAndCompletesItsTasks', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
 
-    // A worker found a capsule assumption wrong and said so. The compiled
-    // envelope admits the kind and requires approval, so the batch is held:
-    // nothing verified, nothing complete, and what it waits on is named.
     const held = await call('exarchos_orchestrate', {
       action: 'settle',
       featureId: STREAM,
@@ -288,9 +294,6 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await rowsOf('deviation.proposed')).toHaveLength(1);
     expect(await rowsOf('task.completed')).toEqual([]);
 
-    // The exception call the plane budgets for: the same batch, the decision,
-    // no claims. Accepted, the work the deviation stood on is verified and the
-    // batch settles; the decision is a fact beside the proposal.
     const decided = await call('exarchos_orchestrate', {
       action: 'settle',
       featureId: STREAM,
@@ -311,19 +314,19 @@ describe('prepare then settle, through the dispatcher', () => {
     const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
     expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
 
-    // And the transition is admitted, as after any settled batch.
     const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
     expect(moved.success, JSON.stringify(moved)).toBe(true);
   });
 
+  /**
+   * The capsule declares `worktreePath` as a string. A number on one claim is a field-type
+   * mismatch. The mismatch rejects the batch, although `settle` admits the other two claims. A
+   * rejected batch is a settlement but not progress: `settle` verifies none of its tasks.
+   */
   it('PrepareSettle_ABatchRejectedOnShape_VerifiesNothingAndLeavesNoCompletion', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
-    // `worktreePath` is declared as a string; a number on ONE claim is a
-    // field-type mismatch, which refuses the whole batch while the other two
-    // claims are admitted. A refused batch is still a settlement, and still
-    // not progress — nothing is verified, for any of its tasks.
     const claims = completedClaims().map((claim, i) =>
       i === 0 ? { ...claim, fields: { worktreePath: 42 } } : claim,
     );
@@ -344,11 +347,13 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await rowsOf('task.completed')).toEqual([]);
   });
 
+  /**
+   * The negative twin of the normal path: the same call against a project whose lint fails. The
+   * production gate records its failing verdict and halts the segment. `settle` rejects the batch
+   * and names the halt of each task. The failing verdict is durable once for each task, no
+   * completion is durable, and the tasks stay pending.
+   */
   it('PrepareSettle_ABatchWhoseVerificationFails_IsRejectedWithTheHaltNamed', async () => {
-    // The negative twin of the normal path: the same call against a project
-    // whose lint really fails. The production gate records its failing
-    // verdict and halts the segment, and the batch is rejected with every
-    // task's halt named — one call, every reason.
     await seedDelegatingFeature();
     const redWorktree = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -380,22 +385,22 @@ describe('prepare then settle, through the dispatcher', () => {
       ['task-b', 'failed', 'check_static_analysis'],
       ['task-c', 'failed', 'check_static_analysis'],
     ]);
-    // The gate's own failing verdict is durable, once per task; no completion is.
     const gates = (await rowsOf('gate.executed')) as { data: { gateName: string; passed: boolean } }[];
     expect(gates.filter((g) => g.data.gateName === 'static-analysis' && !g.data.passed)).toHaveLength(3);
     expect(await rowsOf('task.completed')).toEqual([]);
-    // And the tasks are exactly as outstanding as before.
     const got = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
     const tasks = (got.data as { tasks: { status: string }[] }).tasks;
     expect(tasks.map((t) => t.status)).toEqual(['pending', 'pending', 'pending']);
   });
 
+  /**
+   * The test admits an evidence kind that the compilation did not admit. Then it submits the
+   * edited document as the capsule of the work.
+   */
   it('PrepareSettle_ACapsuleEditedAfterCompilation_IsRefused', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     const receipt = prepared.data as PreparedReceipt;
-    // Admit an evidence kind the compilation never admitted, then submit the
-    // edited document as if it were the capsule the work ran under.
     const kinds = receipt.capsule.contracts.evidenceKinds as string[];
     const edited = {
       ...receipt.capsule,
@@ -414,9 +419,11 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await rowsOf('execution.settled')).toEqual([]);
   });
 
+  /**
+   * Settlement trusts this record. If the generic surface can append it, any caller can pin any
+   * capsule and then settle against it.
+   */
   it('PrepareSettle_APreparedRecord_CannotBeAppendedByAnyoneButPrepare', async () => {
-    // Settlement trusts this record. Appendable through the generic surface, it
-    // would let any caller pin any capsule and then settle against it.
     const result = await dispatch(
       'exarchos_event',
       {
@@ -450,10 +457,11 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await rowsOf('workflow.prepared')).toEqual([]);
   });
 
+  /**
+   * A decision lets `settle` verify and settle held work. If the generic surface can append it, a
+   * caller can decide its own deviation and settle past the human that the envelope names.
+   */
   it('PrepareSettle_ADecision_CannotBeAppendedByAnyoneButSettle', async () => {
-    // A decision is what lets held work be verified and settle. Appendable
-    // through the generic surface, a caller could decide its own deviation
-    // and settle past the human the envelope names.
     const result = await dispatch(
       'exarchos_event',
       {

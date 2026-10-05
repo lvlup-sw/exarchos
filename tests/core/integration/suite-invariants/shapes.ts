@@ -1,55 +1,42 @@
-// ─── The covered assertion shapes (DR-30) ───────────────────────────────────
+// The covered assertion shapes.
 //
-// DR-30 makes the "declare your authorities" obligation decidable by tying it
-// to *assertion shape* rather than to dataflow: "the annotation requirement is
-// enforced by matching assertion shapes, and the list of covered shapes is
-// itself ratcheted so it cannot quietly shrink."
+// A test file that matches one of these shapes must declare its authorities.
+// The shapes make that duty decidable without a dataflow analysis.
 //
-// CRITICAL DESIGN POINT — why in-scope-ness is shape-driven, not
-// annotation-driven:
+// The shapes alone decide scope. The `@oracle-sources` annotation must not
+// decide it. Otherwise, a person deletes the annotation, the file leaves scope
+// and the guard passes. The annotation is an input to compliance only.
 //
-//   If a file were considered in scope *because it carries an
-//   `@oracle-sources` annotation*, then deleting the annotation would remove
-//   the file from scope and the guard would pass. That is a trivially
-//   evadable guard, and DR-30 names it explicitly ("Removing an
-//   `@oracle-sources` annotation from an in-scope test FAILS").
+// Each matcher runs against the code view of the file (see `source-view.ts`),
+// so comments and string bodies do not count.
 //
-//   So: `isInScope(file)` is computed ENTIRELY from the shapes below, which
-//   are matched against the file's CODE view (comments and string-literal
-//   bodies blanked — see `source-view.ts`). The annotation is never an input
-//   to scope. It is only an input to *compliance*.
-//
-// Each shape carries the observed corpus match count at the time it was
-// introduced. `registry.ts` ratchets a floor under that count, so a matcher
-// that is broken into matching nothing (the classic vacuous-scanner failure)
-// turns the suite RED instead of reporting perfect compliance.
+// `registry.ts` holds a floor for the corpus match count of each shape. A
+// matcher that matches nothing fails that floor.
 
 import { sourceViews } from './source-view.js';
 
 export interface ShapeDefinition {
-  /** Stable id. Referenced by the ratchet in `registry.ts`. */
+  /** A stable id. The ratchet in `registry.ts` refers to it. */
   readonly id: string;
-  /** Which DR-30 property this shape is evidence of. */
+  /** The suite property that this shape is evidence of. */
   readonly property: 'containment' | 'drift' | 'parity' | 'census-closure' | 'coverage';
-  /** Human rationale, for the failure message. */
+  /** The reason that the shape is covered. */
   readonly why: string;
-  /** Matched against the CODE view of the file (comments/strings blanked). */
+  /** The matcher. It runs against the code view of the file. */
   readonly pattern: RegExp;
   /**
-   * Optional second stage. `pattern` is the cheap silhouette; `refine`
-   * removes the silhouettes that are provably NOT the property. Kept
-   * separate so the anti-vacuity floor in `registry.ts` still ratchets the
-   * refined count — a `refine` that starts rejecting everything is caught by
-   * the same floor that catches a broken `pattern`.
+   * An optional second stage. `pattern` finds candidate files, and `refine`
+   * returns false for a file whose matches are not the property. The floor in
+   * `registry.ts` applies to the refined count, so it also catches a `refine`
+   * that rejects all files.
    */
   readonly refine?: (source: string, code: string) => boolean;
 }
 
 /**
- * Nouns that mark a collection as a *census difference* rather than an
- * ordinary array. `expect(items).toEqual([])` is unremarkable;
- * `expect(missingIds).toEqual([])` is a closure claim over a population, and
- * it is exactly the shape T-42 found passing for the wrong reason.
+ * Nouns that mark a collection as a census difference.
+ * `expect(items).toEqual([])` is an ordinary assertion.
+ * `expect(missingIds).toEqual([])` claims closure over a population.
  */
 const CENSUS_DIFF_NOUN = String.raw`(?:missing|extra|unregistered|uncovered|undeclared|unmatched|orphan\w*|drift\w*|diffs?|differences|stale|absent|unknowns?|leaked|violations?|offenders?|gaps?|unreferenced|dangling|mismatch\w*|unaccounted|untested|unused|notFound|notInRegistry|onlyIn\w*|breaking|regressions?|conflicts?)`;
 
@@ -110,28 +97,24 @@ export const COVERED_SHAPES: readonly ShapeDefinition[] = Object.freeze([
     pattern:
       /expect\s*\([^;]{0,240}?\)\s*(?:\.\s*[a-zA-Z]+\s*)*\.\s*(?:toEqual|toStrictEqual|toBe)\s*\(\s*\w*(?:GOLDEN|Golden|golden|BASELINE|Baseline|baseline|CANONICAL|Canonical|canonical|EXPECTED_|Expected[A-Z]|expectedManifest|MANIFEST|Manifest)\w*\s*[,)]/,
   },
+  /**
+   * Covers a comparison of two computed values, such as
+   * `expect(normalizedCli).toEqual(normalizedMcp)` in
+   * `tests/unit/verbs/gates/contract-drift.parity.test.ts`. The shape itself
+   * does not show if the two values come from one read or from two.
+   *
+   * `refine` drops a match when the file binds one side to a literal. The
+   * person who wrote the literal is the second authority. Without `refine`,
+   * the pattern also matches an ordinary `expect(result).toEqual(expected)`
+   * assertion.
+   */
   {
-    // Added because the catalogue's first draft MISSED the contract drift
-    // guard (`verbs/gates/contract-drift.parity.test.ts`), one of the three
-    // Class B instances DR-30 names by name. Its assertion is
-    // `expect(normalizedCli).toEqual(normalizedMcp)` — two locally-computed
-    // values compared against each other, with nothing in the shape itself
-    // saying whether they came from one read or two. That is precisely the
-    // Class B silhouette, and a catalogue that cannot see it is a catalogue
-    // scoped below the surface it governs.
     id: 'derived-pair-parity',
     property: 'parity',
     why: 'compares two computed values against each other with no hand-written expectation on either side — nothing in the shape proves they came from two reads',
     pattern:
       /expect\s*\(\s*[A-Za-z_$][\w$.]*(?:\s*\([^()]{0,80}\))?\s*\)\s*\.\s*(?:toEqual|toStrictEqual)\s*\(\s*[A-Za-z_$][\w$.]*(?:\s*\([^()]{0,80}\))?\s*\)/,
     refine: (_source, code) => {
-      // `expect(a).toEqual(b)` is only Class-B-prone when NEITHER side is a
-      // hand-written expectation. If either operand is bound in this file to
-      // a literal (`const expected = { … }`), the human who wrote that
-      // literal IS the second authority, and the comparison is not
-      // single-source. Without this refinement the silhouette matches 192 of
-      // 920 corpus files — most of them ordinary `expect(result)
-      // .toEqual(expected)` unit assertions.
       DERIVED_PAIR_RE.lastIndex = 0;
       let m: RegExpExecArray | null;
       while ((m = DERIVED_PAIR_RE.exec(code)) !== null) {
@@ -163,9 +146,9 @@ function isLiteralAnchored(code: string, name: string): boolean {
 }
 
 /**
- * Which covered shapes does this source match? Matching is done against the
- * CODE view, so a docblock that *describes* a parity assertion does not put
- * the file in scope, and neither does a string literal containing the words.
+ * Returns the ids of the covered shapes that this source matches. The match
+ * runs against the code view. Thus a comment or a string literal that
+ * describes a parity assertion does not put the file in scope.
  */
 export function matchedShapes(source: string): readonly string[] {
   const { code } = sourceViews(source);

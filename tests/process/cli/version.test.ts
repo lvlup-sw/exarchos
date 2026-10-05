@@ -1,4 +1,3 @@
-// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.4 (T4.1)
 import { readFileSync, existsSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -21,26 +20,22 @@ function readPackageVersion(): string {
 }
 
 describe('exarchos --version', () => {
+  /** The installed binary must print the `version` of the root `package.json`. */
   it('version_default_matchesPackageJsonVersion', async () => {
     const expected = readPackageVersion();
 
     await withHermeticEnv(async () => {
-      // Commander registers `--version` at the program level (cli.ts §"version")
-      // and emits the value passed to `.version()`. The literal version string
-      // tracked there is kept in lockstep with package.json by the release
-      // tooling, so this assertion guards both the binary and the manifest.
       const result = await runCli({ args: ['--version'] });
       expect(result.exitCode).toBe(0);
       expect(result.stdout.trim()).toBe(expected);
     });
   });
 
+  /**
+   * `--version` must print before the backend opens, so no `exarchos.db` exists afterwards.
+   * A backend open costs start time, and concurrent opens can race on WAL recovery (`SQLITE_BUSY_RECOVERY`).
+   */
   it('version_doesNotInitializeSqliteBackend', async () => {
-    // Regression guard: printing the version is stateless and must short-circuit
-    // before backend init. Initializing the SQLite event store here wastes
-    // cold-start budget and, under concurrent invocations, races on WAL recovery
-    // (SQLITE_BUSY_RECOVERY). The fast path in index.ts:main() must return before
-    // any state-dir / `exarchos.db` creation.
     await withHermeticEnv(async ({ stateDir }) => {
       const result = await runCli({ args: ['--version'] });
       expect(result.exitCode).toBe(0);
@@ -57,28 +52,25 @@ describe('exarchos --version', () => {
 });
 
 describe('exarchos version (subcommand)', () => {
+  /**
+   * The `version` subcommand prints the same string as the `--version` flag.
+   * The process-suite preflight reads the binary version from this subcommand.
+   */
   it('versionSubcommand_default_matchesPackageJsonVersion', async () => {
     const expected = readPackageVersion();
 
     await withHermeticEnv(async () => {
-      // The `version` subcommand (distinct from the `--version` flag) prints the
-      // same string sourced from package.json (cli.ts §"Top-level version
-      // command", bug #1216). The E2E preflight resolves the binary version via
-      // this surface, so it must stay in lockstep with the manifest.
       const result = await runCli({ args: ['version'] });
       expect(result.exitCode).toBe(0);
       expect(result.stdout.trim()).toBe(expected);
     });
   });
 
+  /**
+   * The plain `version` subcommand must also print before the backend opens.
+   * When concurrent preflight workers open the backend, they race on WAL recovery and exit 1 with empty stderr.
+   */
   it('versionSubcommand_doesNotInitializeSqliteBackend', async () => {
-    // Regression guard for the E2E-preflight flake: `exarchos version` is
-    // stateless and must short-circuit before backend init, exactly like the
-    // `--version` flag. Previously only the flag was fast-pathed; the
-    // subcommand fell through to initializeBackend(), which under concurrent
-    // worker invocation races on WAL recovery (SQLITE_BUSY_RECOVERY) and exits
-    // 1 with empty stderr. index.ts:main() must return before any state-dir /
-    // `exarchos.db` creation for the plain subcommand form.
     await withHermeticEnv(async ({ stateDir }) => {
       const result = await runCli({ args: ['version'] });
       expect(result.exitCode).toBe(0);

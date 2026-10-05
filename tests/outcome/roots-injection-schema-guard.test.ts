@@ -1,20 +1,15 @@
-// ─── #1838 — roots inference must never inject into a schema that forbids it ──
-//
-// The roots-based `featureId` resolver ran for every action not on a
-// three-name latency skip list, then injected the resolved id into the
-// forwarded args. Actions whose own schema does not declare `featureId` were
-// then refused by their own strict parse — naming a parameter the caller never
-// sent and the server itself added. 59 of 124 registered actions failed that
-// way, including `orchestrate.doctor` (the diagnostic of record) and 22 of the
-// 26 `exarchos_view` read actions.
-//
-// The bug reproduced ONLY where roots resolution SUCCEEDS. The repo's own
-// suite never resolves a workspace, so the entire surface stayed green.
-//
-// Breadth is asserted over the registry through the exported predicate rather
-// than by dispatching 59 handlers — `merge_pr`, `create_pr` and `create_issue`
-// are among them, and a guard must not perform the side effects it guards.
-// Depth is one real end-to-end dispatch on the action from the report.
+/**
+ * Outcome tests for the gate on roots inference of `featureId`.
+ *
+ * Dispatch must merge an inferred `featureId` only into an action whose schema declares the field.
+ * A strict schema that does not declare it refuses the call for a parameter the caller did not
+ * send. The defect shows only when roots resolution succeeds, so the dispatch tests use a workspace
+ * that resolves.
+ *
+ * The registry tests assert breadth through `actionAcceptsInferredValue`, and they call no
+ * handler. Actions such as `merge_pr`, `create_pr` and `create_issue` have side effects that a
+ * guard must not cause.
+ */
 
 import { describe, it, expect, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -33,7 +28,7 @@ import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver
 import type { RootsClient } from '../../src/runtime/workspace/discovery.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
-/** Temp workspaces created by this suite, removed on teardown. */
+/** The temp workspaces of this suite. `afterEach` removes them. */
 const created: string[] = [];
 
 async function mkWorkspace(label: string): Promise<string> {
@@ -49,7 +44,7 @@ afterEach(async () => {
   }
 });
 
-/** The live latency shortcut in `dispatch.ts`. Skipped names never reach inference at all. */
+/** The actions that skip `featureId` inference for latency, from `INFERRABLE_FIELDS`. */
 const LATENCY_SKIP =
   INFERRABLE_FIELDS.find((f) => f.field === 'featureId')?.skipActions ??
   new Set<string>();
@@ -76,25 +71,23 @@ function partitionRegistry(): {
 }
 
 describe('Roots featureId inference is gated on the receiving schema (#1838)', () => {
+  /**
+   * The count assertions come first, because a loop over an empty list passes. The counts are lower
+   * bounds, so a new action does not break them. `exposed` holds the actions that omit `featureId`
+   * and are not on the latency skip list.
+   */
   it('RootsInference_ActionOmittingFeatureId_IsNeverEligibleForInjection', () => {
     const { declaring, omitting } = partitionRegistry();
 
-    // Denominator first — a cover assertion that enumerates nothing passes
-    // trivially, which is the failure mode this repo keeps rediscovering.
-    // These are the measured counts at the time of the fix; they are lower
-    // bounds, so adding actions never turns the guard vacuous.
     expect(omitting.length).toBeGreaterThanOrEqual(60);
     expect(declaring.length).toBeGreaterThanOrEqual(55);
     expect(omitting.length + declaring.length).toBe(
       TOOL_REGISTRY.reduce((n, t) => n + t.actions.length, 0),
     );
 
-    // The population the bug actually broke: omits `featureId` AND was not
-    // rescued by the latency skip list.
     const exposed = omitting.filter((r) => !LATENCY_SKIP.has(r.action));
     expect(exposed.length).toBeGreaterThanOrEqual(55);
 
-    // Every one of them must be ineligible for injection.
     for (const ref of exposed) {
       const tool = TOOL_REGISTRY.find((t) => t.name === ref.tool);
       const action = tool?.actions.find((a) => a.name === ref.action);
@@ -106,10 +99,12 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     }
   });
 
+  /**
+   * Names six actions that must not receive an inferred `featureId`, so a wrong predicate fails on
+   * a named action and not inside a count. `exarchos_workflow` `get` must stay eligible, or the
+   * predicate disables inference for every action.
+   */
   it('RootsInference_NamedRegressionVictims_AreIneligible', () => {
-    // Spot-pins from the report and from the measured blast radius, so a
-    // refactor that silently narrows the predicate is named rather than
-    // absorbed into an aggregate count.
     const victims: readonly ActionRef[] = [
       { tool: 'exarchos_event', action: 'append' },
       { tool: 'exarchos_event', action: 'batch_append' },
@@ -129,8 +124,6 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
       ).toBe(false);
     }
 
-    // And the converse — the predicate must still admit the actions that DO
-    // take a featureId, or the fix would have disabled inference wholesale.
     const beneficiary = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow')?.actions.find(
       (a) => a.name === 'get',
     );
@@ -138,21 +131,14 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     expect(actionAcceptsInferredValue(beneficiary!, 'featureId')).toBe(true);
   });
 
+  /**
+   * The registry tests prove the predicate, not that `dispatch` calls it. This test dispatches each
+   * `exarchos_view` action that omits `featureId` and is not on the skip list. `READ_ONLY_ACTIONS`
+   * marks each `exarchos_view` action as read-only, so the dispatch changes nothing. A call can
+   * fail for other reasons. It must not fail because dispatch refused a `featureId` that dispatch
+   * added. The population must hold at least 20 actions, or the loop proves nothing.
+   */
   it('Dispatch_EveryReadOnlyVictimUnderResolvingRoots_IsNotRefusedForInjectedFeatureId', async () => {
-    // ─── the wiring, not just the predicate ─────────────────────────────────
-    //
-    // The registry assertions above prove `actionAcceptsInferredFeatureId`
-    // classifies correctly. They do NOT prove dispatch consults it: delete the
-    // call in `dispatch()` and every one of them still passes, because the
-    // predicate remains correct while nothing asks it. A control that is not
-    // reachable in the shipped composition is not a control.
-    //
-    // So this dispatches the victims for real. It is restricted to the
-    // READ-ONLY ones — `exarchos_view` is declared `'*'` read-only by
-    // READ_ONLY_ACTIONS, so executing them mutates nothing — which is what
-    // makes exercising the whole population safe. The mutating victims
-    // (`merge_pr`, `create_pr`, `create_issue`) stay excluded on purpose: a
-    // guard must not perform the side effects it guards.
     const workspace = await mkWorkspace('outcome-1838-wiring-');
     const stateDir = path.join(workspace, 'docs', 'workflow-state');
     await fs.mkdir(stateDir, { recursive: true });
@@ -185,16 +171,11 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
       .filter((a) => !actionAcceptsInferredValue(a, 'featureId') && !LATENCY_SKIP.has(a.name))
       .map((a) => a.name);
 
-    // Denominator: if this population ever empties, the loop below proves
-    // nothing and would pass in silence.
     expect(victims.length).toBeGreaterThanOrEqual(20);
 
     const refused: string[] = [];
     for (const action of victims) {
       const result = await dispatch('exarchos_view', { action }, ctx);
-      // The assertion is NOT that the call succeeds — several of these need
-      // arguments or external state. It is that whatever goes wrong, it is
-      // never dispatch refusing a parameter it injected itself.
       if (/unrecognized parameter\(s\).*featureId/.test(result.error?.message ?? '')) {
         refused.push(action);
       }
@@ -206,6 +187,11 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     ).toEqual([]);
   }, 60_000);
 
+  /**
+   * The client declares roots and the root resolves, which is the condition for the defect. The
+   * `append` call must succeed, and its error message must not report `featureId` as an
+   * unrecognized parameter.
+   */
   it('Dispatch_EventAppendUnderResolvingRoots_IsNotRefusedForInjectedFeatureId', async () => {
     const workspace = await mkWorkspace('outcome-1838-');
     const stateDir = path.join(workspace, 'docs', 'workflow-state');
@@ -218,8 +204,6 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
     const init = await handleInit({ featureId, workflowType: 'feature' }, stateDir, eventStore);
     expect(init.success).toBe(true);
 
-    // A client that declares roots AND resolves successfully — the condition
-    // under which the defect fires. Without this the branch never runs.
     const resolver = createInMemoryResolver([]);
     resolver.snapshot({ capabilities: { roots: { listChanged: true } } });
     const rootsClient: RootsClient = {
@@ -245,8 +229,6 @@ describe('Roots featureId inference is gated on the receiving schema (#1838)', (
       },
     );
 
-    // The precise pre-fix failure: INVALID_INPUT naming a parameter the
-    // caller never supplied.
     const message = result.error?.message ?? '';
     expect(
       message,

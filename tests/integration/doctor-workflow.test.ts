@@ -1,51 +1,15 @@
-// ─── Task 022: End-to-End Acceptance — `exarchos doctor` ────────────────────
-//
-// Drives `handleDoctor` directly against an isolated temp project directory
-// with a pinned HOME and `process.cwd()`, and asserts:
-//
-//   1. The returned ToolResult.data validates against the Zod schema
-//      exported from `verbs/doctor/schema.ts` (contract pin —
-//      handler output cannot drift from the MCP wire shape, DR-3).
-//   2. In a fresh project with no `.claude/` config, at least one non-Pass
-//      check produces a `fix` string suggesting an init-style remediation
-//      (`exarchos init`, `git init`, `mkdir .exarchos`, etc.).
-//   3. With a minimal valid `.claude.json` registering `mcpServers.exarchos`,
-//      the agent-config-valid + agent-mcp-registered checks pass and the
-//      overall run is mostly-Pass (no Fails).
-//
-// History: a previous version of this test spawned `tsx src/index.ts doctor
-// --json` to pin the operator-facing CLI entry (Commander routing, exit-code
-// mapping, --json output path). That subprocess approach broke when the
-// substrate flipped to `bun:sqlite` for the SQLite backend — `tsx` runs under
-// Node, which rejects the `bun:` URL scheme with
-// `ERR_UNSUPPORTED_ESM_URL_SCHEME`. Issue #1324 tracked the migration.
-//
-// In-process model: `initializeContext(stateDir)` builds a real
-// DispatchContext (real EventStore, real backend), then `handleDoctor`
-// composes the canonical 10-check list against `buildProbes(ctx)` — i.e.
-// the same probe bundle the production handler uses. HOME and `process.cwd`
-// are overridden for the test duration so the claude-code detector and
-// `vcsGitAvailable` see only the test fixture filesystem.
-//
-// Coverage caveat: this no longer exercises Commander routing, the
-// `#!/usr/bin/env node` shebang, `--json` formatting, or the CLI's
-// exit-code mapping. Those are CLI-adapter contracts; the per-check
-// unit tests + the composer tests
-// (`verbs/doctor/index.test.ts`) already cover the handler.
-// Pinning the CLI surface is tracked as a follow-up — see #1324 close
-// notes — and would be reintroduced via an in-process Commander harness
-// rather than a tsx spawn.
-//
-// Isolation discipline:
-//   - `HOME`/`USERPROFILE` are stubbed to the temp dir so the claude-code
-//     detector looks for `$TMP/.claude.json` rather than the developer's
-//     real one.
-//   - `process.cwd` is stubbed to the project temp dir for the lifetime
-//     of each test so the detector + `vcsGitAvailable` only see fixture
-//     state.
-//   - The state directory is pinned inside the project tree so the test
-//     never touches `~/.exarchos/`.
-//   - Each test gets a fresh `mkdtemp` and `fs.rm` teardown.
+/**
+ * Acceptance test for `exarchos doctor`. It calls `handleDoctor` in-process against a temp project directory.
+ * `initializeContext` builds a real `DispatchContext`, and `handleDoctor` runs its checks on the production probes.
+ * The test does not cover Commander routing, `--json` formatting or the exit-code mapping of the CLI.
+ * A `tsx` spawn of the CLI is not possible: `tsx` runs under Node, which rejects the `bun:` URL scheme of the SQLite backend.
+ *
+ * Isolation:
+ * - `HOME` and `USERPROFILE` point at a temp directory, so the claude-code detector reads `.claude.json` from there.
+ * - `process.cwd` returns the temp project directory, so the detector and `vcsGitAvailable` see only fixture state.
+ * - The state directory is inside the project tree, so the test never writes to `~/.exarchos/`.
+ * - Each test gets fresh temp directories and removes them.
+ */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -58,27 +22,19 @@ import { initializeContext } from '../../src/dispatch/core/context.js';
 import type { ToolResult } from '../../src/format.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
-// ─── Harness ────────────────────────────────────────────────────────────────
-
 interface DoctorRunResult {
   readonly result: ToolResult;
 }
 
 /**
- * Run `handleDoctor` in-process against the given fixture, with HOME and
- * cwd pinned for the duration of the call. The state directory lives
- * inside the project tree so the test never touches `~/.exarchos/`.
+ * Runs `handleDoctor` in-process against the fixture, with `HOME`, `USERPROFILE` and `process.cwd` pinned for the call.
+ * The detector and `vcsGitAvailable` read `process.cwd` directly. The `afterEach` hook removes the environment stubs.
+ * The state directory is inside the project tree, so the call never writes to `~/.exarchos/`.
  */
 async function runDoctor(projectDir: string, homeDir: string): Promise<DoctorRunResult> {
-  // Stub HOME/USERPROFILE for the detector and any check that resolves
-  // home-relative paths. `vi.stubEnv` auto-restores in `afterEach` via
-  // the per-test cleanup hook (vitest 1.x+).
   vi.stubEnv('HOME', homeDir);
   vi.stubEnv('USERPROFILE', homeDir);
 
-  // Stub `process.cwd` for the detector + vcsGitAvailable check, which
-  // both read it directly. `vi.spyOn` is auto-restored by the standard
-  // test cleanup.
   const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(projectDir);
 
   try {
@@ -90,15 +46,11 @@ async function runDoctor(projectDir: string, homeDir: string): Promise<DoctorRun
   }
 }
 
-// ─── Fixtures ───────────────────────────────────────────────────────────────
-
 let projectDir: string;
 let homeDir: string;
 
+/** The project root and `HOME` are separate temp directories, so the test controls the `$HOME/.claude.json` that the detector reads. */
 beforeEach(async () => {
-  // One mkdtemp for the project root, another nested for HOME so the
-  // claude-code detector's `$HOME/.claude.json` path is fully under
-  // our control and tests cannot cross-contaminate.
   projectDir = await fs.mkdtemp(path.join(os.tmpdir(), 'doctor-e2e-project-'));
   homeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'doctor-e2e-home-'));
 });
@@ -112,38 +64,32 @@ afterEach(async () => {
   ]);
 });
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('doctor end-to-end acceptance (task 022)', () => {
+  /**
+   * The project directory and `HOME` are empty: no `.claude/`, no `.claude.json` and no git repo.
+   * - The handler output must parse with the Zod schema that the MCP adapter uses, or the wire contract breaks.
+   * - The run-bundle custody check passes on a fresh state directory and says that it had nothing to check.
+   * - The schema refinement already enforces the tally. The test asserts it again so that a failure names the field.
+   * - At least one check with the status `Warning` or `Fail` must offer an init-style fix (`exarchos init`, `git init` or `mkdir -p .exarchos`).
+   *   The host decides which check shows the gap, so the pattern accepts all three.
+   * - No `fix` string is only whitespace or ends in whitespace. The schema rejects only the empty string.
+   */
   it('Doctor_FreshProjectWithNoClaudeConfig_ReturnsExpectedShape', async () => {
-    // Arrange: project dir is empty — no `.claude/`, no `.claude.json`,
-    // no git repo. HOME is an empty mkdtemp so the claude-code detector
-    // sees no `$HOME/.claude.json` either.
-
-    // Act
     const { result } = await runDoctor(projectDir, homeDir);
 
     expect(result.success).toBe(true);
 
-    // Shape pin: the handler output must validate against the same Zod
-    // schema the MCP adapter projects through. Any divergence breaks
-    // the wire contract (DR-3).
     const parsed = DoctorOutputSchema.safeParse(result.data);
     expect(parsed.success).toBe(true);
-    if (!parsed.success) return; // narrow for TS below
+    if (!parsed.success) return;
 
     const output: DoctorOutput = parsed.data;
     expect(output.checks.length).toBeGreaterThan(0);
 
-    // The run-bundle custody check reaches the operator through the real
-    // composer against a real (fresh) state dir: nothing has settled under
-    // custody, so it passes while saying it checked nothing.
     const custody = output.checks.find((check) => check.name === 'run-bundle-integrity');
     expect(custody?.category).toBe('storage');
     expect(custody?.status).toBe('Pass');
     expect(custody?.message).toContain('nothing to check');
-    // Tally invariant is enforced inside the schema refinement, but
-    // re-assert here so a failure message points at the right field.
     const tally =
       output.summary.passed +
       output.summary.warnings +
@@ -151,13 +97,6 @@ describe('doctor end-to-end acceptance (task 022)', () => {
       output.summary.skipped;
     expect(tally).toBe(output.checks.length);
 
-    // At least one non-Pass check must offer an init-style remediation
-    // so a fresh-install operator has a clear next step. The UX
-    // contract is "the user sees an actionable init-style command" —
-    // `exarchos init` for the agent/plugin surface, or an equivalent
-    // project-level init (`git init`, `mkdir -p .exarchos`) for the
-    // runtime/vcs surface. Matching the broader set keeps the test
-    // robust to which specific check surfaces the gap on a given host.
     const initRegex = /(exarchos init|git init|mkdir\s+-p?\s*\.exarchos)/i;
     const nonPassWithInitFix = output.checks.filter(
       (c) =>
@@ -168,13 +107,6 @@ describe('doctor end-to-end acceptance (task 022)', () => {
     );
     expect(nonPassWithInitFix.length).toBeGreaterThan(0);
 
-    // DIM-8 prose-quality spot-check: every emitted `fix` string ends
-    // without a trailing space and does not collapse into an empty
-    // string (the Zod schema already rejects `""`, but a fix made of
-    // pure whitespace would sneak past the minimum-length constraint).
-    // This is the acceptance-level mirror of the convention check —
-    // the per-check unit tests own message/fix content; this test owns
-    // the cross-cutting quality gate.
     for (const check of output.checks) {
       if (check.fix !== undefined) {
         expect(check.fix.trim().length).toBeGreaterThan(0);
@@ -183,12 +115,15 @@ describe('doctor end-to-end acceptance (task 022)', () => {
     }
   }, 30_000);
 
+  /**
+   * The fixture is a minimal `$HOME/.claude.json` that registers `mcpServers.exarchos`.
+   * The claude-code detector in `runtime/agent-environment-detector.ts` needs no other field.
+   * The guarantees are zero failed checks and a pass for the two agent checks. A warning, such as a missing git repo, is acceptable.
+   *
+   * "Mostly pass" means that more than half of the checks pass. The remote-MCP check always has the status `Skipped`.
+   * The win32 runner adds expected environment warnings that can tip that majority, so the majority check does not run on win32.
+   */
   it('Doctor_ProjectWithClaudeJsonAndExarchosMcp_ReturnsMostlyPass', async () => {
-    // Arrange: stage a minimal valid `$HOME/.claude.json` that registers
-    // `mcpServers.exarchos`. This is the single wiring the claude-code
-    // detector reads (see `runtime/agent-environment-detector.ts`). No
-    // fields beyond `mcpServers` are required for the detector to mark
-    // configPresent=true, configValid=true, mcpRegistered=true.
     const claudeJson = {
       mcpServers: {
         exarchos: {
@@ -203,12 +138,8 @@ describe('doctor end-to-end acceptance (task 022)', () => {
       'utf-8',
     );
 
-    // Act
     const { result } = await runDoctor(projectDir, homeDir);
 
-    // Assert: a zero-failure run. Warnings (e.g. missing git repo) are
-    // still acceptable — the guarantee is no Fails, and the two agent
-    // checks flip to Pass now that a valid config is present.
     expect(result.success).toBe(true);
 
     const parsed = DoctorOutputSchema.safeParse(result.data);
@@ -216,25 +147,15 @@ describe('doctor end-to-end acceptance (task 022)', () => {
     if (!parsed.success) return;
     const output: DoctorOutput = parsed.data;
 
-    // The two claude-code-aware checks MUST pass now.
     const byName = new Map(output.checks.map((c) => [c.name, c]));
     const configCheck = byName.get('agent-config-valid');
     const mcpCheck = byName.get('agent-mcp-registered');
     expect(configCheck?.status).toBe('Pass');
     expect(mcpCheck?.status).toBe('Pass');
 
-    // "Mostly pass" = majority of checks are Pass. The remote-MCP check
-    // is always Skipped by design; git may Warning; neither should push
-    // the Pass count below the majority. The windows-latest runner adds a
-    // couple more expected dev-environment Warnings (e.g. build-state / git
-    // probes), tipping this soft majority heuristic without any real
-    // regression — the meaningful guarantees (agent checks Pass, zero Fails)
-    // are asserted unconditionally above/below. (#1620)
     if (process.platform !== 'win32') {
       expect(output.summary.passed).toBeGreaterThan(output.checks.length / 2);
     }
-    // No outright Fails — a Fail would indicate a real wiring regression,
-    // not an expected dev-environment gap.
     expect(output.summary.failed).toBe(0);
   }, 30_000);
 });

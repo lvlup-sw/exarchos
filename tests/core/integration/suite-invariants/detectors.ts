@@ -1,11 +1,9 @@
-// ─── The DR-30 detectors ────────────────────────────────────────────────────
+// The detectors of the suite invariants.
 //
-// Five independent rules, each returning `Violation[]`. Every rule is proved
-// live by an in-memory fixture pair (a positive that MUST fire and a negative
-// that MUST NOT) in `suite-invariants.test.ts`. That fixture pairing is the
-// anti-vacuity mechanism: a corpus sweep that reports "0 violations" is only
-// meaningful if the detector that produced the 0 has been shown to be capable
-// of producing a 1.
+// Each rule returns `Violation[]`. `suite-invariants.test.ts` proves each rule
+// with a pair of in-memory fixtures: a positive that must fire and a negative
+// that must not. A corpus sweep that reports zero violations has meaning only
+// when the same run shows that the detector can report one.
 
 import { sourceViews, codeAndStrings, lineOf } from './source-view.js';
 import { matchedShapes } from './shapes.js';
@@ -18,8 +16,6 @@ export interface Violation {
   readonly detail: string;
 }
 
-// ─── @oracle-sources annotation ─────────────────────────────────────────────
-
 export interface OracleDeclaration {
   readonly offset: number;
   readonly line: number;
@@ -29,9 +25,12 @@ export interface OracleDeclaration {
 const ORACLE_ANNOTATION = /@oracle-sources:[ \t]*([^\r\n]*)/g;
 
 /**
- * Parse `// @oracle-sources: a, b` declarations. Read from the COMMENT view
- * only, so a string literal in a test body can never masquerade as a
- * governance declaration.
+ * Parses the oracle-sources tag lines of a file. It reads the comment view
+ * only, so a string literal in a test body is never a declaration.
+ *
+ * A tag line holds the tag, a colon, and the authorities as a comma-separated
+ * list. The list stops at the end of the line. Each tag line is one
+ * declaration.
  */
 export function parseOracleDeclarations(source: string): readonly OracleDeclaration[] {
   const { comments } = sourceViews(source);
@@ -48,7 +47,12 @@ export function parseOracleDeclarations(source: string): readonly OracleDeclarat
   return out;
 }
 
-/** Does an authority token look like a file/module path we can resolve? */
+/**
+ * Returns true when an authority token looks like a file path or a module
+ * path. Such a token starts with `.` or `/`, or it ends in a known file
+ * extension. Each other token is a label, so a prose label must not end in a
+ * file name.
+ */
 export function isPathAuthority(token: string): boolean {
   return /^[./]/.test(token) || /\.(ts|tsx|js|mjs|json|md|ya?ml)$/.test(token);
 }
@@ -61,8 +65,8 @@ export interface DerivationPair {
 
 export interface OracleRuleOptions {
   /**
-   * Opaque (non-path) authority labels whose derivation relationship is known
-   * but not statically walkable. Declared, never inferred — see LIMITATIONS.md.
+   * Pairs of non-path authority labels with a known derivation that the import
+   * graph cannot show. They are declared, not inferred (see `LIMITATIONS.md`).
    */
   readonly knownDerivations?: readonly DerivationPair[];
 }
@@ -72,16 +76,18 @@ function normaliseOpaque(t: string): string {
 }
 
 /**
- * RULES R1–R4, the `@oracle-sources` family.
+ * Rules R1 to R4, the oracle-sources family. R2 to R4 apply to each tag line.
  *
- * R1 `oracle-sources-missing`      — in scope, no declaration at all
- * R2 `oracle-sources-too-few`      — fewer than two DISTINCT authorities
- * R3 `oracle-sources-derived`      — one authority reachable from another
- * R4 `oracle-sources-unresolvable` — a path-shaped authority that is not a file
+ * - R1 `oracle-sources-missing`: the file is in scope and declares nothing.
+ * - R2 `oracle-sources-too-few`: fewer than two distinct authorities. Tokens
+ *   that resolve to one file, or that normalise to one label, are one authority.
+ * - R3 `oracle-sources-derived`: one authority is reachable from another, in
+ *   the static import graph for paths or in `knownDerivations` for labels.
+ * - R4 `oracle-sources-unresolvable`: a path-shaped authority is not a file.
+ *   A path resolves from the directory of the file that declares it.
  *
- * `inScope` is passed in by the caller and is computed from ASSERTION SHAPE
- * alone (see `shapes.ts`). It is never a function of the annotation, which is
- * what makes "delete the annotation to escape the rule" fail instead of pass.
+ * Scope comes from the assertion shapes alone (see `shapes.ts`), so a deleted
+ * annotation does not remove a file from scope.
  */
 export function checkOracleSources(
   file: string,
@@ -103,8 +109,6 @@ export function checkOracleSources(
   }
 
   for (const decl of decls) {
-    // Resolve path authorities; anything unresolvable is a violation in its
-    // own right (you may not declare an authority that does not exist).
     const resolved = new Map<string, string | undefined>();
     for (const token of decl.authorities) {
       if (!isPathAuthority(token)) continue;
@@ -120,8 +124,6 @@ export function checkOracleSources(
       }
     }
 
-    // Distinctness: two tokens naming the same resolved file, or two opaque
-    // labels that normalise to the same string, are ONE authority.
     const identities = decl.authorities.map((t) => {
       const abs = resolved.get(t);
       return abs !== undefined ? `file:${abs}` : `label:${normaliseOpaque(t)}`;
@@ -137,8 +139,6 @@ export function checkOracleSources(
       continue;
     }
 
-    // Derivation: a real transitive static-module-reachability walk for path
-    // authorities; a declared table for opaque labels.
     const pathTokens = decl.authorities.filter((t) => resolved.get(t) !== undefined);
     for (let i = 0; i < pathTokens.length; i += 1) {
       for (let j = 0; j < pathTokens.length; j += 1) {
@@ -176,15 +176,13 @@ export function checkOracleSources(
   return violations;
 }
 
-// ─── Test-block extraction ──────────────────────────────────────────────────
-
 export interface TestBlock {
   readonly name: string;
   /** Offset of the `it(`/`test(` token. */
   readonly start: number;
   /** Offset just past the block's closing paren. */
   readonly end: number;
-  /** Offset of the start of the immediately-preceding docblock, if any. */
+  /** Offset of the block comment directly above the test, or `start` when there is none. */
   readonly docStart: number;
 }
 
@@ -205,11 +203,13 @@ function matchParen(code: string, openIdx: number): number {
 }
 
 /**
- * Split a test file into `it(...)`/`test(...)` blocks by balanced parens over
- * the CODE view (so parens inside strings/comments cannot unbalance it). Each
- * block is widened backwards to absorb an immediately-preceding `/** … *\/`
- * docblock, because that is where this repo's suite writes its BLOCKING /
- * NEGATIVE TWIN prose.
+ * Splits a test file into `it(...)` and `test(...)` blocks. It balances
+ * parentheses over the code view, so a parenthesis in a string or a comment
+ * has no effect. Each block also records the block comment directly above it,
+ * because the suite writes its `BLOCKING ARM` and `NEGATIVE TWIN` prose there.
+ * A `//` line comment above the test, or a comment above a `describe` call, is
+ * not part of a block. The code view blanks string bodies, so the test name
+ * comes from the raw source.
  */
 export function extractTestBlocks(source: string): readonly TestBlock[] {
   const { code } = sourceViews(source);
@@ -220,7 +220,6 @@ export function extractTestBlocks(source: string): readonly TestBlock[] {
     const openIdx = m.index + m[0].length - 1;
     const end = matchParen(code, openIdx);
     const nameMatch = /^\s*\(\s*['"`]([^'"`]*)/.exec(code.slice(openIdx, openIdx + 200));
-    // The code view blanks string bodies, so recover the name from raw source.
     const rawName = /['"`]([^'"`]*)['"`]/.exec(source.slice(openIdx, openIdx + 200));
     let docStart = m.index;
     const before = source.slice(0, m.index);
@@ -240,20 +239,18 @@ export function extractTestBlocks(source: string): readonly TestBlock[] {
   return blocks;
 }
 
-// ─── R5: blocking claim must declare the seam its kill fixture kills ────────
-
 /**
- * The suite's established convention (T-37, `test/integration/governance/**`)
- * is a `BLOCKING ARM` comment paired with a `NEGATIVE TWIN` comment: the twin
- * IS the kill fixture — it is the arm that proves the blocking assertion is
- * attributable to the guard rather than to the setup.
+ * R5: each blocking claim declares the seam that its kill fixture kills.
  *
- * DR-30: "Every blocking claim declares the seam its kill fixture kills."
- * Mechanically: a block that raises a blocking claim must carry a kill-fixture
- * declaration that NAMES something — either an explicit
- * `@kill-seam: <seam>` annotation, or a `NEGATIVE TWIN` marker followed by at
- * least `MIN_SEAM_CHARS` characters of prose. A bare `── NEGATIVE TWIN ──`
- * rule with no words after it does not declare a seam.
+ * The convention of the suite pairs a `BLOCKING ARM` comment with a
+ * `NEGATIVE TWIN` comment. The twin is the kill fixture. It proves that the
+ * guard, not the setup, causes the blocking assertion.
+ *
+ * The rule reads the comments of a test block and the block comment directly
+ * above it. A block with a blocking claim must name the seam. The seam text
+ * follows a `NEGATIVE TWIN` marker, or a `@kill-seam` annotation and its
+ * colon, on the same line. Without divider characters, that text needs at
+ * least `MIN_SEAM_CHARS` characters, so a bare divider declares no seam.
  */
 export const BLOCKING_CLAIM_MARKER = /\bBLOCKING(?:\s+(?:ARM|CLAIM|arm|claim))\b|@blocking-claim\b/;
 export const KILL_SEAM_ANNOTATION = /@kill-seam:[ \t]*([^\r\n]*)/g;
@@ -296,32 +293,19 @@ export function checkBlockingClaims(file: string, source: string): readonly Viol
   return out;
 }
 
-// ─── R6: no `passed === true` on a "could not run" verdict ──────────────────
-
 /**
- * The defect: a probe that could not execute is reported through the same
- * channel as a probe that executed and passed, so `passed: true` means either
- * "it worked" or "we never looked". `src/verbs/
- * test-adequacy.production-path.test.ts` names this class explicitly
- * ("REPRESENTABILITY"). This rule forbids reproducing it.
+ * R6: no test asserts `passed === true` on a verdict that did not run.
  *
- * Mechanically, within one test block (comments blanked, string BODIES kept
- * because verdicts are usually string literals), the rule fires only where an
- * assertion actually CLAIMS a pass over a could-not-run subject:
- *   (a) inline — `expect(<expr>.passed).toBe(true)` where `<expr>` itself
- *       carries a could-not-run marker, or
- *   (b) by binding — `expect(x.passed).toBe(true)` where root `x` is bound, in
- *       the same block, to an initializer carrying a could-not-run marker.
+ * The defect: a probe that did not run reports through the same channel as a
+ * probe that ran and passed. The rule reads one test block with the comments
+ * blank and the string bodies kept, because a verdict is usually a string. It
+ * fires on a match of `PASSED_TRUE_ASSERT`, such as
+ * `expect(<subject>.passed).toBe(true)`, in two cases:
+ * - the subject itself matches `COULD_NOT_RUN_MARKER`
+ * - the subject is one identifier, and its initializer in the block matches
  *
- * DELIBERATELY NOT FIRED ON: a block that merely *constructs* a could-not-run
- * carrier in order to prove the system rejects it. Two such negative fixtures
- * exist in the corpus today —
- * `verbs/pure/static-analysis.test.ts::NormalizeGateVerdict_SkippedStaticAnalysis_…`
- * and `verbs/gates/test-adequacy.production-path.test.ts::VerdictOf_LegacyVacuousCarrier_…`
- * — and both assert `'indeterminate'` / `passed === false`. An earlier draft
- * of this rule keyed on "an object literal carrying both markers" and flagged
- * exactly those two, i.e. it punished the tests that already enforce the
- * property. The rule keys on the ASSERTED CLAIM instead.
+ * The rule does not fire on a block that only builds such a carrier to prove
+ * that the system rejects it.
  */
 export const COULD_NOT_RUN_MARKER =
   /\b(?:couldNotRun|could_not_run|COULD_NOT_RUN|could-not-run|could not run|didNotRun|did_not_run|notRun|not_run|NOT_RUN|not-run|unavailable|UNAVAILABLE|indeterminate|INDETERMINATE|neverRan|never_ran)\b/;
@@ -331,8 +315,6 @@ const PASSED_TRUE_ASSERT =
 
 
 export function checkCouldNotRunVerdicts(file: string, source: string): readonly Violation[] {
-  // String bodies are load-bearing here: verdicts are usually string literals
-  // (`discriminant: 'could-not-run'`), which the plain code view blanks.
   const view = codeAndStrings(source);
   const out: Violation[] = [];
 
@@ -346,7 +328,6 @@ export function checkCouldNotRunVerdicts(file: string, source: string): readonly
       const subject = (m[1] ?? '').trim();
       if (flagged.has(subject)) continue;
 
-      // (a) the subject expression itself carries the could-not-run marker.
       if (COULD_NOT_RUN_MARKER.test(subject)) {
         flagged.add(subject);
         out.push({
@@ -358,7 +339,6 @@ export function checkCouldNotRunVerdicts(file: string, source: string): readonly
         continue;
       }
 
-      // (b) the subject is a bare identifier bound to a could-not-run value.
       const root = /^([A-Za-z_$][\w$]*)$/.exec(subject)?.[1];
       if (!root) continue;
       const bind = new RegExp(
@@ -379,17 +359,18 @@ export function checkCouldNotRunVerdicts(file: string, source: string): readonly
   return out;
 }
 
-// ─── R7: the integration tier may not synthesize its own root ───────────────
-
 /**
- * Handed over by T-36: "no synthesized dispatch context" is currently enforced
- * BY CONSTRUCTION (nothing in the tier does it) rather than BY ASSERTION. A
- * future file could import `dispatch` directly and hand it an object literal,
- * and nothing would fail. This rule makes it an assertion.
+ * R7: the integration tier must not synthesize its own root.
  *
- * Scoped to `test/integration/**` minus the harness itself, which is the one
- * module allowed to know how the context is built (and builds it through the
- * production composition root, not by literal).
+ * The rule fires on an object that a file types as `DispatchContext` by an
+ * annotation, a cast or `satisfies`. It also fires on a `vi.mock` of a
+ * composite module. Without this rule, a file can give `dispatch` an object
+ * literal as its context, and no test fails. The harness is the one module
+ * that builds the context, and it uses the production composition root.
+ *
+ * The rule has no scope of its own: the caller selects the files. The mock
+ * check reads the view with string bodies, because its subject is a module
+ * specifier.
  */
 const DISPATCH_CONTEXT_LITERAL =
   /:\s*DispatchContext\s*=\s*\{|as\s+DispatchContext\s*[;,)]|<\s*DispatchContext\s*>\s*\{|satisfies\s+DispatchContext/;
@@ -398,8 +379,6 @@ const COMPOSITE_MODULE_MOCK =
 
 export function checkNoSynthesizedRoot(file: string, source: string): readonly Violation[] {
   const { code } = sourceViews(source);
-  // The mock check must see string BODIES: its subject is a module specifier,
-  // which the plain code view blanks.
   const withStrings = codeAndStrings(source);
   const out: Violation[] = [];
   if (DISPATCH_CONTEXT_LITERAL.test(code)) {

@@ -1,80 +1,26 @@
-// ─── Exp 2 · Native-baseline spike harness (#1670 · DR-3 / DR-7) ──────────────
-//
-// PURPOSE (spike-first). The prior #1636 benchmark ASSUMED native Claude Code
-// routes a flat `opus` model to every subagent (`NATIVE_FLAT_MODEL='opus'`). That
-// assumption was never measured. This harness MEASURES native's actual behavior:
-// it drives REAL headless Claude Code (`claude -p --output-format stream-json`)
-// with a prompt that presents a shared spec AS the plan and instructs Task-tool
-// delegation, then parses the session transcript for, PER dispatched subagent:
-//   • the `model` native assigned it,
-//   • its verification/tool behavior (tool_use count + names), and
-//   • its token spend.
-// The measured per-subagent model distribution is emitted as raw data (stamped
-// through the Task-001 provenance module) — the artifact that retires the
-// assumption.
-//
-// ── PROVEN MECHANIC (what the spike found) ───────────────────────────────────
-// Two real `claude -p ... --model sonnet` runs on 2026-07-09, each dispatching 3
-// general-purpose subagents over a 3-task plan, captured as fixtures. Delegation
-// entered reproducibly in BOTH: every subagent surfaces as a `system/task_started`
-// event (keyed by `tool_use_id`) plus a `system/task_notification` carrying its
-// token total + status. But the two runs differed in ONE way that matters, and
-// that difference is itself a finding:
-//   • Variant A (`fixtures/delegation-sonnet-3subagents.jsonl`): the subagents
-//     ALSO streamed their own `assistant` messages to the parent transcript, with
-//     `parent_tool_use_id === tool_use_id` — so each subagent's model was read
-//     DIRECTLY off `message.model`. All three = `claude-sonnet-5`.
-//   • Variant B (`fixtures/delegation-sonnet-notification-only.jsonl`): the
-//     subagents' `assistant` messages were NOT streamed to the parent transcript
-//     (every `assistant` event had `parent_tool_use_id: null` — main agent only).
-//     Per-MESSAGE model attribution is therefore UNRELIABLE across runs.
-//   → The robust, always-present signal is the terminal `result.modelUsage`: in
-//     both runs it held exactly ONE key (`claude-sonnet-5`). With N subagents
-//     dispatched and a single-model session, every subagent PROVABLY ran on that
-//     one model. So {@link resolveSubagentModels} back-fills the model for the
-//     notification-only variant from the sole session model (marked
-//     `modelSource: 'session-single'` for honesty — a measured inference, not a
-//     guess), and per-message linkage refines it when Variant A applies.
-//   → FINDING: native CC subagents INHERIT the session model; they are NOT
-//     assigned distinct per-subagent models by default. Native routes a FLAT
-//     model (whatever `--model` selected), not a mix. This re-grounds the
-//     "model selection vs native" claim on observed data — and corrects the
-//     `NATIVE_FLAT_MODEL='opus'` assumption: native IS flat, but on the SESSION
-//     model, not a fixed opus.
-//
-// ── FAIL-HONEST (DR-7) ───────────────────────────────────────────────────────
-// If native does NOT enter delegation (zero subagents observed), the harness
-// emits a BLOCKED record — an honest measured NEGATIVE — that carries the reason
-// and the fallbacks attempted, and DELIBERATELY has NO `modelDistribution`. There
-// is no code path that fabricates a distribution: the distribution is only ever
-// derived from subagents actually observed in a real transcript. A modeled or
-// assumed substitute is never admitted (that was the #1669 sin this feature
-// exists to undo). When a subagent's model cannot be resolved even from the
-// session (a multi-model session with no per-message linkage), it stays `null` /
-// `unresolved` and is counted under `unattributed` — never guessed.
-//
-// ── SDK FALLBACK ─────────────────────────────────────────────────────────────
-// `claude -p` transcript capture proved RELIABLE for DELEGATION detection, token
-// spend, and (via `result.modelUsage`) model attribution — so the primary
-// `claude -p` mechanic is used. The one fragile surface is per-MESSAGE subagent
-// model linkage (Variant B above), which the session-single resolution already
-// covers for the flat-model case. The Claude Agent SDK is the reserve path if
-// richer per-subagent structure is ever needed; the parser here is
-// transport-agnostic (it consumes stream-json events), so an SDK path emitting
-// the same event shape reuses it unchanged.
-//
-// Run live:  tsx docs/evals/native-baseline/harness.ts <specPath> [--model sonnet]
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Measures how native Claude Code assigns models to subagents. The harness runs headless
+ * `claude -p --output-format stream-json` with a prompt that presents a spec as the plan and
+ * asks for Task-tool delegation. Then it reads the model, the tool calls and the token spend of
+ * each dispatched subagent from the transcript.
+ *
+ * The two delegation runs in `fixtures/` show two transcript shapes. In one, each subagent streams
+ * its `assistant` messages with `parent_tool_use_id`, so `message.model` gives its model. In the
+ * other, only `task_started` and `task_notification` events name the subagent. For that shape,
+ * {@link resolveSubagentModels} uses the terminal `result.modelUsage` when it holds one model.
+ *
+ * When the transcript shows no subagent, the record is `blocked` and holds no
+ * `modelDistribution`. The distribution comes only from observed subagents. A model that the
+ * harness cannot resolve stays `null`.
+ *
+ * Run live: `tsx tests/evals/native-baseline/harness.ts <specPath> [--model sonnet]`
+ */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execFile } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-// Task-001 provenance module (DR-7): every raw-data record is pinned + honesty-checked.
-// Imported via a `.js` specifier resolving to the MCP-server `.ts` source — the
-// established convention for `docs/evals/` harnesses (see `quality-ab/grade.ts`),
-// so this pulls in no MCP runtime deps.
 import {
   stampProvenance,
   assertMeasured,
@@ -84,8 +30,6 @@ import {
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const REPO_ROOT = path.resolve(__dirname, '../../../');
-
-// ─── Stream-json event shape (only the fields we read) ────────────────────────
 
 /** A content block inside an assistant message. */
 export interface ContentBlock {
@@ -105,14 +49,14 @@ export interface ModelUsageEntry {
 }
 
 /**
- * A single parsed stream-json line. Claude Code's `--output-format stream-json`
- * emits one JSON object per line; we type only the fields this harness reads and
- * leave the rest loose (`unknown`) rather than pretend to model the whole schema.
+ * One parsed stream-json line. The type declares a subset of the fields. `message` and
+ * `parent_tool_use_id` belong to `assistant` and `user` events. The fields from `task_id` to
+ * `usage` belong to `task_started` and `task_notification` events. `is_error` and `modelUsage`
+ * belong to the `result` event. Each event in the captured transcripts holds `session_id`.
  */
 export interface StreamEvent {
   readonly type?: string;
   readonly subtype?: string;
-  // assistant / user
   readonly message?: {
     readonly model?: string;
     readonly content?: readonly ContentBlock[];
@@ -123,7 +67,6 @@ export interface StreamEvent {
     };
   };
   readonly parent_tool_use_id?: string | null;
-  // task_started / task_notification (subagent lifecycle)
   readonly task_id?: string;
   readonly tool_use_id?: string;
   readonly description?: string;
@@ -136,7 +79,6 @@ export interface StreamEvent {
     readonly tool_uses?: number;
     readonly duration_ms?: number;
   };
-  // result
   readonly is_error?: boolean;
   readonly modelUsage?: Readonly<Record<string, ModelUsageEntry>>;
   readonly session_id?: string;
@@ -145,14 +87,13 @@ export interface StreamEvent {
 /** Result of leniently parsing a stream-json transcript. */
 export interface ParsedTranscript {
   readonly events: readonly StreamEvent[];
-  /** Count of non-blank lines that failed to JSON-parse (a trailing partial line, etc.). */
+  /** The count of non-blank lines that are not valid JSON, such as a truncated last line. */
   readonly malformed: number;
 }
 
 /**
- * Parse a stream-json transcript (newline-delimited JSON) leniently: blank lines
- * are skipped and a line that fails to parse is counted (not thrown) so a
- * truncated final chunk never loses the events before it.
+ * Parses a newline-delimited stream-json transcript. It skips blank lines and counts a line that
+ * is not valid JSON, so a truncated last line does not lose the events before it.
  */
 export function parseStreamJson(text: string): ParsedTranscript {
   const events: StreamEvent[] = [];
@@ -169,8 +110,6 @@ export function parseStreamJson(text: string): ParsedTranscript {
   return { events, malformed };
 }
 
-// ─── Per-subagent observation ─────────────────────────────────────────────────
-
 /** Token spend attributed to one subagent. */
 export interface SubagentTokens {
   /** Authoritative total from the subagent's `task_notification.usage.total_tokens` (when present). */
@@ -182,27 +121,18 @@ export interface SubagentTokens {
 }
 
 /**
- * How a subagent's {@link SubagentObservation.model} was determined — a
- * first-class honesty field, because the two real transcript variants differ:
- *   • `assistant`      — the subagent streamed its own `assistant` messages to the
- *                        parent transcript (with `parent_tool_use_id`), so its
- *                        model was read DIRECTLY off `message.model`.
- *   • `session-single` — the subagent's messages were NOT streamed (only its
- *                        `task_notification` surfaced); the model was RESOLVED
- *                        from the terminal `result.modelUsage` — but ONLY when the
- *                        whole session touched exactly one model, in which case
- *                        every subagent necessarily ran on it (a measured
- *                        inference, never a guess).
- *   • `unresolved`     — neither signal was available (e.g. a multi-model session
- *                        with no per-message linkage); the model stays `null`.
+ * How the harness found {@link SubagentObservation.model}.
+ * - `assistant`: the subagent streamed its `assistant` messages to the parent transcript, and
+ *   `message.model` gives the model.
+ * - `session-single`: no `assistant` message of the subagent gave a model. The terminal
+ *   `result.modelUsage` holds exactly one model, so the subagent ran on it.
+ * - `unresolved`: neither signal is available, and the model stays `null`.
  */
 export type ModelSource = 'assistant' | 'session-single' | 'unresolved';
 
 /**
- * What native actually did for ONE dispatched subagent, harvested from the
- * transcript. `model` is the model native assigned this subagent (the spike's
- * central measurement); `toolUses`/`toolNames` are its verification/tool
- * behavior; `tokens` its spend.
+ * What native did for one dispatched subagent, as the transcript shows it: the assigned model,
+ * the tool calls and the token spend.
  */
 export interface SubagentObservation {
   readonly toolUseId: string;
@@ -211,7 +141,7 @@ export interface SubagentObservation {
   readonly description: string | null;
   /** The model native assigned this subagent (null if unresolved — see {@link modelSource}). */
   readonly model: string | null;
-  /** Provenance of {@link model} — direct vs. session-inferred vs. unresolved. */
+  /** How the harness found {@link model}. */
   readonly modelSource: ModelSource;
   readonly tokens: SubagentTokens;
   /** Number of tool calls the subagent made (verification/tool behavior). */
@@ -223,20 +153,17 @@ export interface SubagentObservation {
 }
 
 /**
- * Extract one {@link SubagentObservation} per dispatched subagent.
+ * Returns one {@link SubagentObservation} for each dispatched subagent, and `[]` when the
+ * transcript holds no `task_started` event.
  *
- * Delegation is detected off `system/task_started` events (unambiguous — each is
- * a real Task dispatch), keyed by `tool_use_id`. A subagent's model + per-message
- * token usage + tool calls come from `assistant` events whose
- * `parent_tool_use_id` equals that `tool_use_id`. Its authoritative total-token
- * count + completion status come from the matching `system/task_notification`.
- *
- * Pure: derives everything from the passed events; reads no I/O and invents
- * nothing. Returns `[]` when no `task_started` events are present (→ the caller
- * treats that as BLOCKED, never a fabricated distribution).
+ * - A `system/task_started` event marks a dispatch. Its `tool_use_id` is the key.
+ * - An `assistant` event with that `parent_tool_use_id` gives the model, the message tokens and
+ *   the tool calls. A null parent is the main agent.
+ * - The matching `system/task_notification` gives the total tokens and the status. Its
+ *   `tool_uses` count wins when it is larger than the count of `tool_use` blocks, which covers a
+ *   subagent that streamed no message.
  */
 export function extractSubagents(events: readonly StreamEvent[]): SubagentObservation[] {
-  // 1. Seed one record per dispatched subagent from task_started.
   const byToolUseId = new Map<
     string,
     {
@@ -272,13 +199,12 @@ export function extractSubagents(events: readonly StreamEvent[]): SubagentObserv
     }
   }
 
-  // 2. Attribute assistant messages (model + tokens + tool calls) to their parent subagent.
   for (const e of events) {
     if (e.type !== 'assistant') continue;
     const parent = e.parent_tool_use_id;
-    if (typeof parent !== 'string') continue; // null == main agent, not a subagent
+    if (typeof parent !== 'string') continue;
     const rec = byToolUseId.get(parent);
-    if (!rec) continue; // an assistant attributed to a dispatch we never saw start
+    if (!rec) continue;
     const msg = e.message;
     if (msg?.model && rec.model === null) rec.model = msg.model;
     rec.input += toFiniteNumber(msg?.usage?.input_tokens);
@@ -291,7 +217,6 @@ export function extractSubagents(events: readonly StreamEvent[]): SubagentObserv
     }
   }
 
-  // 3. Overlay the authoritative completion facts from task_notification.
   for (const e of events) {
     if (e.type !== 'system' || e.subtype !== 'task_notification') continue;
     if (typeof e.tool_use_id !== 'string') continue;
@@ -301,8 +226,6 @@ export function extractSubagents(events: readonly StreamEvent[]): SubagentObserv
     if (e.summary) rec.finalSummary = e.summary;
     const total = e.usage?.total_tokens;
     if (typeof total === 'number' && Number.isFinite(total)) rec.total = total;
-    // task_notification's tool_uses is the authoritative count when the subagent
-    // ran silently (no tool_use blocks surfaced in a captured assistant message).
     const notifTools = e.usage?.tool_uses;
     if (typeof notifTools === 'number' && notifTools > rec.toolUses) rec.toolUses = notifTools;
   }
@@ -323,21 +246,18 @@ export function extractSubagents(events: readonly StreamEvent[]): SubagentObserv
 }
 
 /**
- * Resolve subagents whose model could NOT be read from the parent transcript
- * (the common "notification-only" variant, where subagent `assistant` messages
- * are not streamed). When the terminal `result.modelUsage` lists exactly ONE
- * model, the whole session — subagents included — provably touched only that
- * model, so it is attributed to every unresolved subagent (`modelSource:
- * 'session-single'`). With zero or multiple session models the subagent stays
- * `unresolved` (never guessed). Pure; returns a new array.
+ * Fills the model of each subagent that has none, for the transcript shape that streams no
+ * subagent message. When `result.modelUsage` lists exactly one model, the whole session ran on
+ * it, so each such subagent gets it with `modelSource: 'session-single'`. With zero or several
+ * session models, the subagent stays `unresolved`. Returns a new array.
+ *
+ * The `?? null` on the index keeps the type of `model` at `string | null`.
  */
 export function resolveSubagentModels(
   subagents: readonly SubagentObservation[],
   sessionModelUsage: Readonly<Record<string, ModelUsageEntry>>,
 ): SubagentObservation[] {
   const sessionModels = Object.keys(sessionModelUsage);
-  // `?? null` keeps the "sole model or nothing" shape the whole function rests
-  // on — a `string | undefined` here would widen every observation's `model`.
   const soleModel = sessionModels.length === 1 ? (sessionModels[0] ?? null) : null;
   return subagents.map((s) => {
     if (s.model !== null || soleModel === null) return s;
@@ -360,8 +280,6 @@ export function extractSessionModelUsage(
   return {};
 }
 
-// ─── Model distribution (the spike's headline measurement) ────────────────────
-
 /** How the distribution's per-subagent models were attributed overall. */
 export type AttributionMode = 'per-subagent' | 'session-single' | 'mixed' | 'none';
 
@@ -371,24 +289,21 @@ export interface ModelDistribution {
   /** Number of distinct models assigned across subagents. */
   readonly distinctModelCount: number;
   /**
-   * True when every dispatched subagent resolved to ONE shared model and none
-   * were left unattributed — i.e. native INHERITED a single model rather than
-   * routing a mix. This is the boolean that answers "does native assign distinct
-   * per-subagent models, or inherit one?"
+   * True when every dispatched subagent resolved to one shared model and none is unattributed.
+   * Native then inherited a single model and did not route a mix.
    */
   readonly inheritsSingleModel: boolean;
-  /** Subagents dispatched whose model could not be attributed at all. */
+  /** The count of dispatched subagents with no attributed model. */
   readonly unattributed: number;
-  /** How the models were determined (direct linkage vs. single-session inference). */
+  /** How the harness attributed the models over all the subagents. */
   readonly attributionMode: AttributionMode;
 }
 
 /**
- * Reduce the per-subagent observations to the model distribution. Expects
- * subagents already run through {@link resolveSubagentModels}. Counts only
- * subagents whose model was resolved; any left `null` is tallied under
- * `unattributed` (never guessed). `inheritsSingleModel` requires a single model
- * AND zero unattributed subagents, so a partial capture never over-claims.
+ * Reduces the observations to the model distribution. Run {@link resolveSubagentModels} on the
+ * subagents first. A subagent with a `null` model counts under `unattributed`.
+ * `inheritsSingleModel` needs one model and zero unattributed subagents, so a partial capture
+ * does not claim it.
  */
 export function computeModelDistribution(
   subagents: readonly SubagentObservation[],
@@ -411,27 +326,28 @@ export function computeModelDistribution(
   };
 }
 
+/**
+ * Returns `none` when no subagent has a model. Returns `mixed` when some subagents are
+ * unresolved, or when both resolved sources occur.
+ */
 function attributionModeOf(
   total: number,
   unattributed: number,
   sources: ReadonlySet<ModelSource>,
 ): AttributionMode {
   if (total === 0 || unattributed === total) return 'none';
-  if (sources.has('unresolved')) return 'mixed'; // some resolved, some not
+  if (sources.has('unresolved')) return 'mixed';
   if (sources.has('assistant') && sources.has('session-single')) return 'mixed';
   if (sources.has('session-single')) return 'session-single';
   return 'per-subagent';
 }
 
-// ─── Outcome records (measured vs. honest-blocked) ────────────────────────────
-
 /** Common fields on every native-baseline record. */
 interface NativeBaselineBase {
   /**
-   * Honest provenance discriminant. BOTH outcomes are `measured` because both are
-   * truthful records of a real run — a blocked record is a measured NEGATIVE, not
-   * a modeled stand-in. `assertMeasured` therefore admits both; the guard against
-   * a fabricated distribution is structural (see {@link BlockedNativeBaseline}).
+   * Both outcomes are `measured`, because a blocked record is a true record of a real run and not
+   * a modeled stand-in. `assertMeasured` thus admits both. The guard against an invented
+   * distribution is the shape of {@link BlockedNativeBaseline}.
    */
   readonly source: 'measured';
   /** The spec presented to native as its plan (path or short ref). */
@@ -447,10 +363,9 @@ export interface MeasuredNativeBaseline extends NativeBaselineBase {
 }
 
 /**
- * Native did NOT delegate reproducibly (DR-7 fail-honest). Records the reason and
- * the fallbacks attempted. DELIBERATELY carries NO `modelDistribution`: when no
- * subagent was observed there is nothing to measure, and this harness refuses to
- * synthesize one. `subagents` is always empty.
+ * Native did not delegate. The record holds the reason and the attempted fallbacks. It has no
+ * `modelDistribution` field, because the harness observed no subagent. `subagents` is always
+ * empty.
  */
 export interface BlockedNativeBaseline extends NativeBaselineBase {
   readonly outcome: 'blocked';
@@ -471,13 +386,12 @@ export interface BuildRecordInput {
 }
 
 /**
- * Route a parsed transcript to the honest outcome:
- *   • ≥1 subagent observed  → {@link MeasuredNativeBaseline} with the real distribution.
- *   • 0 subagents observed  → {@link BlockedNativeBaseline} (no distribution, ever).
+ * Builds the record for a parsed transcript. One or more observed subagents give a
+ * {@link MeasuredNativeBaseline}, with session-single models filled before the tally. Zero
+ * subagents give a {@link BlockedNativeBaseline}.
  *
- * The measured branch's distribution is DERIVED from the observed subagents —
- * there is no argument by which a caller can inject a hand-made distribution, so
- * a modeled substitute cannot enter through here. Pure (no I/O).
+ * The function derives the distribution from the observed subagents. No argument lets a caller
+ * supply one.
  */
 export function buildNativeBaselineRecord(input: BuildRecordInput): NativeBaselineRecord {
   const raw = extractSubagents(input.events);
@@ -494,8 +408,6 @@ export function buildNativeBaselineRecord(input: BuildRecordInput): NativeBaseli
     };
   }
   const sessionModelUsage = extractSessionModelUsage(input.events);
-  // Fill session-single models for subagents whose messages weren't streamed to
-  // the parent transcript (the notification-only variant) before tallying.
   const subagents = resolveSubagentModels(raw, sessionModelUsage);
   return {
     outcome: 'measured',
@@ -508,9 +420,8 @@ export function buildNativeBaselineRecord(input: BuildRecordInput): NativeBaseli
 }
 
 /**
- * Stamp a record with Task-001 provenance and honesty-check it. Both a measured
- * and a blocked record are admissible (both are honest); a record self-flagged
- * `modeled`/`assumed` is rejected by {@link assertMeasured}.
+ * Checks the record with {@link assertMeasured} and stamps it with `provenance`. A measured
+ * record and a blocked record both pass. A record with source `modeled` or `assumed` throws.
  */
 export function finalizeRecord(
   record: NativeBaselineRecord,
@@ -520,12 +431,9 @@ export function finalizeRecord(
   return stampProvenance(record, provenance);
 }
 
-// ─── CSV emission (raw data for Task 007) ─────────────────────────────────────
-
 /**
- * Render the measured per-subagent model distribution as CSV rows. A blocked
- * record yields NO distribution rows — only a single honest `blocked` marker row
- * — so a downstream reader can never mistake a negative result for a measurement.
+ * Renders the model distribution as CSV, one row for each pair of subagent type and model. A
+ * blocked record gives only a `BLOCKED` marker row, so a reader cannot take it for a measurement.
  */
 export function toDistributionCsv(record: NativeBaselineRecord): string {
   const header = 'subagent_type,model,subagents';
@@ -545,12 +453,10 @@ export function toDistributionCsv(record: NativeBaselineRecord): string {
   return [header, ...rows].join('\n');
 }
 
-// ─── Prompt + CLI arg builders (pure, testable) ───────────────────────────────
-
 /**
- * Wrap a spec's text into a prompt that makes headless CC treat the spec AS its
- * plan and enter Task-tool delegation, one subagent per task. Kept deterministic
- * so a fixture prompt reproduces byte-for-byte.
+ * Wraps the spec text in a prompt for headless Claude Code. The prompt presents the text as the
+ * plan and asks for one subagent for each task. The output is deterministic, so a fixture prompt
+ * reproduces exactly.
  */
 export function buildDelegationPrompt(specText: string): string {
   return [
@@ -588,27 +494,24 @@ export function buildClaudeArgs(opts: ClaudeArgsOptions): string[] {
   return args;
 }
 
-// ─── Live driver (DI seam so tests never spawn `claude`) ──────────────────────
-
 export interface ClaudeRunResult {
   readonly stdout: string;
   readonly stderr: string;
   readonly exitCode: number;
 }
 
-/** Injectable `claude` runner — the real one spawns the CLI; tests inject a fake. */
+/** Runs `claude` with the given argv. The default starts the CLI, and a test injects a fake. */
 export type ClaudeRunner = (args: readonly string[]) => Promise<ClaudeRunResult>;
 
-/** Default runner: spawn the real `claude` CLI and capture stdout. */
+/**
+ * The default runner. It starts the real `claude` CLI and captures its output. The 300 second
+ * `timeout` kills a hung run, and the error then gives a non-zero `exitCode`.
+ */
 export const spawnClaude: ClaudeRunner = (args) =>
   new Promise<ClaudeRunResult>((resolve) => {
     execFile(
       'claude',
       [...args],
-      // `timeout` bounds a hung `claude -p` (network stall / unexpected prompt):
-      // on timeout execFile kills the child and calls back with an error, which
-      // degrades to a non-zero exitCode → a BLOCKED record, preserving fail-honest
-      // (a hang never wedges the run with no measured OR blocked outcome).
       { maxBuffer: 64 * 1024 * 1024, encoding: 'utf-8', timeout: 300_000 },
       (err, stdout, stderr) => {
         const code =
@@ -625,13 +528,13 @@ export const spawnClaude: ClaudeRunner = (args) =>
 export interface RunNativeBaselineOptions {
   /** Spec text presented to native as its plan. */
   readonly specText: string;
-  /** Short ref recorded on the result (e.g. the spec's path). */
+  /** A short reference for the record, such as the path of the spec. */
   readonly specRef: string;
   readonly model?: string;
   readonly maxTurns?: number;
   readonly allowedTools?: readonly string[];
   readonly dangerouslySkipPermissions?: boolean;
-  /** Runner seam — defaults to {@link spawnClaude}; a test injects a canned transcript. */
+  /** The runner. The default is {@link spawnClaude}, and a test injects a canned transcript. */
   readonly runner?: ClaudeRunner;
 }
 
@@ -642,12 +545,12 @@ export interface RunNativeBaselineResult {
 }
 
 /**
- * Drive a real `claude -p` run end-to-end and build the honest outcome record.
+ * Runs `claude -p` and builds the outcome record. The result holds the raw transcript, so the
+ * caller can store it.
  *
- * The `claude` process failing to launch, exiting non-zero, or producing a
- * transcript with no delegation ALL degrade to a BLOCKED record (never a
- * fabricated distribution): DR-7 fail-honest. The raw transcript is returned so
- * the caller can persist it for provenance.
+ * The record is `blocked` when the runner throws or when the transcript shows no subagent. A
+ * non-zero exit code then only changes the reason. A non-zero exit with observed subagents still
+ * gives a `measured` record.
  */
 export async function runNativeBaseline(
   opts: RunNativeBaselineOptions,
@@ -708,8 +611,7 @@ export async function runNativeBaseline(
   };
 }
 
-// ─── Script entry point (guarded — import-safe) ───────────────────────────────
-
+/** The script entry point. `--model` with no value gives the default `sonnet`. */
 async function main(): Promise<void> {
   const specPath = process.argv[2];
   if (!specPath) {
@@ -717,8 +619,6 @@ async function main(): Promise<void> {
     process.exit(2);
   }
   const modelIdx = process.argv.indexOf('--model');
-  // `--model` with no value falls back to the default rather than passing
-  // `undefined` through to an optional field that means "not specified".
   const model = (modelIdx >= 0 ? process.argv[modelIdx + 1] : 'sonnet') ?? 'sonnet';
   const specText = fs.readFileSync(specPath, 'utf-8');
 

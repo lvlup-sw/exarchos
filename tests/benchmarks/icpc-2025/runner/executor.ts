@@ -27,8 +27,8 @@ export interface SessionResult {
 export type SpawnFn = (command: string, args: string[], options: Record<string, unknown>) => ChildProcess;
 
 /**
- * Build the prompt string for a problem + arm combination.
- * Uses the arm's promptTemplate with {{statement}} replaced.
+ * Builds the prompt for one problem and one arm. It fills the `{{PROBLEM_STATEMENT}}`,
+ * `{{SAMPLES}}` and `{{LANGUAGE}}` placeholders of the arm template.
  */
 function buildSessionPrompt(problem: ProblemDefinition, arm: ArmConfig, language: string): string {
   const sampleText = problem.samples
@@ -94,7 +94,17 @@ function findSolutionFile(outputDir: string, language: string): string | undefin
 }
 
 /**
- * Spawn a Claude Code session for a single problem + arm.
+ * Spawns a Claude Code session for one problem and one arm.
+ *
+ * On a timeout, the function sends SIGTERM. If the child does not close in 5 seconds, it sends
+ * SIGKILL and ignores the error of a child that is already dead. The guard is a `typeof` check,
+ * because the declared type makes a truthiness check always true for the type checker. A test
+ * stand-in built from an `EventEmitter` can lack `kill`. The function drains stdout, so a full
+ * pipe buffer cannot block the child.
+ *
+ * `tokenUsage` is optional, so the result omits the key when no usage parses. A child that a
+ * signal terminates has a null exit code, and the exit reason is `error`. A non-zero exit code
+ * with no solution file also gives `error`.
  */
 export async function spawnSession(
   problem: ProblemDefinition,
@@ -139,22 +149,16 @@ export async function spawnSession(
 
     const timeoutId = setTimeout(() => {
       timedOut = true;
-      // `typeof`, not truthiness: the declared type says `kill` is always
-      // present, so a plain check reads as always-true to the checker. The
-      // guard is here for the EventEmitter stand-ins the tests inject, which
-      // genuinely lack it.
       if (typeof child.kill === 'function') {
         (child as ChildProcess).kill('SIGTERM');
-        // Escalate to SIGKILL if SIGTERM is ignored
         escalationId = setTimeout(() => {
-          try { (child as ChildProcess).kill('SIGKILL'); } catch { /* already dead */ }
+          try { (child as ChildProcess).kill('SIGKILL'); } catch { }
         }, 5000);
       }
     }, config.sessionTimeout * 1000);
 
     if (child.stdout) {
       child.stdout.on('data', () => {
-        // Drain stdout to prevent pipe buffer overflow blocking the child process
       });
     }
 
@@ -180,12 +184,8 @@ export async function spawnSession(
 
       const solutionPath = findSolutionFile(config.outputDir, config.language);
       const parsedUsage = parseTokenUsage(stderrData);
-      // `tokenUsage` is optional on `SessionResult`, so under
-      // `exactOptionalPropertyTypes` "no usage parsed" has to mean the key is
-      // absent, not present-and-undefined. Spread it once and reuse.
       const usage = parsedUsage === undefined ? {} : { tokenUsage: parsedUsage };
 
-      // Signal-terminated process (exitCode is null when killed by signal)
       if (signal != null) {
         resolve({
           wallClockSeconds,
@@ -197,7 +197,6 @@ export async function spawnSession(
         return;
       }
 
-      // Non-zero exit without a solution indicates an error
       if (exitCode !== null && exitCode !== 0 && !solutionPath) {
         resolve({
           wallClockSeconds,

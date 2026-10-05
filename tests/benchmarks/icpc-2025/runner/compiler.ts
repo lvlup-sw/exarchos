@@ -35,10 +35,21 @@ export function detectLanguage(solutionPath: string): Language {
   return lang;
 }
 
+/**
+ * Compiles a C++ solution with g++. Python and TypeScript need no compilation, so the source path
+ * is the executable path.
+ *
+ * MinGW g++ on Windows appends `.exe` to an `-o` target with no dot in its name, so the output
+ * path ends in `.exe` on win32.
+ *
+ * The g++ timeout is 30 seconds, and 60 seconds on win32. A cold g++ on a loaded win32 runner
+ * can exceed 30 seconds. An exceeded timeout does not look like a timeout: `execFile` reports an
+ * error, and the result is `success: false`. Both values must stay below the 90-second timeout
+ * of the cold-compile test, so the g++ timeout ends a slow compile first.
+ */
 export async function compile(solutionPath: string, language?: string): Promise<CompileResult> {
   const lang = language ?? detectLanguage(solutionPath);
 
-  // Interpreted languages need no compilation
   if (lang === 'python' || lang === 'typescript') {
     return { success: true, executablePath: solutionPath };
   }
@@ -48,22 +59,12 @@ export async function compile(solutionPath: string, language?: string): Promise<
     mkdirSync(tmpDir, { recursive: true });
 
     const baseName = basename(solutionPath, extname(solutionPath));
-    // MinGW g++ on Windows auto-appends `.exe` to the linker output whenever
-    // the `-o` target has no dot in its name, so the produced file diverges
-    // from an extensionless outputPath unless we account for it here.
     const outputPath = join(tmpDir, baseName) + (process.platform === 'win32' ? '.exe' : '');
 
     return new Promise<CompileResult>((resolve) => {
       execFile(
         'g++',
         ['-O2', '-std=c++17', '-o', outputPath, solutionPath],
-        // A cold g++ on a loaded win32 runner exceeds 30s, and exceeding it here
-        // does NOT surface as a timeout: `execFile` reports an error, this
-        // resolves `success: false`, and the caller's assertion fails as though
-        // the compile were rejected. Windows gets the same headroom the test
-        // tiers grant spawn-bound work; Linux and the eval runners keep the
-        // budget they already had. Kept under the caller's own 90s envelope so
-        // the compile budget stays the binding one on both platforms.
         { timeout: process.platform === 'win32' ? 60_000 : 30_000 },
         (error, _stdout, stderr) => {
           if (error) {
@@ -135,7 +136,6 @@ export async function execute(
       });
     });
 
-    // Non-blocking stdin write
     if (input) {
       proc.stdin.write(input, () => proc.stdin.end());
     } else {
@@ -144,6 +144,11 @@ export async function execute(
   });
 }
 
+/**
+ * Compiles a solution and runs it in the sandbox. The result omits `compileError` when the
+ * compiler gave no message, because `exactOptionalPropertyTypes` rejects an explicit `undefined`.
+ * After a C++ run, the function deletes the temp executable and ignores a failure of the delete.
+ */
 export async function runSolution(
   solutionPath: string,
   input: string,
@@ -158,8 +163,6 @@ export async function runSolution(
       exitCode: null,
       timedOut: false,
       compiled: false,
-      // Optional under `exactOptionalPropertyTypes`: omit it when the compiler
-      // gave no message rather than asserting the message is `undefined`.
       ...(compileResult.error === undefined ? {} : { compileError: compileResult.error }),
     };
   }
@@ -167,7 +170,6 @@ export async function runSolution(
   const lang = detectLanguage(solutionPath);
   const workDir = dirname(solutionPath);
 
-  // Resolve command and args based on language
   const { command, args } = resolveExecution(lang, compileResult.executablePath!, solutionPath);
 
   const sandboxResult = await runInSandbox(command, args, input, {
@@ -175,9 +177,8 @@ export async function runSolution(
     workDir,
   });
 
-  // Clean up temp executable for compiled languages
   if (lang === 'cpp' && compileResult.executablePath) {
-    try { unlinkSync(compileResult.executablePath); } catch { /* ignore */ }
+    try { unlinkSync(compileResult.executablePath); } catch { }
   }
 
   return {
@@ -205,7 +206,10 @@ function resolveExecution(
   }
 }
 
-/** Kill an entire process group by negated PID. Falls back to direct kill. */
+/**
+ * Kills a process group by negated PID, and falls back to a direct kill. When both kills fail,
+ * the process already exited.
+ */
 function killProcessGroup(pid: number): void {
   try {
     process.kill(-pid, 'SIGKILL');
@@ -213,7 +217,6 @@ function killProcessGroup(pid: number): void {
     try {
       process.kill(pid, 'SIGKILL');
     } catch {
-      // Process already exited
     }
   }
 }

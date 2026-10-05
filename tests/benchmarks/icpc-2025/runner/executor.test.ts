@@ -43,7 +43,6 @@ function createMockProcess(opts: {
   const stdoutEmitter = createEventEmitter();
   const stderrEmitter = createEventEmitter();
 
-  // Assign pipe() no-ops
   stdoutEmitter['pipe'] = vi.fn().mockReturnValue(stdoutEmitter);
   stderrEmitter['pipe'] = vi.fn().mockReturnValue(stderrEmitter);
 
@@ -69,12 +68,12 @@ function createMockProcess(opts: {
 /** An `EventEmitter` that also accepts the properties a ChildProcess carries. */
 type MockChildProcess = EventEmitter & Record<string, unknown>;
 
+/**
+ * Makes the one type assertion of the stand-in. A ChildProcess stand-in needs `stdout`, `stderr`,
+ * `stdin`, `pid` and `kill`, and `EventEmitter` declares none of them. Without this assertion,
+ * each assignment needs its own.
+ */
 function createEventEmitter(): MockChildProcess {
-  // One assertion here rather than one at every assignment below. A
-  // ChildProcess stand-in has to grow stdout/stderr/stdin/pid/kill and
-  // EventEmitter declares none of them, so each `emitter['x'] = …` would
-  // otherwise need its own — and EventEmitter does not overlap
-  // `Record<string, unknown>` well enough for a direct one to be allowed.
   return new EventEmitter() as MockChildProcess;
 }
 
@@ -94,7 +93,6 @@ describe('executor', () => {
     const mockSpawn = vi.fn().mockImplementation((_cmd: string, _args: string[], options: { env?: Record<string, string> }) => {
       capturedEnv = options.env;
       const { process: proc, finish } = createMockProcess({ exitCode: 0, stdout: '' });
-      // Schedule finish asynchronously
       setTimeout(finish, 10);
       return proc;
     });
@@ -135,7 +133,6 @@ describe('executor', () => {
   });
 
   it('spawnSession_CollectsSolutionFile_ReturnsPath', async () => {
-    // Pre-create solution file
     const solutionPath = path.join(tmpDir, 'solution.cpp');
     fs.writeFileSync(solutionPath, '#include <iostream>\nint main() { return 0; }');
 
@@ -158,8 +155,8 @@ describe('executor', () => {
     expect(result.exitReason).toBe('completed');
   });
 
+  /** The test creates no solution file. */
   it('spawnSession_ContextExhaustion_ReturnsNoSolution', async () => {
-    // Don't create any solution file
     const mockSpawn = vi.fn().mockImplementation(() => {
       const { process: proc, finish } = createMockProcess({ exitCode: 0, stdout: '' });
       setTimeout(finish, 10);
@@ -180,7 +177,6 @@ describe('executor', () => {
   });
 
   it('spawnSession_ExtractsTokenUsage_PopulatesMetrics', async () => {
-    // Pre-create solution file
     fs.writeFileSync(path.join(tmpDir, 'solution.cpp'), 'int main() {}');
 
     const tokenSummary = JSON.stringify({
@@ -210,9 +206,9 @@ describe('executor', () => {
     expect(result.exitReason).toBe('completed');
   });
 
+  /** The mock process closes only when the 1-second session timeout kills it. */
   it('spawnSession_Timeout_ReturnsTimeoutReason', async () => {
     const mockSpawn = vi.fn().mockImplementation(() => {
-      // Never finish -- will be killed by timeout
       const proc = createEventEmitter();
       const stdoutEmitter = createEventEmitter();
       const stderrEmitter = createEventEmitter();
@@ -231,7 +227,7 @@ describe('executor', () => {
     const arm = makeArm();
 
     const result = await spawnSession(problem, arm, {
-      sessionTimeout: 1, // 1 second timeout
+      sessionTimeout: 1,
       outputDir: tmpDir,
       language: 'cpp',
     }, mockSpawn);

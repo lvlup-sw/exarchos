@@ -37,12 +37,14 @@ describe('vcs journal action observation declarations', () => {
     },
   );
 
+  /**
+   * The test spells the fallback expression of the leaf compiler in `src/verbs/execute/compile.ts`.
+   * Thus the fallback to the segment stream is the subject of the test.
+   */
   it.each(VCS_JOURNAL_ACTIONS)(
     'VcsJournalActions_CompiledAsLeaves_NeverFallBackToTheSegmentStream (%s)',
     (actionName) => {
       const contract = liveContract(actionName);
-      // The exact expression at compile.ts:349, spelled here so the fallback
-      // that armed the defect is the thing under test.
       const resolved = observationStreamId({}, contract) ?? 'segment-stream';
       expect(resolved).toBe(VCS_STREAM_ID);
     },

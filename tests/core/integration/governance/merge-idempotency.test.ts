@@ -1,48 +1,18 @@
-// ─── DR-12 acceptance — duplicate merge / duplicate PR are prevented ───────
+// Duplicate merge and duplicate PR are prevented through the shipped path.
 //
-// Second acceptance criterion of DR-12 ("the VCS census sees every mutation it
-// claims to own"): *duplicate merge and duplicate PR are prevented through the
-// shipped path*. The first criterion (a planted `['merge','--no-ff',x]` outside
-// the owner turns the census RED) is pinned elsewhere.
+// A test with a mock `vcsMerge` or a mock provider counts mock calls. It cannot
+// count merge commits or `gh pr create` calls. The tests in this file run the
+// production call path and assert on facts outside the process.
 //
-// WHY THIS FILE EXISTS — the gap it closes:
+// - Merge arm: `handleExecuteMerge` gets no DI hooks, so it runs a real
+//   `git merge --no-ff` in a temp repository with a real `EventStore`.
+// - PR arm: `handleCreatePr` runs the real `GitHubProvider`. The `vi.mock` of
+//   `src/vcs/shell.ts` fakes only the process boundary: the one `execFile` shim
+//   that each provider calls.
 //
-//   The pre-existing merge tests (`src/verbs/pure/execute-merge.test.ts`,
-//   `merge-orchestrate.race.test.ts`) inject a MOCK `vcsMerge` and count mock
-//   invocations. That proves the handler's control flow but not the outcome:
-//   a mock cannot tell you how many merge commits exist. Likewise the
-//   pre-existing `src/verbs/vcs/create-pr.test.ts` mocks
-//   `createVcsProvider` wholesale, so the shipped `vcs/github.ts` provider —
-//   the thing that actually builds the `gh pr create` argv — never runs.
-//
-//   Both tests below therefore ride the PRODUCTION call path and assert on
-//   GROUND TRUTH beyond the process boundary:
-//
-//   • merge arm — `handleExecuteMerge` is invoked with NO DI hooks at all
-//     (no `vcsMerge`, no `gitExec`, no `persistState`), so the real
-//     `buildLocalGitMergeAdapter` + `defaultGitExec` shell out to a real
-//     `git merge --no-ff` in a real temp repository, against a real
-//     `EventStore` and a real workflow state file. The assertion counts
-//     actual merge commits via `git log --merges` / `git rev-list --count`.
-//
-//   • PR arm — `handleCreatePr` runs against the real `createVcsProvider`
-//     factory and the real `GitHubProvider` from `src/vcs/github.ts`. ONLY the
-//     process boundary (`src/vcs/shell.ts::exec`) is faked, standing in for the
-//     `gh` CLI + GitHub server. The assertion counts real `gh pr create`
-//     invocations that crossed that boundary.
-//
-//   Neither test defines a test-local idempotent wrapper. The mechanisms under
-//   test are `verbs/merge/merge-keys.ts` +
-//   the EventStore idempotency-claims substrate (merge arm) and the
-//   natural-identity `listPrs({state:'open', head, base})` recovery precheck in
-//   `verbs/vcs/create-pr.ts` (PR arm) — both live in `src/`.
-//
-//   Each test carries its NEGATIVE TWIN: a distinct request identity that MUST
-//   NOT be deduped. Without it, an implementation that simply never acts twice
-//   ("do nothing, ever") would satisfy a one-sided idempotency assertion.
-//
-// NOTE: this file is deliberately self-contained (no shared `_harness.ts`) —
-// that module is owned by a separate task.
+// Each test carries its NEGATIVE TWIN: a distinct request identity that must
+// not be deduped. Without the twin, a handler that never acts twice passes.
+// This file builds its own `DispatchContext` and does not use `_harness.ts`.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -50,10 +20,6 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 
-// Fake ONLY the process boundary. `src/vcs/shell.ts` is the single `execFile`
-// shim every provider funnels through, so replacing it leaves 100% of the
-// shipped `GitHubProvider` logic (argv construction, stdout parsing, JSON
-// decoding) executing for real. Hoisted by vitest above the imports below.
 vi.mock('../../../../src/vcs/shell.js', () => ({ exec: vi.fn() }));
 
 import { exec as ghBoundary } from '../../../../src/vcs/shell.js';
@@ -66,20 +32,20 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import type { ResolvedProjectConfig } from '../../../../src/config/resolve.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 
-// ─── Temp-dir bookkeeping ──────────────────────────────────────────────────
-
 const scratchDirs: string[] = [];
 const openStores: EventStore[] = [];
 
+/**
+ * Closes the SQLite handles first: on Windows an open connection blocks the
+ * removal of its directory (EPERM). Teardown ignores its own errors, so a
+ * leftover Windows file lock never shows as a test failure.
+ */
 afterEach(() => {
   vi.clearAllMocks();
-  // Release the SQLite handles first — on Windows an open connection makes the
-  // containing directory undeletable (EPERM).
   while (openStores.length > 0) {
     try {
       openStores.pop()?.close();
     } catch {
-      /* already closed — teardown is best-effort */
     }
   }
   while (scratchDirs.length > 0) {
@@ -88,22 +54,19 @@ afterEach(() => {
     try {
       rmrf(dir);
     } catch {
-      // Teardown hygiene only. A residual Windows file lock (git/AV/indexer)
-      // must never be reported as a DR-12 assertion failure; the OS reclaims
-      // %TEMP% regardless.
     }
   }
 });
 
+/**
+ * Makes a temp directory and returns its real path. `os.tmpdir()` is a symlink
+ * on some platforms, and git reports the real path.
+ */
 async function mkTemp(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
   scratchDirs.push(dir);
-  // `os.tmpdir()` is a symlink on some platforms; realpath keeps the path we
-  // hand to git identical to the one git reports back.
   return fs.realpath(dir);
 }
-
-// ─── Real-git fixture helpers (ground truth lives here) ────────────────────
 
 const TARGET_BRANCH = 'main';
 
@@ -111,7 +74,10 @@ function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', [...args], { cwd: repoRoot });
 }
 
-/** A real repository on disk with one base commit on `main`. */
+/**
+ * Makes a real repository on disk with one base commit. It renames the first
+ * branch to `main`, because the default name depends on the git configuration.
+ */
 async function makeGitRepo(): Promise<string> {
   const repoRoot = await mkTemp('dr12-repo-');
   await git(repoRoot, ['init', '--quiet']);
@@ -122,12 +88,11 @@ async function makeGitRepo(): Promise<string> {
   await fs.writeFile(path.join(repoRoot, 'base.txt'), 'base\n', 'utf-8');
   await git(repoRoot, ['add', '.']);
   await git(repoRoot, ['commit', '--quiet', '-m', 'base']);
-  // Normalize the initial branch name across git versions / init.defaultBranch.
   await git(repoRoot, ['branch', '-M', TARGET_BRANCH]);
   return repoRoot;
 }
 
-/** Branch off `main`, add one commit, and return to `main`. */
+/** Makes `branch` from `main`, adds one commit, and checks out `main` again. */
 async function makeFeatureBranch(
   repoRoot: string,
   branch: string,
@@ -140,16 +105,13 @@ async function makeFeatureBranch(
   await git(repoRoot, ['checkout', '--quiet', TARGET_BRANCH]);
 }
 
-/**
- * GROUND TRUTH #1 — how many merge commits exist on `branch`.
- * Shells `git log --merges --oneline <branch>` and counts non-empty lines.
- */
+/** Counts the merge commits on `branch` with `git log --merges --oneline`. */
 async function mergeCommitCount(repoRoot: string, branch: string): Promise<number> {
   const out = (await git(repoRoot, ['log', '--merges', '--oneline', branch])).trim();
   return out.length === 0 ? 0 : out.split('\n').filter((l) => l.trim()).length;
 }
 
-/** GROUND TRUTH #2 — total commit count reachable from `branch`. */
+/** Counts the commits that are reachable from `branch`. */
 async function revCount(repoRoot: string, branch: string): Promise<number> {
   return Number((await git(repoRoot, ['rev-list', '--count', branch])).trim());
 }
@@ -158,14 +120,13 @@ async function revParse(repoRoot: string, rev: string): Promise<string> {
   return (await git(repoRoot, ['rev-parse', rev])).trim();
 }
 
-// ─── DispatchContext wiring (mirrors merge-orchestrate.race.test.ts) ───────
-
 interface Harness {
   readonly ctx: DispatchContext;
   readonly eventStore: EventStore;
   readonly stateDir: string;
 }
 
+/** Builds a `DispatchContext` from an object literal over a real `EventStore` in a temp state directory. */
 async function makeHarness(): Promise<Harness> {
   const stateDir = await mkTemp('dr12-state-');
   await fs.mkdir(path.join(stateDir, 'workflow-state'), { recursive: true });
@@ -186,8 +147,6 @@ function countEvents(events: readonly WorkflowEvent[], type: string): number {
   return events.filter((e) => e.type === type).length;
 }
 
-// ─── Fake `gh` server (the ONLY thing standing in for the network) ─────────
-
 interface FakePr {
   readonly number: number;
   readonly url: string;
@@ -198,23 +157,21 @@ interface FakePr {
 }
 
 interface FakeGh {
-  /** Every argv that crossed `src/vcs/shell.ts::exec`, in order. */
+  /** Each argv that crossed `src/vcs/shell.ts::exec`, in order. */
   readonly calls: string[][];
-  /** Server-side PR table — the ground truth for "how many PRs exist". */
+  /** The PR table of the fake server. Its length is the number of PRs that exist. */
   readonly prs: FakePr[];
   createCalls(): string[][];
 }
 
 /**
- * Install a fake `gh` at the process boundary. Models just enough of the real
- * CLI for the shipped `GitHubProvider` to work unmodified:
- *   • `gh pr list --json … [--state s] [--head h] [--base b]` → filtered JSON
- *   • `gh pr create --title … --body … --base b --head h`     → new PR, prints URL
+ * Installs a fake `gh` at the process boundary. It models `gh pr list` with
+ * the `--state`, `--head` and `--base` filters, and `gh pr create`.
  *
- * `pr create` is UNCONDITIONAL, exactly like the real thing: it appends a row
- * every time it is called. So a duplicate PR here is a genuine duplicate — the
- * fake supplies no dedup of its own. Any prevention observed by the test is
- * therefore produced by production code, not by this fixture.
+ * `pr create` appends a row on each call and has no dedup of its own. Thus
+ * production code causes each prevention that a test sees. The output has a
+ * progress line before the URL, as the real `gh` prints, so the provider must
+ * parse the last non-empty line.
  */
 function installFakeGh(): FakeGh {
   const calls: string[][] = [];
@@ -254,8 +211,6 @@ function installFakeGh(): FakeGh {
         baseRefName: flag(args, '--base') ?? '',
         state: 'open',
       });
-      // Real `gh` prints progress lines before the URL; reproduce that so the
-      // shipped last-non-empty-line parser in github.ts is genuinely exercised.
       return `\nCreating pull request for ${flag(args, '--head')} into ${flag(args, '--base')}\n${url}`;
     }
 
@@ -269,9 +224,18 @@ function installFakeGh(): FakeGh {
   };
 }
 
-// ─── Tests ─────────────────────────────────────────────────────────────────
-
 describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)', () => {
+  /**
+   * The handler gets no DI hooks, so it runs a real `git merge --no-ff` and
+   * writes a real state file. Arm 1 replays one request in sequence. Arm 2
+   * sends one request twice at the same time, and the loser can report a
+   * conflict. Each arm must leave one merge commit and one `merge.executed`
+   * event. The replay adds no commit after the feature commit and the merge.
+   *
+   * NEGATIVE TWIN: a different taskId and branch on the SAME stream must merge.
+   * The idempotency claim is unique on (streamId, idempotencyKey). Thus only a
+   * same-stream twin proves that the key of `merge-keys.ts` holds the taskId.
+   */
   it('ExecuteMerge_DuplicateRequest_CreatesExactlyOneMergeCommit', async () => {
     const repoRoot = await makeGitRepo();
     await makeFeatureBranch(repoRoot, 'feat/dup', 'dup.txt');
@@ -285,11 +249,6 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     const featureTip = await revParse(repoRoot, 'feat/dup');
     expect(baseMergeCommits).toBe(0);
 
-    // Identical request identity on every invocation — this is what makes the
-    // second call a "duplicate request". NO DI hooks are passed, so the
-    // handler builds its production adapters: `defaultGitExec` +
-    // `buildLocalGitMergeAdapter` (real `git merge --no-ff`) +
-    // `buildDefaultPersistState` (real state file).
     const request = {
       featureId,
       sourceBranch: 'feat/dup',
@@ -299,41 +258,26 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
       repoRoot,
     };
 
-    // ── Arm 1: sequential REPLAY (crash-replay / re-dispatch shape) ─────────
     const first = await handleExecuteMerge({ ...request }, ctx);
     expect(first.success).toBe(true);
 
-    // One real merge commit exists after the first call — proves the shipped
-    // adapter actually mutated the repository (guards against the test passing
-    // because nothing ever happened).
     expect(await mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(baseMergeCommits + 1);
     const mergeShaAfterFirst = await revParse(repoRoot, TARGET_BRANCH);
-    // The merge commit's SECOND parent is the feature tip — it is a real merge
-    // of the requested branch, not an unrelated commit.
     expect(await revParse(repoRoot, `${TARGET_BRANCH}^2`)).toBe(featureTip);
 
     const second = await handleExecuteMerge({ ...request }, ctx);
-    // A duplicate request is a clean no-op / cache-hit, NOT an error.
     expect(second.success).toBe(true);
 
-    // ── GROUND TRUTH: exactly one merge commit, repo unchanged by the replay ─
     expect(await mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(1);
-    expect(await revCount(repoRoot, TARGET_BRANCH)).toBe(baseRevs + 2); // feature commit + merge commit
+    expect(await revCount(repoRoot, TARGET_BRANCH)).toBe(baseRevs + 2);
     expect(await revParse(repoRoot, TARGET_BRANCH)).toBe(mergeShaAfterFirst);
 
-    // ── Durable-log truth: the idempotency key deduped the terminal events ──
-    // This is the assertion that `verbs/merge/merge-keys.ts` is load-bearing
-    // for: without a deterministic key the replay's append lands a SECOND
-    // `merge.executed` row on the stream.
     const events = await eventStore.query(featureId);
     expect(countEvents(events, 'merge.executed')).toBe(1);
     expect(countEvents(events, 'merge.requested')).toBe(1);
     expect(countEvents(events, 'merge.completed')).toBe(1);
     expect(countEvents(events, 'merge.executing_started')).toBe(1);
 
-    // ── Arm 2: CONCURRENT duplicate (race shape, distinct failure mode) ────
-    // A fresh repo/stream so the race is observed from a clean slate. The two
-    // invocations share one request identity and are launched together.
     const raceRepo = await makeGitRepo();
     await makeFeatureBranch(raceRepo, 'feat/race', 'race.txt');
     const raceHarness = await makeHarness();
@@ -353,8 +297,6 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
       handleExecuteMerge({ ...raceRequest }, raceHarness.ctx),
     ]);
 
-    // Neither side crashed; at least one won outright. The loser is allowed to
-    // surface a structured conflict — what it may NOT do is double-merge.
     expect(typeof raceA.success).toBe('boolean');
     expect(typeof raceB.success).toBe('boolean');
     expect([raceA, raceB].filter((r) => r.success).length).toBeGreaterThanOrEqual(1);
@@ -364,26 +306,13 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     expect(countEvents(raceEvents, 'merge.executed')).toBe(1);
     expect(countEvents(raceEvents, 'merge.requested')).toBe(1);
 
-    // ── NEGATIVE TWIN: a DIFFERENT merge identity must NOT be deduped ──────
-    // Without this, "never merge twice, ever" would satisfy the assertions
-    // above. A second, genuinely distinct merge must land its own commit and
-    // its own durable event.
-    //
-    // Deliberately reuses the SAME featureId — i.e. the SAME event stream —
-    // and varies only the taskId + source branch. That is the discriminating
-    // case: the substrate's idempotency claim is UNIQUE on
-    // (streamId, idempotencyKey), so a twin on a *different* stream would be
-    // separated by the substrate no matter what the key contained, and would
-    // therefore prove nothing about
-    // `buildMergeOrchestrateIdempotencyKey`. Same-stream/different-task is the
-    // only shape in which the key's identity segments are load-bearing.
     await makeFeatureBranch(repoRoot, 'feat/other', 'other.txt');
     const other = await handleExecuteMerge(
       {
-        featureId, // SAME stream as arm 1 — on purpose.
+        featureId,
         sourceBranch: 'feat/other',
         targetBranch: TARGET_BRANCH,
-        taskId: 'T-18-other', // …distinct task identity.
+        taskId: 'T-18-other',
         strategy: 'merge',
         repoRoot,
       },
@@ -391,19 +320,13 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     );
     expect(other.success).toBe(true);
 
-    // A genuinely distinct merge produced a SECOND real merge commit…
     expect(await mergeCommitCount(repoRoot, TARGET_BRANCH)).toBe(2);
     expect(await revParse(repoRoot, `${TARGET_BRANCH}^2`)).toBe(
       await revParse(repoRoot, 'feat/other'),
     );
-    // …and a SECOND durable terminal event on the SAME stream. If the key
-    // dropped its taskId segment, this collides with arm 1's claim and the
-    // count stays at 1.
     const afterTwin = await eventStore.query(featureId);
     expect(countEvents(afterTwin, 'merge.executed')).toBe(2);
     expect(countEvents(afterTwin, 'merge.completed')).toBe(2);
-    // The two terminal events describe the two DIFFERENT source branches —
-    // the second is not an echo of the first.
     expect(
       afterTwin
         .filter((e) => e.type === 'merge.executed')
@@ -411,7 +334,6 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
         .sort(),
     ).toEqual(['feat/dup', 'feat/other']);
 
-    // A cross-feature merge is likewise its own event on its own stream.
     const otherFeatureId = 'dr12-merge-other-feature';
     await initStateFile(stateDir, otherFeatureId, 'feature');
     await makeFeatureBranch(repoRoot, 'feat/third', 'third.txt');
@@ -433,14 +355,21 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     ).toBe(1);
   });
 
+  /**
+   * The idempotency anchor of PR creation is natural identity: the head branch
+   * and the base branch. `verbs/vcs/create-pr.ts` looks for an open PR with
+   * that identity before it creates one. The argv assertions pin that the
+   * shipped `GitHubProvider` built the `pr create` call and the `pr list`
+   * lookup. Each of the two duplicate attempts records a `pr.create.executed`
+   * event for the one PR.
+   *
+   * NEGATIVE TWIN: a different head, or a different base, must create a new PR.
+   * A replay of the first identity after the twins must still dedup.
+   */
   it('CreatePr_DuplicateIdempotencyKey_CreatesExactlyOnePr', async () => {
     const gh = installFakeGh();
     const { ctx, eventStore } = await makeHarness();
 
-    // The shipped idempotency anchor for PR creation is NATURAL IDENTITY —
-    // (head branch, base branch) on the target repo — consumed by the
-    // `listPrs({state:'open', head, base})` recovery precheck in
-    // `verbs/vcs/create-pr.ts`. It is deliberately NOT a random value.
     const duplicateRequest = {
       title: 'feat: DR-12 duplicate PR prevention',
       body: 'Body for the DR-12 acceptance fixture.',
@@ -454,14 +383,10 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     expect(first.success).toBe(true);
     expect(second.success).toBe(true);
 
-    // ── GROUND TRUTH: exactly ONE `gh pr create` crossed the boundary ──────
     const createCalls = gh.createCalls();
     expect(createCalls.length).toBe(1);
     expect(gh.prs.length).toBe(1);
 
-    // Pin that the argv was built by the SHIPPED `GitHubProvider.createPr`
-    // (src/vcs/github.ts), not by a stand-in provider: the exact flag order
-    // and the absence of the invalid `--json` flag are that method's contract.
     expect(createCalls[0]).toEqual([
       'gh',
       'pr',
@@ -475,8 +400,6 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
       '--head',
       'feat/dr12-pr',
     ]);
-    // …and that the dedup lookup was the shipped `GitHubProvider.listPrs`
-    // natural-identity query, not an invented one.
     expect(gh.calls).toContainEqual([
       'gh',
       'pr',
@@ -491,16 +414,12 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
       'main',
     ]);
 
-    // Both invocations report the SAME PR — the duplicate resolved to the
-    // existing one rather than failing or inventing a new identifier.
     const firstData = first.data as { url: string; number: number };
     const secondData = second.data as { url: string; number: number };
     expect(secondData.url).toBe(firstData.url);
     expect(secondData.number).toBe(firstData.number);
     expect(firstData.number).toBe(gh.prs[0]?.number);
 
-    // Durable log: both attempts recorded a result, and BOTH point at the one
-    // real PR — the second went through the idempotent short-circuit branch.
     const vcsEvents = await eventStore.query('vcs');
     const executed = vcsEvents.filter((e) => e.type === 'pr.create.executed');
     expect(executed.length).toBe(2);
@@ -508,9 +427,6 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
       expect((ev.data as { prNumber: number }).prNumber).toBe(firstData.number);
     }
 
-    // ── NEGATIVE TWIN: a DIFFERENT identity MUST create a second PR ────────
-    // Same base, different head. If the handler simply refused to ever create
-    // twice, this would (correctly) fail.
     const differentHead = await handleCreatePr(
       { ...duplicateRequest, head: 'feat/dr12-pr-two' },
       ctx,
@@ -521,7 +437,6 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     const differentData = differentHead.data as { url: string; number: number };
     expect(differentData.number).not.toBe(firstData.number);
 
-    // …and a different BASE for the same head is likewise a distinct PR.
     const differentBase = await handleCreatePr(
       { ...duplicateRequest, base: 'release/1.x' },
       ctx,
@@ -530,8 +445,6 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     expect(gh.createCalls().length).toBe(3);
     expect(gh.prs.length).toBe(3);
 
-    // Re-requesting the ORIGINAL identity still dedups after the twins ran —
-    // the natural-identity lookup did not get confused by the neighbours.
     const replay = await handleCreatePr({ ...duplicateRequest }, ctx);
     expect(replay.success).toBe(true);
     expect(gh.createCalls().length).toBe(3);

@@ -1,48 +1,21 @@
 /**
- * T-39 / DR-29 promotion-crash driver — the CHILD half of
- * `promotion-kill.test.ts`.
+ * Child process of `promotion-kill.test.ts`. The parent starts one process for each arm.
  *
- * Spawned as a REAL OS process, one per arm. It drives the REAL production
- * promotion engine (`src/install/atomic-promotion.ts`, imported as TypeScript
- * source) against a REAL filesystem, and — in `promote-hang` mode — parks the
- * process at the exact instant BETWEEN the two renames of the atomic swap so
- * the parent can SIGKILL it there.
+ * The driver imports the production promotion engine as TypeScript source and runs it on a real
+ * filesystem. Thus it must run under `bun`, and a change to the engine shows with no build step.
  *
- * Why a child process at all, and why it may not be replaced with an
- * in-process fault:
+ * Modes: `promote` stages `--entries` and promotes them into `--target`. `recover` runs only
+ * `recoverInterruptedPromotion`. `idle` parks immediately, as the positive control for the kill.
  *
- *   An in-process `throw` injected into the promotion always runs the `catch`
- *   block — `commitPromotion`'s inline `recoverFromJournal`, the `finally`
- *   cleanups, every unwind path. It therefore proves the happy-path error
- *   handler works and proves NOTHING about a process that simply STOPS
- *   EXISTING mid-swap, which is the failure the journal + recovery design is
- *   for. `process.kill(pid, 'SIGKILL')` (TerminateProcess on Windows) runs no
- *   handler, no `finally`, no flush: the disk is left exactly as the kernel
- *   last saw it. That is the only fault that exercises the invariant.
+ * `promote-hang` wraps only `rename` of the default IO, and parks on the rename whose destination
+ * is the target. At that moment the old tree is in the backup and the staged tree is not yet in
+ * place. The parent kills the process there. An in-process `throw` cannot replace the kill,
+ * because it runs the recovery in the `catch` block.
  *
- * Run under `bun`, not `node`: the production module is TypeScript with
- * `.js`-suffixed specifiers, and importing the SOURCE (rather than driving the
- * compiled binary) is what keeps this fixture kill-probe-able — breaking the
- * atomic swap or the journal recovery in `atomic-promotion.ts` is observable on
- * the very next test run with no build step in between.
- *
- * Protocol (stdout, one JSON line behind a prefix so logger chatter cannot be
- * mistaken for it):
- *
- *   EXARCHOS_PROMOTION_RESULT {"pid":…,"ok":…,…}
- *
- * The `--sentinel` file is the READINESS channel: it is written with a
- * temp-file + rename, so the parent never observes a half-written sentinel,
- * and it carries THIS process's own pid. The parent must kill that pid rather
- * than `child.pid` — on Windows `bun` is a `.cmd` shim spawned through
- * `cmd.exe`, so `child.pid` is the shell wrapper, and killing the wrapper
- * would leave the real promotion process alive and unparked.
- *
- * Modes:
- *   --mode promote        stage + promote `--entries` into `--target`
- *   --mode promote-hang   … but park between the two renames and wait to die
- *   --mode recover        run `recoverInterruptedPromotion(--target)` only
- *   --mode idle           park immediately (positive control for the kill path)
+ * The driver prints one JSON line behind `RESULT_PREFIX`, so the parent can tell it from log
+ * output. The `--sentinel` file tells the parent that the process is parked, and it holds the pid
+ * of this process. The parent must kill that pid: on Windows `child.pid` is the `cmd.exe` wrapper
+ * of the `bun` shim.
  */
 
 import * as fs from 'node:fs';
@@ -70,9 +43,8 @@ function emit(payload) {
 }
 
 /**
- * Publish the readiness sentinel atomically. The parent polls for this file and
- * kills as soon as it appears; a plain `writeFileSync` would let it read a
- * truncated JSON body and mis-parse the pid it is about to kill.
+ * Publishes the readiness sentinel with a temp file and a rename. The parent kills the pid in
+ * the file as soon as the file exists, so the parent must never read a partial JSON body.
  */
 function publishSentinel(sentinelPath, payload) {
   const tmp = `${sentinelPath}.tmp`;
@@ -81,19 +53,15 @@ function publishSentinel(sentinelPath, payload) {
 }
 
 /**
- * Park forever (bounded), holding the on-disk state frozen at whatever point
- * the caller reached. Returns only if the parent never killed us — which is a
- * FAILURE, reported loudly rather than silently proceeding, because a run that
- * completed the promotion after "crashing" would make the parent's convergence
- * assertion vacuous.
+ * Parks the process for at most `--block-ms`, with the disk in the state that the caller reached.
+ * `Bun.sleepSync` blocks the thread, so the synchronous promotion cannot continue during the park.
+ * If the parent does not kill the process in that time, the function reports `NEVER_KILLED` and
+ * exits with code 97. Thus a promotion cannot complete after the park and pass as a crash.
  */
 function parkUntilKilled(phase) {
   const budgetMs = Number(arg('block-ms', '120000'));
   const deadline = Date.now() + budgetMs;
   while (Date.now() < deadline) {
-    // `Bun.sleepSync` blocks the thread without burning a core, and — unlike an
-    // `await` — cannot be interleaved with the promotion's own synchronous
-    // call stack, so the disk really is frozen at `phase`.
     Bun.sleepSync(20);
   }
   emit({ ok: false, error: 'NEVER_KILLED', phase, budgetMs });
@@ -126,12 +94,6 @@ if (mode === 'idle') {
   const target = arg('target');
   const entries = JSON.parse(fs.readFileSync(arg('entries'), 'utf8'));
 
-  // The REAL default IO does every filesystem touch. `promote-hang` wraps only
-  // ONE method, and only to PARK — it never throws, never fakes a filesystem,
-  // and never changes what the promotion does. The park fires on the rename
-  // whose destination IS the target, i.e. the COMMIT rename: at that instant
-  // the old tree has already been renamed aside to the backup and the staged
-  // new tree has not yet been renamed into place. That is the window.
   const base = defaultPromotionIo();
   const io =
     mode === 'promote-hang'

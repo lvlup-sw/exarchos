@@ -1,10 +1,9 @@
-// ─── Shepherd → Classifier Integration Smoke Test (Issue #1159 T25) ─────────
+// Integration smoke test from shepherd to the classifier.
 //
-// End-to-end: a mocked PR with comments from CodeRabbit (Critical),
-// Sentry (Medium), and a human (nit) flows through assess_stack →
-// the adapter registry → classify_review_items, and the classifier's
-// per-group recommendations match the per-reviewer severity routing.
-// ────────────────────────────────────────────────────────────────────────────
+// A mocked PR holds one comment from CodeRabbit (the `Potential issue` marker), one from Sentry
+// (`Severity: MEDIUM`) and one from a human (a nit).
+// The comments go through `assess_stack` and the adapter registry to `classify_review_items`.
+// The recommendation of each group must match the severity routing of its reviewer.
 
 import { describe, it, expect, vi } from 'vitest';
 import type { VcsProvider, CiStatus, ReviewStatus, PrComment } from '../../src/vcs/provider.js';
@@ -46,9 +45,12 @@ function mockProvider(comments: PrComment[]): VcsProvider {
 }
 
 describe('shepherd → classifier integration (#1159)', () => {
+  /**
+   * The CodeRabbit comment has the `Potential issue` marker, so it is HIGH and goes to
+   * `delegate-fixer`. The Sentry comment and the human nit are MEDIUM and go to `direct`.
+   */
   it('ShepherdIteration_MixedSeverityComments_RoutesPerClassifier', async () => {
     const comments: PrComment[] = [
-      // CodeRabbit Critical → HIGH → delegate-fixer
       {
         id: 1,
         author: 'coderabbitai[bot]',
@@ -57,7 +59,6 @@ describe('shepherd → classifier integration (#1159)', () => {
         path: 'src/auth.ts',
         line: 42,
       },
-      // Sentry Medium → MEDIUM → direct
       {
         id: 2,
         author: 'sentry-io[bot]',
@@ -66,7 +67,6 @@ describe('shepherd → classifier integration (#1159)', () => {
         path: 'src/handler.ts',
         line: 17,
       },
-      // Human nit → MEDIUM → direct
       {
         id: 3,
         author: 'alice',

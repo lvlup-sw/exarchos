@@ -48,8 +48,10 @@ import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 const STREAM = 'feature-postconditions';
 const OPERATION = 'operation.postconditions-1';
 
-/** Where a reference's blob would sit under a given evidence root — derived
- * from the digest the store itself returned, never re-typed. */
+/**
+ * The path of the blob of a reference under an evidence root. It comes from the digest that the
+ * store returned.
+ */
 function blobPathFor(stateDir: string, reference: EvidenceArtifactReferenceV1): string {
   return path.join(
     stateDir,
@@ -180,10 +182,11 @@ describe('durable action postcondition observation', () => {
     expect(observation.missing).toEqual([]);
   });
 
+  /**
+   * A row that names no blob is complete evidence. A call without `artifactResolver` must not turn
+   * such a row into a violation.
+   */
   it('Postconditions_RowWithoutArtifactRefs_SatisfiesWithNoResolver', async () => {
-    // A row that names no blob is complete evidence on its own — omitting
-    // `artifactResolver` entirely (no state directory in scope) must not
-    // turn a reference-free row into a violation.
     const evidence = memorySource([persistedGateEvidence(OPERATION)]);
 
     const observation = await observeActionPostconditions({
@@ -202,11 +205,13 @@ describe('durable action postcondition observation', () => {
     expect(observation.missing).toEqual([]);
   });
 
+  /**
+   * When a gate run has no `taskId` and `HEAD` does not resolve, the gate producer mints a
+   * `kind: 'artifact'` subject with no persisted bytes. Such a subject is a different fact from a
+   * row that names an artifact reference. Custody keys on the reference of the row, never on the
+   * kind of the subject.
+   */
   it('Postconditions_ArtifactKindSubjectWithoutReference_IsSatisfied', async () => {
-    // The fallback path that mints a `kind: 'artifact'` SUBJECT with no
-    // persisted bytes at all (no taskId, no git HEAD) is a different fact
-    // from a row that names an artifact REFERENCE. Custody keys on the
-    // reference the row carries, never on the subject's kind.
     const evidence = memorySource([
       persistedGateEvidence(OPERATION, {
         subject: { kind: 'artifact', artifactId: 'gate-target:fallback', digest: DIGEST },
@@ -297,6 +302,7 @@ describe('durable action postcondition observation', () => {
   });
 });
 
+/** `seedArtifactRow` persists a real reference through the production store binding. */
 describe('durable action postcondition observation — artifact-backed evidence', () => {
   let stateDir: string;
 
@@ -308,7 +314,6 @@ describe('durable action postcondition observation — artifact-backed evidence'
     await rmrfAsync(stateDir);
   });
 
-  /** A real reference, persisted through the production store binding. */
   async function seedArtifactRow(): Promise<EvidenceArtifactReferenceV1> {
     return storeEvidenceArtifact(
       evidenceArtifactStore(stateDir),
@@ -318,10 +323,11 @@ describe('durable action postcondition observation — artifact-backed evidence'
     );
   }
 
+  /**
+   * The denominator for the seeded violations in this block. Without it, those tests can pass
+   * vacuously when no row that reaches the resolver arm carries a reference.
+   */
   it('Postconditions_ArtifactBackedCorpus_IsNotEmpty', async () => {
-    // Denominator for the three seeded violations below: without this, all
-    // three could be passing vacuously because no row this file ever feeds
-    // the resolver arm carries a reference at all.
     const reference = await seedArtifactRow();
     const evidence = memorySource([persistedGateEvidence(OPERATION, { artifactRefs: [reference] })]);
 
@@ -336,12 +342,12 @@ describe('durable action postcondition observation — artifact-backed evidence'
     expect(rowsWithRefs.length).toBeGreaterThan(0);
   });
 
+  /**
+   * The partner of `Postconditions_RowWithoutArtifactRefs_SatisfiesWithNoResolver`. When the
+   * caller gives no resolver, a row that names blobs must not satisfy its ensure. The blob is real
+   * and intact, so the test pins the fail-closed direction without a missing blob.
+   */
   it('Postconditions_ArtifactRefsWithoutResolver_IsViolation', async () => {
-    // The two-sided partner of Postconditions_RowWithoutArtifactRefs_
-    // SatisfiesWithNoResolver: a row that names blobs must NOT pay its
-    // ensure just because a caller had no resolver to offer. The blob here
-    // is real and intact — this pins the fail-closed direction on its own,
-    // not as a side effect of the blob being missing.
     const reference = await seedArtifactRow();
     const evidence = memorySource([persistedGateEvidence(OPERATION, { artifactRefs: [reference] })]);
 
@@ -351,7 +357,6 @@ describe('durable action postcondition observation — artifact-backed evidence'
       evidence,
       streamId: STREAM,
       operationId: OPERATION,
-      // No artifactResolver.
     });
 
     expect(observation.status).toBe('violated');
@@ -400,13 +405,13 @@ describe('durable action postcondition observation — artifact-backed evidence'
     ]);
   });
 
+  /**
+   * The ensure names an evidence kind, and any intact row of that kind under the operation
+   * satisfies it. A sibling row with a missing blob is not evidence, and the intact row still is.
+   * A stricter rule, where one unresolvable row fails the operation, is a separate decision. It
+   * must arrive as an edit to this test.
+   */
   it('Postconditions_AnyIntactRowOfTheKind_Satisfies', async () => {
-    // The ensure names an evidence KIND and is discharged by any intact row of
-    // that kind under the operation. A sibling row whose blob is gone does not
-    // poison the set: it simply is not evidence, and the intact row still is.
-    // Pinned so the contract is a stated one -- a stricter reading, where one
-    // unresolvable row fails the whole operation, is a separate decision and
-    // must arrive as a visible edit here, not as drift.
     const gone = await seedArtifactRow();
     await rm(blobPathFor(stateDir, gone));
     const intact = await storeEvidenceArtifact(
@@ -442,10 +447,11 @@ describe('durable action postcondition observation — artifact-backed evidence'
     expect(besideIntact.status).toBe('satisfied');
   });
 
+  /**
+   * The partner of the test above. When no row of the kind is intact, the observation reports a
+   * violation. It names each blob that failed, so a caller can report the digests.
+   */
   it('Postconditions_EveryRowUnresolved_IsViolationNamingEachBlob', async () => {
-    // The partner of the case above: when no row of the kind is intact, the
-    // ensure is violated and the observation names every blob that failed,
-    // so a caller can report the digests rather than only the ensure.
     const first = await seedArtifactRow();
     const second = await storeEvidenceArtifact(
       evidenceArtifactStore(stateDir),
@@ -474,10 +480,11 @@ describe('durable action postcondition observation — artifact-backed evidence'
       .toEqual([first.subject.digest.value, second.subject.digest.value].sort());
   });
 
+  /**
+   * The blob is real, intact and readable, but it is not under the root of this resolver. The
+   * test catches a split between the write root and the read root.
+   */
   it('Postconditions_ArtifactBlobUnderAnotherRoot_IsViolation', async () => {
-    // The oracle that would have caught the two-root split directly: the
-    // blob is real, intact, and readable — just not under the root this
-    // resolver was bound to.
     const otherDir = await mkdtemp(path.join(os.tmpdir(), 'ensure-postconditions-otherroot-'));
     try {
       const wrongRootStore = new ContentAddressedStore(path.join(otherDir, 'gate-evidence'));
@@ -605,6 +612,11 @@ function memoryEventStore(): EventStore {
   } as unknown as EventStore;
 }
 
+/**
+ * `ctx` uses a state directory that does not exist, because most probes never read one. The
+ * artifact-backed tests pass a real `mkdtemp` directory. Their handler binds an evidence store to
+ * it, and the resolver must find a real filesystem there.
+ */
 describe('dispatch gates success on applicable ensures', () => {
   let eventStore: EventStore;
 
@@ -615,10 +627,6 @@ describe('dispatch gates success on applicable ensures', () => {
   function ctx(stateDirOverride?: string): DispatchContext {
     eventStore = memoryEventStore();
     return {
-      // Most probes here never touch a state directory, so the placeholder
-      // is deliberately non-existent. The artifact-backed cases below pass a
-      // real `mkdtemp` directory instead — their handler binds an evidence
-      // store to it, and the resolver has to find a real filesystem there.
       stateDir: stateDirOverride ?? path.join(os.tmpdir(), 'ensure-dispatch-unused'),
       eventStore,
       enableTelemetry: false,
@@ -710,16 +718,17 @@ describe('dispatch gates success on applicable ensures', () => {
     expect(missing.error?.code).toBe('ENSURE_CONTRACT_VIOLATED');
   });
 
+  /**
+   * The subject is `discover_bridge`, not `cutover_decide`. A blocking host obligation stops the
+   * dispatch before the handler runs, so the subject must declare one. `discover_bridge` declares
+   * `executionAuthority: { kind: 'host', obligation: 'human-approval' }`.
+   * `cutover_decide` is `kind: 'local'`. It checks the operator posture in its handler, and its
+   * `ensures` requires it to append the rollout-decision fact, so it must run.
+   *
+   * The call passes `artifact` because schema validation runs before admission. Without it, the
+   * dispatch fails with INVALID_INPUT and never reaches the obligation check.
+   */
   it('Dispatch_HostOwned_DoesNotExecuteObligation', async () => {
-    // `discover_bridge`, not `cutover_decide`. The claim under test is that a
-    // BLOCKING host obligation short-circuits before the handler runs, so the
-    // subject has to be an action that actually declares one:
-    // `discover_bridge` is `executionAuthority: { kind: 'host', obligation:
-    // 'human-approval' }`. `cutover_decide` is `kind: 'local'` — it gates on
-    // operator posture INSIDE its handler and must keep running, because its
-    // own `ensures` obliges it to append the rollout-decision fact. Short-
-    // circuiting it would hand the caller an obligation where the recorded
-    // decision belongs.
     let handlerCalls = 0;
     const restore = stubCompositeHandler('exarchos_orchestrate', async () => {
       handlerCalls += 1;
@@ -728,9 +737,6 @@ describe('dispatch gates success on applicable ensures', () => {
     try {
       const result = await dispatch(
         'exarchos_orchestrate',
-        // `artifact` is required by the action's own schema, which is
-        // validated BEFORE admission runs — without it the dispatch fails on
-        // INVALID_INPUT and never reaches the obligation check this asserts.
         { action: 'discover_bridge', featureId: 'feat-host-owned', artifact: 'spec.md' },
         ctx(),
       );
@@ -743,6 +749,10 @@ describe('dispatch gates success on applicable ensures', () => {
     }
   });
 
+  /**
+   * The handler commits the row with the reference, then deletes the blob before the observation
+   * runs.
+   */
   it('Dispatch_UnresolvableArtifactEvidence_BlocksSuccess', async () => {
     const stateDir = await mkdtemp(path.join(os.tmpdir(), 'ensure-dispatch-artifact-'));
     try {
@@ -763,8 +773,6 @@ describe('dispatch gates success on applicable ensures', () => {
             type: ADMISSION_EVENT_TYPES.EVIDENCE_RECORDED,
             data: persistedGateEvidence('unused', { artifactRefs: [reference] }).data as Record<string, unknown>,
           });
-          // The row committed with the reference on it; the blob it names
-          // disappears before observation runs.
           await rm(blobPathFor(stateDir, reference));
           return { success: true, data: { recorded: true } };
         },
@@ -783,10 +791,11 @@ describe('dispatch gates success on applicable ensures', () => {
     }
   });
 
+  /**
+   * The partner of the test above, with the blob left in place. It proves that the failure of
+   * that test comes from the missing blob, not from the fixture.
+   */
   it('Dispatch_ResolvableArtifactEvidence_Succeeds', async () => {
-    // The two-sided pair: the same shape as the case above, with the blob
-    // left in place, so the first case's failure is proved to trace to the
-    // missing blob rather than to something else about the fixture.
     const stateDir = await mkdtemp(path.join(os.tmpdir(), 'ensure-dispatch-artifact-ok-'));
     try {
       registerProbe({

@@ -3,8 +3,9 @@ import { join } from 'node:path';
 import type { ArmConfig, ArmId, ProblemDefinition } from './types.js';
 
 /**
- * Parse simple YAML frontmatter from markdown content.
- * Handles only simple key: value pairs (no nesting, no arrays).
+ * Parses simple YAML frontmatter from markdown content. It reads only `key: value` pairs, with no
+ * nesting and no arrays. Both groups of the pattern always participate in a match, so the `??`
+ * fallbacks only satisfy the type checker.
  */
 function parseFrontmatter(content: string): { meta: Record<string, string>; body: string } {
   const match = content.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
@@ -12,9 +13,6 @@ function parseFrontmatter(content: string): { meta: Record<string, string>; body
     return { meta: {}, body: content };
   }
 
-  // Both groups are non-optional in the pattern, so a match participates in
-  // both — the fallbacks satisfy the checker without inventing a second story
-  // about what a matched frontmatter block can look like.
   const meta: Record<string, string> = {};
   const lines = (match[1] ?? '').split('\n');
   for (const line of lines) {

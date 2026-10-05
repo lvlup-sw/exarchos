@@ -7,16 +7,16 @@ import { WIN32_SPAWN_HEADROOM } from '../../../../vitest.config.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { makeRepoSandbox, type RepoSandbox } from '../../../../tools/test-helpers/repo-sandbox.js';
 
-/** Fixtures and their build output live in a temp sandbox, never beside this file (#2030). */
+/** The fixtures and their build output live in a temporary sandbox, never beside this file. */
 let fixtures: RepoSandbox | undefined;
 let TEST_DIR = '';
 
+/**
+ * Runs `g++ --version`, because `which g++` is not enough.
+ * The windows-latest runners ship a g++ shim that resolves but cannot compile.
+ * The shim does not answer `--version`, so the probe fails on it.
+ */
 async function hasGpp(): Promise<boolean> {
-  // `which g++` is not enough: windows-latest runners ship a g++ shim that
-  // resolves yet cannot compile (no MSVC toolchain in PATH). Probe by running
-  // `g++ --version` instead — a shim does not respond to its driver flag, so
-  // this catches the case where `which` alone would say yes and the compile
-  // path would then fail.
   try {
     await execFileAsync('g++', ['--version']);
     return true;
@@ -25,23 +25,18 @@ async function hasGpp(): Promise<boolean> {
   }
 }
 
+/**
+ * Runs the suite only when g++ works.
+ * The large-output case prints about 2 MB (2048 lines of 1001 bytes) against an output limit of 1 KB.
+ */
 const describeWithGpp = (await hasGpp()) ? describe : describe.skip;
 
-// Every case below compiles its own fixture with g++ before it exercises the
-// sandbox, so each one carries a cold-compile cost that the default 5s vitest
-// timeout does not cover — `compiler.test.ts` records the same compile observed
-// at 5007ms and gives it a 30s envelope for exactly this reason. That fix was
-// applied there and not here, so these cases stayed on the default and passed
-// only while some earlier file happened to warm the compiler first. Under a
-// loaded Windows runner all three timed out at ~5001ms. The budget bounds the
-// TEST HARNESS; the sandbox's own `timeLimitMs` still bounds the behaviour
-// under test, so a genuinely hung sandbox still fails rather than sitting here.
-//
-// Scaled by the same win32 factor the tiers use, because a bare 30s is not the
-// headroom it looks like: the `unit` tier is `tierTimeout(5000)`, which is
-// already 30s on Windows. A hardcoded 30s therefore bought this file six times
-// the budget on Linux and NOTHING on the platform the comment above is about,
-// and a cold g++ compile on a loaded Windows runner duly ran past it.
+/**
+ * Test timeout for a case that compiles its fixture with g++ before it runs the sandbox.
+ * A cold compile can exceed the default timeout of 5 seconds.
+ * The win32 factor scales the budget. Without it, 30 seconds adds nothing on Windows, where the `unit` tier timeout is already 30 seconds.
+ * The `timeLimitMs` of the sandbox still bounds the behavior under test.
+ */
 const COMPILE_BEARING_TIMEOUT_MS = 30_000 * WIN32_SPAWN_HEADROOM;
 
 describeWithGpp('runInSandbox', () => {
@@ -108,7 +103,6 @@ int main() {
 
   it('sandbox_LargeOutput_TruncatesAtLimit', async () => {
     const srcPath = join(TEST_DIR, 'bigout.cpp');
-    // Output ~2MB (each iteration prints 1000 chars + newline)
     writeFileSync(srcPath, `
 #include <iostream>
 #include <string>
@@ -124,7 +118,7 @@ int main() {
     const compiled = await compile(srcPath);
     expect(compiled.success).toBe(true);
 
-    const maxBytes = 1024; // 1KB limit for test
+    const maxBytes = 1024;
     const result = await runInSandbox(
       compiled.executablePath!,
       [],

@@ -5,15 +5,16 @@ import { detectLanguage, compile, execute, runSolution } from './compiler.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { makeRepoSandbox } from '../../../../tools/test-helpers/repo-sandbox.js';
 
-/** Fixtures and their build output live in a temp sandbox, never beside this file (#2030). */
+/** Fixtures and their build output live in a temp sandbox, never next to this file. */
 const fixtures = await makeRepoSandbox({ prefix: 'icpc-compiler' });
 const TEST_DIR = fixtures.root;
 
+/**
+ * Probes with `g++ --version`, not `which g++`. The windows-latest runners ship a g++ shim that
+ * resolves but cannot compile, because PATH holds no MSVC toolchain. Only a real executable
+ * answers the version flag.
+ */
 async function hasGpp(): Promise<boolean> {
-  // `which g++` is not enough: windows-latest runners ship a g++ shim that
-  // resolves but cannot actually compile (no MSVC toolchain in PATH). Probe
-  // by running `g++ --version` instead — that requires a real executable
-  // that responds to its driver flag, which a shim does not.
   try {
     await execFileAsync('g++', ['--version']);
     return true;
@@ -22,6 +23,11 @@ async function hasGpp(): Promise<boolean> {
   }
 }
 
+/**
+ * Runs a block only when g++ works. The first g++ compile of the suite is cold. On a loaded CI
+ * runner it can exceed the 5-second test timeout of the tier, so
+ * `compile_ValidCpp_ReturnsExecutablePath` has a 90-second timeout.
+ */
 const describeWithGpp = (await hasGpp()) ? describe : describe.skip;
 
 afterAll(() => {
@@ -49,10 +55,6 @@ describe('detectLanguage', () => {
 });
 
 describeWithGpp('compile', () => {
-  // The first g++ invocation in the suite is a cold compile that can exceed the
-  // 5s default vitest timeout on a loaded CI runner (observed at 5007ms). Give
-  // it a generous envelope so the genuine compile time, not the test harness,
-  // bounds the result.
   it('compile_ValidCpp_ReturnsExecutablePath', async () => {
     const srcPath = join(TEST_DIR, 'hello.cpp');
     writeFileSync(srcPath, `

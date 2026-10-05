@@ -1,336 +1,17 @@
-// ─── DR-0 — tools/list wire golden ─────────────────────────────────────────
+// The wire golden of `tools/list`.
 //
-// DR-0 adds the v2 MCP SDK packages (`@modelcontextprotocol/{core,server}`)
-// ALONGSIDE the pinned v1 `@modelcontextprotocol/sdk`. The load-bearing
-// promise of that step is that **nothing changes on the wire**: v2 speaks the
-// 2025-era protocol until an explicit era opt-in, so adding it — and later
-// migrating modules onto it — must leave `tools/list` byte-identical.
+// `tools-list.test.ts` pins the shape of the manifest. A shape assertion cannot see a byte-level
+// drift: a renamed property, a reordered `required` array, a changed `$schema` URL or a reworded
+// description. This test pins the bytes. It canonicalises the full `tools/list` result (sorted
+// keys, tools in name order) and compares it with a committed golden file.
 //
-// The existing `tools-list.test.ts` pins the manifest's *shape* (every entry
-// carries an outputSchema, annotations are populated, hidden tools are
-// absent). Shape assertions cannot catch a byte-level drift: a renamed
-// property, a reordered `required` array, a changed `$schema` URL or a
-// re-worded description all satisfy every shape check while changing what a
-// model-side agent actually receives.
-//
-// So this test pins the BYTES. It canonicalises the full `tools/list` result
-// (recursively key-sorted, tools ordered by name) and compares it against a
-// committed golden file.
-//
-// ── THE MIGRATION HAPPENED, AND THE GOLDEN MOVED BY EXACTLY ONE FIELD ───────
-//
-// This golden is now produced by the **v2** adapter. Its previous revision said
-// a diff here "must be reviewed rather than regenerated reflexively". It was
-// reviewed; this is the review.
-//
-// MEASURED, not eyeballed: with the `execution` block removed from both sides,
-// the old and new goldens are byte-identical — same four tools, same order,
-// same descriptions, same `inputSchema`, `outputSchema` and `annotations`. The
-// ONLY delta across the whole `tools/list` surface is that every tool lost
-//
-//     "execution": { "taskSupport": "forbidden" }
-//
-// WHY IT IS NOT RECOVERABLE, rather than merely not recovered. v2's
-// `registerTool` config accepts `title`, `description`, `inputSchema`,
-// `outputSchema`, `annotations`, `icons` and `_meta` — and no `execution`
-// member at all. The field was never ours to declare: under v1 the SDK
-// SYNTHESISED it from the `taskStore` wiring, and v2 ships no server-side Tasks
-// runtime to synthesise it from. `@modelcontextprotocol/server@2.0.0` groups
-// `execution.taskSupport` with `capabilities.tasks` as one "known deleted-field
-// set", which is the same surface operator decision D10 accepted the loss of.
-//
-// So this is D10's accepted cost showing up one layer out from where D10 named
-// it. D10 said `tasks/*` answers a typed `-32601`; the same deletion also
-// removes the per-tool advertisement of task support. Recorded here explicitly
-// because DR-0's acceptance criterion is "byte-identical `tools/list`", and
-// that criterion now holds with exactly one named, structurally-forced
-// exception rather than absolutely.
-//
-// The test's job is unchanged and undiminished: any FURTHER diff is the
-// migration changing the contract, and must be reviewed rather than regenerated
-// reflexively.
-//
-// ── REVIEWED MOVE: the `doctor` description stops transcribing a count ───────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
-// ONE changed line — the `exarchos_orchestrate` tool description. The whole
-// delta is inside the `doctor` action's sentence, which read "12 checks across
-// runtime, storage, …" while the roster shipped twenty; it now names the
-// surfaces without a number. A count in shipped prose is a copy of the roster
-// that nothing regenerates and every addition leaves stale — this one was
-// eight additions behind. No schema, annotation or other description moved.
-//
-// ── REVIEWED MOVE: the `featureId` alias on the three task verbs ────────────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
-// TWO changed lines — the `exarchos_orchestrate` tool description, before and
-// after. The whole delta is the three task-verb signatures:
-//
-//     task_claim(taskId, agentId, streamId)              → (…, streamId?, featureId?)
-//     task_complete(taskId, result?, evidence?, streamId) → (…, streamId?, featureId?)
-//     task_fail(taskId, error, diagnostics?, streamId)    → (…, streamId?, featureId?)
-//
-// This is a WIDENING and therefore not a compatibility break: `streamId` went
-// required → optional and `featureId` was added optional, so every call that
-// was valid before is still valid and still resolves to the same stream
-// (`resolveStreamIdentity` prefers `streamId` when both are present — pinned by
-// `TaskVerbs_StreamIdWins_WhenBothSpellingsDisagree`). No tool was added or
-// removed, no order changed, and no other tool's schema moved.
-//
-// The change exists because requiring only the internal spelling made agents
-// ASK the operator for a value they already held: the workflow stream id IS the
-// bare featureId, which is the name every workflow surface uses.
-//
-// ── Two more compilable intents on `execute_intent` ────────────────────────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
-// ONE changed line — the `exarchos_orchestrate` tool description — and within
-// it, one changed action signature line plus the schema digest that line feeds.
-// The whole delta is `execute_intent`'s description, which now names the three
-// compilable intents instead of one:
-//
-//     'task-completion'                → + 'quality-evaluation', 'plan-closeout'
-//
-// This is a WIDENING and therefore not a compatibility break: the request
-// schema is unchanged (`intent`, `args`, subject identity, `operationId`), no
-// action or tool was added or removed, no order changed, and no other action's
-// schema moved. `intent` was always a free-form runbook id; two more ids now
-// compile instead of being refused as not-compilable.
-//
-// The description also SHRANK to fit the per-action description budget, which
-// is why sentences moved rather than only accumulated. The reasons that left
-// the description live on the intents' argument schemas, where a caller reading
-// the refusal message meets them.
-//
-// ── `spec_coverage_check` gains the stream it records evidence against ─────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
-// ONE changed line — the `exarchos_orchestrate` tool description — and within
-// it, one action's signature line gaining one leading field plus the schema
-// digest that line feeds:
-//
-//     spec_coverage_check(planFile, repoRoot, …) → (featureId, planFile, …)
-//
-// This is a NARROWING and deliberately so: the field is required, because the
-// gate declares durable gate evidence `when: 'always'` and evidence is keyed to
-// a stream. A caller that omits it is now refused at the parse rather than
-// reaching a handler with no subject to pay its own postcondition with. No tool
-// or action was added or removed, no order changed, and no other action's
-// schema moved.
-//
-// ── A fourth compilable intent, and the stream `create_pr` declares ────────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields exactly
-// ONE changed line — the `exarchos_orchestrate` tool description — and within
-// it, one changed action signature line plus exactly TWO changed contract
-// digests out of the 83 the line carries:
-//
-//     execute_intent  — description names a fourth intent; two git-ref
-//                       resources join its `touches`
-//     create_pr       — the shared `vcs` stream joins its `touches`, so
-//                       post-dispatch observation resolves the stream its two
-//                       journal records land on from the declaration
-//
-// Both goldens carry 82 action signatures in the same order. No tool or action
-// was added or removed, and no other action's schema or digest moved.
-//
-// The `execute_intent` half is a WIDENING: the request schema is unchanged
-// (`intent`, `args`, subject identity, `operationId`), and `intent` was always
-// a free-form runbook id — one more id now compiles instead of being refused as
-// not-compilable. The `create_pr` half changes no schema at all; it states on
-// the contract where records the handler has always written go.
-//
-// The description also shrank again to fit the per-action budget, which is why
-// a sentence moved rather than only accumulating. The reason that left it —
-// which gate evidence the review intent needs — lives on that intent's argument
-// schema, where a caller reading the refusal message meets it.
-//
-// ── The body check gains an enforcement switch ────────────────────────────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
-// changed tool description (`exarchos_orchestrate`) with exactly THREE changed
-// lines inside it, plus one JSON-schema property:
-//
-//     validate_pr_body(…, featureId?) → (…, featureId?, enforce?)
-//     execute_intent  — one clause shortened, one clause added: the closeout
-//                       intent leaves recording the PR URL to the caller
-//     create_pr       — digest only; its `ensures` abstention now states the
-//                       reason that survives the stream it declares
-//
-// The `enforce` half is a WIDENING and back-compatible: absent, the handler
-// answers exactly as before. Present, a failing section verdict leaves as a
-// refusal — which is the only form a composition can act on, since a step's
-// failure policy reads the envelope and not the payload. No tool or action was
-// added or removed, no order changed, and no other action's schema or digest
-// moved.
-//
-// ── The vcs family's postcondition and observation declarations settle ─────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
-// changed tool description (`exarchos_orchestrate`) with exactly THREE
-// changed action signature lines:
-//
-//     merge_pr        — ensures=declared → ensures=none; digest moves
-//     add_pr_comment   — flags unchanged; digest moves (abstention reason text)
-//     create_issue     — touches=none → touches=declared; digest moves
-//
-// `add_pr_comment` and `create_issue` join `create_pr` in declaring the
-// shared `vcs` stream on the RESOURCE axis, so post-dispatch observation
-// resolves the stream their journal records land on from the declaration
-// itself. `add_pr_comment` already declared a `git-ref` resource, so its
-// `touches` flag stays `declared`; `create_issue` declared none before, so
-// its flag moves. Both actions' abstention reason text changes to match —
-// they keep `ensures: none` for the same reason `create_pr` does: the two
-// journal records are declared and checked on the emission axis against
-// that same resolved stream, and the postcondition axis carries durable
-// evidence, which these handlers record none of.
-//
-// `merge_pr` drops its `event-append` ensures for a different reason: that
-// postcondition was never sound. The verifier's required set is built from
-// unconditional emissions only, so a conditional `pr.merged` declaration was
-// never actually checked there, and the removed ensures reported false
-// assurance. It is replaced with the same style of abstention.
-//
-// No tool or action was added or removed, no order changed, and no other
-// action's schema or digest moved.
-//
-// ── `merge_pr`'s abstention reason gains the handler-side enforcement it names ─
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
-// changed tool description (`exarchos_orchestrate`) with exactly ONE changed
-// action signature line — `merge_pr`, digest-only, no flag moves. The append
-// this action makes on a successful merge is no longer swallowed on failure:
-// the handler now withholds its success carrier (preserving the merge result
-// on `data`) when the durable `pr.merged` record fails to land, rather than
-// reporting success with the record silently missing. The postcondition
-// vocabulary still cannot express "required only when the merge landed", so
-// the abstention itself is unchanged in kind — only its reason text now
-// states that the handler enforces the obligation directly since the axis
-// cannot. No tool or action was added or removed, no order changed, and no
-// other action's schema or digest moved.
-//
-// ── `assess_stack` stops ensuring an append it does not always make ─────────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
-// changed tool description (`exarchos_orchestrate`) with exactly TWO changed
-// tokens on ONE action signature line — `assess_stack`'s contract digest, and
-// `ensures=declared` becoming `ensures=none`. The `always` postcondition was
-// carried over unchanged from the event spelling that preceded it, and it held
-// in neither: the actions that ensure an append `always` are gate RUNNERS,
-// whose result row is the point of the call, while this one observes. A stack
-// with no checks to read — empty, or a provider failure the check query records
-// and swallows — assesses successfully and appends nothing. No tool or action
-// was added or removed, no order changed, and no other action's schema or
-// digest moved.
-//
-// ── `settle` joins the tool: the first ADDITION this golden has recorded ───
-//
-// Every reviewed move above changed an existing action. This one adds one, and
-// the distinction is the review: an addition cannot break a caller, but it can
-// silently widen the surface, so what has to be checked is that NOTHING ELSE
-// moved alongside it.
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
-// changed tool (`exarchos_orchestrate`) across exactly THREE surfaces, all of
-// them additive:
-//
-//     description   — two lines added: `settle`'s signature and its contract
-//                     digest row. No existing action's signature, flags or
-//                     digest moved.
-//     inputSchema   — `settle` added to the `action` enum, and its argument
-//                     schema added beside the others. 11,006 → 12,101 bytes,
-//                     all of it the new block.
-//     (nothing else)
-//
-// The other three tools are byte-identical, no tool was added or removed, and
-// no order changed. Measured by parsing both goldens and comparing per tool
-// and per field rather than by reading the line diff, because a line diff over
-// a single-line JSON description cannot tell an addition from a rewrite.
-//
-// What the new action is: the semantic plane's settlement endpoint. It reads
-// one batch of returned claims against the capsule pinned when the work was
-// compiled and commits one `execution.settled` record. It runs nothing.
-//
-// ── `task.assigned` becomes the runtime's: two descriptions, two digests ───
-//
-// The announcement the delegate skill used to make by hand is appended by the
-// runtime now — `prepare` in the same commit as its record, `prepare_delegation`
-// ahead of its readiness read — and both actions declare the emission. MEASURED
-// by parsing both goldens and comparing per tool and per field: ONE changed
-// tool (`exarchos_orchestrate`), ONE changed field (`description`), FOUR lines
-// in it — the two actions' signature lines (each gains the sentence saying it
-// announces) and their two contract-digest rows (each gains an emission edge).
-// No `inputSchema` moved, no tool was added or removed, no order changed, and
-// the other three tools are byte-identical.
-//
-// Regenerate deliberately (and review the diff) with:
+// A diff is a change of the wire contract: it changes what a model-side agent receives. Do not
+// regenerate the golden only to make the test pass. Regenerate it with this command, then do the
+// review that the description of `goldenPath` gives, before you commit:
 //   UPDATE_TOOLS_LIST_GOLDEN=1 npx vitest run --project core tests/integration/tools-list-golden.test.ts
 //
-// ── A settled batch leaves its facts ───────────────────────────────────────
-//
-// MEASURED, not eyeballed: normalising both goldens and diffing yields ONE
-// changed tool description (`exarchos_orchestrate`) with exactly ONE changed
-// action signature line:
-//
-//     settle — one clause added: a SETTLED batch also commits one
-//              task.completed per accepted task, so the workflow's tasks read
-//              complete and `transition` can follow. The digest moves with the
-//              description and with the declaration it describes — the second
-//              emission edge, `task.completed`, beside `execution.settled`.
-//
-// No tool or action was added or removed, no order changed, and no schema
-// moved: the request shape is byte-identical. The wire now says what the
-// handler does, which is to leave the fact the primitive path leaves.
-//
-// ── Settlement runs the verification it resolves ──────────────────────────
-//
-// MEASURED, not eyeballed: parsing both goldens and comparing per tool and
-// per field yields ONE changed field, `exarchos_orchestrate`'s description,
-// and inside it TWO changed action lines:
-//
-//     settle         — the clause above is replaced: a batch with no finding
-//                      RUNS each task's task-completion segment (the ladder
-//                      gates under the tier the capsule froze, then
-//                      task_complete) against the claim's worktreePath, and a
-//                      halted segment is a verification-failed finding. Cited
-//                      evidence must now resolve to a recorded row. The digest
-//                      moves with the description and with the declaration —
-//                      `shell:exec` and `mcp:exarchos` joined its needs, the
-//                      worktree and branch its resources, and the
-//                      `task.completed` edge left it: the completion leaf the
-//                      segment composes is that fact's one declared producer.
-//     execute_intent — its task-completion argument list gains `result?`, the
-//                      completion's provenance the terminal leaf records.
-//
-// No tool or action was added or removed, no order changed, and no schema
-// moved: both request shapes are byte-identical.
-//
-// ── The capsule carries the runtime's terms ───────────────────────────────
-//
-// MEASURED, not eyeballed: parsing both goldens and comparing per tool and
-// per field yields ONE changed field, `exarchos_orchestrate`'s description,
-// and inside it ONE changed action line:
-//
-//     prepare — the capsule now also carries each task's verification terms
-//               (tier and boundary flag, frozen from the plan) and the
-//               execution profile — the capabilities the plane's own calls
-//               need, read off the registry — and a runtime lacking one is
-//               refused RUNTIME_UNFIT before it fans out; INVALID_TASK_STAMP
-//               joins the refusals. The digest moves with the description.
-//
-// No tool or action was added or removed, no order changed, and no schema
-// moved: the request shape is byte-identical.
-//
-// ── `check_post_merge` names the repository it tests ──────────────────────
-//
-// MEASURED, not eyeballed: parsing both goldens and comparing per tool and per
-// field yields ONE changed field, `exarchos_orchestrate`'s description, and in
-// it TWO changed lines. The `check_post_merge` signature gains `repoRoot`. Its
-// digest row moves because the action now declares `repoRoot`, the `fs:read`
-// and `shell:exec` needs, and the `repoRoot` path resource. The gate runs the
-// resolved test command in that repository. The tool's `inputSchema` did not
-// move, because other actions already declare `repoRoot`. No tool or action was
-// added or removed, and no order changed.
+// No tool entry holds an `execution` block. The v2 `registerTool` config has no `execution`
+// member, so the adapter cannot advertise `taskSupport`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -350,12 +31,23 @@ import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+/**
+ * The committed golden. Each tool description in it holds one signature line and one contract
+ * digest row for each action. Thus a change of an action signature, an action description or a
+ * contract declaration moves the golden, also when no JSON schema moves.
+ *
+ * Before you commit a new golden, parse the old golden and the new golden, and compare them for
+ * each tool and each field. A line diff is not sufficient, because a description is one JSON line
+ * and the diff cannot tell an addition from a rewrite. Each changed field must come from the
+ * change that you made. Make sure that no other tool, action, order, schema or digest moved. A
+ * change that refuses a call that was valid must be deliberate.
+ */
 const goldenPath = path.join(here, '__goldens__', 'tools-list.golden.json');
 
 /**
- * Recursively sort object keys so the serialisation is independent of
- * property insertion order. Arrays keep their order — element order IS part
- * of the contract (e.g. a schema's `required` list, `anyOf` branches).
+ * Sorts object keys recursively, so the serialisation does not depend on the insertion order of
+ * properties. Arrays keep their order, because element order is part of the contract. Examples are
+ * the `required` list and the `anyOf` branches of a schema.
  */
 function canonicalise(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalise);
@@ -395,21 +87,24 @@ describe('DR-0 — tools/list wire golden', () => {
     ]);
   });
 
+  /** The hook ignores a failure of `client.close()`, so it always removes the temp directory. */
   afterEach(async () => {
     try {
       await client.close();
     } catch {
-      /* ignore */
     }
     await rmrfAsync(tmpDir);
   });
 
+  /**
+   * The test puts the tools in name order, so a reorder of the registry does not show as a diff. A
+   * renamed tool still shows. With `UPDATE_TOOLS_LIST_GOLDEN=1`, the test writes the golden before
+   * the comparison, so that run always passes. The comparison is byte for byte. The last assertion
+   * rejects an empty manifest, which equals an empty golden and proves nothing.
+   */
   it('ToolsList_AfterV2Migration_ByteIdenticalToGolden', async () => {
     const { tools } = await client.listTools();
 
-    // Order the manifest by tool name so a registry reordering does not
-    // masquerade as a wire change (and vice versa — a genuine rename still
-    // shows up).
     const ordered = [...tools].sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
     const actual = `${JSON.stringify(canonicalise({ tools: ordered }), null, 2)}\n`;
 
@@ -428,12 +123,8 @@ describe('DR-0 — tools/list wire golden', () => {
       );
     }
 
-    // Byte-for-byte. Any difference — a renamed field, a reordered `required`
-    // array, a changed $schema URL, a re-worded tool description — fails here.
     expect(actual).toBe(expected);
 
-    // Guard against a vacuous golden: an empty manifest would compare equal to
-    // an empty golden and silently prove nothing.
     expect(ordered.length).toBeGreaterThan(0);
   });
 });

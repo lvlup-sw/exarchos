@@ -8,6 +8,10 @@ interface MetaJson {
   tags?: string[];
 }
 
+/**
+ * Reads and validates `meta.json`. `tags` is optional, so the result omits it when the file holds
+ * no tag array. Under `exactOptionalPropertyTypes`, an explicit `undefined` is not an absent key.
+ */
 function parseMetaJson(filePath: string): MetaJson {
   const raw = readFileSync(filePath, 'utf-8');
   const parsed: unknown = JSON.parse(raw);
@@ -30,9 +34,6 @@ function parseMetaJson(filePath: string): MetaJson {
     throw new Error(`Invalid meta.json at ${filePath}: timeLimit must be a number`);
   }
 
-  // `tags` is optional, so under `exactOptionalPropertyTypes` it has to be
-  // ABSENT when there is nothing to report — an explicit `undefined` is a
-  // different claim. The guards above already narrowed title/timeLimit.
   const tags = meta['tags'];
   return {
     title: meta['title'],

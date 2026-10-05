@@ -1,30 +1,12 @@
 /**
- * Task 015 — Canary migration tests for the ideate skill.
+ * Render tests for the ideate skill, the canary of the single-source skill renderer.
  *
- * This is the canary proof for the platform-agnostic skills migration
- * pipeline. Before the batch wave migrates 13 more skills, these three
- * tests verify the end-to-end flow on a single representative skill:
- *
- *   1. `Migration_Ideate_ClaudeVariantByteIdenticalToCurrent` —
- *      the critical canary assertion. The rendered
- *      `skills/claude/ideate/SKILL.md` MUST be byte-identical to
- *      the pre-migration `skills/ideate/SKILL.md` (captured in
- *      `__fixtures__/ideate-baseline.md`). If this assertion
- *      fails, the renderer is untrustworthy and the bug would propagate
- *      across all 16 skills in the batch wave.
- *
- *   2. `Migration_Ideate_GenericVariant_NoClaudeSpecificSyntax` —
- *      the generic fallback variant must NOT contain any Claude-native
- *      syntax that came from `{{MCP_PREFIX}}`, `{{COMMAND_PREFIX}}`, or
- *      `{{CHAIN}}` substitution. It must use the LCD values from
- *      `content/harness/runtimes/generic.yaml`.
- *
- *   3. `Migration_Ideate_AllSixVariantsHaveIdenticalDescriptionFrontmatter` —
- *      the skill frontmatter must be identical across all 6 runtime
- *      variants; only the body differs via placeholder substitution.
- *
- * Implements: DR-1 (skills sourced once, rendered per runtime),
- *             DR-8 (ideate canary).
+ * 1. The render of `claude/ideate/SKILL.md` is byte-identical to the baseline in
+ *    `__fixtures__/ideate-baseline.md`. This is the canary assertion for the renderer.
+ * 2. The generic variant holds no Claude-native text from the `{{MCP_PREFIX}}`,
+ *    `{{COMMAND_PREFIX}}` or `{{CHAIN}}` substitution. It uses the values of
+ *    `content/harness/runtimes/generic.yaml`.
+ * 3. The frontmatter is identical in the six runtime variants. Only the body differs.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -63,21 +45,24 @@ function readBaselineFixture(): string {
   return readFileSync(BASELINE_PATH, 'utf8');
 }
 
+/** Removes each temp directory. The removal is best-effort, so the hook ignores a failure. */
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
       rmrf(d);
     } catch {
-      // best-effort cleanup
     }
   }
 });
 
 describe('task 015 — ideate canary migration', () => {
+  /**
+   * The baseline is a committed copy of the render. An intended change of the skill source or of
+   * the renderer must also update the baseline. `toBe` on the two strings is a byte-exact
+   * comparison, and it marks the first difference.
+   */
   it('Migration_Ideate_ClaudeVariantByteIdenticalToCurrent', () => {
-    // The canary assertion. If this fails, stop the migration wave and
-    // investigate the renderer — do NOT propagate a broken pipeline.
     expect(existsSync(BASELINE_PATH)).toBe(true);
     const baseline = readBaselineFixture();
 
@@ -86,39 +71,33 @@ describe('task 015 — ideate canary migration', () => {
     expect(existsSync(claudeOut)).toBe(true);
 
     const rendered = readFileSync(claudeOut, 'utf8');
-    // Use strict string equality for a byte-exact diff. toBe() produces a
-    // readable first-difference marker on failure, which is what we want
-    // when iterating on placeholder substitution.
     expect(rendered).toBe(baseline);
   });
 
+  /**
+   * The generic map sets the MCP prefix to `mcp__exarchos__`, so the Claude plugin prefix must be
+   * absent and the generic prefix present. `COMMAND_PREFIX` is empty in `generic.yaml`, so
+   * `/exarchos:` must be absent. `CHAIN` renders as a prose directive, so `Skill({` must be absent.
+   */
   it('Migration_Ideate_GenericVariant_NoClaudeSpecificSyntax', () => {
     const outDir = buildIntoTemp();
     const genericOut = join(outDir, 'generic', 'ideate', 'SKILL.md');
     expect(existsSync(genericOut)).toBe(true);
     const rendered = readFileSync(genericOut, 'utf8');
 
-    // None of these Claude-specific artifacts may leak into the generic
-    // variant. `mcp__plugin_exarchos_exarchos__` is the Claude plugin MCP
-    // prefix; the generic map collapses it to `mcp__exarchos__`.
     expect(rendered).not.toContain('mcp__plugin_exarchos_exarchos__');
 
-    // `COMMAND_PREFIX` is empty in generic.yaml, so `/exarchos:` should
-    // never appear. Bare `exarchos_workflow` tool-name references (no
-    // slash, no underscore prefix) are legitimate and not checked here.
     expect(rendered).not.toContain('/exarchos:');
 
-    // The `CHAIN` placeholder in generic.yaml renders as a prose
-    // `[Invoke the exarchos:... skill ...]` directive, so the literal
-    // `Skill({` Claude syntax should never appear.
     expect(rendered).not.toContain('Skill({');
 
-    // Positive assertion: the generic MCP prefix SHOULD appear at least
-    // once (the skill documents state-management via `exarchos_workflow`
-    // which is prefixed with the MCP namespace).
     expect(rendered).toContain('mcp__exarchos__');
   });
 
+  /**
+   * The frontmatter is the block from the first `---` line to the second one. Each variant must
+   * equal the first variant. The `description:` check rejects a comparison of empty strings.
+   */
   it('Migration_Ideate_AllSixVariantsHaveIdenticalDescriptionFrontmatter', () => {
     const outDir = buildIntoTemp();
     const runtimeNames = [
@@ -130,10 +109,6 @@ describe('task 015 — ideate canary migration', () => {
       'cursor',
     ];
 
-    // Extract the YAML frontmatter block (everything between the first
-    // `---` and the second `---`, inclusive). The frontmatter must be
-    // identical across all runtimes — only the body below it differs via
-    // placeholder substitution.
     const extractFrontmatter = (content: string): string => {
       const lines = content.split('\n');
       expect(lines[0]).toBe('---');
@@ -148,14 +123,10 @@ describe('task 015 — ideate canary migration', () => {
       return extractFrontmatter(readFileSync(p, 'utf8'));
     });
 
-    // Every frontmatter should equal the first one — the description,
-    // metadata, and all frontmatter fields must be runtime-invariant.
     for (let i = 1; i < frontmatters.length; i++) {
       expect(frontmatters[i]).toBe(frontmatters[0]);
     }
 
-    // Sanity check: the description line must be present so we do not
-    // accidentally assert equality on two empty strings.
     expect(frontmatters[0]).toMatch(/description:/);
   });
 });

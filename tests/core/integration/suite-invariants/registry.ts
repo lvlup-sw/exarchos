@@ -1,36 +1,29 @@
-// ─── The DR-30 register: ratchets, floors, and accepted gaps ────────────────
+// The register of the suite invariants: ratchets, floors and accepted gaps.
 //
-// This module is DELIBERATELY IMPORT-FREE apart from the generated debt list.
-// It reads no filesystem and derives nothing. That is what makes it a genuine
-// SECOND AUTHORITY against the corpus scan in `corpus.ts`: one side is what
-// the repository actually contains right now, the other is what a human
-// committed as the accepted state. If either were computed from the other,
-// `suite-invariants.test.ts` would be the very Class B defect DR-30 exists to
-// forbid — and its own `@oracle-sources` declaration would be rejected by its
-// own derived-authority check.
+// This module imports only the generated debt list. It reads no file and
+// derives no value. That makes it a second authority against the corpus scan
+// in `corpus.ts`. One side is the current content of the repository, and the
+// other side is the state that a person committed.
+//
+// Neither side comes from the other. Otherwise, `suite-invariants.test.ts`
+// compares one source with itself, and its derived-authority check rejects its
+// own oracle-sources declaration.
 
 import { LEGACY_SHAPE_DEBT } from './legacy-shape-debt.js';
 
 export { LEGACY_SHAPE_DEBT };
 
-// ─── Shape ratchet ──────────────────────────────────────────────────────────
-
 /**
- * DR-30: "the list of covered shapes is itself ratcheted so it cannot quietly
- * shrink."
+ * One ratchet entry for a covered shape. The entries stop a silent shrink of
+ * the shape list:
+ * - `id` must exist in `COVERED_SHAPES`, so a deleted shape fails.
+ * - `corpusFloor` is the minimum number of corpus files that the shape must
+ *   match. A matcher that matches nothing reports zero violations and zero
+ *   matches, and the floor catches it.
  *
- * Two separate teeth per entry:
- *   1. `id` must still exist in `COVERED_SHAPES`. Delete a shape to make the
- *      suite green and this goes RED instead.
- *   2. `corpusFloor` is the minimum number of REAL corpus files the shape must
- *      still match. This is the anti-vacuity tooth: a matcher edited into
- *      matching nothing (the classic silently-vacuous scanner) reports zero
- *      violations *and* zero matches, and the floor catches it.
- *
- * `observed` records the count measured when the floor was set (2026-08-05,
- * 920-file corpus). Floors are ~80% of observed so ordinary churn does not
- * flake, and are stated next to the observation so the gap is visible rather
- * than tuned.
+ * `observed` is the match count on the date that set the floor (2026-08-05,
+ * a corpus of 920 files). A floor is about 80% of `observed`, so ordinary
+ * churn does not fail it.
  */
 export interface ShapeRatchetEntry {
   readonly id: string;
@@ -50,41 +43,26 @@ export const SHAPE_RATCHET: readonly ShapeRatchetEntry[] = Object.freeze([
   { id: 'derived-pair-parity', observed: 153, corpusFloor: 122 },
 ]);
 
-// ─── Denominator ratchet ────────────────────────────────────────────────────
-
 /**
- * DR-30: "The denominator is reported and ratcheted." Floors stop the scan
- * root from being quietly emptied — deleting or relocating a root would
- * otherwise turn the whole meta-test vacuous while keeping it green.
- * Observed 2026-08-05: repo/src 60, mcp/src 849, mcp/test 9, mcp/tests 2.
+ * Floors for the file count of a scan root. An empty root makes the meta-test
+ * vacuous and green, and a floor stops that. The `src` and `tools/conformance`
+ * roots have no floor here.
  *
- * Re-stated after task 019 folded the two source trees into one. The `src`
- * floor is the SUM of the two it replaces (48 + 680), so the merge relaxes
- * nothing — the same number of files must still be there. The `test` and
- * `tests` roots follow the dissolved package's suites to their new addresses
- * under `core`, so their floors are unchanged: same files, same obligation.
- * `tools/evals` is the eval suite the same move routed out of the product
- * tree, tracked here so relocation cannot discharge its annotation debt.
+ * A floor goes with its files. The floors of `tests/unit` and
+ * `tests/integration` sum to 728, the floor of the `src` root that held their
+ * files. The split has the ratio of the file counts.
  *
- * Re-stated again after task 030 lifted every co-located suite out of `src`.
- * The `src` floor of 728 is SPLIT, not dropped: its 899 observed files landed
- * as 885 under `tests/unit` and 14 under `tests/integration`, so the floor is
- * divided in that ratio (717 + 11 = 728). The obligation is byte-for-byte the
- * one it replaces — the same number of files must still be there, at their new
- * address. Dropping the entry instead would have let the move discharge the
- * ratchet, which is the single failure this register exists to refuse.
- *
- * Observed 2026-08-13: tests/unit 885, tests/integration 14, test 13, tests 2,
- * tools/evals 30. (`src` is now 0 and no longer mandated.)
+ * Observed 2026-08-13: `tests/unit` 885, `tests/integration` 14, `tools/evals`
+ * 30, and 13 + 2 in the two trees that are now the `tests` root.
  */
 export const CORPUS_FLOORS: readonly { readonly root: string; readonly floor: number }[] =
   Object.freeze([
     { root: 'tests/unit', floor: 717 },
     { root: 'tests/integration', floor: 11 },
-    // One root since task 032 dissolved `test/core/` into `tests/core/`. The
-    // floor is the SUM of the two it replaces (7 + 2), so neither half can be
-    // quietly emptied behind the other — merging the roots must not merge away
-    // the ratchet that watched each of them.
+    /**
+     * The floor is the sum of the floors of the two trees that are now this
+     * root (7 + 2). Thus the union does not relax the ratchet.
+     */
     { root: 'tests', floor: 9 },
     { root: 'tools/evals', floor: 7 },
   ]);
@@ -93,21 +71,17 @@ export const CORPUS_FLOORS: readonly { readonly root: string; readonly floor: nu
 export const IN_SCOPE_FLOOR = 260;
 
 /**
- * Observed 2026-08-05: 14 `it(...)` blocks raise a BLOCKING claim (all in
- * `test/integration/governance/**` and `test/integration/public-root/**`).
- * The kill-fixture rule (R5) is only meaningful if it has subjects; this floor
- * is its anti-vacuity tooth.
+ * The minimum number of test blocks with a blocking claim in the corpus. The
+ * kill-fixture rule (R5) has meaning only when it has subjects. Observed
+ * 2026-08-05: 14 blocks.
  */
 export const BLOCKING_CLAIM_CENSUS_FLOOR = 11;
 
-// ─── Known derivations between opaque (non-path) authorities ────────────────
-
 /**
- * The static import-graph walk in `corpus.ts` decides derivation for
- * authorities that name a module path. Authorities that name something else
- * (a running process, a compiled artifact, a wire capture) cannot be walked.
- * For those, derivation is DECLARED here rather than inferred — an honest
- * limitation, stated in `LIMITATIONS.md`, not a pretence of analysis.
+ * A declared derivation between two authorities that name no module path, such
+ * as a process, a compiled artifact or a wire capture. The import-graph walk in
+ * `corpus.ts` cannot reach those, so the pair is declared here and not
+ * inferred (see `LIMITATIONS.md`).
  */
 export interface DerivationPair {
   readonly a: string;
@@ -128,46 +102,47 @@ export const KNOWN_DERIVATIONS: readonly DerivationPair[] = Object.freeze([
   },
 ]);
 
-// ─── Accepted gaps ──────────────────────────────────────────────────────────
-
-/**
- * DR-30: "Accepted coverage gaps carry an owner and expiry" and "The known
- * Class B instances … are either fixed … or carry a registered, expiring
- * exception — they are not silently exempt."
- *
- * `suppresses` lists the detector rules this entry excuses for `files`. An
- * empty `suppresses` means the entry excuses nothing mechanical — it is a
- * KNOWN DEFECT recorded so that it is visible and expires, which is the only
- * honest place for the findings T-37 handed to T-40.
- */
 export type GapKind = 'shape-annotation-debt' | 'detector-exception' | 'known-defect';
 
+/** An accepted coverage gap. Each gap carries an owner and an expiry date. */
 export interface AcceptedGap {
   readonly id: string;
   readonly kind: GapKind;
-  /** Repo-relative, forward-slashed. May be empty for a narrative gap. */
+  /** Repo-relative paths with forward slashes. The list can be empty for a gap that names no file. */
   readonly files: readonly string[];
+  /**
+   * The detector rules that this entry excuses for `files`. An empty list
+   * excuses no rule: the entry records a known defect with an owner and an
+   * expiry date.
+   */
   readonly suppresses: readonly string[];
   readonly owner: string;
-  /** ISO `YYYY-MM-DD`. Past this date the suite goes RED. */
+  /** ISO `YYYY-MM-DD`. The suite fails from 00:00 UTC on this date. */
   readonly expires: string;
   readonly why: string;
-  /** The requirement/task that is expected to close it. */
+  /** The requirement or the work that closes the gap. */
   readonly closedBy: string;
 }
 
-/** No gap may be parked further out than this. Stops `expires: '2099-01-01'`. */
+/**
+ * The maximum number of days between `REGISTER_ANCHOR` and the expiry date of
+ * a gap. It stops an expiry date such as `'2099-01-01'`.
+ */
 export const MAX_GAP_HORIZON_DAYS = 400;
 
 /**
- * The date this register was authored. The horizon above is measured from
- * HERE, not from "now" — otherwise the ceiling would slide forward with the
- * calendar and a gap could be re-parked indefinitely by nudging its date.
+ * The date of this register. The horizon counts from this date, not from the
+ * current date. Otherwise the limit moves with the calendar, and a new expiry
+ * date can extend a gap without end.
  */
 export const REGISTER_ANCHOR = '2026-08-05';
 
+/**
+ * The accepted gaps. The three `class-b/` entries are registered one by one.
+ * They stay out of the bulk `legacy/shape-annotation-debt` entry, so each one
+ * has its own owner and expiry date.
+ */
 export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
-  // ── The three Class B instances DR-30 names by name ────────────────────
   {
     id: 'class-b/projection-containment',
     kind: 'shape-annotation-debt',
@@ -206,7 +181,6 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
     closedBy: 'DR-24 (the oracle observes real handler behavior)',
   },
 
-  // ── The new tiers, which are NOT exemplary yet ──────────────────────────
   {
     id: 'new-tier/public-root-actions-unannotated',
     kind: 'shape-annotation-debt',
@@ -252,7 +226,6 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
       "DR-29 follow-up: assert the leak check against a scratch-prefix constant exported from `_helpers.ts` (making it a real two-source claim), or move the leak check out of this file",
   },
 
-  // ── Known defects handed over by T-37, recorded so they expire ─────────
   {
     id: 'dr4-c2/projection-degraded-honoured-by-one-reader',
     kind: 'known-defect',
@@ -295,7 +268,6 @@ export const ACCEPTED_GAPS: readonly AcceptedGap[] = Object.freeze([
       'DR-24 follow-up: derive the left side from the axes that actually produced verdicts across `suite.reports`, so an axis that stopped emitting reddens the case',
   },
 
-  // ── The bulk pre-existing debt ──────────────────────────────────────────
   {
     id: 'legacy/shape-annotation-debt',
     kind: 'shape-annotation-debt',

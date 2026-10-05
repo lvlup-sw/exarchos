@@ -1,15 +1,16 @@
-// The kill probe measures a task's diff from the branch the task forked from.
+// The kill probe measures the diff of a task from the branch that the task forked from.
 //
-// A two-wave fixture in a real repository: `main`, then an integration branch
-// carrying wave one (a source change and a real test for it), then a task
-// branch forked from the integration branch whose own test asserts nothing.
-// Measured from `main`, the probe reverts wave one too, sees wave one's test go
-// red, and passes the task on work it did not do. Measured from the integration
-// branch, the vacuous test survives and the task is blocked.
+// The fixture is a real repository with three branches. `main` is the start. The integration
+// branch holds wave one: a source change and a real test for it. The task branch forks from the
+// integration branch, and its own test asserts nothing.
+//
+// When the base is `main`, the probe also reverts wave one and sees the test of wave one fail.
+// Then it passes the task on work that the task did not do. When the base is the integration
+// branch, the vacuous test survives and the probe blocks the task.
 //
 // Every call goes through the real dispatcher. `prepare` freezes the base from
-// `synthesis.integrationBranch`, the claim names no base, and `settle` runs the
-// gate under the base the capsule froze, so the blocked probe rejects the batch.
+// `synthesis.integrationBranch`, and the claim names no base. `settle` runs the gate under the
+// frozen base, so the blocked probe rejects the batch.
 //
 // @oracle-sources: ../../src/verbs/gates/test-adequacy-handler.ts, a real git repository and `node --test` run under the real npm script, read back through the gate rows and evidence the event store persisted
 
@@ -32,7 +33,10 @@ const INTEGRATION_BRANCH = 'feature/x';
 const TASK_BRANCH = 'task-2';
 /** The cheapest script that exits 0, so static analysis passes and the kill probe alone decides. */
 const CLEAN = 'node -e ""';
-/** Wave one is done; the task under verification waits on it, at a tier the probe is required for. */
+/**
+ * Wave one is complete. The task under verification waits on it, at a risk tier that requires the
+ * probe.
+ */
 const TASKS = [
   { id: 'task-1', title: 'wave one', status: 'complete', blockedBy: [], riskTier: 'medium', boundaryTouching: false },
   { id: 'task-2', title: 'wave two', status: 'pending', blockedBy: ['task-1'], riskTier: 'medium', boundaryTouching: false },

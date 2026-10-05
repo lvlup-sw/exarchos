@@ -43,14 +43,11 @@ const fixture: BenchmarkRun = {
 describe('generateReport', () => {
   it('FixtureResults_ProducesSummaryTable', () => {
     const report = generateReport(fixture);
-    // Should contain markdown table with | delimiters
     expect(report).toContain('|');
-    // Should have header row with problem and arms
     expect(report).toContain('Problem');
     expect(report).toContain('exarchos');
     expect(report).toContain('vanilla-plan');
     expect(report).toContain('hn-manual');
-    // Table separator row
     expect(report).toMatch(/\|[-:| ]+\|/);
   });
 
@@ -61,24 +58,22 @@ describe('generateReport', () => {
 
   it('PerProblemSections_ContainAllArms', () => {
     const report = generateReport(fixture);
-    // Each problem should have its own section
     expect(report).toContain('Two Sum');
     expect(report).toContain('Binary Search');
     expect(report).toContain('Graph Coloring');
-    // Each problem section should mention all arms
     for (const problem of fixture.problems) {
       expect(report).toContain(`### ${problem.problemId}: ${problem.title}`);
     }
   });
 
+  /**
+   * The fixture gives `exarchos` and `hn-manual` 2 passes of 3, and `vanilla-plan` 1 pass of 3.
+   * The mean token count of `exarchos` is (1000 + 1500 + 3000) / 3, which rounds to 1833.
+   */
   it('AggregateMetrics_CalculatesCorrectly', () => {
     const report = generateReport(fixture);
-    // Exarchos: 2 pass out of 3
     expect(report).toContain('2/3');
-    // Vanilla Plan: 1 pass out of 3
     expect(report).toContain('1/3');
-    // HN Manual: 2 pass out of 3
-    // Mean tokens for exarchos: (1000 + 1500 + 3000) / 3 = 1833
     expect(report).toMatch(/1833/);
   });
 });

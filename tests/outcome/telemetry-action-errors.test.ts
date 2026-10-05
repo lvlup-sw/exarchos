@@ -1,21 +1,14 @@
-// ─── T3.3 — Telemetry action/transport split outcome (GREEN) ──────────────
-//
-// Encodes the #1364 fix shipped in commit 53cb4e4d (PR #1393). Before the
-// fix, the telemetry view's `errors` counter conflated two failure modes:
-//   - Transport / protocol JS throws (the handler crashed)
-//   - Structured action-level failures (the handler returned a
-//     `{success:false, error:{code,…}}` envelope per the MCP contract)
-//
-// The fix splits them. `tool.errored` continues to fire on JS throws only;
-// `tool.action_errored` fires on structured failures and carries the
-// per-call `errorCode`. The telemetry projection folds them into separate
-// counters: `errors` (transport) and `actionErrors` /
-// `actionErrorBreakdown` (action-level, keyed by error code).
-//
-// This test exercises the contract end-to-end via the real `withTelemetry`
-// middleware against an `EventStore`-backed telemetry view, mirroring the
-// outcome-tier posture of asserting on what an operator would observe in
-// `view.telemetry` output.
+/**
+ * Outcome tests for the two error counters of the telemetry view.
+ *
+ * `withTelemetry` emits `tool.errored` when a handler throws. It emits `tool.action_errored`, with
+ * the error code, when a handler returns a `success: false` envelope. The telemetry projection
+ * counts the first in `errors`. It counts the second in `actionErrors` and in
+ * `actionErrorBreakdown`, which is keyed by error code.
+ *
+ * The tests run the real middleware against an `EventStore` and read the result with
+ * `handleViewTelemetry`.
+ */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -50,6 +43,11 @@ interface TelemetryEnvelope {
 }
 
 describe('telemetry action/transport split outcome (#1364)', () => {
+  /**
+   * A real workflow exists first, so the failing update has state to act on. `workflowType` is a
+   * top-level immutable key, so the update returns `RESERVED_FIELD` and does not throw. The
+   * structured failure must add to `actionErrors` and not to `errors`.
+   */
   it('Telemetry_AfterStructuredFailure_IncrementsActionErrorsNotTransportErrors', async () => {
     const stateDir = await fs.mkdtemp(
       path.join(os.tmpdir(), 'outcome-telemetry-split-'),
@@ -57,9 +55,6 @@ describe('telemetry action/transport split outcome (#1364)', () => {
     try {
       const eventStore = new EventStore(stateDir);
 
-      // Initialise a real workflow so the subsequent failing update has
-      // genuine state to land against (the RESERVED_FIELD path requires
-      // an existing state file).
       const featureId = 'outcome-1364-action';
       const initResult = await handleInit(
         { featureId, workflowType: 'feature' },
@@ -68,10 +63,6 @@ describe('telemetry action/transport split outcome (#1364)', () => {
       );
       expect(initResult.success).toBe(true);
 
-      // Wrap the real `handleUpdate` with the telemetry middleware. The
-      // middleware emits `tool.completed` + `tool.action_errored` when
-      // the wrapped handler returns a structured failure envelope (post
-      // #1364) instead of throwing.
       const toolName = 'exarchos_workflow';
       const wrapped: CoreHandler = withTelemetry(
         async (args) =>
@@ -84,9 +75,6 @@ describe('telemetry action/transport split outcome (#1364)', () => {
         eventStore,
       );
 
-      // Drive a reserved-field rejection — the structured failure path.
-      // `workflowType` is top-level immutable and routes through
-      // `applyDotPath`, yielding `RESERVED_FIELD`.
       const failure = await wrapped({
         featureId,
         updates: { workflowType: 'debug' },
@@ -94,16 +82,12 @@ describe('telemetry action/transport split outcome (#1364)', () => {
       expect(failure.success).toBe(false);
       expect(failure.error?.code).toBe('RESERVED_FIELD');
 
-      // Read telemetry. The MCP composite isn't running, so we hit the
-      // handler directly — same underlying projection over the same
-      // TELEMETRY_STREAM events.
       const telemetryResult = await handleViewTelemetry({}, stateDir, eventStore);
       expect(telemetryResult.success).toBe(true);
 
       const envelope = telemetryResult.data as TelemetryEnvelope;
       const entry = envelope.tools.find((t) => t.tool === toolName);
       expect(entry).toBeDefined();
-      // Structured failure must increment actionErrors, NOT errors.
       expect(entry!.actionErrors).toBeGreaterThanOrEqual(1);
       expect(entry!.errors).toBe(0);
     } finally {
@@ -111,6 +95,7 @@ describe('telemetry action/transport split outcome (#1364)', () => {
     }
   });
 
+  /** The breakdown key must be the `code` of the structured error, not a generic label. */
   it('Telemetry_ActionErrorBreakdown_KeyedByErrorCode', async () => {
     const stateDir = await fs.mkdtemp(
       path.join(os.tmpdir(), 'outcome-telemetry-breakdown-'),
@@ -151,8 +136,6 @@ describe('telemetry action/transport split outcome (#1364)', () => {
       const envelope = telemetryResult.data as TelemetryEnvelope;
       const entry = envelope.tools.find((t) => t.tool === toolName);
       expect(entry).toBeDefined();
-      // The breakdown is keyed by the structured `error.code`, not by a
-      // generic "failed" label — that is the per-call diagnostic surface.
       expect(entry!.actionErrorBreakdown).toBeDefined();
       expect(entry!.actionErrorBreakdown['RESERVED_FIELD']).toBeGreaterThanOrEqual(1);
     } finally {
@@ -160,6 +143,10 @@ describe('telemetry action/transport split outcome (#1364)', () => {
     }
   });
 
+  /**
+   * A handler that throws is the transport failure. It must add to `errors` and not to
+   * `actionErrors`, because a throw returns no envelope and emits no `tool.action_errored` event.
+   */
   it('Telemetry_AfterJsThrow_IncrementsTransportErrors', async () => {
     const stateDir = await fs.mkdtemp(
       path.join(os.tmpdir(), 'outcome-telemetry-throw-'),
@@ -167,10 +154,6 @@ describe('telemetry action/transport split outcome (#1364)', () => {
     try {
       const eventStore = new EventStore(stateDir);
 
-      // A handler that throws raw — the transport / protocol failure
-      // mode. Mirrors the wrapper's `tool.errored` path; explicitly
-      // contrasted with the structured-failure path above so the split
-      // contract is exercised both ways.
       const toolName = 'exarchos_orchestrate';
       const throwingHandler: CoreHandler = async () => {
         throw new Error('transport explode');
@@ -189,9 +172,6 @@ describe('telemetry action/transport split outcome (#1364)', () => {
       const envelope = telemetryResult.data as TelemetryEnvelope;
       const entry = envelope.tools.find((t) => t.tool === toolName);
       expect(entry).toBeDefined();
-      // Transport failure must increment errors and NOT actionErrors —
-      // the JS throw never resolves the handler envelope, so no
-      // `tool.action_errored` companion event fires.
       expect(entry!.errors).toBeGreaterThanOrEqual(1);
       expect(entry!.actionErrors).toBe(0);
     } finally {

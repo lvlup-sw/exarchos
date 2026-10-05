@@ -27,17 +27,17 @@ export function buildSampleResult(
   };
 }
 
+/**
+ * Reduces the sample verdicts to one arm verdict.
+ * No `ce` case exists: a compile failure is an arm-level outcome, so a sample never carries it.
+ * With no pass, any `tle` gives `tle`, and all `rte` gives `rte`.
+ */
 export function computeVerdict(sampleResults: SampleResult[]): Verdict {
   if (sampleResults.length === 0) {
     return 'no_solution';
   }
 
   const verdicts = sampleResults.map((s) => s.verdict);
-
-  // No `ce` check here. `SampleVerdict` is pass/fail/tle/rte — a compile failure
-  // is an ARM-level outcome decided by `runSolution`, so a sample can never
-  // carry it and the guard that used to sit here could never fire.
-  // `computeVerdict_AnyCe_ReturnsCe` already asserts the real behaviour.
 
   const hasPass = verdicts.some((v) => v === 'pass');
   const allPass = verdicts.every((v) => v === 'pass');
@@ -53,12 +53,10 @@ export function computeVerdict(sampleResults: SampleResult[]): Verdict {
     return 'partial';
   }
 
-  // Check for TLE mixed with failures (no passes)
   if (verdicts.some((v) => v === 'tle')) {
     return 'tle';
   }
 
-  // Preserve RTE verdict when all samples are runtime errors
   if (verdicts.every((v) => v === 'rte')) {
     return 'rte';
   }
@@ -91,16 +89,16 @@ export interface AggregateStats {
   totalProblems: number;
 }
 
+/**
+ * Computes the solved count and the mean tokens and time of each arm.
+ * Each sum reads through `?? 0`, because `noUncheckedIndexedAccess` types a record subscript as `number | undefined`.
+ */
 export function aggregateResults(problems: ProblemResult[]): AggregateStats {
   const totalSolved: Record<string, number> = {};
   const tokenSums: Record<string, number> = {};
   const timeSums: Record<string, number> = {};
   const armCounts: Record<string, number> = {};
 
-  // `Record<string, number>` indexes to `number | undefined` under
-  // `noUncheckedIndexedAccess`, and the `in` check above does not narrow a later
-  // subscript. Reading through a local with a `?? 0` seed says the same thing the
-  // seeding block said, in a form the checker can follow.
   for (const problem of problems) {
     for (const arm of problem.arms) {
       const id = arm.arm;

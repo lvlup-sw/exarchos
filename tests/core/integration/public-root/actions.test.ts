@@ -1,46 +1,17 @@
-// ─── T-36 / DR-27 — the T1 PUBLIC-ROOT integration tier ─────────────────────
+// The public-root integration tier: each composite action goes through
+// `dispatch()` with a real event store and a real state directory. No handler
+// is mocked, and no dispatch context is synthesized.
 //
-// "Every composite action driven through `dispatch()` with a real event store
-// and state dir; no mocked handler, no synthesized dispatch context."
-//
-// WHAT THIS FILE PROVES, AND HOW IT AVOIDS PROVING NOTHING
-//
-// A sweep that iterates a registry and asserts "nothing threw" is worthless —
-// `dispatch()` returns a structured envelope for an unknown action too, so a
-// non-throwing sweep would stay green even if routing were entirely broken.
-// Three structural choices make the assertions load-bearing:
-//
-//  1. REACHABLE ≠ NON-THROWING. Every observation is classified by
-//     `classifyRouting` (`_harness.ts`) into reached / not-reached. Not-reached
-//     means dispatch answered with a ROUTING rejection — `UNKNOWN_TOOL`,
-//     `UNKNOWN_ACTION`, `COMPOSITE_LOAD_FAILED`, or the built-in path's
-//     `INVALID_INPUT: … unknown action "<name>"` — or it threw / timed out.
-//     A typed error envelope from a resolved action (missing required field,
-//     denied capability, handler failure) IS reached: the action exists and
-//     answered in-contract.
-//
-//  2. A PER-ACTION CONTROL ARM. For every registered action the sweep also
-//     dispatches `<name>__t36_unregistered` against the same tool. That call
-//     MUST come back not-reached, and its rejection message must name the
-//     mutated action. Without this arm, `classifyRouting` returning `reached`
-//     unconditionally would still pass the sweep. With it, the classifier has
-//     to discriminate, per action, on the exact name.
-//
-//  3. THE RATCHET IS TWO-SOURCED. The DENOMINATOR is
-//     `derivePackagedDenominators().actions` — the *same* derivation the
-//     compiled-binary sweep in `test/process/packaged-proof.test.ts` measures
-//     itself against (DR-27: "the same 120-action denominator the packaged
-//     sweep uses"). The NUMERATOR is `harness.reachedActionIds()`, a ledger
-//     appended at RUNTIME inside the harness's `dispatch()` wrapper. Deleting
-//     an action from this file's execution loop therefore drops the numerator
-//     while the denominator is unchanged, and the ratchet goes red. If both
-//     came off the same array the ratio would be 1 by construction and the
-//     ratchet would be decorative.
-//
-// Hermeticity: a real SQLite state dir + a real NON-git scratch cwd, with
-// HOME/USERPROFILE repointed at the scratch dir and GH_TOKEN/GITHUB_TOKEN
-// blanked, exactly as the packaged sweep does — so git/gh-backed actions fail
-// fast in-contract instead of touching the developer's repo or the network.
+// A sweep that only asserts "nothing threw" proves nothing, because
+// `dispatch()` returns an envelope for an unknown action too. Three choices
+// give the assertions weight:
+// 1. `classifyRouting` (`_harness.ts`) sorts each observation into reached or
+//    not reached. A typed error from a resolved action counts as reached.
+// 2. A control arm dispatches each action name with `UNREGISTERED_SUFFIX`. That
+//    call must be not reached, and its rejection must name the changed action.
+// 3. The ratchet has two sources. The denominator is
+//    `derivePackagedDenominators().actions`, and the numerator is the runtime
+//    ledger `harness.reachedActionIds()`.
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as os from 'node:os';
@@ -61,23 +32,22 @@ import {
 } from '../../../../tools/conformance/src/parity/__tests__/packaged-proof.js';
 import { TOOL_REGISTRY, type CompositeTool, type ToolAction } from '../../../../src/registry.js';
 
-// ─── Ratchet floors ────────────────────────────────────────────────────────
-//
-// The measured action denominator on the tree this tier was built against.
-// The ratchet is two-sided: coverage must have NO missing items (every
-// registered action reached), AND the covered count must not fall below this
-// floor — so "delete actions until the sweep passes" is not a way out. Raise
-// it deliberately when the surface grows; lowering it is a reviewed decision.
+/**
+ * The action denominator on the tree that this tier started from. The ratchet
+ * has two sides: coverage has no missing action, and the covered count stays
+ * at or above this floor. Thus deleted actions cannot make the sweep pass.
+ * Raise the floor when the surface grows. A lower floor needs a review.
+ */
 const ACTION_COVERAGE_FLOOR = 120;
 
 /**
- * Measured floor for actions whose outcome could only have come from the
- * composite handler (a success, or a failure outside the `protocol` /
- * `authorization` pre-handler layers) when driven with an empty payload.
+ * The floor for actions whose outcome comes from the composite handler when
+ * the payload is empty. Such an outcome is a success, or a failure outside the
+ * `protocol` and `authorization` layers that run before the handler.
  */
 const HANDLER_ENTRY_FLOOR = 20;
 
-/** Suffix appended to make a registered action name deliberately unroutable. */
+/** A suffix that makes a registered action name unroutable. */
 const UNREGISTERED_SUFFIX = '__t36_unregistered';
 
 interface SweepResult {
@@ -94,6 +64,16 @@ let SWEEP: SweepResult;
 const savedEnv: Record<string, string | undefined> = {};
 let savedCwd = '';
 
+/**
+ * Runs the sweep once. Before the first action, it points HOME and USERPROFILE
+ * at the scratch directory, blanks the GitHub tokens and changes to the
+ * non-git scratch cwd. Thus git and gh actions fail fast in contract, and no
+ * action reaches the home directory, the repository or the network.
+ *
+ * The loop iterates `registeredActions()`, but coverage is not scored against
+ * that array. The tests score the runtime ledger against the packaged
+ * denominator.
+ */
 beforeAll(async () => {
   harness = await createPublicRootHarness();
 
@@ -101,9 +81,6 @@ beforeAll(async () => {
   for (const key of ['HOME', 'USERPROFILE', 'GH_TOKEN', 'GITHUB_TOKEN']) {
     savedEnv[key] = process.env[key];
   }
-  // Repoint the ambient filesystem/network handles at the hermetic scratch dir
-  // BEFORE any action runs, so nothing in the sweep can reach the developer's
-  // home directory, repository, or a real GitHub remote.
   process.env.HOME = harness.workspaceDir;
   process.env.USERPROFILE = harness.workspaceDir;
   process.env.GH_TOKEN = '';
@@ -113,10 +90,6 @@ beforeAll(async () => {
   const started = Date.now();
   const controls: DispatchObservation[] = [];
 
-  // The execution loop. NOTE: it iterates `registeredActions()` — the live
-  // registry — but nothing here is asserted against that array; coverage is
-  // scored against the packaged sweep's denominator using the harness's
-  // runtime ledger.
   for (const action of registeredActions()) {
     await harness.runAction(action.toolName, action.actionName, {}, { timeoutMs: 20_000 });
     controls.push(
@@ -156,17 +129,18 @@ afterAll(async () => {
   await harness?.dispose();
 });
 
-// ─── The two named acceptance tests ────────────────────────────────────────
-
 describe('DR-27 — T1 public-root tier', () => {
+  /**
+   * The denominator is the derivation of the packaged sweep. The numerator is
+   * the ledger that the harness records at runtime, from each `dispatch()`
+   * result. The first assertions guard the two-source property: the ledger is
+   * not the denominator array, and the sweep ran. The covered count also has a
+   * floor, so a surface that shrinks below the floor fails.
+   */
   it('PublicRoot_EveryRegisteredAction_ReachableThroughDispatch', () => {
-    // DENOMINATOR — the packaged sweep's own derivation, off the live registry.
     const denominator = packagedActionDenominator();
-    // NUMERATOR — recorded at runtime by the harness inside the dispatch call.
     const ledger = SWEEP.reached;
 
-    // Guard the two-source property itself: the ledger is not the denominator
-    // array, and it was built by executing something.
     expect(ledger).not.toBe(denominator);
     expect(SWEEP.observations.length).toBeGreaterThan(0);
 
@@ -193,8 +167,6 @@ describe('DR-27 — T1 public-root tier', () => {
       `registered actions never reached through dispatch(): ${actions.missing.join(', ')}`,
     ).toEqual([]);
 
-    // Ratchet, second side: the covered count cannot be lowered by shrinking
-    // the surface.
     expect(
       actions.covered,
       `action coverage fell to ${actions.covered}; floor is ${ACTION_COVERAGE_FLOOR}`,
@@ -203,6 +175,7 @@ describe('DR-27 — T1 public-root tier', () => {
     expect(actions.ratio).toBe(1);
   });
 
+  /** The last assertions prove that the loop validated each observation and skipped none. */
   it('PublicRoot_ActionEnvelope_MatchesRegisteredOutputSchema', () => {
     const schemaById = new Map(registeredActions().map((a) => [a.actionId, a.outputSchema]));
 
@@ -237,26 +210,24 @@ describe('DR-27 — T1 public-root tier', () => {
       violations,
       `envelopes that failed their REGISTERED outputSchema:\n${violations.join('\n')}`,
     ).toEqual([]);
-    // Non-vacuity: the loop above must actually have validated the whole
-    // surface, not silently skipped it.
     expect(validated).toBe(SWEEP.observations.length);
     expect(validated).toBeGreaterThanOrEqual(ACTION_COVERAGE_FLOOR);
   });
 });
 
-// ─── Anti-vacuity controls ─────────────────────────────────────────────────
-
 describe('DR-27 — the T1 tier cannot be vacuous', () => {
+  /**
+   * The control arm for each action. If `classifyRouting` returns reached for
+   * each call, this test fails for all actions. The rejection must also name
+   * the requested action, so the envelope of another action cannot satisfy a
+   * probe.
+   */
   it('PublicRoot_UnregisteredActionName_IsNotReachedThroughDispatch', () => {
-    // The per-action control arm. If `classifyRouting` returned `reached` for
-    // everything, this fails for all ~120 actions.
     const wronglyReached = SWEEP.controls
       .filter((c) => c.reached)
       .map((c) => `${c.toolName}.${c.actionName}`);
     expect(wronglyReached, 'unregistered action names that were reported REACHED').toEqual([]);
 
-    // …and the rejection must name the action that was actually asked for,
-    // so a probe on action A can never be satisfied by action B's envelope.
     const misattributed = SWEEP.controls.filter(
       (c) => !(c.result?.error?.message ?? '').includes(c.actionName),
     );
@@ -269,12 +240,13 @@ describe('DR-27 — the T1 tier cannot be vacuous', () => {
     expect(SWEEP.controls.every((c) => c.rejection === 'unknown-action')).toBe(true);
   });
 
+  /**
+   * `assertNoStubbedCompositeHandlers` throws when the handler cache of the
+   * dispatch core holds a value that is not the real module export. A stub or
+   * a `vi.mock` has that shape. The count assertion keeps the check from a
+   * vacuous pass on an empty cache.
+   */
   it('PublicRoot_CompositeHandlers_AreTheRealModuleExports', () => {
-    // `assertNoStubbedCompositeHandlers` throws if the dispatch core's handler
-    // cache holds anything other than the genuine module export — the exact
-    // shape a `stubCompositeHandler()` install (or a `vi.mock`) would take.
-    // Asserting on the count keeps the check from being vacuous when the cache
-    // happens to be empty.
     expect(SWEEP.verifiedRealHandlers.length).toBeGreaterThanOrEqual(5);
     expect([...SWEEP.verifiedRealHandlers].sort()).toEqual([
       'exarchos_event',
@@ -285,10 +257,13 @@ describe('DR-27 — the T1 tier cannot be vacuous', () => {
     ]);
   });
 
+  /**
+   * The denominator is the packaged derivation, and it is live: a synthetic
+   * action in the registry makes it grow. An action that is in the denominator
+   * but not in the runtime ledger is reported as missing, and the ratchet
+   * fails on that.
+   */
   it('PublicRoot_DenominatorSource_IsThePackagedSweepDerivation', () => {
-    // Same source, and a LIVE one: seeding a synthetic action into the
-    // registry grows the denominator, so the ratchet is measured against the
-    // real surface rather than a frozen list.
     expect([...packagedActionDenominator()]).toEqual([...derivePackagedDenominators().actions]);
     expect([...packagedActionDenominator()].sort()).toEqual(
       registeredActions()
@@ -300,8 +275,6 @@ describe('DR-27 — the T1 tier cannot be vacuous', () => {
     expect(grown.length).toBe(packagedActionDenominator().length + 1);
     expect(grown).toContain('exarchos_event.t36_unexercised_seed');
 
-    // …and an action present in the denominator but absent from the runtime
-    // ledger is reported MISSING — the mechanism the ratchet fails on.
     const report = computeCoverage(derivePackagedDenominators(seededRegistry()), {
       actions: SWEEP.reached,
       presentationAliases: [],
@@ -315,9 +288,12 @@ describe('DR-27 — the T1 tier cannot be vacuous', () => {
     ]);
   });
 
+  /**
+   * Pins both sides of the classifier, the line between "reachable" and
+   * "non-throwing". A reached action that rejects its input is not a routing
+   * failure.
+   */
   it('PublicRoot_RoutingClassifier_SeparatesRoutingFailureFromTypedError', () => {
-    // The classifier is the line between "reachable" and "non-throwing"; pin
-    // both sides of it directly so the sweep's verdict is interpretable.
     expect(classifyRouting({ success: false, error: { code: 'UNKNOWN_TOOL', message: 'x' } })).toBe(
       'unknown-tool',
     );
@@ -339,7 +315,6 @@ describe('DR-27 — the T1 tier cannot be vacuous', () => {
         },
       }),
     ).toBe('unknown-action');
-    // A REACHED action that merely rejected the input is not a routing failure.
     expect(
       classifyRouting({
         success: false,
@@ -349,12 +324,12 @@ describe('DR-27 — the T1 tier cannot be vacuous', () => {
     expect(classifyRouting({ success: true, data: {} })).toBeNull();
   });
 
+  /**
+   * Reachability alone accepts a surface that answers only INVALID_INPUT. This
+   * test counts the actions that pass schema validation and the capability
+   * gates and enter the composite handler. It holds a floor under that count.
+   */
   it('PublicRoot_Sweep_ActuallyEntersProductionHandlers', () => {
-    // Reachability alone tolerates a surface that only ever answers
-    // INVALID_INPUT. Record how many actions got PAST the pre-handler layers
-    // (schema validation + the capability gates) into the composite handler
-    // itself, and hold a floor under it, so "everything returns
-    // INVALID_INPUT" cannot masquerade as a healthy tier.
     const entered = SWEEP.observations.filter((o) => o.handlerEntered);
     expect(
       entered.length,
@@ -363,8 +338,6 @@ describe('DR-27 — the T1 tier cannot be vacuous', () => {
     ).toBeGreaterThanOrEqual(HANDLER_ENTRY_FLOOR);
   });
 });
-
-// ─── seeded registry helper (local to this tier) ───────────────────────────
 
 /** `TOOL_REGISTRY` plus one extra, never-exercised action on `exarchos_event`. */
 function seededRegistry(): readonly CompositeTool[] {

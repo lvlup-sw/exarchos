@@ -1,17 +1,15 @@
 /**
- * T2 governance tier — the *admission → transition* chain, and what a DENIAL
- * is allowed to leave behind.
+ * Governance tier: the chain from admission to transition, and what a denial can leave behind.
  *
- * DR-28: driven through the REAL public root (`dispatch()`) against the
- * production composition root. Phase non-mutation is asserted by READING THE
- * STATE BACK through the public root after the denial — never by trusting the
- * refusal's own return value.
+ * Each test drives the real `dispatch()` against the production composition root.
+ * After a denial, each test reads the phase back through the public root.
+ * It does not trust the return value of the refusal.
  *
- * Criteria covered here (each with a BLOCKING arm and its NEGATIVE TWIN):
- *   DR-5  a bare boolean cannot satisfy an artifact guard
- *   DR-7  exactly one phase-mutation path
- *   DR-8  no force-write of guard inputs
- *   DR-9  `next_actions` derived from admission
+ * Each criterion has a BLOCKING ARM and its NEGATIVE TWIN:
+ * - A bare boolean cannot satisfy an artifact guard.
+ * - Exactly one path mutates the phase.
+ * - No caller force-writes a guard input.
+ * - `next_actions` comes from admission.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import {
@@ -40,7 +38,7 @@ function nextActions(obs: DispatchObservation): readonly NextAction[] {
   return env?.next_actions ?? [];
 }
 
-/** Read the phase back through the public root — the only trusted oracle. */
+/** Reads the phase back through the public root, which is the only trusted oracle. */
 async function phaseOf(featureId: string): Promise<unknown> {
   const got = await harness.runAction('exarchos_workflow', 'get', { featureId });
   expect(got.result?.success).toBe(true);
@@ -69,14 +67,12 @@ afterAll(async () => {
 
 describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => {
   /**
-   * NAMED ACCEPTANCE TEST (DR-28 acceptance criterion 2).
-   *
-   * BLOCKING arm: a transition whose guard is unsatisfied is refused with the
-   * SPECIFIC `GUARD_FAILED` / named-guard contract, and the phase read back
-   * through the public root afterwards is byte-identical to the phase before —
-   * no `workflow.transition`, no `phase.exited`, no `phase.entered`.
-   * NEGATIVE TWIN: satisfy the guard and the SAME transition moves the phase,
-   * so the non-mutation above is attributable to the denial.
+   * The named acceptance test for a denied transition.
+   * BLOCKING ARM: a transition with an unsatisfied guard gets `GUARD_FAILED` and the name of the guard.
+   * The phase read back after the denial equals the phase before it.
+   * The refusal names the valid targets and the required artifact shape.
+   * The denial appends `workflow.guard-failed`, but no `workflow.transition`, `phase.exited` or new `phase.entered`.
+   * NEGATIVE TWIN: with the guard satisfied, the same transition moves the phase, so the denial caused the non-mutation.
    */
   it('Governance_DeniedTransition_DoesNotMutatePhase', async () => {
     const featureId = 'gov-t2-denied-phase';
@@ -86,7 +82,6 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     expect(before).toBe('plan');
     const typesBefore = await eventTypes(featureId);
 
-    // ── BLOCKING ARM ──────────────────────────────────────────────────────
     const denied = await harness.runAction('exarchos_workflow', 'transition', {
       featureId,
       target: 'plan-review',
@@ -95,20 +90,14 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     expect(denied.errorCode).toBe('GUARD_FAILED');
     expect(String(denied.result?.error?.message)).toContain("Guard 'plan-artifact-exists' failed");
 
-    // PHASE NON-MUTATION, read back through the public root AFTER the denial.
-    // Asserted FIRST, before any other property of the refusal, so a denial
-    // path that mutates phase reddens on the phase itself.
     expect(await phaseOf(featureId)).toBe(before);
 
-    // The refusal is *informative*, not merely negative.
     expect(denied.result?.error?.validTargets).toContain('plan-review');
     expect(
       ((denied.result?.error?.expectedShape as Rec | undefined)?.requiredState as Rec | undefined)
         ?.artifacts,
     ).toEqual({ plan: '<path-or-content>' });
 
-    // …and durably: the denial produced a guard-failure record, but none of
-    // the three events that constitute an actual phase mutation.
     const typesAfter = await eventTypes(featureId);
     expect(typesAfter).toContain('workflow.guard-failed');
     expect(typesAfter).not.toContain('workflow.transition');
@@ -117,7 +106,6 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
       typesBefore.filter((t) => t === 'phase.entered'),
     );
 
-    // ── NEGATIVE TWIN ─────────────────────────────────────────────────────
     const patch = await harness.runAction('exarchos_workflow', 'update', {
       featureId,
       updates: { artifacts: { plan: 'docs/specs/gov-t2-plan.md' } },
@@ -139,24 +127,15 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
   }, 120_000);
 
   /**
-   * DR-5: an artifact guard demands a TYPED artifact reference. A bare boolean
-   * — the classic "I set the flag, let me through" bypass — cannot satisfy it,
-   * and neither can a whitespace-only string that is technically a `string`.
-   *
-   * BLOCKING arm has two layers, both asserted:
-   *   (a) `artifacts.plan = true` is refused at the write boundary
-   *       (`INVALID_INPUT`, "expected string, received boolean") so the bare
-   *       boolean never even lands in state;
-   *   (b) `artifacts.plan = '   '` DOES land (it is a string) and is still
-   *       refused by the guard with the specific "not a bare
-   *       boolean/object/whitespace" reason.
+   * An artifact guard requires a typed artifact reference.
+   * BLOCKING ARM (a): the write boundary refuses `artifacts.plan = true` with `INVALID_INPUT`, so the boolean never reaches the state.
+   * BLOCKING ARM (b): the write of a whitespace-only string succeeds, because it is a string, but the guard still refuses the transition.
    * NEGATIVE TWIN: a real path string satisfies the same guard.
    */
   it('Governance_Dr5_BareBooleanCannotSatisfyArtifactGuard', async () => {
     const featureId = 'gov-t2-artifact-guard';
     await initFeature(featureId);
 
-    // ── BLOCKING ARM (a): the write boundary rejects the boolean ──────────
     const boolWrite = await harness.probe('exarchos_workflow', {
       action: 'update',
       featureId,
@@ -172,12 +151,11 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     const afterBool = await harness.runAction('exarchos_workflow', 'get', { featureId });
     expect((data(afterBool).artifacts as Rec | undefined)?.plan ?? null).toBeNull();
 
-    // ── BLOCKING ARM (b): a whitespace string is a string, and still fails ─
     const wsWrite = await harness.runAction('exarchos_workflow', 'update', {
       featureId,
       updates: { artifacts: { plan: '   ' } },
     });
-    expect(wsWrite.result?.success).toBe(true); // the WRITE succeeded …
+    expect(wsWrite.result?.success).toBe(true);
 
     const afterWs = await harness.runAction('exarchos_workflow', 'get', { featureId });
     expect((data(afterWs).artifacts as Rec | undefined)?.plan).toBe('   ');
@@ -186,7 +164,7 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
       featureId,
       target: 'plan-review',
     });
-    expect(deniedWs.errorCode).toBe('GUARD_FAILED'); // … the GUARD did not.
+    expect(deniedWs.errorCode).toBe('GUARD_FAILED');
     expect(String(deniedWs.result?.error?.message)).toContain(
       'artifacts.plan must be a non-empty string',
     );
@@ -195,7 +173,6 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     );
     expect(await phaseOf(featureId)).toBe('plan');
 
-    // ── NEGATIVE TWIN: a typed artifact reference ─────────────────────────
     await harness.runAction('exarchos_workflow', 'update', {
       featureId,
       updates: { artifacts: { plan: 'docs/specs/real-plan.md' } },
@@ -209,25 +186,21 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
   }, 120_000);
 
   /**
-   * DR-7: there is exactly ONE path that mutates phase — the HSM-guarded
-   * `transition` action.
+   * The criterion: only the HSM-guarded `transition` action mutates the phase.
+   * BLOCKING ARM (a): the `update` action refuses a `phase` key, and the refusal suggests the `transition` action.
+   * BLOCKING ARM (b): event-data validation refuses a hand-made `workflow.transition` or `phase.entered` event with an incomplete payload.
+   * The phase read back after both attempts does not change.
+   * NEGATIVE TWIN: the `transition` action moves the phase and appends the full trail, with exactly one `workflow.transition`.
    *
-   * BLOCKING arm: the two plausible side doors are both closed, each with its
-   * own specific refusal —
-   *   (a) `update { phase }` is refused with the "phase changes go through the
-   *       HSM-guarded transition action" contract;
-   *   (b) hand-forging the phase-mutation events through `exarchos_event.append`
-   *       is refused by event-data validation;
-   * and the phase read back after both attempts is unchanged.
-   * NEGATIVE TWIN: the one sanctioned path moves the phase and emits the full
-   * canonical trail.
+   * KNOWN GAP: `cancel` also moves the phase, but it appends `workflow.cancel` and no phase-boundary event.
+   * Thus `cancel` is a second path that mutates the phase, and the shipped code does not meet the criterion.
+   * The assertions pin the gap, so a fix must change them deliberately.
    */
   it('Governance_Dr7_PhaseMutation_OnlyThroughGuardedTransition', async () => {
     const featureId = 'gov-t2-single-mutation-path';
     await initFeature(featureId);
     const before = await phaseOf(featureId);
 
-    // ── BLOCKING ARM (a): update cannot move phase ────────────────────────
     const viaUpdate = await harness.probe('exarchos_workflow', {
       action: 'update',
       featureId,
@@ -239,7 +212,6 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
       "Cannot mutate 'phase' through update",
     );
     expect(String(viaUpdate.result?.error?.message)).toContain('HSM-guarded transition action');
-    // It even redirects the caller to the single sanctioned path.
     expect((viaUpdate.result?.error?.suggestedFix as Rec | undefined)?.tool).toBe(
       'exarchos_workflow',
     );
@@ -249,7 +221,6 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     ).toBe('transition');
     expect(await phaseOf(featureId)).toBe(before);
 
-    // ── BLOCKING ARM (b): the mutation events cannot be hand-forged ───────
     for (const type of ['workflow.transition', 'phase.entered']) {
       const forged = await harness.probe('exarchos_event', {
         action: 'append',
@@ -265,7 +236,6 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     expect(await phaseOf(featureId)).toBe(before);
     expect(await eventTypes(featureId)).not.toContain('workflow.transition');
 
-    // ── NEGATIVE TWIN: the one sanctioned path ────────────────────────────
     await harness.runAction('exarchos_workflow', 'update', {
       featureId,
       updates: { artifacts: { plan: 'docs/specs/single-path.md' } },
@@ -277,17 +247,12 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     expect(viaTransition.result?.success).toBe(true);
     expect(await phaseOf(featureId)).toBe('plan-review');
 
-    // Every phase mutation leaves the SAME canonical trail — which is what
-    // makes "exactly one path" auditable after the fact.
     const types = await eventTypes(featureId);
     expect(types).toContain('workflow.transition');
     expect(types).toContain('phase.exited');
     expect(types).toContain('phase.entered');
     expect(types.filter((t) => t === 'workflow.transition')).toHaveLength(1);
 
-    // `cancel` is the other action that moves phase. It must not be a SECOND
-    // write surface: it leaves the same canonical trail, and the phase it
-    // produces is readable through the same public root.
     const cancelId = 'gov-t2-cancel-path';
     await initFeature(cancelId);
     const cancelled = await harness.runAction('exarchos_workflow', 'cancel', {
@@ -297,32 +262,18 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     expect(cancelled.result?.success).toBe(true);
     expect(await phaseOf(cancelId)).toBe('cancelled');
     const cancelTypes = await eventTypes(cancelId);
-    // ── DR-7 criterion 1, `cancel` half: CHARACTERIZATION OF A KNOWN GAP ──
-    // Driven from the public root, `cancel` DOES move phase (asserted above:
-    // the read-back says `cancelled`) but emits NO phase-boundary trail at
-    // all — no `workflow.transition`, no `phase.exited`, no `phase.entered`.
-    // It is therefore a SECOND phase-mutation path, and DR-7 criterion 1 is
-    // NOT met on the shipped code. T-37 is a test tier and does not patch
-    // production; the gap is pinned here so that consolidating `cancel` onto
-    // the single guarded primitive REDDENS this block and forces the
-    // expectations to be flipped deliberately rather than drifting.
     expect(cancelTypes).toContain('workflow.cancel');
-    expect(cancelTypes).not.toContain('workflow.transition'); // KNOWN GAP
-    expect(cancelTypes).not.toContain('phase.exited'); //        KNOWN GAP
-    expect(cancelTypes).not.toContain('phase.entered'); //       KNOWN GAP
+    expect(cancelTypes).not.toContain('workflow.transition');
+    expect(cancelTypes).not.toContain('phase.exited');
+    expect(cancelTypes).not.toContain('phase.entered');
   }, 120_000);
 
   /**
-   * DR-8: guard inputs are DERIVED from state, never force-written by the
-   * caller. `cleanup` takes a caller-supplied `mergeVerified: true` flag, and
-   * that flag must not become the guard's answer.
-   *
-   * BLOCKING arm: `mergeVerified: true` with unapproved reviews is refused
-   * with the specific "cleanup evidence insufficient" reason; reading the
-   * state back afterwards shows the review status was NOT rewritten to
-   * `approved`, the phase did not move, and no `workflow.cleanup` was emitted.
-   * NEGATIVE TWIN: approve the review through its own path and the identical
-   * `cleanup` call succeeds.
+   * The guard derives its inputs from the state. The `mergeVerified: true` flag of the caller is only a precondition.
+   * BLOCKING ARM: with a review that is not approved, `cleanup` with `mergeVerified: true` gets "cleanup evidence insufficient".
+   * After the refusal, the review status is still `needs_fixes`, the phase is the same, and no `workflow.cleanup` event exists.
+   * A caller with `mergeVerified: false` gets a different, earlier refusal, so the two checks are distinct.
+   * NEGATIVE TWIN: after an update approves the review, the identical `cleanup` call succeeds.
    */
   it('Governance_Dr8_CallerFlag_DoesNotForceWriteGuardInputs', async () => {
     const featureId = 'gov-t2-no-force-write';
@@ -336,25 +287,21 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     });
     const before = await phaseOf(featureId);
 
-    // ── BLOCKING ARM ──────────────────────────────────────────────────────
     const denied = await harness.runAction('exarchos_workflow', 'cleanup', {
       featureId,
-      mergeVerified: true, // the caller asserts the fact …
+      mergeVerified: true,
     });
     expect(denied.result?.success).toBe(false);
     expect(denied.errorCode).toBe('GUARD_FAILED');
     expect(String(denied.result?.error?.message)).toContain('cleanup evidence insufficient');
     expect(String(denied.result?.error?.message)).toContain('reviews are not approved: code');
 
-    // … and the fact was NOT written into the guard's input.
     const after = await harness.runAction('exarchos_workflow', 'get', { featureId });
     const reviews = data(after).reviews as Rec;
     expect((reviews.code as Rec).status).toBe('needs_fixes');
     expect(await phaseOf(featureId)).toBe(before);
     expect(await eventTypes(featureId)).not.toContain('workflow.cleanup');
 
-    // A `mergeVerified: false` caller gets a DIFFERENT, earlier refusal —
-    // proving the two checks are distinct and the flag is only a precondition.
     const featureId2 = 'gov-t2-no-force-write-b';
     await initFeature(featureId2);
     const preconditionRefusal = await harness.probe('exarchos_workflow', {
@@ -367,7 +314,6 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
       'Cleanup requires mergeVerified: true',
     );
 
-    // ── NEGATIVE TWIN: real evidence, same call ───────────────────────────
     await harness.runAction('exarchos_workflow', 'update', {
       featureId,
       updates: { reviews: { code: { status: 'approved' } } },
@@ -383,14 +329,11 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
   }, 120_000);
 
   /**
-   * DR-9: `next_actions` is DERIVED from admission, not from raw HSM topology.
-   *
-   * BLOCKING arm: with the guard unsatisfied, admission denies the `plan-review`
-   * edge and the envelope for a full state read advertises it NOT AT ALL — and
-   * an actual attempt on that edge is refused, so the advertisement and the
-   * enforcement agree.
-   * NEGATIVE TWIN: satisfy the guard and the SAME read advertises the edge with
-   * its admission-derived reason, and the attempt is admitted.
+   * `next_actions` comes from admission, not from the raw HSM topology.
+   * BLOCKING ARM: with the guard unsatisfied, a full state read does not advertise the `plan-review` edge.
+   * The read returns the full state, so the absence is a decision and not a fallback for missing facts.
+   * A transition attempt on that edge gets `GUARD_FAILED`, so the advertisement and the enforcement agree.
+   * NEGATIVE TWIN: with the guard satisfied, the same read advertises the edge with the reason of the guard, and the attempt succeeds.
    */
   it('Governance_Dr9_NextActions_DerivedFromAdmission', async () => {
     const featureId = 'gov-t2-next-actions';
@@ -400,24 +343,19 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
       updates: { artifacts: { plan: '   ' } },
     });
 
-    // ── BLOCKING ARM ──────────────────────────────────────────────────────
     const deniedRead = await harness.runAction('exarchos_workflow', 'get', { featureId });
     expect(deniedRead.result?.success).toBe(true);
-    // The read really is the admission-bearing shape (full state), so the
-    // empty list is a DECISION and not a missing-facts fallback.
     expect(typeof data(deniedRead).updatedAt).toBe('string');
     expect(data(deniedRead).artifacts).toBeTruthy();
     expect(Array.isArray(data(deniedRead).tasks)).toBe(true);
     expect(nextActions(deniedRead).map((a) => a.verb)).not.toContain('plan-review');
 
-    // Second authority: the edge really is closed.
     const attempt = await harness.runAction('exarchos_workflow', 'transition', {
       featureId,
       target: 'plan-review',
     });
     expect(attempt.errorCode).toBe('GUARD_FAILED');
 
-    // ── NEGATIVE TWIN ─────────────────────────────────────────────────────
     await harness.runAction('exarchos_workflow', 'update', {
       featureId,
       updates: { artifacts: { plan: 'docs/specs/next-actions.md' } },
@@ -426,7 +364,6 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     const advertised = nextActions(admittedRead);
     const planReview = advertised.find((a) => a.verb === 'plan-review');
     expect(planReview).toBeDefined();
-    // Admission-derived, not topology-derived: it carries the guard's reason.
     expect(planReview?.reason).toBe('Plan artifact must exist');
     expect(planReview?.validTargets).toContain('plan-review');
 
@@ -436,14 +373,14 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
     });
     expect(admitted.result?.success).toBe(true);
 
-    // The two authorities agreed in BOTH directions — that is the invariant.
     expect(await phaseOf(featureId)).toBe('plan-review');
   }, 120_000);
 
-  /** The tier's own anti-stub invariant; the returned list is asserted. */
+  /**
+   * The anti-stub invariant of this tier. The test asserts the returned list.
+   * It drives both composites itself, so an earlier test that aborts cannot make the check vacuous.
+   */
   it('Governance_TransitionTier_DrivesRealCompositeHandlers', async () => {
-    // Drive both composites from THIS test so the check cannot be made vacuous
-    // by an earlier test aborting before it loaded one of them.
     await harness.runAction('exarchos_workflow', 'get', { featureId: 'gov-t2-denied-phase' });
     await harness.probe('exarchos_event', {
       action: 'append',

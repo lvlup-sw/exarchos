@@ -1,46 +1,9 @@
 /**
- * Task 026 — Tier-1 runtime smoke tests.
- *
- * The plan envisions running a dummy feature through the full
- * ideate → plan → delegate → review → synthesize → cleanup arc for each
- * runtime. That requires real agent CLIs and a live workflow harness we
- * do not yet have. Per the plan's own Note:
- *
- *   "The point is not to exercise every runtime's subagent system — it's
- *    to verify the rendered skill body is well-formed and contains the
- *    expected native syntax. The semantic behavior of each runtime is not
- *    this feature's responsibility; the invariant is 'the substitution
- *    produced what we told it to produce.'"
- *
- * So these tests assert exactly that invariant. Each test:
- *
- *   1. Loads every `skills/<runtime>/<skill>/SKILL.md` via the inline
- *      `loadRuntimeSkills` helper below.
- *   2. Asserts the skill set is non-empty and every entry has a valid
- *      frontmatter block with `name` + `description`.
- *   3. Asserts no unsubstituted `{{TOKEN}}` placeholders leaked through
- *      the renderer.
- *   4. Asserts runtime-specific native-syntax substrings are present in
- *      the rendered delegate skill body — the smoke proof that the
- *      per-runtime `SPAWN_AGENT_CALL` substitution actually fired.
- *
- * The Cursor test additionally asserts the sequential-fallback warning
- * text is present in the rendered delegate.body (the one-line
- * behavioral assertion the plan called out).
- *
- * Non-Claude runtimes are gated behind `SMOKE=1` because in future we
- * want this file to also be the anchor for a real-CLI smoke matrix.
- * Today's GREEN body does NOT shell out to any real CLI — the
- * substitution-correctness invariant is what's actually verifiable, and
- * the `SMOKE=1` gate just controls whether the non-Claude rendered-body
- * checks run in the default test run or only under the matrix job.
- *
- * The smoke helpers used to live in `test/smoke/helpers.ts` but were
- * inlined into this file so the TDD compliance gate (which classifies
- * any non-`.test.ts` file as production code) does not flag legitimate
- * test infrastructure as a violation.
- *
- * Implements: Testing Strategy > Smoke tests.
+ * Smoke tests for the rendered skills of each Tier-1 runtime. They start no agent CLI and run no workflow.
+ * Each test reads every `rendered/skills/<runtime>/<skill>/SKILL.md`.
+ * The frontmatter must have a `name` and a `description`, and the body must hold no `{{TOKEN}}` placeholder.
+ * The delegate body must hold the native spawn syntax of the runtime, which the renderer substitutes for `SPAWN_AGENT_CALL`.
+ * The Claude test always runs, and the tests for the other runtimes run only when `SMOKE=1`.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -49,21 +12,16 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { load as yamlLoad } from 'js-yaml';
 
-// ============================================================================
-// Inline smoke helpers
-// ============================================================================
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
-/** Absolute path to the repo root, derived from this file's location. */
+/** The repo root, two directories above this file. */
 const REPO_ROOT = resolve(__dirname, '..', '..');
-/** Absolute path to the committed `skills/` tree. */
+/** The committed tree of rendered skills. */
 const SKILLS_DIR = join(REPO_ROOT, 'rendered/skills');
 
 /**
- * Runtimes recognised by the smoke harness. Kept in sync with
- * `REQUIRED_RUNTIME_NAMES` in `src/install/runtimes/load.ts` but duplicated so
- * the test file has zero dependencies on the src module graph.
+ * The runtime names that `loadRuntimeSkills` accepts, the same names as `REQUIRED_RUNTIME_NAMES` in `src/install/runtimes/load.ts`.
+ * This file repeats them, so it imports nothing from `src`. No test reads `generic`.
  */
 type RuntimeName =
   | 'claude'
@@ -74,12 +32,8 @@ type RuntimeName =
   | 'opencode';
 
 /**
- * A single parsed skill. `frontmatter` is the raw YAML object (typed as
- * `unknown` because we refuse to widen it to `any` — consumers must
- * narrow via the assertion helpers). `body` is the rendered Markdown
- * below the closing `---` fence. `file` is the absolute `SKILL.md` path,
- * `skill` is the directory name, `runtime` is the parent runtime
- * directory.
+ * One parsed `SKILL.md`. `frontmatter` is the raw YAML value, so a caller must narrow it.
+ * `body` is the Markdown after the closing `---` fence, and `skill` is the directory name.
  */
 interface ParsedSkill {
   runtime: RuntimeName;
@@ -90,25 +44,16 @@ interface ParsedSkill {
   body: string;
 }
 
-/**
- * Shape we narrow to after `assertFrontmatterValid`. Only the fields
- * the smoke invariant cares about are listed — anything else is left
- * out of scope on purpose so the assertion stays minimal.
- */
+/** The frontmatter fields that `assertFrontmatterValid` proves. */
 interface ValidSkillFrontmatter {
   name: string;
   description: string;
 }
 
 /**
- * Load every `SKILL.md` under `skills/<runtime>/`. Returns an empty
- * array if the runtime directory is missing; callers assert non-empty
- * at the test layer so a missing tree surfaces as a test failure with
- * the runtime name in the message instead of an obscure error here.
- *
- * `test-fixtures/` and `trigger-tests/` are excluded because they are
- * validator inputs, not deployable skills (mirrors the exclusion in
- * `snapshots.test.ts`).
+ * Loads every `SKILL.md` under `rendered/skills/<runtime>/`. A missing runtime directory gives an empty array.
+ * Each test asserts a result that is not empty, so a missing tree fails the test.
+ * The function skips the `test-fixtures` and `trigger-tests` directories, which are not skills.
  */
 function loadRuntimeSkills(runtime: RuntimeName): ParsedSkill[] {
   const runtimeDir = join(SKILLS_DIR, runtime);
@@ -144,17 +89,15 @@ function loadRuntimeSkills(runtime: RuntimeName): ParsedSkill[] {
 }
 
 /**
- * Split a SKILL.md into its YAML frontmatter object and Markdown body.
- * Throws a descriptive error if the file is missing or has a malformed
- * frontmatter fence — those cases represent a broken renderer output
- * that the smoke test absolutely should flag.
+ * Splits a `SKILL.md` into its YAML frontmatter value and its Markdown body.
+ * It throws when a fence is missing or the YAML does not parse, because that shows broken renderer output.
+ * It first changes each CRLF to LF, so a CRLF file does not hide the fence.
+ * The body starts after the closing fence and the newline that follows it.
  */
 function parseFrontmatter(
   raw: string,
   file: string,
 ): { frontmatter: unknown; body: string } {
-  // Normalise line endings so a mid-migration CRLF commit does not make
-  // the frontmatter fence regex miss.
   const normalized = raw.replace(/\r\n/g, '\n');
   if (!normalized.startsWith('---\n')) {
     throw new Error(
@@ -168,9 +111,6 @@ function parseFrontmatter(
     );
   }
   const yamlBlock = normalized.slice(4, closingIdx);
-  // The body starts *after* the closing fence and its trailing newline.
-  // Closing fence pattern is `\n---\n` (or `\n---` at EOF, handled by
-  // the fallback slice below).
   const afterFence = normalized.slice(closingIdx + 4);
   const body = afterFence.startsWith('\n') ? afterFence.slice(1) : afterFence;
 
@@ -185,10 +125,8 @@ function parseFrontmatter(
 }
 
 /**
- * Assert that the skill's frontmatter is a plain object with non-empty
- * string `name` and `description` fields. Narrows the `frontmatter`
- * field's static type via a type predicate so call sites can touch the
- * fields without casting.
+ * Asserts that the frontmatter is an object with non-empty string `name` and `description` fields.
+ * The assertion signature narrows the type, so a call site needs no cast.
  */
 function assertFrontmatterValid(
   s: ParsedSkill,
@@ -213,33 +151,19 @@ function assertFrontmatterValid(
 }
 
 /**
- * Regex that matches a canonical placeholder reference. Mirrors
- * `PLACEHOLDER_REGEX` from `src/install/build-skills.ts` but is duplicated
- * locally to keep the test graph independent of the source module.
- *
- * Uses a capturing group for the token identifier. NOT stateful
- * (no `/g` flag) because the helper re-runs it per-line and does not
- * carry `lastIndex` across invocations.
+ * Matches one `{{TOKEN}}` placeholder, with or without arguments, and group 1 is the token name.
+ * It follows `PLACEHOLDER_REGEX` in `src/install/skill-vocabulary.ts`, but this file imports nothing from `src`.
+ * It has no `g` flag, so it keeps no `lastIndex` state between lines.
  */
 const SMOKE_PLACEHOLDER_REGEX = /\{\{(\w+)(?:\s+[^}]*)?\}\}/;
 
 /**
- * Assert that no `{{TOKEN}}` placeholders leaked through the renderer
- * into the rendered skill body. Handlebar-style control tokens
- * (`{{#each ...}}`, `{{/each}}`, etc.) are permitted because those
- * are legal in `references/**` snippets that reference skills may
- * embed — but those aren't in the SKILL.md body itself anyway, so
- * the simple `{{\w` check is sufficient here.
- *
- * Scans `s.body` only — the frontmatter is already validated and a
- * placeholder in the frontmatter name/description would have surfaced
- * in `assertFrontmatterValid` downstream.
+ * Asserts that the body holds no `{{TOKEN}}` placeholder that the renderer did not substitute.
+ * The regex needs a word character after `{{`, so a control token such as `{{#each ...}}` does not match.
+ * The function reads only `s.body`, not the frontmatter.
  */
 function assertNoUnsubstitutedPlaceholders(s: ParsedSkill): void {
   const lines = s.body.split('\n');
-  // `entries()` rather than an index loop: it yields the element as a definite
-  // `string`, where `lines[i]` is `string | undefined` to the checker even
-  // though the loop bound rules that out.
   for (const [i, line] of lines.entries()) {
     const m = SMOKE_PLACEHOLDER_REGEX.exec(line);
     if (m !== null) {
@@ -252,11 +176,9 @@ function assertNoUnsubstitutedPlaceholders(s: ParsedSkill): void {
 }
 
 /**
- * Return the `delegate` skill from a loaded runtime set. This is
- * the canonical smoke target because it exercises the runtime's
- * `SPAWN_AGENT_CALL` placeholder — the single most divergent
- * substitution across the six runtimes. Throws with a helpful
- * message if the delegate skill is missing from the set.
+ * Returns the `delegate` skill of a loaded set, and throws when the set has none.
+ * The delegate skill is the smoke target, because it holds the rendered `SPAWN_AGENT_CALL`.
+ * That substitution differs most between runtimes.
  */
 function findDelegateSkill(skills: ParsedSkill[]): ParsedSkill {
   const hit = skills.find((s) => s.skill === 'delegate');
@@ -269,13 +191,14 @@ function findDelegateSkill(skills: ParsedSkill[]): ParsedSkill {
   return hit;
 }
 
-// ============================================================================
-// Tests
-// ============================================================================
-
+/** True when `SMOKE=1`. The tests for the runtimes other than Claude run only then. */
 const smokeAll = process.env.SMOKE === '1';
 
 describe('task 026 — tier-1 runtime smoke tests', () => {
+  /**
+   * The delegate body must hold the `Task({ ... })` call of `claude.yaml`.
+   * That call names the `exarchos-implementer` agent and sets `run_in_background: true`.
+   */
   it('Smoke_Claude_FullWorkflow_CompletesWithGreenGates', () => {
     const skills = loadRuntimeSkills('claude');
     expect(skills.length).toBeGreaterThan(0);
@@ -283,10 +206,6 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
       assertFrontmatterValid(s);
       assertNoUnsubstitutedPlaceholders(s);
     }
-    // Claude-specific: `Task({ ... })` with `subagent_type` + the
-    // `run_in_background: true` flag must appear in the rendered
-    // delegate.body. That is the proof that claude.yaml's
-    // `SPAWN_AGENT_CALL` substituted correctly.
     const delegate = findDelegateSkill(skills);
     expect(delegate.body).toContain('Task({');
     expect(delegate.body).toContain('subagent_type: "exarchos-implementer"');
@@ -302,8 +221,6 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
         assertFrontmatterValid(s);
         assertNoUnsubstitutedPlaceholders(s);
       }
-      // OpenCode mirrors Claude's `Task({ ... })` shape minus
-      // `run_in_background` (no hooks / background fanout).
       const delegate = findDelegateSkill(skills);
       expect(delegate.body).toContain('Task({');
       expect(delegate.body).toContain(
@@ -312,6 +229,7 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
     },
   );
 
+  /** Codex renders the `spawn_agent({ ... })` function call with `agent_type: "default"`. */
   it.skipIf(!smokeAll)(
     'Smoke_Codex_FullWorkflow_CompletesWithGreenGates',
     () => {
@@ -321,8 +239,6 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
         assertFrontmatterValid(s);
         assertNoUnsubstitutedPlaceholders(s);
       }
-      // Codex uses the literal OpenAI-style function call
-      // `spawn_agent({ ... })` with `agent_type: "default"`.
       const delegate = findDelegateSkill(skills);
       expect(delegate.body).toContain('spawn_agent({');
       expect(delegate.body).toContain('agent_type: "default"');
@@ -338,12 +254,15 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
         assertFrontmatterValid(s);
         assertNoUnsubstitutedPlaceholders(s);
       }
-      // Copilot uses the `/delegate "..."` slash-command form.
       const delegate = findDelegateSkill(skills);
       expect(delegate.body).toContain('/delegate "');
     },
   );
 
+  /**
+   * The test expects a sequential-fallback warning in the delegate body, and no `Task({` or `spawn_agent({` call.
+   * It reads the warning as three substrings, so a change of wrap or indent in the renderer does not fail it.
+   */
   it.skipIf(!smokeAll)(
     'Smoke_Cursor_FullWorkflow_SequentialCompletesWithGreenGates',
     () => {
@@ -353,13 +272,6 @@ describe('task 026 — tier-1 runtime smoke tests', () => {
         assertFrontmatterValid(s);
         assertNoUnsubstitutedPlaceholders(s);
       }
-      // Cursor has no subagent primitive: the rendered delegate.body
-      // must contain the sequential-fallback warning and must not
-      // contain a `Task({` or `spawn_agent({` call (those would indicate
-      // a runtime-map crosswire). The warning text is whatever
-      // runtimes/cursor.yaml's `SPAWN_AGENT_CALL` emits — asserted as
-      // three stable substrings rather than a full-line match so
-      // wrapping/indent changes in the renderer don't flake the test.
       const delegate = findDelegateSkill(skills);
       expect(delegate.body).toContain(
         'Cursor CLI has no in-session subagent primitive',

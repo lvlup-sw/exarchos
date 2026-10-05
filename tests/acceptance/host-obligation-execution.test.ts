@@ -1,18 +1,12 @@
 /**
  * Which host-owned actions run their handler, and which return an obligation.
  *
- * `executionAuthority: { kind: 'host' }` says the HOST owes something. It does
- * not by itself say the handler must be skipped, and conflating the two broke
- * the two actions whose obligation is discharged USING the handler's output:
- * `agent_spec` returned `{obligation:'agent-spawn'}` where the delegating
- * orchestrator expected the spec text, and `prepare_review` returned it where
- * the review packet belonged.
+ * `executionAuthority: { kind: 'host' }` says that the host owes something. It does not say that
+ * the dispatch skips the handler. `agent_spec` and `prepare_review` discharge the obligation with
+ * the handler output: the spec text and the review packet.
  *
- * The existing coverage could not see this. Both prior tests picked an action
- * whose obligation genuinely blocks (`cutover_decide`, `check_coderabbit`), so
- * the short-circuit looked correct from every angle the suite had. This suite
- * drives the WHOLE host-owned population instead of a sample, which is what
- * makes the distinction falsifiable.
+ * This suite drives every host-owned action, not a sample. A sample that holds only blocking
+ * obligations cannot show the difference.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -91,27 +85,20 @@ describe('host-owned actions — execute vs return the obligation', () => {
     } as DispatchContext;
   }
 
+  /**
+   * The denominator. A registry that declares no host authority makes each test below vacuous.
+   * The population holds two blocking obligations: interactive-authentication on
+   * `check_coderabbit` and human-approval on `discover_bridge`. It also holds the agent-spawn
+   * obligation on `agent_spec` and `prepare_review`. `cutover_decide` declares local authority,
+   * so it is not in the population. Each action must have an `ARGS` fixture, because the tests
+   * below call every action.
+   */
   it('HostObligations_Population_IsNonEmptyAndCarriesBothKinds', () => {
-    // The denominator, asserted before anything loops over it. A registry that
-    // stopped declaring host authority would make every case below vacuous.
     const rows = hostOwnedActions();
 
-    // PR #1867 reclassified `cutover_decide` from implicit host authority
-    // (the pre-PR default when no executionAuthority was declared) to
-    // explicit local authority: the cutover handler now discharges the
-    // decision in-process rather than returning a host obligation for an
-    // operator to fulfill. The host-owned population went from five to
-    // four, not because a row was deleted but because its executionAuthority
-    // became explicit local. The two blocking obligations (interactive-authentication
-    // on `check_coderabbit`, human-approval on `discover_bridge`) and the
-    // two non-blocking obligations (agent-spawn on `agent_spec` and
-    // `prepare_review`) are still covered — the assertion that fires next
-    // (rows.filter(...).length > 0) is what kept the test honest before
-    // and what keeps it honest now.
     expect(rows.length).toBeGreaterThanOrEqual(4);
     expect(rows.filter((r) => r.blocking).length).toBeGreaterThan(0);
     expect(rows.filter((r) => !r.blocking).length).toBeGreaterThan(0);
-    // Every one is exercised below; an unlisted action would silently skip.
     for (const row of rows) {
       expect(ARGS[row.action], `no args fixture for ${row.action}`).toBeDefined();
     }
@@ -174,10 +161,11 @@ describe('host-owned actions — execute vs return the obligation', () => {
     }
   });
 
+  /**
+   * `/delegate` reads this payload to spawn an agent, so an obligation in its place is the wrong
+   * answer.
+   */
   it('HostObligations_AgentSpec_ReturnsTheSpecNotTheObligation', async () => {
-    // The concrete regression, spelled out: `/delegate` reads this payload to
-    // spawn with, so an obligation here is not a lesser answer, it is the
-    // wrong one.
     const result = await dispatch(
       'exarchos_orchestrate',
       { action: 'agent_spec', agent: 'implementer' },

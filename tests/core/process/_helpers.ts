@@ -1,51 +1,19 @@
 /**
- * Shared fixtures for compiled-binary MCP integration tests (task 1.6 +
- * follow-ons). Kept in `test/process/` so vitest's test glob does not try
- * to treat this file as a suite — there are no `describe()` blocks here.
+ * Shared fixtures for the tests that drive the compiled binary.
  *
- * Exposes:
- *   - `findRepoRoot()` — walks up from a given directory to the monorepo
- *     root (the ancestor that contains `tools/release/build-binary.ts`).
- *   - `hostBinaryPath(repoRoot)` — computes the `dist/bin/exarchos-<os>-<arch>`
- *     path for the host platform, including the `.exe` suffix on Windows.
- *   - `ensureBinaryBuilt(repoRoot)` — the beforeAll rebuild guard: runs
- *     `bun run tools/release/build-binary.ts` if the binary is missing or older
- *     than any file under `src/**`.
- *   - `openFixture(binaryPath, repoRoot)` / `closeFixture(fx)` — opens a
- *     live MCP stdio Client against the spawned binary with a hermetic
- *     `WORKFLOW_STATE_DIR` temp directory and tears it down.
- *   - `deliverCrash(request)` / `awaitProcessDeath(pid)` — the T3 crash
- *     primitive (T-39 / DR-29). Delivers a REAL `SIGKILL` to a real, live
- *     child pid and REFUSES every in-process substitute, so a crash arm
- *     cannot be quietly downgraded into a vacuous in-process one.
+ * `ensureBinaryBuilt` rebuilds the host binary when it is absent or older than its inputs. Several
+ * test files call it from `beforeAll`, and vitest can run those files in separate OS processes.
+ * A promise memo cannot serialize the build across processes, so `withBuildLock` uses an
+ * exclusive lock file. The build goes to a scratch directory and an atomic rename puts the binary
+ * in place, so no reader sees a partial binary.
  *
- * `ensureBinaryBuilt` is `async` and serialized by `withBuildLock` (T-38 /
- * DR-29): multiple `test/process/*.test.ts` files each call it from their own
- * `beforeAll`, and — because this suite's `vitest.config.ts` uses `pool:
- * 'forks'` with default file parallelism — those files run concurrently in
- * SEPARATE OS processes. A plain module-level promise memo only dedupes
- * calls *within one process* and does nothing across forks: two files could
- * still race to spawn `bun build --compile` against the same output path at
- * the same time, producing a torn/half-written binary. `withBuildLock` uses
- * an exclusive lockfile (`open(..., 'wx')`, atomic at the OS level, so it
- * holds across real processes) plus a build-to-temp-dir + atomic-rename
- * sequence, so a partially-written binary is never observable at the
- * canonical path and the real `bun build --compile` work happens at most
- * once per staleness window.
+ * `deliverCrash` and `awaitProcessDeath` are the crash primitive of the process tier. A crash is a
+ * real `SIGKILL` to a live child pid, and `deliverCrash` refuses each in-process substitute.
+ *
+ * The MCP client generation must match the server generation. The binary is a v2 server, so this
+ * file uses the v2 client. A stdio pair of two generations still passes, because the pipes carry
+ * JSON-RPC. `tests/unit/sdk-pin-policy.test.ts` keeps the v1 package out of the tree.
  */
-
-// The client generation MUST track the server's. The binary this fixture
-// spawns is a v2 server (DR-0, task 049), so the driving client is v2 too.
-// This file drove it with a v1 `Client` until after 049 landed, and it was not
-// caught because the removal criterion was measured over `src/` while being
-// reported over the package — the guard that now covers this tree is
-// `src/__tests__/sdk-pin-policy.test.ts`. It survived that long precisely
-// because the stdio pairing is the FORGIVING one: real pipes carry JSON-RPC
-// between generations, so this read as passing rather than failing. The
-// in-memory pairing is the unforgiving one — two linked-pair implementations
-// from different packages connect to their own siblings and present as a hang
-// — which is what makes a cross-generation pair here a latent trap rather than
-// a loud error.
 import { Client } from '@modelcontextprotocol/client';
 import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 import * as fs from 'node:fs';
@@ -56,8 +24,7 @@ import { isPidAlive } from '../../../src/utils/process.js';
 import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf, rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Repo-root discovery ────────────────────────────────────────────────────
-
+/** Returns the nearest ancestor of `startDir` that holds `tools/release/build-binary.ts`. */
 export function findRepoRoot(startDir: string): string {
   let cursor = path.resolve(startDir);
   for (let i = 0; i < 8; i++) {
@@ -72,15 +39,15 @@ export function findRepoRoot(startDir: string): string {
   );
 }
 
-// ─── Host-binary path resolver ──────────────────────────────────────────────
-
+/**
+ * Returns the `dist/bin/exarchos-<os>-<arch>` path of the host binary, with `.exe` on Windows.
+ * An unknown platform or architecture throws, because a fallback to linux-x64 hides a real
+ * incompatibility. The mapping copies `getHostTarget()` in `tools/release/build-binary.ts`.
+ */
 export function hostBinaryPath(repoRoot: string): string {
   const platform = os.platform();
   const arch = os.arch();
 
-  // Refuse to coerce unknown hosts to linux/x64 — pointing the test at
-  // the wrong artefact would mask a real incompatibility on uncommon
-  // platforms. Mirrors `getHostTarget()` in `tools/release/build-binary.ts`.
   let osName: 'linux' | 'darwin' | 'windows';
   if (platform === 'darwin') {
     osName = 'darwin';
@@ -103,8 +70,7 @@ export function hostBinaryPath(repoRoot: string): string {
   return path.join(repoRoot, 'dist', 'bin', `exarchos-${osName}-${archName}${ext}`);
 }
 
-// ─── Freshness check ────────────────────────────────────────────────────────
-
+/** Returns the newest mtime of the files under `dir` that pass `predicate`. */
 function newestMtimeUnder(dir: string, predicate: (p: string) => boolean): number {
   let newest = 0;
   const stack = [dir];
@@ -135,13 +101,10 @@ export interface BinaryBuildResult {
 }
 
 /**
- * The compiled binary's content depends on every input bun bundles plus the
- * build orchestration script itself. Restricting the freshness scan to
- * `src/**` would miss edits to the build pipeline
- * (`tools/release/build-binary.ts`) and to root sources that may be bundled in
- * future, leaving a stale binary in place during integration tests. Scanning
- * each tracked input directory keeps the check cheap while catching the
- * realistic edit surfaces.
+ * Returns the newest mtime of the inputs of the compiled binary. The scan covers the `.ts` files
+ * under `src`, `tools/audit` and `tools/release`, because an edit to the build script also makes
+ * the binary stale. It also covers the manifest, the npm and bun lockfiles and `tsconfig.json`,
+ * because a dependency change alters the bundle when no `.ts` file changes.
  */
 function computeSrcNewest(repoRoot: string): number {
   const dirInputs = [
@@ -151,12 +114,6 @@ function computeSrcNewest(repoRoot: string): number {
     path.join(repoRoot, 'src'),
   ];
 
-  // Manifest + lockfile mtimes also matter: a `package.json` /
-  // `package-lock.json` / `bun.lock` / `bun.lockb` edit can change the
-  // dependency graph that bun bundles even when no `.ts` file moved.
-  // Include both npm and bun lockfile shapes so a dep bump under either
-  // package manager triggers a rebuild — this repo uses npm at the root
-  // but bun owns the compiled-binary pipeline.
   const fileInputs = [
     path.join(repoRoot, 'package.json'),
     path.join(repoRoot, 'package-lock.json'),
@@ -189,20 +146,16 @@ function isBinaryFresh(binaryPath: string, srcNewest: number): boolean {
   return fs.statSync(binaryPath).mtimeMs >= srcNewest;
 }
 
-// ─── Cross-process build lock (T-38 / DR-29) ────────────────────────────────
-
 export interface BuildLockOptions {
-  /** Max time to wait to ACQUIRE the lock before giving up (ms). */
+  /** The maximum wait for the lock, in milliseconds. */
   readonly timeoutMs?: number;
   /**
-   * A lock file older than this is treated as abandoned (its holder crashed
-   * or was killed) and reclaimed by the next waiter. Must stay comfortably
-   * above the longest real build duration — the callers of `ensureBinaryBuilt`
-   * carry `beforeAll` hook timeouts up to 240s, so this defaults well above
-   * that rather than risking two callers both believing they hold the lock.
+   * A lock file older than this value counts as abandoned, and the next waiter reclaims it. The
+   * value must stay above the longest real build, or two callers can hold the lock together. The
+   * `beforeAll` hooks of the callers time out at up to 240 s, so the default is 10 minutes.
    */
   readonly staleMs?: number;
-  /** Poll interval while waiting for a contended lock (ms). */
+  /** The poll interval while another caller holds the lock, in milliseconds. */
   readonly pollIntervalMs?: number;
 }
 
@@ -215,18 +168,16 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Cross-process mutual exclusion guarding `fn`, keyed on `lockPath`.
+ * Runs `fn` under a cross-process lock on `lockPath`.
  *
- * The lock is a plain file created with the `wx` flag — `open(O_CREAT |
- * O_EXCL)` — which is atomic at the OS/filesystem layer: at most one caller,
- * IN ANY PROCESS, ever observes a successful create for a given path at a
- * given time. That is what lets this hold across the separate OS processes
- * `vitest`'s `pool: 'forks'` spawns per test file, not merely across
- * concurrent callers within one process.
+ * The lock is a file opened with the `wx` flag. The create is atomic in the filesystem, so at
+ * most one caller, in any process, holds the lock at a time. The holder writes its pid into the
+ * file for diagnosis, and the mtime of the file is the input of the stale check. The function
+ * releases the lock when `fn` returns or throws.
  *
- * A holder that dies mid-build (killed test runner, OOM, CI cancellation)
- * would otherwise wedge every subsequent run forever — the `staleMs` window
- * lets a later caller reclaim an abandoned lock rather than hang forever.
+ * A waiter reclaims a lock that is older than `staleMs`, so a dead holder does not block each
+ * later run. A waiter retries at once after a reclaim, or when the lock disappears between the
+ * open and the stat. Otherwise it polls until `timeoutMs` and then throws.
  */
 export async function withBuildLock<T>(
   lockPath: string,
@@ -249,22 +200,17 @@ export async function withBuildLock<T>(
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;
 
-      // Someone else holds the lock. If it looks abandoned, reclaim it;
-      // otherwise wait and retry.
       let stillContended = true;
       try {
         const stat = fs.statSync(lockPath);
         if (Date.now() - stat.mtimeMs > staleMs) {
           try {
             fs.unlinkSync(lockPath);
-            stillContended = false; // reclaimed — retry the open immediately
+            stillContended = false;
           } catch {
-            /* another caller already reclaimed it — fall through to retry */
           }
         }
       } catch {
-        // Lock vanished between the EEXIST and the stat — the holder just
-        // released it; retry immediately rather than sleeping.
         stillContended = false;
       }
       if (!stillContended) continue;
@@ -276,9 +222,6 @@ export async function withBuildLock<T>(
       continue;
     }
 
-    // Lock acquired: stamp it with our PID (diagnostic only, also what
-    // anchors the mtime the staleness check above reads) and run the
-    // guarded work, always releasing on the way out — including on throw.
     try {
       fs.writeSync(fd, String(process.pid));
       fs.closeSync(fd);
@@ -288,25 +231,18 @@ export async function withBuildLock<T>(
       try {
         fs.unlinkSync(lockPath);
       } catch {
-        /* already gone */
       }
     }
   }
 }
 
-// ─── Build orchestration ────────────────────────────────────────────────────
-
 /**
- * Runs the real `bun run tools/release/build-binary.ts --outdir <outDir>` build.
- * Extracted so tests can inject a fake in its place (`EnsureBinaryBuiltOptions
- * .runBuild`) without shelling out to `bun` or racing the real artifact path.
+ * Runs the real `bun run tools/release/build-binary.ts --outdir <outDir>` build. A test injects a
+ * fake through `EnsureBinaryBuiltOptions.runBuild`. On win32, `bun` is a `.cmd` shim that needs a
+ * shell, and `spawnAsync` applies that rule. A raw spawn with no shell gives exit `null` and no
+ * output there.
  */
 async function defaultRunBuild(repoRoot: string, outDir: string): Promise<void> {
-  // `bun` on win32 is a `.cmd`/`.ps1` shim, which `spawnSync` cannot resolve
-  // without a shell — it returns `status: null` with no stdout/stderr, which the
-  // check below reported as an opaque "build-binary.ts failed (exit null)".
-  // `spawnAsync` applies that rule; calling it beats re-deriving the shell
-  // decision beside a raw spawn, which reads to any scanner as the bare form.
   const result = await spawnAsync(
     'bun',
     ['run', 'tools/release/build-binary.ts', '--outdir', outDir],
@@ -323,18 +259,24 @@ async function defaultRunBuild(repoRoot: string, outDir: string): Promise<void> 
 
 export interface EnsureBinaryBuiltOptions {
   /**
-   * Build step to run when a (re)build is needed. Must produce the artifact
-   * at `<outDir>/<basename of the host binary path>`; `outDir` is a scratch
-   * directory unique to this call. Defaults to the real
-   * `bun run tools/release/build-binary.ts --outdir <outDir>` invocation. Tests
-   * inject a fake here so concurrency can be exercised hermetically, without
-   * shelling out to `bun`.
+   * The build step. It must write the artifact into `outDir` under the basename of the host
+   * binary path. `outDir` is a scratch directory of this call. The default runs the real
+   * `tools/release/build-binary.ts`. A test injects a fake, so it can exercise concurrency
+   * without `bun`.
    */
   readonly runBuild?: (repoRoot: string, outDir: string) => void | Promise<void>;
-  /** Forwarded to `withBuildLock` — test-only knob for fast timeouts. */
+  /** `ensureBinaryBuilt` passes it to `withBuildLock`. A test uses it for short timeouts. */
   readonly lockOptions?: BuildLockOptions;
 }
 
+/**
+ * Builds the host binary when it is absent or older than its inputs, and returns its path.
+ *
+ * The lock file sits beside the binary in `dist/bin`. The function checks freshness again under
+ * the lock, because another process can finish the build during the wait. The build writes to a
+ * scratch directory, and one rename on the same volume puts the binary in place. So a reader sees
+ * the old complete binary or the new one, and never a partial file.
+ */
 export async function ensureBinaryBuilt(
   repoRoot: string,
   options: EnsureBinaryBuiltOptions = {},
@@ -345,17 +287,11 @@ export async function ensureBinaryBuilt(
     return { binaryPath, rebuilt: false };
   }
 
-  // Lockfile lives beside the artifact it guards so it inherits the same
-  // `dist/bin` directory (created below) and is trivially discoverable when
-  // debugging a stuck build.
   const lockPath = `${binaryPath}.lock`;
 
   return withBuildLock(
     lockPath,
     async () => {
-      // Re-check freshness now that we hold the lock: another
-      // process/worker may have completed the build while we were waiting
-      // for our turn, in which case there is nothing left to do.
       if (isBinaryFresh(binaryPath, computeSrcNewest(repoRoot))) {
         return { binaryPath, rebuilt: false };
       }
@@ -377,10 +313,6 @@ export async function ensureBinaryBuilt(
         }
 
         fs.mkdirSync(path.dirname(binaryPath), { recursive: true });
-        // Atomic rename into place: `rename()` is a single filesystem
-        // operation on the same volume, so any concurrent reader of
-        // `binaryPath` observes either the previous complete artifact or the
-        // new complete one — never a partially-written file.
         fs.renameSync(builtPath, binaryPath);
         return { binaryPath, rebuilt: true };
       } finally {
@@ -391,14 +323,17 @@ export async function ensureBinaryBuilt(
   );
 }
 
-// ─── Transport fixture ──────────────────────────────────────────────────────
-
 export interface Fixture {
   readonly client: Client;
   readonly transport: StdioClientTransport;
   readonly stateDir: string;
 }
 
+/**
+ * Starts the binary as `exarchos mcp` with a temporary `WORKFLOW_STATE_DIR` and connects an MCP
+ * stdio client to it. When the connect fails, the function removes the temp directory before it
+ * throws again, so a failed run leaves no `exarchos-compiled-test-*` directory.
+ */
 export async function openFixture(binaryPath: string, repoRoot: string): Promise<Fixture> {
   const stateDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'exarchos-compiled-test-'));
   const transport = new StdioClientTransport({
@@ -422,58 +357,39 @@ export async function openFixture(binaryPath: string, repoRoot: string): Promise
     await client.connect(transport);
     return { client, transport, stateDir };
   } catch (error) {
-    // Connect can fail if the spawned binary exits early (missing
-    // dependency, invalid env, etc.). The temp dir we just minted would
-    // otherwise leak — clean up before rethrowing so successive test
-    // runs don't accumulate `/tmp/exarchos-compiled-test-*` directories.
     await rmrfAsync(stateDir).catch(() => undefined);
     throw error;
   }
 }
 
+/** Closes the client and removes the state directory. It ignores an error in either step. */
 export async function closeFixture(fx: Fixture): Promise<void> {
   try {
     await fx.client.close();
   } catch {
-    /* ignore — transport already torn down */
   }
   try {
     await rmrfAsync(fx.stateDir);
   } catch {
-    /* ignore — temp dir may have been cleaned by GC */
   }
 }
 
-// ─── T3 crash injection: REAL process death only (T-39 / DR-29) ─────────────
-
 /**
- * Why this guard exists.
+ * Why {@link deliverCrash} refused a request. The process tier needs real faults: a process that
+ * stops and leaves the disk as the kernel last saw it. An in-process `throw` runs each `catch` and
+ * `finally`, so it proves the error handler and nothing about a crash. An arm that uses one still
+ * passes, so the harness refuses it.
  *
- * The whole value of the T3 tier is that its faults are real: a process that
- * STOPS EXISTING mid-operation, leaving the disk exactly as the kernel last saw
- * it. An in-process `throw` looks superficially similar and is far cheaper to
- * write, but it is a different experiment entirely — it runs the `catch` block,
- * the `finally` cleanups and every unwind path, so it proves the happy-path
- * error handler works while proving NOTHING about an actual crash. A T3 arm
- * that quietly downgrades to one is vacuous, and vacuous in a way no assertion
- * in the arm itself would reveal (it still goes green).
- *
- * So the downgrade is made IMPOSSIBLE TO PERFORM QUIETLY: every crash in this
- * tier is delivered through {@link deliverCrash}, which refuses anything that
- * is not the real thing — by name (`in-process-throw` / `in-process-abort`),
- * by self-targeting (a "kill" aimed at the test runner's own pid is in-process
- * by definition), and by liveness (a pid that is not a live OS process cannot
- * be killed, so a fabricated one is rejected rather than silently no-op'ing).
+ * - `IN_PROCESS_INJECTION`: the request asked for an in-process fault.
+ * - `SELF_TARGETED`: the pid is the test process itself.
+ * - `NOT_A_LIVE_PROCESS`: no live OS process has that pid, so the kill does nothing.
  */
 export type CrashRejectionCode =
-  /** The request asked for an in-process fault instead of a real process death. */
   | 'IN_PROCESS_INJECTION'
-  /** The "child" pid is this very process — an in-process fault wearing a pid. */
   | 'SELF_TARGETED'
-  /** No live OS process carries that pid, so nothing would actually be killed. */
   | 'NOT_A_LIVE_PROCESS';
 
-/** Typed, loud refusal from {@link deliverCrash}. */
+/** The typed refusal that {@link deliverCrash} throws. */
 export class CrashInjectionRejectedError extends Error {
   constructor(
     readonly code: CrashRejectionCode,
@@ -485,33 +401,25 @@ export class CrashInjectionRejectedError extends Error {
 }
 
 /**
- * A crash a T3 arm can ask the harness to deliver.
+ * A crash that an arm asks the harness to deliver.
  *
- * The in-process shapes are modelled DELIBERATELY rather than omitted: a union
- * with only `sigkill` in it would be refused by the type checker, and a
- * contributor reaching for the cheap fault would simply not call the harness at
- * all. Naming them here means the request is expressible, reaches the harness,
- * and is rejected AT RUNTIME with an explanation — which is what makes the
- * rejection testable and the downgrade visible.
+ * - `sigkill`: the real fault, a `SIGKILL` to a live child pid.
+ * - `in-process-throw`: rejected. An exception thrown inside the test process.
+ * - `in-process-abort`: rejected. Any other in-process abort or unwind hook.
+ *
+ * The union names the in-process kinds on purpose. A request for one then reaches the harness and
+ * fails at runtime with a reason, so a test can assert the refusal.
  */
 export type CrashRequest =
-  /** The real thing: SIGKILL (TerminateProcess on win32) to a live child pid. */
   | { readonly kind: 'sigkill'; readonly pid: number | undefined }
-  /** REJECTED — an exception thrown inside the test process. */
   | { readonly kind: 'in-process-throw'; readonly inject: () => never }
-  /** REJECTED — any other in-process abort/unwind hook. */
   | { readonly kind: 'in-process-abort'; readonly inject: () => void };
 
 /**
- * Deliver a REAL, unconditional process kill, or refuse loudly.
- *
- * Returns the pid that was killed. The `inject` callback of a rejected request
- * is NEVER invoked — the refusal happens before any in-process fault can run,
- * so a rejected arm cannot accidentally half-execute its cheap substitute.
- *
- * Note on `SIGKILL` on win32: Node maps it to `TerminateProcess`, which is a
- * genuine unconditional kill — no handler, no `finally`, no flush. It is the
- * right primitive here, and a graceful shutdown is NOT an acceptable stand-in.
+ * Delivers a real `SIGKILL` and returns the killed pid, or throws
+ * {@link CrashInjectionRejectedError}. The refusal comes first, so the `inject` callback of a
+ * rejected request never runs. On win32, Node maps `SIGKILL` to `TerminateProcess`, which is also
+ * an unconditional kill: no handler, no `finally` and no flush run.
  */
 export function deliverCrash(request: CrashRequest): number {
   if (request.kind !== 'sigkill') {
@@ -552,9 +460,8 @@ export function deliverCrash(request: CrashRequest): number {
 }
 
 /**
- * Block until `pid` is gone, so an arm never inspects the disk while the killed
- * process is still, briefly, alive. Throws rather than returning a boolean: a
- * kill that did not take is a broken fixture, not a condition to branch on.
+ * Waits until `pid` is gone, so an arm does not read the disk while the killed process is still
+ * alive. A pid that survives the timeout throws, because a failed kill is a broken fixture.
  */
 export async function awaitProcessDeath(pid: number, timeoutMs = 15_000): Promise<void> {
   const deadline = Date.now() + timeoutMs;

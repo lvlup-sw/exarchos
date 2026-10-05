@@ -1,19 +1,11 @@
-// ─── F.1: tools/list shape integration test (Wave 0, design §7) ─────────────
+// Integration test for the shape of the MCP `tools/list` manifest.
 //
-// Drives the MCP `tools/list` carrier in-process via the SDK's
-// `InMemoryTransport` pair and asserts the manifest shape that Wave 0 D.4/D.6
-// committed to:
+// The test lists the tools in-process through the in-memory transport pair of the SDK. It asserts:
 //
-//   • Every visible composite tool entry carries BOTH `outputSchema` AND
-//     `annotations`.
-//   • Each schema is JSON Schema 2020-12 ($schema URL == draft 2020-12).
-//   • `annotations` is a populated ToolAnnotations object with the four
-//     boolean *Hint fields.
-//   • Hidden tools (`exarchos_sync`) are absent from the model-facing surface.
-//
-// This locks the static carrier surface so future regressions on tools/list
-// (e.g. accidental hidden-tool exposure, missing schema advertisement) fail
-// loudly in CI rather than being discovered by downstream model agents.
+//   - Each visible composite tool is present, and each entry has `outputSchema` and `annotations`.
+//   - Each schema declares a recognised JSON Schema `$schema` URL.
+//   - `annotations` holds the four boolean hint fields.
+//   - A hidden tool (`exarchos_sync`) is absent from the model-facing surface.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -33,14 +25,10 @@ import { TOOL_REGISTRY } from '../../src/registry.js';
 import type { DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
-// Per design `docs/designs/archive/2026-05-13-wave-0-carrier-swap.md` §2.6 the
-// advertised tool schemas SHOULD carry the JSON Schema 2020-12 `$schema`
-// URL. In practice the MCP SDK (1.26.x) drives its OWN internal
-// Zod-v3 → JSON Schema converter for `tools/list` and that converter emits
-// draft-07. Migrating the MCP server to Zod v4 is tracked at #1366. Until
-// then the carrier-bound assertion is "some recognised JSON Schema $schema
-// URL is set", not "exactly 2020-12" — testing 2020-12 here would only
-// repeat the already-tracked Zod-v4 work as a fresh failure.
+/**
+ * The `$schema` URLs that this shape test accepts. `tools-list-2020-12.test.ts` pins the exact
+ * draft.
+ */
 const ACCEPTED_JSON_SCHEMA_DRAFTS = new Set<string>([
   'https://json-schema.org/draft/2020-12/schema',
   'http://json-schema.org/draft-07/schema#',
@@ -87,22 +75,19 @@ describe('F.1 — tools/list shape (Wave 0 §7)', () => {
     ]);
   });
 
+  /** The hook ignores a failure of `client.close()`, so it always removes the temp directory. */
   afterEach(async () => {
     try {
       await client.close();
     } catch {
-      /* ignore */
     }
     await rmrfAsync(tmpDir);
   });
 
+  /** A hidden tool must be absent from the model-facing `tools/list`, and each visible tool present. */
   it('ToolsList_VisibleTools_HaveOutputSchemaAndAnnotations', async () => {
     const { tools } = await client.listTools();
 
-    // Visible-only invariant: hidden tools (e.g. exarchos_sync) MUST be
-    // absent from the model-facing tools/list. The CLI introspection path
-    // (`schema-introspection.listSchemas`) intentionally returns the full
-    // registry with a `hidden` tag — tools/list deliberately filters it.
     const hiddenNames = TOOL_REGISTRY.filter((t) => t.hidden).map((t) => t.name);
     const visibleNames = TOOL_REGISTRY.filter((t) => !t.hidden).map((t) => t.name);
 
@@ -119,9 +104,6 @@ describe('F.1 — tools/list shape (Wave 0 §7)', () => {
     const { tools } = await client.listTools();
     for (const t of tools as ToolEntry[]) {
       expect(t.outputSchema, `outputSchema missing on ${t.name}`).toBeDefined();
-      // The advertised schema is the LCD ZodObject (D.4) — surfaced as
-      // JSON Schema 2020-12 on the wire. Both the $schema URL and the
-      // object-typed core must be present.
       expect(
         ACCEPTED_JSON_SCHEMA_DRAFTS.has(String(t.outputSchema!.$schema)),
         `outputSchema $schema on ${t.name} is "${t.outputSchema!.$schema}", expected one of: ${[...ACCEPTED_JSON_SCHEMA_DRAFTS].join(', ')}`,
@@ -141,15 +123,15 @@ describe('F.1 — tools/list shape (Wave 0 §7)', () => {
     }
   });
 
+  /**
+   * `aggregateToolAnnotations` always sets the four hints, so a client can show them with no
+   * `undefined` check.
+   */
   it('ToolsList_EveryEntry_AdvertisesPopulatedAnnotations', async () => {
     const { tools } = await client.listTools();
     for (const t of tools as ToolEntry[]) {
       const ann = t.annotations;
       expect(ann, `annotations missing on ${t.name}`).toBeDefined();
-      // All four hint booleans must be present and typed as booleans —
-      // D.6 aggregateToolAnnotations always populates the full quartet so
-      // clients can render a safety affordance without runtime
-      // `undefined`-checks.
       expect(typeof ann!.readOnlyHint).toBe('boolean');
       expect(typeof ann!.destructiveHint).toBe('boolean');
       expect(typeof ann!.idempotentHint).toBe('boolean');
@@ -157,11 +139,12 @@ describe('F.1 — tools/list shape (Wave 0 §7)', () => {
     }
   });
 
+  /**
+   * Pins the aggregation formula at the `tools/list` boundary. `readOnlyHint` and `idempotentHint`
+   * are true only when each action of the tool has the flag. `destructiveHint` and `openWorldHint`
+   * are true when one action or more has the flag.
+   */
   it('ToolsList_AnnotationsAggregation_MatchesRegistryFormula', async () => {
-    // Pin the D.6 aggregation formula at the tools/list boundary, not just
-    // at the registerTool spy boundary (which mcp.test.ts already covers).
-    // If a future refactor renames the aggregation helper or short-circuits
-    // it for some tools, this end-to-end check fails loudly.
     const { tools } = await client.listTools();
     for (const t of tools as ToolEntry[]) {
       const reg = TOOL_REGISTRY.find((r) => r.name === t.name);

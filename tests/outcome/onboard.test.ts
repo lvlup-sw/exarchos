@@ -1,32 +1,14 @@
-// ─── onboard outcome ─────────────────────────────────────────────────────────
-//
-// Replaces the retired `install-skills.test.ts` outcome tier. `install-skills`
-// was consolidated into the `onboard` verb (DR-5) and is now a one-release
-// rename stub, so its old per-runtime "full manifest installed" assertion no
-// longer maps to a standalone command. The #1355 per-runtime manifest-parity
-// regression it guarded is now covered at the unit tier against the REAL
-// `installSkills` seam in
-// `src/verbs/onboard/install.test.ts`.
-//
-// This outcome test instead pins the operator-visible end-to-end contract of
-// the consolidated verb, run against the real bun-compiled platform binary
-// under an isolated HOME + repo (no mocks at the test boundary):
-//
-//   - `onboard` drives a fresh repo to a green doctor and EXITS 0 (DR-2).
-//   - A first run installs exactly one SubagentStop binding (DR-7's retained
-//     token-attribution seam) under `<home>/.claude/settings.json`; the same
-//     pass also writes the #1485 SessionStart directive (installBindings'
-//     single idempotent pass writes all three bindings together), but that
-//     binding is retired going forward.
-//   - Re-running is idempotent AND completes the DR-7 retirement: a second
-//     invocation still exits 0, the SessionStart binding is gone (removed by
-//     `retired-hooks-present` — the launcher is now the lifecycle authority),
-//     and the SubagentStop binding still numbers exactly one (DR-8
-//     acceptance, now scoped to the binding DR-7 retains).
-//
-// The precise set of reconcile steps onboard *applies* depends on the host's
-// doctor state, so the assertions intentionally pin the STABLE guarantees
-// (exit code + binding counts), not the volatile applied-step list.
+/**
+ * Outcome test for `exarchos onboard`, run as the compiled platform binary with an isolated HOME
+ * and a new git repo.
+ *
+ * The first run must exit 0 and write one SubagentStop binding to `<home>/.claude/settings.json`.
+ * The second run must also exit 0, leave no SessionStart binding (that hook is retired), and keep
+ * one SubagentStop binding.
+ *
+ * The steps that `onboard` applies depend on the doctor state of the host. The test asserts only
+ * the exit code and the binding counts.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { withTmpHome } from './_helpers/tmp-home.js';
@@ -41,8 +23,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 
-// Locate the platform binary produced by `npm run build` — the same
-// `exarchos-<os>-<arch>[.exe]` convention `tools/release/build-binary.ts` emits.
+/**
+ * The file name of the platform binary, in the `exarchos-<os>-<arch>` form that
+ * `tools/release/build-binary.ts` writes. Windows adds `.exe`.
+ */
 function platformBinaryName(): string {
   const platform = os.platform();
   const arch = os.arch();
@@ -65,10 +49,9 @@ interface OnboardRun {
 }
 
 /**
- * Run `exarchos onboard --runtime claude` against an isolated repo + HOME.
- * `--runtime claude` short-circuits agent-host detection so the run is
- * deterministic. execFileAsync rejects on a non-zero exit; we capture the status
- * so the test can assert on it with a clear message instead of an opaque throw.
+ * Runs `exarchos onboard --runtime claude` with an isolated repo and HOME. `--runtime claude` skips
+ * runtime detection, so the run is deterministic. `execFileAsync` rejects on a non-zero exit. This
+ * function returns the status instead, so the test can assert on it with a clear message.
  */
 async function runOnboard(home: string, cwd: string): Promise<OnboardRun> {
   try {
@@ -92,7 +75,7 @@ async function runOnboard(home: string, cwd: string): Promise<OnboardRun> {
   }
 }
 
-/** Count bindings for a given hook `event` in `<home>/.claude/settings.json`. */
+/** Counts the hooks of `event` in `<home>/.claude/settings.json` whose command holds `marker`. */
 function bindingCount(home: string, event: string, marker: string): number {
   const settingsPath = path.join(home, '.claude', 'settings.json');
   if (!fs.existsSync(settingsPath)) return 0;
@@ -117,6 +100,12 @@ const subagentStopBindingCount = (home: string): number =>
   bindingCount(home, 'SubagentStop', 'exarchos subagent-stop');
 
 describe('onboard outcome', () => {
+  /**
+   * The install step writes the SessionStart, SessionEnd and SubagentStop bindings in one pass, so
+   * the first run also writes the retired SessionStart binding. The `retired-hooks-present` check
+   * removes that binding on the second run, so the test asserts its absence only then. The second
+   * run must not add a second SubagentStop binding.
+   */
   it('Onboard_claude_DrivesRepoGreenAndInstallsSubagentStopHook', async () => {
     await withTmpHome(async (home) => {
       const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-onboard-repo-'));
@@ -133,8 +122,6 @@ describe('onboard outcome', () => {
           'onboard should install exactly one SubagentStop binding (DR-7/DR-8).',
         ).toBe(1);
 
-        // Idempotence: a second run converges — SessionStart is retired (removed)
-        // and SubagentStop still numbers exactly one.
         const second = await runOnboard(home, repo);
         expect(
           second.status,

@@ -1,69 +1,13 @@
-// ─── tools/list schema CONFORMANCE (DR-0) ───────────────────────────────────
+// Conformance check on the Exarchos `tools/list` wire contract.
 //
-// WHAT THIS FILE IS, AND WHAT IT DELIBERATELY IS NOT.
+//   C1. Each advertised schema is native JSON Schema draft-2020-12.
+//   C2. An `outputSchema` with a discriminated-union root reaches the wire with `type: 'object'`
+//       and with its union branches.
 //
-// It is a **conformance check on the Exarchos `tools/list` wire contract**:
-//
-//   C1. every advertised schema is native JSON Schema draft-2020-12, and
-//   C2. a discriminated-union-rooted `outputSchema` reaches the wire carrying
-//       `type: 'object'` with its union branches intact.
-//
-// It is NOT a guard for `patches/@modelcontextprotocol+sdk+1.29.0.patch`.
-// That distinction is the whole point of task 050. A test that exists only to
-// prove a patch is applied dies with the patch; a test that states the wire
-// contract outlives whichever SDK generation happens to deliver it. So the two
-// properties above are asserted against BOTH installed generations — v1 (the
-// generation the production adapter runs on today) and v2 (the generation the
-// migration is heading for). When task 053 moves `adapters/mcp.ts` onto v2 and
-// the patch is deleted, the v2 block below is already green and already the
-// contract; only the v1 block goes away with v1.
-//
-// ── Task 050: the patch decision, and the measurements behind it ────────────
-//
-// The patch does two things: it forces `target: 'draft-2020-12'`, and it
-// splices `type: 'object'` onto DU-rooted schemas (plus the `normalizeObject-
-// Schema` change that stops a DU being dropped outright). Three questions were
-// measured against the pinned `@modelcontextprotocol/server@2.0.0`, not read
-// off release notes:
-//
-//   Q1. Does v2 emit native 2020-12 by itself?  → YES.
-//       `ToolsList_UnderV2_EmitsNative2020_12` below is that measurement.
-//       v2 hard-codes `JSON_SCHEMA_CONVERSION_TARGET = 'draft-2020-12'` for
-//       every conversion; there is no draft-7 path left to fall back to.
-//
-//   Q2. Does v2 splice `type: 'object'` onto a DU root by itself?  → YES.
-//       `ToolsList_DiscriminatedUnionRoot_HasObjectType` below is that
-//       measurement, and it runs against the PRODUCTION LCD envelope rather
-//       than a toy union. Note the SEP-2106 nuance: v2 stamps `type:'object'`
-//       on an `outputSchema` only when the root is *provably object-shaped*
-//       (a DU of objects qualifies); SEP-2106 itself permits any root for
-//       `outputSchema`. The v1 patch stamps unconditionally instead. For our
-//       LCD the two agree, which is why the wire golden is unmoved.
-//
-//   Q3. So can the patch be dropped now?  → NO, and this was measured too.
-//       Reversing the patch (`npx patch-package --reverse`) and re-running
-//       this file plus `tools-list-golden.test.ts` fails 6/6: `$schema` reverts
-//       to `http://json-schema.org/draft-07/schema#`, every production tool
-//       loses its `outputSchema` entirely, the fixture tuple renders as an
-//       `items` array instead of `prefixItems`, and the byte golden diverges.
-//       The source tree still runs entirely on v1, so v1's emission IS the
-//       wire.
-//
-// DECISION — the patch is **RE-BASED, not dropped**. Re-based in justification
-// rather than in content: it is no longer "a workaround for an unfixed upstream
-// bug awaiting an upstream PR", because upstream shipped both fixes in v2
-// 2.0.0. It is now a **v1-only backport of v2-native behaviour**, and its death
-// condition is the removal of `@modelcontextprotocol/sdk`, not an upstream
-// release. `src/__tests__/sdk-patch-policy.test.ts` makes that lifetime
-// enforceable instead of merely documented.
-//
-// Task 049's lead HELD: v2's `registerTool` accepts a Zod v4 discriminated
-// union as `outputSchema` directly — no drop to an empty schema, no throw.
-//
-// Both generations are drawn through the owned SDK seam (`src/contract/sdk/seam.ts`),
-// which is the one module permitted to import both; that is what lets a single
-// conformance file span the generation boundary without tripping the
-// `lintSdkGenerationMixing` rung-3 gate.
+// The file states the wire contract. It does not guard an SDK patch, so it stays valid when the
+// SDK generation changes. The first block lists the tools of the production adapter. The second
+// block registers the production envelope on a bare v2 `McpServer` and reads raw JSON-RPC frames.
+// The SDK comes through the seam `src/contract/sdk/seam.ts`, the one module that imports it.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -86,18 +30,20 @@ import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const DRAFT_2020_12 = 'https://json-schema.org/draft/2020-12/schema';
 
-// 2020-12-only structural keywords. Any of these in any emitted schema proves
-// the wire format is native 2020-12 (draft-7 cannot produce them from Zod's
-// JSON-Schema conversion). `prefixItems` is the canonical signal for a tuple —
-// draft-7 used per-index `items` arrays instead.
+/**
+ * The structural keywords that only draft-2020-12 has. One of them in an emitted schema proves that
+ * the wire format is native 2020-12. `prefixItems` is the signal for a tuple, which draft-7 renders
+ * as an `items` array.
+ */
 const DRAFT_2020_12_ONLY_KEYWORDS = [
   'prefixItems',
   'unevaluatedProperties',
   'unevaluatedItems',
 ] as const;
 
-/** The tuple fixture both generations register, and its draft-7 counter-shape. */
+/** The name of the tuple fixture tool that the production-adapter block registers. */
 const TUPLE_FIXTURE_TOOL = '__conformance_fixture_tuple_tool';
+/** The draft-7 rendering of the same tuple. */
 const DRAFT_7_TUPLE_SHAPE = {
   type: 'object',
   properties: { coord: { type: 'array', items: [{ type: 'number' }, { type: 'number' }] } },
@@ -117,8 +63,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Recursively scan a JSON Schema for any draft-2020-12-only structural keyword.
- * Returns the first keyword name encountered, or `undefined` if none appear.
+ * Scans a JSON Schema recursively for a keyword that only draft-2020-12 has. It returns the first
+ * keyword that it finds, or `undefined`.
  */
 function findDraft2020Keyword(schema: unknown): string | undefined {
   if (Array.isArray(schema)) {
@@ -149,14 +95,16 @@ function unionBranchesOf(schema: Record<string, unknown>): unknown[] | undefined
   return undefined;
 }
 
-// ════════════════════════════════════════════════════════════════════════════
-// C1 + C2 against v1 — the generation the production adapter runs on today
-// ════════════════════════════════════════════════════════════════════════════
-
+/** C1 and C2 on the production adapter (`createMcpServer`). */
 describe('tools/list schema conformance — v1 production adapter', () => {
   let tmpDir: string;
   let client: ReturnType<typeof createV2Client>;
 
+  /**
+   * The fixture tool has a Zod tuple in its input schema. A tuple renders as `prefixItems` only
+   * under draft-2020-12. Thus one `tools/list` entry always holds a 2020-12-only keyword, also when
+   * no production tool has a tuple in its input shape.
+   */
   beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'tools-list-2020-12-'));
     const eventStore = new EventStore(tmpDir);
@@ -169,11 +117,6 @@ describe('tools/list schema conformance — v1 production adapter', () => {
 
     const server = createMcpServer(ctx);
 
-    // A fixture tool whose input schema carries a Zod v4 tuple. Tuples render
-    // as `prefixItems` only under draft-2020-12 — under draft-7 they render as
-    // an `items` array. This guarantees at least one tools/list entry carries a
-    // 2020-12-only structural keyword even if no production tool currently
-    // exercises tuples at its top-level input shape.
     server.registerTool(
       TUPLE_FIXTURE_TOOL,
       {
@@ -203,11 +146,11 @@ describe('tools/list schema conformance — v1 production adapter', () => {
     ]);
   });
 
+  /** The hook ignores a failure of `client.close()`, so it always removes the temp directory. */
   afterEach(async () => {
     try {
       await client.close();
     } catch {
-      /* ignore */
     }
     await rmrfAsync(tmpDir);
   });
@@ -229,11 +172,10 @@ describe('tools/list schema conformance — v1 production adapter', () => {
     }
   });
 
-  // The silent-drop property. Unpatched v1 returns `undefined` from
-  // `normalizeObjectSchema` for a `ZodDiscriminatedUnion`, skips the
-  // `toolDefinition.outputSchema = …` branch entirely, and ships a manifest
-  // with no advertised outputSchema at all. Measured: that is exactly what
-  // happens with the patch reversed.
+  /**
+   * The silent-drop property. A manifest that drops the discriminated-union `outputSchema` raises no
+   * error, so each visible production tool must advertise one.
+   */
   it('ToolsList_EveryVisibleProductionTool_AdvertisesOutputSchema', async () => {
     const tools = await listTools();
     const visibleProductionNames = new Set(
@@ -261,10 +203,11 @@ describe('tools/list schema conformance — v1 production adapter', () => {
     }
   });
 
-  // C2 on v1. The advertised LCD is a discriminated union; the MCP manifest
-  // requires an object root. Both the root marker AND the surviving branches
-  // are asserted — a `type: 'object'` obtained by flattening the union away
-  // would satisfy a bare type check while destroying the contract.
+  /**
+   * C2. The advertised envelope is a discriminated union, and the MCP manifest needs an object root.
+   * The test asserts the root `type` and the branches, because a schema that flattens the union
+   * also passes a bare `type` check.
+   */
   it('ToolsList_AdvertisedOutputSchemaRoot_HasObjectTypeAndBranches', async () => {
     const tools = await listTools();
     const withOutputSchema = tools.filter((t) => t.outputSchema);
@@ -299,25 +242,16 @@ describe('tools/list schema conformance — v1 production adapter', () => {
     ).toBe('prefixItems');
   });
 
-  // NEGATIVE TWIN for the detector itself. Without this, every "native 2020-12"
-  // assertion above rests on a scanner that might simply never return
-  // `undefined`. Fed the draft-7 rendering of the SAME tuple, it must find
-  // nothing — that is what makes finding `prefixItems` above informative.
+  /**
+   * NEGATIVE TWIN for the detector itself. Without it, a scanner that never returns `undefined`
+   * also satisfies each "native 2020-12" assertion. For the draft-7 rendering of the same tuple, the
+   * scanner must find nothing.
+   */
   it('FindDraft2020Keyword_Draft7TupleRendering_FindsNothing', () => {
     expect(findDraft2020Keyword(DRAFT_7_TUPLE_SHAPE)).toBeUndefined();
     expect(findDraft2020Keyword({ type: 'array', prefixItems: [] })).toBe('prefixItems');
   });
 });
-
-// ════════════════════════════════════════════════════════════════════════════
-// C1 + C2 against v2 — the generation the migration is heading for.
-//
-// Driven by raw JSON-RPC frames rather than a `Client`: `@modelcontextprotocol/
-// client` is not an installed dependency, and the v1 client must never be
-// paired with a v2 server (a cross-generation "linked pair" is not linked at
-// all — see `src/contract/sdk/seam.ts`). Raw frames keep the measurement honest and the
-// generations apart.
-// ════════════════════════════════════════════════════════════════════════════
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -342,14 +276,15 @@ async function awaitResponse(inbox: readonly unknown[], id: number): Promise<unk
   throw new Error(`no JSON-RPC response for id ${id} after 2s`);
 }
 
-/** The production LCD envelope — the exact DU `adapters/mcp.ts` advertises. */
+/** The production envelope: the discriminated union that `adapters/mcp/mcp.ts` advertises. */
 const LCD_OUTPUT_SCHEMA = EnvelopeSchema(z.unknown());
 const LCD_TOOL = '__conformance_lcd_tool';
 
 /**
- * Stand up a live v2 `McpServer` carrying the production LCD as `outputSchema`
- * and a tuple-bearing `inputSchema`, complete the handshake, and return its
- * `tools/list` entries.
+ * Starts a v2 `McpServer` with the production envelope as `outputSchema` and a tuple in
+ * `inputSchema`. It does the handshake with raw JSON-RPC frames and returns the `tools/list`
+ * entries. It asserts that `initialize` gives a result, because an empty tool list can also mean
+ * that the connection never came up.
  */
 async function listToolsUnderV2(): Promise<ToolEntry[]> {
   const server = createV2McpServer({ name: 'tools-list-2020-12-v2', version: '1.0.0' });
@@ -389,8 +324,6 @@ async function listToolsUnderV2(): Promise<ToolEntry[]> {
     capabilities: {},
     clientInfo: { name: 'tools-list-2020-12-v2-probe', version: '1.0.0' },
   });
-  // Anti-vacuity on the handshake: an empty tools list below could otherwise
-  // just mean the connection never came up.
   expect(resultOf(initialized), 'v2 initialize produced no result frame').toBeDefined();
   await host.send({ jsonrpc: '2.0', method: 'notifications/initialized' });
 
@@ -414,26 +347,16 @@ async function listToolsUnderV2(): Promise<ToolEntry[]> {
   return entries;
 }
 
+/** C1 and C2 on a bare v2 `McpServer` that carries the production envelope. */
 describe('tools/list schema conformance — v2 @modelcontextprotocol/server 2.0.0', () => {
   /**
-   * Q1, decided empirically. v2 needs no `target` argument, no patch and no
-   * post-processing to put native draft-2020-12 on the wire.
+   * v2 puts native draft-2020-12 on the wire with no `target` argument and no post-processing.
    *
-   * BLOCKING ARM — every emitted schema declares the 2020-12 `$schema`, AND the
-   * tuple renders as `prefixItems`. The second half is what makes it *native*
-   * rather than a relabel: a draft-7 conversion wearing a 2020-12 URL would
-   * still emit an `items` array.
-   *
-   * NEGATIVE TWIN — the same detector, fed the draft-7 rendering of the same
-   * tuple, finds nothing (`FindDraft2020Keyword_Draft7TupleRendering_FindsNothing`
-   * above, and re-asserted here so this block stands alone once v1 is gone).
-   *
-   * SECOND AUTHORITY — Zod's own conversion of the same schema, asked for
-   * draft-2020-12, is compared against what the SDK actually put on the wire.
-   * The two are different packages and neither is computed from the other, so
-   * they can genuinely disagree: an SDK that re-labelled `$schema` without
-   * moving its conversion target would satisfy the wire assertion alone and
-   * diverge from Zod here.
+   * BLOCKING ARM: each emitted schema declares the 2020-12 `$schema`, and the tuple renders as
+   * `prefixItems`. A draft-7 conversion with a 2020-12 URL still emits an `items` array.
+   * NEGATIVE TWIN: the same detector finds nothing in the draft-7 rendering of the same tuple.
+   * SECOND AUTHORITY: the conversion of the same schema by Zod must agree with the wire on the
+   * `$schema` marker and on the tuple rendering. The SDK and Zod are different packages.
    *
    * @kill-seam: a `$schema` string that was relabelled rather than produced by a real draft-2020-12 conversion
    * @oracle-sources: @modelcontextprotocol/server 2.0.0 live wire response, zod 4 z.toJSONSchema
@@ -456,18 +379,14 @@ describe('tools/list schema conformance — v2 @modelcontextprotocol/server 2.0.
       'v2 outputSchema.$schema must be native 2020-12',
     ).toBe(DRAFT_2020_12);
 
-    // Native, not relabelled.
     expect(
       findDraft2020Keyword(fixture?.inputSchema),
       `v2 emitted no 2020-12-only structural keyword for a tuple. Schema received: ` +
         JSON.stringify(fixture?.inputSchema),
     ).toBe('prefixItems');
 
-    // The detector discriminates.
     expect(findDraft2020Keyword(DRAFT_7_TUPLE_SHAPE)).toBeUndefined();
 
-    // SECOND AUTHORITY — Zod, asked for the same dialect independently of the
-    // SDK, must agree with the wire on both the marker and the tuple rendering.
     const zodEmission = z.toJSONSchema(
       z.object({ coord: z.tuple([z.number(), z.number()]) }),
       { target: 'draft-2020-12', io: 'input' },
@@ -477,27 +396,19 @@ describe('tools/list schema conformance — v2 @modelcontextprotocol/server 2.0.
   });
 
   /**
-   * Q2, decided empirically, against the PRODUCTION LCD rather than a toy
-   * union — and this doubles as the verification of task 049's lead that v2's
-   * `registerTool` takes a Zod v4 discriminated union for `outputSchema`
-   * directly.
+   * The subject is the production envelope, not a toy union. v2 `registerTool` takes a Zod v4
+   * discriminated union as `outputSchema` directly. The SDK adds the root `type` only when each
+   * branch of the union is provably an object, and it does not follow a `$ref`.
    *
-   * BLOCKING ARM — the DU-rooted `outputSchema` reaches the wire at all (v1
-   * unpatched drops it), carries `type: 'object'` at the root, and keeps its
-   * union branches.
-   *
-   * INDEPENDENT ORACLE — Zod's own conversion of the SAME schema is asserted to
-   * carry NO root `type`. That is what attributes the `type: 'object'` to the
-   * SDK rather than to Zod: the two authorities are different packages and can
-   * genuinely disagree, so if v2 ever stopped stamping the root this test goes
-   * red instead of quietly passing on Zod's output.
+   * BLOCKING ARM: the `outputSchema` reaches the wire, has `type: 'object'` at the root, and keeps
+   * its union branches.
+   * INDEPENDENT ORACLE: the conversion of the same schema by Zod has no root `type`, so the root
+   * `type` on the wire comes from the SDK. If the SDK stops adding it, the test fails.
    *
    * @kill-seam: a root `type: "object"` contributed by Zod rather than by the SDK, or one obtained by flattening the discriminated union away
    * @oracle-sources: @modelcontextprotocol/server 2.0.0 live wire response, zod 4 z.toJSONSchema
    */
   it('ToolsList_DiscriminatedUnionRoot_HasObjectType', async () => {
-    // Independent oracle first: Zod alone does NOT produce a root `type` for
-    // this discriminated union.
     const zodEmission = z.toJSONSchema(LCD_OUTPUT_SCHEMA, {
       target: 'draft-2020-12',
       io: 'output',

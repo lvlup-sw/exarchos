@@ -1,23 +1,12 @@
-// ─── T3.1 — RESERVED_FIELD discoverability outcome (GREEN) ────────────────
-//
-// Encodes the #1360 fix shipped in commit 481e51c7 (PR #1392). The contract
-// being locked here has two distinct surfaces:
-//
-//   1. Discoverability — `exarchos_workflow.describe({actions:['update']})`
-//      surfaces a `reservedFields` block sourced from
-//      `RESERVED_FIELDS_DESCRIPTOR`. Callers learn the immutable boundary
-//      (and the alternate write paths, e.g. `transition` for `phase`)
-//      through describe instead of trial-and-error against the error
-//      envelope.
-//
-//   2. Structured error data — when `applyDotPath` rejects an update for a
-//      reserved key, the returned envelope carries an `error.data` block
-//      shaped `{rejectedPath, rule, alternateWritePath}`. Callers can
-//      pivot to the alternate path programmatically without parsing the
-//      error message.
-//
-// This is a backfill: the fix landed prior; the tests are GREEN against
-// current head. A future regression that strips either surface fails CI.
+/**
+ * Outcome tests for the two surfaces that show the reserved fields of `exarchos_workflow` `update`.
+ *
+ * The `describe` output of the `update` action holds a `reservedFields` block from
+ * `RESERVED_FIELDS_DESCRIPTOR`, with the alternate write path for each reserved key. When
+ * `applyDotPath` rejects a reserved key, the error holds a `data` block with `rejectedPath`, `rule`
+ * and `alternateWritePath`. A caller can then use the alternate path and does not parse the
+ * message.
+ */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -32,12 +21,9 @@ import {
 import { handleDescribe } from '../../src/describe/handler.js';
 
 /**
- * Read the `ReservedFieldErrorData` block off an envelope error.
- *
- * The block is attached at runtime but is not part of the envelope's declared
- * error shape, so this narrows to it instead of asserting a property the type
- * denies. Returning `undefined` when it is absent keeps "the block is missing"
- * a visible failure rather than a silently-empty object.
+ * Reads the `ReservedFieldErrorData` block from an envelope error. The declared error type has no
+ * `data` field, so the function narrows to it. An absent block gives `undefined`, so the test
+ * fails visibly.
  */
 function reservedFieldData(
   err: unknown,
@@ -53,6 +39,10 @@ import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 const workflowTool = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
 
 describe('reserved-fields discoverability outcome (#1360)', () => {
+  /**
+   * The describe output and the runtime guard read the same descriptor. Each of its four keys must
+   * be present and not empty. The alternate path for `phase` must name the `transition` action.
+   */
   it('Describe_UpdateAction_EnumeratesReservedFields', async () => {
     expect(workflowTool).toBeDefined();
     const result = await handleDescribe(
@@ -68,9 +58,6 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
 
     const reservedFields = updateDesc.reservedFields as Record<string, unknown>;
 
-    // The descriptor surfaces four keys; the runtime guard and the doc
-    // surface derive from the same constant, so changing the descriptor
-    // changes the discoverability output. Each must be non-empty.
     expect(reservedFields).toHaveProperty('topLevelImmutable');
     expect(reservedFields).toHaveProperty('underscorePrefixRule');
     expect(reservedFields).toHaveProperty('examples');
@@ -93,11 +80,14 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
     const alternates = reservedFields.alternateWritePaths as Record<string, string>;
     expect(typeof alternates).toBe('object');
     expect(Object.keys(alternates).length).toBeGreaterThan(0);
-    // The canonical alternate for `phase` redirects to the `transition`
-    // action — this is the most operator-load-bearing entry in the map.
     expect(alternates.phase).toMatch(/transition/);
   });
 
+  /**
+   * `workflowType` is a top-level immutable key, so `applyDotPath` throws `RESERVED_FIELD` with the
+   * data block. The test does not use `phase`, because `handleUpdate` rejects it earlier with
+   * `INVALID_INPUT`. The test accepts a string or `null` for `alternateWritePath`.
+   */
   it('Update_WithReservedTopLevelField_ReturnsStructuredErrorData', async () => {
     const stateDir = await fs.mkdtemp(
       path.join(os.tmpdir(), 'outcome-reserved-fields-'),
@@ -113,11 +103,6 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
       );
       expect(initResult.success).toBe(true);
 
-      // `workflowType` is top-level immutable. Routes through `applyDotPath`,
-      // which throws `RESERVED_FIELD` with structured data. (`phase` is
-      // intercepted earlier in `handleUpdate` with INVALID_INPUT, by design
-      // — phase has its own HSM-aware error path. We test the canonical
-      // RESERVED_FIELD branch via a different top-level immutable.)
       const updateResult = await handleUpdate(
         { featureId, updates: { workflowType: 'debug' } },
         stateDir,
@@ -127,17 +112,11 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
       expect(updateResult.success).toBe(false);
       expect(updateResult.error?.code).toBe('RESERVED_FIELD');
 
-      // `ReservedFieldErrorData` rides on the error at runtime but is absent
-      // from the envelope's declared error shape, so it is reached by
-      // narrowing rather than by asserting a property the type denies.
       const errData = reservedFieldData(updateResult.error);
       expect(errData, 'no typed data block on the RESERVED_FIELD error').toBeDefined();
       expect(errData?.rejectedPath).toBe('workflowType');
       expect(typeof errData?.rule).toBe('string');
       expect(String(errData?.rule).length).toBeGreaterThan(0);
-      // alternateWritePath may be a populated string or null; both shapes
-      // are contract-compliant per `ReservedFieldErrorData`. For
-      // `workflowType` the descriptor provides a populated alternate.
       const altPath = errData?.alternateWritePath;
       expect(altPath === null || typeof altPath === 'string').toBe(true);
       if (typeof altPath === 'string') {
@@ -148,6 +127,11 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
     }
   });
 
+  /**
+   * A key that starts with `_` is reserved for projection and event-store metadata. The `rule` of
+   * the error is the `underscorePrefixRule` of the descriptor, and its `^_.*` entry gives the
+   * alternate path. The test asserts the type of each value, not its text.
+   */
   it('Update_WithUnderscorePrefixedField_ReturnsStructuredErrorData', async () => {
     const stateDir = await fs.mkdtemp(
       path.join(os.tmpdir(), 'outcome-reserved-fields-underscore-'),
@@ -163,11 +147,6 @@ describe('reserved-fields discoverability outcome (#1360)', () => {
       );
       expect(initResult.success).toBe(true);
 
-      // Underscore-prefixed keys are reserved for projection / event-store
-      // metadata. The descriptor's `underscorePrefixRule` is surfaced as
-      // the `rule` text on the structured error, and the `^_.*` regex
-      // entry in `alternateWritePaths` provides the redirect to the
-      // typed-event surface.
       const updateResult = await handleUpdate(
         { featureId, updates: { _meta: 'x' } },
         stateDir,

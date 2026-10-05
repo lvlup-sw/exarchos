@@ -1,41 +1,14 @@
 /**
- * Task 025 — Skill render snapshot tests.
+ * Snapshot tests for the rendered `SKILL.md` files under `rendered/skills`.
  *
- * Captures the full contents of every generated `SKILL.md` render as a
- * vitest snapshot so any renderer change that affects output becomes
- * visible as a PR diff. Post-collapse the tree has two render surfaces:
+ * A procedural skill renders one time, to `standard/<skill>/SKILL.md`. An orchestration skill
+ * (`ideate`, `delegate`, `refactor`) renders one time for each runtime, to
+ * `<runtime>/<skill>/SKILL.md`. Each rendered file has one snapshot, so a renderer change that
+ * changes the output shows as a snapshot diff.
  *
- *   - Procedural skills render ONCE to `skills/standard/<skill>/SKILL.md`
- *     (runtime-neutral) — snapshotted once under the `standard` group.
- *   - Orchestration skills (`ideate`, `delegate`, `refactor`) render
- *     per-runtime to `skills/<runtime>/<skill>/SKILL.md` — snapshotted
- *     once per runtime.
- *
- * Two tests:
- *
- *   1. `Snapshots_AllSkillsAllRuntimes_MatchBaseline` — walks the
- *      committed tree and calls `toMatchSnapshot()` once per SKILL.md,
- *      grouped by render dir (`standard` + each runtime) via `describe()`
- *      blocks for readability.
- *
- *   2. `Snapshots_RegenerationPath_Deterministic` — rebuilds the entire
- *      skills tree into a fresh tmpdir via `buildAllSkills()` and
- *      asserts byte-for-byte equality against the committed
- *      `skills/<dir>/<skill>/SKILL.md` files (standard + every runtime).
- *      This catches non-determinism in the renderer that would otherwise
- *      slip past snapshot matching (snapshots only flag drift relative to
- *      a prior run, not drift between two runs of the same source).
- *
- * On the very first run the snapshot baseline does not yet exist, so the
- * top-level `Snapshots_BaselineFile_Present` check fails (and `-u` must
- * be used to seed). After seeding, CI runs without `-u` and any output
- * drift surfaces as a failing snapshot assertion in the PR diff.
- *
- * Excludes `skills/test-fixtures/` and `skills/trigger-tests/` — those
- * are validator fixtures, not deployable skills, and their contents are
- * covered by dedicated validator tests.
- *
- * Implements: Testing Strategy > Snapshot tests.
+ * A second test builds the tree again and compares it with the committed tree, byte for byte. The
+ * snapshot walk skips a directory with the name `test-fixtures` or `trigger-tests`, because such a
+ * directory holds no deployable skill.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -64,22 +37,19 @@ const RUNTIME_NAMES = [
   'opencode',
 ] as const;
 
-// Render directories under `skills/` that hold generated SKILL.md files.
-// Procedural skills collapse to a single `standard/` render; orchestration
-// skills render per-runtime. Snapshots cover both surfaces so drift in
-// either is visible in the PR diff. `standard` is listed first so its group
-// sorts ahead of the per-runtime groups in the snapshot file.
+/**
+ * The directories under `rendered/skills` that hold rendered `SKILL.md` files: `standard`, then one
+ * for each runtime.
+ */
 const RENDER_DIRS = ['standard', ...RUNTIME_NAMES] as const;
 
-/** Subdirectories under `skills/` that are NOT runtime outputs. */
+/** Directory names under `rendered/skills` that are not render output. */
 const NON_RUNTIME_DIRS = new Set(['test-fixtures', 'trigger-tests']);
 
 /**
- * Return every `SKILL.md` path (absolute) under `skills/<runtime>/` as
- * `{runtime, skill, absolutePath, relativePath}` tuples, sorted by
- * `(runtime, skill)` so snapshot ordering is deterministic across
- * filesystems. `relativePath` is relative to `REPO_ROOT` and used as
- * the snapshot key so the snapshot file is self-describing.
+ * Returns each rendered `SKILL.md` file, sorted by render directory and then by skill, so the order
+ * does not depend on the filesystem. `relativePath` is relative to the repo root, with forward
+ * slashes. It is the snapshot name.
  */
 function listGeneratedSkillFiles(): Array<{
   runtime: string;
@@ -132,10 +102,8 @@ function listGeneratedSkillFiles(): Array<{
 }
 
 /**
- * Walk `root` and return a map of relative-path -> file contents for
- * every regular file under it. Used by the deterministic-regeneration
- * test to compare two trees byte-for-byte. Paths are returned relative
- * to `root` with forward slashes so the comparison is platform-stable.
+ * Returns the content of each regular file under `root`, keyed by its path relative to `root` with
+ * forward slashes. The regeneration test compares two trees with it.
  */
 function snapshotTreeContents(root: string): Map<string, Buffer> {
   const out = new Map<string, Buffer>();
@@ -163,20 +131,11 @@ function snapshotTreeContents(root: string): Map<string, Buffer> {
   return out;
 }
 
-// -----------------------------------------------------------------------------
-// Pre-check: snapshot baseline must exist.
-// -----------------------------------------------------------------------------
-//
-// Vitest auto-creates snapshot files on first run, which means
-// `toMatchSnapshot()` never fails on a cold cache. That would break
-// the RED → GREEN transition for this task: the tests would pass
-// before the baseline was ever committed, and a subsequent drift
-// would be invisible because there was never a real baseline to
-// compare against.
-//
-// This describe block exists solely to force a true failure until
-// the snapshot file has been seeded (`vitest run -u`) and committed.
-// Once committed, the check passes on every subsequent run.
+/**
+ * Vitest writes a snapshot file that does not exist, so `toMatchSnapshot()` passes when there is no
+ * baseline. This check fails until the snapshot file exists. An operator seeds the file with
+ * `vitest run -u` and commits it.
+ */
 describe('task 025 — snapshot baseline presence', () => {
   it('Snapshots_BaselineFile_Present', () => {
     expect(
@@ -188,15 +147,10 @@ describe('task 025 — snapshot baseline presence', () => {
   });
 });
 
-// -----------------------------------------------------------------------------
-// Test 1: Snapshots_AllSkillsAllRuntimes_MatchBaseline
-// -----------------------------------------------------------------------------
-
+/** One `describe` group for each render directory, so a failure shows which directory drifted. */
 describe('task 025 — per-runtime snapshot baselines', () => {
   const allFiles = listGeneratedSkillFiles();
 
-  // Group files by runtime so the snapshot output is easy to scan and
-  // per-runtime drift is visually isolated in a failing PR diff.
   const byRuntime = new Map<string, typeof allFiles>();
   for (const rt of RENDER_DIRS) byRuntime.set(rt, []);
   for (const f of allFiles) {
@@ -204,19 +158,11 @@ describe('task 025 — per-runtime snapshot baselines', () => {
     byRuntime.get(f.runtime)!.push(f);
   }
 
+  /**
+   * Guards the total count. 16 procedural skills render one time to `standard`, and 3
+   * orchestration skills render for each of 6 runtimes: 16 + 18 = 34.
+   */
   it('Snapshots_AllSkillsAllRuntimes_SetCardinality', () => {
-    // Guard against silent drift in the total count. History: the plan
-    // assumed 16 × 6 = 96; the initial migration landed 13 × 6 = 78; #1010
-    // added prune + oneshot (15 × 6 = 90); v2.8.0 added discovery (16 × 6);
-    // v2.9.0 added merge-orchestrator (17 × 6 = 102); v2.10.0 added
-    // authoring-invariants (18 × 6 = 108); v2.11.0 added mutation-adequacy
-    // (19 × 6 = 114), then collapsed spec-review + quality-review into one
-    // `review` (18 × 6 = 108).
-    //
-    // The harness conform-and-shrink collapse then split rendering by class:
-    // 16 procedural skills render ONCE to `skills/standard/` (the
-    // `workflow-state` skill split into `rehydrate` + `checkpoint`), and 3
-    // orchestration skills render per-runtime (3 × 6 = 18). 16 + 18 = 34.
     expect(allFiles.length).toBe(34);
   });
 
@@ -227,8 +173,6 @@ describe('task 025 — per-runtime snapshot baselines', () => {
       for (const file of runtimeFiles) {
         it(`Snapshots_AllSkillsAllRuntimes_MatchBaseline: ${file.relativePath}`, () => {
           const contents = readFileSync(file.absolutePath, 'utf8');
-          // Use the relative path as the snapshot name so the snapshot
-          // file is self-describing and diffs cite the exact source.
           expect(contents).toMatchSnapshot(file.relativePath);
         });
       }
@@ -236,18 +180,14 @@ describe('task 025 — per-runtime snapshot baselines', () => {
   }
 });
 
-// -----------------------------------------------------------------------------
-// Test 2: Snapshots_RegenerationPath_Deterministic
-// -----------------------------------------------------------------------------
-
 describe('task 025 — deterministic regeneration', () => {
+  /**
+   * Builds the full skills tree into a temp directory. Each render directory must hold the same
+   * files as the committed tree, with the same bytes. The snapshot tests read only the committed
+   * files, so they cannot show a renderer that is not deterministic. On a byte mismatch, the test
+   * compares the UTF-8 text, so the failure shows a readable diff.
+   */
   it('Snapshots_RegenerationPath_Deterministic', () => {
-    // Rebuild the entire skills tree into a throwaway tmpdir and
-    // assert that every render-dir subtree (`standard/` plus each
-    // runtime) is byte-identical to the committed `skills/<dir>/`
-    // subtree. This catches non-determinism in the renderer (e.g. a
-    // Map iteration order leak or a `Date.now()` reference) that
-    // snapshot matching alone would miss after the first `-u` seed.
     const tmpRoot = mkdtempSync(join(tmpdir(), 'exarchos-snap-det-'));
     try {
       buildAllSkills({
@@ -260,8 +200,6 @@ describe('task 025 — deterministic regeneration', () => {
         const committed = snapshotTreeContents(join(SKILLS_DIR, runtime));
         const rebuilt = snapshotTreeContents(join(tmpRoot, runtime));
 
-        // Key sets must match exactly — any missing or extra file is a
-        // regression.
         const committedKeys = [...committed.keys()].sort();
         const rebuiltKeys = [...rebuilt.keys()].sort();
         expect(
@@ -269,13 +207,10 @@ describe('task 025 — deterministic regeneration', () => {
           `runtime ${runtime}: file set differs from committed tree`,
         ).toEqual(committedKeys);
 
-        // Byte-for-byte comparison of every file.
         for (const key of committedKeys) {
           const a = committed.get(key)!;
           const b = rebuilt.get(key)!;
           if (!a.equals(b)) {
-            // Surface a readable diff instead of a raw buffer mismatch
-            // so CI failures are debuggable without rerunning locally.
             expect(
               b.toString('utf8'),
               `runtime ${runtime}, file ${key}: content differs from committed tree`,

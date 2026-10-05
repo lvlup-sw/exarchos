@@ -1,44 +1,16 @@
 /**
- * Task 016 — Batch migration tests for the simple skills.
+ * Render tests for the batch of simple skills that have their source under `content/`.
  *
- * After the canary proof on brainstorming/ideate (task 015), this wave
- * migrated the remaining simple skills into `content/<name>/` sources.
- * The renderer must produce byte-identical renders for every one of them,
- * and must never leak Claude-specific syntax into the runtime-neutral
- * fallback variant.
+ * The render path depends on the class of the skill:
+ * - A procedural skill renders once, to the runtime-neutral `standard/<name>/SKILL.md`.
+ * - An orchestration skill renders for each runtime, to `<runtime>/<name>/SKILL.md`.
  *
- * Post-collapse the render PATH depends on the skill's class:
- *
- *   - Procedural skills render ONCE to `skills/standard/<name>/SKILL.md`
- *     (runtime-neutral). Of this batch, `refactor` is the only exception.
- *   - Orchestration skills render per-runtime to
- *     `skills/<runtime>/<name>/SKILL.md`; `refactor` is orchestration.
- *
- * The `workflow-state` skill split into `rehydrate` + `checkpoint`;
- * `implementation-planning` → `plan`; `synthesis` → `synthesize`. The
- * baseline fixtures are named after the canonical verbs.
- *
- * Three assertions cover the batch wave:
- *
- *   1. `BatchMigration_AllTenSkills_ClaudeVariantByteIdenticalToBaseline` —
- *      for every migrated skill, the render at its class-resolved path
- *      (procedural → `skills/standard/<name>/`, orchestration →
- *      `skills/claude/<name>/`) MUST be byte-identical to the captured
- *      baseline in `__fixtures__/batch-baselines/<name>.md`. If this
- *      assertion fails for any skill, the placeholder insertion for that
- *      source is wrong — fix the source, not the renderer.
- *
- *   2. `BatchMigration_AllTenSkills_GenericVariantNoClaudePrefixes` —
- *      the runtime-neutral variant (procedural → `standard`,
- *      orchestration → `generic`) must NOT contain any Claude-native
- *      substitution artifacts: `mcp__plugin_exarchos_exarchos__`,
- *      `/exarchos:`, or `Skill({`.
- *
- *   3. `BatchMigration_NoUnresolvedPlaceholders_InAnyVariant` —
- *      scan every generated `SKILL.md` render (standard + per-runtime)
- *      for residual `{{...}}` tokens. Zero residuals allowed.
- *
- * Implements: DR-1, DR-8.
+ * The three tests assert:
+ * 1. The render at the class path is byte-identical to the baseline in
+ *    `__fixtures__/batch-baselines/<name>.md`.
+ * 2. The runtime-neutral variant holds no Claude-native text: `mcp__plugin_exarchos_exarchos__`,
+ *    `/exarchos:` or `Skill({`.
+ * 3. No rendered `SKILL.md` holds an unresolved `{{...}}` token.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -61,11 +33,10 @@ const BASELINE_DIR = join(
 
 type SkillClass = 'procedural' | 'orchestration';
 
-// The simple skills migrated by task 016, keyed by canonical verb and
-// classified so the test can resolve each render path. Brainstorming/ideate
-// (the canary, task 015) has its own test file. `refactor` is the only
-// orchestration skill in this batch; the rest render once to `standard`.
-// `workflow-state` split into `rehydrate` + `checkpoint`.
+/**
+ * The skills of the batch by canonical verb, with the class that gives each render path. `refactor`
+ * is the only orchestration skill. The ideate skill has its own test file.
+ */
 const BATCH_SKILLS: ReadonlyArray<{ skill: string; skillClass: SkillClass }> = [
   { skill: 'cleanup', skillClass: 'procedural' },
   { skill: 'debug', skillClass: 'procedural' },
@@ -89,15 +60,12 @@ const RUNTIME_NAMES = [
   'cursor',
 ];
 
-// Render directories under the build output: procedural skills collapse to
-// `standard/`, orchestration skills render per-runtime. Used by the
-// no-unresolved-placeholders scan to cover every rendered SKILL.md.
+/** The render directories under the build output. The placeholder scan reads each one. */
 const RENDER_DIRS = ['standard', ...RUNTIME_NAMES];
 
 /**
- * Resolve the byte-identical render path for a skill: procedural skills
- * render once to `skills/standard/<skill>/`, orchestration skills render
- * per-runtime — `claude` is the reference variant compared to the baseline.
+ * Gives the path of the render that the test compares with the baseline. A procedural skill renders
+ * once under `standard`. For an orchestration skill, `claude` is the reference variant.
  */
 function baselineRenderPath(outDir: string, skill: string, skillClass: SkillClass): string {
   const tree = skillClass === 'procedural' ? 'standard' : 'claude';
@@ -105,9 +73,8 @@ function baselineRenderPath(outDir: string, skill: string, skillClass: SkillClas
 }
 
 /**
- * Resolve the runtime-neutral variant path: procedural skills expose only
- * the `standard` render; orchestration skills expose a `generic` fallback.
- * Both must be free of Claude-native substitution artifacts.
+ * Gives the path of the runtime-neutral variant: `standard` for a procedural skill and `generic`
+ * for an orchestration skill.
  */
 function neutralRenderPath(outDir: string, skill: string, skillClass: SkillClass): string {
   const tree = skillClass === 'procedural' ? 'standard' : 'generic';
@@ -128,10 +95,7 @@ function buildIntoTemp(): string {
   return outDir;
 }
 
-/**
- * Walk a directory tree and return every file path (absolute) whose
- * basename is `SKILL.md`. Used by the no-unresolved-placeholders scan.
- */
+/** Walks a directory tree and returns the absolute path of each file named `SKILL.md`. */
 function findAllSkillMdFiles(root: string): string[] {
   const out: string[] = [];
   if (!existsSync(root)) return out;
@@ -162,23 +126,27 @@ function findAllSkillMdFiles(root: string): string[] {
   return out;
 }
 
+/** Removes each temp directory. The removal is best-effort, so the hook ignores a failure. */
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;
     try {
       rmrf(d);
     } catch {
-      // best-effort cleanup
     }
   }
 });
 
 describe('task 016 — batch migration of simple skills', () => {
+  /**
+   * Each baseline is a committed copy of the render. An intended change of a skill source or of the
+   * renderer must also update the baseline. The loop collects each mismatch, so one run shows each
+   * broken source. Then the test asserts on the first broken skill, so vitest prints the string
+   * diff.
+   */
   it('BatchMigration_AllTenSkills_ClaudeVariantByteIdenticalToBaseline', () => {
     const outDir = buildIntoTemp();
 
-    // Collect all mismatches before failing so a single run surfaces
-    // every broken source at once, rather than one-at-a-time discovery.
     const failures: string[] = [];
     for (const { skill, skillClass } of BATCH_SKILLS) {
       const baselinePath = join(BASELINE_DIR, `${skill}.md`);
@@ -196,8 +164,6 @@ describe('task 016 — batch migration of simple skills', () => {
       }
     }
 
-    // If anything failed, assert on the first skill so vitest prints the
-    // offending diff with its built-in string comparator.
     if (failures.length > 0) {
       const firstFailure = failures[0];
       if (firstFailure === undefined) throw new Error('unreachable: failures is non-empty here');
@@ -223,8 +189,6 @@ describe('task 016 — batch migration of simple skills', () => {
       expect(existsSync(neutralOut)).toBe(true);
       const rendered = readFileSync(neutralOut, 'utf8');
 
-      // None of these Claude-specific artifacts may leak into the
-      // runtime-neutral variant via missed placeholder substitution.
       expect(
         rendered,
         `${skill}: neutral variant contains Claude plugin MCP prefix`,
@@ -242,21 +206,20 @@ describe('task 016 — batch migration of simple skills', () => {
     }
   });
 
+  /**
+   * The scan reads each rendered `SKILL.md` in the `standard` tree and in each runtime tree. The
+   * full tree is 16 procedural renders plus 3 orchestration skills for 6 runtimes, which is 34
+   * files. The lower bound catches a renderer that stops emitting a tree.
+   */
   it('BatchMigration_NoUnresolvedPlaceholders_InAnyVariant', () => {
     const outDir = buildIntoTemp();
 
-    // Walk every rendered `SKILL.md` produced this run — the collapsed
-    // `standard/` tree plus each per-runtime tree — and assert that no
-    // `{{TOKEN}}` residuals survived rendering.
     const residualPattern = /\{\{\w+/;
     const allFiles: string[] = [];
     for (const dir of RENDER_DIRS) {
       allFiles.push(...findAllSkillMdFiles(join(outDir, dir)));
     }
 
-    // Sanity: the full render tree is 16 procedural (standard) + 3
-    // orchestration × 6 runtimes = 34 files. Guard the lower bound so a
-    // renderer that silently stops emitting a tree is caught.
     expect(allFiles.length).toBeGreaterThanOrEqual(34);
 
     const offenders: string[] = [];

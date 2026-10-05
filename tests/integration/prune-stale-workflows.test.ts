@@ -1,20 +1,15 @@
-// ─── T15: End-to-End Integration Test — Prune Stale Workflows ───────────────
+// End-to-end integration test for the prune of stale workflows.
 //
-// Complements the unit tests in
-// `verbs/team/prune-stale-workflows.test.ts` by exercising the handler
-// against real on-disk state files via `handleInit`/`handleCancel` plus a
-// real `EventStore` rooted at a `mkdtemp` directory. The only seams we
-// stub are the safeguards (`hasOpenPR`, `hasRecentCommits`) — everything
-// else is production wiring.
+// The unit tests in `tests/unit/verbs/team/prune-stale-workflows.test.ts` stub the handler
+// dependencies. This test runs the handler on real state files, through `handleInit`, `handleList`
+// and `handleCancel`, with a real `EventStore` in a `mkdtemp` directory. The stubs are the
+// safeguards (`hasOpenPR`, `hasRecentCommits`), the branch name and the two second-signal readers.
 //
-// What this test exists to catch that the unit test can't:
-//   1. `handleList`'s state-file reader produces the exact `_checkpoint`
-//      shape `selectPruneCandidates` expects (no schema drift).
-//   2. Direct JSON mutation of `_checkpoint.lastActivityTimestamp` is
-//      round-tripped through `readStateFile` cleanly.
-//   3. `handleCancel` flips phase to `cancelled` on disk.
-//   4. `workflow.pruned` events land in the real event stream and are
-//      queryable via `EventStore.query`.
+// The test pins what the unit tests cannot:
+//   1. `handleList` returns the `_checkpoint` shape that `selectPruneCandidates` reads.
+//   2. A direct JSON edit of `_checkpoint.lastActivityTimestamp` survives the state-file reader.
+//   3. `handleCancel` sets the phase to `cancelled` on disk.
+//   4. `workflow.pruned` events reach the real event stream, and `EventStore.query` returns them.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -37,15 +32,10 @@ import {
 } from '../../src/workflow/topology/loader.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /**
- * Direct write-through mutation of `_checkpoint.lastActivityTimestamp` on
- * an already-initialized state file. We deliberately read the JSON, patch
- * the nested field, and write it back rather than going through any helper
- * — the whole point of an integration test is to simulate what the
- * filesystem looks like after the workflow has been idle for N days,
- * without relying on the production write path.
+ * Writes `_checkpoint.lastActivityTimestamp` directly into a state file. The direct write
+ * simulates an idle workflow without the production write path. It also backdates
+ * `_checkpoint.timestamp`, so no other reader sees a fresh write.
  */
 async function backdateCheckpoint(
   stateDir: string,
@@ -60,8 +50,6 @@ async function backdateCheckpoint(
     throw new Error(`State file for ${featureId} missing _checkpoint`);
   }
   checkpoint.lastActivityTimestamp = timestamp;
-  // Also backdate the top-level timestamp so nothing else in the read path
-  // flags it as freshly written.
   checkpoint.timestamp = timestamp;
   await fs.writeFile(stateFile, JSON.stringify(parsed, null, 2), 'utf-8');
 }
@@ -75,9 +63,12 @@ async function readPhase(stateDir: string, featureId: string): Promise<string> {
 }
 
 /**
- * Build a PruneHandlerDeps bundle that uses real `handleList`/`handleCancel`
- * (wired to the temp stateDir and real EventStore) but injects stubbed
- * safeguards. Branch name is read via the default handler path.
+ * Builds deps with the real `handleList` and `handleCancel`, on the temp state directory and the
+ * real EventStore, and with stub safeguards.
+ * - `readBranchName` always returns a branch. A workflow from `handleInit` has no `branchName`, and
+ *   the handler skips the safeguards for a workflow with no branch.
+ * - The two second-signal readers return `undefined`, because the tests seed no
+ *   `workflow.transition` events and no branches. Selection then uses `lastActivity` only.
  */
 function makeRealDeps(
   stateDir: string,
@@ -92,60 +83,36 @@ function makeRealDeps(
         dir,
         eventStore,
       ),
-    // Workflows initialized via `handleInit` don't carry a `branchName`
-    // field at the top level, so safeguards would be short-circuited. Force
-    // a non-undefined value so safeguard stubs are actually consulted.
     readBranchName: async (featureId) => `feat/${featureId}`,
     safeguards,
-    // C8 (#1117): integration tests don't seed `workflow.transition` events
-    // or fixture branches; default to "no signal" so `selectPruneCandidates`
-    // stays on the legacy single-signal path it was authored against.
     readPhaseTransitionTimestamp: async () => undefined,
     readBranchActivityTimestamp: async () => undefined,
   };
 }
 
-// ─── Fixtures ───────────────────────────────────────────────────────────────
-
 let tmpDir: string;
 let eventStore: EventStore;
 let ctx: DispatchContext;
 
-// NB: `handleInit` stamps `lastActivityTimestamp` to "now". Fresh workflows
-// use that stamp; stale workflows get their checkpoint overwritten
-// post-init via `backdateCheckpoint`.
+/**
+ * Gives the ISO time `days` days before the current time. `handleInit` stamps
+ * `lastActivityTimestamp` with the current time. A fresh workflow keeps that stamp, and
+ * `backdateCheckpoint` overwrites it for a stale workflow.
+ */
 function daysAgoIso(days: number): string {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 }
 
 /**
- * NOTE — handler bug fixed by this integration test:
- *
- * `handleList` in `workflow/tools.ts` now includes `_checkpoint` on each
- * entry so that `extractListEntries` in the prune handler can read
- * `lastActivityTimestamp` directly. Before the fix, `_checkpoint` was
- * stripped and `extractListEntries` fell back to `new Date(0)` (the
- * epoch), which made every non-terminal workflow look maximally stale and
- * silently disabled the freshness filter in production.
- *
- * The `pruneIntegration_respectsThresholdInProduction` test below pins
- * that wiring: it uses real `handleInit` + real `handleList` (no stubs)
- * and backdates only one workflow, then asserts only the backdated
- * workflow is pruned. If `handleList` ever stops returning `_checkpoint`
- * the fresh workflows would re-collapse to the epoch and this test would
- * start pruning them too — regression protection for T15.
+ * The handler reads the typed staleness contract from a loaded topology. The hook writes a minimal
+ * `topology.yaml` that gives each phase in it a `lastActivity` threshold of 14 days (20160
+ * minutes), and loads it.
  */
-
 beforeEach(async () => {
   tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'prune-integration-'));
   eventStore = new EventStore(tmpDir);
   ctx = { stateDir: tmpDir, eventStore, enableTelemetry: false };
 
-  // #1334 (β-07): the handler now reads the typed PhaseContract from a
-  // loaded `Topology`. Write a minimal topology.yaml to the temp state
-  // dir and load it before exercising the handler. The contract uses a
-  // 14-day `lastActivity` threshold to match the integration tests'
-  // existing single-signal expectations.
   __resetTopologyCacheForTesting();
   const topologyPath = path.join(tmpDir, 'topology.yaml');
   const topologyYaml = `
@@ -202,21 +169,15 @@ afterEach(async () => {
   __resetTopologyCacheForTesting();
 });
 
-// ─── Test 1: Dry-run then apply ─────────────────────────────────────────────
-
 describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
+  /**
+   * The test cancels `terminal-wf-1` before the prune run, so the terminal-phase filter excludes
+   * it. `stale-wf-2` and `stale-wf-3` are 30 and 20 days old. The safeguards always pass, so
+   * selection is the only filter. A dry run must omit `pruned`, because `[]` reads as an apply run
+   * that pruned nothing. The dry run must not change the state on disk. The apply run uses
+   * `force: true`, which skips the safeguards and records `skippedSafeguards` on the event.
+   */
   it('lists 2 stale candidates on dry-run and cancels them on apply', async () => {
-    // Arrange: three workflows.
-    //   terminal-wf-1 — initialized then cancelled (terminal; excluded by
-    //                   the pure selector's terminal-phase filter)
-    //   stale-wf-2    — initialized, then backdated to 30 days ago
-    //   stale-wf-3    — initialized, then backdated to 20 days ago
-    //
-    // Why `terminal-wf-1` instead of a "fresh" one? See the handler-bug
-    // note above — `handleList` doesn't return `_checkpoint`, so the
-    // freshness filter is currently a no-op. We rely on terminal-phase
-    // exclusion to prove the handler actually filters *something* in the
-    // end-to-end path.
     for (const featureId of ['terminal-wf-1', 'stale-wf-2', 'stale-wf-3']) {
       const initResult = await handleInit(
         { featureId, workflowType: 'feature' },
@@ -228,8 +189,6 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
     await backdateCheckpoint(tmpDir, 'stale-wf-2', daysAgoIso(30));
     await backdateCheckpoint(tmpDir, 'stale-wf-3', daysAgoIso(20));
 
-    // Flip terminal-wf-1 into the 'cancelled' terminal phase BEFORE the
-    // prune run, using the real `handleCancel` path.
     const preCancelResult = await handleCancel(
       { featureId: 'terminal-wf-1', reason: 'pre-test-setup' },
       tmpDir,
@@ -238,21 +197,18 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
     expect(preCancelResult.success).toBe(true);
     expect(await readPhase(tmpDir, 'terminal-wf-1')).toBe('cancelled');
 
-    // Sanity: the two stale workflows are still non-terminal at this point.
     for (const featureId of ['stale-wf-2', 'stale-wf-3']) {
       const phase = await readPhase(tmpDir, featureId);
       expect(phase).not.toBe('cancelled');
       expect(phase).not.toBe('completed');
     }
 
-    // Stubbed safeguards — always clear so selection is the only filter.
     const safeguards: PruneSafeguards = {
       hasOpenPR: async () => false,
       hasRecentCommits: async () => false,
     };
     const deps = makeRealDeps(tmpDir, eventStore, safeguards);
 
-    // Act: dry-run phase.
     const dryRunResult = await handlePruneStaleWorkflows(
       { dryRun: true },
       tmpDir,
@@ -260,27 +216,21 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
       deps,
     );
 
-    // Assert: dry-run surfaces the two stale workflows as candidates and
-    // excludes terminal-wf-1 (terminal phase filter).
     expect(dryRunResult.success).toBe(true);
     const dryData = dryRunResult.data as PruneHandlerResult;
     const dryIds = dryData.candidates.map((c) => c.featureId).sort();
     expect(dryIds).toEqual(['stale-wf-2', 'stale-wf-3']);
     expect(dryIds).not.toContain('terminal-wf-1');
-    // Dry-run must omit `pruned` entirely — surfacing `[]` would blur the
-    // distinction between "preview" and "nothing was pruned in apply mode".
     expect(dryData.pruned).toBeUndefined();
     expect(dryData.skipped).toEqual([]);
 
-    // Disk state must be untouched after dry-run.
-    expect(await readPhase(tmpDir, 'terminal-wf-1')).toBe('cancelled'); // unchanged
+    expect(await readPhase(tmpDir, 'terminal-wf-1')).toBe('cancelled');
     for (const featureId of ['stale-wf-2', 'stale-wf-3']) {
       const phase = await readPhase(tmpDir, featureId);
       expect(phase).not.toBe('cancelled');
       expect(phase).not.toBe('completed');
     }
 
-    // Act: apply phase, `force: true` bypasses safeguards entirely.
     const applyResult = await handlePruneStaleWorkflows(
       { dryRun: false, force: true },
       tmpDir,
@@ -288,7 +238,6 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
       deps,
     );
 
-    // Assert: both stale workflows cancelled on disk.
     expect(applyResult.success).toBe(true);
     const applyData = applyResult.data as PruneHandlerResult;
     const prunedIds = applyData.pruned.map((p) => p.featureId).sort();
@@ -298,7 +247,6 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
     expect(await readPhase(tmpDir, 'stale-wf-2')).toBe('cancelled');
     expect(await readPhase(tmpDir, 'stale-wf-3')).toBe('cancelled');
 
-    // Assert: workflow.pruned events landed in the real event stream.
     const staleEvents2 = await eventStore.query('stale-wf-2', {
       type: 'workflow.pruned',
     });
@@ -311,11 +259,8 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
       featureId: 'stale-wf-2',
       triggeredBy: 'manual',
     });
-    // force:true causes the skippedSafeguards marker to be recorded.
     expect(staleEvents2[0]?.data).toHaveProperty('skippedSafeguards');
 
-    // terminal-wf-1 should have NO workflow.pruned event in its stream
-    // (it was excluded from candidates).
     const terminalEvents = await eventStore.query('terminal-wf-1', {
       type: 'workflow.pruned',
     });
@@ -323,12 +268,13 @@ describe('pruneIntegration_dryRunThenApply_cleansStaleWorkflows', () => {
   });
 });
 
-// ─── Test 2: open-PR safeguard gates one of the candidates ──────────────────
-
 describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
+  /**
+   * The three workflows are all past the threshold. The run has no `force`, so the handler asks
+   * the safeguards about each one. Only `stale-wf-2` has an open PR. The skipped workflow stays
+   * non-terminal on disk and gets no `workflow.pruned` event.
+   */
   it('skips the candidate with an open PR and prunes the other', async () => {
-    // Arrange: three stale workflows. All past threshold; no `force`, so
-    // safeguards are consulted for each.
     for (const featureId of ['stale-wf-1', 'stale-wf-2', 'stale-wf-3']) {
       const initResult = await handleInit(
         { featureId, workflowType: 'feature' },
@@ -339,14 +285,12 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
       await backdateCheckpoint(tmpDir, featureId, daysAgoIso(30));
     }
 
-    // Stub only `stale-wf-2` as having an open PR.
     const safeguards: PruneSafeguards = {
       hasOpenPR: async (featureId: string) => featureId === 'stale-wf-2',
       hasRecentCommits: async () => false,
     };
     const deps = makeRealDeps(tmpDir, eventStore, safeguards);
 
-    // Act: apply mode (safeguards engaged).
     const result = await handlePruneStaleWorkflows(
       { dryRun: false },
       tmpDir,
@@ -354,7 +298,6 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
       deps,
     );
 
-    // Assert: stale-wf-2 was skipped, the other two were pruned.
     expect(result.success).toBe(true);
     const data = result.data as PruneHandlerResult;
     const prunedIds = data.pruned.map((p) => p.featureId).sort();
@@ -364,16 +307,13 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
     expect(data.skipped[0]?.featureId).toBe('stale-wf-2');
     expect(data.skipped[0]?.reason).toBe('open-pr');
 
-    // stale-wf-2 still non-terminal on disk (proof: skip did not cancel).
     const skippedPhase = await readPhase(tmpDir, 'stale-wf-2');
     expect(skippedPhase).not.toBe('cancelled');
     expect(skippedPhase).not.toBe('completed');
 
-    // The other two are cancelled.
     expect(await readPhase(tmpDir, 'stale-wf-1')).toBe('cancelled');
     expect(await readPhase(tmpDir, 'stale-wf-3')).toBe('cancelled');
 
-    // And no workflow.pruned event was emitted for the skipped one.
     const skippedEvents = await eventStore.query('stale-wf-2', {
       type: 'workflow.pruned',
     });
@@ -381,18 +321,19 @@ describe('pruneIntegration_safeguardOpenPrSkipsOneCandidate', () => {
   });
 });
 
-// ─── Test 3: Production threshold filter — the regression the bug note warned
-// about. Uses real `handleList` with NO stubs of its own; backdates ONE of
-// three initialized workflows and asserts only that one is pruned. If
-// `handleList` regresses to dropping `_checkpoint`, the two "fresh" workflows
-// would fall through to the epoch and get pruned, making this test fail
-// loudly. That's the exact bug this ticket fixes.
+/**
+ * This case uses the real `handleList` and backdates one of three workflows. The handler must
+ * prune only that workflow. If `handleList` stops returning `_checkpoint`, the handler finds no
+ * valid entry and prunes nothing, so the case fails.
+ */
 describe('pruneIntegration_respectsThresholdInProduction', () => {
+  /**
+   * The test backdates only `stale-c` past the 14-day threshold of the topology. The fresh
+   * workflows must stay non-terminal on disk, with no `workflow.pruned` event.
+   */
   it(
     'handlePruneStaleWorkflows_respectsThresholdInProduction_readingRealStateFiles',
     async () => {
-      // Arrange: three newly-initialized workflows. Only the third is
-      // backdated past the 7-day default threshold.
       for (const featureId of ['fresh-a', 'fresh-b', 'stale-c']) {
         const initResult = await handleInit(
           { featureId, workflowType: 'feature' },
@@ -403,14 +344,12 @@ describe('pruneIntegration_respectsThresholdInProduction', () => {
       }
       await backdateCheckpoint(tmpDir, 'stale-c', daysAgoIso(30));
 
-      // Stubbed safeguards — we want the selection filter to be the only gate.
       const safeguards: PruneSafeguards = {
         hasOpenPR: async () => false,
         hasRecentCommits: async () => false,
       };
       const deps = makeRealDeps(tmpDir, eventStore, safeguards);
 
-      // Act: apply mode with default threshold (10080 min = 7 days).
       const applyResult = await handlePruneStaleWorkflows(
         { dryRun: false, force: true },
         tmpDir,
@@ -418,11 +357,6 @@ describe('pruneIntegration_respectsThresholdInProduction', () => {
         deps,
       );
 
-      // Assert: only stale-c was pruned. fresh-a/fresh-b must remain
-      // non-terminal on disk. This assertion fails against the pre-fix
-      // code because `handleList` dropped `_checkpoint`, making ALL three
-      // workflows appear stale (epoch fallback) and thus all three would
-      // be pruned.
       expect(applyResult.success).toBe(true);
       const applyData = applyResult.data as PruneHandlerResult;
       const prunedIds = applyData.pruned.map((p) => p.featureId).sort();
@@ -435,7 +369,6 @@ describe('pruneIntegration_respectsThresholdInProduction', () => {
         expect(phase).not.toBe('completed');
       }
 
-      // And only stale-c's stream has a workflow.pruned event.
       const staleEvents = await eventStore.query('stale-c', {
         type: 'workflow.pruned',
       });

@@ -1,14 +1,13 @@
 import { describe, it, expect, vi } from 'vitest';
 
-// Mock the registry before importing generate-docs
 vi.mock('../../../src/registry.js', () => ({
   TOOL_REGISTRY: [],
 }));
 
-// Import after mocking
+/** A dynamic import, so the module loads after `vi.mock` replaces the registry with an empty array. */
 const { generateDocsMarkdown } = await import('../../../tools/audit/core/generate-docs.js');
 
-// Helper to generate docs with a custom registry
+/** Replaces the content of the mocked `TOOL_REGISTRY` array in place, then renders the docs. */
 async function generateWithRegistry(registry: unknown[]): Promise<string> {
   const mod = await import('../../../src/registry.js');
   const arr = mod.TOOL_REGISTRY as unknown[];
@@ -30,9 +29,7 @@ describe('generate-docs', () => {
 
       const result = await generateWithRegistry(registry);
 
-      // The pipe in the description should be escaped
       expect(result).toContain('Does this \\| that');
-      // Should NOT contain unescaped pipe within cell content
       expect(result).not.toMatch(/\| Does this \| that \|/);
     });
 
@@ -54,7 +51,6 @@ describe('generate-docs', () => {
 
       const result = await generateWithRegistry(registry);
 
-      // The pipe in the action description should be escaped
       expect(result).toContain('Input \\| Output');
     });
 
@@ -112,7 +108,6 @@ describe('generate-docs', () => {
 
       const result = await generateWithRegistry(registry);
 
-      // All unique phases should appear in the Phase Mappings table
       expect(result).toContain('| delegate |');
       expect(result).toContain('| explore |');
       expect(result).toContain('| ideate |');
@@ -144,7 +139,6 @@ describe('generate-docs', () => {
 
       const result = await generateWithRegistry(registry);
 
-      // Both actions cover all derived phases (alpha, beta), so should show "all"
       expect(result).toContain('| `action_a` | Covers all phases | all |');
       expect(result).toContain('| `action_b` | Also covers all | all |');
     });

@@ -132,6 +132,10 @@ describe('action-contract next_actions — allow-only registry advertisements', 
     expect(ids).not.toContain('retry_with_task');
   });
 
+  /**
+   * `nextActionsFromResult` does not read `designDepth` from the payload. `divergent_loop` is a
+   * control verb in the schema, and it is outside ActionId totality.
+   */
   it('NextActions_DivergentLoop_IsNotAnActionId', () => {
     const hsm = getHSMDefinition('feature');
     const control = nextActionReducer.derive(
@@ -141,8 +145,6 @@ describe('action-contract next_actions — allow-only registry advertisements', 
     const deep = nextActionsFromResult(
       ok({ phase: 'plan', workflowType: 'feature', designDepth: 'deep' }),
     );
-    // designDepth is not lifted from the result payload; the control verb is
-    // still a schema member and is outside ActionId totality.
     expect(control.every((a) => a.verb !== 'divergent_loop' || !('actionId' in a))).toBe(true);
     expect(isControlOwnedVerb('divergent_loop')).toBe(true);
     expect(advertisedFrom(ok(workflowPayload())).map((a) => a.actionId)).not.toContain(

@@ -1,19 +1,14 @@
-// ─── F.2: tools/call carrier integration test (Wave 0, design §7) ──────────
+// Integration test for the `tools/call` carrier.
 //
-// Drives `tools/call` for one read-only action per visible composite tool
-// through the SDK's `InMemoryTransport` pair and asserts the D.1/D.7 carrier
-// contract:
+// The test calls one read-only action of each visible composite tool through the in-memory
+// transport pair of the SDK. It asserts the carrier contract:
 //
-//   1. The response carries BOTH `content[0].text` (the legacy "SHOULD" per
-//      MCP 2025-11-25 Tools/Structured Content) AND `structuredContent`
-//      (the typed envelope payload).
-//   2. `JSON.parse(content[0].text)` deep-equals `structuredContent` — i.e.
-//      no carrier-side reshaping or truncation between the two surfaces.
-//   3. `structuredContent` validates against `EnvelopeSchema(z.unknown())`
-//      from `contract/schemas/envelope.ts`, the per-action contract surface.
-//
-// Failure in any of these would mean the carrier swap has drifted from the
-// design's "both surfaces, exact mirror" contract.
+//   1. The response holds `content[0].text` and `structuredContent`, the typed envelope payload.
+//      The text block is the copy that MCP 2025-11-25 recommends for clients that read only text.
+//   2. `JSON.parse(content[0].text)` deep-equals `structuredContent`, so the carrier does not
+//      reshape or truncate either surface.
+//   3. `structuredContent` parses with `EnvelopeSchema(z.unknown())` from
+//      `src/contract/schemas/envelope.ts`.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -49,12 +44,10 @@ interface ReadOnlyProbe {
   args?: Record<string, unknown>;
 }
 
-// One read-only action per visible composite tool. Each must succeed on a
-// fresh empty state directory — no `init`, no pre-seeded events. The picks:
-//   • exarchos_view.pipeline      — aggregated view, returns empty list.
-//   • exarchos_workflow.describe  — schema introspection, pure metadata.
-//   • exarchos_event.query        — queries an empty stream; returns [].
-//   • exarchos_orchestrate.describe — registry introspection.
+/**
+ * One read-only action for each visible composite tool. Each must succeed on an empty state
+ * directory, with no `init` and no seeded events.
+ */
 const READ_ONLY_PROBES: readonly ReadOnlyProbe[] = [
   { tool: 'exarchos_view', action: 'pipeline' },
   { tool: 'exarchos_workflow', action: 'describe' },
@@ -90,11 +83,11 @@ describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
     ]);
   });
 
+  /** The hook ignores a failure of `client.close()`, so it always removes the temp directory. */
   afterEach(async () => {
     try {
       await client.close();
     } catch {
-      /* ignore */
     }
     await rmrfAsync(tmpDir);
   });
@@ -111,7 +104,6 @@ describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
         arguments: args,
       })) as CallToolEnvelopeResult;
 
-      // 1. Both surfaces present.
       expect(Array.isArray(result.content)).toBe(true);
       expect(result.content!.length).toBeGreaterThan(0);
       const textBlock = result.content![0];
@@ -119,11 +111,9 @@ describe('F.2 — tools/call carrier round-trip (Wave 0 §7)', () => {
       expect(typeof textBlock.text).toBe('string');
       expect(result.structuredContent).toBeDefined();
 
-      // 2. Exact mirror: parsed legacy text equals structuredContent.
       const parsed = JSON.parse(textBlock.text) as Record<string, unknown>;
       expect(parsed).toEqual(result.structuredContent);
 
-      // 3. Envelope schema conformance — the per-action contract surface.
       const envParse = EnvelopeSchema(z.unknown()).safeParse(result.structuredContent);
       expect(
         envParse.success,

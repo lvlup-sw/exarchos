@@ -22,12 +22,12 @@ export class RunStateManager {
     this.finalPath = join(resultsDir, `${runId}.json`);
   }
 
+  /** Loads the partial file. When the file is missing, does not parse, or lacks a required key, the progress starts empty. */
   load(): RunProgress {
     if (existsSync(this.partialPath)) {
       try {
         const raw = readFileSync(this.partialPath, 'utf-8');
         const parsed: unknown = JSON.parse(raw);
-        // Basic validation
         if (
           typeof parsed === 'object' &&
           parsed !== null &&
@@ -40,7 +40,6 @@ export class RunStateManager {
           return this.progress;
         }
       } catch {
-        // Corrupted file — log warning and start fresh
         console.warn(`Warning: corrupted state file at ${this.partialPath}, starting fresh`);
       }
     }
@@ -70,7 +69,6 @@ export class RunStateManager {
 
     this.progress.completed.push({ problemId, arm });
 
-    // Find or create the ProblemResult for this problemId
     let problemResult = this.progress.results.find((r) => r.problemId === problemId);
     if (!problemResult) {
       problemResult = { problemId, title: title ?? problemId, arms: [] };

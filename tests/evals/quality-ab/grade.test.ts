@@ -1,17 +1,12 @@
-// ─── Quality A/B grader tests (#1670 · DR-4/DR-7) ─────────────────────────────
-//
-// Two guarantees:
-//   1. DISCRIMINATION (the point of the mechanical gate): the diff-scoped
-//      kill-probe run by `gradeAdequacy` actually distinguishes a GENUINE test
-//      suite (goes red when the impl is reverted to the stub → "killed" →
-//      score 1) from a VACUOUS one (stays green → "survived" → score 0). This
-//      test drives the REAL `runProbe` gate over a real throwaway git repo — no
-//      injected/fake result — so it also proves the production path (DR-7
-//      fail-honest: the score is measured, never self-reported).
-//   2. CHARACTERIZATION: adding the adequacy column is ADDITIVE — the existing
-//      fully-specified cells (oracle pass rate, typecheck, wroteTests) are byte-
-//      identical to the pre-change grader output captured in `results.json`.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests for the quality A/B grader.
+ *
+ * - Discrimination: `gradeAdequacy` runs the real `runProbe` kill-probe in a temporary git
+ *   repository, with no injected result. A suite that goes red when the implementation reverts
+ *   to the stub scores 1. A suite that stays green scores 0.
+ * - Characterization: `gradeRun` returns the oracle, typecheck and `wroteTests` cells that
+ *   `results.json` holds, and it adds the adequacy cells.
+ */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
@@ -23,26 +18,28 @@ import { gradeAdequacy, gradeRun, type ProbeFn } from './grade.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const QAB = __dirname; // tests/evals/quality-ab
+/** The `tests/evals/quality-ab` directory. */
+const QAB = __dirname;
 
-// Generous per-test timeout: each case spawns git + tsx subprocesses (avoids the
-// vitest 5s default spawn-timeout flake on process-spawning tests).
+/** Each case starts `git` and `tsx` subprocesses, which can take longer than the vitest default. */
 const SUBPROCESS_TIMEOUT = 120_000;
-// gradeAdequacy/gradeRun spawn `tsx`/`git` (oracle run + diff-scoped mutation
-// gate). Dev-only Linux-oriented eval tooling — the npm `.cmd` shims don't spawn
-// cleanly on win32 — so these subprocess suites are skipped there and covered on
-// the Linux lane.
+/**
+ * `gradeAdequacy` and `gradeRun` start `tsx` and `git`. The npm `.cmd` shims do not start cleanly
+ * on win32, so both suites skip there.
+ */
 const WIN32 = process.platform === 'win32';
 
-// ── fixture sources for the discrimination test ──────────────────────────────
 const STUB = `export function add(a: number, b: number): number {\n  throw new Error('not implemented');\n}\n`;
 const IMPL = `export function add(a: number, b: number): number {\n  return a + b;\n}\n`;
-// GENUINE: calls add() and asserts its result → red when impl reverts to stub.
+/** Calls `add()` and asserts its result, so it goes red when the implementation reverts to the stub. */
 const GENUINE_TEST = `import assert from 'node:assert/strict';\nimport { add } from './impl.ts';\nassert.equal(add(2, 3), 5);\nassert.equal(add(-1, 1), 0);\nconsole.log('ok');\n`;
-// VACUOUS: imports the module but asserts NOTHING about add() → stays green under
-// the revert (the classic non-binding suite the kill-probe must catch).
+/** Imports the module and asserts nothing about `add()`, so it stays green when the implementation reverts. */
 const VACUOUS_TEST = `import assert from 'node:assert/strict';\nimport './impl.ts';\nassert.equal(1 + 1, 2);\nconsole.log('ok');\n`;
 
+/**
+ * The fixture holds three runs over one implementation: a genuine suite, a vacuous suite, and a
+ * run with no test file. The run with no test file must get no score, not a score of 0.
+ */
 describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-4/DR-7)', () => {
   let fixtureRoot: string;
   let tasksDir: string;
@@ -68,8 +65,6 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
       fs.writeFileSync(path.join(dir, 'impl.ts'), IMPL);
       fs.writeFileSync(path.join(dir, 'test.ts'), test);
     }
-    // A run that wrote NO tests at all (the N-arm shape) — must be unmeasurable,
-    // never a fabricated 0.
     fs.mkdirSync(notestRunDir, { recursive: true });
     fs.writeFileSync(path.join(notestRunDir, 'impl.ts'), IMPL);
   });
@@ -107,7 +102,6 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
     async () => {
       const genuine = await gradeAdequacy(genuineRunDir, 'add', { tasksDir });
       const vacuous = await gradeAdequacy(vacuousRunDir, 'add', { tasksDir });
-      // The whole reason the mechanical gate exists: the two must differ.
       expect(genuine.score).not.toBe(vacuous.score);
       expect((genuine.score ?? 0) > (vacuous.score ?? 0)).toBe(true);
     },
@@ -125,14 +119,16 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
   );
 });
 
+/**
+ * `fixedProbe` replaces the real kill-probe, so these tests pin the oracle, typecheck and
+ * `wroteTests` cells without the timing of the probe. The real probe derives `passed` and
+ * `disposition` from `verdict`, so the stand-in states all three consistently.
+ *
+ * The baseline is the committed `results.json`. `beforeAll` copies the csv-line task and the first
+ * run directory of each arm to a temporary tree. Thus the grader writes its oracle copy outside
+ * the committed fixtures.
+ */
 describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, existing cells unchanged', () => {
-  // Deterministic probe seam so this test pins the EXISTING metrics (oracle /
-  // typecheck / wroteTests) without depending on the real kill-probe's timing;
-  // the real gate's correctness is covered by the discrimination suite above.
-  // `verdict` is the authority on a `ProbeResult`; `passed` and `disposition`
-  // are derived from it and were simply absent from this double, which predates
-  // that union. Stating all three consistently keeps the stand-in from
-  // asserting a shape the real probe can never produce.
   const fixedProbe: ProbeFn = async () => ({
     verdict: { kind: 'passed', probedTests: ['test.ts'] },
     passed: true,
@@ -142,8 +138,6 @@ describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, exi
     restoredClean: true,
   });
 
-  // The pre-change grader output committed at `results.json` — the baseline the
-  // additive change must not perturb.
   const baseline = JSON.parse(
     fs.readFileSync(path.join(QAB, 'results.json'), 'utf-8'),
   ) as { results: Array<{ run: string; oraclePassed: number; oracleTotal: number; oracleFailures: string[]; typecheckOk: boolean; wroteTests: boolean }> };
@@ -152,8 +146,6 @@ describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, exi
 
   beforeAll(() => {
     workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qab-char-'));
-    // Copy the committed csv-line task + its E/N run dirs into a scratch tree so
-    // the grader's transient oracle copy never touches the committed fixtures.
     fs.cpSync(path.join(QAB, 'tasks', 'csv-line'), path.join(workRoot, 'tasks', 'csv-line'), { recursive: true });
     for (const run of ['csv-line__E__r1', 'csv-line__N__r1']) {
       fs.cpSync(path.join(QAB, 'runs', run), path.join(workRoot, 'runs', run), { recursive: true });
@@ -177,14 +169,12 @@ describe.skipIf(WIN32)('gradeRun — characterization: adequacy is additive, exi
           probe: fixedProbe,
         });
 
-        // EXISTING cells — byte-identical to the captured baseline.
         expect(result.oraclePassed).toBe(base!.oraclePassed);
         expect(result.oracleTotal).toBe(base!.oracleTotal);
         expect(result.oracleFailures).toEqual(base!.oracleFailures);
         expect(result.typecheckOk).toBe(base!.typecheckOk);
         expect(result.wroteTests).toBe(base!.wroteTests);
 
-        // NEW cell — additive, present alongside the unchanged ones.
         expect(result).toHaveProperty('adequacyScore');
         expect(result).toHaveProperty('adequacyProbed');
       },

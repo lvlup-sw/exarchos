@@ -1,14 +1,14 @@
-// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.4 (T4.7)
 import { describe, it, expect } from 'vitest';
 import { withHermeticEnv } from '../../helpers/hermetic.js';
 import { spawnMcpClient } from '../../helpers/mcp-client.js';
 
 describe('exarchos mcp', () => {
+  /**
+   * `spawnMcpClient` starts `exarchos mcp` and resolves only after the `initialize` handshake.
+   * `listTools` then shows that the server registered its tools.
+   */
   it('mcp_start_acceptsInitializeOverStdio', async () => {
     await withHermeticEnv(async () => {
-      // spawnMcpClient defaults to `exarchos mcp`; the resolve path runs the
-      // initialize handshake, so getting here means the binary spoke MCP
-      // over stdio. listTools confirms the registered tool surface is wired.
       const handle = await spawnMcpClient();
       try {
         const resp = await handle.client.listTools();
@@ -19,14 +19,16 @@ describe('exarchos mcp', () => {
     });
   });
 
+  /**
+   * `terminate` closes the client, and the transport then ends the stdin of the child.
+   * If the child stays alive, the transport sends `SIGTERM` and then `SIGKILL`, and `terminate` also sends `SIGKILL`.
+   * The assertion fails only when `SIGKILL` ended the child.
+   * Thus the test measures no time, and it also passes after a `SIGTERM` exit.
+   */
   it('mcp_sigterm_exitsCleanlyWithinThreeSeconds', async () => {
     await withHermeticEnv(async () => {
       const handle = await spawnMcpClient();
       await handle.terminate();
-      // The fixture's terminate() sends SIGTERM via client.close (which
-      // closes stdio), waits for natural exit, and only escalates to
-      // SIGKILL after a 3s grace. A clean exit means the child caught
-      // the stdio close and shut down before the grace fired.
       expect(handle.server.signalCode).not.toBe('SIGKILL');
     });
   });

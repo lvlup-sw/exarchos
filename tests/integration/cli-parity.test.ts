@@ -1,17 +1,11 @@
-// ─── F.3: CLI ↔ MCP parity (Wave 0, design §7) ─────────────────────────────
-//
-// Drives the SAME read-only action via two carriers and asserts that the
-// shared dispatch core surfaces structurally identical payloads (modulo
-// masks for timestamps + IDs that legitimately drift across calls):
-//
-//   • CLI in-process: `buildCli(ctx).parseAsync([..., 'vw', 'ls', '--json'])`
-//     with `process.stdout.write` hijacked to capture the JSON line.
-//   • In-process MCP `tools/call` → `structuredContent`.
-//
-// Both carriers share the same `DispatchContext` and the same backing
-// state directory, so the payload differences are purely carrier-side
-// shaping (envelope-wrapping for MCP, raw ToolResult for CLI under
-// `--json`).
+/**
+ * CLI and MCP parity. The tests run the same read-only action through two carriers and compare the payloads.
+ * A mask removes the timestamps and the ids that differ between calls.
+ * - CLI, in-process: `buildCli(ctx).parseAsync([..., 'vw', 'ls', '--json'])`, with `process.stdout.write` captured.
+ * - MCP, in-process: `tools/call`, read from `structuredContent`.
+ *
+ * Both carriers share one `DispatchContext` and one state directory, so a payload difference comes from the carrier.
+ */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -37,10 +31,8 @@ import {
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 /**
- * Strip fields that vary across invocations (`_perf`, `updatedAt`,
- * `timestamp`, hex-id-looking strings under `id`) so two carriers can be
- * compared structurally. Conservative on what it removes — only fields
- * whose semantic role is "transient" are dropped; everything else stays.
+ * Removes the fields that differ between calls, so that the payloads of two carriers compare structurally.
+ * It removes `_perf`, `updatedAt`, `timestamp`, and an `id` string that looks like a hex id. Every other field stays.
  */
 function maskNondeterministic(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(maskNondeterministic);
@@ -85,17 +77,16 @@ describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
     try {
       await client.close();
     } catch {
-      /* ignore */
     }
     await rmrfAsync(tmpDir);
   });
 
+  /**
+   * The CLI arm uses `buildCli` in-process, not a spawned `tsx`, so both arms use the SQLite backend alias of the vitest process.
+   * `exitOverride` stops a Commander parse exit from ending the test worker.
+   * The test compares the two arms on `success` and on the masked `data` only.
+   */
   it('CliParity_VwLs_DataLevelMatch_AcrossCarriers', async () => {
-    // CLI arm: hijack stdout, drive `buildCli(...).parseAsync(['vw','ls',
-    // '--json'])`, capture the JSON line. Using buildCli rather than
-    // spawning `tsx` keeps the test hermetic (no bun:sqlite vs better-
-    // sqlite3 substrate divergence — both arms run under the vitest
-    // process with the same backend alias in vitest.config.ts).
     const chunks: string[] = [];
     const stdoutSpy = vi
       .spyOn(process.stdout, 'write')
@@ -105,63 +96,46 @@ describe('F.3 — CLI ↔ MCP parity (Wave 0 §7)', () => {
       });
     try {
       const program = buildCli(ctx);
-      // ExitOverride keeps a Commander parse exit from killing the test
-      // worker; the action handler still sets process.exitCode for
-      // observability but does not call process.exit().
       program.exitOverride();
       await program.parseAsync(['node', 'exarchos', 'vw', 'ls', '--json']);
     } finally {
       stdoutSpy.mockRestore();
     }
 
-    // The CLI emits a single JSON line for `--json`. Concatenate captured
-    // chunks (commander/printers may split) and JSON.parse the result.
     const cliRaw = chunks.join('').trim();
     expect(cliRaw.length).toBeGreaterThan(0);
     const cliPayload = JSON.parse(cliRaw) as Record<string, unknown>;
 
-    // MCP arm: drive the same action via tools/call.
     const mcpResult = (await client.callTool({
       name: 'exarchos_view',
       arguments: { action: 'pipeline' },
     })) as { structuredContent?: Record<string, unknown> };
     expect(mcpResult.structuredContent).toBeDefined();
 
-    // Both must succeed.
     expect(cliPayload.success).toBe(true);
     expect((mcpResult.structuredContent as { success: boolean }).success).toBe(true);
 
-    // The CLI emits raw ToolResult (`{success, data, ...}`); MCP emits the
-    // envelope (`{success, data, next_actions, _meta, _perf, ...}`).
-    // Compare the shared invariants: success + masked data.
     const cliData = (cliPayload.data ?? {}) as Record<string, unknown>;
     const mcpData = ((mcpResult.structuredContent as { data?: Record<string, unknown> })
       .data ?? {}) as Record<string, unknown>;
     expect(maskNondeterministic(cliData)).toEqual(maskNondeterministic(mcpData));
   });
 
-  // INV-2: CLI `--format json` stdout MUST carry the same envelope as MCP
-  // structuredContent (modulo masks for transient fields). With PR-B (#1368)
-  // wiring `toCliResult(toEnvelope(...))` into `emitResult`, both arms now
-  // surface envelope-shaped output. The W2 harness mirrors that on the MCP
-  // side (`callMcp` returns `toEnvelope(dispatch(...))`), so this test is a
-  // deep-equal `Envelope<unknown>` ↔ `Envelope<unknown>` comparison after
-  // normalization.
+  /**
+   * The JSON stdout of the CLI must carry the same envelope as MCP `structuredContent`, apart from the transient fields.
+   * `emitResult` prints `toCliResult(toEnvelope(...))`, and the harness `callMcp` returns `toEnvelope(dispatch(...))`.
+   * So the test deep-compares two envelopes after `normalize` replaces timestamps and UUIDs and removes `_perf` and `updatedAt`.
+   * The fixture is the `pipeline` view: CLI alias `ls` on tool `vw`, and MCP `exarchos_view` with `action: 'pipeline'`.
+   */
   it('CliParity_VwLs_ByteEqualEnvelope_AcrossCarriers', async () => {
-    // Same fixture as the data-level test above: `pipeline` view, CLI
-    // alias `ls` on tool `vw`, MCP `exarchos_view { action: 'pipeline' }`.
     const cliCall = await harnessCallCli(ctx, 'vw', 'ls', {});
     const mcpEnvelope = await harnessCallMcp(ctx, 'exarchos_view', {
       action: 'pipeline',
     });
 
-    // Sanity: both arms must report success.
     expect(cliCall.result.success).toBe(true);
     expect(mcpEnvelope.success).toBe(true);
 
-    // Normalize the full envelope on both sides — strips `_perf`,
-    // `_meta.updatedAt`, ISO timestamps, and UUIDs to stable placeholders
-    // so two independent invocations produce byte-equal trees.
     const normalizeOpts = {
       timestampPlaceholder: '<ISO>' as const,
       uuidPlaceholder: '<UUID>' as const,

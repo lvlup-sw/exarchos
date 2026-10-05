@@ -1,17 +1,13 @@
-// ─── Exp 2 native-baseline spike harness tests (#1670 · DR-3 / DR-7) ──────────
-//
-// Two guarantees, both bound to a REAL captured transcript:
-//   1. PARSER FIDELITY (DR-3): against a recorded stream-json fixture from an
-//      actual `claude -p` delegation run, the parser extracts per-subagent model
-//      + tokens + tool behavior correctly, and computes the model distribution
-//      that answers the spike's core question ("distinct per-subagent models, or
-//      inherited one?"). The fixture is a faithful trim of a real 2026-07-09 run:
-//      3 `general-purpose` subagents, all on `claude-sonnet-5`.
-//   2. FAIL-HONEST (DR-7): a transcript where native never delegated yields a
-//      BLOCKED record that carries the reason/fallbacks and — critically — has NO
-//      `modelDistribution`. The harness NEVER fabricates a distribution, even when
-//      the transcript carries a session-wide `result.modelUsage` aggregate.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests for the native-baseline harness, over three captured `claude -p` transcripts in
+ * `fixtures/`.
+ *
+ * - Parser: the harness extracts the model and the tokens of each subagent, and it computes the
+ *   model distribution. Each delegation fixture holds three `general-purpose` subagents on
+ *   `claude-sonnet-5`.
+ * - Blocked outcome: a transcript with no delegation gives a `blocked` record. The record holds
+ *   the reason and no `modelDistribution`, even when the transcript has a `result.modelUsage`.
+ */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -43,8 +39,7 @@ const DELEG_TRANSCRIPT = fs.readFileSync(
   path.join(FIXTURES, 'delegation-sonnet-3subagents.jsonl'),
   'utf-8',
 );
-// Second real variant: subagents dispatched, but their assistant messages were
-// NOT streamed to the parent transcript (per-message model attribution absent).
+/** The second captured shape: the subagents ran, but the transcript holds none of their `assistant` messages. */
 const NOTIF_ONLY_TRANSCRIPT = fs.readFileSync(
   path.join(FIXTURES, 'delegation-sonnet-notification-only.jsonl'),
   'utf-8',
@@ -78,8 +73,6 @@ const PROV: Provenance = {
   date: '2026-07-09',
 };
 
-// ─── 1. Parser fidelity against the real captured transcript (DR-3) ───────────
-
 describe('extractSubagents — recorded `claude -p` delegation fixture (DR-3)', () => {
   it('parses the stream-json transcript with no malformed lines', () => {
     const { events, malformed } = parseStreamJson(DELEG_TRANSCRIPT);
@@ -102,32 +95,27 @@ describe('extractSubagents — recorded `claude -p` delegation fixture (DR-3)', 
   it('attributes the model native assigned to EACH subagent DIRECTLY (all claude-sonnet-5 — inherited)', () => {
     const { events } = parseStreamJson(DELEG_TRANSCRIPT);
     const subs = extractSubagents(events);
-    // The headline observation: every subagent ran on the SAME model as the
-    // session — native inherited it, it did not route a mix.
     expect(subs.map((s) => s.model)).toEqual([
       'claude-sonnet-5',
       'claude-sonnet-5',
       'claude-sonnet-5',
     ]);
-    // Variant A: read DIRECTLY from streamed assistant messages.
     expect(subs.every((s) => s.modelSource === 'assistant')).toBe(true);
   });
 
+  /** The captured notifications hold the totals 42423, 42423 and 42438. */
   it('attributes per-subagent token spend from the task_notification totals', () => {
     const { events } = parseStreamJson(DELEG_TRANSCRIPT);
     const subs = extractSubagents(events);
-    // Real totals from the captured notifications (42423 / 42423 / 42438).
     const totals = subs.map((s) => s.tokens.total);
     for (const t of totals) expect(t).toBeGreaterThan(40_000);
     expect(totals).toContain(42438);
-    // Per-message input/output were also summed from the subagent's own assistant messages.
     for (const s of subs) expect(s.tokens.input).toBeGreaterThan(0);
   });
 
   it('does NOT misattribute the main agent (parent_tool_use_id=null) as a subagent', () => {
     const { events } = parseStreamJson(DELEG_TRANSCRIPT);
     const subs = extractSubagents(events);
-    // Only the three real dispatches — the main-agent messages (parent=null) are excluded.
     expect(subs).toHaveLength(3);
     expect(subs.every((s) => s.toolUseId.length > 0)).toBe(true);
   });
@@ -139,20 +127,18 @@ describe('computeModelDistribution — the spike headline (DR-3)', () => {
     const dist = computeModelDistribution(extractSubagents(events));
     expect(dist.perModel).toEqual({ 'claude-sonnet-5': 3 });
     expect(dist.distinctModelCount).toBe(1);
-    expect(dist.inheritsSingleModel).toBe(true); // ← answers "distinct or inherited?"
+    expect(dist.inheritsSingleModel).toBe(true);
     expect(dist.unattributed).toBe(0);
     expect(dist.attributionMode).toBe('per-subagent');
   });
 
   it('flags a mix as NOT inherited (guards the boolean against a false positive)', () => {
-    // Synthetic control: if native ever routed a mix, inheritsSingleModel must go false.
     const mixed = computeModelDistribution([sub('claude-opus-4', 'assistant'), sub('claude-haiku-4-5', 'assistant')]);
     expect(mixed.distinctModelCount).toBe(2);
     expect(mixed.inheritsSingleModel).toBe(false);
   });
 
   it('does NOT claim inherited-single when a subagent is unattributed (partial capture)', () => {
-    // One resolved, one unresolved → must NOT over-claim a single inherited model.
     const partial = computeModelDistribution([sub('claude-sonnet-5', 'assistant'), sub(null, 'unresolved')]);
     expect(partial.unattributed).toBe(1);
     expect(partial.inheritsSingleModel).toBe(false);
@@ -160,15 +146,12 @@ describe('computeModelDistribution — the spike headline (DR-3)', () => {
   });
 });
 
-// ── The second real variant: notification-only (per-message attribution absent) ──
 describe('resolveSubagentModels — session-single fallback (DR-3, robustness)', () => {
   it('detects the 3 subagents even when their assistant messages were not streamed', () => {
     const { events } = parseStreamJson(NOTIF_ONLY_TRANSCRIPT);
     const raw = extractSubagents(events);
     expect(raw).toHaveLength(3);
-    // Direct per-message attribution is ABSENT in this variant → model null.
     expect(raw.every((s) => s.model === null && s.modelSource === 'unresolved')).toBe(true);
-    // But token totals still come through the task_notification.
     expect(raw.every((s) => (s.tokens.total ?? 0) > 40_000)).toBe(true);
   });
 
@@ -183,7 +166,6 @@ describe('resolveSubagentModels — session-single fallback (DR-3, robustness)',
   it('leaves a subagent UNRESOLVED when the session used more than one model (never guesses)', () => {
     const { events } = parseStreamJson(NOTIF_ONLY_TRANSCRIPT);
     const raw = extractSubagents(events);
-    // A multi-model session gives no unambiguous single model → stay unresolved.
     const resolved = resolveSubagentModels(raw, { 'claude-opus-4': {}, 'claude-sonnet-5': {} });
     expect(resolved.every((s) => s.model === null && s.modelSource === 'unresolved')).toBe(true);
   });
@@ -207,8 +189,6 @@ describe('extractSessionModelUsage', () => {
     expect(usage['claude-sonnet-5']?.outputTokens).toBeGreaterThan(0);
   });
 });
-
-// ─── 2. Record routing: measured vs. honest-blocked (DR-3 / DR-7) ─────────────
 
 describe('buildNativeBaselineRecord — measured branch (DR-3)', () => {
   it('produces a MEASURED record with the derived distribution when native delegated', () => {
@@ -238,31 +218,27 @@ describe('buildNativeBaselineRecord — fail-honest blocked branch (DR-7)', () =
     expect(record.subagents).toHaveLength(0);
   });
 
+  /**
+   * The no-delegation fixture holds a `result.modelUsage` with one haiku entry. The record must
+   * not turn that entry into a distribution, because the distribution counts subagents and the
+   * transcript shows none.
+   */
   it('NEVER fabricates a model distribution on the blocked path — even with a session modelUsage present', () => {
-    // The no-delegation fixture DOES carry a session-wide result.modelUsage
-    // aggregate (a single haiku entry). A dishonest harness could lift that into
-    // a "distribution"; this one must refuse — the distribution is per-SUBAGENT
-    // and none were observed.
     const { events } = parseStreamJson(NO_DELEG_TRANSCRIPT);
     expect(extractSessionModelUsage(events)['claude-haiku-4-5-20251001']).toBeDefined();
 
     const record = buildNativeBaselineRecord({ events, specRef: 'x' });
     expect(record.outcome).toBe('blocked');
-    // The structural fail-honest guarantee: a blocked record has NO distribution field.
     expect('modelDistribution' in record).toBe(false);
     expect(Object.prototype.hasOwnProperty.call(record, 'modelDistribution')).toBe(false);
   });
 
   it('is the ONLY outcome reachable without observed delegation (no measured-with-zero-subagents)', () => {
-    // There is no argument that turns an empty transcript into a measured
-    // distribution — the builder always routes zero-subagent input to blocked.
     const empty = buildNativeBaselineRecord({ events: [], specRef: 'x' });
     expect(empty.outcome).toBe('blocked');
     expect('modelDistribution' in empty).toBe(false);
   });
 });
-
-// ─── 3. Provenance stamping + honesty guard (DR-7, via Task 001) ──────────────
 
 describe('finalizeRecord — pins provenance and rejects modeled substitutes (DR-7)', () => {
   it('stamps provenance onto a measured record', () => {
@@ -294,8 +270,6 @@ describe('finalizeRecord — pins provenance and rejects modeled substitutes (DR
   });
 });
 
-// ─── 4. CSV emission (raw data for Task 007) ──────────────────────────────────
-
 describe('toDistributionCsv', () => {
   it('emits per-(subagent_type,model) counts for a measured record', () => {
     const { events } = parseStreamJson(DELEG_TRANSCRIPT);
@@ -311,8 +285,6 @@ describe('toDistributionCsv', () => {
     expect(csv).not.toMatch(/claude-/);
   });
 });
-
-// ─── 5. Pure prompt + argv builders ───────────────────────────────────────────
 
 describe('buildDelegationPrompt / buildClaudeArgs', () => {
   it('embeds the spec as the plan and instructs Task-tool delegation', () => {
@@ -340,8 +312,7 @@ describe('buildDelegationPrompt / buildClaudeArgs', () => {
   });
 });
 
-// ─── 6. Live driver via injected runner (DI — never spawns claude) ────────────
-
+/** Each test injects a runner, so no test starts the real `claude` CLI. */
 describe('runNativeBaseline — driver over an injected runner (DR-3 / DR-7)', () => {
   it('returns a MEASURED record when the runner yields a delegation transcript', async () => {
     const runner: ClaudeRunner = async () => ({ stdout: DELEG_TRANSCRIPT, stderr: '', exitCode: 0 });

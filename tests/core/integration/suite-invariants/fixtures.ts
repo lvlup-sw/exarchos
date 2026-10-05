@@ -1,33 +1,27 @@
-// ─── Detector fixtures ──────────────────────────────────────────────────────
+// Detector fixtures.
 //
-// Synthetic test SOURCES, held as strings, used to prove every detector in
-// `detectors.ts` is capable of both firing and not firing. This is the
-// anti-vacuity mechanism for the corpus sweep: "0 violations across 920 files"
-// only means something if the detector that produced the 0 has been shown, in
-// the same run, to produce a 1 on a positive and a 0 on a matched negative.
+// Synthetic test sources, held as strings. They prove that each detector in
+// `detectors.ts` can fire and can stay silent. A sweep that reports zero
+// violations has meaning only with proof from the same run. The proof is a 1
+// on a positive fixture and a 0 on its matched negative.
 //
-// These live in a NON-`.test.ts` module on purpose. The corpus scanner
-// enumerates `*.test.ts` only, and several fixtures below deliberately contain
-// the exact defects the detectors look for. If they lived inside
-// `suite-invariants.test.ts`, the meta-test would flag ITSELF — the string
-// bodies are visible to the could-not-run detector, which must read string
-// literals because verdicts are usually strings.
-//
-// Every fixture pairs a POSITIVE (must fire) with a NEGATIVE (must not).
+// The fixtures live in a module that is not a `.test.ts` file. The corpus scan
+// lists `*.test.ts` files only, and some fixtures hold the defects that the
+// detectors look for. `checkCouldNotRunVerdicts` reads string bodies, so the
+// same strings inside a test block of `suite-invariants.test.ts` make the
+// meta-test flag itself.
 
-/** Every fixture carries this so it is in scope by assertion shape. */
+/** An assertion that puts a fixture in scope by its shape. */
 const IN_SCOPE_ASSERTION = `  it('SomeCensusClaim', () => {
     expect(missing).toEqual([]);
   });`;
-
-// ─── R1–R4: the @oracle-sources family ──────────────────────────────────────
 
 /** POSITIVE for `oracle-sources-missing`: in scope, declares nothing. */
 export const FIXTURE_NO_ANNOTATION = `import { it, expect } from 'vitest';
 ${IN_SCOPE_ASSERTION}
 `;
 
-/** NEGATIVE: asserts nothing DR-30 cares about, so no annotation is owed. */
+/** NEGATIVE: the source matches no covered shape, so it owes no annotation. */
 export const FIXTURE_OUT_OF_SCOPE = `import { it, expect } from 'vitest';
   it('AddsTwoNumbers', () => {
     expect(add(1, 2)).toBe(3);
@@ -40,18 +34,17 @@ export const FIXTURE_SINGLE_AUTHORITY = `import { it, expect } from 'vitest';
 ${IN_SCOPE_ASSERTION}
 `;
 
-/** POSITIVE: two names, one authority — the same module written twice. */
+/** POSITIVE: two names for one authority, because the same module is written twice. */
 export const FIXTURE_SAME_AUTHORITY_TWICE = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./corpus.js
 ${IN_SCOPE_ASSERTION}
 `;
 
 /**
- * POSITIVE for `oracle-sources-derived`. `registry.ts` statically imports
- * `legacy-shape-debt.ts`, so the second authority is reachable from the first
- * in the real import graph — one authority wearing two names. This uses REAL
- * modules in this directory, so the graph walk is exercised against a real
- * edge rather than a mocked one.
+ * POSITIVE for `oracle-sources-derived`. `registry.ts` imports
+ * `legacy-shape-debt.ts`, so the second authority is reachable from the first.
+ * Both are real modules in this directory, so the graph walk runs on a real
+ * edge.
  */
 export const FIXTURE_DERIVED_AUTHORITIES = `import { it, expect } from 'vitest';
 // @oracle-sources: ./registry.ts, ./legacy-shape-debt.ts
@@ -59,9 +52,8 @@ ${IN_SCOPE_ASSERTION}
 `;
 
 /**
- * NEGATIVE. `corpus.ts` (reads the filesystem) and `registry.ts` (hand-written
- * data, import-free apart from the generated list) do not reach each other in
- * either direction. Two genuine authorities.
+ * NEGATIVE. `corpus.ts` reads the filesystem, and `registry.ts` holds
+ * hand-written data. Neither reaches the other in the import graph.
  */
 export const FIXTURE_INDEPENDENT_AUTHORITIES = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
@@ -74,21 +66,19 @@ export const FIXTURE_UNRESOLVABLE_AUTHORITY = `import { it, expect } from 'vites
 ${IN_SCOPE_ASSERTION}
 `;
 
-/** NEGATIVE: opaque (non-path) labels are allowed and counted as distinct. */
+/** NEGATIVE: two non-path labels are valid and count as distinct authorities. */
 export const FIXTURE_OPAQUE_AUTHORITIES = `import { it, expect } from 'vitest';
 // @oracle-sources: compiled-binary-stdio, live-TOOL_REGISTRY
 ${IN_SCOPE_ASSERTION}
 `;
 
-/** POSITIVE: two opaque labels registered as a derivation pair. */
+/** POSITIVE: two non-path labels that `KNOWN_DERIVATIONS` registers as a derivation pair. */
 export const FIXTURE_KNOWN_DERIVED_LABELS = `import { it, expect } from 'vitest';
 // @oracle-sources: TOOL_REGISTRY, contract-drift-baseline
 ${IN_SCOPE_ASSERTION}
 `;
 
-// ─── R5: a blocking claim must declare the seam its kill fixture kills ──────
-
-/** POSITIVE: raises the claim, declares no seam. */
+/** POSITIVE: the block raises the claim and declares no seam. */
 export const FIXTURE_BLOCKING_WITHOUT_SEAM = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
   /**
@@ -100,7 +90,7 @@ export const FIXTURE_BLOCKING_WITHOUT_SEAM = `import { it, expect } from 'vitest
   });
 `;
 
-/** NEGATIVE: the established NEGATIVE TWIN convention names the seam. */
+/** NEGATIVE: the `NEGATIVE TWIN` marker names the seam. */
 export const FIXTURE_BLOCKING_WITH_TWIN = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
   /**
@@ -114,7 +104,7 @@ export const FIXTURE_BLOCKING_WITH_TWIN = `import { it, expect } from 'vitest';
   });
 `;
 
-/** NEGATIVE: the explicit annotation form. */
+/** NEGATIVE: the `@kill-seam` annotation names the seam. */
 export const FIXTURE_BLOCKING_WITH_KILL_SEAM = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
   /**
@@ -128,9 +118,9 @@ export const FIXTURE_BLOCKING_WITH_KILL_SEAM = `import { it, expect } from 'vite
 `;
 
 /**
- * POSITIVE: a bare rule with no words after it. A decorative
- * `── NEGATIVE TWIN ──` divider is not a declaration of anything, and this is
- * the case that separates "declares the seam" from "contains the phrase".
+ * POSITIVE: a bare `NEGATIVE TWIN` divider with no words after it. The divider
+ * declares no seam. This case separates "declares the seam" from "contains the
+ * phrase".
  */
 export const FIXTURE_BLOCKING_WITH_EMPTY_TWIN = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
@@ -142,9 +132,7 @@ export const FIXTURE_BLOCKING_WITH_EMPTY_TWIN = `import { it, expect } from 'vit
   });
 `;
 
-// ─── R6: no `passed === true` on a could-not-run verdict ────────────────────
-
-/** POSITIVE: the asserted expression is itself a could-not-run verdict. */
+/** POSITIVE: the asserted expression is itself a verdict that did not run. */
 export const FIXTURE_PASSED_TRUE_INLINE = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
   it('Gate_WhenToolchainAbsent_IsReportedAsPassing', () => {
@@ -153,7 +141,7 @@ export const FIXTURE_PASSED_TRUE_INLINE = `import { it, expect } from 'vitest';
   });
 `;
 
-/** POSITIVE: bound to a could-not-run verdict, then asserted as a pass. */
+/** POSITIVE: the block binds a verdict that did not run, then asserts a pass. */
 export const FIXTURE_PASSED_TRUE_BY_BINDING = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
   it('Gate_WhenToolchainAbsent_IsReportedAsPassing', () => {
@@ -164,14 +152,11 @@ export const FIXTURE_PASSED_TRUE_BY_BINDING = `import { it, expect } from 'vites
 `;
 
 /**
- * NEGATIVE — and the most important one. This is the shape of the two REAL
- * corpus tests (`verbs/pure/static-analysis.test.ts` and
- * `verbs/gates/test-adequacy.production-path.test.ts`) that deliberately BUILD
- * a could-not-run carrier in order to prove the system refuses to read it as a
- * pass. An earlier draft of R6 keyed on "an object literal carrying both
- * markers" and flagged exactly those two, i.e. it punished the tests that
- * already enforce the property. The rule keys on the ASSERTED CLAIM instead,
- * and this fixture pins that.
+ * NEGATIVE, and the most important one. Two corpus tests have this shape:
+ * `tests/unit/verbs/gates/static-analysis.test.ts` and
+ * `tests/unit/verbs/gates/test-adequacy.production-path.test.ts`. Each builds
+ * a carrier of a verdict that did not run, to prove that the system does not
+ * read it as a pass. R6 keys on the asserted claim, so it does not flag them.
  */
 export const FIXTURE_COULD_NOT_RUN_NEGATIVE_FIXTURE = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
@@ -183,9 +168,7 @@ export const FIXTURE_COULD_NOT_RUN_NEGATIVE_FIXTURE = `import { it, expect } fro
   });
 `;
 
-// ─── R7: the integration tier may not synthesize its own root ───────────────
-
-/** POSITIVE: the exact shortcut T-36 predicted and DR-27 forbids. */
+/** POSITIVE: a cast of an object literal to `DispatchContext`. */
 export const FIXTURE_SYNTHESIZED_CONTEXT = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
   const ctx = {
@@ -196,14 +179,14 @@ export const FIXTURE_SYNTHESIZED_CONTEXT = `import { it, expect } from 'vitest';
 ${IN_SCOPE_ASSERTION}
 `;
 
-/** POSITIVE: mocking away the wiring the tier exists to prove. */
+/** POSITIVE: a `vi.mock` of the wiring that the tier proves. */
 export const FIXTURE_MOCKED_COMPOSITE = `import { it, expect, vi } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
 vi.mock('../../src/dispatch/core/dispatch.js', () => ({ dispatch: vi.fn() }));
 ${IN_SCOPE_ASSERTION}
 `;
 
-/** NEGATIVE: the sanctioned route through the production composition root. */
+/** NEGATIVE: the approved route through the production composition root. */
 export const FIXTURE_HARNESS_DRIVEN = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts
 import { createPublicRootHarness } from '../_harness.js';

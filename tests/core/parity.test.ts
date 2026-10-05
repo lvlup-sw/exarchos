@@ -1,34 +1,14 @@
 /**
- * T045 — Q2 — CLI/MCP parity gate test (all workflow actions).
+ * The CLI and MCP parity gate for the `exarchos_workflow` composite. Each action in `ACTION_TABLE`
+ * must give the same envelope through the CLI adapter and through MCP dispatch, after the
+ * normalization of durations, timestamps and UUIDs.
  *
- * Implements DR-11. One integration test that asserts every action of the
- * `exarchos_workflow` composite emits byte-identical envelope shape (modulo
- * `_perf.ms` jitter and wall-clock timestamps) when invoked via the CLI
- * adapter vs the MCP dispatch entry point.
- *
- * Structure (data-driven): the per-action logic lives in
- * `./parity-actions.ts`:
- *   - `ACTION_TABLE` — the exhaustive list of specs, one per workflow
- *     action.
- *   - `assertActionParity(fixture, spec)` — invokes both adapters against
- *     a shared fixture and asserts normalized byte-equality.
- *   - `setupFixture` / `teardownFixture` — isolated tmp state dirs per run.
- *
- * Why this lives under `tests/` (not `src/workflow/parity.test.ts`):
- *   - `src/workflow/parity.test.ts` (T014) covers three actions (init, get,
- *     set) as a scoped unit of the workflow suite. This file is the
- *     cross-cutting integration gate that is the single source of truth
- *     for "every workflow action preserves parity" — the CI shipping
- *     contract #1109 §2 names. Placing it under `tests/` mirrors the
- *     load-bearing-golden pattern (T052).
- *   - Vitest's config already includes `tests/**\/*.test.ts`, so no config
- *     change is required.
+ * `./parity-actions.ts` holds the table, `assertActionParity` and the fixture helpers. The bare
+ * import of the rehydration barrel registers the reducer with the default projection registry.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-// Side-effect import: registers the rehydration reducer with the default
-// projection registry so the `rehydrate` action resolves.
 import '../../src/projections/rehydration/index.js';
 
 import {
@@ -40,8 +20,6 @@ import {
   type ParityFixture,
 } from './parity-actions.js';
 
-// ─── Fixture ────────────────────────────────────────────────────────────────
-
 let fixture: ParityFixture;
 
 beforeEach(async () => {
@@ -52,13 +30,11 @@ afterEach(async () => {
   await teardownFixture(fixture);
 });
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('CliMcpParity_AllWorkflowActions_ByteIdenticalEnvelope (T045, DR-11)', () => {
-  // Table-driven: each row in `ACTION_TABLE` becomes one test case.
-  // `it.each` gives each generated test a distinct name in the reporter,
-  // so a parity break surfaces as `parity for action "cancel"` rather
-  // than being buried inside a single aggregate test.
+  /**
+   * Each row of `ACTION_TABLE` is one test case with its own name, so a parity break names its
+   * action in the report.
+   */
   it.each(ACTION_TABLE)(
     'parity for action "$action"',
     async (spec) => {
@@ -66,10 +42,10 @@ describe('CliMcpParity_AllWorkflowActions_ByteIdenticalEnvelope (T045, DR-11)', 
     },
   );
 
-  // Exhaustiveness sentinel: fails if a new action is added to the
-  // workflow composite without a corresponding ACTION_TABLE entry. Lives
-  // as its own test so it surfaces in the test report as a named failure
-  // rather than silently dropping coverage.
+  /**
+   * Fails when `ACTION_TABLE` and `WORKFLOW_ACTIONS` hold different action sets. Both lists are in
+   * `parity-actions.ts`, and the test does not read the registry.
+   */
   it('ACTION_TABLE_Covers_All_Workflow_Actions', () => {
     const expected = new Set(WORKFLOW_ACTIONS);
     const covered = new Set(ACTION_TABLE.map((s) => s.action));
