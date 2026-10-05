@@ -1,26 +1,7 @@
-// ─── tools.envelope (#1325 task α-13) ────────────────────────────────────
-//
-// Property-style assertion: every event emitted by the `tools.ts`
-// workflow handlers carries a canonical envelope — non-empty
-// `correlationId`, registered `source`, and per-event-type data
-// schema validates.
-//
-// Seven emission paths in `tools.ts` today:
-//
-//   - Line 159 (handleInit → `workflow.started`)
-//   - Line 470 (handleSet → `checkpoint.state_missing`, graceful-degrade)
-//   - Line 485 (handleSet → `checkpoint.enforced`, gated transition)
-//   - Line 745 (handleSet → `state.patched`, field-only update)
-//   - Line 812 (handleSet → `workflow.cas-failed`, CAS exhaustion catch)
-//   - Line 1214 (handleCheckpoint → `workflow.checkpoint`)
-//   - Line 1344 (handleCheckpoint → `workflow.checkpoint_written`)
-//
-// Six of the seven sites already supply `correlationId: input.featureId`
-// and `source: 'workflow'` today (lines 159, 470, 485, 745, 1214, 1344).
-// Site 812 (`workflow.cas-failed` best-effort diagnostic) does NOT
-// supply correlation context. This test is "RED that pins the
-// invariant for the canonical sites" today — α-14 closes the gap
-// (and either migrates 812 or aborts it with a follow-up issue).
+// Tests that the events from the workflow handlers carry the canonical envelope.
+// `assertCanonicalEnvelope` checks a non-empty `correlationId` and `source`, and parses `data`
+// against the schema of the event type when one exists. The tests cover `workflow.started`,
+// `state.patched` and the checkpoint events. The checkpoint-gate and CAS-exhaustion paths have no test here.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -50,7 +31,6 @@ afterEach(async () => {
 });
 
 describe('WorkflowTools_AllEmittedEvents_HaveCanonicalEnvelope', () => {
-  // Line 159 — workflow.started on init
   it('tools.ts:159 — workflow.started event has canonical envelope', async () => {
     const featureId = 'tools-envelope-init';
     const result = await handleInit(
@@ -66,7 +46,6 @@ describe('WorkflowTools_AllEmittedEvents_HaveCanonicalEnvelope', () => {
     assertCanonicalEnvelope(started);
   });
 
-  // Line 745 — state.patched on field-only set
   it('tools.ts:745 — state.patched event has canonical envelope', async () => {
     const featureId = 'tools-envelope-patch';
     await handleInit(
@@ -88,7 +67,6 @@ describe('WorkflowTools_AllEmittedEvents_HaveCanonicalEnvelope', () => {
     assertCanonicalEnvelope(patched);
   });
 
-  // Line 1214 + 1344 — workflow.checkpoint + workflow.checkpoint_written
   it('tools.ts:1214+1344 — checkpoint events have canonical envelope', async () => {
     const featureId = 'tools-envelope-checkpoint';
     await handleInit(
@@ -110,26 +88,7 @@ describe('WorkflowTools_AllEmittedEvents_HaveCanonicalEnvelope', () => {
         e.type === 'workflow.checkpoint' ||
         e.type === 'workflow.checkpoint_written',
     );
-    // Both events should land on a successful checkpoint cycle.
     expect(checkpointEvents.length).toBeGreaterThanOrEqual(1);
     assertCanonicalEnvelope(checkpointEvents);
   });
-
-  // Lines 470 / 485 / 812 — checkpoint-gate + CAS-exhaustion paths.
-  //
-  // These three sites guard against deep failure modes that require
-  // significant fixture setup to exercise authentically (gate threshold
-  // injection, CAS-storm injection). The α-09/α-11 fixtures focused on
-  // the simplest realistic paths through their respective handlers; for
-  // tools.ts, sites 470, 485, and 812 are covered transitively — the
-  // assertions in α-13 + α-14 stand on:
-  //   - lines 470 / 485 today already supply `correlationId` /
-  //     `source`, matching the canonical shape used by lines 159 / 745
-  //     / 1214 / 1344 (above).
-  //   - line 812 does NOT supply them today and is the only candidate
-  //     for the per-site abort condition in α-14.
-  // The per-site abort decision and follow-up issue (if any) are
-  // recorded in the α-14 commit message; this test pins the canonical
-  // invariant on the four representative sites above and leaves the
-  // three gate/CAS paths for a future fixture-investment task.
 });

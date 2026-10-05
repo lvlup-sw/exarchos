@@ -1,3 +1,5 @@
+// Checks that `handleSet` enforces the checkpoint gate on a phase transition when `operationsSince` is above the threshold.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -10,11 +12,6 @@ import { DEFAULTS } from '../../../src/config/resolve.js';
 import { EventStore } from '../../../src/events/store.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Checkpoint Gate Integration (Task 017) ──────────────────────────────────
-//
-// Verifies that handleSet enforces the checkpoint gate when a phase transition
-// is requested and the checkpoint operationsSince exceeds the configured threshold.
-
 let tmpDir: string;
 
 beforeEach(async () => {
@@ -25,7 +22,7 @@ afterEach(async () => {
   await rmrfAsync(tmpDir);
 });
 
-/** Build a minimal options object that includes checkpoint config. */
+/** Builds `handleSet` options from the default checkpoint config and the given overrides. */
 function makeOptions(checkpointOverrides?: Partial<ResolvedProjectConfig['checkpoint']>) {
   return {
     checkpoint: {
@@ -42,9 +39,6 @@ describe('handleSet checkpoint gate', () => {
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, null);
   }
 
-  /**
-   * Patch the raw state file to set _checkpoint.operationsSince to the desired value.
-   */
   async function setOperationsSince(value: number) {
     const stateFile = path.join(tmpDir, `${featureId}.state.json`);
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
@@ -52,15 +46,14 @@ describe('handleSet checkpoint gate', () => {
     await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
   }
 
+  /** The default threshold is 20. */
   it('workflowSet_PhaseTransitionAboveThreshold_ReturnsCheckpointRequired', async () => {
     await initWorkflow();
-    // Set design artifact to satisfy ideate->plan guard
     await handleSet(
       { featureId, updates: { 'artifacts.design': 'design.md' } },
       tmpDir,
       null,
     );
-    // Push operationsSince above default threshold (20)
     await setOperationsSince(25);
 
     const result = await handleSet(
@@ -81,13 +74,11 @@ describe('handleSet checkpoint gate', () => {
 
   it('workflowSet_PhaseTransitionBelowThreshold_ProceedsNormally', async () => {
     await initWorkflow();
-    // Set design artifact to satisfy ideate->plan guard
     await handleSet(
       { featureId, updates: { 'artifacts.design': 'design.md' } },
       tmpDir,
       null,
     );
-    // operationsSince below threshold
     await setOperationsSince(5);
 
     const result = await handleSet(
@@ -104,10 +95,8 @@ describe('handleSet checkpoint gate', () => {
 
   it('workflowSet_NoPhaseParam_SkipsCheckpointGate', async () => {
     await initWorkflow();
-    // Push operationsSince above threshold
     await setOperationsSince(25);
 
-    // Field-only update (no phase transition) should proceed even above threshold
     const result = await handleSet(
       { featureId, updates: { 'synthesis.status': 'ready' } },
       tmpDir,
@@ -118,8 +107,6 @@ describe('handleSet checkpoint gate', () => {
     expect(result.success).toBe(true);
   });
 
-  // ─── Config wiring integration (Task 019) ──────────────────────────────────
-
   it('workflowSet_ConfiguredThreshold30_UsesConfigValue', async () => {
     await initWorkflow();
     await handleSet(
@@ -128,7 +115,6 @@ describe('handleSet checkpoint gate', () => {
       null,
     );
 
-    // 25 ops — below custom threshold of 30 → proceeds
     await setOperationsSince(25);
     const resultBelow = await handleSet(
       { featureId, phase: 'plan' },
@@ -137,9 +123,6 @@ describe('handleSet checkpoint gate', () => {
       makeOptions({ operationThreshold: 30 }),
     );
     expect(resultBelow.success).toBe(true);
-
-    // Reset back to ideate for next test (since we transitioned to plan)
-    // Re-init for clean state
   });
 
   it('workflowSet_ConfiguredThreshold30_GatesAbove', async () => {
@@ -150,7 +133,6 @@ describe('handleSet checkpoint gate', () => {
       null,
     );
 
-    // 35 ops — above custom threshold of 30 → gated
     await setOperationsSince(35);
     const result = await handleSet(
       { featureId, phase: 'plan' },
@@ -173,7 +155,6 @@ describe('handleSet checkpoint gate', () => {
       null,
     );
 
-    // Way above threshold but enforcement disabled
     await setOperationsSince(100);
     const result = await handleSet(
       { featureId, phase: 'plan' },
@@ -183,8 +164,6 @@ describe('handleSet checkpoint gate', () => {
     );
     expect(result.success).toBe(true);
   });
-
-  // ─── Checkpoint enforcement events (Task 020) ──────────────────────────────
 
   it('workflowSet_CheckpointGateFires_EmitsCheckpointEnforcedEvent', async () => {
     const eventStore = new EventStore(tmpDir);
@@ -208,7 +187,6 @@ describe('handleSet checkpoint gate', () => {
     expect(result.success).toBe(false);
     expect(result.error!.code).toBe('CHECKPOINT_REQUIRED');
 
-    // Verify checkpoint.enforced event was emitted
     const events = await eventStore.query(featureId, { type: 'checkpoint.enforced' as never });
     expect(events.length).toBe(1);
     const eventData = events[0].data as Record<string, unknown>;
@@ -217,18 +195,12 @@ describe('handleSet checkpoint gate', () => {
     expect(eventData.blockedAction).toBe('phase-transition');
   });
 
+  /**
+   * In `handleSet`, Zod defaults fill `_checkpoint`, so this test does not drive the event through `handleSet`.
+   * It checks that `shouldEnforceCheckpoint` returns the `checkpoint-state-missing` warning for a null checkpoint.
+   * Then it appends a `checkpoint.state_missing` event directly to prove that the store accepts the type.
+   */
   it('checkpointStateMissing_EmitsCheckpointStateMissingEvent', async () => {
-    // The checkpoint.state_missing event fires when shouldEnforceCheckpoint
-    // returns warning='checkpoint-state-missing'. In the normal handleSet path,
-    // Zod defaults fill _checkpoint so this path is a safety net for edge cases.
-    //
-    // To verify the event emission code path, we use a state file where
-    // _checkpoint is set to a Zod-invalid shape that gets defaulted back,
-    // but we also directly test the shouldEnforceCheckpoint warning integration
-    // via the unit tests in checkpoint.test.ts.
-    //
-    // Here we verify the structural contract: shouldEnforceCheckpoint with null
-    // returns the expected warning that would trigger event emission.
     const { shouldEnforceCheckpoint } = await import('../../../src/workflow/checkpoint.js');
 
     const result = shouldEnforceCheckpoint(
@@ -240,11 +212,9 @@ describe('handleSet checkpoint gate', () => {
     expect(result.gated).toBe(false);
     expect(result.warning).toBe('checkpoint-state-missing');
 
-    // Verify the event type is registered in the event store
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
-    // Emit the event directly to verify the type is valid
     const event = await eventStore.append(featureId, {
       type: 'checkpoint.state_missing' as import('../../../src/events/schemas.js').EventType,
       correlationId: featureId,
@@ -258,13 +228,15 @@ describe('handleSet checkpoint gate', () => {
     expect((events[0].data as Record<string, unknown>).action).toBe('set');
   });
 
-  // ─── End-to-end checkpoint enforcement flow (Task 023, DR-5, DR-10) ─────
-
+  /**
+   * The plan artifact satisfies the guard on the plan to plan-review transition.
+   * `handleCheckpoint` resets `operationsSince` to 0 and does not count as an operation itself.
+   * The checkpoint event records `plan`, the phase before the blocked transition.
+   */
   it('checkpointEnforcement_GateFires_ThenCheckpoint_ThenRetry_Succeeds', async () => {
     const eventStore = new EventStore(tmpDir);
     await eventStore.initialize();
 
-    // Step 1: Init workflow and set plan artifact for plan->plan-review guard
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId, updates: { 'artifacts.plan': 'docs/specs/x.md' } },
@@ -272,10 +244,8 @@ describe('handleSet checkpoint gate', () => {
       eventStore,
     );
 
-    // Step 2: Push operationsSince above threshold (25 > 20)
     await setOperationsSince(25);
 
-    // Step 3: Attempt phase transition — should be gated
     const gatedResult = await handleSet(
       { featureId, phase: 'plan-review' },
       tmpDir,
@@ -291,7 +261,6 @@ describe('handleSet checkpoint gate', () => {
     expect(gatedErrorData.operationsSince).toBe(25);
     expect(gatedErrorData.threshold).toBe(20);
 
-    // Step 4: Call checkpoint to reset counter
     const checkpointResult = await handleCheckpoint(
       { featureId, summary: 'Pre-transition checkpoint' },
       tmpDir,
@@ -299,17 +268,13 @@ describe('handleSet checkpoint gate', () => {
     );
 
     expect(checkpointResult.success).toBe(true);
-    // Verify checkpoint meta shows counter reset
     expect(checkpointResult._meta).toBeDefined();
     expect(checkpointResult._meta!.checkpointAdvised).toBe(false);
 
-    // Step 5: Verify state file has operationsSince reset to 0
     const stateFile = path.join(tmpDir, `${featureId}.state.json`);
     const stateAfterCheckpoint = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-    // handleCheckpoint doesn't increment, so counter should be 0
     expect(stateAfterCheckpoint._checkpoint.operationsSince).toBe(0);
 
-    // Step 6: Retry the same phase transition — should succeed now
     const retryResult = await handleSet(
       { featureId, phase: 'plan-review' },
       tmpDir,
@@ -321,13 +286,11 @@ describe('handleSet checkpoint gate', () => {
     const retryData = retryResult.data as Record<string, unknown>;
     expect(retryData.phase).toBe('plan-review');
 
-    // Verify checkpoint.enforced and workflow.checkpoint events were emitted
     const enforcedEvents = await eventStore.query(featureId, { type: 'checkpoint.enforced' as never });
     expect(enforcedEvents.length).toBe(1);
 
     const checkpointEvents = await eventStore.query(featureId, { type: 'workflow.checkpoint' as never });
     expect(checkpointEvents.length).toBe(1);
-    // Checkpoint happened at the initial phase (plan) before the gated transition.
     expect((checkpointEvents[0].data as Record<string, unknown>).phase).toBe('plan');
   });
 });

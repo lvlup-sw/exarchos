@@ -49,8 +49,8 @@ describe('deepMerge', () => {
     expect(result).toEqual({ items: [4, 5] });
   });
 
+  /** `deepMerge` replaces an array as a whole and does no upsert by `id`. */
   it('DeepMerge_ArraysOfObjectsWithId_ReplacesEntirely', () => {
-    // Arrays are replaced entirely — no id-based upsert (#1003)
     const target = {
       tasks: [
         { id: 't1', status: 'complete' },
@@ -67,7 +67,6 @@ describe('deepMerge', () => {
 
     const result = deepMerge(target, source);
 
-    // Full replacement: only incoming entries remain
     expect(result.tasks).toEqual([
       { id: 'new-1', status: 'pending' },
       { id: 'new-2', status: 'pending' },
@@ -134,8 +133,6 @@ describe('isPlainObject', () => {
   });
 });
 
-// ─── #1504: backend-mode writers do not write .state.json ─────────────────
-
 describe('#1504 — backend-mode writers do not write .state.json', () => {
   let nwTmpDir: string;
 
@@ -148,13 +145,12 @@ describe('#1504 — backend-mode writers do not write .state.json', () => {
     await rmrfAsync(nwTmpDir);
   });
 
+  /** The backend is the authoritative store. A `.state.json` file can go stale and shadow the projection, so the store writes none. */
   it('initStateFile_BackendMode_DoesNotWriteStateJson', async () => {
     configureStateStoreBackend(new InMemoryBackend());
 
     const { stateFile } = await initStateFile(nwTmpDir, 'no-init-file', 'feature');
 
-    // Backend is the authoritative store (#1504); no `.state.json` crash-backup
-    // is written so the file can never go stale or shadow the projection.
     await expect(fs.access(stateFile)).rejects.toThrow();
   });
 
@@ -168,14 +164,12 @@ describe('#1504 — backend-mode writers do not write .state.json', () => {
     expect(state).not.toBeNull();
     await writeStateFile(stateFile, { ...(state as WorkflowState), phase: 'plan' } as WorkflowState);
 
-    // The mutation landed in the backend, not on disk.
     expect(backend.getState('no-write-file')?.phase).toBe('plan');
     await expect(fs.access(stateFile)).rejects.toThrow();
   });
 
+  /** Without a backend, the file is the only store, so the store must still write it. */
   it('initStateFile_NoBackend_StillWritesStateJson', async () => {
-    // Degradation path (CLI/legacy, no backend): the file remains the only
-    // store, so it must still be written.
     configureStateStoreBackend(undefined as unknown as InMemoryBackend);
 
     const { stateFile } = await initStateFile(nwTmpDir, 'degraded-init', 'feature');
@@ -184,20 +178,16 @@ describe('#1504 — backend-mode writers do not write .state.json', () => {
   });
 });
 
-// ─── Issue 4: extractFeatureIdFromPath Validation ─────────────────────────
-
 describe('extractFeatureIdFromPath validation', () => {
   afterEach(() => {
     configureStateStoreBackend(undefined as unknown as InMemoryBackend);
   });
 
+  /** The featureId `$(rm -rf)` holds shell metacharacters, so the read must fail as invalid input, not as not found. */
   it('extractFeatureIdFromPath_MaliciousPath_Throws', async () => {
     const backend = new InMemoryBackend();
     configureStateStoreBackend(backend);
 
-    // basename of this is "$(rm -rf).state.json" -> featureId "$(rm -rf)"
-    // The extracted featureId contains shell metacharacters and should be rejected
-    // with INVALID_INPUT, not STATE_NOT_FOUND
     const maliciousPath = '/some/dir/$(rm -rf).state.json';
 
     await expect(readStateFile(maliciousPath)).rejects.toThrow(/invalid featureId/i);
@@ -207,7 +197,6 @@ describe('extractFeatureIdFromPath validation', () => {
     const backend = new InMemoryBackend();
     configureStateStoreBackend(backend);
 
-    // Normal feature ID with allowed characters
     const state = {
       version: '1.1',
       featureId: 'my-feature',
@@ -257,8 +246,6 @@ describe('extractFeatureIdFromPath validation', () => {
     const backend = new InMemoryBackend();
     configureStateStoreBackend(backend);
 
-    // basename of "feat;echo pwned.state.json" produces featureId "feat;echo pwned"
-    // which contains shell metacharacters
     const shellPath = '/some/dir/feat;echo pwned.state.json';
     await expect(readStateFile(shellPath)).rejects.toThrow(/invalid featureId/i);
   });
@@ -305,8 +292,6 @@ describe('extractFeatureIdFromPath validation', () => {
   });
 });
 
-// ─── reconcileFromEvents Query Efficiency ─────────────────────────────────
-
 describe('reconcileFromEvents query efficiency', () => {
   let tmpDir: string;
   let eventStore: EventStore;
@@ -320,8 +305,8 @@ describe('reconcileFromEvents query efficiency', () => {
     await rmrfAsync(tmpDir);
   });
 
+  /** Reconcile queries the stream twice: once for the delta after `_eventSequence`, and once with no filter to hydrate `_events`. */
   it('reconcileFromEvents_WithDeltaEvents_QueriesStreamOnce', async () => {
-    // Arrange: create state file and append events so we have a delta path
     await initStateFile(tmpDir, 'query-test', 'feature');
     await eventStore.append('query-test', {
       type: 'workflow.started',
@@ -332,36 +317,29 @@ describe('reconcileFromEvents query efficiency', () => {
       data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'query-test' },
     });
 
-    // First reconciliation to establish _eventSequence
     await reconcileFromEvents(tmpDir, 'query-test', eventStore);
 
-    // Append a new transition event to create delta work
     await eventStore.append('query-test', {
       type: 'workflow.transition',
       data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'query-test' },
     });
 
-    // Spy on eventStore.query
     const querySpy = vi.spyOn(eventStore, 'query');
 
-    // Act: reconcile with delta events
     const result = await reconcileFromEvents(tmpDir, 'query-test', eventStore);
 
-    // Assert: reconciliation happened
     expect(result.reconciled).toBe(true);
     expect(result.eventsApplied).toBe(1);
 
-    // Assert: eventStore.query called twice: once for delta events, once for _events hydration
     expect(querySpy).toHaveBeenCalledTimes(2);
     expect(querySpy).toHaveBeenCalledWith('query-test', { sinceSequence: 2 });
-    // Second call is hydration (full query, no filters)
     expect(querySpy).toHaveBeenCalledWith('query-test');
 
     querySpy.mockRestore();
   });
 
+  /** Reconcile takes the phase from the last transition in the delta, with no query beyond the delta and the hydration. */
   it('reconcileFromEvents_PhaseReconciliation_UsesLastTransitionFromDelta', async () => {
-    // Arrange: create state and do initial reconciliation
     await initStateFile(tmpDir, 'delta-phase', 'feature');
     await eventStore.append('delta-phase', {
       type: 'workflow.started',
@@ -372,10 +350,8 @@ describe('reconcileFromEvents query efficiency', () => {
       data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'delta-phase' },
     });
 
-    // First reconciliation
     await reconcileFromEvents(tmpDir, 'delta-phase', eventStore);
 
-    // Append multiple events including transitions in the delta
     await eventStore.append('delta-phase', {
       type: 'workflow.transition',
       data: { from: 'plan', to: 'delegate', trigger: 'execute-transition', featureId: 'delta-phase' },
@@ -385,27 +361,23 @@ describe('reconcileFromEvents query efficiency', () => {
       data: { counter: 0, phase: 'delegate', featureId: 'delta-phase' },
     });
 
-    // Spy on eventStore.query to verify no redundant full-stream read
     const querySpy = vi.spyOn(eventStore, 'query');
 
-    // Act
     const result = await reconcileFromEvents(tmpDir, 'delta-phase', eventStore);
 
-    // Assert: phase is correct from delta events, no full-stream re-read needed
     expect(result.reconciled).toBe(true);
 
     const stateFile = path.join(tmpDir, 'delta-phase.state.json');
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     expect(raw.phase).toBe('delegate');
 
-    // Delta query + hydration query = 2 calls
     expect(querySpy).toHaveBeenCalledTimes(2);
 
     querySpy.mockRestore();
   });
 
+  /** The test sets `state._version` far above the backend version, so the CAS write conflicts. Reconcile must recover and write the state. */
   it('reconcileFromEvents_VersionConflict_RetriesAndSucceeds', async () => {
-    // Arrange: configure backend and create state
     const backend = new InMemoryBackend();
     configureStateStoreBackend(backend);
 
@@ -419,29 +391,20 @@ describe('reconcileFromEvents query efficiency', () => {
       data: { from: 'ideate', to: 'plan', trigger: 'execute-transition', featureId: 'vc-test' },
     });
 
-    // Desync the backend version: manually set backend version much lower
-    // than state._version by re-seeding with a low-version state
     const currentState = backend.getState('vc-test')!;
     backend.setState('vc-test', { ...currentState, _version: 50 } as WorkflowState);
-    // Backend version is now 2 (initial seed + one setState), but state._version is 50
 
-    // Act: reconcile should handle the VERSION_CONFLICT internally
     const result = await reconcileFromEvents(tmpDir, 'vc-test', eventStore);
 
-    // Assert: reconciliation succeeded despite version desync
     expect(result.reconciled).toBe(true);
     expect(result.eventsApplied).toBeGreaterThanOrEqual(1);
 
-    // Verify the state was actually written
     const state = await readStateFile(path.join(tmpDir, 'vc-test.state.json'));
     expect(state.phase).toBe('plan');
 
-    // Cleanup
     configureStateStoreBackend(undefined as unknown as InMemoryBackend);
   });
 });
-
-// ─── Task 16: State Store StorageBackend Integration ─────────────────────────
 
 describe('State Store StorageBackend Integration', () => {
   let tempDir: string;
@@ -451,12 +414,10 @@ describe('State Store StorageBackend Integration', () => {
   });
 
   afterEach(async () => {
-    // Reset module-level backend to null after each test
     configureStateStoreBackend(undefined as unknown as InMemoryBackend);
     await rmrfAsync(tempDir);
   });
 
-  // Helper to create a minimal valid WorkflowState for testing
   function makeState(overrides?: Record<string, unknown>): WorkflowState {
     const now = new Date().toISOString();
     return {
@@ -515,7 +476,6 @@ describe('State Store StorageBackend Integration', () => {
 
     await writeStateFile(stateFile, state);
 
-    // Verify state was written to backend
     const stored = backend.getState('my-feature');
     expect(stored).not.toBeNull();
     expect(stored!.featureId).toBe('my-feature');
@@ -527,12 +487,10 @@ describe('State Store StorageBackend Integration', () => {
 
     const state = makeState({ featureId: 'my-feature' });
 
-    // Write initial state (creates version 1 in backend)
     backend.setState('my-feature', state);
 
     const stateFile = path.join(tempDir, 'my-feature.state.json');
 
-    // Write with wrong expectedVersion — should throw
     await expect(
       writeStateFile(stateFile, state, { expectedVersion: 99 }),
     ).rejects.toThrow(VersionConflictError);
@@ -544,7 +502,6 @@ describe('State Store StorageBackend Integration', () => {
 
     const { state } = await initStateFile(tempDir, 'new-feature', 'feature');
 
-    // Verify the state was saved into the backend
     const stored = backend.getState('new-feature');
     expect(stored).not.toBeNull();
     expect(stored!.featureId).toBe('new-feature');
@@ -555,7 +512,6 @@ describe('State Store StorageBackend Integration', () => {
     const backend = new InMemoryBackend();
     configureStateStoreBackend(backend);
 
-    // Add two states to the backend
     backend.setState('feature-a', makeState({ featureId: 'feature-a' }));
     backend.setState('feature-b', makeState({ featureId: 'feature-b' }));
 
@@ -567,7 +523,6 @@ describe('State Store StorageBackend Integration', () => {
   });
 
   it('readStateFile_WithoutBackend_FallsBackToJSONFile', async () => {
-    // No backend configured — use file path
     const { state, stateFile } = await initStateFile(tempDir, 'file-feature', 'feature');
 
     const result = await readStateFile(stateFile);
@@ -584,8 +539,6 @@ describe('State Store StorageBackend Integration', () => {
     await expect(readStateFile(stateFile)).rejects.toThrow(StateStoreError);
   });
 });
-
-// ─── Task 16: Property Tests for CAS ─────────────────────────────────────────
 
 describe('State Store CAS Property Test', () => {
   let tempDir: string;
@@ -638,13 +591,11 @@ describe('State Store CAS Property Test', () => {
     const backend = new InMemoryBackend();
     configureStateStoreBackend(backend);
 
-    // Seed the backend with initial state (version 1)
     const state = makeState({ featureId: 'cas-test' });
     backend.setState('cas-test', state);
 
     const stateFile = path.join(tempDir, 'cas-test.state.json');
 
-    // Both writers read version 1 and try to write with expectedVersion=1
     const stateA = makeState({ featureId: 'cas-test', phase: 'plan' });
     const stateB = makeState({ featureId: 'cas-test', phase: 'delegate' });
 
@@ -656,21 +607,13 @@ describe('State Store CAS Property Test', () => {
     const successes = results.filter(r => r.status === 'fulfilled');
     const failures = results.filter(r => r.status === 'rejected');
 
-    // Exactly one should succeed and one should fail
     expect(successes).toHaveLength(1);
     expect(failures).toHaveLength(1);
 
-    // The failure should be a VersionConflictError
     const failedResult = failures[0] as PromiseRejectedResult;
     expect(failedResult.reason).toBeInstanceOf(VersionConflictError);
   });
 });
-
-// Write-through `.state.json` backup removed (#1504): the backend is the sole
-// authoritative store in backend mode. The no-write contract is pinned by the
-// `#1504 — backend-mode writers do not write .state.json` block above.
-
-// ─── hydrateEventsFromStore ──────────────────────────────────────────────────
 
 describe('hydrateEventsFromStore', () => {
   it('HydrateEventsFromStore_EmptyEventStore_ReturnsEmptyArray', async () => {
@@ -697,7 +640,7 @@ describe('hydrateEventsFromStore', () => {
     const result = await hydrateEventsFromStore('test-feature', mockEventStore);
 
     expect(result).toHaveLength(1);
-    expect(result[0].type).toBe('transition'); // mapped via mapExternalToInternalType
+    expect(result[0].type).toBe('transition');
     expect(result[0].timestamp).toBe('2026-03-09T10:00:00.000Z');
     expect(result[0].from).toBe('ideate');
     expect(result[0].to).toBe('plan');
@@ -705,6 +648,7 @@ describe('hydrateEventsFromStore', () => {
     expect(result[0].metadata).toEqual({ from: 'ideate', to: 'plan', trigger: 'user' });
   });
 
+  /** An unmapped type such as `team.spawned` stays unchanged. Every data field appears at the top level and in `metadata`. */
   it('HydrateEventsFromStore_TeamEvents_PreservesAllDataFields', async () => {
     const mockEventStore = {
       query: vi.fn().mockResolvedValue([
@@ -730,13 +674,11 @@ describe('hydrateEventsFromStore', () => {
 
     expect(result).toHaveLength(2);
 
-    // team.spawned: type is NOT mapped (no workflow. prefix)
     expect(result[0].type).toBe('team.spawned');
     expect(result[0].featureId).toBe('test-feature');
     expect(result[0].agentCount).toBe(3);
     expect(result[0].metadata).toEqual({ featureId: 'test-feature', agentCount: 3 });
 
-    // team.disbanded: ALL data fields at top level AND in metadata
     expect(result[1].type).toBe('team.disbanded');
     expect(result[1].totalDurationMs).toBe(5000);
     expect(result[1].tasksCompleted).toBe(3);
@@ -749,6 +691,10 @@ describe('hydrateEventsFromStore', () => {
     });
   });
 
+  /**
+   * `workflow.transition` maps to `transition`. The other types in this log have no mapping and stay unchanged.
+   * Data fields go to the top level.
+   */
   it('HydrateEventsFromStore_MixedEventTypes_MapsAllCorrectly', async () => {
     const mockEventStore = {
       query: vi.fn().mockResolvedValue([
@@ -764,20 +710,13 @@ describe('hydrateEventsFromStore', () => {
     const result = await hydrateEventsFromStore('test-feature', mockEventStore);
 
     expect(result).toHaveLength(6);
-    // workflow.started maps via mapExternalToInternalType (no explicit mapping, returns 'workflow.started')
     expect(result[0].type).toBe('workflow.started');
-    // workflow.transition maps to 'transition'
     expect(result[1].type).toBe('transition');
-    // team.spawned stays as-is
     expect(result[2].type).toBe('team.spawned');
-    // task.completed stays as-is
     expect(result[3].type).toBe('task.completed');
-    // gate.executed stays as-is
     expect(result[4].type).toBe('gate.executed');
-    // team.disbanded stays as-is
     expect(result[5].type).toBe('team.disbanded');
 
-    // Each event has its data fields at top level
     expect(result[3].taskId).toBe('t1');
     expect(result[4].gateName).toBe('design');
     expect(result[5].totalDurationMs).toBe(5000);
@@ -794,11 +733,8 @@ describe('hydrateEventsFromStore', () => {
   });
 });
 
-// ─── Issue #1003: applyDotPath array replacement regression ──────────────────
-
 describe('applyDotPath array replacement (#1003)', () => {
   it('applyDotPath_tasksArrayWithNewIds_replacesEntireArray', () => {
-    // Arrange
     const obj: Record<string, unknown> = {
       tasks: [
         { id: 'task-1', title: 'Old Task 1', status: 'pending' },
@@ -807,20 +743,18 @@ describe('applyDotPath array replacement (#1003)', () => {
       ],
     };
 
-    // Act
     applyDotPath(obj, 'tasks', [
       { id: 'taskA', title: 'New Task A', status: 'pending' },
       { id: 'taskB', title: 'New Task B', status: 'pending' },
     ]);
 
-    // Assert
     const tasks = obj.tasks as Array<Record<string, unknown>>;
     expect(tasks).toHaveLength(2);
     expect(tasks.map(t => t.id)).toEqual(['taskA', 'taskB']);
   });
 
+  /** A plan revision replaces the task set, so no old task id remains. */
   it('applyDotPath_tasksArrayReplacement_staleTasksRemoved', () => {
-    // Arrange - simulate plan revision scenario from issue #1003
     const obj: Record<string, unknown> = {
       tasks: [
         { id: '001', title: 'Old 1', status: 'complete' },
@@ -829,39 +763,26 @@ describe('applyDotPath array replacement (#1003)', () => {
       ],
     };
 
-    // Act - replace with entirely new task set
     applyDotPath(obj, 'tasks', [
       { id: 'task-1', title: 'New 1', status: 'pending' },
       { id: 'task-2', title: 'New 2', status: 'pending' },
     ]);
 
-    // Assert
     const tasks = obj.tasks as Array<Record<string, unknown>>;
     expect(tasks).toHaveLength(2);
     expect(tasks.every(t => typeof t.id === 'string' && (t.id as string).startsWith('task-'))).toBe(true);
-    // Old IDs must not exist
     expect(tasks.some(t => t.id === '001')).toBe(false);
   });
 });
 
-// ─── T-17 (DR-8c): documented array-insertion syntax in workflow_set ─────────
-//
-// `content/continuity/skills/checkpoint/SKILL.md` previously documented `tasks[id=001]`
-// as the pattern for editing a single task in place. The parser does NOT
-// support keyed array access — `parsePath` only recognizes numeric brackets
-// (`[\d+]`). The supported insertion patterns are:
-//   1. Replace the entire array: `updates: { tasks: [...] }`
-//   2. Replace one element by index: `updates: { 'tasks[0].status': '...' }`
-//   3. Append by next index: `updates: { 'tasks[<length>]': { id, title } }`
-//      — `assertArrayBounds` allows `index <= arr.length + MAX_ARRAY_GAP` so
-//      writing at the current `arr.length` slot performs a real append.
-//
-// This test pins option (3) so the SKILL.md worked example can rely on it.
+/**
+ * `parsePath` accepts only numeric brackets, so keyed access such as `tasks[id=001]` throws.
+ * A caller can replace the whole array, write one element by index, or append at index `arr.length`.
+ * The append works because `assertArrayBounds` allows an index up to `arr.length + MAX_ARRAY_GAP`.
+ * The checkpoint skill documents the append form.
+ */
 describe('applyDotPath array append syntax (T-17)', () => {
   it('workflowSetParser_ArrayInsertionSyntax_AppendsNewEntry', () => {
-    // Arrange — start with a 2-element task array, mimicking a workflow that
-    // already received its first plan and now wants to add a follow-up task
-    // without rewriting the whole list.
     const obj: Record<string, unknown> = {
       tasks: [
         { id: 'T-001', title: 'Existing 1', status: 'complete' },
@@ -869,15 +790,12 @@ describe('applyDotPath array append syntax (T-17)', () => {
       ],
     };
 
-    // Act — append by writing at index === current array length.
-    // This is the syntax `content/continuity/skills/checkpoint/SKILL.md` documents.
     applyDotPath(obj, 'tasks[2]', {
       id: 'T-003',
       title: 'New follow-up',
       status: 'pending',
     });
 
-    // Assert — array grew by exactly one entry; existing entries unchanged.
     const tasks = obj.tasks as Array<Record<string, unknown>>;
     expect(tasks).toHaveLength(3);
     expect(tasks[0]).toEqual({ id: 'T-001', title: 'Existing 1', status: 'complete' });
@@ -885,14 +803,8 @@ describe('applyDotPath array append syntax (T-17)', () => {
     expect(tasks[2]).toEqual({ id: 'T-003', title: 'New follow-up', status: 'pending' });
   });
 
+  /** A keyed form such as `tasks[id=abc]` must throw a clear error and change nothing. The by-index form still works. */
   it('workflowSetParser_ArrayInsertionSyntax_KeyedAccessFormThrowsClearError', () => {
-    // fix-004 (review #1213, T-17c): the keyed-access form `tasks[id=T-001]`
-    // used to be silently misapplied (parser fell through to a literal
-    // property name and created a bogus top-level key). That was the worst
-    // possible failure mode — caller saw `success: true` while the actual
-    // task was untouched. The parser now throws a clear error so callers
-    // get loud feedback and can switch to the by-index form documented in
-    // content/continuity/skills/checkpoint/SKILL.md.
     const obj: Record<string, unknown> = {
       tasks: [{ id: 'T-001', status: 'pending' }],
     };
@@ -901,24 +813,16 @@ describe('applyDotPath array append syntax (T-17)', () => {
       /keyed array access.*not supported/i,
     );
 
-    // The legitimate task entry remains untouched (no silent
-    // misapplication side-effect either).
     const tasks = obj.tasks as Array<Record<string, unknown>>;
     expect(tasks[0].status).toBe('pending');
     expect(obj['tasks[id=T-001]']).toBeUndefined();
 
-    // The legitimate by-index form continues to work and is the only
-    // supported way to update one task in place.
     applyDotPath(obj, 'tasks[0].status', 'complete');
     expect(tasks[0].status).toBe('complete');
   });
 
-  // ─── #1213 / CodeRabbit #18: malformed/compound bracket forms ─────────
+  /** The parser does not accept the compound form `tasks[0][1]`, so it must throw and not write a literal property name. */
   it('parsePath_CompoundBrackets_TasksZeroOne_ThrowsMalformedError', () => {
-    // `tasks[0][1]` is a compound double-index form the parser does not
-    // recognize. Without an explicit guard it would fall through and be
-    // pushed as a literal property name — same silent-success bug
-    // fix-004 closed for keyed access. Now rejected loudly.
     const obj: Record<string, unknown> = { tasks: [['a', 'b']] };
 
     expect(() => applyDotPath(obj, 'tasks[0][1]', 'updated')).toThrow(
@@ -926,10 +830,8 @@ describe('applyDotPath array append syntax (T-17)', () => {
     );
   });
 
+  /** A keyed segment with no closing bracket does not match the keyed-access check. The malformed-access check must reject it. */
   it('parsePath_UnterminatedBracket_TasksKeyedNoClose_ThrowsMalformedError', () => {
-    // `tasks[id=T-001` (no closing bracket) is not a valid bracket form.
-    // The non-numeric guard requires `[...]`, so this falls past it. The
-    // new compound/malformed guard catches it.
     const obj: Record<string, unknown> = { tasks: [{ id: 'T-001' }] };
 
     expect(() =>
@@ -937,9 +839,8 @@ describe('applyDotPath array append syntax (T-17)', () => {
     ).toThrow(/malformed array access/i);
   });
 
+  /** A bare `]` matches no bracket pattern and must fail as malformed access. */
   it('parsePath_MismatchedCloseBracket_TasksClose_ThrowsMalformedError', () => {
-    // `tasks]` has only a closing bracket. None of the bracket patterns
-    // match, but the bare `]` should still be rejected as malformed.
     const obj: Record<string, unknown> = { tasks: [] };
 
     expect(() => applyDotPath(obj, 'tasks].status', 'complete')).toThrow(
@@ -948,12 +849,10 @@ describe('applyDotPath array append syntax (T-17)', () => {
   });
 });
 
-// ─── #1360 — Structured RESERVED_FIELD error data (PR 2 / T3) ──────────────
-//
-// `StateStoreError` carries a typed `data` block on `RESERVED_FIELD`
-// rejections: `{rejectedPath, rule, alternateWritePath}`. Callers can
-// pivot to the alternate write path (e.g. `transition` for `phase`)
-// without parsing the message string.
+/**
+ * A `RESERVED_FIELD` rejection carries `data` with `rejectedPath`, `rule` and `alternateWritePath`.
+ * A caller can use the alternate write path, such as `transition` for `phase`, without a parse of the message.
+ */
 describe('StateStoreError reserved-field data (#1360)', () => {
   it('StateStoreError_ReservedField_CarriesStructuredData', () => {
     const obj: Record<string, unknown> = { phase: 'plan' };
@@ -972,6 +871,7 @@ describe('StateStoreError reserved-field data (#1360)', () => {
     }
   });
 
+  /** A path that starts with `_` gets guidance that points at the event store. */
   it('StateStoreError_ReservedField_UnderscorePath_PopulatesGenericGuidance', () => {
     const obj: Record<string, unknown> = {};
 
@@ -983,16 +883,14 @@ describe('StateStoreError reserved-field data (#1360)', () => {
       const sse = err as StateStoreError;
       expect(sse.code).toBe('RESERVED_FIELD');
       expect(sse.data?.rejectedPath).toBe('_version');
-      // Underscore guidance points at event.append rather than direct write.
       expect(sse.data?.alternateWritePath).toMatch(/event/i);
     }
   });
 
-  // CodeRabbit follow-up: `isReservedField` returns true for any path whose
-  // *segments* start with `_` (e.g. `foo._bar`), but the original
-  // `resolveAlternateWritePath` only matched the `^_.*` regex against the
-  // whole dotPath. That made `alternateWritePath` `null` for nested
-  // underscore paths, weakening the structured-error contract.
+  /**
+   * `isReservedField` rejects a path with any segment that starts with `_`.
+   * The alternate write path must match that inner segment too, not only the whole path.
+   */
   it('ResolveAlternateWritePath_NestedUnderscoreSegment_ReturnsUnderscoreGuidance', () => {
     const obj: Record<string, unknown> = { foo: {} };
 
@@ -1004,48 +902,37 @@ describe('StateStoreError reserved-field data (#1360)', () => {
       const sse = err as StateStoreError;
       expect(sse.code).toBe('RESERVED_FIELD');
       expect(sse.data?.rejectedPath).toBe('foo._bar');
-      // Must point at the event-store guidance (matched the `^_.*` regex
-      // against the inner segment), not be null.
       expect(sse.data?.alternateWritePath).toBeTruthy();
       expect(sse.data?.alternateWritePath).toMatch(/event/i);
     }
   });
 });
 
-// ─── Temp-File Naming: In-Process Collisions & Orphan Sweep ────────────────
-//
-// Two coupled contracts, deliberately tested together because a fix to one can
-// silently break the other:
-//
-//   1. Concurrent in-process writers must never derive the same temp path.
-//   2. The orphan sweep must extract the writer's PID from a temp filename —
-//      never the in-process counter. A counter misread as a PID resolves to a
-//      low, near-certainly-live PID (counter 1 → init), so the sweep declares
-//      the orphan "still being written" and never reaps it: a silent, permanent
-//      temp-file leak.
-
+/**
+ * These tests pin two contracts together, because a fix to one can break the other.
+ * Concurrent writers in one process must never get the same temp path.
+ * The orphan sweep must read the writer pid from a temp filename, never the counter.
+ * A counter read as a pid names a low, live pid, so the sweep never reaps the orphan.
+ */
 describe('temp-file naming and orphan sweep', () => {
   let tempDir: string;
 
+  /** These tests cover the file path. A configured backend bypasses that path, so the hook clears the backend. */
   beforeEach(async () => {
-    // The file-based path is under test; a backend would short-circuit it.
     configureStateStoreBackend(undefined);
     tempDir = await mkdtemp(path.join(tmpdir(), 'statestore-tmpname-'));
   });
 
+  /** `rmrfAsync` closes tracked SQLite handles under `tempDir` first, because Windows does not delete a file with an open handle. */
   afterEach(async () => {
     configureStateStoreBackend(undefined);
-    // rmrfAsync releases any SQLite handle opened under tempDir before removing
-    // it — Windows refuses to delete a file with a live handle (INV-16).
     await rmrfAsync(tempDir);
   });
 
+  /** All writers target one state file. With a pid-only temp path, they share one temp file, overwrite each other, and a later rename fails with `ENOENT`. */
   it('WriteStateFile_ConcurrentInProcessWriters_NeverCollideOnTempPath', async () => {
     const { state, stateFile } = await initStateFile(tempDir, 'collide', 'feature');
 
-    // Every writer targets the SAME stateFile, so a pid-only temp path gives
-    // them all one shared temp file: they truncate each other mid-write and the
-    // loser's rename hits ENOENT once the winner has moved the file away.
     const writers = Array.from({ length: 24 }, (_, i) =>
       writeStateFile(stateFile, { ...state, _version: i } as WorkflowState, {
         skipValidation: true,
@@ -1058,28 +945,24 @@ describe('temp-file naming and orphan sweep', () => {
       rejected.map((r) => String((r as PromiseRejectedResult).reason)),
     ).toEqual([]);
 
-    // No writer may leave a temp file behind on the success path.
     const leftovers = (await fs.readdir(tempDir)).filter((f) =>
       TEMP_FILE_PATTERN.test(f),
     );
     expect(leftovers).toEqual([]);
 
-    // The published file must be exactly one writer's payload, intact.
     const published = await fs.readFile(stateFile, 'utf-8');
     expect(() => JSON.parse(published)).not.toThrow();
   });
 
   /**
-   * The reader is an in-process reader, so it reads through the target's queue,
-   * as the store's own reads do. A reader in another process is outside this
-   * test; on Windows only the bounded publish retry covers it.
+   * The payload is large, so `writeFile` takes more than one syscall. A shared temp path then publishes torn bytes.
+   * The reader runs in this process and reads through the queue of the target, as the store reads do.
+   * The reader also records `ENOENT`, so an unlink-then-rename publish fails the test.
+   * A reader in another process is outside this test. On Windows, only the bounded publish retry covers it.
    */
   it('WriteStateFile_ConcurrentWriters_NeitherObservesPartialFile', async () => {
     const { state, stateFile } = await initStateFile(tempDir, 'partial', 'feature');
 
-    // A payload large enough that writeFile cannot land in a single syscall —
-    // this is what opens the window where a shared temp path lets one writer
-    // publish another's half-written bytes.
     const bulky = (marker: string): WorkflowState =>
       ({
         ...state,
@@ -1093,15 +976,8 @@ describe('temp-file naming and orphan sweep', () => {
       while (!readerStop) {
         try {
           const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
-          // Every observation of the published file must be complete JSON —
-          // rename(2) is atomic, so a reader can only ever see a whole file.
           JSON.parse(raw);
         } catch (err) {
-          // ENOENT is NOT swallowed. The file exists before this reader starts
-          // and a publish only ever renames over it, so the target can never be
-          // absent — under a correct implementation this is unreachable. Skipping
-          // it would let an unlink-then-rename implementation pass the very test
-          // that exists to forbid it, which is the whole atomicity claim.
           readObservations.push(String(err));
         }
         await new Promise((r) => setImmediate(r));
@@ -1120,12 +996,10 @@ describe('temp-file naming and orphan sweep', () => {
         .filter((r) => r.status === 'rejected')
         .map((r) => String((r as PromiseRejectedResult).reason)),
     ).toEqual([]);
-    // No reader ever saw a torn/partial payload.
     expect(readObservations).toEqual([]);
 
     const final = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     expect(final.featureId).toBe('partial');
-    // The published payload is one writer's whole array — not a splice of two.
     expect(final._padding).toHaveLength(4000);
     const markers = new Set(
       (final._padding as string[]).map((c) => c.split('-')[0]),
@@ -1133,58 +1007,44 @@ describe('temp-file naming and orphan sweep', () => {
     expect(markers.size).toBe(1);
   });
 
+  /**
+   * The pid is the last segment of `.tmp.<counter>.<pid>`, so the end-anchored capture gets it.
+   * A legacy `.tmp.<pid>` name must stay reapable, or an orphan from an older version leaks.
+   * A name from `nextTempPath` must give back the pid of this process.
+   */
   it('OrphanSweep_TempFileWithCounter_ExtractsPidNotCounter', () => {
-    // `.tmp.<counter>.<pid>` — the pid is the trailing segment, so the
-    // end-anchored capture group can only land on it.
     expect(extractTempFilePid('x.state.json.tmp.1.4242')).toBe(4242);
     expect(extractTempFilePid('x.state.json.tmp.99999.4242')).toBe(4242);
     expect(extractTempFilePid('x.state.json.init.7.4242')).toBe(4242);
 
-    // Legacy pre-counter names (`.tmp.<pid>`) must stay reapable after upgrade,
-    // or an in-flight orphan from the previous version leaks forever.
     expect(extractTempFilePid('x.state.json.tmp.4242')).toBe(4242);
     expect(extractTempFilePid('x.state.json.init.4242')).toBe(4242);
 
-    // Non-temp files are not sweep candidates.
     expect(extractTempFilePid('x.state.json')).toBeNull();
     expect(extractTempFilePid('x.state.json.tmp.abc')).toBeNull();
     expect(extractTempFilePid('notes.txt')).toBeNull();
 
-    // The writer and the sweep must agree: whatever the writer emits, the
-    // sweep must read this process's real pid back out of it.
     const emitted = nextTempPath(path.join(tempDir, 'agree.state.json'), 'tmp');
     expect(extractTempFilePid(emitted)).toBe(process.pid);
   });
 
+  /**
+   * A dead writer can leave a temp file with a counter equal to a live pid. The sweep must read the trailing pid and reap it.
+   * A live writer with a dead-pid counter must keep its file. The names come from `formatTempPath`.
+   * The decoy is the pid of this process. PID 1 can raise `EPERM` in a container, and `isPidAlive` reports that as not alive.
+   */
   it('OrphanSweep_DeadPidWithLivePidCollidingCounter_StillReaps', async () => {
-    // The regression test for the naive `.tmp.<pid>.<counter>` layout.
-    //
-    // The adversarial case: a temp file left by a DEAD writer whose counter
-    // value happens to equal a LIVE pid. Under the naive layout the sweep's
-    // end-anchored group captures the trailing counter, reads it as a live pid,
-    // concludes "still being written", and never reaps — a silent, permanent
-    // leak. Under the correct layout the trailing segment is the dead writer's
-    // pid, so it reaps regardless of what the counter holds.
-    //
-    // The live pid used as the colliding counter is our OWN: it is the only pid
-    // guaranteed both to exist and to be signalable by this user. (PID 1 is not
-    // usable as the decoy — in a container/namespace `kill(1, 0)` raises EPERM,
-    // which isPidAlive deliberately reports as not-alive.)
     const deadPid = await findDeadPid();
     const liveCounter = process.pid;
     expect(isPidAlive(deadPid)).toBe(false);
     expect(isPidAlive(liveCounter)).toBe(true);
 
-    // Built through the production formatter, so this tracks whatever segment
-    // order the implementation chose rather than hardcoding the correct one.
     const deadOrphan = path.basename(
       formatTempPath('orphan-a.state.json', 'tmp', liveCounter, deadPid),
     );
     const deadInitOrphan = path.basename(
       formatTempPath('orphan-b.state.json', 'init', liveCounter, deadPid),
     );
-    // Inverse: a LIVE writer's temp file must survive, even though its counter
-    // value is a dead pid. Guards against "just swap the group" fixes.
     const liveOrphan = path.basename(
       formatTempPath('orphan-c.state.json', 'tmp', deadPid, liveCounter),
     );
@@ -1196,24 +1056,20 @@ describe('temp-file naming and orphan sweep', () => {
     await listStateFiles(tempDir);
 
     const remaining = await fs.readdir(tempDir);
-    // Dead writer's temp files reaped — the counter must not shadow the pid.
     expect(remaining).not.toContain(deadOrphan);
     expect(remaining).not.toContain(deadInitOrphan);
-    // Live writer's temp file untouched — its counter must not be read as a pid.
     expect(remaining).toContain(liveOrphan);
   });
 });
 
 /**
- * Find a PID that is definitely not running: spawn a trivial child, wait for it
- * to exit, and reuse its pid. Beats a hardcoded high number, which a busy host
- * could legitimately have assigned.
+ * Return the pid of a child process that has exited. A fixed high number can belong to a live process on a busy host.
+ * The function waits 50 ms after `exit`, because the pid can stay a zombie for a short time.
  */
 async function findDeadPid(): Promise<number> {
   const child = spawn(process.execPath, ['-e', '']);
   const pid = child.pid!;
   await new Promise<void>((resolve) => child.on('exit', () => resolve()));
-  // Reap latency: the pid can linger as a zombie for a tick after 'exit'.
   await new Promise((r) => setTimeout(r, 50));
   return pid;
 }

@@ -34,8 +34,6 @@ afterEach(async () => {
 });
 
 describe('Core Tools', () => {
-  // ─── ToolInit ───────────────────────────────────────────────────────────────
-
   describe('ToolInit_NewFeature_CreatesStateFile', () => {
     it('should create a new state file with correct defaults', async () => {
       const result = await handleInit(
@@ -48,19 +46,16 @@ describe('Core Tools', () => {
       expect(result.error).toBeUndefined();
       expect(result._meta).toEqual({ checkpointAdvised: false });
 
-      // Verify state was created on disk
       const state = await readStateFile(path.join(tmpDir, 'my-feature.state.json'));
       expect(state.featureId).toBe('my-feature');
       expect(state.workflowType).toBe('feature');
       expect(state.phase).toBe('plan');
 
-      // Verify slim response contains identity fields
       const data = result.data as Record<string, unknown>;
       expect(data.featureId).toBe('my-feature');
       expect(data.workflowType).toBe('feature');
       expect(data.phase).toBe('plan');
 
-      // Slim response should NOT include heavy fields
       expect(data.tasks).toBeUndefined();
       expect(data._events).toBeUndefined();
     });
@@ -68,14 +63,12 @@ describe('Core Tools', () => {
 
   describe('ToolInit_ExistingFeature_ReturnsStateAlreadyExists', () => {
     it('should return error if state already exists', async () => {
-      // Create it first
       await handleInit(
         { featureId: 'existing', workflowType: 'feature' },
         tmpDir,
         null,
       );
 
-      // Try to create again
       const result = await handleInit(
         { featureId: 'existing', workflowType: 'feature' },
         tmpDir,
@@ -124,7 +117,6 @@ describe('Core Tools', () => {
     it('should return STATE_ALREADY_EXISTS and not emit duplicate workflow.started event', async () => {
       const eventStore = new EventStore(tmpDir);
 
-      // First init — should succeed and emit one event
       const first = await handleInit(
         { featureId: 'dup-init', workflowType: 'feature' },
         tmpDir,
@@ -132,7 +124,6 @@ describe('Core Tools', () => {
       );
       expect(first.success).toBe(true);
 
-      // Second init — should fail without appending another event
       const second = await handleInit(
         { featureId: 'dup-init', workflowType: 'feature' },
         tmpDir,
@@ -141,13 +132,10 @@ describe('Core Tools', () => {
       expect(second.success).toBe(false);
       expect(second.error?.code).toBe('STATE_ALREADY_EXISTS');
 
-      // Verify: exactly ONE workflow.started event in the store, not two
       const events = await eventStore.query('dup-init', { type: 'workflow.started' });
       expect(events).toHaveLength(1);
     });
   });
-
-  // ─── T1: handleInit event metadata (ARCH-4) ─────────────────────────────────
 
   describe('HandleInit_AppendedEvent_HasCorrelationIdDefaultingToFeatureId', () => {
     it('should include correlationId equal to featureId in workflow.started event', async () => {
@@ -180,8 +168,6 @@ describe('Core Tools', () => {
       expect(events[0].source).toBe('workflow');
     });
   });
-
-  // ─── handleInit synthesisPolicy threading (HIGH-1) ──────────────────────────
 
   describe('handleInit_oneshotWorkflow_persistsSynthesisPolicyFromInput', () => {
     it('should persist state.oneshot.synthesisPolicy when passed at init for oneshot workflow', async () => {
@@ -224,6 +210,10 @@ describe('Core Tools', () => {
       expect(data.synthesisPolicy).toBe('always');
     });
 
+    /**
+     * The input schema accepts `synthesisPolicy` for every workflow type. `handleInit` puts it in the event
+     * only for a oneshot workflow.
+     */
     it('should omit synthesisPolicy from the event when workflowType is not oneshot', async () => {
       const eventStore = new EventStore(tmpDir);
 
@@ -231,10 +221,6 @@ describe('Core Tools', () => {
         {
           featureId: 'feat-policy-ignored',
           workflowType: 'feature',
-          // Accepted by the input schema but MUST NOT leak into the event
-          // payload for non-oneshot workflows — the projection only reads
-          // synthesisPolicy for oneshot, and other consumers shouldn't see
-          // it either.
           synthesisPolicy: 'always',
         },
         tmpDir,
@@ -264,6 +250,9 @@ describe('Core Tools', () => {
   });
 
   describe('workflowMaterialization_oneshotPolicy_roundTripsViaEvents', () => {
+    /**
+     * The test rebuilds the view from the events alone, as the event-sourced read path of `handleGet` does.
+     */
     it('should surface synthesisPolicy on the projected view after rematerialization', async () => {
       const eventStore = new EventStore(tmpDir);
 
@@ -277,8 +266,6 @@ describe('Core Tools', () => {
         eventStore,
       );
 
-      // Rematerialize the state from events alone, mimicking the ES v2
-      // rehydrate path used by handleGet.
       const events = await eventStore.query('os-roundtrip');
       let view = workflowStateProjection.init();
       for (const event of events) {
@@ -295,6 +282,10 @@ describe('Core Tools', () => {
   });
 
   describe('handleInit_oneshotWorkflow_defaultsSynthesisPolicyWhenOmitted', () => {
+    /**
+     * The guards read a missing policy as `on-request`. So the state can omit the `oneshot` key, or hold it
+     * without a `synthesisPolicy` field.
+     */
     it('should leave state.oneshot unset when synthesisPolicy omitted (schema default is on-request when read)', async () => {
       const result = await handleInit(
         { featureId: 'os-default', workflowType: 'oneshot' },
@@ -305,18 +296,14 @@ describe('Core Tools', () => {
 
       const state = await readStateFile(path.join(tmpDir, 'os-default.state.json'));
       const oneshot = (state as unknown as { oneshot?: { synthesisPolicy?: string } }).oneshot;
-      // When unset, the schema's default `on-request` applies at finalize-time
-      // via the guard. The persisted state may omit the `oneshot` key entirely
-      // or carry no `synthesisPolicy` field — both are valid.
       expect(oneshot?.synthesisPolicy === undefined || oneshot?.synthesisPolicy === 'on-request').toBe(true);
     });
   });
 
   describe('handleInit_featureWorkflow_ignoresSynthesisPolicyArg', () => {
+    /** The input schema accepts `synthesisPolicy` for every workflow type. */
     it('should silently drop synthesisPolicy arg when workflowType is not oneshot', async () => {
       const result = await handleInit(
-        // `synthesisPolicy` is accepted by the input schema for uniformity but
-        // has no effect on non-oneshot workflow types.
         { featureId: 'feat-ignore', workflowType: 'feature', synthesisPolicy: 'always' },
         tmpDir,
         null,
@@ -328,11 +315,8 @@ describe('Core Tools', () => {
     });
   });
 
-  // ─── ToolList ───────────────────────────────────────────────────────────────
-
   describe('ToolList_ActiveWorkflows_ReturnsWithStaleness', () => {
     it('should return all workflows with staleness info', async () => {
-      // Create multiple workflows
       await handleInit({ featureId: 'feat-a', workflowType: 'feature' }, tmpDir, null);
       await handleInit({ featureId: 'feat-b', workflowType: 'debug' }, tmpDir, null);
 
@@ -342,7 +326,6 @@ describe('Core Tools', () => {
       const data = result.data as Array<Record<string, unknown>>;
       expect(data).toHaveLength(2);
 
-      // Each entry should have staleness info (no _meta block)
       for (const entry of data) {
         expect(entry.featureId).toBeDefined();
         expect(entry.stale).toBeDefined();
@@ -353,10 +336,8 @@ describe('Core Tools', () => {
 
   describe('HandleList_CorruptFiles_IncludesWarnings', () => {
     it('should include warnings for corrupt state files', async () => {
-      // Create a valid workflow
       await handleInit({ featureId: 'good-wf', workflowType: 'feature' }, tmpDir, null);
 
-      // Create a corrupt state file
       const corruptFile = path.join(tmpDir, 'corrupt-wf.state.json');
       await fs.writeFile(corruptFile, 'invalid json{{{', 'utf-8');
 
@@ -367,7 +348,6 @@ describe('Core Tools', () => {
       expect(data).toHaveLength(1);
       expect(data[0].featureId).toBe('good-wf');
 
-      // Verify warnings are included
       const warnings = result.warnings as string[];
       expect(warnings).toBeDefined();
       expect(warnings).toHaveLength(1);
@@ -384,8 +364,6 @@ describe('Core Tools', () => {
     });
   });
 
-  // ─── ToolGet ────────────────────────────────────────────────────────────────
-
   describe('ToolGet_DotPathQuery_ReturnsValue', () => {
     it('should return the nested value for a dot-path query', async () => {
       await handleInit({ featureId: 'get-test', workflowType: 'feature' }, tmpDir, null);
@@ -397,7 +375,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBeNull(); // design is null by default
+      expect(result.data).toBeNull();
       expect(result._meta).toBeDefined();
     });
 
@@ -418,6 +396,7 @@ describe('Core Tools', () => {
   });
 
   describe('ToolGet_InternalField_ReturnsValue', () => {
+    /** Events live in the event store, so a query for `_events` returns undefined. */
     it('should be able to read internal fields like _history', async () => {
       await handleInit({ featureId: 'internal-test', workflowType: 'feature' }, tmpDir, null);
 
@@ -429,7 +408,6 @@ describe('Core Tools', () => {
       expect(historyResult.success).toBe(true);
       expect(historyResult.data).toEqual({});
 
-      // _events no longer exists in state (moved to external JSONL store)
       const eventsResult = await handleGet(
         { featureId: 'internal-test', query: '_events' },
         tmpDir,
@@ -444,7 +422,6 @@ describe('Core Tools', () => {
     it('should not include _events, _eventSequence, or _history in response data', async () => {
       await handleInit({ featureId: 'strip-test', workflowType: 'feature' }, tmpDir, null);
 
-      // Do a set to generate some events
       await handleSet(
         { featureId: 'strip-test', updates: { 'artifacts.design': 'design.md' } },
         tmpDir,
@@ -460,11 +437,9 @@ describe('Core Tools', () => {
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
 
-      // Core fields should still be present
       expect(data.featureId).toBe('strip-test');
       expect(data.phase).toBe('plan');
 
-      // Internal fields should be stripped
       expect(data._events).toBeUndefined();
       expect(data._eventSequence).toBeUndefined();
       expect(data._history).toBeUndefined();
@@ -472,10 +447,13 @@ describe('Core Tools', () => {
   });
 
   describe('handleGet_NoQuery_ReturnsCheckpointMeta', () => {
+    /**
+     * `_meta` holds no event summary. `handleSummary` returns the recent events and the circuit breaker
+     * state.
+     */
     it('should include checkpoint meta but not event summary (events now in external store)', async () => {
       await handleInit({ featureId: 'meta-summary', workflowType: 'feature' }, tmpDir, null);
 
-      // Set design artifact and transition to plan
       await handleSet(
         { featureId: 'meta-summary', updates: { 'artifacts.plan': 'design.md' } },
         tmpDir,
@@ -496,8 +474,6 @@ describe('Core Tools', () => {
       expect(result.success).toBe(true);
       const meta = result._meta as Record<string, unknown>;
       expect(meta).toBeDefined();
-      // Event summary is no longer in _meta — events live in external JSONL store.
-      // Use handleSummary for event + circuit breaker information.
       expect(meta.eventCount).toBeUndefined();
       expect(meta.recentEvents).toBeUndefined();
     });
@@ -507,7 +483,6 @@ describe('Core Tools', () => {
     it('should return undefined for _events (events now in external JSONL store)', async () => {
       await handleInit({ featureId: 'query-events', workflowType: 'feature' }, tmpDir, null);
 
-      // Generate some state changes
       await handleSet(
         { featureId: 'query-events', updates: { 'artifacts.plan': 'design.md' } },
         tmpDir,
@@ -526,17 +501,14 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      // _events no longer exists in state — events moved to external JSONL store
       expect(result.data).toBeUndefined();
     });
   });
 
-  // ─── Scalar / Simple Query Tests ───────────────────────────────────────────
-  //
-  // #1504 removed the file-scalar fast path; scalar queries now route through
-  // the shared resolution path (event-fold for ES v2, file for legacy), so
-  // these assert returned values + `_meta` rather than which source was read.
-
+  /**
+   * A scalar query uses the same resolution as every other query. The scalar-query tests check the returned
+   * value and `_meta`, not the source that `handleGet` read.
+   */
   describe('handleGet_ScalarQuery_Phase_ReturnsCorrectValue', () => {
     it('should return the phase value for a top-level scalar query', async () => {
       await handleInit({ featureId: 'scalar-phase', workflowType: 'feature' }, tmpDir, null);
@@ -586,21 +558,18 @@ describe('Core Tools', () => {
     it('should return consistent _meta shape between scalar and dot-path queries', async () => {
       await handleInit({ featureId: 'scalar-meta-consistent', workflowType: 'feature' }, tmpDir, null);
 
-      // Scalar query
       const scalarResult = await handleGet(
         { featureId: 'scalar-meta-consistent', query: 'phase' },
         tmpDir,
         null,
       );
 
-      // Dot-path query
       const dotPathResult = await handleGet(
         { featureId: 'scalar-meta-consistent', query: 'artifacts.design' },
         tmpDir,
         null,
       );
 
-      // Both should have _meta with checkpointAdvised
       expect(scalarResult._meta).toBeDefined();
       expect(dotPathResult._meta).toBeDefined();
       expect(typeof scalarResult._meta?.checkpointAdvised).toBe('boolean');
@@ -612,7 +581,6 @@ describe('Core Tools', () => {
     it('should return undefined when a queried scalar field is absent from state', async () => {
       await handleInit({ featureId: 'scalar-missing-field', workflowType: 'feature' }, tmpDir, null);
 
-      // Remove the 'track' field (feature workflows do not carry it).
       const stateFile = path.join(tmpDir, 'scalar-missing-field.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       delete raw.track;
@@ -625,7 +593,6 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      // Absent field resolves to undefined via resolveDotPath.
       expect(result.data).toBeUndefined();
     });
   });
@@ -634,7 +601,6 @@ describe('Core Tools', () => {
     it('should still resolve a scalar query when _checkpoint is absent from state', async () => {
       await handleInit({ featureId: 'scalar-no-ckpt', workflowType: 'feature' }, tmpDir, null);
 
-      // Remove _checkpoint from the on-disk state.
       const stateFile = path.join(tmpDir, 'scalar-no-ckpt.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       delete raw._checkpoint;
@@ -671,8 +637,6 @@ describe('Core Tools', () => {
     });
   });
 
-  // ─── ToolSet ────────────────────────────────────────────────────────────────
-
   describe('ToolSet_FieldUpdates_AppliesAndReturns', () => {
     it('should apply field updates via dot-path', async () => {
       await handleInit({ featureId: 'set-test', workflowType: 'feature' }, tmpDir, null);
@@ -686,25 +650,25 @@ describe('Core Tools', () => {
       expect(result.success).toBe(true);
       expect(result._meta).toBeDefined();
 
-      // Verify the update was persisted
       const state = await readStateFile(path.join(tmpDir, 'set-test.state.json'));
       expect(state.artifacts.design).toBe('docs/design.md');
     });
   });
 
   describe('ToolSet_PhaseTransition_ValidatesViaHSM', () => {
+    /**
+     * `plan` is the initial phase. The plan artifact satisfies the `planArtifactExists` guard on the
+     * transition to `plan-review`.
+     */
     it('should validate phase transition via HSM and apply if valid', async () => {
       await handleInit({ featureId: 'phase-test', workflowType: 'feature' }, tmpDir, null);
 
-      // DR-4 (#1581): plan is initial. Set the plan artifact so the
-      // plan→plan-review guard (planArtifactExists) passes.
       await handleSet(
         { featureId: 'phase-test', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
         tmpDir,
         null,
       );
 
-      // First transition is plan → plan-review.
       const result = await handleSet(
         { featureId: 'phase-test', phase: 'plan-review' },
         tmpDir,
@@ -713,7 +677,6 @@ describe('Core Tools', () => {
 
       expect(result.success).toBe(true);
 
-      // Verify phase was updated on disk
       const state = await readStateFile(path.join(tmpDir, 'phase-test.state.json'));
       expect(state.phase).toBe('plan-review');
     });
@@ -721,8 +684,6 @@ describe('Core Tools', () => {
     it('should apply updates before evaluating phase guards', async () => {
       await handleInit({ featureId: 'update-order', workflowType: 'feature' }, tmpDir, null);
 
-      // Provide both updates AND phase in a single call — updates should be
-      // applied first so the plan→plan-review guard sees the new state
       const result = await handleSet(
         {
           featureId: 'update-order',
@@ -743,7 +704,6 @@ describe('Core Tools', () => {
     it('should apply dynamic field updates before evaluating guards (planReview.approved)', async () => {
       await handleInit({ featureId: 'dynamic-guard', workflowType: 'feature' }, tmpDir, null);
 
-      // DR-4 (#1581): plan is initial. Advance plan → plan-review.
       await handleSet(
         { featureId: 'dynamic-guard', updates: { 'artifacts.plan': 'plan.md' } },
         tmpDir,
@@ -751,7 +711,6 @@ describe('Core Tools', () => {
       );
       await handleSet({ featureId: 'dynamic-guard', phase: 'plan-review' }, tmpDir, null);
 
-      // Combined update + transition: set planReview.approved AND transition to delegate
       const result = await handleSet(
         {
           featureId: 'dynamic-guard',
@@ -766,7 +725,6 @@ describe('Core Tools', () => {
       const data = result.data as Record<string, unknown>;
       expect(data.phase).toBe('delegate');
 
-      // Verify on disk
       const state = await readStateFile(path.join(tmpDir, 'dynamic-guard.state.json'));
       expect(state.phase).toBe('delegate');
     });
@@ -774,7 +732,6 @@ describe('Core Tools', () => {
     it('should return GUARD_FAILED for transition with unsatisfied guard', async () => {
       await handleInit({ featureId: 'guard-test', workflowType: 'feature' }, tmpDir, null);
 
-      // Try to transition plan -> plan-review without setting the plan artifact
       const result = await handleSet(
         { featureId: 'guard-test', phase: 'plan-review' },
         tmpDir,
@@ -789,7 +746,6 @@ describe('Core Tools', () => {
     it('should include expectedShape and suggestedFix in guard failure response', async () => {
       await handleInit({ featureId: 'guard-diag-test', workflowType: 'feature' }, tmpDir, null);
 
-      // Try to transition plan -> plan-review without setting the plan artifact
       const result = await handleSet(
         { featureId: 'guard-diag-test', phase: 'plan-review' },
         tmpDir,
@@ -799,12 +755,10 @@ describe('Core Tools', () => {
       expect(result.success).toBe(false);
       expect(result.error?.code).toBe('GUARD_FAILED');
 
-      // expectedShape should indicate what artifact is needed
       const error = result.error as Record<string, unknown>;
       expect(error.expectedShape).toBeDefined();
       expect(error.expectedShape).toEqual({ artifacts: { plan: '<path-or-content>' } });
 
-      // suggestedFix should provide actionable remediation
       expect(error.suggestedFix).toBeDefined();
       const fix = error.suggestedFix as { tool: string; params: Record<string, unknown> };
       expect(fix.tool).toBe('exarchos_workflow');
@@ -815,7 +769,6 @@ describe('Core Tools', () => {
     it('should return INVALID_TRANSITION for invalid target phase', async () => {
       await handleInit({ featureId: 'invalid-test', workflowType: 'feature' }, tmpDir, null);
 
-      // Try to transition plan -> synthesize (not a valid transition)
       const result = await handleSet(
         { featureId: 'invalid-test', phase: 'synthesize' },
         tmpDir,
@@ -827,8 +780,6 @@ describe('Core Tools', () => {
       expect(result.error?.code).toBe('INVALID_TRANSITION');
       expect(result.error?.validTargets).toBeDefined();
 
-      // Enriched validTargets include guard metadata — from `plan` the valid
-      // target is `plan-review` (guarded by planArtifactExists).
       const targets = result.error?.validTargets as Array<{ phase: string; guard?: { id: string; description: string } }>;
       const planReviewTarget = targets.find((t) => t.phase === 'plan-review');
       expect(planReviewTarget).toBeDefined();
@@ -896,8 +847,6 @@ describe('Core Tools', () => {
     });
   });
 
-  // ─── T2: handleSet transition event metadata (ARCH-4) ────────────────────────
-
   describe('HandleSet_TransitionEvent_HasCorrelationId', () => {
     it('should include correlationId in workflow.transition event', async () => {
       const eventStore = new EventStore(tmpDir);
@@ -908,7 +857,6 @@ describe('Core Tools', () => {
         eventStore,
       );
 
-      // Set design artifact to satisfy guard, then transition
       await handleSet(
         { featureId: 'set-corr-test', updates: { 'artifacts.plan': 'docs/design.md' } },
         tmpDir,
@@ -953,8 +901,6 @@ describe('Core Tools', () => {
     });
   });
 
-  // ─── ToolCancel ──────────────────────────────────────────────────────────────
-
   describe('ToolCancel_ActiveWorkflow_ExecutesCompensationAndTransitions', () => {
     it('should cancel an active workflow, run compensation, and transition to cancelled', async () => {
       await handleInit({ featureId: 'cancel-active', workflowType: 'feature' }, tmpDir, null);
@@ -973,7 +919,6 @@ describe('Core Tools', () => {
       expect(data.actions).toBeDefined();
       expect(Array.isArray(data.actions)).toBe(true);
 
-      // Verify state was transitioned to cancelled
       const state = await readStateFile(path.join(tmpDir, 'cancel-active.state.json'));
       expect(state.phase).toBe('cancelled');
     });
@@ -983,10 +928,8 @@ describe('Core Tools', () => {
     it('should return ALREADY_CANCELLED error when workflow is already cancelled', async () => {
       await handleInit({ featureId: 'cancel-twice', workflowType: 'feature' }, tmpDir, null);
 
-      // Cancel it once
       await handleCancel({ featureId: 'cancel-twice' }, tmpDir, null);
 
-      // Try to cancel again
       const result = await handleCancel({ featureId: 'cancel-twice' }, tmpDir, null);
 
       expect(result.success).toBe(false);
@@ -1012,7 +955,6 @@ describe('Core Tools', () => {
       expect(Array.isArray(data.actions)).toBe(true);
       expect(data.dryRun).toBe(true);
 
-      // Verify state was NOT changed
       const state = await readStateFile(path.join(tmpDir, 'cancel-dry.state.json'));
       expect(state.phase).toBe('plan');
     });
@@ -1030,19 +972,15 @@ describe('Core Tools', () => {
 
       expect(result.success).toBe(true);
 
-      // Verify state transitioned to cancelled
       const state = await readStateFile(path.join(tmpDir, 'cancel-reason.state.json'));
       expect(state.phase).toBe('cancelled');
     });
   });
 
-  // ─── ToolCheckpoint ─────────────────────────────────────────────────────────
-
   describe('ToolCheckpoint_ExplicitTrigger_ResetsCounterAndLogsEvent', () => {
     it('should reset operation counter to 0 and log a checkpoint event', async () => {
       await handleInit({ featureId: 'ckpt-reset', workflowType: 'feature' }, tmpDir, null);
 
-      // Do some set operations to increment the counter
       await handleSet(
         { featureId: 'ckpt-reset', updates: { 'artifacts.design': 'docs/d.md' } },
         tmpDir,
@@ -1054,7 +992,6 @@ describe('Core Tools', () => {
         null,
       );
 
-      // Now call checkpoint
       const result = await handleCheckpoint(
         { featureId: 'ckpt-reset' },
         tmpDir,
@@ -1062,10 +999,8 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      // After reset, _meta is slim (no action needed)
       expect(result._meta).toEqual({ checkpointAdvised: false });
 
-      // Verify state on disk
       const state = await readStateFile(path.join(tmpDir, 'ckpt-reset.state.json'));
       expect(state._checkpoint.operationsSince).toBe(0);
     });
@@ -1083,7 +1018,6 @@ describe('Core Tools', () => {
 
       expect(result.success).toBe(true);
 
-      // Verify summary is persisted in checkpoint state
       const state = await readStateFile(path.join(tmpDir, 'ckpt-summary.state.json'));
       expect(state._checkpoint.summary).toBe('Completed initial design review');
     });
@@ -1093,7 +1027,6 @@ describe('Core Tools', () => {
     it('should reset the counter each time checkpoint is called', async () => {
       await handleInit({ featureId: 'ckpt-multi', workflowType: 'feature' }, tmpDir, null);
 
-      // Do operations, checkpoint, do more operations, checkpoint again
       await handleSet(
         { featureId: 'ckpt-multi', updates: { 'artifacts.design': 'docs/d1.md' } },
         tmpDir,
@@ -1108,7 +1041,6 @@ describe('Core Tools', () => {
       expect(result1.success).toBe(true);
       expect(result1._meta).toEqual({ checkpointAdvised: false });
 
-      // Do more operations
       await handleSet(
         { featureId: 'ckpt-multi', updates: { 'artifacts.plan': 'docs/p1.md' } },
         tmpDir,
@@ -1128,13 +1060,10 @@ describe('Core Tools', () => {
       expect(result2.success).toBe(true);
       expect(result2._meta).toEqual({ checkpointAdvised: false });
 
-      // Verify checkpoint counter was reset on disk
       const state = await readStateFile(path.join(tmpDir, 'ckpt-multi.state.json'));
       expect(state._checkpoint.operationsSince).toBe(0);
     });
   });
-
-  // ─── T3: handleCheckpoint event metadata (ARCH-4) ───────────────────────────
 
   describe('HandleCheckpoint_Event_HasCorrelationIdAndSource', () => {
     it('should include correlationId and source in workflow.checkpoint event', async () => {
@@ -1160,14 +1089,9 @@ describe('Core Tools', () => {
   });
 });
 
-// ─── Query Tools ─────────────────────────────────────────────────────────────
-
 describe('Query Tools', () => {
-  // ─── ToolSummary ──────────────────────────────────────────────────────────
-
   describe('ToolSummary_ActiveWorkflow_ReturnsStructuredSummary', () => {
     it('should return feature, phase, task progress, artifacts, recent events', async () => {
-      // Create a workflow and add some data
       await handleInit({ featureId: 'summary-test', workflowType: 'feature' }, tmpDir, null);
       await handleSet(
         {
@@ -1192,16 +1116,13 @@ describe('Query Tools', () => {
       expect(data.workflowType).toBe('feature');
       expect(data.phase).toBe('plan');
 
-      // Task progress
       const taskProgress = data.taskProgress as Record<string, number>;
       expect(taskProgress.completed).toBe(1);
       expect(taskProgress.total).toBe(2);
 
-      // Artifacts
       const artifacts = data.artifacts as Record<string, unknown>;
       expect(artifacts.design).toBe('docs/design.md');
 
-      // Recent events
       expect(data.recentEvents).toBeDefined();
       expect(Array.isArray(data.recentEvents)).toBe(true);
     });
@@ -1209,12 +1130,10 @@ describe('Query Tools', () => {
 
   describe('ToolSummary_IncludesRecentEventsAndCircuitBreaker', () => {
     it('should include last 5 events and circuit breaker state', async () => {
-      // Configure module-level event store so handleSummary can query external events
       const eventStore = new EventStore(tmpDir);
 
       await handleInit({ featureId: 'summary-cb', workflowType: 'feature' }, tmpDir, eventStore);
 
-      // Set design artifact and transition to plan to generate events
       await handleSet(
         { featureId: 'summary-cb', updates: { 'artifacts.plan': 'design.md' } },
         tmpDir,
@@ -1222,7 +1141,6 @@ describe('Query Tools', () => {
       );
       await handleSet({ featureId: 'summary-cb', phase: 'plan-review' }, tmpDir, eventStore);
 
-      // Set plan artifact and transition to plan-review, then delegate
       await handleSet(
         { featureId: 'summary-cb', updates: { 'artifacts.plan': 'plan.md' } },
         tmpDir,
@@ -1241,11 +1159,9 @@ describe('Query Tools', () => {
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
 
-      // Recent events — from external event store
       const recentEvents = data.recentEvents as Array<unknown>;
       expect(Array.isArray(recentEvents)).toBe(true);
 
-      // Circuit breaker state for the "implementation" compound
       const circuitBreaker = data.circuitBreaker as Record<string, unknown>;
       expect(circuitBreaker).toBeDefined();
       expect(circuitBreaker.open).toBe(false);
@@ -1262,8 +1178,6 @@ describe('Query Tools', () => {
     });
   });
 
-  // ─── ToolReconcile ────────────────────────────────────────────────────────
-
   describe('ToolReconcile_NonExistentWorkflow_ReturnsNotFound', () => {
     it('should return STATE_NOT_FOUND for non-existent workflow', async () => {
       const result = await handleReconcile({ featureId: 'does-not-exist' }, tmpDir, null);
@@ -1277,11 +1191,9 @@ describe('Query Tools', () => {
     it('should return OK status for worktrees that exist on disk', async () => {
       await handleInit({ featureId: 'reconcile-ok', workflowType: 'feature' }, tmpDir, null);
 
-      // Create a real directory to act as a worktree path
       const worktreePath = path.join(tmpDir, 'worktree-1');
       await fs.mkdir(worktreePath, { recursive: true });
 
-      // Write worktree with path directly into the state file to bypass Zod stripping
       const stateFile = path.join(tmpDir, 'reconcile-ok.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       raw.worktrees.wt1 = {
@@ -1300,7 +1212,6 @@ describe('Query Tools', () => {
       expect(worktreeResults).toBeDefined();
       expect(Array.isArray(worktreeResults)).toBe(true);
 
-      // The worktree with a real path should have OK status
       const wt1 = worktreeResults.find((w) => w.id === 'wt1');
       expect(wt1).toBeDefined();
       expect(wt1?.pathStatus).toBe('OK');
@@ -1311,7 +1222,6 @@ describe('Query Tools', () => {
     it('should detect and report missing worktrees', async () => {
       await handleInit({ featureId: 'reconcile-missing', workflowType: 'feature' }, tmpDir, null);
 
-      // Write worktree with non-existent path directly into the state file
       const stateFile = path.join(tmpDir, 'reconcile-missing.state.json');
       const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       raw.worktrees.wt1 = {
@@ -1335,8 +1245,6 @@ describe('Query Tools', () => {
     });
   });
 
-  // ─── ToolTransitions ──────────────────────────────────────────────────────
-
   describe('ToolTransitions_FeatureWorkflow_ReturnsFullGraph', () => {
     it('should return all states and transitions for a workflow type', async () => {
       const result = await handleTransitions(
@@ -1348,12 +1256,10 @@ describe('Query Tools', () => {
       expect(result.success).toBe(true);
       const data = result.data as Record<string, unknown>;
 
-      // Should include states
       const states = data.states as Array<Record<string, unknown>>;
       expect(states).toBeDefined();
       expect(states.length).toBeGreaterThan(0);
 
-      // DR-4 (#1581): `ideate` is removed — `plan` is the initial state.
       const stateIds = states.map((s) => s.id);
       expect(stateIds).not.toContain('ideate');
       expect(stateIds).toContain('plan');
@@ -1362,13 +1268,10 @@ describe('Query Tools', () => {
       expect(stateIds).toContain('synthesize');
       expect(stateIds).toContain('completed');
 
-      // Should include transitions
       const transitions = data.transitions as Array<Record<string, unknown>>;
       expect(transitions).toBeDefined();
       expect(transitions.length).toBeGreaterThan(0);
 
-      // Each transition should have guard description (plan→plan-review is now
-      // the first transition, replacing the retired ideate->plan).
       const planToReview = transitions.find(
         (t) => t.from === 'plan' && t.to === 'plan-review',
       );
@@ -1391,10 +1294,8 @@ describe('Query Tools', () => {
       const transitions = data.transitions as Array<Record<string, unknown>>;
       expect(transitions).toBeDefined();
 
-      // delegate has one transition: to review (all tasks complete)
       expect(transitions.length).toBeGreaterThanOrEqual(1);
 
-      // All transitions should be from 'delegate'
       for (const t of transitions) {
         expect(t.from).toBe('delegate');
       }
@@ -1405,105 +1306,86 @@ describe('Query Tools', () => {
   });
 });
 
-// ─── handleTransitions Sparse Responses ──────────────────────────────────────
-
 describe('handleTransitions sparse responses', () => {
   it('handleTransitions_NoEffects_OmitsEffectsField', async () => {
-    // Arrange — get feature transitions, find one with no effects
     const result = await handleTransitions({ workflowType: 'feature' }, tmpDir, null);
     expect(result.success).toBe(true);
 
     const data = result.data as Record<string, unknown>;
     const transitions = data.transitions as Array<Record<string, unknown>>;
 
-    // Act — find a transition that should have empty effects (e.g. plan->plan-review)
     const planToReview = transitions.find(
       (t) => t.from === 'plan' && t.to === 'plan-review',
     );
 
-    // Assert — the transition object should NOT have an `effects` key at all
     expect(planToReview).toBeDefined();
     expect('effects' in planToReview!).toBe(false);
   });
 
+  /** The response drops null values and empty arrays, but it keeps `isFixCycle: false`. */
   it('handleTransitions_IsFixCycleFalse_StillPresent', async () => {
-    // Arrange — get feature transitions
     const result = await handleTransitions({ workflowType: 'feature' }, tmpDir, null);
     expect(result.success).toBe(true);
 
     const data = result.data as Record<string, unknown>;
     const transitions = data.transitions as Array<Record<string, unknown>>;
 
-    // Act — find a non-fix-cycle transition (most of them)
     const planToReview = transitions.find(
       (t) => t.from === 'plan' && t.to === 'plan-review',
     );
 
-    // Assert — isFixCycle: false should still be present (it's a meaningful boolean)
     expect(planToReview).toBeDefined();
     expect('isFixCycle' in planToReview!).toBe(true);
     expect(planToReview!.isFixCycle).toBe(false);
   });
 
   it('handleTransitions_WithEffects_KeepsEffectsField', async () => {
-    // Arrange — get feature transitions
     const result = await handleTransitions({ workflowType: 'feature' }, tmpDir, null);
     expect(result.success).toBe(true);
 
     const data = result.data as Record<string, unknown>;
     const transitions = data.transitions as Array<Record<string, unknown>>;
 
-    // Act — find the review->delegate fix-cycle transition which has effects
     const fixCycle = transitions.find(
       (t) => t.from === 'review' && t.to === 'delegate' && t.isFixCycle === true,
     );
 
-    // Assert — effects should be present when non-empty
     expect(fixCycle).toBeDefined();
     expect('effects' in fixCycle!).toBe(true);
     expect(fixCycle!.effects).toEqual(['increment-fix-cycle']);
   });
 
   it('handleTransitions_NullParent_OmitsParentField', async () => {
-    // Arrange — get feature states, find one with no parent (like plan)
     const result = await handleTransitions({ workflowType: 'feature' }, tmpDir, null);
     expect(result.success).toBe(true);
 
     const data = result.data as Record<string, unknown>;
     const states = data.states as Array<Record<string, unknown>>;
 
-    // Act — find a state that has no parent (top-level atomic states like 'plan')
     const planState = states.find((s) => s.id === 'plan');
 
-    // Assert — the state object should NOT have a `parent` key
     expect(planState).toBeDefined();
     expect('parent' in planState!).toBe(false);
   });
 
   it('handleTransitions_NullInitial_OmitsInitialField', async () => {
-    // Arrange — get feature states, find an atomic state (no initial sub-state)
     const result = await handleTransitions({ workflowType: 'feature' }, tmpDir, null);
     expect(result.success).toBe(true);
 
     const data = result.data as Record<string, unknown>;
     const states = data.states as Array<Record<string, unknown>>;
 
-    // Act — find an atomic state (should not have 'initial')
     const planState = states.find((s) => s.id === 'plan');
 
-    // Assert — atomic state should NOT have `initial` key
     expect(planState).toBeDefined();
     expect('initial' in planState!).toBe(false);
   });
 });
 
-// ─── Integration Tests for Bug Fixes ────────────────────────────────────────
-
 describe('ToolSet_DynamicFields_SurviveRoundTrip', () => {
   it('should preserve dynamic fields through set and get', async () => {
     await handleInit({ featureId: 'dynamic-test', workflowType: 'refactor' }, tmpDir, null);
 
-    // Set dynamic fields
     await handleSet(
       {
         featureId: 'dynamic-test',
@@ -1516,7 +1398,6 @@ describe('ToolSet_DynamicFields_SurviveRoundTrip', () => {
       null,
     );
 
-    // Read back via handleGet (no query — full state)
     const getResult = await handleGet({ featureId: 'dynamic-test' }, tmpDir, null);
     expect(getResult.success).toBe(true);
     const data = getResult.data as Record<string, unknown>;
@@ -1538,7 +1419,6 @@ describe('ToolSet_DynamicFields_SurviveRoundTrip', () => {
       null,
     );
 
-    // Query specific dynamic field
     const result = await handleGet(
       { featureId: 'query-dynamic', query: 'planReview.approved' },
       tmpDir,
@@ -1553,7 +1433,6 @@ describe('ToolSet_RefactorTransition_ExploreToBrief', () => {
   it('should transition from explore to brief when scope assessment is set', async () => {
     await handleInit({ featureId: 'refactor-transition', workflowType: 'refactor' }, tmpDir, null);
 
-    // Set the scope assessment (required by guard)
     await handleSet(
       {
         featureId: 'refactor-transition',
@@ -1567,7 +1446,6 @@ describe('ToolSet_RefactorTransition_ExploreToBrief', () => {
       null,
     );
 
-    // Now transition from explore → brief (guard checks explore.scopeAssessment)
     const result = await handleSet(
       { featureId: 'refactor-transition', phase: 'brief' },
       tmpDir,
@@ -1582,7 +1460,6 @@ describe('ToolSet_RefactorTransition_ExploreToBrief', () => {
   it('should transition from explore to brief in a single combined call', async () => {
     await handleInit({ featureId: 'refactor-combined', workflowType: 'refactor' }, tmpDir, null);
 
-    // Set scope assessment AND transition in one call — guard should see updated state
     const result = await handleSet(
       {
         featureId: 'refactor-combined',
@@ -1602,7 +1479,6 @@ describe('ToolSet_RefactorTransition_ExploreToBrief', () => {
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('brief');
 
-    // Verify on disk
     const state = await readStateFile(path.join(tmpDir, 'refactor-combined.state.json'));
     expect(state.phase).toBe('brief');
   });
@@ -1612,7 +1488,6 @@ describe('ToolSet_DeepCopy_OriginalStateUnaffected (Bug 8)', () => {
   it('should not mutate the original state read from disk when applying updates', async () => {
     await handleInit({ featureId: 'deep-copy', workflowType: 'feature' }, tmpDir, null);
 
-    // Set a nested field
     const result = await handleSet(
       {
         featureId: 'deep-copy',
@@ -1624,10 +1499,8 @@ describe('ToolSet_DeepCopy_OriginalStateUnaffected (Bug 8)', () => {
 
     expect(result.success).toBe(true);
 
-    // Read the state back from disk to verify it was written correctly
     const state = await readStateFile(path.join(tmpDir, 'deep-copy.state.json'));
     expect(state.artifacts.design).toBe('docs/design.md');
-    // The original state's siblings should be intact
     expect(state.artifacts.plan).toBeNull();
     expect(state.artifacts.pr).toBeNull();
   });
@@ -1637,7 +1510,6 @@ describe('ToolSet_ArtifactUpdate_PreservesSiblings', () => {
   it('should preserve plan and pr when setting design via object update', async () => {
     await handleInit({ featureId: 'artifact-merge', workflowType: 'feature' }, tmpDir, null);
 
-    // Update artifacts using object (not dot-path)
     const result = await handleSet(
       {
         featureId: 'artifact-merge',
@@ -1649,15 +1521,12 @@ describe('ToolSet_ArtifactUpdate_PreservesSiblings', () => {
 
     expect(result.success).toBe(true);
 
-    // Verify via disk read (handleSet returns slim response, not full state)
     const state = await readStateFile(path.join(tmpDir, 'artifact-merge.state.json'));
     expect(state.artifacts.design).toBe('docs/design.md');
     expect(state.artifacts.plan).toBeNull();
     expect(state.artifacts.pr).toBeNull();
   });
 });
-
-// ─── Slim Response Tests ──────────────────────────────────────────────────────
 
 describe('ToolSet_SlimResponse_ReturnsMinimalPayload', () => {
   it('should return only phase and updatedAt, not full state', async () => {
@@ -1672,12 +1541,10 @@ describe('ToolSet_SlimResponse_ReturnsMinimalPayload', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
 
-    // Slim response should include phase and updatedAt
     expect(data.phase).toBe('plan');
     expect(data.updatedAt).toBeDefined();
     expect(typeof data.updatedAt).toBe('string');
 
-    // Should NOT include full state fields
     expect(data.tasks).toBeUndefined();
     expect(data.worktrees).toBeUndefined();
     expect(data._events).toBeUndefined();
@@ -1716,12 +1583,10 @@ describe('ToolInit_SlimResponse_ReturnsMinimalPayload', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
 
-    // Slim response should include identity fields
     expect(data.featureId).toBe('slim-init');
     expect(data.workflowType).toBe('feature');
     expect(data.phase).toBe('plan');
 
-    // Should NOT include full state fields
     expect(data.tasks).toBeUndefined();
     expect(data.worktrees).toBeUndefined();
     expect(data._events).toBeUndefined();
@@ -1743,10 +1608,8 @@ describe('ToolCheckpoint_SlimResponse_ReturnsMinimalPayload', () => {
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
 
-    // Slim response should include phase
     expect(data.phase).toBe('plan');
 
-    // Should NOT include full state fields
     expect(data.tasks).toBeUndefined();
     expect(data.worktrees).toBeUndefined();
     expect(data._events).toBeUndefined();
@@ -1755,23 +1618,18 @@ describe('ToolCheckpoint_SlimResponse_ReturnsMinimalPayload', () => {
   });
 });
 
-// ─── B4: Bridge Workflow Transitions to External Event Store ───────────────
-
 describe('External Event Store Bridge', () => {
   it('handleSet_PhaseTransition_AppendsToExternalStore: after transition, JSONL file has event', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Create a feature workflow at plan (DR-4 #1581: initial phase)
     await handleInit({ featureId: 'bridge-test', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set plan artifact to satisfy the plan->plan-review guard
     await handleSet(
       { featureId: 'bridge-test', updates: { 'artifacts.plan': 'docs/specs/test.md' } },
       tmpDir,
       eventStore,
     );
 
-    // Transition from plan to plan-review
     const result = await handleSet(
       { featureId: 'bridge-test', phase: 'plan-review' },
       tmpDir,
@@ -1779,11 +1637,9 @@ describe('External Event Store Bridge', () => {
     );
     expect(result.success).toBe(true);
 
-    // Query external event store for workflow.transition events
     const events = await eventStore.query('bridge-test', { type: 'workflow.transition' });
     expect(events.length).toBeGreaterThanOrEqual(1);
 
-    // Verify the transition event data
     const transitionEvent = events.find(e =>
       (e.data as Record<string, unknown>)?.to === 'plan-review'
     );
@@ -1803,7 +1659,6 @@ describe('External Event Store Bridge', () => {
     );
     expect(result.success).toBe(true);
 
-    // Query external event store for workflow.checkpoint events
     const events = await eventStore.query('cp-bridge', { type: 'workflow.checkpoint' });
     expect(events.length).toBe(1);
     expect((events[0].data as Record<string, unknown>)?.phase).toBe('plan');
@@ -1811,16 +1666,12 @@ describe('External Event Store Bridge', () => {
   });
 });
 
-// ─── Diagnostic Event Emission (guard-failed, circuit-open) ────────────────
-
 describe('Diagnostic Event Emission', () => {
   it('handleSet emits guard-failed event to event store on guard failure', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Create a feature workflow at plan (DR-4 #1581: initial phase)
     await handleInit({ featureId: 'guard-diag', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Try to transition plan -> plan-review WITHOUT setting the plan artifact (guard fails)
     const result = await handleSet(
       { featureId: 'guard-diag', phase: 'plan-review' },
       tmpDir,
@@ -1830,7 +1681,6 @@ describe('Diagnostic Event Emission', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GUARD_FAILED');
 
-    // Query external event store for workflow.guard-failed events
     const events = await eventStore.query('guard-diag', { type: 'workflow.guard-failed' });
     expect(events.length).toBe(1);
     const data = events[0].data as Record<string, unknown>;
@@ -1840,13 +1690,15 @@ describe('Diagnostic Event Emission', () => {
     expect(data.featureId).toBe('guard-diag');
   });
 
+  /**
+   * Three appended `workflow.fix-cycle` events reach the fix-cycle limit of the `implementation` state. So
+   * the next fix cycle fails with `CIRCUIT_OPEN`.
+   */
   it('handleSet emits circuit-open event to event store when circuit breaker trips', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Create a feature workflow
     await handleInit({ featureId: 'circuit-diag', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Advance to review phase — set up all the artifacts/state needed
     await handleSet(
       { featureId: 'circuit-diag', updates: { 'artifacts.plan': 'docs/d.md' } },
       tmpDir,
@@ -1866,7 +1718,6 @@ describe('Diagnostic Event Emission', () => {
     );
     await handleSet({ featureId: 'circuit-diag', phase: 'delegate' }, tmpDir, eventStore);
 
-    // Complete tasks for delegate -> review guard (subagent mode — no team events needed)
     await handleSet(
       { featureId: 'circuit-diag', updates: { tasks: [{ id: 't1', title: 'Task 1', status: 'complete' }] } },
       tmpDir,
@@ -1874,7 +1725,6 @@ describe('Diagnostic Event Emission', () => {
     );
     await handleSet({ featureId: 'circuit-diag', phase: 'review' }, tmpDir, eventStore);
 
-    // Inject 3 fix-cycle events into JSONL store to trigger circuit breaker
     for (let i = 0; i < 3; i++) {
       await eventStore.append('circuit-diag', {
         type: 'workflow.fix-cycle' as import('../../../src/events/schemas.js').EventType,
@@ -1889,14 +1739,12 @@ describe('Diagnostic Event Emission', () => {
         },
       });
     }
-    // Set review to failed so the guard would pass for delegate transition
     await handleSet(
       { featureId: 'circuit-diag', updates: { 'reviews.spec': { status: 'fail' } } },
       tmpDir,
       eventStore,
     );
 
-    // Attempt fix cycle — should trigger circuit breaker
     const result = await handleSet(
       { featureId: 'circuit-diag', phase: 'delegate' },
       tmpDir,
@@ -1906,7 +1754,6 @@ describe('Diagnostic Event Emission', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('CIRCUIT_OPEN');
 
-    // Query external event store for workflow.circuit-open events
     const events = await eventStore.query('circuit-diag', { type: 'workflow.circuit-open' });
     expect(events.length).toBe(1);
     const data = events[0].data as Record<string, unknown>;
@@ -1915,10 +1762,8 @@ describe('Diagnostic Event Emission', () => {
   });
 
   it('handleSet does not emit diagnostic events when no event store configured', async () => {
-    // No event store configured (default null)
     await handleInit({ featureId: 'no-store', workflowType: 'feature' }, tmpDir, null);
 
-    // This should not throw even without event store
     const result = await handleSet(
       { featureId: 'no-store', phase: 'plan-review' },
       tmpDir,
@@ -1930,11 +1775,12 @@ describe('Diagnostic Event Emission', () => {
   });
 });
 
-// ─── Guaranteed Event Append (Task 9, updated for event-first T3) ─────────
-
 describe('Guaranteed Event Append', () => {
+  /**
+   * Events are the commit point, so a failed append leaves the state unchanged. The test stubs both `append`
+   * and `appendValidated` to cover each append path.
+   */
   it('handleSet_EventAppendFails_ReturnsErrorAndDoesNotUpdateState', async () => {
-    // Arrange — init with real event store, then mock append to fail for set
     const eventStore = new EventStore(tmpDir);
 
     await handleInit({ featureId: 'event-fail', workflowType: 'feature' }, tmpDir, eventStore);
@@ -1944,11 +1790,6 @@ describe('Guaranteed Event Append', () => {
       eventStore,
     );
 
-    // Now mock both append paths to fail for the transition event.
-    // #1325 — phase-transition emissions now route through
-    // `appendValidated` via hsmTransitionGuard, while legacy event-first
-    // sites still call `append`. Stub both so the failure injection
-    // remains exhaustive regardless of which path the handler uses.
     const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
       new Error('Disk full'),
     );
@@ -1956,20 +1797,16 @@ describe('Guaranteed Event Append', () => {
       new Error('Disk full'),
     );
 
-    // Act — attempt a phase transition that triggers event append
     const result = await handleSet(
       { featureId: 'event-fail', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
 
-    // Assert — event-first: should FAIL when event append fails
-    // Events are the commit point; state is NOT updated on event failure.
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
     expect(result.error?.message).toContain('Disk full');
 
-    // State should NOT have been mutated (event-first contract)
     const state = await readStateFile(path.join(tmpDir, 'event-fail.state.json'));
     expect(state.phase).toBe('plan');
 
@@ -1978,13 +1815,10 @@ describe('Guaranteed Event Append', () => {
   });
 
   it('handleCheckpoint_EventAppendFails_ReturnsError', async () => {
-    // Arrange — init with real event store, then mock append to fail for checkpoint
     const eventStore = new EventStore(tmpDir);
 
     await handleInit({ featureId: 'ckpt-event-fail', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Now mock both append paths to fail for the checkpoint event.
-    // #1325 — handleCheckpoint emissions migrated to `appendValidated`.
     const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
       new Error('Permission denied'),
     );
@@ -1992,14 +1826,12 @@ describe('Guaranteed Event Append', () => {
       new Error('Permission denied'),
     );
 
-    // Act — attempt a checkpoint that triggers event append
     const result = await handleCheckpoint(
       { featureId: 'ckpt-event-fail', summary: 'test' },
       tmpDir,
       eventStore,
     );
 
-    // Assert — should return error with EVENT_APPEND_FAILED code
     expect(result.success).toBe(false);
     expect(result.error).toBeDefined();
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
@@ -2009,14 +1841,16 @@ describe('Guaranteed Event Append', () => {
     appendValidatedSpy.mockRestore();
   });
 
+  /**
+   * The key has the form `<featureId>:checkpoint:<phase>:<version>:<digest>`. `<version>` is the state
+   * version that `handleCheckpoint` reads. `<digest>` is the first 16 hex characters of a sha256 over the
+   * JSON handoff.
+   */
   it('handleCheckpoint_EventAppend_HasIdempotencyKey', async () => {
-    // Arrange: init with real event store
     const eventStore = new EventStore(tmpDir);
 
     await handleInit({ featureId: 'ckpt-idem-key', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Spy on both append paths to capture idempotency keys.
-    // #1325 — handleCheckpoint now emits via `appendValidated`.
     const appendCalls: Array<{ type: string; idempotencyKey?: string }> = [];
     const originalAppend = eventStore.append.bind(eventStore);
     const originalAppendValidated = eventStore.appendValidated.bind(eventStore);
@@ -2029,38 +1863,29 @@ describe('Guaranteed Event Append', () => {
       return originalAppendValidated(streamId, event, options);
     });
 
-    // Act
     await handleCheckpoint(
       { featureId: 'ckpt-idem-key', summary: 'test checkpoint' },
       tmpDir,
       eventStore,
     );
 
-    // Assert: the checkpoint event should have an idempotency key
     const checkpointCalls = appendCalls.filter((c) => c.type === 'workflow.checkpoint');
     expect(checkpointCalls.length).toBe(1);
     expect(checkpointCalls[0].idempotencyKey).toBeDefined();
-    // Key pattern: ${featureId}:checkpoint:${phase}:${version}:${handoffDigest}
-    // The version used in the key is the state's version at read time (before checkpoint writes).
-    // handleInit writes with version increment, so the on-disk version after init is 2,
-    // but handleCheckpoint reads the state and uses _version from that read.
-    // C3 (#1241): a 16-char sha256 prefix of `JSON.stringify(input.handoff ?? {})`
-    // is appended so refinement calls within the same phase land as
-    // distinct events. No-handoff calls produce a stable digest (`{}`),
-    // preserving prior dedup behavior.
     expect(checkpointCalls[0].idempotencyKey).toMatch(
       /^ckpt-idem-key:checkpoint:plan:\d+:[0-9a-f]{16}$/,
     );
   });
 });
 
-// ─── CAS Retry: No Duplicate Events (updated for event-first T3) ───────────
-
 describe('CAS Retry Duplicate Event Prevention', () => {
+  /**
+   * `handleSet` appends the transition event on each CAS attempt. The idempotency key makes the store keep
+   * one event.
+   */
   it('handleSet_CASRetry_ShouldNotStoreDuplicateEvents: idempotency key prevents duplicates on retry', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Arrange: Create workflow and set the plan artifact (DR-4 #1581: plan is initial)
     await handleInit({ featureId: 'cas-dup', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'cas-dup', updates: { 'artifacts.plan': 'plan.md' } },
@@ -2068,8 +1893,6 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       eventStore,
     );
 
-    // Mock writeStateFile to fail with VersionConflictError on first attempt,
-    // then succeed on second attempt
     const stateStoreMod = await import('../../../src/workflow/state-store.js');
     let writeAttempt = 0;
     const originalWrite = stateStoreMod.writeStateFile;
@@ -2077,29 +1900,22 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       async (stateFile, state, options) => {
         writeAttempt++;
         if (writeAttempt === 1 && options?.expectedVersion !== undefined) {
-          // First CAS write attempt: simulate conflict
           throw new VersionConflictError(options.expectedVersion, options.expectedVersion + 1);
         }
-        // Subsequent attempts: use original implementation
         return originalWrite(stateFile, state, options);
       },
     );
 
-    // Act: Transition plan -> plan-review (event-first: append before CAS write)
     const result = await handleSet(
       { featureId: 'cas-dup', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
 
-    // Assert: Transition should succeed (on retry)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('plan-review');
 
-    // Assert: Only one transition event should be STORED (idempotency key dedup)
-    // Note: append() is called on each retry attempt, but the idempotency key
-    // ensures the second call returns the cached event without creating a duplicate.
     const events = await eventStore.query('cas-dup');
     const transitions = events.filter(e => e.type === 'workflow.transition');
     expect(transitions).toHaveLength(1);
@@ -2110,7 +1926,6 @@ describe('CAS Retry Duplicate Event Prevention', () => {
   it('handleSet_EventAppendFails_ReturnsErrorBeforeStateWrite', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Arrange: Create workflow and set the plan artifact (DR-4 #1581: plan is initial)
     await handleInit({ featureId: 'cas-event-warn', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'cas-event-warn', updates: { 'artifacts.plan': 'plan.md' } },
@@ -2118,8 +1933,6 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       eventStore,
     );
 
-    // Mock both event store append paths to fail.
-    // #1325 — phase-transition emissions now route through `appendValidated`.
     const appendSpy = vi.spyOn(eventStore, 'append').mockRejectedValue(
       new Error('Event store unavailable'),
     );
@@ -2127,19 +1940,16 @@ describe('CAS Retry Duplicate Event Prevention', () => {
       new Error('Event store unavailable'),
     );
 
-    // Act: Transition plan -> plan-review
     const result = await handleSet(
       { featureId: 'cas-event-warn', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
 
-    // Assert: Event-first — should return error, state NOT updated
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
     expect(result.error?.message).toContain('Event store unavailable');
 
-    // Verify state was NOT written to disk (still at plan, the initial phase)
     const state = await readStateFile(path.join(tmpDir, 'cas-event-warn.state.json'));
     expect(state.phase).toBe('plan');
 
@@ -2159,7 +1969,6 @@ describe('B5: Event-First Mutation Ordering', () => {
       eventStore,
     );
 
-    // Transition from plan to plan-review
     const result = await handleSet(
       { featureId: 'event-first', phase: 'plan-review' },
       tmpDir,
@@ -2167,11 +1976,9 @@ describe('B5: Event-First Mutation Ordering', () => {
     );
     expect(result.success).toBe(true);
 
-    // Verify external event store has the transition event
     const events = await eventStore.query('event-first', { type: 'workflow.transition' });
     expect(events.length).toBeGreaterThanOrEqual(1);
 
-    // Verify state was updated
     const state = await readStateFile(path.join(tmpDir, 'event-first.state.json'));
     expect(state.phase).toBe('plan-review');
   });
@@ -2179,9 +1986,7 @@ describe('B5: Event-First Mutation Ordering', () => {
   it('WorkflowStateSchema_NoEventsField: schema does not include _events, _eventSequence is passthrough', async () => {
     await handleInit({ featureId: 'schema-check', workflowType: 'feature' }, tmpDir, null);
     const state = await readStateFile(path.join(tmpDir, 'schema-check.state.json'));
-    // _events should not be present in the state
     expect((state as Record<string, unknown>)._events).toBeUndefined();
-    // _eventSequence is now a passthrough field set by event-first init (0 when no event store)
     expect((state as Record<string, unknown>)._eventSequence).toBe(0);
   });
 });
@@ -2191,13 +1996,11 @@ describe('Store-Based Event Consumers', () => {
     const { getFixCycleCountFromStore } = await import('../../../src/workflow/events.js');
     const eventStore = new EventStore(tmpDir);
 
-    // Append a compound-entry event
     await eventStore.append('fix-test', {
       type: 'workflow.compound-entry',
       data: { compoundStateId: 'feature-delegate-review', featureId: 'fix-test' },
     });
 
-    // Append fix-cycle events
     await eventStore.append('fix-test', {
       type: 'workflow.fix-cycle',
       data: { compoundStateId: 'feature-delegate-review', count: 1, featureId: 'fix-test' },
@@ -2232,21 +2035,16 @@ describe('Store-Based Event Consumers', () => {
   });
 });
 
-// ─── Task 6: handleGet fields projection ─────────────────────────────────────
-
 describe('handleGet fields projection', () => {
   it('handleGet_WithFields_ReturnsSingleField', async () => {
-    // Arrange
     await handleInit({ featureId: 'fields-single', workflowType: 'feature' }, tmpDir, null);
 
-    // Act
     const result = await handleGet(
       { featureId: 'fields-single', fields: ['phase'] },
       tmpDir,
       null,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(Object.keys(data)).toEqual(['phase']);
@@ -2254,17 +2052,14 @@ describe('handleGet fields projection', () => {
   });
 
   it('handleGet_WithFields_ReturnsMultipleFields', async () => {
-    // Arrange
     await handleInit({ featureId: 'fields-multi', workflowType: 'feature' }, tmpDir, null);
 
-    // Act
     const result = await handleGet(
       { featureId: 'fields-multi', fields: ['phase', 'featureId', 'workflowType'] },
       tmpDir,
       null,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(Object.keys(data).sort()).toEqual(['featureId', 'phase', 'workflowType']);
@@ -2274,7 +2069,6 @@ describe('handleGet fields projection', () => {
   });
 
   it('handleGet_WithFields_DotPathFieldsWork', async () => {
-    // Arrange
     await handleInit({ featureId: 'fields-dot', workflowType: 'feature' }, tmpDir, null);
     await handleSet(
       { featureId: 'fields-dot', updates: { 'artifacts.design': 'my-design.md' } },
@@ -2282,14 +2076,12 @@ describe('handleGet fields projection', () => {
       null,
     );
 
-    // Act
     const result = await handleGet(
       { featureId: 'fields-dot', fields: ['artifacts.design'] },
       tmpDir,
       null,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data['artifacts.design']).toBe('my-design.md');
@@ -2297,17 +2089,14 @@ describe('handleGet fields projection', () => {
   });
 
   it('handleGet_WithFields_NonexistentFieldOmitted', async () => {
-    // Arrange
     await handleInit({ featureId: 'fields-missing', workflowType: 'feature' }, tmpDir, null);
 
-    // Act
     const result = await handleGet(
       { featureId: 'fields-missing', fields: ['phase', 'nonexistent'] },
       tmpDir,
       null,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(Object.keys(data)).toEqual(['phase']);
@@ -2315,17 +2104,14 @@ describe('handleGet fields projection', () => {
   });
 
   it('handleGet_WithFields_InternalFieldsExcluded', async () => {
-    // Arrange
     await handleInit({ featureId: 'fields-internal', workflowType: 'feature' }, tmpDir, null);
 
-    // Act
     const result = await handleGet(
       { featureId: 'fields-internal', fields: ['phase', '_history', '_events'] },
       tmpDir,
       null,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(Object.keys(data)).toEqual(['phase']);
@@ -2335,72 +2121,56 @@ describe('handleGet fields projection', () => {
   });
 });
 
-// ─── handleInit Event-First ─────────────────────────────────────────────────
-
 describe('handleInit_EventFirst', () => {
   it('should append workflow.started event before creating state file', async () => {
-    // Arrange
     const eventStore = new EventStore(tmpDir);
 
-    // Act
     await handleInit({ featureId: 'ef-init', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Assert — event should exist
     const events = await eventStore.query('ef-init');
     expect(events.length).toBe(1);
     expect(events[0].type).toBe('workflow.started');
 
-    // Assert — state file should exist with _eventSequence matching event
     const stateFile = path.join(tmpDir, 'ef-init.state.json');
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     expect(raw._eventSequence).toBe(events[0].sequence);
   });
 
   it('should fail and NOT create state file if event append fails', async () => {
-    // Arrange — create a mock event store that throws on both append paths.
-    // #1325 — handleInit now emits via `appendValidated`; stub both so the
-    // injection covers the canonical and legacy paths.
     const eventStore = new EventStore(tmpDir);
     vi.spyOn(eventStore, 'append').mockRejectedValue(new Error('Event store unavailable'));
     vi.spyOn(eventStore, 'appendValidated').mockRejectedValue(new Error('Event store unavailable'));
 
-    // Act
     const result = await handleInit({ featureId: 'fail-init', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Assert — should return error
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
 
-    // Assert — state file should NOT exist
     const stateFile = path.join(tmpDir, 'fail-init.state.json');
     await expect(fs.access(stateFile)).rejects.toThrow();
   });
 
   it('should work without event store (graceful degradation)', async () => {
-    // Arrange
-
-    // Act
     const result = await handleInit({ featureId: 'no-es', workflowType: 'feature' }, tmpDir, null);
 
-    // Assert — should succeed
     expect(result.success).toBe(true);
 
-    // Assert — state file should exist with _eventSequence = 0
     const stateFile = path.join(tmpDir, 'no-es.state.json');
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     expect(raw._eventSequence).toBe(0);
   });
 });
 
-// ─── handleSet Event-First (T3) ──────────────────────────────────────────────
-
 describe('handleSet_EventFirst', () => {
+  /**
+   * The `phase.entered` event follows the transition. `_eventSequence` holds the highest sequence on the
+   * stream, so it matches the `phase.entered` event.
+   */
   it('should append transition event before writing state file', async () => {
     const eventStore = new EventStore(tmpDir);
 
     await handleInit({ featureId: 'ef-set', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set plan artifact so the plan->plan-review guard passes
     await handleSet(
       { featureId: 'ef-set', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
       tmpDir,
@@ -2411,23 +2181,18 @@ describe('handleSet_EventFirst', () => {
 
     expect(result.success).toBe(true);
 
-    // Event should exist
     const events = await eventStore.query('ef-set');
     const transitions = events.filter(e => e.type === 'workflow.transition');
     expect(transitions.length).toBe(1);
     expect((transitions[0].data as Record<string, unknown>).from).toBe('plan');
     expect((transitions[0].data as Record<string, unknown>).to).toBe('plan-review');
 
-    // State _eventSequence advances to cover the DR-13 phase.entered freeze,
-    // which is appended AFTER the transition (a higher sequence). The cursor
-    // tracks the highest sequence on the stream, not the transition's own.
     const entered = events.filter((e) => e.type === 'phase.entered');
     expect(entered.length).toBe(1);
     expect(entered[0].sequence).toBeGreaterThan(transitions[0].sequence);
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-set.state.json'), 'utf-8'));
     expect(raw._eventSequence).toBe(entered[0].sequence);
 
-    // No eventWarning in response
     expect((result.data as Record<string, unknown>).eventWarning).toBeUndefined();
   });
 
@@ -2436,16 +2201,12 @@ describe('handleSet_EventFirst', () => {
 
     await handleInit({ featureId: 'ef-fail-set', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set plan artifact so the plan->plan-review guard passes
     await handleSet(
       { featureId: 'ef-fail-set', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
       tmpDir,
       eventStore,
     );
 
-    // Now make event store fail for transition events on both code paths.
-    // #1325 — phase transitions now route through `appendValidated` via
-    // `hsmTransitionGuard`; spy on both to keep the injection robust.
     const originalAppend = eventStore.append.bind(eventStore);
     const appendSpy = vi.spyOn(eventStore, 'append').mockImplementation(async (streamId, event, opts) => {
       if (event.type === 'workflow.transition') {
@@ -2466,7 +2227,6 @@ describe('handleSet_EventFirst', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('EVENT_APPEND_FAILED');
 
-    // State should remain at plan (the initial phase)
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-fail-set.state.json'), 'utf-8'));
     expect(raw.phase).toBe('plan');
 
@@ -2479,7 +2239,6 @@ describe('handleSet_EventFirst', () => {
 
     await handleInit({ featureId: 'ef-idem', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set design artifact so guard passes
     await handleSet(
       { featureId: 'ef-idem', updates: { 'artifacts.plan': 'docs/design.md' } },
       tmpDir,
@@ -2489,7 +2248,6 @@ describe('handleSet_EventFirst', () => {
     const result = await handleSet({ featureId: 'ef-idem', phase: 'plan-review' }, tmpDir, eventStore);
     expect(result.success).toBe(true);
 
-    // Verify event has idempotencyKey set
     const events = await eventStore.query('ef-idem');
     const transitions = events.filter(e => e.type === 'workflow.transition');
     expect(transitions[0].idempotencyKey).toBeDefined();
@@ -2510,12 +2268,10 @@ describe('handleSet_EventFirst', () => {
     expect(result.success).toBe(true);
 
     const eventsAfter = await eventStore.query('ef-fields');
-    // v2 workflows emit state.patched for field updates
     expect(eventsAfter.length).toBe(eventsBefore.length + 1);
     const patchedEvent = eventsAfter.find(e => e.type === 'state.patched');
     expect(patchedEvent).toBeDefined();
 
-    // _eventSequence updated to include the state.patched event
     const raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-fields.state.json'), 'utf-8'));
     expect(raw._eventSequence).toBeGreaterThan(1);
   });
@@ -2525,11 +2281,9 @@ describe('handleSet_EventFirst', () => {
 
     await handleInit({ featureId: 'ef-seq', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Initial _eventSequence should be 1 (from init event)
     let raw = JSON.parse(await fs.readFile(path.join(tmpDir, 'ef-seq.state.json'), 'utf-8'));
     expect(raw._eventSequence).toBe(1);
 
-    // Set design artifact so guard passes
     await handleSet(
       { featureId: 'ef-seq', updates: { 'artifacts.plan': 'docs/design.md' } },
       tmpDir,
@@ -2542,13 +2296,15 @@ describe('handleSet_EventFirst', () => {
     expect(raw._eventSequence).toBeGreaterThan(1);
   });
 
+  /**
+   * The test checks only that a normal transition succeeds without `eventWarning`. It does not exhaust the
+   * CAS retries.
+   */
   it('should include improved CAS error message on exhaustion', async () => {
-    // Verify a normal transition works and the old eventWarning pattern is gone
     const eventStore = new EventStore(tmpDir);
 
     await handleInit({ featureId: 'ef-cas-msg', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Set design artifact so guard passes
     await handleSet(
       { featureId: 'ef-cas-msg', updates: { 'artifacts.plan': 'docs/design.md' } },
       tmpDir,
@@ -2564,7 +2320,6 @@ describe('handleSet_EventFirst', () => {
   it('should use CAS retry with idempotency key dedup when version conflicts occur', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Arrange: Create workflow and set design artifact
     await handleInit({ featureId: 'ef-cas-retry', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'ef-cas-retry', updates: { 'artifacts.plan': 'design.md' } },
@@ -2572,8 +2327,6 @@ describe('handleSet_EventFirst', () => {
       eventStore,
     );
 
-    // Mock writeStateFile to fail with VersionConflictError on first attempt,
-    // then succeed on second attempt
     const stateStoreMod = await import('../../../src/workflow/state-store.js');
     let writeAttempt = 0;
     const originalWrite = stateStoreMod.writeStateFile;
@@ -2581,43 +2334,34 @@ describe('handleSet_EventFirst', () => {
       async (stateFile, state, options) => {
         writeAttempt++;
         if (writeAttempt === 1 && options?.expectedVersion !== undefined) {
-          // First CAS write attempt: simulate conflict
           throw new VersionConflictError(options.expectedVersion, options.expectedVersion + 1);
         }
-        // Subsequent attempts: use original implementation
         return originalWrite(stateFile, state, options);
       },
     );
 
-    // Act: Transition from plan to plan-review (triggers event-first)
     const result = await handleSet(
       { featureId: 'ef-cas-retry', phase: 'plan-review' },
       tmpDir,
       eventStore,
     );
 
-    // Assert: Transition should succeed (on retry)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('plan-review');
 
-    // Assert: Only one transition event should exist (idempotency key prevents dups)
     const events = await eventStore.query('ef-cas-retry');
     const transitions = events.filter(e => e.type === 'workflow.transition');
     expect(transitions).toHaveLength(1);
 
-    // Assert: No eventWarning
     expect(data.eventWarning).toBeUndefined();
 
     writeSpy.mockRestore();
   });
 });
 
-// ─── reconcileTasks ─────────────────────────────────────────────────────────
-
 describe('reconcileTasks_DriftDetected_ReportsMismatch', () => {
   it('should report drift when native status differs from Exarchos status', async () => {
-    // Arrange: Exarchos task is "pending", native task is "completed"
     const nativeTaskDir = path.join(tmpDir, 'native-tasks');
     await fs.mkdir(nativeTaskDir, { recursive: true });
     await fs.writeFile(
@@ -2629,10 +2373,8 @@ describe('reconcileTasks_DriftDetected_ReportsMismatch', () => {
       { id: 'task-001', title: 'Implement auth', status: 'pending', nativeTaskId: 'native-1' },
     ];
 
-    // Act
     const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
 
-    // Assert
     expect(report.skipped).toBe(false);
     expect(report.drift).toHaveLength(1);
     expect(report.drift[0]).toMatchObject({
@@ -2647,7 +2389,6 @@ describe('reconcileTasks_DriftDetected_ReportsMismatch', () => {
 
 describe('reconcileTasks_NativeCompleted_WorkflowPending_RecommendsUpdate', () => {
   it('should recommend marking Exarchos task complete when native is completed', async () => {
-    // Arrange
     const nativeTaskDir = path.join(tmpDir, 'native-tasks-2');
     await fs.mkdir(nativeTaskDir, { recursive: true });
     await fs.writeFile(
@@ -2659,10 +2400,8 @@ describe('reconcileTasks_NativeCompleted_WorkflowPending_RecommendsUpdate', () =
       { id: 'task-002', title: 'Add tests', status: 'pending', nativeTaskId: 'native-2' },
     ];
 
-    // Act
     const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
 
-    // Assert
     expect(report.drift).toHaveLength(1);
     expect(report.drift[0].recommendation).toContain('complete');
   });
@@ -2676,10 +2415,8 @@ describe('reconcileTasks_NoNativeTaskList_SkipsReconciliation', () => {
       { id: 'task-003', title: 'Build UI', status: 'pending', nativeTaskId: 'native-3' },
     ];
 
-    // Act
     const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
 
-    // Assert
     expect(report.skipped).toBe(true);
     expect(report.skipReason).toBeDefined();
     expect(report.skipReason!.length).toBeGreaterThan(0);
@@ -2689,7 +2426,6 @@ describe('reconcileTasks_NoNativeTaskList_SkipsReconciliation', () => {
 
 describe('reconcileTasks_AllConsistent_ReturnsCleanReport', () => {
   it('should return empty drift array when statuses match', async () => {
-    // Arrange: both native and Exarchos say "completed"
     const nativeTaskDir = path.join(tmpDir, 'native-tasks-consistent');
     await fs.mkdir(nativeTaskDir, { recursive: true });
     await fs.writeFile(
@@ -2701,10 +2437,8 @@ describe('reconcileTasks_AllConsistent_ReturnsCleanReport', () => {
       { id: 'task-004', title: 'Refactor module', status: 'complete', nativeTaskId: 'native-4' },
     ];
 
-    // Act
     const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
 
-    // Assert
     expect(report.skipped).toBe(false);
     expect(report.drift).toHaveLength(0);
   });
@@ -2712,7 +2446,6 @@ describe('reconcileTasks_AllConsistent_ReturnsCleanReport', () => {
 
 describe('reconcileTasks_UnmatchedNativeTask_ReportsUntracked', () => {
   it('should flag native tasks that have no Exarchos match', async () => {
-    // Arrange: native has a task, Exarchos does not
     const nativeTaskDir = path.join(tmpDir, 'native-tasks-untracked');
     await fs.mkdir(nativeTaskDir, { recursive: true });
     await fs.writeFile(
@@ -2722,10 +2455,8 @@ describe('reconcileTasks_UnmatchedNativeTask_ReportsUntracked', () => {
 
     const exarchosTasks: Array<Record<string, unknown>> = [];
 
-    // Act
     const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
 
-    // Assert
     expect(report.skipped).toBe(false);
     expect(report.drift).toHaveLength(1);
     expect(report.drift[0]).toMatchObject({
@@ -2739,7 +2470,6 @@ describe('reconcileTasks_UnmatchedNativeTask_ReportsUntracked', () => {
 
 describe('reconcileTasks_MissingNativeTask_ReportsMissing', () => {
   it('should flag Exarchos tasks with nativeTaskId but no native file', async () => {
-    // Arrange: Exarchos has a task with nativeTaskId, but native dir is empty
     const nativeTaskDir = path.join(tmpDir, 'native-tasks-missing');
     await fs.mkdir(nativeTaskDir, { recursive: true });
 
@@ -2747,10 +2477,8 @@ describe('reconcileTasks_MissingNativeTask_ReportsMissing', () => {
       { id: 'task-006', title: 'Deploy service', status: 'in_progress', nativeTaskId: 'native-6' },
     ];
 
-    // Act
     const report = await reconcileTasks(exarchosTasks, nativeTaskDir);
 
-    // Assert
     expect(report.skipped).toBe(false);
     expect(report.drift).toHaveLength(1);
     expect(report.drift[0]).toMatchObject({
@@ -2762,13 +2490,10 @@ describe('reconcileTasks_MissingNativeTask_ReportsMissing', () => {
   });
 });
 
-// ─── handleReconcile with task reconciliation ────────────────────────────
-
 describe('ToolReconcile_WithNativeTaskId_IncludesTaskDrift', () => {
   it('should include taskDrift in reconcile output when tasks have nativeTaskId', async () => {
     await handleInit({ featureId: 'reconcile-tasks', workflowType: 'feature' }, tmpDir, null);
 
-    // Set up a task with nativeTaskId in the state file
     const stateFile = path.join(tmpDir, 'reconcile-tasks.state.json');
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     raw.tasks = [
@@ -2776,7 +2501,6 @@ describe('ToolReconcile_WithNativeTaskId_IncludesTaskDrift', () => {
     ];
     await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
 
-    // Create native task dir with completed task
     const nativeTaskDir = path.join(tmpDir, 'tasks', 'reconcile-tasks');
     await fs.mkdir(nativeTaskDir, { recursive: true });
     await fs.writeFile(
@@ -2802,13 +2526,10 @@ describe('ToolReconcile_WithNativeTaskId_IncludesTaskDrift', () => {
   });
 });
 
-// ─── #532: handleSet validates merged state before writing ────────────────
-
 describe('HandleSet_ValidatesMergedState', () => {
   it('should reject invalid enum values in field updates', async () => {
     await handleInit({ featureId: 'validate-merge', workflowType: 'feature' }, tmpDir, null);
 
-    // Attempt to set an invalid worktree status
     const result = await handleSet(
       {
         featureId: 'validate-merge',
@@ -2820,7 +2541,6 @@ describe('HandleSet_ValidatesMergedState', () => {
       null,
     );
 
-    // Should fail at write time, not corrupt the state
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
@@ -2828,14 +2548,12 @@ describe('HandleSet_ValidatesMergedState', () => {
   it('should not corrupt state file when validation fails', async () => {
     await handleInit({ featureId: 'no-corrupt', workflowType: 'feature' }, tmpDir, null);
 
-    // Write a valid field first
     await handleSet(
       { featureId: 'no-corrupt', updates: { 'artifacts.design': 'design.md' } },
       tmpDir,
       null,
     );
 
-    // Attempt invalid update
     await handleSet(
       {
         featureId: 'no-corrupt',
@@ -2847,7 +2565,6 @@ describe('HandleSet_ValidatesMergedState', () => {
       null,
     );
 
-    // State should still be readable (not corrupted)
     const state = await readStateFile(
       (await import('node:path')).join(tmpDir, 'no-corrupt.state.json'),
     );
@@ -2876,7 +2593,6 @@ describe('ToolReconcile_WithoutNativeTaskId_OmitsTaskDrift', () => {
   it('should not include taskDrift when no tasks have nativeTaskId', async () => {
     await handleInit({ featureId: 'reconcile-no-native', workflowType: 'feature' }, tmpDir, null);
 
-    // Set up a task WITHOUT nativeTaskId
     const stateFile = path.join(tmpDir, 'reconcile-no-native.state.json');
     const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     raw.tasks = [
@@ -2897,13 +2613,10 @@ describe('ToolReconcile_WithoutNativeTaskId_OmitsTaskDrift', () => {
   });
 });
 
-// ─── T27: CAS Diagnostic Event on Exhaustion ────────────────────────────────
-
 describe('HandleSet CAS Diagnostic', () => {
   it('HandleSet_CasExhausted_EmitsWorkflowCasFailed', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Arrange: Create workflow and set design artifact
     await handleInit({ featureId: 'cas-diag', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'cas-diag', updates: { 'artifacts.plan': 'design.md' } },
@@ -2911,26 +2624,21 @@ describe('HandleSet CAS Diagnostic', () => {
       eventStore,
     );
 
-    // Mock writeStateFile to always throw VersionConflictError (exhaust all retries)
     const stateStoreMod = await import('../../../src/workflow/state-store.js');
     const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
       async (_stateFile, _state, options) => {
         if (options?.expectedVersion !== undefined) {
           throw new VersionConflictError(options.expectedVersion, options.expectedVersion + 1);
         }
-        // Non-CAS writes pass through (shouldn't happen in this test)
         throw new Error('Unexpected non-CAS write');
       },
     );
 
-    // Act: Transition from plan to plan-review (should exhaust CAS retries)
     try {
       await handleSet({ featureId: 'cas-diag', phase: 'plan-review' }, tmpDir, eventStore);
     } catch {
-      // Expected to throw after CAS exhaustion
     }
 
-    // Assert: Check that a workflow.cas-failed event was emitted
     const events = await eventStore.query('cas-diag');
     const casFailedEvents = events.filter(e => e.type === 'workflow.cas-failed');
     expect(casFailedEvents).toHaveLength(1);
@@ -2945,7 +2653,6 @@ describe('HandleSet CAS Diagnostic', () => {
   it('HandleSet_CASExhaustedAfterMaxRetries_EmitsWorkflowCasFailedEvent', async () => {
     const eventStore = new EventStore(tmpDir);
 
-    // Arrange: Create workflow and set design artifact
     await handleInit({ featureId: 'cas-shape', workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
       { featureId: 'cas-shape', updates: { 'artifacts.plan': 'design.md' } },
@@ -2953,7 +2660,6 @@ describe('HandleSet CAS Diagnostic', () => {
       eventStore,
     );
 
-    // Mock writeStateFile to always throw VersionConflictError (exhaust retries)
     const stateStoreMod = await import('../../../src/workflow/state-store.js');
     const writeSpy = vi.spyOn(stateStoreMod, 'writeStateFile').mockImplementation(
       async (_stateFile, _state, options) => {
@@ -2965,15 +2671,12 @@ describe('HandleSet CAS Diagnostic', () => {
     );
 
     try {
-      // Act: Trigger CAS exhaustion
       try {
         await handleSet({ featureId: 'cas-shape', phase: 'plan-review' }, tmpDir, eventStore);
       } catch (err) {
-        // Expected: handleSet throws VersionConflictError after CAS exhaustion
         expect(err).toBeInstanceOf(Error);
       }
 
-      // Assert: Validate the event shape matches WorkflowCasFailedData
       const { WorkflowCasFailedData } = await import('../../../src/events/schemas.js');
       const events = await eventStore.query('cas-shape');
       const casFailedEvents = events.filter(e => e.type === 'workflow.cas-failed');
@@ -2981,11 +2684,9 @@ describe('HandleSet CAS Diagnostic', () => {
 
       const data = casFailedEvents[0].data as Record<string, unknown>;
 
-      // Shape validation: parse through the Zod schema to confirm compliance
       const parseResult = WorkflowCasFailedData.safeParse(data);
       expect(parseResult.success).toBe(true);
 
-      // Verify specific field values
       expect(data.featureId).toBe('cas-shape');
       expect(typeof data.phase).toBe('string');
       expect(typeof data.retries).toBe('number');
@@ -2995,8 +2696,6 @@ describe('HandleSet CAS Diagnostic', () => {
     }
   });
 });
-
-// ─── _esVersion on handleInit and isEventSourced helper ──────────────────────
 
 describe('HandleInit_NewWorkflow_SetsEsVersion2', () => {
   it('should set _esVersion to 2 on newly created workflows', async () => {
@@ -3015,7 +2714,6 @@ describe('HandleInit_NewWorkflow_PreservesExistingFields', () => {
     const state = await readStateFile(path.join(tmpDir, 'esv-fields.state.json'));
     const stateRecord = state as unknown as Record<string, unknown>;
 
-    // Core fields still present
     expect(state.featureId).toBe('esv-fields');
     expect(state.workflowType).toBe('debug');
     expect(state.phase).toBe('triage');
@@ -3023,7 +2721,6 @@ describe('HandleInit_NewWorkflow_PreservesExistingFields', () => {
     expect(state.createdAt).toBeDefined();
     expect(state.updatedAt).toBeDefined();
 
-    // _esVersion is also present
     expect(stateRecord._esVersion).toBe(2);
   });
 });
@@ -3049,31 +2746,25 @@ describe('IsEventSourced_Version1_ReturnsFalse', () => {
   });
 });
 
-// ─── CQRS Read Path: handleGet with Event-Sourced Materialization ────────────
-
 describe('HandleGet_EsVersion2_MaterializesFromEvents', () => {
+  /**
+   * The test sets the phase in the state file to `delegate`. A read from events returns `plan`, the phase
+   * that `workflow.started` sets.
+   */
   it('should materialize state from events for v2 workflows, not from state file', async () => {
-    // Arrange: Create an event store and materializer, configure both
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
 
-    // Init creates a v2 workflow (sets _esVersion: 2, emits workflow.started event)
     await handleInit({ featureId: 'es-get-v2', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Now tamper with the state file to set a different phase.
-    // If handleGet reads from events, it returns 'plan' (the feature workflow's
-    // initial phase from workflow.started, DR-4 #1581). If it reads the state
-    // file, it returns the tampered 'delegate'.
     const stateFile = path.join(tmpDir, 'es-get-v2.state.json');
     const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
-    rawState.phase = 'delegate'; // Tamper the phase to something other than the real one
+    rawState.phase = 'delegate';
     await fs.writeFile(stateFile, JSON.stringify(rawState));
 
-    // Act: Call handleGet — should materialize from events, not from file
     const result = await handleGet({ featureId: 'es-get-v2' }, tmpDir, eventStore);
 
-    // Assert: Phase should be 'plan' (from event materialization), NOT 'delegate' (tampered file)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('plan');
@@ -3083,19 +2774,17 @@ describe('HandleGet_EsVersion2_MaterializesFromEvents', () => {
 });
 
 describe('HandleGet_ScalarQuery_EsVersion2_FoldsEventsNotStaleFile', () => {
+  /**
+   * A scalar query must fold events like a full read, because the scalar in the state file can be stale or
+   * absent.
+   */
   it('should fold events for a scalar query on a v2 workflow, ignoring a stale on-disk scalar (#1504)', async () => {
-    // Regression for the fast-path bug: a top-level scalar query
-    // (`query: 'phase'`) used to read the `.state.json` scalar directly,
-    // shadowing the authoritative event log. Once the file stops being written
-    // (#1504) that scalar goes stale/absent, so a scalar query MUST fold events
-    // exactly like a full read does.
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
 
     await handleInit({ featureId: 'fast-es-v2', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Tamper the on-disk scalar — the read path must NOT trust it.
     const stateFile = path.join(tmpDir, 'fast-es-v2.state.json');
     const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     rawState.phase = 'delegate';
@@ -3104,20 +2793,18 @@ describe('HandleGet_ScalarQuery_EsVersion2_FoldsEventsNotStaleFile', () => {
     const result = await handleGet({ featureId: 'fast-es-v2', query: 'phase' }, tmpDir, eventStore);
 
     expect(result.success).toBe(true);
-    // 'plan' folded from workflow.started, NOT the tampered 'delegate'.
     expect(result.data).toBe('plan');
   });
 });
 
 describe('HandleGet_EsVersion1_ReadsStateFileDirectly', () => {
+  /**
+   * `handleInit` sets `_esVersion` to 2 even without an event store. So the test writes a state file without
+   * `_esVersion` by hand.
+   */
   it('should read from state file for legacy v1 workflows without _esVersion', async () => {
-    // Arrange: Create a workflow without event store (no _esVersion set — legacy path)
     await handleInit({ featureId: 'legacy-get', workflowType: 'debug' }, tmpDir, null);
 
-    // Verify it has no _esVersion (or at least not v2) — since no event store is configured,
-    // handleInit still writes _esVersion:2 but _eventSequence:0. However, when moduleEventStore
-    // is null during init, it still sets _esVersion:2.
-    // Let's manually create a truly legacy state file instead.
     const stateFile = path.join(tmpDir, 'legacy-v1.state.json');
     const legacyState = {
       version: '1.1',
@@ -3149,14 +2836,11 @@ describe('HandleGet_EsVersion1_ReadsStateFileDirectly', () => {
         lastActivityTimestamp: new Date().toISOString(),
         staleAfterMinutes: 120,
       },
-      // Note: no _esVersion — legacy workflow
     };
     await fs.writeFile(stateFile, JSON.stringify(legacyState));
 
-    // Act: Call handleGet on legacy workflow
     const result = await handleGet({ featureId: 'legacy-v1' }, tmpDir, null);
 
-    // Assert: Should read directly from state file (legacy path)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('triage');
@@ -3167,45 +2851,37 @@ describe('HandleGet_EsVersion1_ReadsStateFileDirectly', () => {
 
 describe('HandleGet_EsVersion2_FieldProjection_Works', () => {
   it('should project only requested fields when materializing from events', async () => {
-    // Arrange: Create a v2 workflow with event store and materializer
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
 
     await handleInit({ featureId: 'es-fields', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Act: Call handleGet with field projection
     const result = await handleGet(
       { featureId: 'es-fields', fields: ['phase', 'featureId'] },
       tmpDir,
       eventStore,
     );
 
-    // Assert: Only the requested fields should be returned
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     expect(data.phase).toBe('plan');
     expect(data.featureId).toBe('es-fields');
 
-    // Should NOT contain other fields
     expect(data.workflowType).toBeUndefined();
     expect(data.tasks).toBeUndefined();
     expect(data.createdAt).toBeUndefined();
   });
 });
 
-// ─── Tasks 10+11: handleSet emits state.patched events for ES v2 ────────────
-
 describe('HandleSet_EsVersion2_FieldUpdates_EmitsStatePatchedEvent', () => {
   it('should emit a state.patched event when updating fields on a v2 workflow', async () => {
-    // Arrange: Create a v2 workflow with event store and materializer
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
 
     await handleInit({ featureId: 'es-set-patch', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Act: Update fields via handleSet
     const result = await handleSet(
       {
         featureId: 'es-set-patch',
@@ -3217,10 +2893,8 @@ describe('HandleSet_EsVersion2_FieldUpdates_EmitsStatePatchedEvent', () => {
       eventStore,
     );
 
-    // Assert: Should succeed
     expect(result.success).toBe(true);
 
-    // Assert: A state.patched event should appear in the event stream
     const events = await eventStore.query('es-set-patch');
     const patchedEvents = events.filter(e => e.type === 'state.patched');
     expect(patchedEvents).toHaveLength(1);
@@ -3235,17 +2909,17 @@ describe('HandleSet_EsVersion2_FieldUpdates_EmitsStatePatchedEvent', () => {
 });
 
 describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
+  /**
+   * `handleSet` applies the plan artifact update before the guard runs, so the transition to `plan-review`
+   * passes in the same call.
+   */
   it('should emit both workflow.transition and state.patched events when phase and fields change', async () => {
-    // Arrange: Create a v2 workflow with event store and materializer
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
 
     await handleInit({ featureId: 'es-set-both', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Act: Set both phase and field updates. DR-4 (#1581): plan is initial, so
-    // the transition is plan→plan-review; the plan artifact (set in the same
-    // call, applied before the guard) satisfies planArtifactExists.
     const result = await handleSet(
       {
         featureId: 'es-set-both',
@@ -3258,10 +2932,8 @@ describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
       eventStore,
     );
 
-    // Assert: Should succeed
     expect(result.success).toBe(true);
 
-    // Assert: Both event types should appear in the stream
     const events = await eventStore.query('es-set-both');
     const transitionEvents = events.filter(e => e.type === 'workflow.transition');
     const patchedEvents = events.filter(e => e.type === 'state.patched');
@@ -3269,12 +2941,10 @@ describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
     expect(transitionEvents.length).toBeGreaterThanOrEqual(1);
     expect(patchedEvents).toHaveLength(1);
 
-    // Verify the transition event
     const lastTransition = transitionEvents[transitionEvents.length - 1];
     const transitionData = lastTransition.data as Record<string, unknown>;
     expect(transitionData.to).toBe('plan-review');
 
-    // Verify the patched event
     const patchedData = patchedEvents[0].data as Record<string, unknown>;
     expect(patchedData.fields).toEqual(['artifacts.plan']);
     expect(patchedData.patch).toEqual({ 'artifacts.plan': 'docs/specs/x.md' });
@@ -3283,14 +2953,12 @@ describe('HandleSet_EsVersion2_PhaseAndFields_EmitsBothEvents', () => {
 
 describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
   it('should write a state file that reflects materialized event state', async () => {
-    // Arrange: Create a v2 workflow with event store and materializer
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
 
     await handleInit({ featureId: 'es-set-snap', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Act: Update tasks via handleSet
     await handleSet(
       {
         featureId: 'es-set-snap',
@@ -3302,14 +2970,11 @@ describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
       eventStore,
     );
 
-    // Assert: Read the state file directly
     const stateFile = path.join(tmpDir, 'es-set-snap.state.json');
     const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
 
-    // The state file should reflect the tasks from the state.patched event
     expect(rawState.tasks).toEqual([{ id: 'task-1', title: 'Build API', status: 'pending' }]);
 
-    // Also verify by materializing independently and comparing key fields
     const events = await eventStore.query('es-set-snap');
     const freshMaterializer = new ViewMaterializer();
     freshMaterializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
@@ -3326,21 +2991,22 @@ describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
 });
 
 describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
+  /**
+   * The test pre-seeds a `state.patched` event with the key that `handleSet` builds,
+   * `<featureId>:patch:<version>:<field names>`.
+   */
   it('should not emit duplicate state.patched events with the same idempotency key', async () => {
-    // Arrange: Create a v2 workflow with event store and materializer
     const eventStore = new EventStore(tmpDir);
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
 
     await handleInit({ featureId: 'es-set-idemp', workflowType: 'feature' }, tmpDir, eventStore);
 
-    // Read the state to determine the expected version used in idempotency key
     const stateFile = path.join(tmpDir, 'es-set-idemp.state.json');
     const stateBeforeSet = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
     const expectedVersion = stateBeforeSet._version ?? 1;
     const fieldsHash = 'tasks';
 
-    // Pre-seed an event with the same idempotency key that handleSet would use
     const idempotencyKey = `${stateBeforeSet.featureId}:patch:${expectedVersion}:${fieldsHash}`;
     await eventStore.append('es-set-idemp', {
       type: 'state.patched',
@@ -3353,7 +3019,6 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
       },
     }, { idempotencyKey });
 
-    // Act: Call handleSet with the same field — should hit idempotency dedup
     await handleSet(
       {
         featureId: 'es-set-idemp',
@@ -3365,12 +3030,10 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
       eventStore,
     );
 
-    // Assert: Only ONE state.patched event should exist (the pre-seeded one, not a duplicate)
     const events = await eventStore.query('es-set-idemp');
     const patchedEvents = events.filter(e => e.type === 'state.patched');
     expect(patchedEvents).toHaveLength(1);
 
-    // The event should be the pre-seeded one, not the handleSet one
     const data = patchedEvents[0].data as Record<string, unknown>;
     expect(data.patch).toEqual({
       tasks: [{ id: 'pre-seeded', title: 'Pre-seeded', status: 'pending' }],

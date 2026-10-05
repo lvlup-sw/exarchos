@@ -8,17 +8,11 @@ import {
 } from '../../../src/workflow/rehydrate-precedence.js';
 
 /**
- * P04-06 (EFF-004) — deterministic fallback precedence for rehydration.
- *
- * These unit tests pin the DECLARED precedence value and the pure decision that
- * maps a snapshot's position relative to the durable event tail onto a source.
- * The load-bearing invariant under test: a projection that contradicts the
- * durable log (`projection-ahead`) is never trusted — it degrades to an
- * authoritative event fold, flagged degraded.
+ * Pins the declared precedence of rehydration sources.
+ * The suites below also pin how the position of a snapshot against the durable event tail selects a source.
  */
 describe('REHYDRATION_SOURCE_PRECEDENCE (P04-06, EFF-004)', () => {
   it('Precedence_IsDeclaredTotalOrdering_HighestAuthorityFirst', () => {
-    // The precedence is a declared, testable value — not implicit control flow.
     expect(REHYDRATION_SOURCE_PRECEDENCE).toEqual([
       'event-fold',
       'summary-snapshot',
@@ -26,9 +20,8 @@ describe('REHYDRATION_SOURCE_PRECEDENCE (P04-06, EFF-004)', () => {
     ]);
   });
 
+  /** No precedence slot trusts a stale or contradictory projection. */
   it('Precedence_HasNoStaleProjectionSlot', () => {
-    // The whole point: there is no precedence slot that silently trusts a stale
-    // or contradictory projection.
     expect(REHYDRATION_SOURCE_PRECEDENCE).not.toContain('stale-projection');
     expect(REHYDRATION_SOURCE_PRECEDENCE).not.toContain('projection');
   });
@@ -77,9 +70,8 @@ describe('planRehydrationSource (P04-06, EFF-004)', () => {
     expect(plan.degraded).toBe(false);
   });
 
+  /** A snapshot behind the tail is only a seed. The plan folds the tail forward over it, so the result is not degraded. */
   it('SnapshotBehindTail_SeedsSnapshotAndFoldsForward_NotDegraded', () => {
-    // A lagging snapshot is not trusted as-is: the tail is folded forward over
-    // it. The answer is event-derived and NOT degraded (it reaches the tail).
     const plan = planRehydrationSource({
       hasSnapshot: true,
       snapshotCursor: 5,
@@ -91,10 +83,11 @@ describe('planRehydrationSource (P04-06, EFF-004)', () => {
     expect(plan.degraded).toBe(false);
   });
 
+  /**
+   * A snapshot that claims events past the durable tail contradicts the log.
+   * The plan discards it, folds the log from 0, and flags the result degraded.
+   */
   it('SnapshotAheadOfTail_DiscardsSnapshotAndReplays_FlaggedDegraded', () => {
-    // The contradiction case (projection-ahead): the snapshot claims events past
-    // the durable tail. It must be discarded, the log re-folded from 0, and the
-    // result flagged degraded — this is the exit-proof invariant.
     const plan = planRehydrationSource({
       hasSnapshot: true,
       snapshotCursor: 10,
@@ -112,9 +105,8 @@ describe('planRehydrationSource (P04-06, EFF-004)', () => {
     expect(plan.freshness?.staleViews).toEqual(['rehydration@v1']);
   });
 
+  /** A snapshot over a stream with a tail of 0 is still ahead, so the plan discards it and folds the empty log. */
   it('SnapshotAheadOfTail_EvenWhenEventsFullyPruned_StillDegrades', () => {
-    // Orphan snapshot over a fully-pruned stream (eventTail 0). Still ahead —
-    // discard and replay from the (now empty) log rather than trust the ghost.
     const plan = planRehydrationSource({
       hasSnapshot: true,
       snapshotCursor: 4,
@@ -126,10 +118,11 @@ describe('planRehydrationSource (P04-06, EFF-004)', () => {
     expect(plan.freshness?.reason).toBe('projection-ahead');
   });
 
+  /**
+   * When the tail is unknown, the plan cannot prove a contradiction.
+   * It seeds from the snapshot and does not flag the result degraded.
+   */
   it('TailUnknown_PreservesWarmCacheBehaviour_NoFabricatedDegradation', () => {
-    // Backend cannot answer MAX(sequence): we cannot prove a contradiction, so
-    // fall back to the historical seed-from-snapshot behaviour without inventing
-    // a degradation signal.
     const plan = planRehydrationSource({
       hasSnapshot: true,
       snapshotCursor: 3,

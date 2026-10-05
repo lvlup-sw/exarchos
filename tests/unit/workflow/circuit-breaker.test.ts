@@ -5,7 +5,7 @@ import {
 } from '../../../src/workflow/circuit-breaker.js';
 import type { Event, EventType } from '../../../src/workflow/types.js';
 
-// Helper to create a valid event
+/** Builds a valid event with the current time and the given fields. */
 function makeEvent(overrides: Partial<Event> & { sequence: number; type: EventType; trigger: string }): Event {
   return {
     version: '1.0' as const,
@@ -141,7 +141,6 @@ describe('Circuit Breaker', () => {
           trigger: 'exit-delegate',
           metadata: { compoundStateId: 'delegate' },
         }),
-        // Re-entry resets the count
         makeEvent({
           sequence: 5,
           type: 'compound-entry',
@@ -161,6 +160,7 @@ describe('Circuit Breaker', () => {
       expect(state.open).toBe(false);
     });
 
+    /** The call passes `maxFixCycles` 5, but `MAX_FIX_CYCLES` is 2, and the environment value wins. */
     it('CheckCircuitBreaker_EnvOverride_UsesMaxFixCycles — MAX_FIX_CYCLES env respected', () => {
       const originalEnv = process.env.MAX_FIX_CYCLES;
       try {
@@ -187,7 +187,6 @@ describe('Circuit Breaker', () => {
           }),
         ];
 
-        // Pass maxFixCycles=5 but env says 2 — env should win
         const state = checkCircuitBreaker(events, 'delegate', 5);
         expect(state.open).toBe(true);
         expect(state.maxFixCycles).toBe(2);

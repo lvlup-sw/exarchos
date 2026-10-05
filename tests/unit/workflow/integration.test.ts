@@ -18,6 +18,7 @@ import type { EventType as ExternalEventType } from '../../../src/events/schemas
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
+/** `readRawState` and `writeRawState` read and write the state file directly, without the migration and the Zod parse of `readStateFile`. */
 describe('Integration', () => {
   let stateDir: string;
 
@@ -29,24 +30,15 @@ describe('Integration', () => {
     await rmrfAsync(stateDir);
   });
 
-  // ─── Helper: advance feature workflow through a phase transition ──────────
-
   async function transitionFeature(featureId: string, targetPhase: string, _eventStore?: EventStore) {
     return handleSet({ featureId, phase: targetPhase }, stateDir, _eventStore ?? null);
   }
 
-  /**
-   * Read the raw state JSON from disk, bypassing Zod validation.
-   * This preserves non-schema fields like `integration` that Zod would strip.
-   */
   async function readRawState(featureId: string): Promise<Record<string, unknown>> {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
     return JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
   }
 
-  /**
-   * Write the raw state JSON to disk, bypassing Zod validation.
-   */
   async function writeRawState(
     featureId: string,
     state: Record<string, unknown>,
@@ -55,17 +47,6 @@ describe('Integration', () => {
     await fs.writeFile(stateFile, JSON.stringify(state, null, 2), 'utf-8');
   }
 
-  /**
-   * Transition using the raw state file (bypasses Zod stripping).
-   *
-   * This is required for transitions that depend on guard fields NOT in the
-   * Zod schema (e.g., `integration.passed`). The handleSet phase transition
-   * reads state through readStateFile (Zod validates and strips unknown fields),
-   * so guards that check non-schema fields always fail through handleSet.
-   *
-   * This helper reads raw JSON, evaluates the HSM transition, applies events,
-   * and writes back -- exactly what handleSet does, but without Zod stripping.
-   */
   async function transitionRaw(
     featureId: string,
     targetPhase: string,
@@ -108,7 +89,6 @@ describe('Integration', () => {
         events = appended.events as unknown as Array<Record<string, unknown>>;
         eventSequence = appended.eventSequence;
 
-        // Also emit to external event store
         if (eventStore) {
           await eventStore.append(featureId, {
             type: mapInternalToExternalType(te.type) as ExternalEventType,
@@ -134,7 +114,6 @@ describe('Integration', () => {
         raw._history = history;
       }
 
-      // Reset checkpoint
       const checkpoint = (raw._checkpoint ?? {}) as Record<string, unknown>;
       checkpoint.phase = result.newPhase;
       checkpoint.operationsSince = 0;
@@ -148,13 +127,11 @@ describe('Integration', () => {
     return { success: true };
   }
 
-  // ─── 1. FeatureLifecycle_FullSaga_CompletesWithCorrectEvents ──────────────
-
   describe('FeatureLifecycle_FullSaga_CompletesWithCorrectEvents', () => {
+    /** Before each transition, the test sets the state field that the guard of that edge reads. */
     it('should progress through all phases with correct events', async () => {
       const eventStore = new EventStore(stateDir);
 
-      // Init
       const initResult = await handleInit(
         { featureId: 'full-saga', workflowType: 'feature' },
         stateDir,
@@ -162,8 +139,6 @@ describe('Integration', () => {
       );
       expect(initResult.success).toBe(true);
 
-      // DR-4 (#1581): plan is the initial phase — no ideate→plan bootstrap.
-      // plan -> plan-review: requires artifacts.plan (schema field -- use handleSet)
       await handleSet(
         { featureId: 'full-saga', updates: { 'artifacts.plan': 'docs/plan.md' } },
         stateDir,
@@ -173,7 +148,6 @@ describe('Integration', () => {
       expect(toPlanReview.success).toBe(true);
       expect((toPlanReview.data as Record<string, unknown>).phase).toBe('plan-review');
 
-      // plan-review -> delegate: requires planReview.approved = true
       await handleSet(
         { featureId: 'full-saga', updates: { planReview: { approved: true } } },
         stateDir,
@@ -183,8 +157,6 @@ describe('Integration', () => {
       expect(toDelegate.success).toBe(true);
       expect((toDelegate.data as Record<string, unknown>).phase).toBe('delegate');
 
-      // delegate -> review: requires all tasks complete + team.disbanded event
-      // Inject team.disbanded into _events via raw state update
       const rawState = await readRawState('full-saga');
       const evts = (rawState._events as unknown[]) ?? [];
       evts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
@@ -194,8 +166,6 @@ describe('Integration', () => {
       expect(toReview.success).toBe(true);
       expect((toReview.data as Record<string, unknown>).phase).toBe('review');
 
-      // review -> synthesize: requires all reviews passed with required dimensions
-      // (the two review dimensions collapsed into one: `review`).
       await handleSet(
         {
           featureId: 'full-saga',
@@ -210,7 +180,6 @@ describe('Integration', () => {
       expect(toSynthesize.success).toBe(true);
       expect((toSynthesize.data as Record<string, unknown>).phase).toBe('synthesize');
 
-      // synthesize -> completed: requires synthesis.prUrl or artifacts.pr (schema fields)
       await handleSet(
         {
           featureId: 'full-saga',
@@ -223,18 +192,14 @@ describe('Integration', () => {
       expect(toCompleted.success).toBe(true);
       expect((toCompleted.data as Record<string, unknown>).phase).toBe('completed');
 
-      // Verify final state
       const getResult = await handleGet({ featureId: 'full-saga' }, stateDir, null);
       expect(getResult.success).toBe(true);
       const finalState = getResult.data as Record<string, unknown>;
       expect(finalState.phase).toBe('completed');
 
-      // Verify event log from external JSONL store contains transition events
       const allEvents = await eventStore.query('full-saga');
       const transitionEvents = allEvents.filter((e) => e.type === 'workflow.transition');
 
-      // Should have transitions (DR-4 #1581: no ideate→plan): plan->plan-review,
-      // plan-review->delegate, delegate->review, review->synthesize, synthesize->completed
       expect(transitionEvents.length).toBe(5);
 
       const transitionPairs = transitionEvents.map((e) => {
@@ -249,20 +214,17 @@ describe('Integration', () => {
     });
   });
 
-  // ─── 2. FixCycle_DelegateIntegrateFail_CircuitBreakerTrips ────────────────
-
   describe('FixCycle_DelegateReviewFail_CircuitBreakerTrips', () => {
+    /** The circuit breaker of the `implementation` compound allows three fix cycles, so the fourth `review` to `delegate` request fails. */
     it('should trip circuit breaker after max fix cycles', async () => {
       const eventStore = new EventStore(stateDir);
 
-      // Init and advance to delegate
       await handleInit(
         { featureId: 'fix-cycle', workflowType: 'feature' },
         stateDir,
         eventStore,
       );
 
-      // ideate -> plan -> plan-review -> delegate
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'artifacts.design': 'design.md' } },
         stateDir,
@@ -282,10 +244,7 @@ describe('Integration', () => {
       );
       await transitionFeature('fix-cycle', 'delegate');
 
-      // Perform fix cycles: delegate -> review (fail) -> delegate
-      // Circuit breaker max is 3 for implementation compound
       for (let i = 0; i < 3; i++) {
-        // delegate -> review: emit team.spawned + team.disbanded to JSONL store
         await eventStore.append('fix-cycle', {
           type: 'team.spawned' as ExternalEventType,
           correlationId: 'fix-cycle',
@@ -300,14 +259,12 @@ describe('Integration', () => {
         });
         await transitionFeature('fix-cycle', 'review');
 
-        // Set review as failed
         await handleSet(
           { featureId: 'fix-cycle', updates: { 'reviews.spec': { status: 'fail' } } },
           stateDir,
           eventStore,
         );
 
-        // review -> delegate (fix cycle)
         const fixResult = await handleSet(
           { featureId: 'fix-cycle', phase: 'delegate' },
           stateDir,
@@ -316,8 +273,6 @@ describe('Integration', () => {
         expect(fixResult.success).toBe(true);
       }
 
-      // Now at delegate again, try another cycle -- should be blocked by circuit breaker
-      // Emit team events for the delegate -> review transition
       await eventStore.append('fix-cycle', {
         type: 'team.spawned' as ExternalEventType,
         correlationId: 'fix-cycle',
@@ -332,14 +287,12 @@ describe('Integration', () => {
       });
       await transitionFeature('fix-cycle', 'review');
 
-      // Set review as failed
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'reviews.spec': { status: 'fail' } } },
         stateDir,
         eventStore,
       );
 
-      // This should fail with CIRCUIT_OPEN — events injected from JSONL store
       const blockedResult = await handleSet(
         { featureId: 'fix-cycle', phase: 'delegate' },
         stateDir,
@@ -348,39 +301,33 @@ describe('Integration', () => {
       expect(blockedResult.success).toBe(false);
       expect(blockedResult.error?.code).toBe('CIRCUIT_OPEN');
 
-      // Verify the event log from external store contains 3 fix-cycle events
       const fixCycleEvents = await eventStore.query('fix-cycle', { type: 'workflow.fix-cycle' });
       expect(fixCycleEvents.length).toBe(3);
 
-      // Verify each fix-cycle event references the implementation compound
       for (const evt of fixCycleEvents) {
         const data = evt.data as Record<string, unknown>;
         expect(data.compoundStateId).toBe('implementation');
       }
 
-      // Verify via handleSummary that circuit breaker state is reported
       const summaryResult = await handleSummary({ featureId: 'fix-cycle' }, stateDir, eventStore);
       expect(summaryResult.success).toBe(true);
       const summaryData = summaryResult.data as Record<string, unknown>;
       const circuitBreaker = summaryData.circuitBreaker as Record<string, unknown>;
       expect(circuitBreaker).toBeDefined();
-      // Note: The circuit breaker IS reported by handleSummary for compound states
       expect(circuitBreaker.compoundId).toBe('implementation');
       expect(circuitBreaker.maxFixCycles).toBe(3);
     });
   });
 
-  // ─── 3. Compensation_WorkflowWithSideEffects_CleansUpOnCancel ────────────
-
   describe('Compensation_WorkflowWithSideEffects_CleansUpOnCancel', () => {
+    /**
+     * Compensation deletes real branches and checks the result.
+     * So the test gives it a git repository with the two task branches and a bare `origin` remote.
+     * Without them, cancel reports a compensation failure.
+     */
     it('should run compensation actions and log events on cancel', async () => {
       const eventStore = new EventStore(stateDir);
 
-      // Compensation deletes real branches, and it now VERIFIES the outcome
-      // instead of swallowing every git failure — so a state dir that is not a
-      // repository makes it honestly report COMPENSATION_PARTIAL. Give it a
-      // real repo with the branches the workflow claims, so this exercises
-      // compensation succeeding rather than the fail-closed path.
       const git = async (...args: string[]): Promise<void> => {
         await execFileAsync('git', args, { cwd: stateDir });
       };
@@ -393,15 +340,11 @@ describe('Integration', () => {
       await git('commit', '-q', '-m', 'fixture');
       await git('branch', 'feat/task-1');
       await git('branch', 'feat/task-2');
-      // Compensation probes `origin` before deleting remote branches, so the
-      // fixture needs a real remote — otherwise `ls-remote` fails and the whole
-      // action is (correctly) reported as a compensation failure.
       const originDir = path.join(stateDir, 'origin.git');
       await execFileAsync('git', ['init', '--bare', '-q', originDir]);
       await git('remote', 'add', 'origin', originDir);
       await git('push', '-q', 'origin', 'feat/task-1', 'feat/task-2');
 
-      // Init and advance to delegate
       await handleInit(
         { featureId: 'cancel-test', workflowType: 'feature' },
         stateDir,
@@ -427,7 +370,6 @@ describe('Integration', () => {
       );
       await transitionFeature('cancel-test', 'delegate', eventStore);
 
-      // Add worktrees and tasks to state
       await handleSet(
         {
           featureId: 'cancel-test',
@@ -452,7 +394,6 @@ describe('Integration', () => {
         eventStore,
       );
 
-      // Cancel the workflow (pass eventStore so cancel events are recorded)
       const cancelResult = await handleCancel(
         { featureId: 'cancel-test', reason: 'Requirements changed' },
         stateDir,
@@ -464,27 +405,22 @@ describe('Integration', () => {
       expect(cancelData.phase).toBe('cancelled');
       expect(cancelData.previousPhase).toBe('delegate');
 
-      // Verify compensation actions were executed
       const actions = cancelData.actions as Array<Record<string, unknown>>;
       expect(actions.length).toBeGreaterThan(0);
 
-      // Verify final state is cancelled
       const getResult = await handleGet({ featureId: 'cancel-test' }, stateDir, null);
       expect(getResult.success).toBe(true);
       const finalState = getResult.data as Record<string, unknown>;
       expect(finalState.phase).toBe('cancelled');
 
-      // Verify cancel events exist in external event store
-      // The HSM emits 'cancel' events (mapped to 'workflow.cancel'), not 'workflow.transition'
       const allEvents = await eventStore.query('cancel-test');
       const cancelEvents = allEvents.filter((e) => e.type === 'workflow.cancel');
       expect(cancelEvents.length).toBeGreaterThan(0);
     });
   });
 
-  // ─── 4. CheckpointAdvisory_ThresholdOperations_TriggersAdvisory ──────────
-
   describe('CheckpointAdvisory_ThresholdOperations_TriggersAdvisory', () => {
+    /** The default advisory threshold is 20 operations. Each `handleSet` adds one, so the advice starts at the twentieth call. */
     it('should advise checkpoint after threshold operations and reset after checkpoint', async () => {
       await handleInit(
         { featureId: 'checkpoint-test', workflowType: 'feature' },
@@ -492,7 +428,6 @@ describe('Integration', () => {
         null,
       );
 
-      // Perform many set operations (>20, the default advisory threshold)
       for (let i = 0; i < 21; i++) {
         const result = await handleSet(
           {
@@ -504,15 +439,11 @@ describe('Integration', () => {
         );
         expect(result.success).toBe(true);
 
-        // After 20 operations, checkpoint should be advised
         if (i >= 19) {
-          // operationsSince starts at 0, each handleSet increments it
-          // After 20 handleSet calls (i=19), operationsSince=20 which >= threshold
           expect(result._meta?.checkpointAdvised).toBe(true);
         }
       }
 
-      // Verify checkpointAdvised is true
       const beforeCheckpoint = await handleGet(
         { featureId: 'checkpoint-test' },
         stateDir,
@@ -520,7 +451,6 @@ describe('Integration', () => {
       );
       expect(beforeCheckpoint._meta?.checkpointAdvised).toBe(true);
 
-      // Call handleCheckpoint to reset
       const checkpointResult = await handleCheckpoint(
         { featureId: 'checkpoint-test', summary: 'Manual checkpoint' },
         stateDir,
@@ -528,10 +458,8 @@ describe('Integration', () => {
       );
       expect(checkpointResult.success).toBe(true);
 
-      // Verify checkpointAdvised is now false
       expect(checkpointResult._meta?.checkpointAdvised).toBe(false);
 
-      // Confirm via handleGet
       const afterCheckpoint = await handleGet(
         { featureId: 'checkpoint-test' },
         stateDir,
@@ -541,11 +469,9 @@ describe('Integration', () => {
     });
   });
 
-  // ─── 5. Migration_V1_0StateFile_MigratesOnRead ───────────────────────────
-
   describe('Migration_V1_0StateFile_MigratesOnRead', () => {
+    /** The fixture holds no `_events` or `_eventSequence` field, and the migration adds neither, so a query for either returns undefined. */
     it('should migrate a v1.0 state file when read via handleGet', async () => {
-      // Write a v1.0 state file manually (no _events, _eventSequence, _checkpoint, _history)
       const v10State = {
         version: '1.0',
         featureId: 'migrated-feature',
@@ -569,21 +495,17 @@ describe('Integration', () => {
       const stateFile = path.join(stateDir, 'migrated-feature.state.json');
       await fs.writeFile(stateFile, JSON.stringify(v10State, null, 2), 'utf-8');
 
-      // Read via handleGet
       const result = await handleGet({ featureId: 'migrated-feature' }, stateDir, null);
       expect(result.success).toBe(true);
 
       const state = result.data as Record<string, unknown>;
       expect(state.version).toBe('1.1');
-      // _events and _eventSequence removed from schema — events now in external JSONL store
       expect(state._checkpoint).toBeDefined();
 
-      // Verify checkpoint has expected shape
       const checkpoint = state._checkpoint as Record<string, unknown>;
       expect(checkpoint.phase).toBeDefined();
       expect(checkpoint.operationsSince).toBe(0);
 
-      // _events and _eventSequence removed during migration — events now in external JSONL store
       const eventsResult = await handleGet({ featureId: 'migrated-feature', query: '_events' }, stateDir, null);
       expect(eventsResult.success).toBe(true);
       expect(eventsResult.data).toBeUndefined();
@@ -593,8 +515,6 @@ describe('Integration', () => {
       expect(seqResult.data).toBeUndefined();
     });
   });
-
-  // ─── 6. EventLog_FullWorkflow_SequenceMonotonicallyIncreasing ────────────
 
   describe('EventLog_FullWorkflow_SequenceMonotonicallyIncreasing', () => {
     it('should have monotonically increasing sequence numbers', async () => {
@@ -606,7 +526,6 @@ describe('Integration', () => {
         eventStore,
       );
 
-      // Set design artifact and transition to plan
       await handleSet(
         { featureId: 'seq-test', updates: { 'artifacts.design': 'design.md' } },
         stateDir,
@@ -614,7 +533,6 @@ describe('Integration', () => {
       );
       await transitionFeature('seq-test', 'plan', eventStore);
 
-      // Set plan artifact and transition to plan-review, then delegate
       await handleSet(
         { featureId: 'seq-test', updates: { 'artifacts.plan': 'plan.md' } },
         stateDir,
@@ -628,7 +546,6 @@ describe('Integration', () => {
       );
       await transitionFeature('seq-test', 'delegate', eventStore);
 
-      // Do a few more field updates (no events emitted for field updates)
       await handleSet(
         { featureId: 'seq-test', updates: { counter: 1 } },
         stateDir,
@@ -640,30 +557,24 @@ describe('Integration', () => {
         eventStore,
       );
 
-      // Call checkpoint (emits a checkpoint event)
       await handleCheckpoint(
         { featureId: 'seq-test', summary: 'Mid-workflow checkpoint' },
         stateDir,
         eventStore,
       );
 
-      // Read events from external JSONL store
       const events = await eventStore.query('seq-test');
 
       expect(events.length).toBeGreaterThan(0);
 
-      // Verify all sequence numbers are monotonically increasing
       for (let i = 1; i < events.length; i++) {
         expect(events[i].sequence).toBeGreaterThan(events[i - 1].sequence);
       }
     });
   });
 
-  // ─── 7. Compatibility_BashCreatedState_MigratesAndReads ──────────────────
-
   describe('Compatibility_BashCreatedState_MigratesAndReads', () => {
     it('should migrate and read a bash-created state file', async () => {
-      // Write a state file in the format the bash script would create
       const bashState = {
         version: '1.0',
         featureId: 'bash-created',
@@ -706,23 +617,18 @@ describe('Integration', () => {
       const stateFile = path.join(stateDir, 'bash-created.state.json');
       await fs.writeFile(stateFile, JSON.stringify(bashState, null, 2), 'utf-8');
 
-      // Read via handleGet
       const result = await handleGet({ featureId: 'bash-created' }, stateDir, null);
       expect(result.success).toBe(true);
 
       const state = result.data as Record<string, unknown>;
 
-      // Verify migration occurred
       expect(state.version).toBe('1.1');
-      // _events and _eventSequence removed from schema — events now in external JSONL store
       expect(state._checkpoint).toBeDefined();
 
-      // _events removed during migration — events now in external JSONL store
       const eventsResult = await handleGet({ featureId: 'bash-created', query: '_events' }, stateDir, null);
       expect(eventsResult.success).toBe(true);
       expect(eventsResult.data).toBeUndefined();
 
-      // Verify original data preserved
       expect(state.featureId).toBe('bash-created');
       expect(state.phase).toBe('delegate');
       expect(state.workflowType).toBe('feature');
@@ -738,49 +644,39 @@ describe('Integration', () => {
     });
   });
 
-  // ─── 8. Compatibility_McpCreatedState_CoreFieldsReadableByBash ───────────
-
   describe('Compatibility_McpCreatedState_CoreFieldsReadableByBash', () => {
     it('should contain all core fields that the bash script expects', async () => {
-      // Init a workflow via handleInit
       await handleInit(
         { featureId: 'mcp-created', workflowType: 'feature' },
         stateDir,
         null,
       );
 
-      // Read the raw JSON file from disk
       const stateFile = path.join(stateDir, 'mcp-created.state.json');
       const rawJson = JSON.parse(
         await fs.readFile(stateFile, 'utf-8'),
       ) as Record<string, unknown>;
 
-      // Verify it contains all core fields that the bash script expects
       expect(rawJson.featureId).toBe('mcp-created');
       expect(rawJson.workflowType).toBe('feature');
       expect(rawJson.phase).toBe('plan');
       expect(typeof rawJson.createdAt).toBe('string');
       expect(typeof rawJson.updatedAt).toBe('string');
 
-      // Artifacts
       const artifacts = rawJson.artifacts as Record<string, unknown>;
       expect(artifacts).toBeDefined();
       expect('design' in artifacts).toBe(true);
       expect('plan' in artifacts).toBe(true);
       expect('pr' in artifacts).toBe(true);
 
-      // Tasks
       expect(Array.isArray(rawJson.tasks)).toBe(true);
 
-      // Worktrees
       expect(typeof rawJson.worktrees).toBe('object');
       expect(rawJson.worktrees).not.toBeNull();
 
-      // Reviews
       expect(typeof rawJson.reviews).toBe('object');
       expect(rawJson.reviews).not.toBeNull();
 
-      // Synthesis
       const synthesis = rawJson.synthesis as Record<string, unknown>;
       expect(synthesis).toBeDefined();
       expect('integrationBranch' in synthesis).toBe(true);
@@ -791,11 +687,7 @@ describe('Integration', () => {
     });
   });
 
-  // ─── 9. EventFirst_FullLifecycle ──────────────────────────────────────────
-
   describe('EventFirst_FullLifecycle', () => {
-    // ── Helper: advance through guard-gated transitions ─────────────────
-
     async function initAndAdvanceTo(
       featureId: string,
       targetPhase: string,
@@ -843,24 +735,19 @@ describe('Integration', () => {
     it('should rebuild state entirely from events after state file deletion', async () => {
       const eventStore = new EventStore(stateDir);
 
-      // Init + transition through ideate → plan → plan-review
       await initAndAdvanceTo('lifecycle-rebuild', 'plan-review', eventStore);
 
-      // Verify state is at plan-review
       const stateFile = path.join(stateDir, 'lifecycle-rebuild.state.json');
       let state = await readStateFile(stateFile);
       expect(state.phase).toBe('plan-review');
 
-      // Delete the state file
       await fs.unlink(stateFile);
 
-      // Reconcile from events
       const result = await reconcileFromEvents(stateDir, 'lifecycle-rebuild', eventStore);
 
       expect(result.reconciled).toBe(true);
       expect(result.eventsApplied).toBeGreaterThan(0);
 
-      // Verify state rebuilt at correct phase
       state = await readStateFile(stateFile);
       expect(state.phase).toBe('plan-review');
       expect(state.featureId).toBe('lifecycle-rebuild');
@@ -871,7 +758,6 @@ describe('Integration', () => {
       const eventStore = new EventStore(stateDir);
 
       await handleInit({ featureId: 'stale-recovery', workflowType: 'feature' }, stateDir, eventStore);
-      // Set guard and transition to plan
       await handleSet(
         { featureId: 'stale-recovery', updates: { 'artifacts.design': 'docs/design.md' } },
         stateDir,
@@ -879,18 +765,15 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'stale-recovery', phase: 'plan' }, stateDir, eventStore);
 
-      // Simulate crash: manually append transition event WITHOUT updating state
       await eventStore.append('stale-recovery', {
         type: 'workflow.transition' as ExternalEventType,
         data: { from: 'plan', to: 'plan-review', trigger: 'handleSet', featureId: 'stale-recovery' },
       });
 
-      // State is at 'plan' but events say 'plan-review'
       const stateFile = path.join(stateDir, 'stale-recovery.state.json');
       let state = await readStateFile(stateFile);
-      expect(state.phase).toBe('plan'); // stale
+      expect(state.phase).toBe('plan');
 
-      // Reconcile should catch up
       const result = await reconcileFromEvents(stateDir, 'stale-recovery', eventStore);
       expect(result.reconciled).toBe(true);
 
@@ -898,19 +781,23 @@ describe('Integration', () => {
       expect(state.phase).toBe('plan-review');
     });
 
+    /**
+     * `handleInit` appends `workflow.started`, and each field update appends `state.patched`.
+     * A move into `plan-review` appends a transition, `phase.exited` and `phase.entered`.
+     * A checkpoint appends `workflow.checkpoint` and `workflow.checkpoint_written`.
+     * `delegate` is in the `implementation` compound, so the move into it also appends `compound-entry`.
+     */
     it('should maintain event-state consistency across init/set/checkpoint sequence', async () => {
       const eventStore = new EventStore(stateDir);
 
-      // Init
       await handleInit({ featureId: 'consistency-test', workflowType: 'feature' }, stateDir, eventStore);
       let events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(1); // workflow.started
+      expect(events.length).toBe(1);
 
       const stateFile = path.join(stateDir, 'consistency-test.state.json');
       let raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       expect(raw._eventSequence).toBe(1);
 
-      // DR-4 (#1581): plan is initial; first transition is plan → plan-review.
       await handleSet(
         { featureId: 'consistency-test', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
         stateDir,
@@ -918,22 +805,15 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'plan-review' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      // DR-13 (#1546): advancing into the PLAN-kind 'plan-review' phase emits the
-      // resolve-then-freeze pair (phase.exited for the left phase + phase.entered
-      // for the new one), so the transition contributes THREE events.
-      expect(events.length).toBe(5); // started + state.patched + transition + phase.exited + phase.entered
+      expect(events.length).toBe(5);
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       expect(raw._eventSequence).toBe(5);
 
-      // Checkpoint — T034 (DR-6) extends this action to also materialize the
-      // rehydration projection and emit `workflow.checkpoint_written`, so the
-      // event count advances by TWO, not one.
       await handleCheckpoint({ featureId: 'consistency-test', summary: 'Mid-plan' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      expect(events.length).toBe(7); // + workflow.checkpoint + workflow.checkpoint_written
+      expect(events.length).toBe(7);
 
-      // Another phase transition (plan-review -> delegate)
       await handleSet(
         { featureId: 'consistency-test', updates: { planReview: { approved: true } } },
         stateDir,
@@ -941,14 +821,11 @@ describe('Integration', () => {
       );
       await handleSet({ featureId: 'consistency-test', phase: 'delegate' }, stateDir, eventStore);
       events = await eventStore.query('consistency-test');
-      // delegate lives inside the 'implementation' compound, so entering it also
-      // emits a compound-entry event — five new events, not four.
-      expect(events.length).toBe(12); // + state.patched + transition + phase.exited + phase.entered + compound-entry
+      expect(events.length).toBe(12);
 
       raw = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
       expect(raw._eventSequence).toBe(12);
 
-      // Reconcile should be idempotent (no changes)
       const result = await reconcileFromEvents(stateDir, 'consistency-test', eventStore);
       expect(result.reconciled).toBe(false);
       expect(result.eventsApplied).toBe(0);
@@ -958,7 +835,6 @@ describe('Integration', () => {
       const eventStore = new EventStore(stateDir);
 
       await handleInit({ featureId: 'idem-verify', workflowType: 'feature' }, stateDir, eventStore);
-      // DR-4 (#1581): plan is initial; first transition is plan → plan-review.
       await handleSet(
         { featureId: 'idem-verify', updates: { 'artifacts.plan': 'docs/specs/x.md' } },
         stateDir,

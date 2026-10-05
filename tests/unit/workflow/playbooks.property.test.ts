@@ -9,7 +9,6 @@ describe('HSM-Playbook Coverage', () => {
     refactor: RefactorPhaseSchema.options,
   };
 
-  // Test: every HSM state has a playbook entry
   for (const [workflowType, phases] of Object.entries(workflowPhases)) {
     for (const phase of phases) {
       it(`allHsmStates_HavePlaybook_${workflowType}_${phase}`, () => {
@@ -21,7 +20,6 @@ describe('HSM-Playbook Coverage', () => {
     }
   }
 
-  // Test: non-terminal playbooks have adequate compactGuidance
   const terminalPhases = ['completed', 'cancelled'];
   for (const [workflowType, phases] of Object.entries(workflowPhases)) {
     for (const phase of phases) {
@@ -58,7 +56,6 @@ describe('HSM-Playbook Coverage', () => {
     }
   }
 
-  // Test: human checkpoint playbooks mention wait/pause/confirm
   for (const [workflowType, phases] of Object.entries(workflowPhases)) {
     for (const phase of phases) {
       const playbook = getPlaybook(workflowType, phase);
@@ -76,7 +73,6 @@ describe('HSM-Playbook Coverage', () => {
 });
 
 describe('Neuroanatomy pattern enrichment', () => {
-  // DR-13/DR-14: Compression + carry-forward — folded into `plan` (#1581, ex-ideate)
   it('compactGuidance_FeaturePlan_ContainsCompressionGuidance', () => {
     const playbook = getPlaybook('feature', 'plan');
     expect(playbook).not.toBeNull();
@@ -85,7 +81,6 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(hasCompression).toBe(true);
   });
 
-  // DR-7: Two-step design (reasoning then formatting) — folded into `plan` (#1581, ex-ideate)
   it('compactGuidance_FeaturePlan_ContainsTwoStepDesign', () => {
     const playbook = getPlaybook('feature', 'plan');
     expect(playbook).not.toBeNull();
@@ -94,7 +89,6 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(guidance.includes('format')).toBe(true);
   });
 
-  // DR-13/DR-14: Context packaging in plan
   it('compactGuidance_FeaturePlan_ContainsContextPackaging', () => {
     const playbook = getPlaybook('feature', 'plan');
     expect(playbook).not.toBeNull();
@@ -103,7 +97,6 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(hasContext).toBe(true);
   });
 
-  // DR-8: Three-stage decomposition in plan
   it('compactGuidance_FeaturePlan_ContainsThreeStageDecomposition', () => {
     const playbook = getPlaybook('feature', 'plan');
     expect(playbook).not.toBeNull();
@@ -113,7 +106,6 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(guidance.includes('parallelization')).toBe(true);
   });
 
-  // DR-15: Self-consistency in plan-review
   it('compactGuidance_FeaturePlanReview_ContainsSelfConsistency', () => {
     const playbook = getPlaybook('feature', 'plan-review');
     expect(playbook).not.toBeNull();
@@ -125,7 +117,6 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(hasSelfConsistency).toBe(true);
   });
 
-  // DR-10/DR-11: Effort classification in delegate
   it('compactGuidance_FeatureDelegate_ContainsEffortClassification', () => {
     const playbook = getPlaybook('feature', 'delegate');
     expect(playbook).not.toBeNull();
@@ -137,7 +128,6 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(hasClassification).toBe(true);
   });
 
-  // DR-13/DR-14: Context scoping in delegate
   it('compactGuidance_FeatureDelegate_ContainsContextScoping', () => {
     const playbook = getPlaybook('feature', 'delegate');
     expect(playbook).not.toBeNull();
@@ -145,7 +135,6 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(guidance.includes('context package')).toBe(true);
   });
 
-  // DR-9: Two-pass evaluation in review
   it('compactGuidance_FeatureReview_ContainsTwoPassEvaluation', () => {
     const playbook = getPlaybook('feature', 'review');
     expect(playbook).not.toBeNull();
@@ -154,7 +143,6 @@ describe('Neuroanatomy pattern enrichment', () => {
     expect(hasTwoPass).toBe(true);
   });
 
-  // DR-9: Review strategy runbook reference in review
   it('compactGuidance_FeatureReview_ContainsReviewStrategy', () => {
     const playbook = getPlaybook('feature', 'review');
     expect(playbook).not.toBeNull();
@@ -163,14 +151,7 @@ describe('Neuroanatomy pattern enrichment', () => {
   });
 });
 
-// ─── T10: Oneshot playbook property assertions ─────────────────────────────
-//
-// The main HSM-Playbook Coverage suite above enumerates phases via the
-// three enum schemas (Feature/Debug/Refactor). Oneshot uses `z.string()`
-// for its phase field (choice-state semantics mean the set of reachable
-// phases depends on synthesisPolicy + events), so we assert the playbook
-// invariants directly against the exported `oneshotPlaybook` array.
-
+/** The coverage suite above does not include oneshot, so these tests read the exported `oneshotPlaybook` array. */
 describe('Oneshot playbook invariants', () => {
   const terminalPhases = ['completed', 'cancelled'];
 
@@ -199,9 +180,8 @@ describe('Oneshot playbook invariants', () => {
     }
   });
 
+  /** The test builds the graph from the phase names that each `transitionCriteria` string holds. */
   it('oneshotPlaybook_AllPhasesReachableFromPlan', () => {
-    // Build transition graph from the declared transitionCriteria strings.
-    // plan → implementing, implementing → {synthesize, completed}, synthesize → completed.
     const phases = new Set(oneshotPlaybook.map((p) => p.phase));
     expect(phases.has('plan')).toBe(true);
 
@@ -210,7 +190,6 @@ describe('Oneshot playbook invariants', () => {
       const next: string[] = [];
       for (const candidate of phases) {
         if (candidate === pb.phase) continue;
-        // Match phase name as whole word in transitionCriteria
         const rx = new RegExp(`\\b${candidate}\\b`, 'i');
         if (rx.test(pb.transitionCriteria)) next.push(candidate);
       }
@@ -237,9 +216,7 @@ describe('Oneshot playbook invariants', () => {
   it('oneshotPlaybook_CompletedReachableFromBothImplementingBranches', () => {
     const implementing = oneshotPlaybook.find((p) => p.phase === 'implementing');
     expect(implementing).toBeDefined();
-    // Direct branch: implementing → completed (opted out)
     expect(implementing!.transitionCriteria).toMatch(/completed/i);
-    // Indirect branch: implementing → synthesize → completed
     expect(implementing!.transitionCriteria).toMatch(/synthesize/i);
     const synthesize = oneshotPlaybook.find((p) => p.phase === 'synthesize');
     expect(synthesize).toBeDefined();

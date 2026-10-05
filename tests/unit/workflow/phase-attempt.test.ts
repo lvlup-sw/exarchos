@@ -187,6 +187,10 @@ describe('phase-attempt identity (DR-2, DR-4)', () => {
     expect(projected.phaseAttemptId).toBe(cancelledId);
   });
 
+  /**
+   * The two updates advance the file version, so a rehydrated state can reuse the same local CAS version.
+   * The attempt identity must not depend on that local counter.
+   */
   it('WorkflowReplayAndRehydrate_PreserveActiveAttemptWithoutRegeneration', async () => {
     const featureId = 'phase-attempt-rehydrate';
     await handleInit(
@@ -194,9 +198,6 @@ describe('phase-attempt identity (DR-2, DR-4)', () => {
       stateDir,
       eventStore,
     );
-    // Advance the original file version so a later rehydrated state can reuse
-    // the same local CAS version. Attempt identity must not depend on that
-    // rebuild-local counter.
     await handleUpdate(
       { featureId, updates: { 'explore.first': true } },
       stateDir,

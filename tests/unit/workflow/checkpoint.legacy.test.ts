@@ -12,7 +12,7 @@ import {
 } from '../../../src/workflow/checkpoint.js';
 import type { CheckpointState } from '../../../src/workflow/types.js';
 
-// Helper to create a checkpoint state at a known time
+/** Builds a checkpoint state at a fixed time, with the given overrides. */
 function makeCheckpoint(overrides: Partial<CheckpointState> = {}): CheckpointState {
   return {
     timestamp: '2025-06-01T12:00:00Z',
@@ -134,7 +134,6 @@ describe('checkpoint', () => {
 
       const result = resetCounter(checkpoint, 'plan');
 
-      // Timestamp should be updated (not the original)
       expect(result.timestamp).not.toBe('2025-06-01T12:00:00Z');
     });
 
@@ -181,7 +180,6 @@ describe('checkpoint', () => {
     });
 
     it('StalenessDetection_AfterThreshold_ReportsStale', () => {
-      // 121 minutes ago
       const pastTime = new Date(Date.now() - 121 * 60 * 1000).toISOString();
       const checkpoint = makeCheckpoint({
         lastActivityTimestamp: pastTime,
@@ -201,6 +199,7 @@ describe('checkpoint', () => {
       expect(isStale(checkpoint)).toBe(false);
     });
 
+    /** `isStale` needs the elapsed minutes to be strictly greater than the threshold. */
     it('should return false at exactly the threshold', () => {
       const exactTime = new Date(Date.now() - 120 * 60 * 1000).toISOString();
       const checkpoint = makeCheckpoint({
@@ -208,7 +207,6 @@ describe('checkpoint', () => {
         staleAfterMinutes: 120,
       });
 
-      // At exactly the threshold, not stale (strictly greater than)
       expect(isStale(checkpoint)).toBe(false);
     });
 
@@ -269,7 +267,6 @@ describe('checkpoint', () => {
 
       const meta = buildCheckpointMeta(checkpoint);
 
-      // Slim shape: only checkpointAdvised when no action needed
       expect(meta).toEqual({ checkpointAdvised: false });
     });
 
@@ -285,7 +282,6 @@ describe('checkpoint', () => {
 
       const meta = buildCheckpointMeta(checkpoint);
 
-      // Full shape: all fields present when action needed
       expect(meta.checkpointAdvised).toBe(true);
       expect(meta).toHaveProperty('operationsSinceCheckpoint', 20);
       expect(meta).toHaveProperty('lastCheckpointPhase', 'delegate');

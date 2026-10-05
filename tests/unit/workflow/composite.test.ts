@@ -10,10 +10,6 @@ import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 vi.mock('../../../src/workflow/tools.js', () => ({
   handleInit: vi.fn().mockResolvedValue({ success: true, data: { phase: 'init-result' } }),
   handleGet: vi.fn().mockResolvedValue({ success: true, data: { phase: 'get-result' } }),
-  // T5a.1/DR-4 (#1259, v2.11): `handleSet` is no longer dispatched from the
-  // composite handler. The action is removed; phase mutation routes through
-  // `handleTransition` directly. Mock retained for any indirect callers
-  // (none today) to keep this surface a no-op stub.
   handleTransition: vi.fn().mockResolvedValue({ success: true, data: { phase: 'transition-result' } }),
   handleReconcileState: vi.fn().mockResolvedValue({ success: true, data: { reconciled: true, eventsApplied: 3 } }),
 }));
@@ -59,21 +55,21 @@ describe('handleWorkflow', () => {
   });
 
   describe('init action', () => {
+    /**
+     * The composite passes `deriveRepoKey(ctx.cwd ?? process.cwd())` as the fourth argument.
+     * The context has no `cwd`, so the key comes from `process.cwd()`.
+     */
     it('should delegate to handleInit with correct args', async () => {
       const args = { action: 'init', featureId: 'test', workflowType: 'feature' };
 
       const result = await handleWorkflow(args, ctx);
 
-      // DR-5 oracle update (intentional): the composite now threads a 4th arg —
-      // the memoized caller repo key `deriveRepoKey(ctx.cwd ?? process.cwd())`.
-      // ctx carries no `cwd`, so it resolves the serving process's repo key.
       expect(handleInit).toHaveBeenCalledWith(
         { featureId: 'test', workflowType: 'feature' },
         stateDir,
         ctx.eventStore,
         deriveRepoKey(process.cwd()),
       );
-      // T036: successful responses are wrapped in Envelope<T>
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'init-result' });
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
@@ -97,11 +93,7 @@ describe('handleWorkflow', () => {
     });
   });
 
-  // T5a.1/DR-4 (#1259, v2.11): the prior `set action` describe block
-  // exercised the deprecated rerouting path (`set({phase})` →
-  // `handleSet`). The action is removed in v2.11; phase mutation now routes
-  // through `transition` directly. Mirror the previous coverage shape on
-  // the canonical action so the dispatch wiring stays witnessed.
+  /** Phase changes route through the `transition` action, so this block pins its dispatch. */
   describe('transition action', () => {
     it('should delegate to handleTransition with correct args', async () => {
       const args = { action: 'transition', featureId: 'test', target: 'delegate' };
@@ -119,12 +111,11 @@ describe('handleWorkflow', () => {
       expect((result as Record<string, unknown>).next_actions).toEqual([]);
     });
 
+    /**
+     * The composite reads `maxNoCoverage` and the enforcement mode from `projectConfig`. It passes
+     * both in the `handleTransition` options, the same path as the mutation threshold.
+     */
     it('Injection_MaxNoCoverageConfigured_ReachesTransitionOptions_DR6', async () => {
-      // DR-6 config-read seam: the composite resolves
-      // `review.gates['mutation-adequacy'].params.maxNoCoverage` (and the
-      // enforcement mode) out of projectConfig and threads `maxNoCoverage` into
-      // the handleTransition options — the same plumbing as `_mutationThreshold`,
-      // never a facade fork (INV-2). tools.ts injects it into `_maxNoCoverage`.
       const projectConfig = resolveConfig({
         review: {
           'mutation-enforcement': 'block',
@@ -142,9 +133,8 @@ describe('handleWorkflow', () => {
       expect(opts.maxNoCoverage).toBe(2);
     });
 
+    /** Without `projectConfig`, the options argument of `handleTransition` stays `undefined`. */
     it('Injection_NoConfig_MaxNoCoverageAbsent_DR6', async () => {
-      // No projectConfig → no review config resolved → no maxNoCoverage plumbed;
-      // the options bag stays `undefined` (preserves the no-config contract).
       await handleWorkflow(
         { action: 'transition', featureId: 'test', target: 'synthesize' },
         ctx,
@@ -220,13 +210,16 @@ describe('handleWorkflow', () => {
     });
   });
 
-  // T051 / DR-14 — `applyCacheHints` is wired ONLY into the rehydrate
-  // dispatch path. Other actions (init/get/set/cancel/cleanup/reconcile/
-  // checkpoint/describe) deliberately do NOT emit `_cacheHints` because
-  // they either mutate state or return small payloads where cache
-  // annotations carry no benefit. The followups doc treats this scoping
-  // as the safe default.
+  /**
+   * Only the `rehydrate` dispatch passes the capability resolver to `envelopeWrap`, which calls
+   * `applyCacheHints`. The other actions mutate state or return small payloads, so hints give no
+   * benefit there.
+   */
   describe('rehydrate action — cache hints (T051, DR-14)', () => {
+    /**
+     * The test checks only the `after:` prefix of `position`. The position comes from the stable
+     * keys, so a new stable key needs no test edit.
+     */
     it('Rehydrate_ResolverWithCapability_EmitsCacheHints', async () => {
       const args = { action: 'rehydrate', featureId: 'test' };
       const ctxWithCaching: DispatchContext = {
@@ -238,25 +231,23 @@ describe('handleWorkflow', () => {
 
       expect(result.success).toBe(true);
       const env = result as Record<string, unknown>;
-      // Hint is present at the envelope root.
       expect(env._cacheHints).toBeDefined();
       const hints = env._cacheHints as Record<string, unknown>;
       expect(hints.type).toBe('cache_boundary');
       expect(hints.kind).toBe('ephemeral');
       expect(hints.ttl).toBe('1h');
-      // The position string is derived from STABLE_KEYS (T050) and is a
-      // stable contract — assert it starts with the expected prefix
-      // rather than pin every key, so a STABLE_KEYS extension doesn't
-      // need a coordinated test edit.
       expect(typeof hints.position).toBe('string');
       expect((hints.position as string).startsWith('after:')).toBe(true);
     });
 
+    /**
+     * An empty resolver acts as a runtime without native caching. The envelope must omit the
+     * field, not set it to null, because the JSON wire contract treats absence as distinct.
+     */
     it('Rehydrate_ResolverWithoutCapability_OmitsCacheHints', async () => {
       const args = { action: 'rehydrate', featureId: 'test' };
       const ctxWithoutCaching: DispatchContext = {
         ...ctx,
-        // Empty resolver — kill-switch / non-Anthropic runtime semantics.
         capabilityResolver: createInMemoryResolver([]),
       };
 
@@ -264,18 +255,15 @@ describe('handleWorkflow', () => {
 
       expect(result.success).toBe(true);
       const env = result as Record<string, unknown>;
-      // Field is omitted, NOT set to null/undefined — the JSON wire
-      // contract treats absence as semantically distinct.
       expect('_cacheHints' in env).toBe(false);
     });
 
+    /**
+     * A context without `capabilityResolver`, such as a hand-built test context, must emit no
+     * hints. The composite applies hints only with an explicit resolver.
+     */
     it('Rehydrate_NoResolverInContext_OmitsCacheHints', async () => {
-      // A boot path that didn't construct a resolver (e.g. a test
-      // that builds the context manually) must not emit hints —
-      // applyCacheHints requires an explicit resolver, no implicit
-      // always-on at the composite layer.
       const args = { action: 'rehydrate', featureId: 'test' };
-      // ctx has no `capabilityResolver` set.
 
       const result = await handleWorkflow(args, ctx);
 
@@ -284,11 +272,11 @@ describe('handleWorkflow', () => {
       expect('_cacheHints' in env).toBe(false);
     });
 
+    /**
+     * The `init`, `get` and `reconcile` envelopes must carry no `_cacheHints`, even when the runtime
+     * reports the capability.
+     */
     it('NonRehydrateActions_NeverEmitCacheHints_EvenWithResolver', async () => {
-      // Cache hints are scoped to the rehydrate path only. Init / get /
-      // set responses must NOT carry `_cacheHints` even on a runtime
-      // that reports the capability — they don't have a stable
-      // serialized prefix worth annotating.
       const ctxWithCaching: DispatchContext = {
         ...ctx,
         capabilityResolver: createInMemoryResolver([ANTHROPIC_NATIVE_CACHING]),
@@ -310,14 +298,11 @@ describe('handleWorkflow', () => {
   });
 });
 
-// ─── DR-5: composite init dispatch stamps repoRoot (production path) ──────────
-//
-// The file-level `vi.mock('./tools.js')` above stubs `handleInit` for
-// envelope-conformance assertions. This suite UN-mocks it so the composite arm
-// runs the REAL `handleInit` end-to-end against a real event store — proving
-// the production path (not a direct handler call) stamps `repoRoot` on
-// `workflow.started`, closing the built-but-unwired gap (DR-5).
-
+/**
+ * The file-level mock stubs `handleInit`. This suite removes that mock and runs the real
+ * `handleInit` through the composite against a real event store. It proves that the production
+ * path stamps `repoRoot` on `workflow.started`.
+ */
 describe('HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)', () => {
   let tempDir: string;
 
@@ -331,6 +316,12 @@ describe('HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)', 
     await rmrfAsync(tempDir);
   });
 
+  /**
+   * The composite passes `deriveRepoKey(ctx.cwd ?? process.cwd())`, and `handleInit` stamps it.
+   * Without that path, `repoRoot` is absent. The `finally` block closes the store before
+   * `afterEach` removes the directory, because an open WAL handle makes the unlink fail with
+   * EBUSY on Windows.
+   */
   it('composite init dispatch stamps the caller repo key on workflow.started', async () => {
     const { handleWorkflow } = await import('../../../src/workflow/composite.js');
     const { EventStore: FreshEventStore } = await import('../../../src/events/store.js');
@@ -355,14 +346,9 @@ describe('HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)', 
       expect(events.length).toBe(1);
       const data = events[0]!.data as { repoRoot?: string; featureId?: string };
 
-      // The composite threads `deriveRepoKey(ctx.cwd ?? process.cwd())` — no cwd on
-      // ctx, so the serving process's repo key — and handleInit stamps it. A
-      // reverted implementation (no threading / no stamp) leaves repoRoot absent.
       expect(typeof data.repoRoot).toBe('string');
       expect(data.repoRoot).toBe(freshDeriveRepoKey(process.cwd()));
     } finally {
-      // Release the SQLite handle before afterEach rmrf's tempDir — an open WAL
-      // handle makes the unlink EBUSY on Windows (EventStore.close() contract).
       store.close();
     }
   }, 20000);
