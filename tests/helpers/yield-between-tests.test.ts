@@ -2,8 +2,8 @@
 // yields to the event loop between tests (#2029).
 //
 // Without the yield, the runner goes from one test to the next on promise
-// continuations alone, so a macrotask queued in one test has not run when the
-// next test starts.
+// continuations alone. A macrotask that one test queues then has not run when
+// the next test starts.
 import { afterAll, describe, expect, it, vi } from 'vitest';
 
 /** A macrotask queued by one test runs before the next test starts. */

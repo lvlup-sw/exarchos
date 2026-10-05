@@ -1,32 +1,20 @@
-// ─── Neutralize the merge orchestrator's sibling-worktree probe ─────────────
+// A `gitExec` stub that turns off the sibling-worktree probe of the merge
+// orchestrator.
 //
-// Before it reaches the injected preflight, `handleMergeOrchestrate` shells out
-// to REAL git to ask whether `targetBranch` is checked out in a sibling
-// worktree. That probe is correct in production and fatal to a unit test: this
-// repository's own development layout keeps worktrees under
-// `.claude/worktrees/`, so `main` genuinely IS checked out in a sibling
-// directory, and every test that merges to `main` aborts with
-// `target-checked-out-elsewhere` before its own fixtures are ever consulted.
+// Before the injected preflight, `handleMergeOrchestrate` runs real git to
+// learn if `targetBranch` is checked out in a sibling worktree. This
+// repository keeps its worktrees under `.claude/worktrees/`, so `main` is
+// checked out in a sibling directory. A test that merges to `main` then stops
+// with `target-checked-out-elsewhere` before it reads its fixtures.
 //
-// The symptom is easy to misread. The handler returns a well-formed failure
-// rather than throwing, so the test reports `expected false to be true` or a spy
-// called zero times, and the message that would explain it is inside a result
-// nothing prints. It also passes on CI, whose checkout has exactly one worktree
-// — which is how a whole class of these ended up recorded as an environment
-// artifact rather than as the missing injection it is.
+// The handler returns that failure and does not throw, so the test shows only
+// a false flag or a spy with zero calls. The CI checkout has one worktree, so
+// the same test passes there.
 //
-// A non-zero exit short-circuits the probe (`merge-orchestrate.ts`, section 0a),
-// so a `gitExec` that fails every call makes the test deterministic regardless
-// of the host repository's worktree topology.
-//
-// Use it ONLY where the test does not otherwise drive `gitExec`. A test that
-// exercises the executor's rollback ladder needs a stub that answers real
-// commands, not this one.
+// Use this stub only in a test that does not drive `gitExec` in another way.
+// A test of the rollback ladder needs a stub that answers real commands.
 
 import type { GitExec } from '../../src/verbs/pure/execute-merge.js';
 
-/**
- * A `gitExec` that fails every invocation, neutralizing the section-0a
- * sibling-worktree probe.
- */
+/** A `gitExec` that fails each call. The probe ends on a non-zero exit of `git worktree list`. */
 export const BYPASS_SECTION_0A: GitExec = () => ({ exitCode: 1, stdout: '' });

@@ -20,22 +20,20 @@ describe('extractComments', () => {
     expect(comment?.kind).toBe('line');
   });
 
+  /** The position is the start of the comment, because a finding must point at the line that a reader opens. */
   it('ExtractComments_MultiLineBlock_ReportsStartLine', () => {
     const source = ['const a = 1;', '', '/*', ' * wrapped', ' * rationale', ' */', 'const b = 2;'].join('\n');
 
     const [comment] = extractComments(source, 'a.ts');
 
-    // The position is where the comment STARTS, not where it ends: a finding is
-    // reported at the line a reader would jump to.
     expect(comment?.line).toBe(3);
     expect(comment?.endLine).toBe(6);
     expect(comment?.kind).toBe('block');
     expect(comment?.text).toBe('wrapped rationale');
   });
 
+  /** A token scanner loses the literal after a substitution and reads the tail as code, which invents a comment. */
   it('ExtractComments_CommentInsideTemplateLiteral_NotEmitted', () => {
-    // The case a scanner gets wrong: after a substitution it loses the literal
-    // and re-reads the tail as source, inventing a comment that is really text.
     const source = 'const t = `${value}\n// not a comment`;\n';
 
     const comments = extractComments(source, 'a.ts');
@@ -43,9 +41,8 @@ describe('extractComments', () => {
     expect(comments).toHaveLength(0);
   });
 
+  /** A substitution is code, so a comment inside it is a real comment. */
   it('ExtractComments_CommentInsideTemplateSubstitution_IsEmitted', () => {
-    // The other half of the same rule: a substitution IS code, so a comment
-    // inside one is real and must not be swallowed with the literal.
     const source = 'const t = `${/* inside code */ value}`;\n';
 
     const comments = extractComments(source, 'a.ts');
@@ -60,9 +57,11 @@ describe('extractComments', () => {
     expect(extractComments(source, 'a.ts')).toHaveLength(0);
   });
 
+  /**
+   * The throw lets a caller tell an indeterminate file from a clean file.
+   * A partial tree loses literal spans, and then code looks like prose.
+   */
   it('ExtractComments_RecoveredParse_Throws', () => {
-    // Refusing is what lets a caller separate indeterminate from clean. A
-    // partial tree loses literal spans, and a lost span turns code into prose.
     const source = 'function broken( {\n';
 
     expect(() => extractComments(source, 'broken.ts')).toThrow(CommentExtractionError);
@@ -72,9 +71,8 @@ describe('extractComments', () => {
     expect(() => extractComments('const x = ;\n', 'offender.ts')).toThrow(/offender\.ts/);
   });
 
+  /** Without the correct `ScriptKind`, JSX parses as a type assertion and gives false syntax errors. */
   it('ExtractComments_TsxSource_ParsesAsJsx', () => {
-    // Without the right ScriptKind this parses as a type assertion and reports
-    // syntax errors the file does not have.
     const source = 'const el = <div>text</div>;\n// after jsx\n';
 
     const comments = extractComments(source, 'component.tsx');
@@ -93,10 +91,11 @@ describe('extractComments', () => {
     expect(extractComments('export const a = 1;\n', 'a.ts')).toEqual([]);
   });
 
+  /**
+   * An unterminated block is a syntax error, so the file is indeterminate.
+   * A guess at the end lets a truncated file report clean.
+   */
   it('ExtractComments_UnterminatedBlockAtEof_ReportsIndeterminate', () => {
-    // An unterminated block is a syntax error, so this is indeterminate rather
-    // than a file with one long comment. Guessing at the intended end is what
-    // would let a truncated file report clean.
     const source = 'const a = 1;\n/* never closed\n';
 
     expect(() => extractComments(source, 'a.ts')).toThrow(CommentExtractionError);
@@ -111,9 +110,8 @@ describe('extractComments', () => {
 });
 
 describe('stripMarkers', () => {
+  /** The join lets a qualifier govern a phrase that wraps to the next line. */
   it('StripMarkers_WrappedSentence_JoinsIntoOneLine', () => {
-    // Joining matters because a qualifier must still govern a phrase that
-    // landed on the next line.
     const comment = ['/**', ' * the bytes are fsync\'d before', ' * the rename', ' */'].join('\n');
 
     expect(stripMarkers(comment)).toBe("the bytes are fsync'd before the rename");
@@ -143,7 +141,7 @@ describe('extractCommentProse', () => {
     expect(prose).not.toContain('in a string');
   });
 
-  /** A token scanner cannot resume a template literal after `${…}`, so the tail looked like a comment. */
+  /** A token scanner cannot resume a template literal after `${…}`, so it reads the tail as a comment. */
   it('CommentProse_TemplateSubstitutionTailIsNotProse', () => {
     const source = 'const probe = `${self}\\n// invented prose here`;';
 

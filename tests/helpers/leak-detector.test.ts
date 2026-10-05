@@ -7,7 +7,7 @@ import {
 } from './process-tracker.js';
 import { expectNoLeakedProcesses } from './leak-detector.js';
 
-// Long-lived child (setInterval keeps the event loop alive until killed).
+/** Spawns a child that stays alive until a kill. `setInterval` keeps its event loop alive. */
 function spawnLongLived(): ChildProcess {
   return spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
 }
@@ -23,13 +23,12 @@ function waitForExit(child: ChildProcess): Promise<void> {
 }
 
 describe('expectNoLeakedProcesses', () => {
+  /** Kills each surviving child and clears the tracker, so no state passes to the next test. */
   afterEach(async () => {
-    // Force-kill any survivors so state doesn't bleed between tests.
     for (const child of listAlive()) {
       try {
         child.kill('SIGKILL');
       } catch {
-        // ignore
       }
       await waitForExit(child);
     }
@@ -37,38 +36,36 @@ describe('expectNoLeakedProcesses', () => {
   });
 
   it('ExpectNoLeakedProcesses_NoAliveChildren_Passes', async () => {
-    // Empty registry -> must not reject.
     await expect(expectNoLeakedProcesses()).resolves.toBeUndefined();
   });
 
+  /** The helper awaits the kill, so the child is gone when the promise rejects. */
   it('ExpectNoLeakedProcesses_LiveChildRemaining_ThrowsAndForceKills', async () => {
     const child = spawnLongLived();
     register(child);
 
-    // Sanity: child is alive before we assert.
     expect(listAlive()).toContain(child);
 
     await expect(expectNoLeakedProcesses()).rejects.toThrow();
 
-    // After the rejection, the leak detector should have force-killed the
-    // child and awaited its exit before throwing.
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
   });
 
+  /** The helper kills the child and clears the registry. Then `listAlive()` must be empty. */
   it('ExpectNoLeakedProcesses_AfterKill_TrackerIsEmpty', async () => {
     const child = spawnLongLived();
     register(child);
 
     await expectNoLeakedProcesses().catch(() => {
-      // expected
     });
 
-    // Registry must be cleared so subsequent tests start clean. killAll is
-    // now awaited inside the helper, so by the time we get here the child
-    // has already exited.
     expect(listAlive()).toEqual([]);
   });
 
+  /**
+   * The message names the pid, so a reader can find the process in the OS logs.
+   * It also names the command, so a reader can find the spawn that leaked.
+   */
   it('ExpectNoLeakedProcesses_ErrorMessage_IncludesChildPidAndCommand', async () => {
     const child = spawnLongLived();
     register(child);
@@ -84,9 +81,7 @@ describe('expectNoLeakedProcesses', () => {
 
     expect(caught).toBeInstanceOf(Error);
     const message = (caught as Error).message;
-    // Error message must surface the PID so the user can correlate to OS logs.
     expect(message).toContain(String(pid));
-    // And must surface the original command so the user knows which spawn leaked.
     expect(message).toContain('node');
     expect(message).toContain('setInterval');
 

@@ -1,11 +1,8 @@
-// scripts/lint-test-first-drift.test.ts — exercises the #1591 drift guard.
-//
-// The guard (tools/audit/gates/lint-test-first-drift.mjs) is the standing defense that
-// keeps test-FIRST framing (Iron Law / NO PRODUCTION CODE / unconditional RGR
-// templates) from creeping back into commands/ + agents/ + content/ after the
-// Phase-4 excision. This test is the enforcing CI wiring: a seeded fixture MUST
-// fail, the shipped tree MUST pass. (Co-located with the script so the vitest
-// 'unit' project's `scripts/**/*.test.ts` include picks it up.)
+/**
+ * Exercises the test-first drift guard, `tools/audit/gates/lint-test-first-drift.mjs`.
+ * The guard keeps mandatory test-first framing out of the SDLC content.
+ * A seeded fixture must fail, and the shipped tree must pass.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { mkdtempSync, writeFileSync } from 'node:fs';
@@ -59,10 +56,8 @@ describe('test-first drift guard (#1591)', () => {
     }
   });
 
+  /** The RGR rule ignores case, so a `[Red]` or `[green]` variant cannot bypass the guard. */
   it('DriftGuard_LowercaseRgrVariant_Fails', async () => {
-    // The unconditional-RGR rule is case-insensitive: a `[Red]`/`[green]`
-    // variant must not bypass the guard. (Iron-Law / NO-PRODUCTION literals
-    // are already case-insensitive.)
     const dir = mkdtempSync(join(tmpdir(), 'drift-guard-'));
     try {
       writeFileSync(
@@ -82,17 +77,15 @@ describe('test-first drift guard (#1591)', () => {
     }
   });
 
+  /** A scan of zero files reads as a clean tree, so a missing scan directory must fail. */
   it('DriftGuard_MissingScanDir_FailsFast', async () => {
-    // A missing scan root must abort loudly rather than silently scanning zero
-    // files (which would let a misconfigured dir list read as a clean tree).
     const result = await spawnAsync('node', [SCRIPT, join(tmpdir(), 'drift-guard-does-not-exist-xyz')]);
     expect(result.status ?? 1).not.toBe(0);
     expect(result.stderr).toMatch(/scan directory does not exist/i);
   });
 
+  /** The marker exempts a file from the RGR rule only. The other two rules have no opt-out. */
   it('DriftGuard_OptInMarker_ExemptsRgrTemplate', async () => {
-    // A deliberate high-tier opt-in lane marks itself and is NOT flagged for the
-    // RGR template (the Iron-Law / NO-PRODUCTION-CODE literals are never exempt).
     const dir = mkdtempSync(join(tmpdir(), 'drift-guard-'));
     try {
       writeFileSync(

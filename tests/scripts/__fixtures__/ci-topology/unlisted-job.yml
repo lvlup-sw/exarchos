@@ -1,9 +1,6 @@
-# Synthetic fixture (DR-2 self-test, direction a): a top-level job
-# ("orphan-job") that is absent from BOTH `ci-gate.needs` and the in-test
-# non-blocking allowlist. Trips the COMPLETENESS assertion only — every
-# other job here is either in `needs` (with a matching evaluate clause) or
-# is not path-filtered, so evaluate-coverage and skip-guard-coverage stay
-# green for this fixture.
+# Fixture for the completeness check of the CI topology test. The top-level job
+# `orphan-job` is in neither `ci-gate.needs` nor the non-blocking allowlist of
+# that test. The check must name `orphan-job` as a violation.
 name: CI Fixture - Unlisted Job
 on: push
 

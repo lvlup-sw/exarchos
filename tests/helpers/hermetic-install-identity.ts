@@ -1,3 +1,21 @@
+/**
+ * Setup file that points `EXARCHOS_INSTALL_STATE_DIR` at a scratch directory, so no test
+ * writes the install-identity lock into the real home of the developer.
+ *
+ * The lock belongs to the installation, not to the event store, so it does not follow the
+ * temp `stateDir` of a test. A checkout on a machine that has the Exarchos plugin detects
+ * as `installed`, so a mutating dispatch writes the lock.
+ *
+ * Each run has one directory, named with the pid of the vitest host and the run id from
+ * `vitest.config.ts`. One directory for each test file leaks thousands of directories.
+ * One fixed path shares the lock across runs, and a lock from an earlier plugin install
+ * reads as stale and blocks mutating dispatches. A test that asserts on the lock stubs
+ * the variable to its own directory.
+ *
+ * A setup file has no end-of-run hook, so each evaluation sweeps the directories of dead
+ * hosts. The module always sets the variable, because a value from a shell or a CI job
+ * can point the suite at a real directory.
+ */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -5,51 +23,13 @@ import { isMainThread } from 'node:worker_threads';
 
 import { sweepOrphanScratchDirs } from '../../tools/test-helpers/scratch-sweep.js';
 
-/**
- * Keep the install-identity TOFU lock out of the developer's real home.
- *
- * The lock is keyed to the INSTALLATION rather than to the event store, so it
- * no longer follows a test's temp `stateDir` the way it used to. That is the
- * point — freshness must not vary with `WORKFLOW_STATE_DIR` — but it means any
- * test that dispatches a mutating action under an "installed" posture would
- * otherwise publish a lock into `~/.exarchos/install`.
- *
- * A checkout of THIS repo on a machine that also has the Exarchos plugin
- * installed detects as `installed` (posture keys on the plugin cache existing,
- * not on whether the running code IS that install), so this is the ordinary
- * developer configuration, not an exotic one.
- *
- * ONE directory PER RUN, keyed on the vitest host process and the run id the
- * host minted in `vitest.config.ts`. Setup files are
- * evaluated per test file under vitest's isolation, so `mkdtemp` here meant a
- * directory per file: a single full run left 6,795 of them in `/tmp`, none ever
- * removed. A single fixed path closed that leak but shared the lock ACROSS
- * runs: the lock records the identity the gate then compares against what is
- * installed, so a lock recorded by an earlier run against an earlier plugin
- * install reads as "stale" in the next run and blocks the mutating dispatches
- * that inherit the installed posture. Every file of one run shares its
- * directory, which is safe because nothing asserts on its contents — every
- * test that cares about the lock stubs `EXARCHOS_INSTALL_STATE_DIR` to its own
- * directory with `vi.stubEnv`, which runs after this module and is undone on
- * teardown — and no other run ever reads it.
- *
- * Cleanup is the next run's job: a setup file has no end-of-run hook, so each
- * evaluation sweeps sibling directories whose host process is gone. A live
- * run's directory is never touched, because its host is alive. The run id
- * covers the one case liveness cannot: an exited host's pid handed to this
- * host, whose earlier directory would otherwise be alive by pid and reused,
- * lock and all. A directory carrying this host's pid under a different run id
- * is an earlier incarnation's and is swept too.
- *
- * Set UNCONDITIONALLY. Honouring a caller-supplied value would let a stray
- * export in a shell or a CI job point the whole suite at a real directory.
- */
+/** The name prefix of each scratch directory. */
 export const INSTALL_IDENTITY_SCRATCH_PREFIX = 'exarchos-test-install-identity-';
 
 /**
- * The process that owns this vitest run. Under `pool: 'forks'` a worker is a
- * child process of the vitest host, so `ppid` names the run; under a threads
- * pool the worker IS the host process.
+ * The pid of the process that owns this vitest run. Under `pool: 'forks'` a worker is a
+ * child of the vitest host, so `ppid` names the run. Under a threads pool the worker runs
+ * in the host process, so `pid` names the run.
  */
 export function runHostPid(): number {
   return isMainThread ? process.ppid : process.pid;
@@ -60,26 +40,25 @@ export function scratchNameFor(hostPid: number, runId: string): string {
   return `${INSTALL_IDENTITY_SCRATCH_PREFIX}${hostPid}-${runId}`;
 }
 
+/** Only `ESRCH` counts as dead. `EPERM` shows a live process that belongs to another user. */
 export function isProcessAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
   } catch (err) {
-    // EPERM means the pid exists but belongs to another user — still alive.
     return (err as NodeJS.ErrnoException).code !== 'ESRCH';
   }
 }
 
 /**
- * Remove every scratch directory under `tmp` whose owning host process no
- * longer exists, plus any that carries THIS host's pid under another run id
- * (an earlier incarnation of a reused pid), leaving `keep` and every directory
- * of a live run alone. Returns the names it removed. Failures are swallowed:
- * a sibling worker's sweep may have won the race, and a directory that cannot
- * be removed now is simply left for the next run.
+ * Removes each scratch directory under `tmp` whose host process is gone. It also removes
+ * a directory that holds the pid of this host under another run id. That directory is
+ * from an earlier host with the same pid, and liveness alone reads it as alive.
+ * The function keeps `keep` and the directories of live runs, and returns the removed names.
+ * A directory that it cannot remove stays for the next run.
  *
- * `isAlive` is injectable so the sweep's decision can be pinned without a
- * test depending on a real pid staying dead — a reaped pid can be recycled.
+ * `isAlive` is a parameter, so a test can set the result. A test cannot rely on a real
+ * dead pid, because the OS can reuse the pid of an exited process.
  */
 export function sweepOrphanInstallIdentityDirs(
   tmp: string,
@@ -92,7 +71,7 @@ export function sweepOrphanInstallIdentityDirs(
 
 const TMP = os.tmpdir();
 const HOST_PID = runHostPid();
-// Minted by `vitest.config.ts` in the host; a worker only ever inherits it.
+/** `vitest.config.ts` sets the run id in the host process, and each worker inherits it. */
 const RUN_ID = process.env['EXARCHOS_TEST_RUN_ID'] ?? 'unstamped';
 const SCRATCH_NAME = scratchNameFor(HOST_PID, RUN_ID);
 const SCRATCH = path.join(TMP, SCRATCH_NAME);

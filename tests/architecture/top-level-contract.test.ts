@@ -1,23 +1,10 @@
 /**
- * The repository root is an allow-list, not a habit (task 043, DR-1).
+ * The repository root is an allow-list. An entry at the root is either declared here with a
+ * reason, or it is a defect.
  *
- * DR-1's whole claim is that the top level is small and legible. Nothing
- * enforced that, so every wave of work could leave one more directory behind
- * and the only cost was that the root got a little harder to read. Two of those
- * leftovers were sitting here when this test was written — `caller-identity-test/`
- * and `src/__tests__/`, both EMPTY directory skeletons that git cannot track and
- * therefore no tracked-file census could ever see.
- *
- * The rule this test exists to state: an entry at the root is either declared
- * here with a reason, or it is a defect. Adding a directory is allowed; adding
- * one silently is not.
- *
- * ── Why this reads the FILESYSTEM and not `git ls-files` ────────────────────
- * A tracked-file census cannot see an empty directory, and empty directories are
- * the exact residue a structural refactor leaves. It also cannot see `dist/` or
- * `node_modules/`, which is what makes the third test necessary: a root contract
- * that only holds on a pristine clone is not an enforcement mechanism, it is a
- * trap that fires on every developer machine and every built tree.
+ * The directory checks read the filesystem, not `git ls-files`. A tracked-file census cannot see an
+ * empty directory, which is the usual residue of a structural refactor. It also cannot see
+ * `dist/` or `node_modules/`, and the contract must hold on a built tree and on a fresh clone.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
@@ -28,9 +15,9 @@ import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
 /**
- * Directories that carry the repository's structure. Six, as DR-1 states —
- * plus two that are here because something outside this repository requires
- * the path, not because the structure wanted them.
+ * The directories that carry the structure of the repository. The first six are that
+ * structure. `binding` and `hooks` are here because a consumer outside this repository
+ * requires each path.
  */
 const ALLOWED_DIRS: Record<string, string> = {
   src: 'The shipped product source.',
@@ -56,15 +43,14 @@ const ALLOWED_DOT_DIRS: Record<string, string> = {
 };
 
 /**
- * Present on a working machine, absent from a fresh clone. Listing these is
- * what makes the contract enforceable rather than aspirational — revision 1 of
- * this task specified an assertion that omitted `dist/`, so it would have failed
- * for everyone who had ever run a build.
+ * The entries that exist on a working machine and are absent from a fresh clone. Without
+ * this list, the contract fails on each machine that has a build, because `dist/` exists.
  */
 const ALLOWED_UNTRACKED: Record<string, string> = {
-  // A DIRECTORY in an ordinary clone and a FILE (`gitdir: …`) in a worktree,
-  // which is where this suite usually runs — so it is declared here rather than
-  // among the dot-directories, whose members must all exist as directories.
+  /**
+   * `.git` is a directory in an ordinary clone and a file (`gitdir: …`) in a worktree. Thus
+   * it is in this table and not in `ALLOWED_DOT_DIRS`, whose members must all be directories.
+   */
   '.git': 'The repository itself, or the worktree pointer to it.',
   'node_modules': 'Installed dependencies.',
   dist: 'Build output.',
@@ -83,11 +69,8 @@ const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
 const files = entries.filter((e) => e.isFile()).map((e) => e.name);
 
 /**
- * Root FILES are governed by tracking rather than by an enumerated list: the
- * set turns over with ordinary work (a new config, a renamed doc), so pinning
- * it by name would make this test a chore rather than a contract. What must
- * never happen is an UNTRACKED file appearing at the root and being mistaken
- * for part of the repository.
+ * The root files that git tracks. No table names the root files, because the set changes
+ * with ordinary work. The rule is that each root file is tracked or declared.
  */
 const trackedRootFiles = new Set(
   (
@@ -100,6 +83,11 @@ const trackedRootFiles = new Set(
 );
 
 describe('top-level contract', () => {
+  /**
+   * Both directions: no undeclared directory, and no declared directory that does not exist.
+   * `ALLOWED_UNTRACKED` is exempt from the second check, because a fresh clone lacks those
+   * entries.
+   */
   it('TopLevel_ContainsExactlyTheAllowedEntries', () => {
     const declared = new Set([
       ...Object.keys(ALLOWED_DIRS),
@@ -113,9 +101,6 @@ describe('top-level contract', () => {
       'undeclared top-level directories — add them to ALLOWED_DIRS with a reason, or remove them',
     ).toEqual([]);
 
-    // The other direction, so the list cannot rot into cover for things that
-    // are gone. `ALLOWED_UNTRACKED` is exempt: those are legitimately absent on
-    // a clean clone, which is the whole point of the third test.
     const present = new Set(dirs);
     const phantomStructural = Object.keys(ALLOWED_DIRS).filter((d) => !present.has(d));
     expect(phantomStructural, 'declared structural directories that do not exist').toEqual([]);
@@ -124,10 +109,11 @@ describe('top-level contract', () => {
     expect(phantomDot, 'declared dot-directories that do not exist').toEqual([]);
   });
 
+  /**
+   * The kill probe: a seeded directory must appear by name, because the name is the finding.
+   * The test repeats the filter of the check inline.
+   */
   it('TopLevel_UnlistedEntryAppears_FailsWithItsName', () => {
-    // The kill probe. An assertion that reports "the root is wrong" without
-    // saying WHAT is wrong cannot be acted on, and the failure mode here is
-    // specifically a directory nobody noticed — so the name is the finding.
     const declared = new Set([
       ...Object.keys(ALLOWED_DIRS),
       ...Object.keys(ALLOWED_DOT_DIRS),
@@ -139,11 +125,12 @@ describe('top-level contract', () => {
     expect(undeclared).toEqual(['a-directory-nobody-declared']);
   });
 
+  /**
+   * A built, installed tree is the normal state of this repository. Each build artifact that
+   * is present must be in `ALLOWED_UNTRACKED`. At least one must be present, or the loop
+   * checks nothing.
+   */
   it('TopLevel_OnABuiltTree_StillPasses', () => {
-    // A built, installed tree is the NORMAL state of this repository, so the
-    // contract has to hold there. If `dist/` or `node_modules/` is present it
-    // must already be declared — asserted only when present, so the test is
-    // equally valid on a pristine clone.
     for (const name of ['dist', 'node_modules', 'coverage']) {
       if (!fs.existsSync(path.join(REPO_ROOT, name))) continue;
       expect(
@@ -152,34 +139,28 @@ describe('top-level contract', () => {
       ).toContain(name);
     }
 
-    // And the converse: this suite is running from a checkout, so at least one
-    // of them IS present. Without this the loop above passes vacuously on a
-    // tree where none of them exists.
     const anyBuildArtifact = ['dist', 'node_modules', 'coverage'].some((n) =>
       fs.existsSync(path.join(REPO_ROOT, n)),
     );
     expect(anyBuildArtifact, 'no build artifact present — the built-tree arm checked nothing').toBe(true);
   });
 
+  /**
+   * An untracked file at the root is a stray artifact or a file that nobody committed. The
+   * last assertion is the denominator: the filter means nothing when git reports no file.
+   */
   it('TopLevel_EveryRootFile_IsTrackedOrDeclared', () => {
-    // The file half of the contract. Directories are enumerated because they
-    // are structure; files turn over with ordinary work, so the rule is that
-    // they must be TRACKED — an untracked file at the root is either a stray
-    // artifact or something someone forgot to commit, and both are worth a red
-    // test rather than a quiet accumulation.
     const stray = files
       .filter((f) => !trackedRootFiles.has(f) && ALLOWED_UNTRACKED[f] === undefined)
       .sort();
 
     expect(stray, 'untracked files at the repository root').toEqual([]);
 
-    // Denominator: the filter above is meaningless if git reported nothing.
     expect(trackedRootFiles.size).toBeGreaterThan(10);
   });
 
+  /** A reviewer cannot judge an allow-list entry that has no reason. */
   it('TopLevel_EveryAllowedEntry_CarriesAReason', () => {
-    // An allow-list whose entries carry no justification becomes a list of
-    // things someone once saw, which is how it stops being reviewable.
     for (const table of [ALLOWED_DIRS, ALLOWED_DOT_DIRS, ALLOWED_UNTRACKED]) {
       for (const [name, reason] of Object.entries(table)) {
         expect(reason.length, `${name} has no stated reason`).toBeGreaterThan(10);
@@ -187,12 +168,12 @@ describe('top-level contract', () => {
     }
   });
 
+  /**
+   * git and each tracked-file census cannot see an empty directory, so it stays after a move.
+   * The walk counts files recursively, so a directory that holds only empty directories is
+   * also empty.
+   */
   it('TopLevel_HoldsNoEmptyDirectory', () => {
-    // The residue class this test was written for. An empty directory is
-    // invisible to git and to every tracked-file census, so it survives every
-    // move task and accumulates. `rendered/agents/` legitimately carries only a
-    // `.gitkeep`, so "holds no FILES" is checked recursively rather than by
-    // reading one level.
     const structural = Object.keys(ALLOWED_DIRS).filter((d) =>
       fs.existsSync(path.join(REPO_ROOT, d)),
     );

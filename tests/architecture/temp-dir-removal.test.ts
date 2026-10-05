@@ -5,11 +5,13 @@
  * delete that the operating system refuses inside the run root for the
  * end-of-run sweep. A direct recursive `rm`, `rmSync`, `rmdir` or `rmdirSync`
  * skips both, so on Windows its verdict depends on processes that the test
- * does not control. The guard parses every source file under `tests/`, every
- * file that a vitest project collects, and every other test-named file. It
- * gets the collected files from the resolved vitest projects, so a new
- * include glob widens the scope with no edit here. It fails on such a call.
- * Only `tools/test-helpers/` deletes a tree directly.
+ * does not control.
+ *
+ * The guard parses every source file under `tests/`, every file that a vitest
+ * project collects, and every other test-named file under `tools/` and `src/`.
+ * It gets the collected files from the resolved vitest projects, so a new
+ * include glob widens the scope with no edit here. It fails on a direct
+ * recursive delete. Only `tools/test-helpers/` deletes a tree directly.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { createVitest } from 'vitest/node';
@@ -54,9 +56,9 @@ const MIN_FILES_COLLECTED = 1200;
 const MIN_INCLUDE_GLOBS = 20;
 
 /**
- * The scan sees at least this many delete calls that are not recursive (one
- * file at a time). The scope held 26 when this was written. A matcher that
- * stopped seeing delete calls would also stop seeing violations.
+ * The scan sees at least this many delete calls. The scope held 26 when this
+ * was written, and each one deleted one entry. A matcher that sees no delete
+ * call also sees no violation.
  */
 const MIN_DELETE_CALLS_SEEN = 20;
 

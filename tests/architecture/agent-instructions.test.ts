@@ -1,15 +1,12 @@
 /**
- * The agent instructions have to describe the tree that exists.
+ * The agent instructions must describe the tree that exists.
  *
- * `CLAUDE.md` and `AGENTS.md` mandated co-located tests — `foo.test.ts` beside
- * `foo.ts` — which is exactly the convention DR-5 retires. Left stale they would
- * misdirect every future agent, including the ones this repository dispatches on
- * itself, and the misdirection is self-reinforcing: an agent that follows the
- * prose puts a test back under `src/`, which is the state DR-5 exists to prevent.
+ * `CLAUDE.md` and `AGENTS.md` must not tell an agent to put a test beside its
+ * subject. An agent that obeys such prose puts a test back under `src/`.
  *
- * Asserting the prose no longer says the old thing is half a test — it passes on
- * prose that says nothing at all. So the tier list in each document is parsed
- * back out and required to equal the tiers on disk, in both directions.
+ * A check that the prose omits the co-located rule also passes on empty prose.
+ * Thus the suite also reads the tier list out of each document and requires it
+ * to name each tier directory on disk.
  */
 
 import { describe, expect, it } from 'vitest';
@@ -23,7 +20,7 @@ const TESTS_ROOT = join(REPO_ROOT, 'tests');
 
 const INSTRUCTION_FILES = ['CLAUDE.md', 'AGENTS.md'] as const;
 
-/** Tier directories that exist on disk — the layout the prose must match. */
+/** The tier directories on disk. The prose must match this layout. */
 function tierDirs(): string[] {
   return readdirSync(TESTS_ROOT, { withFileTypes: true })
     .filter((e) => e.isDirectory())
@@ -32,11 +29,9 @@ function tierDirs(): string[] {
 }
 
 /**
- * The tiers a document names, read out of its backticked identifiers.
- *
- * Scoped to the paragraph that states the testing convention rather than the
- * whole file, so an unrelated mention of `unit` elsewhere cannot stand in for
- * the list actually being asserted.
+ * The on-disk tiers that a document names in backticks. The scan reads only
+ * the 900 characters that start at the test convention. A mention of `unit`
+ * in another part of the file does not count.
  */
 function tiersNamedIn(text: string, tiers: readonly string[]): string[] {
   const start = text.search(/never beside their subject/i);
@@ -46,42 +41,38 @@ function tiersNamedIn(text: string, tiers: readonly string[]): string[] {
 }
 
 describe('AgentInstructions', () => {
+  /**
+   * Asserts the tier count first, because with no tier directories the list
+   * comparison passes on empty prose. The `beside` pattern finds the
+   * co-located rule when the prose states it without the hyphenated term. The
+   * list comparison fails when a document omits a tier that exists on disk.
+   */
   it('AgentInstructions_StatedTestConvention_MatchesTheEnforcedLayout', () => {
     const tiers = tierDirs();
-    // Denominator. With no tier directories the equality below holds trivially
-    // and this test would pass against prose describing nothing.
     expect(tiers.length, 'no tier directories under tests/').toBeGreaterThan(5);
 
     for (const file of INSTRUCTION_FILES) {
       const text = readFileSync(join(REPO_ROOT, file), 'utf8');
 
-      // 1. The retired convention is gone. `beside` is deliberately included:
-      //    the rule can be restated without the hyphenated term.
       expect(/co-located/i.test(text), `${file} still mandates co-located tests (DR-5)`).toBe(false);
       expect(
         /\.test\.ts`? beside/i.test(text),
         `${file} still states the beside-its-subject layout (DR-5)`,
       ).toBe(false);
 
-      // 2. It states the replacement.
       expect(
         /never beside their subject/i.test(text),
         `${file} does not state the centralized test convention`,
       ).toBe(true);
 
-      // 3. The tier list it states equals the tier list on disk, both ways. A
-      //    tier added to the tree without being documented fails here, and so
-      //    does a documented tier that no longer exists.
       expect(tiersNamedIn(text, tiers), `${file}'s tier list has drifted from tests/`).toEqual(
         tiers,
       );
     }
   });
 
+  /** Each document names the `tests/` root and must not name a `test/` root. */
   it('AgentInstructions_TestRoot_IsTheOneTheContractEnforces', () => {
-    // The directory contract in one line, tied to the same source the tree
-    // contract reads. `tests/` is named by both documents and is the only root
-    // any of them may name — `test/` singular was dissolved in task 032.
     for (const file of INSTRUCTION_FILES) {
       const text = readFileSync(join(REPO_ROOT, file), 'utf8');
       expect(text.includes('`tests/`'), `${file} does not name the tests/ root`).toBe(true);

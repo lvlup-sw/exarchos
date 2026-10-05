@@ -1,13 +1,13 @@
+/**
+ * Shared fixtures for the `decide`, `aggregateStream` and `withSession` suites.
+ *
+ * The file is not a `*.test.ts` file, so an import of it runs no `describe` block. It is
+ * outside `src/`, because `seedStream` appends `task.assigned`. Inside the governed root,
+ * each emitter census reads that append as a shipped emitter.
+ */
 import type { EventStore } from '../../src/events/store.js';
 import type { WorkflowEvent } from '../../src/events/schemas.js';
 import type { ProjectionReducer } from '../../src/projections/types.js';
-
-// Shared test fixtures for decide / aggregateStream / withSession suites.
-// Lives outside `*.test.ts` so importers don't pull in describe-block
-// side effects when the harness collects modules, and outside `src/` because
-// `task.assigned` is a model-sourced event: a fixture appending it inside the
-// governed root reads to every emitter census as a shipped emitter that no
-// action may ever declare.
 
 export interface FixtureState {
   readonly count: number;

@@ -1,30 +1,18 @@
 /**
- * CI wiring tests for the cross-compile binary matrix (task 1.5).
+ * Structural tests for the `binary-matrix` job in `.github/workflows/ci.yml` and
+ * for the `build:binary` script in the root `package.json`. They do not run the matrix.
  *
- * Phase progression: RED (assertions added, all failing) → GREEN (ci.yml
- * binary-matrix job + build:binary npm script added, assertions pass) →
- * REFACTOR (matrix targets cross-referenced with build-binary.ts TARGETS).
+ * The matrix must match the `TARGETS` tuple, and `npm run build:binary` must pass `--all`.
+ * The tests parse the workflow with `js-yaml`, so a formatting edit does not break them.
  *
- * These are structural / schema tests over `.github/workflows/ci.yml` and
- * the root `package.json` — they do not invoke the matrix itself. The
- * purpose is to guarantee that the CI job definition stays synchronised
- * with the exported `TARGETS` tuple in `tools/release/build-binary.ts` and
- * that the npm entry point (`npm run build:binary`) is wired for the
- * `--all` sweep.
- *
- * We parse the workflow file with `js-yaml` (already an install-time
- * dependency of the root package) rather than regex-matching so the
- * assertions survive reasonable formatting edits.
+ * `TARGETS` comes from `build-binary-targets.ts`, which has no side effect.
+ * `tools/release/build-binary.ts` imports `bun`, and vitest cannot resolve that import.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
-// Import from the side-effect-free targets module so vitest doesn't try
-// to resolve `bun` (a Bun-runtime-only import) when loading this file
-// under tsx — `tools/release/build-binary.ts` itself can't be safely imported
-// from a non-Bun runner.
 import { TARGETS } from '../../tools/release/build-binary-targets.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -62,6 +50,11 @@ describe('CI binary matrix wiring', () => {
     expect(wf.jobs?.['binary-matrix']).toBeDefined();
   });
 
+  /**
+   * The matrix can be a `target:` list or an `include:` list of objects. The
+   * expected names come from `TARGETS`, so only the workflow YAML can drift from them.
+   * The entry count 5 is a literal. A change to the length of `TARGETS` needs an edit here.
+   */
   it('CiWorkflow_BinaryMatrix_FiveTargets', () => {
     const wf = loadWorkflow();
     const job = wf.jobs?.['binary-matrix'];
@@ -70,9 +63,6 @@ describe('CI binary matrix wiring', () => {
     const matrix = job?.strategy?.matrix;
     expect(matrix).toBeDefined();
 
-    // The matrix must enumerate the exact five TARGETS exported by
-    // `tools/release/build-binary.ts`. We accept either a `target:` list or an
-    // `include:` list of objects — both produce a 5-entry fan-out.
     const targetList = (matrix as Record<string, unknown>)['target'];
     const includeList = (matrix as Record<string, unknown>)['include'];
 
@@ -84,7 +74,6 @@ describe('CI binary matrix wiring', () => {
 
     expect(entries.length).toBe(5);
 
-    // Extract string names from either shape.
     const names = entries.map((e) => {
       if (typeof e === 'string') return e;
       if (e && typeof e === 'object' && 'target' in e) {
@@ -93,11 +82,6 @@ describe('CI binary matrix wiring', () => {
       return '';
     });
 
-    // Derive the expected target list from the TARGETS tuple in
-    // `build-binary.ts` rather than hardcoding names — this is the whole
-    // point of the drift contract. If TARGETS is edited, this assertion
-    // updates automatically; the workflow YAML is the only side that can
-    // drift, and that's what the test exists to catch.
     const expectedNames = TARGETS.map((t) => `${t.os}-${t.arch}`);
     expect(names.slice().sort()).toEqual(expectedNames.slice().sort());
   });
@@ -113,12 +97,11 @@ describe('CI binary matrix wiring', () => {
     expect(uploadStep).toBeDefined();
   });
 
+  /** The script must pass `--all`, so a local `npm run build:binary` builds each target. */
   it('PackageJson_Scripts_HasBuildBinary', () => {
     const pkg = loadPackageJson();
     expect(pkg.scripts).toBeDefined();
     expect(pkg.scripts?.['build:binary']).toBeDefined();
-    // Must invoke the --all sweep so `npm run build:binary` produces the
-    // full 5-target fan-out locally.
     expect(pkg.scripts?.['build:binary']).toMatch(/--all/);
   });
 });

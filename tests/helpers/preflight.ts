@@ -4,39 +4,21 @@ import { dirname, resolve } from 'node:path';
 import { runCli } from './cli-runner.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
-/** Default binary the v2.9 install flow puts on PATH. */
+/** The binary that the install flow puts on PATH. */
 const BINARY_NAME = 'exarchos';
 
 /**
- * Assert that the given command (default: `exarchos`) resolves on PATH.
+ * Throws if `command` (default `exarchos`) does not resolve on PATH. A setup file of the
+ * `process` vitest project calls it. Thus a missing binary fails before the first test,
+ * not as an `ENOENT` inside one. The lookup is `which` on POSIX and `where` on Windows.
+ * Each lookup failure counts as not found.
  *
- * Used by the `process` vitest project's `setupFiles` to fail fast with an
- * actionable error before any process-fidelity test attempts to spawn the
- * binary. Falling through to a cryptic `ENOENT` inside a test would waste
- * an expensive test-setup cycle.
- *
- * The v2.9 install rewrite ships a single bun-compiled binary named
- * `exarchos` with subcommands (e.g. `exarchos mcp`, `exarchos version`);
- * there is no separate `exarchos-mcp` binary. Users install it via the
- * `tools/release/get-exarchos.sh` / `get-exarchos.ps1` bootstrap.
- *
- * `npm link` does NOT work here, though this message said so for a long time.
- * The `bin` map in package.json publishes `exarchos-release-verify` and
- * nothing else, and the build emits a platform-suffixed
- * `dist/bin/exarchos-<os>-<arch>` — so there is no `exarchos` for npm to
- * link. To run this tier against the WORKING TREE rather than against a
- * published release, build the host target and put it on PATH under the bare
- * name:
+ * `npm link` does not provide the binary. The `bin` map of `package.json` holds only
+ * `exarchos-release-verify`, and the build emits `dist/bin/exarchos-<os>-<arch>`.
+ * To test the working tree, build the host target and link it on PATH as `exarchos`:
  *
  *   bun run tools/release/build-binary.ts --target <os>-<arch>
  *   ln -s "$PWD/dist/bin/exarchos-<os>-<arch>" <dir-on-PATH>/exarchos
- *
- * Resolution uses the platform's own lookup:
- *   - POSIX: `which <command>`
- *   - Windows: `where <command>`
- *
- * Any non-zero exit (or thrown OS error) is treated as "not found" and
- * re-thrown as an Error with remediation guidance.
  */
 export async function assertExarchosOnPath(command: string = BINARY_NAME): Promise<void> {
   const lookup = process.platform === 'win32' ? 'where' : 'which';
@@ -56,12 +38,9 @@ export async function assertExarchosOnPath(command: string = BINARY_NAME): Promi
 }
 
 /**
- * Default version resolver: spawns `<BINARY_NAME> version` and returns the
- * first non-empty trimmed line of stdout. Kept as an injectable seam so the
- * unit tests can supply a deterministic stub without spawning the real
- * binary (which may not exist in the host environment when only unit tests
- * are running — the `process` project gates on `assertExarchosOnPath` for
- * that case).
+ * The default version resolver. It runs `<command> version` and returns the first
+ * non-empty line of stdout, trimmed. A unit test passes a stub in its place, because the
+ * binary can be absent when only unit tests run.
  */
 async function defaultResolveVersion(command: string = BINARY_NAME): Promise<string> {
   const result = await runCli({ command, args: ['version'], timeout: 10_000 });
@@ -77,13 +56,7 @@ async function defaultResolveVersion(command: string = BINARY_NAME): Promise<str
   return line;
 }
 
-/**
- * Read the expected major.minor from the repo's root `package.json`.
- *
- * `import.meta.url` resolves relative to this file at runtime under both
- * `tsx`/vitest and the bun-compiled bundle. Walking two parents up from
- * `test/setup/` lands on the repo root.
- */
+/** Reads the expected major.minor from the root `package.json`, two directories above this file. */
 function readExpectedMajorMinor(): string {
   const here = dirname(fileURLToPath(import.meta.url));
   const pkgPath = resolve(here, '..', '..', 'package.json');
@@ -108,28 +81,22 @@ export interface AssertExarchosVersionOpts {
   /** Override the binary name (default: `exarchos`). */
   command?: string;
   /**
-   * Inject an alternate version resolver. The default spawns
-   * `<command> version` and parses stdout; tests pass a stub returning a
-   * canned version string.
+   * A different version resolver. The default runs `<command> version` and parses stdout.
+   * A test passes a stub that returns a fixed version string.
    */
   resolveVersion?: (command: string) => Promise<string>;
   /**
-   * Override the expected major.minor (default: read from root
-   * `package.json`). Useful for tests that want to assert the comparison
-   * logic without coupling to the live package version.
+   * The expected major.minor. The default comes from the root `package.json`.
+   * With an explicit value, a test of the comparison does not depend on the package version.
    */
   expectedMajorMinor?: string;
 }
 
 /**
- * Assert that the binary on PATH advertises a version whose major.minor
- * matches the repo's expected release line (read from root `package.json`).
- *
- * Throws an Error naming both the expected and the actual version on
- * mismatch. A stale-binary case is the most common failure mode when the
- * `exarchos` symlink on PATH still points at an older checkout's build —
- * without this gate the process-fidelity suite would silently exercise
- * stale behavior.
+ * Throws if the major.minor of the binary on PATH differs from the major.minor in the
+ * root `package.json`. The error names the expected version and the actual version.
+ * The usual cause is an `exarchos` symlink that points at the build of an older checkout.
+ * Without this check, the process tests run against stale behavior.
  */
 export async function assertExarchosVersion(
   opts: AssertExarchosVersionOpts = {},

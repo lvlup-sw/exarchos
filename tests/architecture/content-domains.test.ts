@@ -1,3 +1,9 @@
+/**
+ * The authoring tree groups artifacts by capability domain. These tests hold
+ * two properties of that grouping. The domain set is a closed, declared list.
+ * The validators still read the skill fixtures, which live outside the
+ * generated tree.
+ */
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5,20 +11,13 @@ import { describe, expect, it } from 'vitest';
 
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 
-/**
- * The authoring tree is grouped by capability. These tests hold two properties
- * the grouping depends on: that the domain set stays a closed, declared list,
- * and that the live files rescued out of the generated tree are still reachable
- * by the validators that read them.
- */
-
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../../');
 const CONTENT_ROOT = join(REPO_ROOT, 'content');
 
 /**
- * The closed set of capability domains. Adding a domain is a deliberate act:
- * it widens where a reader must look for an artifact, so it changes here first.
+ * The closed set of capability domains. A new domain widens where a reader
+ * must look for an artifact, so it starts here.
  */
 const DECLARED_DOMAINS = [
   '_shared',
@@ -48,11 +47,13 @@ function authoredSkills(): Array<{ domain: string; name: string }> {
 }
 
 describe('ContentDomains', () => {
+  /**
+   * Asserts the denominator first. A grouping assertion on an empty tree
+   * passes, and a moved root then goes unnoticed.
+   */
   it('EverySkill_LivesUnderADeclaredDomain', () => {
     const skills = authoredSkills();
 
-    // Guard the denominator first. A grouping assertion over an empty tree
-    // passes for the wrong reason, which is how a moved root goes unnoticed.
     expect(skills.length).toBeGreaterThan(0);
 
     const offenders = skills
@@ -71,9 +72,8 @@ describe('ContentDomains', () => {
     expect(undeclared).toEqual([]);
   });
 
+  /** The renderer emits a flat name, so one name in two domains collides silently in the output tree. */
   it('NoSkillName_IsClaimedByTwoDomains', () => {
-    // The renderer emits a flat name, so two domains claiming one name would
-    // collide silently in the output tree.
     const byName = new Map<string, string[]>();
     for (const { domain, name } of authoredSkills()) {
       byName.set(name, [...(byName.get(name) ?? []), domain]);
@@ -85,8 +85,8 @@ describe('ContentDomains', () => {
   });
 });
 
+/** `authoredOfKind` lists each authored artifact of one kind as `{ domain, file }`. */
 describe('ContentDomains — commands and rules', () => {
-  /** Every authored artifact of a kind, as `{ domain, file }`. */
   function authoredOfKind(kind: string): Array<{ domain: string; file: string }> {
     return directoriesIn(CONTENT_ROOT).flatMap((domain) => {
       const kindDir = join(CONTENT_ROOT, domain, kind);
@@ -107,10 +107,12 @@ describe('ContentDomains — commands and rules', () => {
     expect(offenders).toEqual([]);
   });
 
+  /**
+   * The emit is flat, so the last writer of a duplicate name wins. The
+   * generator throws on a duplicate, and this test keeps the tree out of that
+   * state.
+   */
   it('NoCommandName_IsClaimedByTwoDomains', () => {
-    // The emit is flat, so a duplicated name is a last-writer-wins overwrite.
-    // The generator throws on this; the assertion keeps the tree from
-    // reaching that state in the first place.
     for (const kind of ['commands', 'rules']) {
       const byName = new Map<string, string[]>();
       for (const { domain, file } of authoredOfKind(kind)) {
@@ -123,9 +125,11 @@ describe('ContentDomains — commands and rules', () => {
     }
   });
 
+  /**
+   * `plugin.json` declares one flat directory for each kind. An authored
+   * command that is absent from that directory never ships.
+   */
   it('EveryAuthoredCommand_ReachesTheFlatShippedTree', () => {
-    // `plugin.json` declares one flat directory per kind, so an authored
-    // command that never lands there is authored into the void.
     const authored = authoredOfKind('commands').map((a) => a.file).sort();
     const shipped = readdirSync(join(REPO_ROOT, 'rendered/commands'))
       .filter((f) => f.endsWith('.md'))
@@ -135,10 +139,11 @@ describe('ContentDomains — commands and rules', () => {
 });
 
 describe('CommandAliases', () => {
+  /**
+   * An alias copies the `description:` from the frontmatter of its command.
+   * The test compares the two values, not only the existence of the files.
+   */
   it('AfterMove_StillDeriveFromCommandFrontmatter', () => {
-    // Aliases lift the `description:` out of a command's frontmatter. If the
-    // move had broken the read path, the generator would have thrown; this
-    // pins the actual content relationship rather than the file's existence.
     const aliasRoot = join(REPO_ROOT, 'rendered/command-aliases');
     const runtimes = directoriesIn(aliasRoot);
     expect(runtimes.length).toBeGreaterThan(0);
@@ -178,13 +183,14 @@ describe('SkillFixtures', () => {
   const VALIDATOR_DIR = join(REPO_ROOT, 'tools/skill-validators');
   const FIXTURES_DIR = join(REPO_ROOT, 'tests/support/skill-fixtures');
 
+  /**
+   * Runs the fixture suite of the validator. A pass proves that the validator
+   * resolves the fixtures, not only that they exist on disk.
+   */
   it('AfterRelocation_AreStillReadByTheirValidators', async () => {
     expect(existsSync(FIXTURES_DIR)).toBe(true);
     expect(directoriesIn(FIXTURES_DIR).length).toBeGreaterThan(0);
 
-    // The fixture suite is the validator's own proof. Running it is what shows
-    // the relocated fixtures are still resolved from the validator's new home,
-    // rather than merely still existing somewhere on disk.
     const script = join(VALIDATOR_DIR, 'validate-frontmatter.test.sh');
     expect(existsSync(script)).toBe(true);
 
@@ -194,16 +200,14 @@ describe('SkillFixtures', () => {
     expect(output).toMatch(/Results: (\d+)\/\1 passed, 0 failed/);
   });
 
+  /**
+   * A `files` negation is necessary only while a shipped root holds what it
+   * excludes. The check keys on shipped roots and not on repository presence,
+   * because `tools/audit/test-fixtures/` exists on disk and does not ship.
+   * The pack test in `tests/scripts/installer-verify.test.ts` asserts that the
+   * tarball holds no fixture.
+   */
   it('AfterRelocation_AreNoLongerExcludedByPackaging', () => {
-    // A negation earns its place only while some shipped tree still contains
-    // what it excludes. `!**/trigger-tests` lost its one path to an earlier
-    // move; `!**/test-fixtures` and `!**/*.test.{sh,ts}` lost theirs when
-    // `scripts/` stopped being published — it was the last shipped root
-    // carrying fixtures or test files. `npm pack` is byte-identical with and
-    // without all three, so they are retired rather than left reading as
-    // protection. Keeping fixtures out of the tarball is now asserted against
-    // the artifact itself, in installer-verify's pack test, which fails loudly
-    // instead of excluding silently.
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
       files?: string[];
     };
@@ -211,8 +215,6 @@ describe('SkillFixtures', () => {
     expect(files).not.toContain('!**/trigger-tests');
     expect(files).not.toContain('tests');
 
-    // Re-anchored on shipped-ness, not repo presence: `tools/audit/test-fixtures/`
-    // still exists on disk and would have kept demanding a dead negation.
     const shippedFixtureDirs = ['scripts/test-fixtures'].filter(
       (d) => files.some((f) => d.startsWith(`${f}/`) || f === d) && existsSync(join(REPO_ROOT, d)),
     );

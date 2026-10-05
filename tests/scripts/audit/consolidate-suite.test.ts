@@ -21,14 +21,15 @@ import {
 } from '../../../tools/audit/consolidate-suite.mjs';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// The tool resolves relative import specifiers against a file's ABSOLUTE
-// directory, so pure tests use synthetic dirs that mirror the real layout
-// (`.../src/__tests__/<area>` for legacy, `.../src/<area>` for co-located).
-// Two specifiers that point at the same target module then normalize equal.
+/**
+ * The tool resolves a relative import specifier against the absolute directory
+ * of its file. The pure tests thus use synthetic directories with the layout
+ * that the tool reads: `src/__tests__/<area>` for the legacy copy and
+ * `src/<area>` for the co-located copy. Two specifiers for the same module
+ * then normalize to the same text.
+ */
 const LEGACY_DIR = '/repo/src/__tests__/workflow';
 const CANON_DIR = '/repo/src/workflow';
-
-// ─── AST case extraction ─────────────────────────────────────────────────────
 
 describe('normalizedCases (case extraction via TS AST)', () => {
   it('counts every it/test variant (.skip/.only/.todo/.each) once, and no hooks/describes', () => {
@@ -43,19 +44,16 @@ describe('normalizedCases (case extraction via TS AST)', () => {
         it.each([[1], [2]])('e %i', (n) => { expect(n).toBeGreaterThan(0); });
       });
     `;
-    // 5 cases: a, b, c, d, e — NOT beforeEach, NOT describe.
     expect(normalizedCases(src, CANON_DIR)).toHaveLength(5);
   });
 
+  /** Both specifiers name the same module, so the normalized texts are identical. */
   it('normalizes a relative import inside a case body (modulo import path)', () => {
     const legacy = `it('x', async () => { const m = await import('../../workflow/foo.js'); expect(m).toBeDefined(); });`;
     const canon = `it('x', async () => { const m = await import('./foo.js'); expect(m).toBeDefined(); });`;
-    // Same target module from each dir → identical normalized text.
     expect(normalizedCases(legacy, LEGACY_DIR)[0]).toBe(normalizedCases(canon, CANON_DIR)[0]);
   });
 });
-
-// ─── classifyPair: merge vs relocate ─────────────────────────────────────────
 
 describe('classifyPair', () => {
   const canonPreambleIdentical = `
@@ -82,8 +80,8 @@ describe('classifyPair', () => {
     ).toBe('merge');
   });
 
+  /** The pair of the case before, compared with `normalizedPreamble` directly. */
   it('import-path-only diff → merge (paths are the sanctioned modulo)', () => {
-    // Same as above but proven at the preamble layer directly.
     expect(normalizedPreamble(legacyPreambleIdentical, LEGACY_DIR)).toBe(
       normalizedPreamble(canonPreambleIdentical, CANON_DIR),
     );
@@ -154,8 +152,6 @@ describe('classifyPair', () => {
   });
 });
 
-// ─── enumeratePairs (directory intersection, temp tree) ──────────────────────
-
 describe('enumeratePairs', () => {
   let root: string;
   let srcRoot: string;
@@ -176,8 +172,8 @@ describe('enumeratePairs', () => {
   it('reports a pair only when BOTH legacy and co-located copies exist', () => {
     writeFile('__tests__/workflow/both.test.ts', 'it("x", () => {});');
     writeFile('workflow/both.test.ts', 'it("x", () => {});');
-    writeFile('__tests__/workflow/legacy-only.test.ts', 'it("x", () => {});'); // no co-located mirror
-    writeFile('views/colocated-only.test.ts', 'it("x", () => {});'); // no legacy mirror
+    writeFile('__tests__/workflow/legacy-only.test.ts', 'it("x", () => {});');
+    writeFile('views/colocated-only.test.ts', 'it("x", () => {});');
 
     const pairs = enumeratePairs(srcRoot);
     expect(pairs.map((p) => p.id)).toEqual(['workflow/both']);
@@ -206,8 +202,6 @@ describe('enumeratePairs', () => {
   });
 });
 
-// ─── computeEmit / applyEmit ─────────────────────────────────────────────────
-
 describe('computeEmit', () => {
   let root: string;
   let srcRoot: string;
@@ -225,6 +219,10 @@ describe('computeEmit', () => {
   });
   afterEach(() => rmrf(root));
 
+  /**
+   * `shared_case` is a textual duplicate, so the merge keeps one copy of it.
+   * The merge carries `legacy_only` over. The merged file thus has 3 cases.
+   */
   it('merge: dedups a textually-identical case and appends the distinct one; deletes legacy', () => {
     const canon = `import { describe, it, expect } from 'vitest';
 import { sample } from './sample.js';
@@ -247,8 +245,8 @@ describe('sample', () => {
     const plan = computeEmit(pair);
 
     expect(plan.mode).toBe('merge');
-    expect(plan.droppedDuplicates).toBe(1); // shared_case is a textual duplicate
-    expect(plan.appendedCases).toBe(1); // legacy_only carried over
+    expect(plan.droppedDuplicates).toBe(1);
+    expect(plan.appendedCases).toBe(1);
     expect(plan.deletes).toEqual([pair.legacyPath]);
 
     const [mergedWrite] = plan.writes;
@@ -256,7 +254,6 @@ describe('sample', () => {
     const merged = mergedWrite.content;
     expect(merged).toContain('legacy_only');
     expect(merged).toContain('canonical_only');
-    // The merged file has exactly 3 distinct cases (shared appears once).
     expect(normalizedCases(merged, pair.canonicalDir)).toHaveLength(3);
 
     applyEmit(plan);
@@ -264,12 +261,16 @@ describe('sample', () => {
     expect(readFileSync(pair.canonicalPath, 'utf8')).toContain('legacy_only');
   });
 
+  /**
+   * The legacy copy has an extra `vi.mock`, so the preambles differ and the
+   * tool relocates. It rewrites the import path and the mock path for the
+   * co-located directory. It does not change the canonical file.
+   */
   it('relocate: writes <base>.legacy.test.ts with rewritten imports and deletes legacy', () => {
     const canon = `import { describe, it, expect } from 'vitest';
 import { sample } from './sample.js';
 describe('sample', () => { it('c', () => { expect(sample()).toBe(1); }); });
 `;
-    // Divergent preamble (extra vi.mock) → relocate.
     const legacy = `import { describe, it, expect, vi } from 'vitest';
 import { sample } from '../../workflow/sample.js';
 vi.mock('../../workflow/sample.js', () => ({ sample: () => 9 }));
@@ -289,20 +290,17 @@ describe('sample', () => { it('l', () => { expect(sample()).toBe(9); }); });
     expect(path.dirname(dest)).toBe(pair.canonicalDir);
 
     const content = relocated.content;
-    expect(content).toContain("from './sample.js'"); // rewritten from ../../workflow/
+    expect(content).toContain("from './sample.js'");
     expect(content).not.toContain('../../workflow/sample.js');
-    expect(content).toContain("vi.mock('./sample.js'"); // mock path rewritten too
+    expect(content).toContain("vi.mock('./sample.js'");
     expect(plan.deletes).toEqual([pair.legacyPath]);
 
     applyEmit(plan);
     expect(existsSync(pair.legacyPath)).toBe(false);
     expect(existsSync(dest)).toBe(true);
-    // The canonical file is untouched by a relocate.
     expect(readFileSync(pair.canonicalPath, 'utf8')).toBe(canon);
   });
 });
-
-// ─── verifyCases (the Task-004 gate check) ───────────────────────────────────
 
 describe('verifyCases', () => {
   const legacyPre = {
@@ -344,8 +342,8 @@ describe('sample', () => {
     expect(report.preamblesIdentical).toBe(true);
   });
 
+  /** The result omits `legacy_only`, and no other case matches it. */
   it('a pre-image case ABSENT from the result → not ok (lost/unproven)', () => {
-    // Result silently drops legacy_only and it has NO surviving twin.
     const broken = {
       text: `import { describe, it, expect } from 'vitest';
 import { sample } from './sample.js';
@@ -362,9 +360,9 @@ describe('sample', () => {
     expect(report.lost.some((l) => l.text.includes('legacy_only'))).toBe(true);
   });
 
+  /** The sibling is the legacy text with its imports rewritten for the co-located directory. */
   it('relocate result (canonical + rewritten sibling) preserves both sides → ok', () => {
     const relocated = {
-      // legacy content with imports rewritten to the co-located dir.
       text: rewriteRelativeImports(legacyPre.text, LEGACY_DIR, CANON_DIR),
       absDir: CANON_DIR,
     };
@@ -403,8 +401,6 @@ describe('s', () => {
     expect(report.ok).toBe(true);
   });
 });
-
-// ─── CLI dispatch (run) ──────────────────────────────────────────────────────
 
 describe('run (CLI dispatch)', () => {
   let root: string;
@@ -448,12 +444,10 @@ describe('run (CLI dispatch)', () => {
   });
 });
 
-// ─── integration against the LIVE tree (HIGH tier) ───────────────────────────
-
-// The wave-3b campaign (#1705) de-diverged all 17 duplicate-location pairs, so the
-// live tree now enumerates ZERO remaining pairs. This block is the completion /
-// regression guard; per-mode tool behavior (merge/relocate classification, emit,
-// verify) is covered by the fixture describes above.
+/**
+ * The live `src` tree has no duplicate-location pair (#1705), and this suite
+ * guards that state. The fixture suites cover the behavior of each mode.
+ */
 describe('integration (live tree)', () => {
   it('enumerates no remaining duplicate-location pairs (all 17 consolidated)', () => {
     expect(enumeratePairs(DEFAULT_SRC_ROOT)).toHaveLength(EXPECTED_PAIR_COUNT);

@@ -7,24 +7,13 @@ import {
 } from './process-tracker.js';
 
 /**
- * Assert that no children spawned via the process-tracker remain alive.
+ * Throws if a child that the process tracker registered is still alive.
+ * `tests/helpers/global.ts` awaits it after each test of the `process` vitest project.
  *
- * Intended to run as a global `afterEach` hook in the `process` vitest
- * project (see design §5.5). Consumed only by `test/setup/global.ts`; tests
- * should not call this directly.
- *
- * Behavior:
- * - If no children are alive: returns silently.
- * - If children are alive: force-kills them via `processTracker.killAll`,
- *   awaits the SIGTERM→SIGKILL sequence, clears the registry, then throws an
- *   Error whose message lists each leaked child's PID and its original spawn
- *   command.
- *
- * Async because the SIGTERM→SIGKILL dance must complete before the next test
- * starts; the previous fire-and-forget design risked unhandled rejections in
- * killAll and let stubborn children leak across tests. Vitest's `afterEach`
- * accepts an async callback, so the only adjustment for callers is to await
- * (or `return`) the promise — see `test/setup/global.ts`.
+ * The function records the pid and the command of each leaked child before the kill,
+ * because `spawnargs` can be unreliable after it. Then it awaits `killAll`, so the next
+ * test starts with no live child. It clears the registry in `finally`, so a kill error
+ * leaves no stale entry. The error lists each leaked child.
  */
 export async function expectNoLeakedProcesses(): Promise<void> {
   const leaked = listAlive();
@@ -32,13 +21,8 @@ export async function expectNoLeakedProcesses(): Promise<void> {
     return;
   }
 
-  // Snapshot PID + command BEFORE force-killing, since killAll may drain the
-  // ChildProcess and spawnargs can become unreliable on some platforms.
   const descriptions = leaked.map((child) => describeLeak(child));
 
-  // Await the full SIGTERM→SIGKILL sequence so any rejection surfaces and the
-  // next test starts with no live children. `clear()` runs in `finally` so
-  // registry state never strands on a kill error.
   try {
     await killAll({ timeoutMs: 3000 });
   } finally {

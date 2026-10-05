@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
-# Self-test for check-wlm-wiring.mjs (task-004, DR-1/DR-2).
-#   - Fixtures exercise Rule 1 (retry-adapter coverage) and Rule 2 (no raw
-#     merge_orchestrate integration directive) in isolation, each overriding
-#     only the flag for the rule under test — the other rule runs against the
-#     REAL (compliant) tree via its default root, so a fixture never has to
-#     fake up the whole scope just to get past the other rule.
-#   - The real repo must PASS (exit 0) — guards against the gate going stale.
+# Self-test for check-wlm-wiring.mjs.
+#   - Each fixture exercises one rule: rule 1 (retry-adapter coverage) or rule 2
+#     (no raw merge_orchestrate integration directive). It overrides only the
+#     root flag of that rule, so the other rule runs on the real tree.
+#   - The real repo must pass (exit 0).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
@@ -21,8 +19,8 @@ check() { # <description> <expected-exit> <actual-exit>
 }
 
 # ── WiringGate_NakedWorktreeMutation_Fails ──────────────────────────────────
-# A fixture file under orchestrate/ (NOT one of the 5 wired files) with a
-# naked worktree-mutating git spawn must fail the gate.
+# A file under orchestrate/ that is not one of the 5 wired files holds a naked
+# worktree-mutating git spawn. The gate must fail.
 mkdir -p "$TMP/naked/orchestrate"
 cat > "$TMP/naked/orchestrate/reap-worktree.ts" <<'EOF'
 import { execFileSync } from 'node:child_process';
@@ -38,9 +36,9 @@ check "WiringGate_NakedWorktreeMutation_Fails" 1 "$naked_exit"
 grep -q "rule1-naked-worktree-mutation" /tmp/wlm-naked.out || { echo "  FAIL: missing rule1-naked-worktree-mutation tag"; fail=$((fail + 1)); }
 
 # ── WiringGate_WrappedIdioms_Pass ───────────────────────────────────────────
-# A fixture reproducing the 5 wired files (each calling its real idiom) plus
-# the merge seam (delegates to the wrapped executor, no raw spawn of its own)
-# must pass cleanly. Paths match the post-fold allowlist under verbs/.
+# The fixture holds the 5 wired files with their retry idioms, and the merge
+# seam. The seam calls the wrapped executor and has no raw spawn. The gate must
+# pass. The paths match the allowlist of the gate.
 mkdir -p "$TMP/wrapped/verbs/vcs" "$TMP/wrapped/verbs/team" \
   "$TMP/wrapped/verbs/worktree" "$TMP/wrapped/verbs/merge" "$TMP/wrapped/workflow"
 cat > "$TMP/wrapped/verbs/vcs/git-exec-default.ts" <<'EOF'
@@ -99,8 +97,8 @@ check "WiringGate_WrappedIdioms_Pass" 0 "$wrapped_exit"
 [[ "$wrapped_exit" == "0" ]] || cat /tmp/wlm-wrapped.out
 
 # ── WiringGate_SkillRawMergeOrchestrate_Fails ───────────────────────────────
-# A content fixture directing raw `merge_orchestrate` at an integration
-# merge (no serialize_merge caveat on the same line) must fail the gate.
+# A content fixture directs a raw `merge_orchestrate` at an integration merge,
+# with no `serialize_merge` caveat on the same line. The gate must fail.
 mkdir -p "$TMP/badskill/some-skill"
 cat > "$TMP/badskill/some-skill/SKILL.md" <<'EOF'
 ---
@@ -117,9 +115,9 @@ set -e
 check "WiringGate_SkillRawMergeOrchestrate_Fails" 1 "$badskill_exit"
 grep -q "rule2-raw-merge-orchestrate-integration-directive" /tmp/wlm-badskill.out || { echo "  FAIL: missing rule2 tag"; fail=$((fail + 1)); }
 
-# A skill correctly pairing merge_orchestrate with the serialize_merge caveat
-# must still pass (proves the rule keys on the directive, not the mere
-# mention).
+# A skill line that names `merge_orchestrate` in an integration context, with
+# the `serialize_merge` caveat on the same line, must pass. Thus the name alone
+# is not a violation.
 mkdir -p "$TMP/goodskill/some-skill"
 cat > "$TMP/goodskill/some-skill/SKILL.md" <<'EOF'
 ---
@@ -137,11 +135,10 @@ check "skills fixture with serialize_merge caveat passes" 0 "$goodskill_exit"
 [[ "$goodskill_exit" == "0" ]] || cat /tmp/wlm-goodskill.out
 
 # ── WiringGate_MergeSeamOutsideWorktreeDir_StillInScope ─────────────────────
-# A naked worktree-mutating git spawn placed directly under orchestrate/
-# (NOT nested under orchestrate/worktree/) — mirroring where the real merge
-# seam (merge-orchestrate.ts) and git-exec-default.ts live — must still be
-# walked and enforced. Uses a filename that is NOT one of the 5 wired files,
-# so it is unambiguously a regression rather than an allow-listed site.
+# A naked worktree-mutating git spawn sits directly under orchestrate/, not
+# under orchestrate/worktree/. The gate must walk the file and fail. The path
+# orchestrate/merge-orchestrate.ts is not one of the 5 wired files, so no
+# allowlist entry covers it.
 mkdir -p "$TMP/seam/orchestrate"
 cat > "$TMP/seam/orchestrate/merge-orchestrate.ts" <<'EOF'
 import { execFileSync } from 'node:child_process';

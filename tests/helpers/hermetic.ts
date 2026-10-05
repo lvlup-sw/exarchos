@@ -8,50 +8,43 @@ import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const execFileAsync = promisify(execFile);
 
+/** The directories of one invocation, under `exarchos-hermetic-<testId>` in `os.tmpdir()`. */
 export interface HermeticEnv {
-  homeDir: string; // tmp/<id>/home
-  stateDir: string; // tmp/<id>/state
-  cwdDir: string; // tmp/<id>/cwd (process.cwd during callback)
-  gitDir: string; // tmp/<id>/git (git init'd)
-  testId: string; // stable ID for this invocation
+  /** The `home` directory. `HOME` points at it during the callback. */
+  homeDir: string;
+  /** The `state` directory. The state variables point at it during the callback. */
+  stateDir: string;
+  /** The `cwd` directory, which is the working directory during the callback. */
+  cwdDir: string;
+  /** The `git` directory, an initialized git repository. */
+  gitDir: string;
+  /** The UUID of this invocation. */
+  testId: string;
 }
 
 /**
- * Module-level FIFO mutex. `withHermeticEnv` mutates process-global state
- * (`HOME`, `EXARCHOS_STATE_DIR`, `cwd`); concurrent invocations would
- * interleave save/restore and leak each other's environment. Serializing
- * the env-mutation+callback+cleanup region keeps callers visibly hermetic
- * even when called from `Promise.all`.
- *
- * The lock is process-local (one per test worker). Vitest runs each worker
- * in its own Node process, so this does not introduce cross-worker
- * contention.
+ * FIFO mutex for `withHermeticEnv`. The function changes process-global state: `HOME`,
+ * the state variables and the working directory. Concurrent calls must not interleave
+ * their save and restore steps. The lock is local to one test worker process.
  */
 let hermeticEnvLock: Promise<void> = Promise.resolve();
 
 /**
- * Runs `callback` inside a hermetic process environment.
+ * Runs `callback` inside an isolated process environment.
  *
- * Guarantees (design §4.3, §5.1):
- *  - Fresh `tmp/<testId>/{home,state,cwd,git}/` tree under `os.tmpdir()`.
- *  - `process.env.HOME`, `process.env.EXARCHOS_STATE_DIR`, and `process.cwd()`
- *    are set to the tmp dirs for the duration of the callback.
- *  - `tmp/<testId>/git` is initialized as a git repository.
- *  - Cleanup (env restore, cwd restore, tmp tree removal) runs unconditionally
- *    in `finally`, even if the callback throws.
- *  - Cleanup failures (e.g., locked files on Windows) log a warning via
- *    `console.warn` and do NOT throw — test outcome is preserved.
- *  - Concurrent callers receive non-overlapping tmp dirs (ids are UUIDs).
- *  - Concurrent callers see isolated process state for the duration of their
- *    callback: a module-level mutex serializes the env-mutation + callback +
- *    cleanup region so HOME/EXARCHOS_STATE_DIR/cwd cannot interleave.
+ * The function makes the `home`, `state`, `cwd` and `git` directories and runs `git init`
+ * in `git`. During the callback, `HOME` is `home` and the working directory is `cwd`.
+ * `WORKFLOW_STATE_DIR` and `EXARCHOS_STATE_DIR` are `state`. `resolveStateDir()` reads
+ * `WORKFLOW_STATE_DIR`, and no source file reads `EXARCHOS_STATE_DIR`.
+ *
+ * A mutex makes concurrent callers run one at a time, and a throw still releases it.
+ * Cleanup runs when the callback returns or throws. It restores the environment first,
+ * then removes the directories. A removal failure logs a warning and does not throw, so
+ * a locked file fails no test.
  */
 export async function withHermeticEnv<T>(
   callback: (env: HermeticEnv) => Promise<T>,
 ): Promise<T> {
-  // Acquire the mutex. Each caller chains itself onto the lock and only
-  // proceeds once the previous holder has released. The release is fired in
-  // the outer `finally` below so a throw never strands the queue.
   let releaseLock!: () => void;
   const waitTurn = hermeticEnvLock;
   hermeticEnvLock = new Promise<void>((resolve) => {
@@ -67,29 +60,18 @@ export async function withHermeticEnv<T>(
     const cwdDir = path.join(tmpRoot, 'cwd');
     const gitDir = path.join(tmpRoot, 'git');
 
-    // Save ambient state before mutation so we can restore in `finally`.
     const originalHome = process.env.HOME;
     const originalStateDir = process.env.EXARCHOS_STATE_DIR;
     const originalWorkflowStateDir = process.env.WORKFLOW_STATE_DIR;
     const originalCwd = process.cwd();
 
-    // Create tmp tree.
     await fs.mkdir(homeDir, { recursive: true });
     await fs.mkdir(stateDir, { recursive: true });
     await fs.mkdir(cwdDir, { recursive: true });
     await fs.mkdir(gitDir, { recursive: true });
 
-    // git init — quiet; no output on success.
     await execFileAsync('git', ['init', '-q', gitDir]);
 
-    // Mutate ambient state. The load-bearing var is `WORKFLOW_STATE_DIR`
-    // (the only one `resolveStateDir()` reads — see
-    // src/utils/paths.ts:54). Pre-fix only
-    // `EXARCHOS_STATE_DIR` was set, which the binary silently ignored —
-    // every "hermetic" test was actually reading/writing the host's
-    // default state dir, invalidating F2/F3 isolation guarantees and
-    // making the F6.1 reconstructability test a false positive (both
-    // "independent" servers shared one store). Set both for safety.
     process.env.HOME = homeDir;
     process.env.WORKFLOW_STATE_DIR = stateDir;
     process.env.EXARCHOS_STATE_DIR = stateDir;
@@ -100,8 +82,6 @@ export async function withHermeticEnv<T>(
     try {
       return await callback(env);
     } finally {
-      // Restore ambient state first so even a cleanup failure leaves the
-      // process in a sane state.
       process.chdir(originalCwd);
       if (originalHome === undefined) {
         delete process.env.HOME;
@@ -119,10 +99,6 @@ export async function withHermeticEnv<T>(
         process.env.WORKFLOW_STATE_DIR = originalWorkflowStateDir;
       }
 
-      // Unconditional tmp-tree removal. Cleanup failures log a warning but
-      // never throw — axiom DIM-7 (resource-release symmetry): the acquirer
-      // must always release, but tests must not be made flaky by best-effort
-      // cleanup racing with OS-level file locks.
       try {
         await rmrfAsync(tmpRoot);
       } catch (err) {
@@ -135,7 +111,6 @@ export async function withHermeticEnv<T>(
       }
     }
   } finally {
-    // Always release the mutex, even if the callback or cleanup threw.
     releaseLock();
   }
 }

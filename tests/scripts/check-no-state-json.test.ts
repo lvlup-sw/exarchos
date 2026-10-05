@@ -1,10 +1,9 @@
 /**
- * Tests for the `.state.json` no-read/write CI gate (#1504).
+ * Tests for the gate that forbids a raw `node:fs` read, write or probe of a
+ * `<featureId>.state.json` file in production code.
  *
- * The gate forbids raw `node:fs` reads/writes of a `<featureId>.state.json` file
- * in production code: the SQLite event store is the authoritative state surface,
- * so readers must fold the event log (`resolveWorkflowState` / `EventStore.query`)
- * or go through the backend-aware `readStateFile` / `writeStateFile` wrappers.
+ * The SQLite event store is the authoritative state surface. Production code
+ * folds the event log, or calls the `readStateFile` and `writeStateFile` wrappers.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
@@ -69,8 +68,8 @@ describe('check-no-state-json CLI (#1504)', () => {
     }
   });
 
+  /** The presence of a `.state.json` file is not an existence signal for a workflow. */
   it('Detects_ExistsSyncStateJson_ExitsNonZero', () => {
-    // Presence-probing a `.state.json` is the existence anti-pattern #1504 bans.
     const { srcRoot, cleanup } = makeFixtureSrc({
       'verbs/worktree/pure/probe.ts':
         'import { existsSync } from "node:fs";\n' +
@@ -86,9 +85,8 @@ describe('check-no-state-json CLI (#1504)', () => {
     }
   });
 
+  /** Code can build a `.state.json` path string and pass it to a backend-aware wrapper. */
   it('Allows_PathStringHandedToWrapper_ExitsZero', () => {
-    // Computing a `.state.json` path STRING and passing it to a backend-aware
-    // wrapper (not a raw fs primitive) is the legitimate, ubiquitous pattern.
     const { srcRoot, cleanup } = makeFixtureSrc({
       'workflow/handler.ts':
         'export async function go(dir: string, id: string, state: unknown) {\n' +
@@ -105,10 +103,11 @@ describe('check-no-state-json CLI (#1504)', () => {
     }
   });
 
+  /**
+   * An `existsSync(dir)` probe and an `.endsWith('.state.json')` name filter sit
+   * in adjacent statements. The `;` boundary must keep the probe away from the literal.
+   */
   it('Allows_DirScanThenNameFilter_ExitsZero', () => {
-    // The discovery file-scan fallback: an existsSync(dir) probe and an
-    // `.endsWith('.state.json')` name filter live in adjacent statements. The
-    // `;` boundary must keep the probe from reaching the literal.
     const { srcRoot, cleanup } = makeFixtureSrc({
       'workspace/scan.ts':
         'import { existsSync, readdirSync } from "node:fs";\n' +
@@ -171,12 +170,11 @@ describe('check-no-state-json CLI (#1504)', () => {
     expect(status, `stderr: ${stderr}`).toBe(0);
   });
 
+  /**
+   * The `validate` script runs `run-validate.mjs`, which reads its steps from
+   * `tools/audit/gates/validate-manifest.json`. The test finds the gate in that manifest.
+   */
   it('Validate_ChainedIntoNpmValidate', () => {
-    // Task 064 (DR-24): `validate` is no longer an inline `&&` chain, so a
-    // substring check on `pkg.scripts.validate` can no longer see whether this
-    // gate is wired into it. The steps are DATA now — the old chain died at
-    // step 1 and every later gate read as skipped-as-passed — so the same
-    // question is put to tools/audit/gates/validate-manifest.json instead.
     const pkg = JSON.parse(readFileSync(ROOT_PACKAGE_JSON, 'utf8')) as {
       scripts?: Record<string, string>;
     };

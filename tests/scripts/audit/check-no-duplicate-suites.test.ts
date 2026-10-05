@@ -12,9 +12,12 @@ import {
 } from '../../../tools/audit/check-no-duplicate-suites.mjs';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// A synthetic src tree mirroring the real layout: legacy copies under
-// `__tests__/<area>/`, co-located copies under `<area>/`. A "twin" is a subject
-// present in BOTH. The ratchet fails on any twin not in the allowlist.
+/**
+ * The cases build a synthetic source tree. Legacy copies are under
+ * `__tests__/<area>/` and co-located copies are under `<area>/`. A twin is a
+ * subject that is present in both. The ratchet fails on a twin that is not in
+ * the allowlist.
+ */
 describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
   let root: string;
   let srcRoot: string;
@@ -43,12 +46,10 @@ describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
     errlog: (m: string) => err.push(m),
   });
 
-  // ── the shipped allowlist is EMPTY (the consolidated end-state) ─────────────
   it('ships an EMPTY allowlist (not seeded with the current 17 twins)', () => {
     expect(ALLOWLIST).toEqual([]);
   });
 
-  // ── fails on a twin not in the allowlist ────────────────────────────────────
   it('FAILS (exit 1) on a twin that is not in the allowlist', () => {
     writeTwin('workflow', 'guards');
     const out: string[] = [];
@@ -58,7 +59,7 @@ describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
     expect(err.join('\n')).toContain('workflow/guards');
   });
 
-  // ── cross-area collision: key on (area, basename), NOT basename alone ────────
+  /** If the key is the basename alone, the two ids collapse into one and this case fails. */
   it('keys on (area, basename): the two `schemas` twins are DISTINCT violations', () => {
     writeTwin('workflow', 'schemas');
     writeTwin('event-store', 'schemas');
@@ -66,7 +67,6 @@ describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
     const code = run(['--json'], opts(out, []));
     expect(code).toBe(EXIT_FINDING);
     const ids = JSON.parse(out.join('\n')) as string[];
-    // Both present as separate ids — a basename-only key would collapse them to one.
     expect(ids).toContain('workflow/schemas');
     expect(ids).toContain('event-store/schemas');
     expect(ids.filter((id) => id.endsWith('/schemas'))).toHaveLength(2);
@@ -84,12 +84,11 @@ describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
     expect(ids.filter((id) => id.endsWith('/tools'))).toHaveLength(2);
   });
 
-  // ── a clean (twin-free) tree PASSES ─────────────────────────────────────────
+  /** A legacy file with no co-located copy is not a twin. */
   it('PASSES (exit 0) on a twin-free tree — co-located files with no legacy mirror', () => {
-    // Co-located subjects only; a legacy file with NO co-located twin is not a pair.
     writeFile('workflow/guards.test.ts');
     writeFile('event-store/schemas.test.ts');
-    writeFile('__tests__/stack/legacy-only.test.ts'); // legacy-only → not a twin
+    writeFile('__tests__/stack/legacy-only.test.ts');
     const out: string[] = [];
     const err: string[] = [];
     const code = run([], opts(out, err));
@@ -98,22 +97,23 @@ describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
     expect(out.join('\n')).toContain('OK');
   });
 
-  // ── the allowlist waiver is honored (both directions of the set-difference) ──
+  /**
+   * A waiver of `workflow/schemas` alone leaves `event-store/schemas` flagged.
+   * If the allowlist keys on the basename, that waiver clears both and this
+   * case fails. A waiver of both ids clears the ratchet, and the empty
+   * allowlist flags both.
+   */
   it('findViolations honors the allowlist by full (area, basename) id, not basename', () => {
     writeTwin('workflow', 'schemas');
     writeTwin('event-store', 'schemas');
     const pairs = enumeratePairs(srcRoot);
 
-    // Waiving ONLY workflow/schemas must leave event-store/schemas flagged
-    // (a basename-only allowlist would wrongly waive both).
     const waiveOne = findViolations(pairs, ['workflow/schemas']);
     expect(waiveOne.map((v) => v.id)).toEqual(['event-store/schemas']);
 
-    // Waiving both by full id clears the ratchet.
     const waiveBoth = findViolations(pairs, ['workflow/schemas', 'event-store/schemas']);
     expect(waiveBoth).toEqual([]);
 
-    // Empty allowlist (the shipped state) flags both.
     expect(findViolations(pairs, []).map((v) => v.id).sort()).toEqual([
       'event-store/schemas',
       'workflow/schemas',

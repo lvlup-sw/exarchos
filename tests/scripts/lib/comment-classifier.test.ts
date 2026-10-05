@@ -13,9 +13,11 @@ describe('forbidden ordinals', () => {
     expect(idsFor('DR-7: the bytes are fsync\'d')).toContain('design-requirement');
   });
 
+  /**
+   * Invariant ordinals have no exemption.
+   * A catalog lookup proves that an entry exists, not that the citation is still true.
+   */
   it('Classify_InvOrdinal_Rejected', () => {
-    // No carve-out. A resolution check proves an entry exists, not that the
-    // citation is still true, and catalog entries are rewritten in place.
     expect(idsFor('holds INV-2 across the seam')).toContain('invariant-ordinal');
     expect(idsFor('see INV-5b for the carrier shape')).toContain('invariant-ordinal');
   });
@@ -29,9 +31,11 @@ describe('forbidden ordinals', () => {
     expect(idsFor('follows T-35 exactly')).toContain('task-shorthand');
   });
 
+  /**
+   * The common form in the tree has zero padding and no hyphen.
+   * A minimum of three digits keeps the pattern clear of type parameters.
+   */
   it('Classify_PaddedTaskShorthand_Rejected', () => {
-    // The tree's dominant form is unhyphenated and zero-padded — `T034`, not
-    // `T-34`. Requiring three digits keeps it clear of type parameters.
     expect(idsFor('checkpoint materializes the projection (T034)')).toContain(
       'task-shorthand-padded',
     );
@@ -54,10 +58,11 @@ describe('forbidden ordinals', () => {
     expect(idsFor('per docs/designs/old-thing.md')).toContain('planning-artifact-path');
   });
 
+  /**
+   * A numbered phase is product vocabulary, not a citation.
+   * The workflow machine and the append path both number their phases.
+   */
   it('Classify_PhaseOrdinal_NotRejected', () => {
-    // Product vocabulary, not a citation: the workflow machine and the append
-    // path both have numbered phases. Treating these as ordinals produced 45
-    // false positives on the measured tree.
     expect(idsFor('the append is locked during phase 1')).toEqual([]);
     expect(idsFor('phase 0 runs before anything moves')).toEqual([]);
   });
@@ -68,17 +73,15 @@ describe('forbidden ordinals', () => {
     ).toEqual([]);
   });
 
+  /** The shorthand patterns require a hyphen or at least three digits, so a bare `T1` or `T0` is not an ordinal. */
   it('Classify_GenericTypeParameter_NotClassifiedAsOrdinal', () => {
-    // The hyphenated shorthand is used precisely so a bare `T1`/`T0` cannot
-    // collide with type parameters, template tags or timing notation.
     expect(idsFor('returns Map<T1, T2> for the caller')).toEqual([]);
     expect(idsFor('measured from T0 to first byte')).toEqual([]);
     expect(idsFor('{@link T2} names the second parameter')).toEqual([]);
   });
 
+  /** Stands in for a property test: the classifier must reject each declared shape across a wide range of numbers. */
   it('Classify_EveryGeneratedOrdinal_Rejected', () => {
-    // Stands in for a generative property: the declared shapes across a wide
-    // numeric range, each of which must be caught.
     const shapes = [
       (n: number) => `DR-${n}`,
       (n: number) => `task ${n}`,
@@ -108,9 +111,8 @@ describe('forbidden ordinals', () => {
 });
 
 describe('allowed references take precedence', () => {
+  /** A permalink can carry a fragment that looks like an ordinal. The policy encourages this citation style. */
   it('Classify_ForbiddenOrdinalInsideUrl_Permitted', () => {
-    // A permalink legitimately carries a fragment that looks like an ordinal;
-    // reporting it would punish the citation style the policy encourages.
     expect(
       idsFor('background: https://github.com/lvlup-sw/exarchos/blob/main/x.md#DR-7'),
     ).toEqual([]);
@@ -125,9 +127,11 @@ describe('allowed references take precedence', () => {
     expect(idsFor('per RFC 9110 section 9.3.1')).toEqual([]);
   });
 
+  /**
+   * Precedence applies to the span of the reference only.
+   * An allowed reference does not excuse an ordinal beside it.
+   */
   it('Classify_OrdinalOutsideTheUrl_StillRejected', () => {
-    // Precedence is scoped to the span, not the whole comment: an allowed
-    // reference must not launder an unrelated ordinal sitting beside it.
     const findings = idsFor('DR-7 applies; see https://example.com/x#DR-9 for context');
 
     expect(findings).toEqual(['design-requirement']);
@@ -139,9 +143,8 @@ describe('allowed references take precedence', () => {
 });
 
 describe('rejection messages', () => {
+  /** The remedy needs judgment, so the message wording is the deliverable and the test asserts it. */
   it('Classify_Rejection_MessageNamesRemedy', () => {
-    // The message text is asserted, not only the verdict: remediation here is
-    // judged rather than mechanical, so the wording is the deliverable.
     const [finding] = classifyText('DR-7: fsync before rename', policy);
 
     expect(finding?.message).toContain('DR-7');
@@ -164,10 +167,11 @@ describe('rejection messages', () => {
 });
 
 describe('changelog narration', () => {
+  /**
+   * The pattern ships disabled because its measured precision is below the floor.
+   * The test enables it to prove that it still catches its targets.
+   */
   it('Classify_PassiveChangeVerb_Rejected', () => {
-    // Measured at 84% on the tree, so it ships disabled — but the pattern must
-    // still catch what it claims to, or the narrowing that enables it later
-    // would be building on an unverified rule.
     const withPassiveEnabled = {
       ...policy,
       changelogPatterns: policy.changelogPatterns.map((p) =>
@@ -182,15 +186,16 @@ describe('changelog narration', () => {
     expect(ids('the shim was removed')).toContain('passive-change-verb');
   });
 
+  /** The shipped policy disables this pattern. Its false positives describe a condition, not history. */
   it('Classify_PassiveChangeVerb_NotRejectedWhileDisabled', () => {
-    // The shipped policy has it off. Its false positives are conditional and
-    // diagnostic uses, which are common enough here to fail the floor.
     expect(idsFor('the field was renamed during the merge')).toEqual([]);
   });
 
+  /**
+   * The policy rejects only the narrating form.
+   * A bare `previously` frequently describes present or conditional behavior.
+   */
   it('Classify_BarePreviously_NotRejected', () => {
-    // Only the narrating form trips. A bare `previously` frequently describes
-    // present or conditional behavior.
     expect(idsFor('previously computed values are reused when the hash matches')).toEqual([]);
   });
 
@@ -203,9 +208,8 @@ describe('changelog narration', () => {
     expect(idsFor('formerly the CLI owned this')).toContain('formerly');
   });
 
+  /** This pattern ships disabled. Many of its matches on the tree describe present or conditional behavior. */
   it('Classify_NoLonger_NotRejectedWhileDisabled', () => {
-    // Ships disabled pending measurement: 321 matches on the tree, many
-    // describing present or conditional behavior.
     expect(idsFor('the lease is no longer held once the merge lands')).toEqual([]);
   });
 
@@ -232,9 +236,8 @@ describe('classifyComment', () => {
     expect(classifyComment(comment!, policy)).toEqual([]);
   });
 
+  /** The extractor strips the markers and joins the lines of a block before classification. */
   it('ClassifyComment_WrappedBlock_FindsOrdinalAcrossTheLineBreak', () => {
-    // Marker-stripping joins lines, so an ordinal split by wrapping is still
-    // one token by the time it is classified.
     const source = ['/**', ' * governed by', ' * DR-12 at the seam', ' */'].join('\n');
     const [comment] = extractComments(source, 'a.ts');
 

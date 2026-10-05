@@ -1,20 +1,11 @@
-// Vitest wrapper for `scripts/get-exarchos.test.sh`.
+// Vitest wrapper for `tests/scripts/get-exarchos.test.sh`, the primary test
+// harness of `tools/release/get-exarchos.sh`. The wrapper puts the shell test
+// in `npm run test:run`. On failure it prints the full output of the shell
+// test, so the CI log shows the scenario that failed.
 //
-// The primary test harness is the shell-native `get-exarchos.test.sh`
-// (mirrors the pattern used by `validate-rm.test.sh` etc.). This TS
-// wrapper exists so the shell test participates in `npm run test:run`
-// (vitest's `include` globs pick up scripts test.ts files).
-//
-// The wrapper streams the full shell test output on failure so CI
-// logs tell you exactly which scenario failed without re-running the
-// shell harness by hand.
-//
-// win32-skipped: `get-exarchos.sh` targets Linux/macOS/WSL, not native
-// git-bash — its Windows counterpart (`get-exarchos.ps1`) has its own
-// cross-platform Pester-backed suite in `get-exarchos.ps1.test.ts`, which
-// already runs on `windows-latest`. Running the POSIX shell suite through
-// git-bash's MSYS environment is testing an untargeted platform, not a
-// real gap.
+// The suite skips on win32. `get-exarchos.sh` targets Linux, macOS and WSL,
+// and not native git-bash. `get-exarchos.ps1.test.ts` covers the Windows
+// installer, `get-exarchos.ps1`.
 import { describe, it, expect } from 'vitest';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -39,7 +30,6 @@ describe.skipIf(process.platform === 'win32')('tools/release/get-exarchos.sh (sh
     });
 
     if (result.status !== 0) {
-      // Surface full harness output so CI logs pinpoint the failure.
       // eslint-disable-next-line no-console
       console.error('=== get-exarchos.test.sh STDOUT ===\n' + (result.stdout ?? ''));
       // eslint-disable-next-line no-console

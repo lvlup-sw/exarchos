@@ -1,15 +1,10 @@
 #!/usr/bin/env bash
-# validate-no-legacy.test.sh — Assertions that obsolete v2.8 install artifacts
-# have been removed or archived per docs/plans/2026-04-21-install-rewrite.md.
+# validate-no-legacy.test.sh: assertions that the obsolete v2.8 install
+# artifacts stay out of the repo.
 #
-# Each test is prefixed `NoLegacy_*` and asserts a post-rewrite end-state against
-# the live repo (not a temp fixture). Tasks 3.1–3.8 append additional
-# NoLegacy_* assertions to this file; task 3.11 promotes the harness into a
-# CI-gated rollup via tools/audit/gates/validate-no-legacy.sh.
-#
-# Task 3.1 phase progression: RED (three assertions added, failing) → GREEN
-# (files deleted, assertions pass) → REFACTOR (orphan doc/comment references
-# pruned, assertions still green).
+# Each `NoLegacy_*` test asserts an end state of the live repo, not of a temp
+# fixture. The rollup tools/audit/gates/validate-no-legacy.sh runs this file in
+# CI.
 
 set -euo pipefail
 
@@ -51,35 +46,28 @@ echo "## validate-no-legacy.sh Tests"
 echo
 
 # ============================================================
-# Task 3.1: Delete src/install.ts + src/install.test.ts
+# src/install.ts and src/install.test.ts are absent
 # ============================================================
 
-# src/install.ts was the npx-based installer entry point; replaced by the
-# binary install path (PR1) + plugin rewrite (PR2).
+# The npx-based installer entry point src/install.ts must stay deleted.
 assert_file_absent \
   "NoLegacy_InstallTsAbsent" \
   "src/install.ts"
 
-# src/install.test.ts covered the deleted installer; delete with its subject.
+# The test of that installer must stay deleted too.
 assert_file_absent \
   "NoLegacy_InstallTestAbsent" \
   "src/install.test.ts"
 
-# A relative `./install` import is only a violation if it is a DANGLING
-# reference — one that resolves to a source file that no longer exists (the
-# deleted v2.9 `src/install.ts`). A `./install` import that RESOLVES to a real
-# module is NOT legacy: the v2.10.2 onboard consolidation introduced a
-# legitimately-named reconciler step at
-# `src/orchestrate/onboard/install.ts` (a sibling of
-# `new.ts` / `hooks.ts`), imported by `onboard/index.ts` and its tests. An
-# earlier version of this guard banned the import-specifier shape outright,
-# which false-positived on that real module. We therefore resolve each hit and
-# fail ONLY on imports whose `.ts` source is absent — the precise "loose
-# reference to a deleted module" the purge is meant to catch.
+# A relative `./install` import is a violation only when it is dangling: its
+# `.ts` source does not exist, as with the deleted `src/install.ts`. An import
+# that resolves to a real module is legal, and `src/verbs/onboard/install.ts`
+# is such a module. Thus the guard resolves each hit and fails only on an
+# import with no source file.
 #
-# The match is still path-anchored: `install` must be followed by `.js`, `.ts`,
-# or the closing quote, so siblings like `install-skills` / `install-hooks` /
-# `install-plugin` never match the regex in the first place.
+# The match is anchored: `.js`, `.ts` or the closing quote must follow
+# `install`. Thus `install-skills`, `install-hooks` and `install-plugin` do not
+# match.
 RAW_HITS=$(grep -rEn "from ['\"]\.+/install(\.js|\.ts)?['\"]" \
   "$REPO_ROOT/src" "$REPO_ROOT/servers" \
   --include='*.ts' --include='*.tsx' --include='*.mts' --include='*.cts' \
@@ -89,12 +77,12 @@ DANGLING=""
 while IFS= read -r hit; do
   [[ -z "$hit" ]] && continue
   importer="${hit%%:*}"
-  # The relative specifier inside the quotes after `from`, sans extension
-  # (NodeNext specifiers are `.js`/extensionless; the on-disk source is `.ts`).
+  # The relative specifier after `from`, without its extension. A NodeNext
+  # specifier ends in `.js` or has no extension, and the source file ends in `.ts`.
   spec=$(printf '%s\n' "$hit" | sed -E "s/.*from ['\"](\.+\/install)(\.js|\.ts)?['\"].*/\1/")
-  # Parse guard: a successful capture starts with a dot. If sed failed to
-  # extract (line left unchanged → starts with the absolute importer path),
-  # treat the hit as unresolvable and flag it conservatively.
+  # Parse guard: a captured specifier starts with a dot. If sed captures
+  # nothing, the line stays unchanged and starts with the importer path. The
+  # loop then counts the hit as dangling.
   if [[ "$spec" != .* ]]; then
     DANGLING="${DANGLING}${hit}\n"
     continue
@@ -112,13 +100,13 @@ else
 fi
 
 # ============================================================
-# Task 3.3: Archive deprecation artifacts
+# Deprecation artifacts are archived or deleted
 # ============================================================
 
-# NoLegacy_CreateExarchosDesign_Archived — create-exarchos design doc must live
-# in docs/designs/archive/ (not the active designs directory). The archive
-# itself is part of the mounted planning corpus; on an unmounted checkout
-# only the "original removed" half is checkable.
+# NoLegacy_CreateExarchosDesign_Archived: the create-exarchos design doc must be
+# in the archive directory of the designs, not in the active directory. The
+# archive is part of the mounted docs corpus. On a checkout with no mount, the
+# test can check only that the original is absent.
 if [[ -d "$REPO_ROOT/docs/designs" || -d "$REPO_ROOT/docs/designs/archive" ]]; then
   assert_file_present \
     "NoLegacy_CreateExarchosDesign_Archived (archived copy exists)" \
@@ -130,42 +118,32 @@ assert_file_absent \
   "NoLegacy_CreateExarchosDesign_Archived (original removed)" \
   "docs/designs/2026-03-14-create-exarchos.md"
 
-# NoLegacy_ExarchosDevDeprecation_Removed — the exarchos-dev deprecation
-# tracking doc must be deleted; the package it tracks is being removed outright
-# and its deprecation story is no longer relevant.
+# NoLegacy_ExarchosDevDeprecation_Removed: the deprecation tracking doc of
+# exarchos-dev must stay deleted.
 assert_file_absent \
   "NoLegacy_ExarchosDevDeprecation_Removed" \
   "docs/deprecation/exarchos-dev.md"
 
 # ============================================================
-# Task 3.4: Strip bundled-MCP companion references from
-# distribution-surface docs (README.md, AGENTS.md, CHANGELOG.md)
+# Distribution-surface docs (README.md, AGENTS.md, CHANGELOG.md) name no
+# bundled-MCP companion
 # ============================================================
 #
-# Historically, create-exarchos bundled serena/context7/microsoft-learn as
-# "optional companions." That package is gone (task 3.2), so the marketing
-# claim is stale. These assertions gate top-level docs:
-# - README.md: must not name serena / context7 / microsoft-learn at all
-#   (they should be fully removed from distribution surface). `graphite` is
-#   permitted only as external-tool context, NOT as a bundled companion.
-# - AGENTS.md: same rule as README (path-like `.serena/` ignore-list entries
-#   are tolerated — see guard below).
-# - CHANGELOG.md: unreleased section must not contain companion-install
-#   claims. Historical release entries are preserved verbatim (they describe
-#   what actually shipped) — we only lint the [Unreleased] section.
+# The create-exarchos package bundled serena, context7 and microsoft-learn as
+# "optional companions". The package does not exist, so that claim is stale.
+# - README.md: must not name serena, context7 or microsoft-learn.
+# - AGENTS.md: the same rule. A `.serena/` ignore-path entry is legal.
+# - CHANGELOG.md: the [Unreleased] section must hold no companion-install
+#   claim. The test does not read the released entries.
 
-# README is the canonical distribution-surface doc. If it's missing,
-# both checks below would silently pass via `|| true` masking the grep
-# failure — guard explicitly so that a deleted README fails the gate
-# instead of producing a vacuous green.
+# If README.md is absent, `|| true` hides the grep failure and both checks
+# below pass on nothing. Thus an absent README.md fails both checks here.
 if [[ ! -f "$REPO_ROOT/README.md" ]]; then
   fail "NoLegacy_ReadmeHasNoBundledMcp" "README.md missing — expected file to exist"
   fail "NoLegacy_ReadmeHasNoCreateExarchos" "README.md missing — expected file to exist"
 else
-  # NoLegacy_ReadmeHasNoBundledMcp — README must not advertise the three
-  # companion MCP servers (serena, context7, microsoft-learn) anywhere.
-  # Rationale for the zero-tolerance scoping: the fallback rule in the task
-  # brief. `graphite` is matched separately below with a softer rule.
+  # NoLegacy_ReadmeHasNoBundledMcp: README.md must not name the three
+  # companion MCP servers (serena, context7, microsoft-learn).
   README_BUNDLED_HITS=$(grep -inE "serena|context7|microsoft-learn|microsoft learn" \
     "$REPO_ROOT/README.md" 2>/dev/null || true)
   if [[ -z "$README_BUNDLED_HITS" ]]; then
@@ -175,8 +153,8 @@ else
       "README.md mentions removed bundled-MCP companions: $README_BUNDLED_HITS"
   fi
 
-  # NoLegacy_ReadmeHasNoCreateExarchos — `create-exarchos` was the bundling
-  # vehicle (task 3.2 deleted it). Any mention in README is stale.
+  # NoLegacy_ReadmeHasNoCreateExarchos: the `create-exarchos` package does not
+  # exist, so each mention in README.md is stale.
   README_CE_HITS=$(grep -inE "create-exarchos" "$REPO_ROOT/README.md" 2>/dev/null || true)
   if [[ -z "$README_CE_HITS" ]]; then
     pass "NoLegacy_ReadmeHasNoCreateExarchos"
@@ -186,9 +164,9 @@ else
   fi
 fi
 
-# NoLegacy_AgentsMdHasNoBundledMcp — AGENTS.md may mention `.serena/` as an
-# ignore-path entry (directory name, not a product claim). Strip that line
-# before matching so a legitimate scan-config entry doesn't trip the gate.
+# NoLegacy_AgentsMdHasNoBundledMcp: AGENTS.md can name `.serena/` as an
+# ignore-path entry, which is a directory name and not a product claim. The
+# test drops each line with `.serena/` from the hits.
 if [[ -f "$REPO_ROOT/AGENTS.md" ]]; then
   AGENTS_BUNDLED_HITS=$(grep -inE "serena|context7|microsoft-learn|microsoft learn" \
     "$REPO_ROOT/AGENTS.md" 2>/dev/null \
@@ -204,10 +182,9 @@ else
   pass "NoLegacy_AgentsMdHasNoBundledMcp (file absent — vacuous pass)"
 fi
 
-# NoLegacy_ChangelogHasNoCompanionClaims — lint ONLY the [Unreleased] section
-# of CHANGELOG.md. Historical release entries are frozen record of what
-# shipped (including `Remove Graphite integration (#933)` — historically
-# accurate) and must not be rewritten.
+# NoLegacy_ChangelogHasNoCompanionClaims: the test reads only the [Unreleased]
+# section of CHANGELOG.md. The released entries record what shipped, and they
+# must stay as they are.
 if [[ -f "$REPO_ROOT/CHANGELOG.md" ]]; then
   # Extract the [Unreleased] section: from `## [Unreleased]` to the next `## [`
   UNRELEASED=$(awk '
@@ -215,8 +192,8 @@ if [[ -f "$REPO_ROOT/CHANGELOG.md" ]]; then
     /^## \[/ && capturing { exit }
     capturing { print }
   ' "$REPO_ROOT/CHANGELOG.md")
-  # Look for "install companion", "bundled MCP", "installs X alongside" where
-  # X is one of the four companion tools.
+  # Look for a companion-install claim, such as "install companion",
+  # "bundled MCP" or "optional companion".
   CHANGELOG_HITS=$(echo "$UNRELEASED" | grep -inE \
     "install(s|ing)? (companion|alongside|bundled)|bundled.mcp|optional companion|companion.mcp" \
     || true)
@@ -232,17 +209,10 @@ else
 fi
 
 # ============================================================
-# Task 3.7: Audit tools/release/sync-marketplace.sh for dual-plugin references
+# tools/release/sync-marketplace.sh holds no dual-plugin reference
 # ============================================================
 #
-# sync-marketplace.sh was audited in the v2.9 install rewrite. Disposition:
-# KEEP — the script is general single-plugin marketplace syncing against
-# $HOME/.claude/plugins/marketplaces/lvlup-sw, invoked by /release and
-# `/release --check`. It filters specifically on `name=="exarchos"` in the
-# marketplace manifest and never referenced `create-exarchos` or any
-# dual-plugin model (verified at audit time).
-#
-# The invariant going forward: the script must either
+# The script must either
 #   (a) not exist, or
 #   (b) exist with zero references to `create-exarchos` or `dual-plugin`.
 SYNC_MKT_PATH="$REPO_ROOT/tools/release/sync-marketplace.sh"
@@ -259,40 +229,35 @@ else
 fi
 
 # ============================================================
-# Task 3.6: Remove dist/exarchos.js JS bundle emission
+# The build emits no dist/exarchos.js JS bundle
 # ============================================================
 #
-# After PR2 rewired plugin.json and hooks.json to invoke the bare `exarchos`
-# PATH-resolved binary, the legacy `dist/exarchos.js` JS bundle is no longer
-# consumed by anything. Task 3.6 deletes its emission from the build
-# pipeline. These assertions pin that end-state so the dead path cannot
-# return.
+# plugin.json and hooks.json invoke the bare `exarchos` binary from PATH, so
+# nothing consumes a `dist/exarchos.js` bundle. These assertions keep the
+# emission of that bundle out of the build pipeline.
 
-# NoLegacy_BuildBundleScriptAbsent — `scripts/build-bundle.ts` was the sole
-# emitter of `dist/exarchos.js`. Delete the script entirely; the build now
-# calls `tools/release/build-binary.ts` for compile-to-executable output.
+# NoLegacy_BuildBundleScriptAbsent: `scripts/build-bundle.ts`, the only emitter
+# of `dist/exarchos.js`, must stay deleted. The build calls
+# `tools/release/build-binary.ts`.
 assert_file_absent \
   "NoLegacy_BuildBundleScriptAbsent" \
   "scripts/build-bundle.ts"
 
-# NoLegacy_BuildBundleTestAbsent — the co-located test for the deleted
-# `build-bundle.ts` (task 1.3 guard against legacy platform-variant wiring)
-# must be removed alongside its subject.
+# NoLegacy_BuildBundleTestAbsent: the test of `build-bundle.ts` must stay
+# deleted with its subject.
 assert_file_absent \
   "NoLegacy_BuildBundleTestAbsent" \
   "scripts/build-bundle.test.ts"
 
-# Task 031 moved the script suites to tests/scripts/, so that is the only
-# place this test could come back. Asserted alongside the original path
-# rather than instead of it — the guard forbids the file, not a location.
+# The script suites are in tests/scripts/, so the test can only come back
+# there. The guard forbids the file at both paths, not at one location.
 assert_file_absent \
   "NoLegacy_BuildBundleTestAbsentFromTestTree" \
   "tests/scripts/build-bundle.test.ts"
 
-# NoLegacy_BuildScriptDoesNotRunBuildBundle — root `package.json` must not
-# invoke `build-bundle` from the top-level `build` script or declare a
-# `build:bundle` alias. The post-rewrite build chain is
-# `tsc && npm run build:binary && npm run build:skills`.
+# NoLegacy_BuildScriptDoesNotRunBuildBundle: the root `package.json` must not
+# call `build-bundle` from the `build` script, and must not declare a
+# `build:bundle` script.
 if [[ -f "$REPO_ROOT/package.json" ]]; then
   BUILD_BUNDLE_HITS=$(grep -nE '"build":[^,]*build-bundle|"build":[^,]*build:bundle|"build:bundle"' \
     "$REPO_ROOT/package.json" 2>/dev/null || true)
@@ -307,9 +272,8 @@ else
     "package.json missing — expected file to exist"
 fi
 
-# NoLegacy_PackageJsonFilesHasNoJsBundle — the `files` array (npm publish
-# whitelist) must not list `dist/exarchos.js`. The JS bundle is no longer
-# emitted; shipping a stale path would confuse consumers at pack time.
+# NoLegacy_PackageJsonFilesHasNoJsBundle: `package.json` must not list
+# `dist/exarchos.js`. The build does not emit that file.
 if [[ -f "$REPO_ROOT/package.json" ]]; then
   FILES_JS_BUNDLE_HITS=$(grep -nE '"dist/exarchos\.js"' \
     "$REPO_ROOT/package.json" 2>/dev/null || true)
@@ -325,29 +289,22 @@ else
 fi
 
 # ============================================================
-# Task 3.8: Delete dead src/cli.ts + orphans
+# The dead src/cli.ts and its orphans are absent
 # ============================================================
 
-# NoLegacy_DeadCliFileAbsent — the MCP server's stdin-JSON cli.ts entry point
-# was never wired to the shipping binary (hooks invoke the unified `exarchos`
-# binary bundled from src/index.ts). It must be deleted.
+# NoLegacy_DeadCliFileAbsent: the stdin-JSON entry point `src/cli.ts` must stay
+# deleted.
 assert_file_absent \
   "NoLegacy_DeadCliFileAbsent" \
   "src/cli.ts"
 
-# NoLegacy_DeadCliTestAbsent — the co-located test for the deleted cli.ts
-# must be removed alongside its subject.
+# NoLegacy_DeadCliTestAbsent: the test of `cli.ts` must stay deleted too.
 assert_file_absent \
   "NoLegacy_DeadCliTestAbsent" \
   "src/cli.test.ts"
 
-# NoLegacy_OrphanedCliCommandsAbsent — handler modules in cli-commands/ that
-# were ONLY consumed by the deleted cli.ts (eval-run, eval-capture,
-# eval-compare, eval-calibrate, quality-check) must be deleted.
-# Live handlers stay. #1476 retired the enforcement/control handlers
-# (guard, gates, subagent-context) and re-cast `subagent-stop` as a live
-# observer consumed by adapters/hooks.ts; the surviving live handlers are
-# session-end, subagent-stop, assemble-context, version.
+# NoLegacy_OrphanedCliCommandsAbsent: the handler modules in cli-commands/ that
+# only `cli.ts` consumed must stay deleted, with their tests.
 for orphan in eval-run eval-capture eval-compare eval-calibrate quality-check; do
   assert_file_absent \
     "NoLegacy_OrphanedCliCommandsAbsent ($orphan.ts)" \
@@ -358,17 +315,15 @@ for orphan in eval-run eval-capture eval-compare eval-calibrate quality-check; d
 done
 
 # ============================================================
-# Task 3.11: Rollup runner + knip dead-code sweep + CI wiring
+# Rollup runner, knip dead-code sweep and CI wiring
 # ============================================================
 #
-# Task 3.11 promotes the NoLegacy_* assertion suite into a CI-gated rollup
-# runner (tools/audit/gates/validate-no-legacy.sh) that also invokes `knip` for
-# unreachable-export detection, and wires a `validate-no-legacy` job into
-# .github/workflows/ci.yml. These assertions pin that end-state.
+# The rollup runner tools/audit/gates/validate-no-legacy.sh runs this suite and
+# a `knip` sweep. The `validate-no-legacy` job in .github/workflows/ci.yml runs
+# the rollup. These assertions pin that the runner, the job and the knip
+# config exist.
 
-# NoLegacy_RollupScriptExists — the rollup runner must exist and be
-# executable. `validate-no-legacy.sh` is the single entry point CI calls;
-# it wraps this assertion suite plus the knip sweep.
+# NoLegacy_RollupScriptExists: the rollup runner must exist and be executable.
 ROLLUP_PATH="$REPO_ROOT/tools/audit/gates/validate-no-legacy.sh"
 if [[ -f "$ROLLUP_PATH" && -x "$ROLLUP_PATH" ]]; then
   pass "NoLegacy_RollupScriptExists"
@@ -380,13 +335,11 @@ else
   fi
 fi
 
-# NoLegacy_CIWorkflowHasValidateJob — .github/workflows/ci.yml must declare
-# a `validate-no-legacy` job so the rollup runs on every PR. Match is
-# loose-but-safe: a top-level job ID under `jobs:` whose key is
-# `validate-no-legacy`.
+# NoLegacy_CIWorkflowHasValidateJob: .github/workflows/ci.yml must declare a
+# `validate-no-legacy` job. The match is a job key under `jobs:`.
 CI_YML="$REPO_ROOT/.github/workflows/ci.yml"
 if [[ -f "$CI_YML" ]]; then
-  # Job keys in our workflow are indented 2 spaces under `jobs:`.
+  # A job key has an indent of 2 spaces under `jobs:`.
   if grep -qE "^  validate-no-legacy:" "$CI_YML"; then
     pass "NoLegacy_CIWorkflowHasValidateJob"
   else
@@ -397,30 +350,26 @@ else
   fail "NoLegacy_CIWorkflowHasValidateJob" ".github/workflows/ci.yml missing"
 fi
 
-# NoLegacy_KnipConfigExists — a knip config must exist at the repo root so
-# the dead-code sweep is reproducible and its entry-point allowlist is
-# auditable. Accept any of the supported locations.
+# NoLegacy_KnipConfigExists: a knip config must exist at the repo root, in one
+# of the supported locations.
 KNIP_JSON="$REPO_ROOT/knip.json"
 KNIP_JSONC="$REPO_ROOT/knip.jsonc"
 KNIP_TS="$REPO_ROOT/knip.ts"
 KNIP_IN_PKG=""
 if [[ -f "$REPO_ROOT/package.json" ]]; then
-  # Only treat as a knip config if the value is a `{` — a bare
-  # `"knip": "^6.x"` in devDependencies is a version string, not a config.
+  # The value must start with `{`. A bare `"knip": "^6.x"` in devDependencies
+  # is a version string, not a config.
   KNIP_IN_PKG=$(grep -E '"knip"[[:space:]]*:[[:space:]]*\{' "$REPO_ROOT/package.json" 2>/dev/null || true)
 fi
 if [[ -f "$KNIP_JSON" || -f "$KNIP_JSONC" || -f "$KNIP_TS" || -n "$KNIP_IN_PKG" ]]; then
-  # Sanity: if knip.json is used, assert it lists at least the key entry
-  # modules so the allowlist is not empty/degenerate. Knip paths can be
-  # root-relative or workspace-relative — accept either form.
-  # Required entries, stored as "logical|accepted-forms" pairs:
-  #   - MCP server entry: top-level "src/index.ts" OR
-  #     workspace-relative "src/index.ts" (under a workspaces.<pkg> block)
+  # When knip.json is the config, it must name the key entry modules, so the
+  # entry list is not empty:
+  #   - MCP server entry: "src/index.ts"
   #   - build-skills: "src/install/build-skills.ts"
   #   - install-skills: "src/install/install-skills.ts"
   if [[ -f "$KNIP_JSON" ]]; then
     MISSING=""
-    # MCP server index — accept either form.
+    # MCP server index, with or without quotes.
     if ! grep -qF "src/index.ts" "$KNIP_JSON" \
       && ! grep -qF '"src/index.ts"' "$KNIP_JSON"; then
       MISSING="$MISSING src/index.ts"
@@ -445,22 +394,19 @@ else
     "no knip config at knip.json / knip.jsonc / knip.ts / package.json#knip"
 fi
 
-# NoLegacy_DeadCodeSweep — run knip (when available) and assert it exits
-# clean. If the knip binary is not installed, the assertion conditionally
-# skips — CI always has the binary after `npm ci`, so this only yields on
-# bare-metal runs without the devDep.
+# NoLegacy_DeadCodeSweep: run knip and assert that it exits clean. If the knip
+# binary is not installed, the assertion passes as skipped. CI has the binary
+# after `npm ci`.
 #
-# When this harness is invoked from the rollup runner
-# (`tools/audit/gates/validate-no-legacy.sh`), the rollup already ran knip itself
-# at line 78 with the same flags. Honour `NOLEGACY_SKIP_KNIP_RUN=1` set
-# by the rollup to avoid running knip twice (it's the slowest step in
-# the suite — about 8s on a warm cache).
+# The rollup runner tools/audit/gates/validate-no-legacy.sh runs knip itself and
+# sets NOLEGACY_SKIP_KNIP_RUN=1. Then this assertion passes as delegated, so
+# knip does not run two times.
 KNIP_BIN="$REPO_ROOT/node_modules/.bin/knip"
 if [[ -n "${NOLEGACY_SKIP_KNIP_RUN:-}" ]]; then
   pass "NoLegacy_DeadCodeSweep (skipped — delegated to tools/audit/gates/validate-no-legacy.sh)"
 elif [[ -x "$KNIP_BIN" ]]; then
-  # Match the rollup's scope: files + dependencies only (see
-  # tools/audit/gates/validate-no-legacy.sh for rationale).
+  # This direct run covers files and dependencies only. The rollup also
+  # includes exports and types.
   set +e
   KNIP_OUT=$("$KNIP_BIN" --no-progress --include files,dependencies 2>&1)
   KNIP_RC=$?

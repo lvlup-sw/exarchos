@@ -1,13 +1,11 @@
 /**
- * Where `npm publish` sends this package.
+ * Proves that `npm publish` sends this package to npmjs.org.
  *
- * The repository `.npmrc` maps the @lvlup-sw scope to GitHub Packages so the
- * org's restricted contracts package installs. npm lets a scope registry
- * outrank `registry`, including `publishConfig.registry`, so unless
- * `publishConfig` also names the scope, our own publish goes to GitHub
- * Packages and fails there after the GitHub Release is already out. This runs
- * npm's own dry run on a copy of `package.json` and `.npmrc`, with user and
- * global config emptied, and reads the registry npm says it would publish to.
+ * The repository `.npmrc` maps the `@lvlup-sw` scope to GitHub Packages, and a scope
+ * registry outranks `publishConfig.registry`. As a result, `publishConfig` must also map
+ * the scope to npmjs.org. Without that mapping, the publish goes to GitHub Packages and
+ * fails there, and the GitHub Release still ships. The test reads the registry that an
+ * npm dry run reports for a copy of `package.json` and `.npmrc`.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { copyFileSync, writeFileSync } from 'node:fs';

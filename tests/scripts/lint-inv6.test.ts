@@ -1,5 +1,4 @@
-// Tests for `tools/audit/gates/lint-inv6.mjs` — the advisory grep-based lint that
-// surfaces candidate INV-6 (workflow-agnosticism) violations.
+/** Tests for `tools/audit/gates/lint-inv6.mjs`, the advisory lint for workflow agnosticism in skills. */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -32,11 +31,8 @@ async function runLint(arg: string): Promise<{ stdout: string; status: number }>
 }
 
 describe('lint-inv6', () => {
+  /** Both fixtures hold the same literal. Only the fixture without a `workflow-type` declaration gets a finding. */
   it('LintINV6_FlagsWorkflowTypeLiterals_NonZeroFindings', async () => {
-    // Set up a tmpdir with two synthetic skill SKILL.md files:
-    //  - flagged: contains `feature/merge-pending` literal and NO
-    //    `workflow-type:` frontmatter
-    //  - clean:   declares `workflow-type: feature` in frontmatter
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-'));
     try {
       const flaggedDir = path.join(tmpdir, 'flagged-skill');
@@ -101,10 +97,10 @@ describe('lint-inv6', () => {
   });
 });
 
-// ─── T-22: literal narrowing (prose no longer trips the bare-verb literals) ─
-
-/** Create a tmpdir holding a single `<name>/SKILL.md` with the given body
- * (and optional extra frontmatter lines inserted under `metadata:`). */
+/**
+ * Writes `<tmpdir>/<name>/SKILL.md` with `body`.
+ * The `metadataExtra` lines go under a `metadata:` key in the frontmatter.
+ */
 function makeSkillFixture(
   tmpdir: string,
   name: string,
@@ -130,10 +126,11 @@ function findingsFor(out: LintOutput, dirName: string): Finding[] {
 }
 
 describe('lint-inv6 — literal narrowing (T-22)', () => {
+  /**
+   * The fixture uses the four phrase literals as plain English and declares no `workflow-type`.
+   * The lint must stay silent.
+   */
   it('LintINV6_ProseUsageOfBareVerbLiterals_YieldsZeroFindings', async () => {
-    // The headline acceptance fixture: ordinary sentences using the four
-    // bare-verb/noun literals as plain English, with no declared
-    // `workflow-type` escape hatch. Narrowing must make this silent.
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-prose-'));
     try {
       const body = [
@@ -161,16 +158,11 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
+  /**
+   * The fixture holds real structural coupling and declares no `workflow-type`.
+   * A lint without its literals passes the prose test, but it fails this test.
+   */
   it('LintINV6_GenuineWorkflowCoupling_StillFlagged', async () => {
-    // The negative twin: real structural coupling — a hard-coded `feature/`
-    // branch prefix, a `merge-pending` state value, a `phase: delegate`
-    // assignment, and a `/synthesize` slash command — with NO
-    // `workflow-type` declaration. A "narrowing" that just deleted the
-    // literals would pass the prose test above but go silent here too;
-    // this must still fire. (`featureId` is deliberately NOT part of this
-    // fixture — see `LintINV6_FeatureIdUsage_NeverFlagged_NotAWorkflowTypeLiteral`
-    // below for why it was removed from detection entirely rather than
-    // narrowed.)
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-coupled-'));
     try {
       const body = [
@@ -209,16 +201,11 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
+  /**
+   * Each workflow type uses `featureId` as its identifier, so a skill that names it stays workflow-agnostic.
+   * The lint must not flag `featureId` in a code span, a JSON value or plain prose.
+   */
   it('LintINV6_FeatureIdUsage_NeverFlagged_NotAWorkflowTypeLiteral', async () => {
-    // `featureId` is the universal stream/workflow identifier parameter —
-    // used identically by every workflow type (feature, refactor, debug,
-    // oneshot, discover, ...). A skill referencing it is being
-    // workflow-AGNOSTIC, which is exactly what INV-6 asks for, not a
-    // violation of it. This was 96 of the pre-fix 196 residual findings —
-    // the single largest component — and its removal from the literal set
-    // (rather than narrowing) is what this test pins: no context in which
-    // `featureId` appears (quoted, code span, key-value, or plain prose)
-    // should ever produce a finding, with no `workflow-type` declared.
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-featureid-'));
     try {
       const body = [
@@ -247,9 +234,8 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
+  /** A longer word such as `reviewer` or `delegated` must not match `review` or `delegate`. */
   it('LintINV6_LongerWordsContainingLiterals_DoNotTripWordBoundary', async () => {
-    // reviewer / previewing / delegated / reviewed must NOT trip `review` /
-    // `delegate` — the old `String.includes` had no boundary logic at all.
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-boundary-'));
     try {
       const body = [
@@ -274,10 +260,8 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
+  /** A `metadata.workflow-type` declaration silences a skill that the lint otherwise flags. */
   it('LintINV6_WorkflowTypeFrontmatterDeclared_StillSuppressesFindings', async () => {
-    // Contract preservation: the `metadata.workflow-type:` escape hatch
-    // still silences an otherwise-flagged skill, even with the narrowed
-    // literal detection.
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-declared-'));
     try {
       const body = [
@@ -297,9 +281,8 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
+  /** A skill under `_shared/` is exempt, also when it holds flagged literals. */
   it('LintINV6_SharedDirectory_StillExempt', async () => {
-    // Contract preservation: `_shared/` skills remain exempt regardless of
-    // literal narrowing.
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-shared-'));
     try {
       const sharedDir = path.join(tmpdir, '_shared', 'some-shared-skill');
@@ -327,10 +310,8 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
+  /** The lint is advisory. With findings, it still exits 0 and prints the same JSON shape. */
   it('LintINV6_ExitCodeAndShape_UnchangedEvenWithFindings', async () => {
-    // Contract preservation: exit code stays 0 (advisory) and the JSON shape
-    // (`{findings: [...], advisory: true}` with per-finding `file`/`line`/
-    // `snippet`/`rule`/`severity`/`message`) is unchanged.
     const tmpdir = fs.mkdtempSync(path.join(os.tmpdir(), 'lint-inv6-shape-'));
     try {
       makeSkillFixture(
@@ -359,43 +340,29 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
     }
   });
 
+  /**
+   * Pins a ceiling on the finding count for `content/`, with headroom for catalog growth.
+   * A regression in the literal matching increases the count.
+   * `featureId` must never be a matched literal on the real tree.
+   */
   it('LintINV6_RealSkillsTree_FindingCountAtOrBelowAttainedThreshold', async () => {
-    // Threshold-attainability measurement: narrowing the bare-verb literals
-    // (354 -> 196) and then removing the mis-scoped `featureId` literal
-    // entirely (196 -> ~103, measured at the time of T-22's second pass)
-    // must bring the real-tree finding count down to a small, stable,
-    // attained count. This pins the narrowed baseline so a future
-    // regression — either a prose false-positive creeping back in, or
-    // `featureId` being re-added to the literal set — is visible as a test
-    // failure rather than silently ballooning findings back toward
-    // "unreachable zero" territory.
     const { stdout, status } = await runLint('content/');
     expect(status).toBe(0);
     const out = JSON.parse(stdout) as LintOutput;
     expect(Array.isArray(out.findings)).toBe(true);
-    // Comfortably below both the pre-narrowing baseline (354) and the
-    // first-pass narrowed baseline (196), with modest headroom above the
-    // measured second-pass count (103) for incidental catalog growth that
-    // doesn't regress the narrowing itself.
     expect(out.findings.length).toBeLessThan(130);
-    // Regression guard for the `featureId` fix specifically: it must never
-    // reappear as a matched literal on the real tree.
     const literalsSeen = new Set(
       out.findings.map((f) => (f.message ?? '').match(/literal "([^"]+)"/)?.[1]),
     );
     expect(literalsSeen.has('featureId'), 'featureId must never be a matched literal').toBe(false);
   });
 
+  /**
+   * Declares `workflow-type` on each flagged skill in a temporary copy of `content/`, then expects zero findings.
+   * This proves that the declaration can clear every finding that remains on the real tree.
+   * The declaration goes at the top level, because the lint accepts the key at any indentation.
+   */
   it('LintINV6_DeclaringWorkflowTypeOnEveryResidualSkill_ClearsAllFindings', async () => {
-    // Crisp verdict on the remainder (T-22 second pass): every surviving
-    // real-tree finding is either (a) genuine coupling a human could fix,
-    // or (b) clearable by declaring `metadata.workflow-type:` on that
-    // (workflow-machinery) skill — the escape hatch the script already
-    // implements. Prove (b) covers the WHOLE remainder by declaring the
-    // hatch on every currently-flagged skill in a TEMP COPY of the real
-    // tree (content/ itself is never touched) and showing findings drop
-    // to exactly zero. If some residual finding were neither (a) nor (b),
-    // it would still be present here.
     const before = JSON.parse((await runLint('content/')).stdout) as LintOutput;
     const flaggedFiles = [...new Set(before.findings.map((f) => f.file))];
     expect(
@@ -415,9 +382,6 @@ describe('lint-inv6 — literal narrowing (T-22)', () => {
           original.startsWith('---\n'),
           `${rel} must have frontmatter to declare workflow-type into`,
         ).toBe(true);
-        // Insert a top-level `workflow-type:` declaration — the frontmatter
-        // check matches the key at ANY indentation, so this does not need
-        // to nest under the existing `metadata:` block.
         fs.writeFileSync(tmpFile, original.replace(/^---\n/, '---\nworkflow-type: core\n'), 'utf8');
       }
 

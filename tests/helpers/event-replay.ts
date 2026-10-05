@@ -1,41 +1,29 @@
-// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.2
+/**
+ * Helpers that copy an event stream from one MCP server to a second one.
+ * `snapshotEventStream` reads a stream, and `replayInto` appends it to a target server.
+ */
 import type { SpawnedMcpClient } from './mcp-client.js';
 import { normalize } from './normalizers.js';
 
 /**
- * Shape of a single event row as returned by `exarchos_event` action `query`
- * after `normalize()` canonicalizes timestamps, sequences, and identifiers.
- *
- * The pre-verified facts in T2's prompt named `exarchos_view event_log` as the
- * snapshot source. That action does not exist in v2.9 — the canonical event
- * log lives behind `exarchos_event { action: 'query', stream }` (composite
- * handler `handleEventQuery` in `src/event-store/tools.ts`).
- * The on-the-wire row is the persisted `WorkflowEvent` shape:
- *   { streamId, sequence, timestamp, type, data?, ... }
- *
- * Post-normalize, `timestamp` becomes `<TIMESTAMP>` and `sequence` becomes
- * `<SEQ>`, so deep-equality comparison is stable across runs.
+ * One event row from `exarchos_event` action `query`, after `normalize()`.
+ * The row has the persisted `WorkflowEvent` shape. `normalize()` replaces `timestamp`
+ * with `<TIMESTAMP>` and `sequence` with `<SEQ>`, so deep equality is stable across runs.
  */
 export type NormalizedEvent = Record<string, unknown>;
 
 /**
- * Frozen view of an event stream at a single point in time. Returned by
- * `snapshotEventStream`; the input to `replayInto`.
- *
- * `featureId` here doubles as the `stream` identifier — the v2.9 conventions
- * use the workflow `featureId` as the stream id when no explicit stream is
- * supplied. See `handleInit` and `handleEventAppend` for the convention.
+ * An event stream at one point in time. `snapshotEventStream` returns it, and
+ * `replayInto` reads it. `featureId` is also the stream id.
  */
 export interface EventSnapshot {
   readonly featureId: string;
   readonly events: ReadonlyArray<NormalizedEvent>;
   /**
-   * The same rows, ascending, WITHOUT normalization. Replay MUST use these:
-   * `normalize()` rewrites payload values (e.g. a `data.phaseAttemptId` UUID
-   * becomes the literal `<UUID>`), and re-appending a normalized row feeds
-   * placeholder strings into schema-validated event data — the server rightly
-   * rejects them (stable-ID grammar). Normalized `events` exist ONLY for
-   * structural comparison across runs.
+   * The same rows in ascending order, without normalization. Replay must use these rows.
+   * `normalize()` replaces payload values, such as a `data.phaseAttemptId` UUID, with
+   * placeholders. The server rejects a placeholder in schema-validated event data.
+   * The normalized `events` are only for comparison across runs.
    */
   readonly raw: ReadonlyArray<Record<string, unknown>>;
 }
@@ -52,12 +40,8 @@ interface ToolResultEnvelope {
 }
 
 /**
- * DR-5 (economy-by-default) reshaped `exarchos_event { action: 'query' }`:
- * `data` is no longer a bare `events[]` array. It is now
- * `{ events, page }` where `events` is ordered **newest-first** (descending by
- * sequence) and defaults to the newest `page.limit` rows only. Replay fixtures
- * need the *entire* stream in ascending (chronological) order, so this helper
- * pages through every window (below) and reverses back to ascending.
+ * The `page` of an `exarchos_event` `query` result. The result `data` is
+ * `{ events, page }`. `events` is newest-first and holds at most `page.limit` rows.
  */
 interface EventQueryPageShape {
   total: number;
@@ -84,17 +68,15 @@ function isEventQueryData(d: unknown): d is EventQueryData {
   );
 }
 
-// A page size comfortably larger than any saga fixture stream, so the common
-// case is a single round-trip while still paginating correctly if a fixture
-// ever grows past it.
+/**
+ * A page size larger than each saga fixture stream, so the usual read is one query.
+ * A longer stream takes more queries.
+ */
 const REPLAY_QUERY_PAGE_LIMIT = 500;
 
 /**
- * Parse the MCP `callTool` response envelope into the inner `ToolResult` that
- * exarchos handlers return. The MCP wire format is
- * `{ content: [{ type: 'text', text: JSON.stringify(toolResult) }] }`
- * (see `src/format.ts:formatResult`). This helper hides
- * that double-encoding from the saga primitives.
+ * Parses the MCP `callTool` response into the `ToolResult` that an Exarchos handler returns.
+ * The wire format is `{ content: [{ type: 'text', text: JSON.stringify(toolResult) }] }`.
  */
 function unwrapToolResult(raw: unknown): ToolResultEnvelope {
   const r = raw as MaybeContent;
@@ -121,22 +103,18 @@ function unwrapToolResult(raw: unknown): ToolResultEnvelope {
 }
 
 /**
- * Capture the current event stream for `featureId` from the connected MCP
- * server, normalize it, and return a frozen `EventSnapshot`.
+ * Reads the whole event stream for `featureId` from the connected MCP server.
+ * The query returns rows newest-first, one page at a time. The function reads each
+ * page and returns the rows in ascending order, both raw and normalized.
  *
- * Implementation note (deviation from prompt's pre-verified facts):
- *   The prompt instructed `exarchos_view { action: 'event_log', featureId }`.
- *   That action does not exist; the canonical event log is reached via
- *   `exarchos_event { action: 'query', stream }`. We bridge here so the
- *   primitive's contract still says "snapshot the event log for a feature".
+ * A query for a stream with no events returns an empty page, not an error.
+ * Thus the function throws on a failed query and on `data` that is not `{ events, page }`.
+ * Without the throw, a broken response reads as an empty stream and hides a test failure.
  */
 export async function snapshotEventStream(
   client: SpawnedMcpClient,
   featureId: string,
 ): Promise<EventSnapshot> {
-  // Page through the whole stream. `handleEventQuery` returns `{ events, page }`
-  // (DR-5) with `events` newest-first; accumulating pages yields a newest-first
-  // list that we reverse to ascending (chronological) order below.
   const descending: unknown[] = [];
   let offset = 0;
   for (;;) {
@@ -152,8 +130,6 @@ export async function snapshotEventStream(
     const envelope = unwrapToolResult(raw);
 
     if (envelope.success === false) {
-      // A query for a stream that has never been written returns an empty
-      // page, not an error — so any error here is a real failure to surface.
       throw new Error(
         `snapshotEventStream: event query for '${featureId}' failed: ${
           envelope.error?.message ?? 'unknown error'
@@ -162,11 +138,6 @@ export async function snapshotEventStream(
     }
 
     const data = envelope.data;
-    // A fresh feature returns `{ events: [], page: {...} }`. Anything that is
-    // not the DR-5 `{ events, page }` envelope (undefined, bare array, string)
-    // is a contract regression on the wire format and must throw, otherwise
-    // replay-fixture consumers would conflate "broken response" with
-    // "genuinely empty stream" and silently mask test failures.
     if (!isEventQueryData(data)) {
       throw new Error(
         `snapshotEventStream: event query for '${featureId}' returned non-{events,page} data; got ${typeof data} (${JSON.stringify(data)?.slice(0, 80) ?? 'undefined'})`,
@@ -175,19 +146,12 @@ export async function snapshotEventStream(
 
     descending.push(...data.events);
 
-    // Advance by the number of rows actually returned. Stop when the page
-    // reports no more matches (or, defensively, when a page returns nothing).
     if (!data.page.hasMore || data.events.length === 0) break;
     offset += data.events.length;
   }
 
-  // Reverse newest-first → ascending (chronological) so replay applies events
-  // in the order they were originally written and prefix comparisons hold.
   const ascending = descending.reverse() as Record<string, unknown>[];
 
-  // Normalize at the boundary so callers can assert structural equality
-  // without snapshotting transient values (timestamps, sequences, UUIDs).
-  // The raw rows ride alongside — replay needs the REAL payload values.
   const normalizedEvents = ascending.map(
     (e) => normalize(e) as NormalizedEvent,
   );
@@ -196,40 +160,25 @@ export async function snapshotEventStream(
 }
 
 /**
- * Replay the events in `snapshot` into `client`'s MCP server, which is
- * assumed to be hooked up to a fresh state directory (or at least one whose
- * `snapshot.featureId` stream is empty or already a prefix of `snapshot`).
+ * Appends the events of `snapshot` to the server of `client`. The target stream must be
+ * empty or a prefix of the snapshot. The function compares the target events with that
+ * prefix and throws on a mismatch, because equal counts do not prove equal history.
+ * It skips the events that the target already holds, so a repeated call appends nothing.
  *
- * Idempotence:
- *   - Pre-fetches the target's existing event count for `snapshot.featureId`
- *     and skips that many events from the head of the snapshot. So a second
- *     `replayInto` with the same snapshot is a no-op.
- *   - The server-side `idempotencyKey` mechanism is not relied on for skip
- *     semantics because re-issuing an `event append` for an existing
- *     idempotencyKey returns the original ack rather than throwing — but
- *     skipping client-side avoids any chance of re-emitting hooks/channels.
- *
- * Synchronous-on-append assumption:
- *   - `handleEventAppend` writes through the `EventStore` synchronously in
- *     the request lifetime, so once a `callTool` resolves the projection is
- *     readable. No post-replay polling against a `rehydrate` view is needed
- *     for the F6.1 reconstructability assertion P3 will build on top.
+ * It appends the raw rows, because a normalized row holds placeholders such as `<UUID>`.
+ * Before the first append, it throws if `raw` is absent or its length differs from `events`.
+ * The append omits `streamId`, `sequence` and `timestamp`, so the target server assigns them.
+ * A recorded `idempotencyKey` goes to `append` as a top-level argument, because the server
+ * reads it only there. The server stores each event before `append` returns, so no poll is
+ * necessary after the call.
  */
 export async function replayInto(
   client: SpawnedMcpClient,
   snapshot: EventSnapshot,
 ): Promise<void> {
-  // Idempotence: how many events does the target already have?
   const existing = await snapshotEventStream(client, snapshot.featureId);
   const skip = existing.events.length;
 
-  // Verify the target's existing events are actually a prefix of the
-  // snapshot before short-circuiting. Comparing only counts would let a
-  // target that has `n` *different* events either silently no-op (when
-  // `n >= snapshot.events.length`) or append onto the wrong history (when
-  // `n < snapshot.events.length`). Fail fast on mismatch — replay onto a
-  // divergent target is a programming error in the test, not a recoverable
-  // state.
   if (skip > 0) {
     const expectedPrefix = snapshot.events.slice(0, skip);
     if (JSON.stringify(existing.events) !== JSON.stringify(expectedPrefix)) {
@@ -242,13 +191,9 @@ export async function replayInto(
   }
 
   if (skip >= snapshot.events.length) {
-    return; // nothing to do — target is already a full prefix
+    return;
   }
 
-  // Replay from the RAW rows — never the normalized view. A snapshot built
-  // before `raw` existed (or hand-built without it) must fail loud here:
-  // silently falling back to `snapshot.events` would re-append placeholder
-  // strings (`<UUID>`, `<SEQ>`) into schema-validated event data.
   if (!Array.isArray(snapshot.raw) || snapshot.raw.length !== snapshot.events.length) {
     throw new Error(
       `replayInto: snapshot for '${snapshot.featureId}' carries no raw rows ` +
@@ -266,10 +211,6 @@ export async function replayInto(
       );
     }
 
-    // Build the event body for `event append`. We deliberately drop fields
-    // the server controls (streamId, sequence, timestamp) — those are
-    // assigned by the target server on append. We forward the semantic
-    // fields the schema accepts.
     const body: Record<string, unknown> = { type };
     if (ev.data !== undefined) body.data = ev.data;
     if (typeof ev.correlationId === 'string') body.correlationId = ev.correlationId;
@@ -280,11 +221,6 @@ export async function replayInto(
     if (typeof ev.organizationId === 'string') body.organizationId = ev.organizationId;
     if (typeof ev.source === 'string') body.source = ev.source;
 
-    // Forward idempotencyKey as a top-level append arg (not inside event)
-    // when the source event recorded one. This preserves the server's
-    // duplicate-suppression semantics (so an auto-emitted `workflow.started`
-    // re-appears identically post-replay rather than producing a divergent
-    // row).
     const appendArgs: Record<string, unknown> = {
       action: 'append',
       stream: snapshot.featureId,
@@ -300,7 +236,6 @@ export async function replayInto(
     });
     const envelope = unwrapToolResult(raw);
     if (envelope.success === false) {
-      // Surface the error with the offending event index for debuggability.
       throw new Error(
         `replayInto: append failed at snapshot index ${i} (type='${type}'): ${
           envelope.error?.code ?? 'UNKNOWN'

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Tests for sync-versions.sh. Each test isolates its sinks by copying the real
-# repo files into a temp directory and pointing the script at the copies via
-# the override flags. The repo's own files are never mutated.
+# Tests for sync-versions.sh. The tests copy the real sink files into a temp
+# directory and point the script at the copies with the override flags. They
+# do not change the files of the repo.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")/../../tools/release" && pwd)"
@@ -21,14 +21,14 @@ PKG_VERSION=$(node -p "require('${REPO_ROOT}/package.json').version")
 TMPDIR=$(mktemp -d)
 trap 'rm -rf "$TMPDIR"' EXIT
 
-# Mirror the real `src/` shape under TMPDIR so the
-# script's path resolution works unchanged.
+# Copy the `src/` layout into TMPDIR, so the script resolves its paths as in
+# the repo.
 TS_TMPDIR="$TMPDIR/mcp-src"
 mkdir -p "$TS_TMPDIR/adapters"
 cp "$REPO_ROOT/src/index.ts"                    "$TS_TMPDIR/index.ts"
 cp "$REPO_ROOT/src/adapters/mcp.ts"             "$TS_TMPDIR/adapters/mcp.ts"
 
-# Mirror the JSON sinks too.
+# Copy the JSON sinks too.
 cp "$REPO_ROOT/.claude-plugin/plugin.json"                "$TMPDIR/plugin.json"
 cp "$REPO_ROOT/manifest.json"                             "$TMPDIR/manifest.json"
 cp "$REPO_ROOT/package.json"         "$TMPDIR/mcp-package.json"
@@ -41,16 +41,15 @@ SYNC_ARGS=(
   --package-json   "$REPO_ROOT/package.json"
 )
 
-# Read the first single-quoted literal that follows an ERE prefix in a file —
-# mirrors the in-script helper so tests assert what the script actually reads.
+# Reads the first single-quoted literal after an ERE prefix in a file. It
+# mirrors the helper of the script, so the tests assert what the script reads.
 read_quoted_after() {
   local file="$1"
   local prefix_re="$2"
   grep -E -o "${prefix_re}'[^']*'" "$file" | head -1 | sed -E "s/^.*'([^']*)'.*/\1/"
 }
 
-# Wipe every sink to a known-bad version so the next sync run has something
-# to do. Returns the bad version so the caller can assert it shifted.
+# Sets each sink to a known-bad version, so the next sync run has work to do.
 poison_all_sinks() {
   local bad="$1"
 
@@ -75,12 +74,11 @@ poison_all_sinks() {
 
 # ─── Test 0: SyncVersions_DoesNotReferenceDeletedSessionStartTs (F-01) ──────
 #
-# Regression guard: P5 deleted src/cli-commands/session-start.ts.
-# The sync-versions sink registry must not still reference that path, otherwise
-# `--check` mode emits a MISSING: error and `npm run version:sync` (write mode)
-# fails on the patch_quoted_after "file not found" guard, breaking the release
-# workflow. This test runs --check against the real repo (no temp overrides)
-# and asserts the script never reports drift for the deleted file.
+# src/cli-commands/session-start.ts does not exist. If the sink registry names
+# that path, `--check` prints a MISSING: error, and write mode fails on the
+# "file not found" guard of patch_quoted_after. That breaks the release
+# workflow. This test runs `--check` on the real repo, with no temp overrides,
+# and asserts that the output does not name the file.
 
 echo "Test 0: SyncVersions_DoesNotReferenceDeletedSessionStartTs (F-01)"
 
@@ -150,13 +148,7 @@ else
   fail "adapters/mcp.ts SERVER_VERSION=$MCP_TS_VER, expected=$PKG_VERSION"
 fi
 
-# ─── Test 6 (formerly 7): SyncVersions_Idempotent ───────────────────────────
-# Notes on missing tests in this slot:
-#   - The old Test 6 covered adapters/cli.ts literal sinks that were removed
-#     in #1219 when cli.ts switched to resolvePackageVersion() at runtime.
-#   - A second slot covered cli-commands/session-start.ts SESSION_START_BINARY_VERSION,
-#     dropped in F-01 when P5 of the rehydration-machinery refactor deleted
-#     that file wholesale.
+# ─── Test 6: SyncVersions_Idempotent ─────────────────────────────────────────
 
 echo "Test 6: SyncVersions_Idempotent"
 
@@ -185,7 +177,7 @@ else
   fail "Second sync run mutated at least one sink"
 fi
 
-# ─── Test 7 (formerly 8): SyncVersions_CheckMode_Passes_WhenInSync ──────────
+# ─── Test 7: SyncVersions_CheckMode_Passes_WhenInSync ────────────────────────
 
 echo "Test 7: SyncVersions_CheckMode_Passes_WhenInSync"
 
@@ -195,12 +187,12 @@ else
   fail "--check exits non-zero despite synced sinks"
 fi
 
-# ─── Test 8 (formerly 9): SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst
+# ─── Test 8: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst ────────────
 
 echo "Test 8: SyncVersions_CheckMode_ReportsAllDrifts_NotJustFirst"
 
-# Wipe every sink to a known-bad version, then run --check and confirm the
-# report covers every site rather than short-circuiting on the first error.
+# Set each sink to a known-bad version, then run --check. The report must
+# cover each site and must not stop at the first error.
 poison_all_sinks "0.0.0"
 
 CHECK_OUTPUT=$(bash "$SYNC_SCRIPT" "${SYNC_ARGS[@]}" --check 2>&1 || true)
@@ -223,14 +215,13 @@ if [[ $MISSING -eq 0 ]]; then
   pass "--check reported drift across all 6 site labels (no short-circuit)"
 fi
 
-# ─── Test 9 (formerly 10): SyncVersions_FailsLoud_OnStructuralPatternMiss ───
+# ─── Test 9: SyncVersions_FailsLoud_OnStructuralPatternMiss ──────────────────
 
 echo "Test 9: SyncVersions_FailsLoud_OnStructuralPatternMiss"
 
-# Replace the SERVER_VERSION line in index.ts with garbage so the prefix
-# regex no longer matches. The script must refuse to silently leave the
-# version stale (DIM-2: observability — silent no-op on structural drift
-# would let a release ship with a wrong version baked into the binary).
+# Replace the SERVER_VERSION line in index.ts, so the prefix regex does not
+# match. The script must fail. A silent no-op on structural drift lets a
+# release ship with a wrong version in the binary.
 sed -E "s/^export const SERVER_VERSION = '[^']*';/export const RENAMED = '0.0.0';/" \
   "$TS_TMPDIR/index.ts" > "$TS_TMPDIR/index.ts.tmp"
 mv "$TS_TMPDIR/index.ts.tmp" "$TS_TMPDIR/index.ts"

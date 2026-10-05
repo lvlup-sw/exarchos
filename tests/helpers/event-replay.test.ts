@@ -1,4 +1,7 @@
-// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.2
+/**
+ * Tests for `snapshotEventStream` and `replayInto`. Each test spawns the real MCP server
+ * with `bun`, inside a hermetic environment.
+ */
 import { describe, it, expect, afterEach, beforeAll } from 'vitest';
 import * as path from 'node:path';
 import * as fs from 'node:fs';
@@ -21,11 +24,11 @@ const MCP_ENTRY = path.join(
   'index.ts',
 );
 
-// Spawn the MCP server with `bun` so `bun:sqlite` (imported by
-// `src/storage/sqlite-backend.ts` post-#1259) resolves
-// natively. `node tsx` is rejected by Node 24's ESM loader on the
-// `bun:` URL scheme. Bun is already pinned in CI via `oven-sh/setup-bun@v2`
-// and in the `setup-bun` step of the binary matrix workflow.
+/**
+ * The arguments for the MCP server. Each test runs it with `bun`, so `bun:sqlite` resolves
+ * natively. `src/storage/sqlite-backend.ts` imports that module, and the ESM loader of Node
+ * rejects the `bun:` URL scheme.
+ */
 const REAL_MCP_ARGS = [MCP_ENTRY, 'mcp'];
 
 /**
@@ -39,15 +42,15 @@ function track<T extends SpawnedMcpClient>(c: T): T {
 }
 
 describe('event-replay primitives', () => {
+  /**
+   * The `unit` project does not check that the `exarchos` binary exists, so this hook checks
+   * the MCP entry file. It also probes `bun`, which each test spawns. Without the probe, a
+   * missing `bun` shows late as an `ENOENT` inside `transport.start()`.
+   */
   beforeAll(async () => {
-    // Confirm the MCP entrypoint is reachable; the fixture self-tests are part
-    // of the `unit` project which does not gate on `exarchos` binary presence.
     if (!fs.existsSync(MCP_ENTRY)) {
       throw new Error(`MCP entry not found at ${MCP_ENTRY}.`);
     }
-    // Bun preflight — every spawn site below uses `command: 'bun'`. A missing
-    // bun would surface late as an opaque ENOENT inside `transport.start()`;
-    // probe up-front so the failure message names the actual missing dep.
     const probe = await spawnAsync('bun', ['--version']);
     if (probe.error || probe.status !== 0) {
       throw new Error(
@@ -57,6 +60,7 @@ describe('event-replay primitives', () => {
     }
   });
 
+  /** Teardown is best effort. It ignores a failed `terminate()` and a failed `kill`. */
   afterEach(async () => {
     while (activeClients.length > 0) {
       const c = activeClients.pop();
@@ -64,14 +68,12 @@ describe('event-replay primitives', () => {
       try {
         await c.terminate();
       } catch {
-        // ignore — teardown best effort
       }
     }
     for (const child of listAlive()) {
       try {
         child.kill('SIGKILL');
       } catch {
-        // ignore
       }
     }
     clear();
@@ -94,6 +96,10 @@ describe('event-replay primitives', () => {
       });
     }, 30_000);
 
+    /**
+     * `init` appends `workflow.started` itself, and the test appends two events. The snapshot
+     * must keep that order.
+     */
     it('snapshotEventStream_afterEvents_includesAllEventsInOrder', async () => {
       await withHermeticEnv(async (env) => {
         const spawned = track(
@@ -105,7 +111,6 @@ describe('event-replay primitives', () => {
           }),
         );
 
-        // Drive a small saga: workflow init + 2 event appends.
         await spawned.client.callTool({
           name: 'exarchos_workflow',
           arguments: {
@@ -139,12 +144,10 @@ describe('event-replay primitives', () => {
 
         const snap = await snapshotEventStream(spawned, 'saga-order');
         expect(snap.featureId).toBe('saga-order');
-        // workflow init auto-emits workflow.started; then 2 explicit appends.
         expect(snap.events.length).toBeGreaterThanOrEqual(3);
         const types = snap.events.map(
           (e) => (e as Record<string, unknown>).type,
         );
-        // Order is preserved: workflow.started must precede task events.
         const startedIdx = types.indexOf('workflow.started');
         const assignedIdx = types.indexOf('task.assigned');
         const progressedIdx = types.indexOf('task.progressed');
@@ -154,6 +157,10 @@ describe('event-replay primitives', () => {
       });
     }, 30_000);
 
+    /**
+     * Each `timestamp` must be `<TIMESTAMP>`, and each `sequence` must be `<SEQ>`. The test
+     * checks a field only when the event has it.
+     */
     it('snapshotEventStream_appliesNormalize_replacesTimestamps', async () => {
       await withHermeticEnv(async (env) => {
         const spawned = track(
@@ -178,11 +185,9 @@ describe('event-replay primitives', () => {
         expect(snap.events.length).toBeGreaterThanOrEqual(1);
         for (const e of snap.events) {
           const obj = e as Record<string, unknown>;
-          // Normalized timestamps must be the placeholder, not an ISO string.
           if ('timestamp' in obj) {
             expect(obj.timestamp).toBe('<TIMESTAMP>');
           }
-          // Normalized sequences must be the placeholder, not a number.
           if ('sequence' in obj) {
             expect(obj.sequence).toBe('<SEQ>');
           }
@@ -192,8 +197,12 @@ describe('event-replay primitives', () => {
   });
 
   describe('replayInto', () => {
+    /**
+     * The source server and the target server each run in their own hermetic environment.
+     * The assertions on the source snapshot are a guardrail. Without them, a broken source
+     * setup gives an empty snapshot, and the comparison of two empty arrays passes.
+     */
     it('replayInto_emptyTarget_appliesAllEvents', async () => {
-      // Source server: drive a saga and snapshot it.
       const snap = await withHermeticEnv(async (env) => {
         const sourceSpawned = track(
           await spawnMcpClient({
@@ -227,16 +236,11 @@ describe('event-replay primitives', () => {
           'replay-feat',
         );
         await sourceSpawned.terminate();
-        // Drop from active tracker since we already terminated.
         const idx = activeClients.indexOf(sourceSpawned);
         if (idx >= 0) activeClients.splice(idx, 1);
         return captured;
       });
 
-      // Source-side guardrail: without these, a failed source setup (workflow
-      // init or event append silently broken) would leave `snap.events`
-      // empty, and the target-equality assertion below would compare two
-      // empty arrays — a false green. Pin the expected source shape.
       expect(snap.events.length).toBeGreaterThanOrEqual(2);
       const srcTypes = snap.events.map(
         (e) => (e as Record<string, unknown>).type,
@@ -244,7 +248,6 @@ describe('event-replay primitives', () => {
       expect(srcTypes).toContain('workflow.started');
       expect(srcTypes).toContain('task.assigned');
 
-      // Target server: fresh hermetic env, replay into it, then snapshot.
       await withHermeticEnv(async (env) => {
         const targetSpawned = track(
           await spawnMcpClient({
@@ -260,8 +263,12 @@ describe('event-replay primitives', () => {
       });
     }, 60_000);
 
+    /**
+     * The assertions on the source snapshot are the same guardrail as in
+     * `replayInto_emptyTarget_appliesAllEvents`. A second replay of the same snapshot must add
+     * no event.
+     */
     it('replayInto_idempotent_secondCallNoOp', async () => {
-      // Build snapshot.
       const snap: EventSnapshot = await withHermeticEnv(async (env) => {
         const sourceSpawned = track(
           await spawnMcpClient({
@@ -297,8 +304,6 @@ describe('event-replay primitives', () => {
         return captured;
       });
 
-      // Source-side guardrail (parallel to replayInto_emptyTarget_*): block
-      // the false-green where both source and target produce empty arrays.
       expect(snap.events.length).toBeGreaterThanOrEqual(2);
       const srcTypes = snap.events.map(
         (e) => (e as Record<string, unknown>).type,
@@ -320,7 +325,6 @@ describe('event-replay primitives', () => {
         const after1 = await snapshotEventStream(targetSpawned, 'idem-feat');
         expect(after1.events.length).toBe(snap.events.length);
 
-        // Second replay must be a no-op.
         await replayInto(targetSpawned, snap);
         const after2 = await snapshotEventStream(targetSpawned, 'idem-feat');
         expect(after2.events.length).toBe(snap.events.length);

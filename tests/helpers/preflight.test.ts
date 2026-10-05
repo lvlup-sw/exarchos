@@ -4,23 +4,19 @@ import { assertExarchosOnPath, assertExarchosVersion } from './preflight.js';
 import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
 /**
- * Budget for the tests that really spawn `where`/`which` via `execFileAsync`.
- *
- * Vitest's 5s default is a poor fit here: each test spawns a real lookup
- * process. On a loaded Windows runner (`where.exe` under a cold PATH scan, with an
- * antivirus filter in the open path) a single lookup has been observed past
- * that default, which reds the lane for a reason unrelated to what these tests
- * assert. The budget is generous because it exists to absorb host latency, not
- * to bound the assertion.
+ * Timeout for the tests that spawn a real `where` or `which` lookup.
+ * On a loaded Windows runner, one lookup can take longer than the 5 s vitest default.
+ * The budget absorbs host latency. It does not bound the assertion.
  */
 const PATH_LOOKUP_TIMEOUT_MS = 30_000 * WIN32_SPAWN_HEADROOM;
 
 describe('assertExarchosOnPath', () => {
+  /** `node` is on PATH, because vitest runs on node. */
   it('AssertExarchosOnPath_BinaryResolvable_DoesNotThrow', async () => {
-    // `node` is guaranteed to be on PATH since vitest itself runs on node.
     await expect(assertExarchosOnPath('node')).resolves.toBeUndefined();
   }, PATH_LOOKUP_TIMEOUT_MS);
 
+  /** The error is actionable when it names the install script. */
   it('AssertExarchosOnPath_BinaryMissing_ThrowsActionableError', async () => {
     const sentinel = 'exarchos-definitely-not-real-' + crypto.randomUUID();
     let caught: unknown;
@@ -33,14 +29,14 @@ describe('assertExarchosOnPath', () => {
     const message = (caught as Error).message;
     expect(message).toContain(sentinel);
     expect(message).toContain('not found on PATH');
-    // Must name a v2.10 install remediation verbatim.
     expect(message).toMatch(/get-exarchos\.sh/);
   }, PATH_LOOKUP_TIMEOUT_MS);
 
+  /**
+   * A good override (`node`) resolves. A bad override fails with its own name in the
+   * message, which proves that the function reads the override.
+   */
   it('AssertExarchosOnPath_CustomCommand_UsesOverride', async () => {
-    // Passing a custom command exercises the override path. A known-good
-    // override (`node`) should resolve; a known-bad override should fail with
-    // its own name in the message, proving the override is actually consulted.
     await expect(assertExarchosOnPath('node')).resolves.toBeUndefined();
 
     const sentinel = 'override-sentinel-' + crypto.randomUUID();
@@ -49,8 +45,8 @@ describe('assertExarchosOnPath', () => {
     );
   }, PATH_LOOKUP_TIMEOUT_MS);
 
+  /** With an empty PATH, no binary resolves, `exarchos` included. */
   it('assertExarchosOnPath_missingBinary_throwsActionableError', async () => {
-    // Empty PATH guarantees no binary (including `exarchos`) resolves.
     const savedPath = process.env.PATH;
     try {
       process.env.PATH = '';
@@ -71,10 +67,11 @@ describe('assertExarchosOnPath', () => {
 });
 
 describe('assertExarchosVersion', () => {
+  /**
+   * The stub resolver reports an older release. The error must name the expected
+   * major.minor and the actual version.
+   */
   it('assertExarchosVersion_staleBinary_throwsVersionMismatch', async () => {
-    // Stub the version resolver to simulate a binary that advertises an
-    // older release. The check must reject with both the expected
-    // major.minor and the actual version named in the message.
     const stub = async () => '2.8.3';
     let caught: unknown;
     try {
@@ -95,8 +92,8 @@ describe('assertExarchosVersion', () => {
     ).resolves.toBeUndefined();
   });
 
+  /** A pre-release tag such as `2.12.0-rc.3` compares on major.minor only. */
   it('AssertExarchosVersion_PrereleaseSuffix_DoesNotThrow', async () => {
-    // Pre-release tags (e.g. `2.12.0-rc.3`) must compare on major.minor only.
     const stub = async () => '2.12.0-rc.3';
     await expect(
       assertExarchosVersion({ resolveVersion: stub }),

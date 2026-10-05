@@ -1,11 +1,11 @@
 // Tests for tools/release/pin-trust-root.mjs and the release gate that runs it.
 //
-// Every case works on temporary copies of the two installers. The sentinel is
-// seeded into those copies, so the cases hold before and after the real key is
-// pinned. Keys are generated at runtime and never written to the repository.
-// The last two cases read the workflows: the gate must run before every job
-// that publishes, and no other workflow may run it, so pull-request CI stays
-// green while the key is unpinned.
+// Each tool case uses temporary copies of the two installers that hold the
+// sentinel. As a result, the cases pass before and after the real key is pinned.
+// The cases generate their keys at runtime and write no key to the repository.
+// The gate cases read the workflows. The gate must run before every job that
+// publishes. Only release.yml runs the gate, so pull-request CI passes while
+// the key is unpinned.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { createHash, createPublicKey, generateKeyPairSync } from 'node:crypto';

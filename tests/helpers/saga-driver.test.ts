@@ -1,4 +1,3 @@
-// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.2
 import { describe, it, expect, afterEach } from 'vitest';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +15,7 @@ function track<T extends SpawnedMcpClient>(c: T): T {
 }
 
 describe('driveSaga', () => {
+  /** Teardown is best effort: it ignores an error from `terminate` or from `kill`. */
   afterEach(async () => {
     while (activeClients.length > 0) {
       const c = activeClients.pop();
@@ -23,14 +23,12 @@ describe('driveSaga', () => {
       try {
         await c.terminate();
       } catch {
-        // ignore — teardown best effort
       }
     }
     for (const child of listAlive()) {
       try {
         child.kill('SIGKILL');
       } catch {
-        // ignore
       }
     }
     clear();
@@ -44,6 +42,7 @@ describe('driveSaga', () => {
     expect(transcript.steps).toEqual([]);
   });
 
+  /** The mock server returns `echo:hi` as a text content block. */
   it('driveSaga_singleCall_returnsSingleTranscriptEntry', async () => {
     const spawned = track(
       await spawnMcpClient({ command: 'node', args: [MOCK_SERVER] }),
@@ -58,7 +57,6 @@ describe('driveSaga', () => {
     expect(step.call).toEqual(calls[0]);
     expect(step.kind).toBe('success');
     if (step.kind !== 'success') throw new Error('unreachable');
-    // Mock server returns echo:hi as a text content block.
     expect(step.result).toMatchObject({
       content: [{ type: 'text', text: 'echo:hi' }],
     });
@@ -83,18 +81,15 @@ describe('driveSaga', () => {
     expect(messages).toEqual(['echo:first', 'echo:second', 'echo:third']);
   });
 
+  /**
+   * The first call succeeds, the second throws, and the third does not run.
+   * A stub client throws from `callTool`, because the MCP SDK returns
+   * `isError: true` for an unknown tool and does not throw. The stub has the
+   * `SagaToolClient` annotation, so the type checker proves that it fits and
+   * gives `args` its type. The stub counts its calls, and a third call throws.
+   */
   it('driveSaga_callThrows_haltsAndIncludesErrorInTranscript', async () => {
-    // Use a stub client so we can deterministically force `callTool` to
-    // throw on the second invocation. The MCP SDK does NOT throw on
-    // unknown-tool errors at the JSON-RPC layer (it returns isError:true),
-    // so we synthesize a thrown rejection at the client boundary.
     let callIndex = 0;
-    // Annotated, not merely shaped like it. The comment below used to claim
-    // this stub satisfied `SagaToolClient` "directly, no cast needed" — a claim
-    // nothing checked, because this file sat in no tsconfig. It did not: the
-    // hand-written `callTool` signature was narrower than the SDK's. The
-    // annotation makes the claim the checker's problem and types `args` from
-    // the target rather than restating it.
     const stubClient: SagaToolClient = {
       client: {
         async callTool(args) {
@@ -123,7 +118,6 @@ describe('driveSaga', () => {
     ];
     const transcript = await driveSaga(stubClient, calls);
 
-    // First call succeeds, second throws, third never runs.
     expect(transcript.steps).toHaveLength(2);
     expect(transcript.steps[0]?.kind).toBe('success');
     expect(transcript.steps[1]?.kind).toBe('error');
@@ -134,9 +128,6 @@ describe('driveSaga', () => {
     expect(errorStep.error.message).toBe('synthetic transport failure');
     expect(errorStep.error.name).toBe('SyntheticTransportError');
 
-    // Halt verification: the stub increments callIndex per call; if a third
-    // call leaked through it would have thrown the "should have halted"
-    // error above and propagated out of driveSaga.
     expect(callIndex).toBe(2);
   });
 });

@@ -1,22 +1,13 @@
 #!/usr/bin/env bash
-# validate-plugin.test.sh — DR-10 unfiltered re-assert for the plugin-packaging
-# gate (task 064, DR-24).
+# Self-test for the plugin-packaging gate, tools/audit/gates/validate-plugin.sh.
 #
-# Why a `.test.sh` when scripts/validate-plugin.test.ts already exists. The
-# vitest suite runs only in the path-filtered `test-root` job, so a PR that
-# touches ONLY `scripts/**` skips it — the gate's own implementation surface is
-# outside the filter that would notice a regression in it. This file re-asserts
-# the same fail-closed properties on the UNFILTERED grep-gates host, where it
-# fires on every PR. Same pattern as check-type-debt.test.sh /
-# check-coverage-ratchet.test.sh; see docs/guides/ci-gate-hosting.md.
+# tests/scripts/validate-plugin.test.ts runs only in path-filtered CI jobs.
+# This script asserts the same fail-closed properties in the unfiltered
+# `grep-gates` job, which runs on every PR. check-type-debt.test.sh and
+# check-coverage-ratchet.test.sh use the same pattern.
 #
-# Its predecessor asserted the OPPOSITE policy: it seeded a fixture carrying all
-# six retired enforcement hooks and a `.mcp.json` and expected exit 0. It had
-# rotted that far because nothing ran it — the same reason the gate it tested
-# had five wrong checks. Every case below therefore exercises the SHIPPED
-# policy document rather than a copy of the rules, so this file cannot drift
-# from the gate the way the old one did.
-
+# Cases 1 to 6 exercise the shipped policy document, not a copy of the rules, so
+# the fixtures cannot drift from the gate.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
@@ -27,9 +18,8 @@ POLICY="$REPO_ROOT/.claude-plugin/packaging-policy.json"
 PASS=0
 FAIL=0
 TMPDIRS=()
-# `return 0` is load-bearing: under `set -e` a trap whose last command exits
-# non-zero (an empty array, a already-removed dir) overrides the script's own
-# exit status, and this file reported FAIL-on-all-green until it was added.
+# `return 0` is necessary. Under `set -e`, a trap whose last command exits
+# non-zero replaces the exit status of the script, and a green run then fails.
 cleanup() {
   for d in "${TMPDIRS[@]+"${TMPDIRS[@]}"}"; do
     [[ -n "$d" ]] && rm -rf "$d"
@@ -38,8 +28,8 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Assert an exit code without letting `set -e` abort the run — every case must
-# report, which is the same aggregation discipline the gate itself now enforces.
+# Asserts an exit code and does not let `set -e` stop the run. Each case must
+# report its result.
 assert_exit() {
   local label="$1" expected="$2"
   shift 2
@@ -54,8 +44,8 @@ assert_exit() {
   fi
 }
 
-# Build a minimal tree that satisfies the shipped policy. Kept in ONE place so
-# each case below can break exactly one thing.
+# Builds a minimal tree that satisfies the shipped policy. It is in one place,
+# so each case below can break exactly one thing.
 seed_conforming_tree() {
   local root="$1"
   mkdir -p "$root/.claude-plugin" "$root/rendered/commands" "$root/rendered/skills" "$root/hooks"
@@ -84,11 +74,11 @@ JSON
 JSON
 }
 
-# Seed a conforming tree and assign its path to the named variable.
+# Seeds a conforming tree and assigns its path to the named variable.
 #
-# Assigns rather than echoes on purpose: `dir=$(mktree)` runs the body in a
-# SUBSHELL, so the `TMPDIRS+=` never reaches the parent and every fixture dir
-# leaks into $TMPDIR for the life of the machine.
+# It assigns and does not echo. An echo needs `dir=$(mktree)`, which runs the
+# body in a subshell. Then `TMPDIRS+=` does not reach the parent, and each
+# fixture directory leaks.
 mktree() {
   local __outvar="$1"
   local d
@@ -101,12 +91,13 @@ mktree() {
 echo "## validate-plugin.sh Tests"
 echo
 
-# 1. The shipped tree satisfies the shipped policy. If this ever needs a change,
-#    the packaging changed — go edit the policy, deliberately.
+# 1. The shipped tree satisfies the shipped policy. If this case fails, the
+#    packaging and the policy disagree. For an intended packaging change, edit
+#    the policy.
 assert_exit "real repository tree passes" 0 bash "$GATE" --repo-root "$REPO_ROOT"
 
-# 2. A conforming synthetic tree passes against the SAME policy document, so the
-#    gate is not accidentally passing on properties unique to this checkout.
+# 2. A conforming synthetic tree passes against the same policy document. Thus
+#    the pass does not depend on properties of this checkout.
 mktree T_OK
 assert_exit "conforming synthetic tree passes" 0 bash "$GATE" --repo-root "$T_OK" --policy "$POLICY"
 
@@ -115,14 +106,13 @@ mktree T_NOMANIFEST
 rm -f "$T_NOMANIFEST/.claude-plugin/plugin.json"
 assert_exit "missing plugin.json fails" 1 bash "$GATE" --repo-root "$T_NOMANIFEST" --policy "$POLICY"
 
-# 4. A forbidden file reappearing → fail. `.mcp.json` was deleted on purpose
-#    (2b62e1bf3) and its return double-registers the MCP server.
+# 4. A forbidden file → fail. A `.mcp.json` registers the MCP server a second
+#    time.
 mktree T_MCP
 echo '{"mcpServers":{"exarchos":{"type":"stdio"}}}' > "$T_MCP/.mcp.json"
 assert_exit "forbidden .mcp.json fails" 1 bash "$GATE" --repo-root "$T_MCP" --policy "$POLICY"
 
-# 5. A retired enforcement hook returning → fail. The hook layer is observe-only
-#    (docs/adrs/2026-05-24-hook-layer-observe-only.md).
+# 5. An enforcement hook (`PreToolUse`) → fail. The hook layer is observe-only.
 mktree T_HOOK
 cat > "$T_HOOK/hooks/hooks.json" << 'JSON'
 {
@@ -135,8 +125,8 @@ cat > "$T_HOOK/hooks/hooks.json" << 'JSON'
 JSON
 assert_exit "retired PreToolUse hook fails" 1 bash "$GATE" --repo-root "$T_HOOK" --policy "$POLICY"
 
-# 6. An unsubstituted build-time placeholder → fail. It never resolves on a
-#    consumer's machine, so the hook would be a silent no-op.
+# 6. An unsubstituted build-time placeholder → fail. It does not resolve on the
+#    machine of a consumer, so the hook is a silent no-op.
 mktree T_TOKEN
 cat > "$T_TOKEN/hooks/hooks.json" << 'JSON'
 {
@@ -148,14 +138,14 @@ cat > "$T_TOKEN/hooks/hooks.json" << 'JSON'
 JSON
 assert_exit "unsubstituted {{CLI_PATH}} fails" 1 bash "$GATE" --repo-root "$T_TOKEN" --policy "$POLICY"
 
-# 7. NON-EMPTY DENOMINATOR. A policy that asserts nothing must not read as a
-#    clean run — this is the tooth that keeps a gutted policy from going green.
+# 7. Non-empty denominator. A policy that asserts nothing must not give a clean
+#    run, or an emptied policy passes.
 mktree T_EMPTY
 echo '{}' > "$T_EMPTY/empty-policy.json"
 assert_exit "policy yielding zero checks fails" 1 \
   bash "$GATE" --repo-root "$T_EMPTY" --policy "$T_EMPTY/empty-policy.json"
 
-# 8. FAIL CLOSED. An unreadable policy is a broken instrument; exit 2, never 0.
+# 8. Fail closed. An unreadable policy must exit 2, never 0.
 mktree T_MISSING
 assert_exit "unreadable policy exits 2" 2 \
   bash "$GATE" --repo-root "$T_MISSING" --policy "$T_MISSING/does-not-exist.json"

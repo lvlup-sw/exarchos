@@ -1,22 +1,18 @@
 #!/usr/bin/env bash
-# get-exarchos.test.sh — Tests for tools/release/get-exarchos.sh
+# Tests for tools/release/get-exarchos.sh, in the style of validate-rm.test.sh.
 #
-# Shell-native test harness (mirrors validate-rm.test.sh style).
-# Exercises the 7 behaviors in task 2.5:
+#   1. A dry run prints the install plan and exits 0.
+#   2. Linux x64 selects exarchos-linux-x64.
+#   3. Darwin arm64 selects exarchos-darwin-arm64.
+#   4. A checksum mismatch refuses the install (non-zero exit, no binary).
+#   5. The PATH step writes the exarchos marker block into an empty .bashrc.
+#   6. `--version v2.9.0-rc1` pins the tag in the download URL.
+#   7. `--github-actions` writes the install directory to $GITHUB_PATH.
+#   8. The later cases cover the release manifest gate.
 #
-#   1. Dry-run prints install plan and exits 0
-#   2. Platform detection: Linux x64 → selects exarchos-linux-x64
-#   3. Platform detection: Darwin arm64 → selects exarchos-darwin-arm64
-#   4. Checksum mismatch refuses install (exit non-zero, no binary copied)
-#   5. PATH append writes exarchos marker block into empty .bashrc
-#   6. --version v2.9.0-rc1 pins the tag in the download URL
-#   7. --github-actions writes install dir to $GITHUB_PATH
-#
-# Adversarial posture (per task guidance):
-#   - Checksum happy path uses a real tempfile binary + real sha512 sidecar,
-#     not a mocked validator.
-#   - GitHub API "latest" resolution is overridden via EXARCHOS_LATEST_VERSION
-#     env var so tests are hermetic (no network).
+# The checksum cases use a real temp-file binary and a real sha512 sidecar.
+# EXARCHOS_LATEST_VERSION replaces the GitHub "latest" lookup, so the tests
+# use no network.
 
 set -euo pipefail
 
@@ -61,8 +57,8 @@ teardown() {
     fi
 }
 
-# Build a mock `uname` shim and put it first on PATH so the script
-# under test observes the OS/arch we want.
+# Writes a mock `uname` to $FAKE_BIN. The caller puts $FAKE_BIN first on PATH,
+# so the script under test reads the given OS and architecture.
 #
 # Usage: mock_uname <OS> <ARCH>
 mock_uname() {
@@ -79,11 +75,11 @@ EOF
     chmod +x "$FAKE_BIN/uname"
 }
 
-# Build a mock `curl` shim that serves fixture files from a staging dir
-# keyed off URL fragments. Supports -o <out> and -fsSL style flags.
+# Writes a mock `curl` to $FAKE_BIN. It serves the file in <fixture-dir> that
+# has the name of the last URL segment. It accepts `-o <out>` and the `-fsSL`
+# style flags.
 #
 # Usage: mock_curl <fixture-dir>
-#   fixture-dir must contain files named after the final URL segment.
 mock_curl() {
     local fixtures="$1"
     cat > "$FAKE_BIN/curl" <<EOF
@@ -131,19 +127,17 @@ EOF
 }
 
 # ------------------------------------------------------------
-# DR-20 release-fixture helpers.
+# Release-fixture helpers.
 #
-# Manifest verification is MANDATORY on the install path, so every scenario
-# that expects a successful install has to serve a manifest and a binary that
-# carries a build-identity banner.
+# The install path always verifies the manifest. Thus each scenario that
+# expects an install must serve a manifest and a binary with a build-identity
+# banner.
 #
-# The *cryptographic* half (signature / source / contract / asset digest) is
-# delegated to the shipped verifier, and is covered end-to-end against a real
-# Ed25519-signed manifest by scripts/installer-verify.test.ts. Here the verifier
-# is a stub so that this harness keeps testing what it is for — platform
-# detection, checksums, PATH wiring — while still being forced through the
-# installer-native arms of the gate (banner presence, v2 marker, release
-# binding, source state), which the tests below exercise directly.
+# The shipped verifier does the cryptographic checks (signature, source,
+# contract, asset digest). tests/scripts/installer-verify.test.ts covers them
+# with a real Ed25519-signed manifest. Here the verifier is a stub. The tests
+# below exercise the checks that the installer makes itself: banner presence,
+# the v2 marker, the release binding and the source state.
 # ------------------------------------------------------------
 
 # stage_release_fixture <fixtures-dir> <asset> <version> [sourceState] [marker]
@@ -170,8 +164,10 @@ stage_release_fixture() {
         > "$fixtures/exarchos-release-manifest.json"
 }
 
-# mock_verifier <verdict-exit-code> → exports EXARCHOS_RELEASE_VERIFIER and
-# EXARCHOS_TRUST_ROOT_PEM_FILE for the scenarios below.
+# mock_verifier <verdict-exit-code> writes a stub verifier and a stub trust
+# root, and sets VERIFIER_ENV_VERIFIER and VERIFIER_ENV_PEM to their paths. A
+# scenario passes them as EXARCHOS_RELEASE_VERIFIER and
+# EXARCHOS_TRUST_ROOT_PEM_FILE.
 mock_verifier() {
     local verdict="${1:-0}"
     cat > "$FAKE_BIN/stub-release-verify" <<EOF
@@ -211,7 +207,7 @@ else
     echo "  Output: $OUTPUT"
 fi
 
-# Plan should mention platform, URL, and install dir
+# The plan must name the platform, a URL and the install directory.
 if echo "$OUTPUT" | grep -qi "platform" && \
    echo "$OUTPUT" | grep -q "http" && \
    echo "$OUTPUT" | grep -q "$TEST_INSTALL"; then
@@ -221,7 +217,7 @@ else
     echo "  Output: $OUTPUT"
 fi
 
-# Dry-run MUST NOT create the install directory's binary
+# A dry run must not install the binary.
 if [[ ! -f "$TEST_INSTALL/exarchos" ]]; then
     pass "GetExarchos_DryRun_DoesNotInstallBinary"
 else
@@ -275,14 +271,14 @@ teardown
 # Test 4: GetExarchos_ChecksumMismatch_RefusesInstall
 # --------------------------------------------------
 #
-# Adversarial: we drop a REAL fake binary into a fixture dir, generate a
-# REAL sha512 for DIFFERENT content, and confirm the script refuses.
+# The fixture holds a binary file and the real sha512 of different content.
+# The script must refuse the install.
 setup
 FIXTURES="$TMPDIR_ROOT/fixtures"
 mkdir -p "$FIXTURES"
 # Write a fake binary
 echo "fake-binary-content" > "$FIXTURES/exarchos-linux-x64"
-# Generate the sha512 for DIFFERENT content so the verification fails
+# Generate the sha512 of different content, so the verification fails
 echo "tampered-different-content" | sha512sum | awk '{print $1}' > "$FIXTURES/exarchos-linux-x64.sha512"
 
 mock_uname "Linux" "x86_64"
@@ -321,11 +317,11 @@ teardown
 # Test 4b: Happy path — correct checksum → install succeeds
 # --------------------------------------------------
 #
-# Adversarial posture: real tempfile + real sha512, no mocked validator.
+# The checksum check runs on a real temp file and a real sha512.
 setup
 FIXTURES="$TMPDIR_ROOT/fixtures"
 mkdir -p "$FIXTURES"
-# Create a dummy binary payload + a matching signed-manifest fixture
+# Create a dummy binary, its sha512 sidecar and a stub manifest
 stage_release_fixture "$FIXTURES" "exarchos-linux-x64" "2.9.0"
 
 mock_uname "Linux" "x86_64"
@@ -388,7 +384,7 @@ else
     cat "$TEST_HOME/.bashrc" | sed 's/^/    /'
 fi
 
-# Idempotence: second invocation MUST NOT duplicate the block
+# Idempotence: a second run must not duplicate the block
 HOME="$TEST_HOME" \
 EXARCHOS_INSTALL_DIR="$TEST_INSTALL" \
 EXARCHOS_LATEST_VERSION="v2.9.0" \
@@ -432,7 +428,7 @@ else
     cat "$FIXTURES/.requested_urls" | sed 's/^/    /'
 fi
 
-# Version flag MUST NOT hit the latest-release API
+# With the version flag, the script must not call the latest-release API
 if grep -q "api.github.com" "$FIXTURES/.requested_urls"; then
     fail "GetExarchos_VersionFlag_SkipsLatestApi (unexpectedly hit GitHub API)"
 else
@@ -478,12 +474,12 @@ else
     cat "$GH_PATH_FILE" | sed 's/^/    /'
 fi
 
-# GitHub Actions mode MUST NOT mutate user rc files
+# GitHub Actions mode must not change the user rc files
 if [[ ! -s "$TEST_HOME/.bashrc" ]] 2>/dev/null && \
    [[ ! -s "$TEST_HOME/.zshrc" ]] 2>/dev/null; then
     pass "GetExarchos_GithubActionsMode_DoesNotTouchRcFiles"
 else
-    # Either file may not exist; only fail if any contains the exarchos marker
+    # A file can be absent. Fail only when a file holds the exarchos marker.
     RC_TOUCHED=0
     for rc in "$TEST_HOME/.bashrc" "$TEST_HOME/.zshrc"; do
         if [[ -f "$rc" ]] && grep -q ">>> exarchos >>>" "$rc"; then
@@ -499,7 +495,7 @@ fi
 teardown
 
 # ============================================================
-# TEST: Release manifest verification primitives (P05-01)
+# TEST: Release manifest verification primitives
 # ============================================================
 setup
 REL_DIR="$TMPDIR_ROOT/rel"
@@ -584,12 +580,10 @@ fi
 teardown
 
 # ============================================================
-# TEST: DR-20 — the installer-native arms of the release gate
+# TEST: the checks of the release gate that the installer makes itself
 #
-# The stub verifier below returns "verified" for every one of these, so the
-# ONLY thing that can reject each scenario is the installer's own check. That
-# makes these four independently load-bearing rather than a re-test of the
-# delegated verifier.
+# The stub verifier returns "verified" in each scenario below. Thus only the
+# check of the installer can reject the scenario.
 # ============================================================
 
 # --- manifest missing → refuse, even though the sha512 sidecar matched -------
@@ -623,7 +617,7 @@ teardown
 
 # --- no trust root at all → fail closed, never skip --------------------------
 # The shipped installer pins the publisher key, so this case runs a copy whose
-# trust-root assignment holds the unpinned sentinel again.
+# trust-root assignment holds the unpinned sentinel.
 setup
 FIXTURES="$TMPDIR_ROOT/fixtures"
 mkdir -p "$FIXTURES"

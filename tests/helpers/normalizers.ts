@@ -1,22 +1,19 @@
 import os from 'node:os';
 
 /**
- * Structural clone of `T` with non-deterministic fields replaced by string
- * placeholders. The shape is preserved; only primitive values change.
- *
- * The parameterization is intentionally shallow — callers should not rely on
- * it to prove the replacement at the type level. Its purpose is to preserve
- * generic flow through `normalize()` so call sites don't need casts.
+ * The result type of `normalize()`. It is `T` itself, so call sites need no casts.
+ * The type does not show that placeholders replace some values.
  */
 export type Normalized<T> = T;
 
-// ISO-8601 timestamps, with or without milliseconds, with either `Z` or a
-// numeric offset. Anchored with ^...$ when used on full-string primitives;
-// used unanchored when scanning substrings.
+/**
+ * An ISO-8601 timestamp, with or without milliseconds, with `Z` or a numeric offset.
+ * The pattern has no anchors. `ISO_8601_ANCHORED_RE` adds them to match a full string.
+ */
 const ISO_8601_RE = /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})/;
 const ISO_8601_ANCHORED_RE = new RegExp(`^${ISO_8601_RE.source}$`);
 
-// UUID v4 per RFC 4122 §4.4 (version nibble `4`, variant nibble `8|9|a|b`).
+/** A UUID v4 from RFC 4122: version nibble `4`, and variant nibble `8`, `9`, `a` or `b`. */
 const UUID_V4_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -29,28 +26,26 @@ const REQ_ID_PLACEHOLDER = '<REQ_ID>';
 const WORKTREE_PLACEHOLDER = '<WORKTREE>';
 
 /**
- * Recursively walk `value`, replacing non-deterministic fields with canonical
- * placeholders. Pure, deterministic, no I/O. The input is not mutated — a
- * `structuredClone` is taken first.
+ * Returns a deep copy of `value` with each non-deterministic value replaced by a placeholder.
+ * The function does not change the input, and a second pass changes nothing.
  *
- * Rules (design §4.4):
- *   - ISO-8601 timestamps → `<TIMESTAMP>`
- *   - `_eventSequence`, `sequence` keys → `<SEQ>`
- *   - Absolute paths under `os.tmpdir()` → `<WORKTREE>/<RELATIVE>`
- *   - UUID v4 → `<UUID>`
- *   - MCP request IDs (`id` field on an object where sibling `jsonrpc === '2.0'`)
- *     → `<REQ_ID>`
- *
- * Idempotent: `normalize(normalize(x))` deep-equals `normalize(x)`.
+ * - An ISO-8601 timestamp string becomes `<TIMESTAMP>`.
+ * - The value of a `_eventSequence` or `sequence` key becomes `<SEQ>`.
+ * - A UUID v4 string becomes `<UUID>`.
+ * - An absolute path under `os.tmpdir()` becomes `<WORKTREE>` plus the relative path.
+ * - The `id` of an object with `jsonrpc: '2.0'` becomes `<REQ_ID>`.
+ * - The `requestId` of a transport envelope becomes `<REQ_ID>`.
  */
 export function normalize<T>(value: T): Normalized<T> {
-  // `structuredClone` deep-copies plain JSON-like data. `undefined` inside
-  // objects survives because we walk with Object.keys-style iteration, not
-  // JSON.stringify.
   const cloned = value === undefined ? value : (structuredClone(value) as T);
   return walk(cloned) as Normalized<T>;
 }
 
+/**
+ * Replaces the values of one node and of its children. It sorts the keys of each object,
+ * so two envelopes with different key order become deep-equal. A value that is not a
+ * string, an array or an object passes through unchanged.
+ */
 function walk(node: unknown): unknown {
   if (node === null || node === undefined) return node;
 
@@ -67,8 +62,6 @@ function walk(node: unknown): unknown {
     const isJsonRpc = obj.jsonrpc === '2.0';
     const isTransport = isTransportEnvelope(obj);
     const result: Record<string, unknown> = {};
-    // Sort keys so CLI- and MCP-emitted envelopes deep-equal regardless
-    // of insertion order. Recursive walk inherits the canonicalization.
     for (const key of [...Object.keys(obj)].sort()) {
       const v = obj[key];
       if (SEQUENCE_KEYS.has(key)) {
@@ -88,18 +81,13 @@ function walk(node: unknown): unknown {
     return result;
   }
 
-  // Numbers, booleans, bigints, symbols, functions — pass through unchanged.
   return node;
 }
 
 /**
- * Heuristic for "this object IS the `_transport` envelope itself, so
- * `requestId` on it should be normalized." We can't rely on the parent
- * key name from inside `walk` without threading context, so instead we
- * fingerprint the shape: a small object whose only keys are a subset of
- * the known transport fields. This covers `{ requestId, transport? }`
- * variants emitted by the CLI/MCP adapters without false-positive
- * matching arbitrary user objects that happen to have a `requestId`.
+ * Reports whether `obj` is a `_transport` envelope. `walk` does not know the parent key,
+ * so the function tests the shape: a string `requestId`, and only known transport keys.
+ * An object that has a `requestId` and an unknown key does not match.
  */
 function isTransportEnvelope(obj: Record<string, unknown>): boolean {
   const keys = Object.keys(obj);
@@ -109,8 +97,13 @@ function isTransportEnvelope(obj: Record<string, unknown>): boolean {
   return keys.every((k) => knownKeys.has(k));
 }
 
+/**
+ * Replaces a string that is a timestamp, a UUID or a path under the temp directory.
+ * A placeholder string returns unchanged. The path rule uses `os.tmpdir()` of the current
+ * platform and accepts the `/` separator and the Windows separator. A string that equals
+ * the temp directory becomes `<WORKTREE>` alone.
+ */
 function normalizeString(s: string): string {
-  // Idempotence: already-placeholder strings must not be re-matched.
   if (
     s === TIMESTAMP_PLACEHOLDER ||
     s === SEQ_PLACEHOLDER ||
@@ -123,17 +116,11 @@ function normalizeString(s: string): string {
   if (ISO_8601_ANCHORED_RE.test(s)) return TIMESTAMP_PLACEHOLDER;
   if (UUID_V4_RE.test(s)) return UUID_PLACEHOLDER;
 
-  // Absolute-path-under-tmpdir rule. Posix paths compare byte-wise; Windows
-  // paths should also compare after normalization, but PR 1 scope is whatever
-  // `os.tmpdir()` returns on the running platform.
   const tmp = os.tmpdir();
   if (s.startsWith(tmp + '/') || s === tmp) {
     const rel = s.slice(tmp.length);
-    // If `rel` is empty (s === tmp), emit just `<WORKTREE>`. If it starts
-    // with `/`, preserve it to form `<WORKTREE>/...`.
     return `${WORKTREE_PLACEHOLDER}${rel}`;
   }
-  // Handle Windows-style backslash separator too, for forward compatibility.
   if (s.startsWith(tmp + '\\')) {
     const rel = s.slice(tmp.length).replace(/\\/g, '/');
     return `${WORKTREE_PLACEHOLDER}${rel}`;

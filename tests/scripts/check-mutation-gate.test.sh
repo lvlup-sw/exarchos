@@ -1,33 +1,27 @@
 #!/usr/bin/env bash
-# Self-test for check-mutation-gate.mjs (task 004, DR-7/DR-10).
+# Self-test for check-mutation-gate.mjs.
 #
-# Builds a throwaway, self-contained git fixture repo under a tmpdir (no
-# network, no real Stryker run — the composed-path smoke test that exercises
-# the REAL adapter/runner already lives in task 012). The fixture repo's
-# `.exarchos.yml` `mutation:` entry resolves to a tiny node script
-# (fixture-runner.mjs) that just `cat`s a chosen Stryker-report JSON fixture
-# to stdout — this drives `handleMutationAdequacy`'s REAL parse/aggregate/
-# DR-6-axis/degrade logic deterministically, through the REAL bun-invoked
-# server entrypoint (see check-mutation-gate.mjs's header for why Bun, not
-# tsx/npx, is the invocation seam), without ever shelling out to Stryker.
+# The test builds a git fixture repo in a temp directory. It uses no network and
+# does not run Stryker. The `mutation:` entry in the fixture `.exarchos.yml`
+# runs fixture-runner.mjs, which prints a chosen Stryker report fixture. The
+# gate calls the real handler through its real bun bridge, and the handler
+# parses that report.
 #
 # Requires a real `bun` on PATH (the same tool test-mcp already sets up via
-# `oven-sh/setup-bun@v2` for compiled-binary-mcp.test.ts) for every
-# scenario except the deliberately-broken --bun-bin case. If this job is
-# later wired into grep-gates (DR-10), that job needs the same bun setup
-# step — grep-gates does not currently install bun.
+# `oven-sh/setup-bun@v2`). Without `bun`, the script exits 1 before the first
+# case. Cases 1, 2 and 7 to 10 run the handler under `bun`.
 #
-# Directions exercised (DR-7 acceptance criteria + task 004 file spec):
-#   1. Fabricated NoCoverage-exceeding diff  → FAILS (DR-6 axis)   exit 1
-#   2. All-covered diff (kill-probe control) → PASSES              exit 0
-#   3. Empty server-scoped diff              → logged SKIP         exit 0
-#   4. Non-`pull_request` event              → logged SKIP         exit 0
-#   5. Git failure (unfetchable base)        → FAILS CLOSED        exit 2
-#   6. Missing tooling (--bun-bin bogus)      → FAILS CLOSED        exit 2
-#   7. Degraded carrier (malformed report)    → FAILS (blocking)    exit 1
-#   8. Degraded carrier + --observe           → never blocks        exit 0
-#   9. NoCoverage failure + --observe         → never blocks        exit 0
-#  10. No resolvable toolchain (missing .exarchos.yml) → FAILS      exit 1
+# Cases:
+#   1. NoCoverage over budget in the diff     → fails            exit 1
+#   2. All mutants killed (positive control)  → passes           exit 0
+#   3. Empty `src/**` diff (base == head)     → logged SKIP      exit 0
+#   4. Event other than `pull_request`        → logged SKIP      exit 0
+#   5. Git failure (root is not a git repo)   → fails closed     exit 2
+#   6. Missing tool (bad `--bun-bin`)         → fails closed     exit 2
+#   7. Malformed report (degraded result)     → fails            exit 1
+#   8. Malformed report with `--observe`      → does not block   exit 0
+#   9. NoCoverage failure with `--observe`    → does not block   exit 0
+#  10. No `.exarchos.yml` (no toolchain)      → fails            exit 1
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
@@ -70,8 +64,8 @@ git -C "$FIXTURE" add -A
 git -C "$FIXTURE" commit -q -m change
 HEAD_SHA="$(git -C "$FIXTURE" rev-parse HEAD)"
 
-# fixture mutation "runner" — cats whichever report fixture it's pointed at,
-# ignoring the handler-appended `--since=<base>` (argv[3]) entirely.
+# The fixture mutation runner prints the report file that argv[2] names. It
+# ignores every other argument.
 FIXTURE_RUNNER="$TMP/fixture-runner.mjs"
 cat > "$FIXTURE_RUNNER" <<'EOF'
 import { readFileSync } from 'node:fs';

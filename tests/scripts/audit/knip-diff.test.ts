@@ -109,13 +109,13 @@ describe('loadAllowlist', () => {
     expect(() => loadAllowlist([{ symbol: 'x', file: 'src/foo.ts' }])).toThrow(/schema validation/);
   });
 
+  /** Each shipped entry has an owner, a rationale, and an expiry date or the permanent flag. */
   it('the SHIPPED knip-allowlist.json conforms to the schema', () => {
     const raw = JSON.parse(
       readFileSync(fileURLToPath(new URL('../../../tools/audit/knip-allowlist.json', import.meta.url)), 'utf8'),
     );
     const entries = loadAllowlist(raw);
     expect(entries.length).toBeGreaterThan(0);
-    // every entry carries the accountability contract
     for (const e of entries) {
       expect(e.owner.length).toBeGreaterThan(0);
       expect(e.rationale.length).toBeGreaterThan(0);
@@ -124,17 +124,19 @@ describe('loadAllowlist', () => {
   });
 });
 
+/**
+ * These cases pin the `splitTags` rule of knip (`node_modules/knip/dist/util/tag.js`).
+ * The rule splits each entry on `,`, takes the first `[a-zA-Z]+` run, and adds
+ * an `@` prefix. Only a leading `-` makes the tag an exclusion. If the gate
+ * uses a different rule, it measures a tag that knip does not apply.
+ */
 describe('readExclusionTags — mirrors knip\'s own tag normalisation', () => {
-  // These cases pin knip's `splitTags` rule (node_modules/knip/dist/util/tag.js):
-  // split each entry on `,`, take the FIRST [a-zA-Z]+ run, prefix `@`; only a
-  // leading `-` makes it an EXCLUSION. If the gate normalised differently it
-  // would take its denominator against a tag knip never applied.
   it('reads a leading-dash entry as the exclusion tag knip will match', () => {
     expect(readExclusionTags({ tags: ['-proof'] })).toEqual([{ name: 'proof', jsDocTag: '@proof' }]);
   });
 
+  /** knip resolves `-proof-alias` to `@proof`, not to `@proof-alias`. */
   it('truncates at the first non-alphabetic character, exactly as knip does', () => {
-    // knip resolves `-proof-alias` to `@proof`, NOT `@proof-alias`.
     expect(readExclusionTags({ tags: ['-proof-alias'] })).toEqual([
       { name: 'proof', jsDocTag: '@proof' },
     ]);
@@ -147,9 +149,8 @@ describe('readExclusionTags — mirrors knip\'s own tag normalisation', () => {
     ]);
   });
 
+  /** An include filter narrows the report of knip and exempts nothing, so it needs no denominator. */
   it('does NOT treat an include filter (`+tag` / bare) as an exemption', () => {
-    // `+tag` NARROWS what knip reports; it exempts nothing, so it carries no
-    // denominator obligation and must not be mistaken for one.
     expect(readExclusionTags({ tags: ['+proof', 'internal'] })).toEqual([]);
   });
 
@@ -168,10 +169,11 @@ describe('readExclusionTags — mirrors knip\'s own tag normalisation', () => {
 });
 
 describe('runKnipDiff — the exemption denominator (DR-24)', () => {
+  /**
+   * The config declares the `@proof` tag, but no symbol carries it. The sweep
+   * then exempts nothing, and its clean result proves nothing.
+   */
   it('FAILS CLOSED (exit 2) when the exclusion tag matches ZERO symbols', () => {
-    // The vacuous-gate failure this probe exists to prevent: `@proof` is still
-    // declared but nothing carries it any more, so the sweep is exempting
-    // nothing and its clean result means nothing.
     const { deps, err } = captureDeps({
       run: foundRun(knipReport([])),
       allowlist: [],
@@ -182,10 +184,12 @@ describe('runKnipDiff — the exemption denominator (DR-24)', () => {
     expect(err.join('\n')).toMatch(/@proof/);
   });
 
+  /**
+   * When the `project` globs of knip match no file, both readings are empty.
+   * Without the denominator, the gate prints an OK verdict for a sweep that
+   * read nothing.
+   */
   it('FAILS CLOSED (exit 2) when knip resolves zero files, instead of reporting clean', () => {
-    // Same probe, different cause. A knip whose `project` globs match nothing
-    // emits an empty report for BOTH readings. Without the denominator the gate
-    // would print "0 findings, OK" — the strongest form of a silently dead gate.
     const { deps, err, out } = captureDeps({
       run: foundRun(emptyReport, 0),
       allowlist: [],
@@ -244,9 +248,11 @@ describe('runKnipDiff — the exemption denominator (DR-24)', () => {
     expect(out.join('\n')).toMatch(/denominator: `@proof` exempts 1 unreferenced/);
   });
 
+  /**
+   * The tag filter of knip does not apply to a whole-file finding. A dead file
+   * in the count is false evidence that the tag rule matches a symbol.
+   */
   it('counts only exports and types — a `file` finding is not a tagged symbol', () => {
-    // knip's tag filter never applies to whole-file findings. Counting one would
-    // let an unrelated dead FILE stand in as evidence that the tag rule is live.
     const { deps, err } = captureDeps({
       run: foundRun(knipReport([])),
       allowlist: [],
@@ -258,19 +264,19 @@ describe('runKnipDiff — the exemption denominator (DR-24)', () => {
 });
 
 describe('runKnipDiff — the exemption is bounded (kill probe)', () => {
+  /**
+   * The tag rule exempts only a symbol that carries the `@proof` tag. A live
+   * denominator does not hide a dead export that has no tag.
+   */
   it('a dead export that does NOT carry the convention still FAILS the sweep', () => {
-    // THE load-bearing property. The `@proof` rule must exempt the proof idiom
-    // specifically, never "any unreferenced exported symbol". A live denominator
-    // does not buy silence for anything outside it.
     const { deps, err } = captureDeps({ run: foundRun(oneExportIssue), allowlist: [] });
     expect(runKnipDiff(deps)).toBe(EXIT_VIOLATIONS);
     expect(err.join('\n')).toMatch(/unallowlisted/);
     expect(err.join('\n')).toMatch(/deadFn/);
   });
 
+  /** An author reads the red CI log, not the comments in the source, so the failure text states the convention. */
   it('teaches the `@proof` convention in the failure an author actually reads', () => {
-    // The convention has to be discoverable from the guard's own output — a
-    // comment beside the aliases is not reachable from a red CI log.
     const { deps, err } = captureDeps({ run: foundRun(oneExportIssue), allowlist: [] });
     expect(runKnipDiff(deps)).toBe(EXIT_VIOLATIONS);
     const report = err.join('\n');
@@ -341,10 +347,11 @@ describe('runKnipDiff — fail-closed gate (DR-8)', () => {
     expect(err.join('\n')).toMatch(/unparseable-output/);
   });
 
+  /** The entry has no owner, no expiry and no rationale. */
   it('FAILS CLOSED (exit 2) when the allowlist file itself is malformed', () => {
     const { deps, err } = captureDeps({
       run: foundRun(oneExportIssue),
-      allowlist: [{ symbol: 'deadFn', file: 'src/foo.ts' }], // missing owner/expiry/rationale
+      allowlist: [{ symbol: 'deadFn', file: 'src/foo.ts' }],
     });
     expect(runKnipDiff(deps)).toBe(EXIT_GATE_ERROR);
     expect(err.join('\n')).toMatch(/bad-allowlist/);

@@ -1,20 +1,16 @@
 /**
- * Tests for the multi-release legacy-render hash manifest generator
- * (Task 023, DR-8).
+ * Tests for the generator of `tools/migrations/legacy-skill-render-hashes.json`.
  *
- * The manifest (`tools/migrations/legacy-skill-render-hashes.json`) records the
- * newline-normalized content hash of every per-runtime skill render across
- * immutable release tags (>= v2.9.0) — release tags ONLY, never a drifting
- * HEAD pseudo-release — so a later `cleanStaleFiles` pass can prove a
- * consumer's on-disk skill file provably came from us before deleting it.
- * Two properties are load-bearing and pinned here:
+ * The manifest holds the newline-normalized hash of each per-runtime skill render
+ * at each release tag in the legacy window. A cleanup pass can then prove that
+ * a skill file on disk came from a release before it deletes the file.
+ * The tests pin two properties:
+ *   1. CRLF and LF content hash to the same value, so an install that differs
+ *      only by line endings still matches.
+ *   2. The generator reads git objects and never the working tree. A concurrent
+ *      skills regeneration then cannot change its output.
  *
- *   1. The hash is newline-normalized (CRLF and LF content hash identically),
- *      so a consumer whose install differs only by line endings still matches.
- *   2. The generator reads GIT OBJECTS, never the working tree — mutating or
- *      removing worktree `skills/` files must not change its output. This is
- *      what keeps a concurrent skills-regeneration deletion from orphaning a
- *      legitimately-installed render.
+ * The generator is a plain `.mjs` module without a declaration file. `allowJs` infers its types.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync, mkdtempSync, existsSync } from 'node:fs';
@@ -32,22 +28,20 @@ import {
   MAX_RELEASE_EXCLUSIVE,
   parseVersionTag,
   compareVersionTags,
-  // The generator is ESM `.mjs`; vitest resolves it fine from a `.ts` test.
-  // No declarations for the plain-JS generator; `allowJs` infers them.
 } from '../../tools/release/generate-legacy-skill-hashes.mjs';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
-/** Numeric compare of `[maj,min,patch]` against MIN_RELEASE. */
+/**
+ * Returns whether the `[major, minor, patch]` base of `tag` is at least `MIN_RELEASE`.
+ * A tuple with fewer than three positions is malformed input, so the function throws.
+ */
 function baseAtLeastMin(tag: string): boolean {
   const v = parseVersionTag(tag);
   if (!v) return false;
   for (let i = 0; i < 3; i++) {
     const got = v.base[i];
     const want = MIN_RELEASE[i];
-    // A tuple shorter than three positions is a malformed input, not a version
-    // that sorts low — saying so beats comparing against `undefined`. The `as`
-    // this replaces asserted the length rather than checking it.
     if (got === undefined || want === undefined) {
       throw new Error(`version tuple has no position ${i}: ${tag}`);
     }
@@ -57,17 +51,15 @@ function baseAtLeastMin(tag: string): boolean {
 }
 
 describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
+  /**
+   * Each release ref that holds skill renders must appear in a new manifest and
+   * in the committed manifest. The refs are release tags only, at or above
+   * `MIN_RELEASE`. A `HEAD` entry changes with each tree change and churns the
+   * committed manifest. The committed file must equal a new build byte for byte.
+   */
   it('legacyHashManifest_CoversAllReleaseTags', () => {
-    // Every enumerated release ref that carries skill renders must appear in
-    // the manifest. We enumerate independently, drop refs with no renders
-    // (per the acceptance wording "that had skill renders"), and assert
-    // coverage against a freshly-built manifest.
     const refs = enumerateReleaseRefs() as string[];
 
-    // Sanity: enumeration is release tags ONLY — no HEAD pseudo-release —
-    // and honors the >= v2.9.0 floor, so every ref is a qualifying v2.* tag.
-    // (A HEAD entry would drift on every tree change and churn the committed
-    // manifest, which is why the owner decision dropped it.)
     expect(refs).not.toContain('HEAD');
     expect(refs.length).toBeGreaterThan(0);
     for (const t of refs) {
@@ -92,9 +84,6 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
       expect(n, `release ${ref} has no entries`).toBeGreaterThan(0);
     }
 
-    // The committed manifest on disk is the deliverable — it must also cover
-    // every render-bearing ref (the generator is byte-idempotent, so the
-    // committed file equals a fresh build).
     expect(existsSync(MANIFEST_PATH)).toBe(true);
     const committed = JSON.parse(readFileSync(MANIFEST_PATH, 'utf8'));
     const committedReleases = new Set(committed.releases as string[]);
@@ -107,33 +96,33 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     expect(serializeManifest(manifest)).toBe(readFileSync(MANIFEST_PATH, 'utf8'));
   });
 
+  /**
+   * Content that differs only by CRLF and LF must hash to the same value, as a
+   * string and as a `Buffer`. An install with Windows line endings then still
+   * matches the record. Content with different text must not collide.
+   */
   it('legacyHashManifest_HashesAreNewlineNormalized', () => {
-    // A render that differs only by CRLF vs LF must hash identically, so a
-    // consumer install with Windows line endings still matches our record.
     const lf = 'line one\nline two\nline three\n';
     const crlf = 'line one\r\nline two\r\nline three\r\n';
     const mixed = 'line one\r\nline two\nline three\r\n';
 
     expect(normalizeAndHash(crlf)).toBe(normalizeAndHash(lf));
     expect(normalizeAndHash(mixed)).toBe(normalizeAndHash(lf));
-    // Buffer input (as read from git) normalizes the same way.
     expect(normalizeAndHash(Buffer.from(crlf, 'utf8'))).toBe(
       normalizeAndHash(lf),
     );
-    // Content that genuinely differs must NOT collide.
     expect(normalizeAndHash('line one\nline two\n')).not.toBe(
       normalizeAndHash(lf),
     );
-    // Digest shape.
     expect(normalizeAndHash(lf)).toMatch(/^[0-9a-f]{64}$/u);
   });
 
   /**
    * The generator reads git objects, never the working tree. A sandbox git
-   * repository holds one committed render in the layout the generator lists.
+   * repository holds one committed render in the layout that the generator lists.
    * The test overwrites that file and adds an untracked render beside it, and
-   * the manifest must not change (#2030). The manifest must name the render
-   * first, so the comparison cannot pass on two empty manifests.
+   * the manifest must not change. The manifest must name the render first, so
+   * the comparison cannot pass on two empty manifests.
    */
   it('legacyHashGenerator_WorktreeStateIrrelevant_SameOutput', async () => {
     const render = 'skills/claude/ideate/SKILL.md';
@@ -158,14 +147,15 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     }
   });
 
+  /**
+   * The legacy window is `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)`. Without the upper
+   * bound, a new `v2.12.x` tag makes a new manifest differ from the committed one.
+   * The synthetic tags span both bounds. `v2.12.0-preview.1` has the base of the
+   * upper bound, so the window excludes it. Enumeration reads only `git tag`, so
+   * lightweight tags on an empty commit are sufficient.
+   * The result is in ascending order, with the prerelease before its release.
+   */
   it('legacyHashManifest_ExcludesReleasesAtOrAboveMaxBound', async () => {
-    // The legacy window is frozen at [MIN_RELEASE, MAX_RELEASE_EXCLUSIVE): the
-    // rename release (v2.12.0) and everything after carry no old-name per-runtime
-    // renders, and — critically — an unbounded set makes a fresh buildManifest()
-    // diverge from the committed manifest the instant a v2.12.x tag exists, so a
-    // future release (or any CI run after it) would red the byte-equality check.
-    // Enumerate against a synthetic tag set spanning both bounds; only in-window
-    // tags survive (lightweight tags need no trees — enumeration is `git tag` only).
     const repo = mkdtempSync(path.join(tmpdir(), 'legacy-hash-bound-'));
     const g = (...args: string[]) =>
       execFileAsync('git', args, { cwd: repo });
@@ -173,18 +163,17 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
       await g('init', '-q');
       await g('-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'seed');
       for (const t of [
-        'v2.8.9', // below MIN — excluded
-        'v2.11.0-rc.1', // in-window prerelease
-        'v2.11.0', // in-window release
-        'v2.12.0-preview.1', // == MAX base — excluded (the rename release)
-        'v2.13.5', // above MAX — excluded
+        'v2.8.9',
+        'v2.11.0-rc.1',
+        'v2.11.0',
+        'v2.12.0-preview.1',
+        'v2.13.5',
       ]) {
         await g('tag', t);
       }
 
       const refs = enumerateReleaseRefs({ cwd: repo }) as string[];
 
-      // Ascending, prerelease before release, bounded on BOTH sides.
       expect(refs).toEqual(['v2.11.0-rc.1', 'v2.11.0']);
       expect(refs).not.toContain('v2.8.9');
       expect(refs).not.toContain('v2.12.0-preview.1');
@@ -194,9 +183,8 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     }
   });
 
+  /** Pins the constants: the upper bound is the rename release `v2.12.0`, and the window is not empty. */
   it('MAX_RELEASE_EXCLUSIVE_IsTheRenameBoundaryAboveMin', () => {
-    // Guards the constants themselves: the window is non-empty and the upper bound
-    // is the rename release the spec ships (v2.12.0).
     expect(MAX_RELEASE_EXCLUSIVE).toEqual([2, 12, 0]);
     const [maxMajor, maxMinor] = MAX_RELEASE_EXCLUSIVE;
     const [minMajor, minMinor] = MIN_RELEASE;
@@ -211,8 +199,8 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
     expect(maxMajor > minMajor || (maxMajor === minMajor && maxMinor > minMinor)).toBe(true);
   });
 
+  /** Pins `compareVersionTags`, which sets the order of the manifest. */
   it('release enumeration is version-ordered with prereleases before release', () => {
-    // Guards the comparator the manifest ordering depends on.
     const sample = [
       'v2.10.0',
       'v2.9.0-rc.1',

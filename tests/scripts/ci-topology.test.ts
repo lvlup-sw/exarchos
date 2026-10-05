@@ -1,52 +1,27 @@
 /**
- * CI-topology conformance test (DR-2, wave-S enforcement-substrate spec;
- * DR-10, internal-mechanics-residue spec).
+ * Conformance tests for the CI topology in `.github/workflows/ci.yml`. They parse
+ * the workflow with `js-yaml`.
  *
- * `ci-gate.needs` is a hand-edited list that has already drifted once
- * (`e2e-process` carried a "Blocking gate" comment while being absent from
- * `needs:` — it could never fail a PR). This test makes that class of drift
- * a vitest failure by parsing `.github/workflows/ci.yml` with js-yaml
- * (already a root dep — see scripts/ci-workflow-shape.test.ts for the same
- * pattern) and asserting:
+ *   1. Path filters and hosts. The `changes` filters must cover the projection
+ *      roots, and `ci-gate` dependencies must run the `core` and `unit` projects.
+ *   2. Completeness. Each top-level job is in `ci-gate.needs` or in the
+ *      non-blocking allowlist. A job outside `ci-gate.needs` can never fail a PR.
+ *   3. Execution policy. The tests run the `Evaluate results` script of the
+ *      aggregator verbatim on synthetic `needs` contexts and check its exit status.
  *
- *   1. Completeness (DR-2) — every top-level job key is either in
- *      `ci-gate.needs` or in the non-blocking allowlist below (rationale +
- *      issue ref). Checked by structural containment over the parsed YAML.
- *   2. Execution policy (DR-10) — the aggregator's `Evaluate results` script
- *      is EXECUTED, verbatim, over synthetic `needs` contexts, and its exit
- *      status is asserted lane by lane. That subsumes what DR-2's original
- *      assertions 2 and 3 checked by grepping the script's text.
- *
- * The `ci-gate` job itself is excluded from the completeness scan: it is
- * the aggregator, not a dependency of itself, and cannot sensibly appear in
- * its own `needs:` or in a "non-blocking" allowlist (it IS the blocking
- * mechanism).
- *
- * ── Why the text-matching coverage helpers are gone (task 091) ─────────────
- * DR-2 originally asserted "every lane has a `failure|cancelled` clause" and
- * "every path-filtered lane has a skip-guard" by extracting `if [[ … ]]`
- * conditions from the script and matching tokens against them, with decoy
- * fixtures proving a comment or an `echo` could not stand in for a removed
- * guard. Those helpers, and the four fixtures defending them, described a
- * shape the aggregator no longer has: the per-lane clauses were replaced by
- * one policy applied to the `needs` context, so there is no per-lane text to
- * match. Nothing was relaxed. The decoy attack the fixtures existed to catch
- * — guard deleted, tokens surviving in a comment or a print statement — is
- * not merely detected but impossible against execution: a gutted script
- * exits 0 on a context it should reject, and every case below reddens.
- * `unlisted-job.yml` is still used, by the completeness fixture test.
- *
- * This test's own unfiltered execution host (a grep-gates tsx-tail step,
- * `npx --no-install vitest run scripts/ci-topology.test.ts`) is wired by
- * task 007.
+ * Execution replaces text matching on the script. A script that lost a guard
+ * exits 0 on a context that it must reject. A comment or an `echo` cannot stand
+ * in for the guard.
+ * `globMatches` comes from the guard inventory, so both read the workflow globs
+ * the same way.
+ * The `grep-gates` lane has no path filter and also runs this file. A PR that
+ * the `root` filter does not match thus still runs these tests.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
-// The repo's own glob semantics, so this agrees with the guard inventory's
-// reading of the same workflow rather than inventing a second one.
 import { globMatches } from '../../tools/audit/gates/guard-inventory.js';
 import { execFileAsync, spawnAsync } from '../../tools/test-helpers/spawn.js';
 
@@ -56,10 +31,10 @@ const REPO_ROOT = resolve(__dirname, '../..');
 const CI_WORKFLOW_PATH = join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
 const FIXTURES_DIR = join(__dirname, '__fixtures__', 'ci-topology');
 
-/** The aggregator job's name. Excluded from its own completeness scan (see header doc). */
+/** The aggregator job. The completeness scan skips it, because it cannot be in its own `needs:` list. */
 const AGGREGATOR_JOB = 'ci-gate';
 
-/** The aggregator step whose script this test executes. */
+/** The aggregator step whose script the tests run. */
 const EVALUATE_STEP_NAME = 'Evaluate results';
 
 interface WorkflowStep {
@@ -67,7 +42,7 @@ interface WorkflowStep {
   readonly run?: string;
   readonly uses?: string;
   readonly with?: Record<string, unknown>;
-  /** Literal booleans or GitHub expression strings such as `${{ true }}`. */
+  /** A literal boolean, or a GitHub expression string such as `${{ true }}`. */
   readonly 'continue-on-error'?: boolean | string;
   readonly env?: Record<string, unknown>;
 }
@@ -83,17 +58,17 @@ interface Workflow {
   readonly jobs: Record<string, WorkflowJob>;
 }
 
-/**
- * The non-blocking allowlist (DR-4 measured dispositions). Reviewable in the
- * same diff that adds a top-level job outside `ci-gate.needs` — this lives
- * in the test file itself, never a separate config (per the DR-2 acceptance
- * criteria and docs/guides/ci-gate-hosting.md's allowlist contract).
- */
 interface AllowlistEntry {
   rationale: string;
   issue?: string;
 }
 
+/**
+ * The top-level jobs that can stay outside `ci-gate.needs`, each with its reason.
+ * The list is in this test file and not in a separate config. The diff that adds
+ * such a job then also shows the allowlist edit.
+ * `docs/guides/ci-gate-hosting.md` states the contract for an entry.
+ */
 const NON_BLOCKING_ALLOWLIST: Record<string, AllowlistEntry> = {
   'e2e-process': {
     rationale:
@@ -116,14 +91,19 @@ function loadWorkflow(filePath: string): Workflow {
   return doc;
 }
 
+/**
+ * Returns the `needs` of a job as an array. The check is `typeof === 'string'`,
+ * because `Array.isArray` does not narrow a `string | readonly string[]` union.
+ */
 function needsList(job: WorkflowJob | undefined): string[] {
   if (!job || !job.needs) return [];
-  // `typeof === 'string'`, not `Array.isArray`: the latter does not narrow a
-  // `string | readonly string[]` union, so the scalar branch kept the union.
   return typeof job.needs === 'string' ? [job.needs] : [...job.needs];
 }
 
-/** Locates the aggregator's evaluate step (script + its `env:` block). */
+/**
+ * Returns the evaluate step of the aggregator, with its script and its `env:` block.
+ * Without a step of that name, it returns the first step that has a `run` script.
+ */
 function evaluateStep(workflow: Workflow): WorkflowStep {
   const gate = workflow.jobs[AGGREGATOR_JOB];
   if (!gate) {
@@ -144,13 +124,13 @@ interface CheckResult {
   violations: string[];
 }
 
-/** Assertion 1: completeness. */
+/** Lists each job that is not the aggregator, not in `ci-gate.needs` and not in the allowlist. */
 function checkCompleteness(workflow: Workflow): CheckResult {
   const gate = workflow.jobs[AGGREGATOR_JOB];
   const needs = new Set(needsList(gate));
   const violations: string[] = [];
   for (const jobName of Object.keys(workflow.jobs)) {
-    if (jobName === AGGREGATOR_JOB) continue; // the aggregator itself — see header doc
+    if (jobName === AGGREGATOR_JOB) continue;
     if (needs.has(jobName)) continue;
     if (NON_BLOCKING_ALLOWLIST[jobName]) continue;
     violations.push(jobName);
@@ -159,9 +139,9 @@ function checkCompleteness(workflow: Workflow): CheckResult {
 }
 
 /**
- * Derives the `changes.outputs.<key>` set a job's `if:` expression is gated
- * on, by parsing `needs.changes.outputs.<key>` out of the raw `if:` text —
- * never a hardcoded job→key table.
+ * Returns the `changes` output keys that gate a job. It reads each
+ * `needs.changes.outputs.<key>` in the raw `if:` text, and uses no hardcoded
+ * table of jobs and keys.
  */
 function pathFilterKeys(job: WorkflowJob | undefined): string[] {
   const ifText = job?.if ?? '';
@@ -174,22 +154,11 @@ function pathFilterKeys(job: WorkflowJob | undefined): string[] {
   return [...keys];
 }
 
-// ─── DR-10: a lane's execution is not optional ──────────────────────────────
-//
-// The aggregator declares its skip policy as `LICENSED_SKIPS` — newline-
-// separated `lane=changesOutputKey` entries naming the ONLY lanes whose
-// `skipped` result is legitimate. Everything not named there is strict: a skip
-// is a hard failure. The helpers below (a) parse that declaration, (b) derive
-// the same mapping independently from each lane's own `if:` expression, and
-// (c) run the shipped script over synthetic `needs` contexts.
-//
-// (a) vs (b) is the anti-transcription check: the declaration is data, so it
-// COULD drift from the filters it describes. Deriving the truth from the `if:`
-// text and demanding exact equality is what stops that — the workflow's real
-// path filters remain the single source, and the declaration is only allowed
-// to restate them exactly.
-
-/** Parses the aggregator's `LICENSED_SKIPS` env declaration into lane → changes-output key. */
+/**
+ * Parses the `LICENSED_SKIPS` declaration of the aggregator into a map from lane
+ * to `changes` output key. The `lane=key` entries name the only lanes that can
+ * report `skipped`. Each other lane is strict: a skip is a failure.
+ */
 function declaredLicensedSkips(step: WorkflowStep): Map<string, string> {
   const raw = step.env?.LICENSED_SKIPS;
   const map = new Map<string, string>();
@@ -205,12 +174,11 @@ function declaredLicensedSkips(step: WorkflowStep): Map<string, string> {
 }
 
 /**
- * Derives lane → changes-output key from the lanes' own `if:` expressions: a
- * lane that gates on `needs.changes.outputs.<key>` can legitimately skip when
- * that key is not 'true'; a lane that gates on nothing cannot legitimately
- * skip at all. `multiKeyLanes` collects any lane gating on more than one key —
- * the `lane=key` declaration format cannot express those, so the conformance
- * test fails rather than silently checking the wrong thing.
+ * Derives the same map from the `if:` expression of each lane. A lane that gates
+ * on `needs.changes.outputs.<key>` can skip when that key is not 'true'. A lane
+ * with no gate cannot skip.
+ * `multiKeyLanes` collects each lane that gates on more than one key. The
+ * `lane=key` format cannot express such a lane, so the conformance test fails.
  */
 function derivedLicensedSkips(workflow: Workflow): {
   map: Map<string, string>;
@@ -232,9 +200,9 @@ function derivedLicensedSkips(workflow: Workflow): {
 }
 
 /**
- * The conformance comparison itself, factored out so the live check and the
- * path-filter kill fixture below exercise one implementation rather than two
- * hand-aligned copies of the same equality.
+ * Returns whether the declared map equals the derived map. The declaration is
+ * data and can drift from the path filters, so the `if:` text stays the source.
+ * The live check and the path-filter kill test both call this one comparison.
  */
 function licensedSkipsMatchPathFilters(workflow: Workflow, step: WorkflowStep): boolean {
   const { map: derived, multiKeyLanes } = derivedLicensedSkips(workflow);
@@ -247,10 +215,10 @@ function licensedSkipsMatchPathFilters(workflow: Workflow, step: WorkflowStep): 
   return flatten(declaredLicensedSkips(step)) === flatten(derived);
 }
 
-/** A synthetic `needs` context: what GitHub hands the aggregator via `toJSON(needs)`. */
+/** A synthetic `needs` context, in the shape that `toJSON(needs)` gives the aggregator. */
 type NeedsContext = Record<string, { result: string; outputs?: Record<string, string> }>;
 
-/** Every declared `changes` output, defaulted to 'true' (the "this PR touched everything" case). */
+/** Returns each `changes` output key that a lane gates on, set to 'true', as for a PR that touches each area. */
 function changesOutputsAllTrue(workflow: Workflow): Record<string, string> {
   const outputs: Record<string, string> = {};
   for (const lane of needsList(workflow.jobs[AGGREGATOR_JOB])) {
@@ -260,17 +228,17 @@ function changesOutputsAllTrue(workflow: Workflow): Record<string, string> {
 }
 
 /**
- * Builds a green `needs` context (every lane `success`, every changes output
- * 'true'), then applies the given overrides. The lane set is taken from the
- * workflow's own `needs:` list, so these cases follow the aggregator rather
- * than pinning a copy of the lane names.
+ * Builds a green `needs` context and then applies the overrides. In a green
+ * context each lane is `success` and each gated `changes` output is 'true'.
+ * The lanes come from the `needs:` list of the workflow, so the cases pin no
+ * copy of the lane names.
  */
 function synthesizeNeeds(
   workflow: Workflow,
   overrides: {
     results?: Record<string, string>;
     changesOutputs?: Record<string, string>;
-    /** Keys REMOVED from `changes.outputs` — a rename or deletion upstream. */
+    /** The keys to remove from `changes.outputs`, as a rename or a deletion upstream does. */
     dropChangesOutputs?: readonly string[];
     extraLanes?: Record<string, string>;
   } = {},
@@ -301,11 +269,9 @@ interface AggregatorRun {
 }
 
 /**
- * Executes the aggregator's shipped script verbatim against a synthetic
- * `needs` context. This is real execution of the workflow's own bash — not a
- * re-implementation of its policy — which is why the script must contain no
- * `${{ }}` interpolation (asserted below) and take every GitHub value through
- * `env:`.
+ * Runs the shipped script of the aggregator verbatim on a synthetic `needs`
+ * context. So the script must hold no `${{ }}` interpolation, and must take each
+ * GitHub value through `env:`.
  */
 async function runAggregator(
   workflow: Workflow,
@@ -328,20 +294,13 @@ async function runAggregator(
   };
 }
 
-// ─── DR-22: projection roots cannot change unobserved in CI ─────────────────
-//
-// The `changes` job's `dorny/paths-filter@v3` step configures its filters via
-// a single YAML *block-scalar string* (`with.filters: |`), not nested YAML
-// nodes — `js-yaml` parses that string as opaque text on the first pass. The
-// helper below re-parses that string as YAML on a SECOND pass to recover the
-// actual `root`/`mcp`/`prompts` glob arrays, so the assertions below check
-// the filter's REAL structure rather than regex-matching the workflow's raw
-// text (per the boundary note: parse the real file, don't loosely pattern
-// match it).
-
 const PATHS_FILTER_JOB = 'changes';
 
-/** Parses the `dorny/paths-filter` step's `with.filters` block scalar as YAML. */
+/**
+ * Returns the filters of the `dorny/paths-filter` step. `with.filters` is one
+ * YAML block scalar, so the first `js-yaml` pass leaves it as a string. This
+ * function parses that string as YAML, so the tests read the real glob arrays.
+ */
 function getPathsFilters(workflow: Workflow): Record<string, unknown> {
   const job = workflow.jobs[PATHS_FILTER_JOB];
   if (!job) {
@@ -367,7 +326,7 @@ function getPathsFilters(workflow: Workflow): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
-/** Returns the glob list for a single named filter (e.g. `root`), or `[]` if absent/malformed. */
+/** Returns the globs of one named filter, such as `root`. An absent or malformed filter gives `[]`. */
 function filterGlobs(filters: Record<string, unknown>, filterName: string): string[] {
   const value = filters[filterName];
   if (!Array.isArray(value)) return [];
@@ -375,40 +334,24 @@ function filterGlobs(filters: Record<string, unknown>, filterName: string): stri
 }
 
 /**
- * Projection-root globs the `root` path filter MUST contain (DR-22
- * acceptance criteria, verbatim): the shipped agent, command-alias, hook,
- * and Claude-plugin-manifest surfaces, plus the top-level `AGENTS.md`.
- * Without these, a PR that only deletes/mutates one of these paths never
- * flips `needs.changes.outputs.root` to `'true'`, so `test-root` (and the
- * `skills:guard` / `hooks:guard` drift guards it hosts) never runs.
- *
- * Two coverage-closing additions ride the same contract:
- *   - `src/runtime/agents/**` — the agent-GENERATOR sources
- *     that feed the rendered `agents/**` projection; without it a
- *     generator-only PR ships drift unobserved and `skills:guard` only
- *     fires on some LATER PR that touches the rendered output.
- *   - `.github/workflows/release.yml` — `scripts/release-workflow.test.ts`
- *     (hosted in the root suite) parses release.yml, so a release.yml-only
- *     PR must flip `root` or the workflow's own contract test never runs
- *     on the PR that changes it.
+ * The globs that the `root` path filter must hold. Without one of them, a PR
+ * that changes only that path does not set `needs.changes.outputs.root` to
+ * 'true'. Then `test-root` and the drift guards that it hosts do not run.
  */
 const REQUIRED_ROOT_PROJECTION_GLOBS = [
-  // Was `agents/**` + `command-aliases/**` + `commands/**` + `rules/**` +
-  // `skills/**` until the DR-4 block folded all five into one generated tree.
-  // This list went on naming them, and the assertion below only ever asked
-  // whether the filter CONTAINED each glob — never whether the glob matched a
-  // file — so it kept passing while every one of them matched nothing and the
-  // protection it encodes was void. `MatchAtLeastOneTrackedFile` is the tooth
-  // that was missing.
+  /** The generated tree that holds the agents, command aliases, commands, rules and skills. */
   'rendered/**',
   'hooks/**',
   '.claude-plugin/**',
   'AGENTS.md',
+  /** The agent generator sources. The drift guard must run on the PR that changes a generator. */
   'src/runtime/agents/**',
+  /** `tests/scripts/release-workflow.test.ts`, in the root suite, parses this workflow. */
   '.github/workflows/release.yml',
-  // Fail-open registers the architecture liveness closer reads. A PR that
-  // only edits one of these must still flip `root`, or the live-oracle
-  // teeth skip while the register evaporates.
+  /**
+   * This file and the next three entries are registers that the architecture
+   * liveness tests read. A PR that changes only one of them must still set `root`.
+   */
   '.github/CODEOWNERS',
   'knip.json',
   '.exarchos/**',
@@ -419,23 +362,22 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
-/** `npm run <script>` at the start of a run step, not a suffix or an echo. */
+/** Matches `npm run <script>` at the start of a run step. A suffixed name or an echo does not match. */
 function npmRunInvocation(scriptName: string): RegExp {
   return new RegExp(`^npm run ${escapeRegExp(scriptName)}(?:\\s|$)`);
 }
 
 /**
- * True iff `cmd` is a vitest invocation selecting exactly `project`. The
- * option has to be one of vitest's own arguments: `echo --project unit` names
- * the option without running anything, and `vitest && echo --project unit`
- * hands it to a later command — either would otherwise satisfy a topology pin
- * while the project it names is collected by nobody. `--project core-extra`
- * must not count for `core` — `\b` after `core` still matches a hyphen.
+ * Returns whether `cmd` is a vitest invocation that selects exactly `project`.
+ * The option must be an argument of vitest itself. `echo --project unit` runs
+ * nothing, and `vitest && echo --project unit` gives the option to a later command.
+ * `--project core-extra` does not count for `core`. The pattern ends at white
+ * space or at the end of the text, because `\b` also matches before a hyphen.
+ *
+ * Only the first shell command belongs to vitest. The function cuts at `;`, `|`,
+ * `&` and a newline before it matches, so `\s+` cannot span a newline.
  */
 function isVitestProjectCommand(cmd: string, project: string): boolean {
-  // Only the first shell command is vitest's: cut at `;`, either `|` form,
-  // either `&` form (a backgrounded vitest included), or a newline BEFORE
-  // matching the invocation, so `\s+` cannot swallow a newline boundary.
   const head = cmd.trim().split(/[;|&\r\n]/, 1)[0] ?? '';
   const invocation = /^(?:npx\s+)?vitest(?:\s+|$)/.exec(head);
   if (invocation === null) return false;
@@ -443,21 +385,22 @@ function isVitestProjectCommand(cmd: string, project: string): boolean {
   return new RegExp(`(?:^|\\s)--project ${escapeRegExp(project)}(?:\\s|$)`).test(args);
 }
 
-/** True iff `cmd` runs the `core` vitest project. */
+/** Returns whether `cmd` runs the `core` vitest project. */
 function isCoreProjectCommand(cmd: string): boolean {
   return isVitestProjectCommand(cmd, 'core');
 }
 
 /**
- * Only an absent field or a literal `false` is a required host. Expression
- * strings (`${{ true }}`) stay strings after YAML parse and are soft-fail.
+ * A step is a required host only when `continue-on-error` is absent or a literal
+ * `false`. An expression string such as `${{ true }}` stays a string after the
+ * YAML parse, and counts as soft-fail.
  */
 function isRequiredHostStep(step: WorkflowStep): boolean {
   const softFail = step['continue-on-error'];
   return softFail === undefined || softFail === false;
 }
 
-/** True iff some step in `job` runs the given `npm run <script>` invocation. */
+/** Returns whether a step in `job` runs `npm run <script>`. */
 function jobRunsNpmScript(job: WorkflowJob | undefined, scriptName: string): boolean {
   const steps = job?.steps ?? [];
   const re = npmRunInvocation(scriptName);
@@ -465,8 +408,8 @@ function jobRunsNpmScript(job: WorkflowJob | undefined, scriptName: string): boo
 }
 
 /**
- * True iff a step's `run` value *is* `npm run <script>` (optional trailing
- * args), not an echo or comment that merely mentions the name.
+ * Returns whether a required step in `job` runs `npm run <script>`, with optional
+ * trailing arguments. An echo of the script name does not count.
  */
 function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: string): boolean {
   const steps = job?.steps ?? [];
@@ -477,10 +420,9 @@ function jobRunsCoreProjectScript(job: WorkflowJob | undefined, scriptName: stri
 }
 
 /**
- * True iff `scripts[name]` runs `--project unit`, directly or through ONE hop
- * of `npm run <alias>` — `test:run` is `npm run test:unit`, and CI invokes the
- * alias. One hop is what the tree has; a deeper chain is a new shape to pin,
- * not one to resolve silently.
+ * Returns whether `scripts[name]` runs `--project unit`, directly or through one
+ * hop of `npm run <alias>`. `test:run` is `npm run test:unit`, and CI calls the alias.
+ * The tree has one hop. A deeper chain is a new shape to pin, so the function rejects it.
  */
 function isUnitProjectScript(scripts: Record<string, string>, name: string, hops = 0): boolean {
   const cmd = scripts[name];
@@ -502,13 +444,14 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     );
   });
 
+  /**
+   * Membership is not protection. After a directory rename, a glob stays in the
+   * filter and selects nothing. The gated job then does not run on the PRs that it polices.
+   * A skipped required job reads as passed.
+   * A negation selects by exclusion and can match nothing, so the test skips each
+   * glob that starts with `!`.
+   */
   it('Filters_EveryGlob_MatchesAtLeastOneTrackedFile', async () => {
-    // Membership is not protection. A filter listing `agents/**` reads as
-    // covering the agents, and goes on reading that way after the directory is
-    // renamed — the entry is still there, it just selects nothing, and the job
-    // it gates stops firing on exactly the PRs it exists to police. A skipped
-    // required job reads as passed (#1711), so this fails silent in the
-    // direction that looks green.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const filters = getPathsFilters(workflow);
     const tracked = (await execFileAsync('git', ['ls-files'], { cwd: REPO_ROOT }))
@@ -519,7 +462,6 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     let checked = 0;
     for (const name of Object.keys(filters)) {
       for (const glob of filterGlobs(filters, name)) {
-        // Negations select by exclusion and legitimately match nothing.
         if (glob.startsWith('!')) continue;
         checked += 1;
         if (!tracked.some((f) => globMatches(glob, f))) dead.push(`${name}: ${glob}`);
@@ -530,12 +472,16 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(dead, 'path-filter globs matching no tracked file').toEqual([]);
   });
 
+  /**
+   * The `core` vitest project collects `auditLayerBoundaries`. Linux hosts that
+   * project as `test:coverage`, and Windows hosts it as `test:core`. Each platform
+   * must keep a required `run:` step for `--project core`, on a job that `ci-gate` needs.
+   *
+   * The decoys prove the matchers. An echo of the script name, a soft-fail step
+   * and a suffixed script name are not hosts. An expression in `continue-on-error`
+   * stays a string after the YAML parse, so that step is soft-fail too.
+   */
   it('LayerCensus_HostScripts_AreRunStepsOnBothPlatforms', () => {
-    // `auditLayerBoundaries` is collected by the `core` vitest project.
-    // Linux hosts that project as `test:coverage`; Windows hosts it as
-    // `test:core`. A substring in a comment is not a host. Both platforms
-    // that ship must keep a `run:` step whose script expands to
-    // `--project core`, on a job `ci-gate` actually needs.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {
       scripts?: Record<string, string>;
@@ -558,7 +504,6 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(runners, 'Linux does not host the layer census').toContain('ubuntu-latest');
     expect(runners, 'Windows does not host the layer census').toContain('windows-latest');
 
-    // Teeth: an echo that names the script is not a run step.
     const decoy: WorkflowJob = {
       'runs-on': 'ubuntu-latest',
       steps: [{ run: 'echo "npm run test:coverage"' }],
@@ -571,8 +516,6 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     };
     expect(jobRunsCoreProjectScript(soft, 'test:coverage')).toBe(false);
 
-    // A suffixed script name is not the host (`\b` after `coverage` still
-    // matches `coverage-extra` because `-` is a non-word character).
     const prefixed: WorkflowJob = {
       'runs-on': 'ubuntu-latest',
       steps: [{ run: 'npm run test:coverage-extra' }],
@@ -580,7 +523,6 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(jobRunsCoreProjectScript(prefixed, 'test:coverage')).toBe(false);
     expect(jobRunsNpmScript(prefixed, 'test:coverage')).toBe(false);
 
-    // Expression-valued continue-on-error stays a string after YAML parse.
     const expressionSoft: WorkflowJob = {
       'runs-on': 'ubuntu-latest',
       steps: [{ run: 'npm run test:coverage', 'continue-on-error': '${{ true }}' }],
@@ -606,14 +548,13 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(isCoreProjectCommand('vitest\necho --project core')).toBe(false);
   });
 
+  /**
+   * The `unit` vitest project collects the architecture oracles. CI hosts it as
+   * `npm run test:run`, an alias of `test:unit`. Without this pin, a workflow edit
+   * can drop the step and leave those oracles uncollected while each job stays green.
+   * The test resolves the alias through `package.json` and does not match it by name.
+   */
   it('LayerCensus_UnitProjectHostScripts_AreRunStepsOnBothPlatforms', () => {
-    // The architecture oracles — the event-authority declaration conjunct and
-    // the raw-reader census among them — are collected by the `unit` vitest
-    // project, which CI hosts as `npm run test:run`, an alias of `test:unit`.
-    // The core pin above says nothing about that lane, so a workflow edit that
-    // dropped the step would leave those oracles collected by nothing while
-    // every job stayed green. Same shape as the core pin, with the alias chain
-    // resolved through package.json rather than matched by name.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const pkg: { scripts?: Record<string, string> } = JSON.parse(
       readFileSync(join(REPO_ROOT, 'package.json'), 'utf8'),
@@ -664,10 +605,14 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     expect(isUnitProjectScript(scripts, 'test:absent')).toBe(false);
   });
 
+  /**
+   * `hooks:guard` is an alias of `render:guard`. A CI job must run
+   * `npm run render:guard`, and each such job must gate on the `root` output of
+   * `changes`. The `root` filter holds the projection roots, so the guard then
+   * runs on a PR that changes one of them.
+   */
   it('Guards_HooksGuardRunsInCI_AndIsRootFiltered', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    // `hooks:guard` must actually execute in some job (a real CI step, not
-    // just an npm script that exists but is never wired in).
     const jobNamesWithHooksGuard = Object.entries(workflow.jobs)
       .filter(([, job]) => jobRunsNpmScript(job, 'render:guard'))
       .map(([name]) => name);
@@ -675,9 +620,6 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
       0,
     );
 
-    // The job(s) running it must be gated on the `root` change-filter key —
-    // otherwise the guard exists in CI but never fires on the PRs that need
-    // it (the exact DR-22 failure mode).
     for (const jobName of jobNamesWithHooksGuard) {
       const keys = pathFilterKeys(workflow.jobs[jobName]);
       expect(keys, `job "${jobName}" running render:guard is not gated on any changes.outputs key`).toContain(
@@ -686,12 +628,9 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
     }
   });
 
+  /** `skills:guard` is an alias of `render:guard`, so this test makes the same two checks as the test above. */
   it('Guards_SkillsGuardCoversCommandAliasesAndAgents_RunsInCI_AndIsRootFiltered', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
-    // `skills:guard` (src/install/skills-guard.ts) is the drift guard for BOTH
-    // `command-aliases/` and `agents/` (it regenerates and diffs both trees
-    // — see the runSkillsGuard implementation). Assert it actually runs in
-    // CI and is gated on `root`, same as hooks:guard above.
     const jobNamesWithSkillsGuard = Object.entries(workflow.jobs)
       .filter(([, job]) => jobRunsNpmScript(job, 'render:guard'))
       .map(([name]) => name);
@@ -727,34 +666,36 @@ describe('CI-topology conformance (DR-2)', () => {
   });
 });
 
+/**
+ * The tests that do not run the script are structural preconditions for the
+ * tests that run it. The script must run outside GitHub, its lane list must be
+ * the `needs` context itself, and its skip licences must match the path filters.
+ */
 describe('CI-gate execution policy (DR-10)', () => {
-  // ── Structural preconditions ────────────────────────────────────────────
-  //
-  // These three make the executable assertions below meaningful: the script
-  // must be runnable outside GitHub (no `${{ }}`), its lane list must BE the
-  // needs context rather than a copy of it, and its skip licences must match
-  // the path filters they claim to describe.
-
+  /**
+   * GitHub substitutes a `${{ }}` in the script body before bash reads it. These
+   * tests cannot run such a script, and the substitution is a shell-injection surface.
+   */
   it('Aggregator_EvaluateScript_TakesEveryGitHubValueThroughEnv', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const step = evaluateStep(workflow);
-    // A `${{ }}` in the script body would be pasted in by GitHub before bash
-    // ever sees it — untestable here, and a shell-injection surface besides.
     expect(
       (step.run as string).includes('${{'),
       'the evaluate script interpolates ${{ }}; move that value into the step\'s env: block so the script stays executable verbatim',
     ).toBe(false);
   });
 
+  /**
+   * With `toJSON(needs)`, a lane that joins `needs:` appears in the context with
+   * no edit to the policy. So the policy cannot omit a lane.
+   */
   it('Aggregator_LaneList_IsTheNeedsContextItself', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const step = evaluateStep(workflow);
-    // `toJSON(needs)` is what makes the lane list underivable-by-hand: a lane
-    // added to `needs:` appears here with no edit to the policy, so it cannot
-    // be omitted from it.
     expect(String(step.env?.NEEDS_JSON ?? '').trim()).toBe('${{ toJSON(needs) }}');
   });
 
+  /** The size check stops a vacuous pass when both maps are empty, as when each path filter is gone. */
   it('Aggregator_LicensedSkips_RestateThePathFiltersExactly', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const step = evaluateStep(workflow);
@@ -766,8 +707,6 @@ describe('CI-gate execution policy (DR-10)', () => {
       'lane(s) gate on multiple changes.outputs keys; the LICENSED_SKIPS "lane=key" format cannot express that',
     ).toEqual([]);
 
-    // Guards the comparison against passing vacuously if every path filter
-    // were removed at once (both sides empty).
     expect(derived.size, 'no path-filtered lane found — the comparison below would be vacuous').toBeGreaterThan(0);
 
     const asSorted = (m: Map<string, string>): string[] =>
@@ -778,15 +717,13 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(licensedSkipsMatchPathFilters(workflow, step)).toBe(true);
   });
 
+  /**
+   * A path filter on `grep-gates` makes the host lane of the enforcement gates
+   * skippable. The derived map picks up the new filter, the declaration does not
+   * restate it, and the conformance check fails until someone declares the licence.
+   * `Aggregator_GrepGatesSkipped_Reddens` covers the skip at run time. This check fails earlier.
+   */
   it('Aggregator_LaneGainsAPathFilterWithoutALicence_Reddens', () => {
-    // The task's kill fixture in its structural form. Giving `grep-gates` a
-    // path filter is the change that would make the substrate's host lane
-    // skippable, and it must not be landable quietly: the derived mapping
-    // picks the new filter up, the declaration no longer restates it, and
-    // this conformance check goes red until someone states the licence
-    // deliberately. (A skip of the lane reddens at runtime either way — see
-    // Aggregator_GrepGatesSkipped_Reddens — so the filter can never become a
-    // silent pass; this is the earlier, louder tripwire.)
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const step = evaluateStep(workflow);
     const grepGates = workflow.jobs['grep-gates'];
@@ -811,17 +748,14 @@ describe('CI-gate execution policy (DR-10)', () => {
     ).toBe(false);
   });
 
-  // ── Executable assertions: the shipped script, run for real ─────────────
-
   it('Aggregator_AllLanesSucceed_Passes', async () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const run = await runAggregator(workflow, synthesizeNeeds(workflow));
     expect(run.status, run.output).toBe(0);
   });
 
+  /** The lanes come from the real `needs:` list. The exit status is the proof, not a text match on the script. */
   it('Aggregator_AnyLaneFailingOrCancelled_Reddens', async () => {
-    // Supersedes DR-2's "evaluate coverage" grep: derived over the real
-    // `needs:` list, and proven by exit status rather than text matching.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const lanes = needsList(workflow.jobs[AGGREGATOR_JOB]);
     expect(lanes.length).toBeGreaterThan(0);
@@ -835,10 +769,8 @@ describe('CI-gate execution policy (DR-10)', () => {
     }
   });
 
+  /** Each lane with no declared licence must fail the gate when it reports `skipped`. */
   it('Aggregator_UnlicensedLaneSkipped_Reddens', async () => {
-    // The headline DR-10 case. Every lane with no declared legitimate skip —
-    // `grep-gates`, `manifest-gate`, `outcome-tests`, `validate-no-legacy`
-    // and `changes` — must fail the gate when it does not run.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const licensed = declaredLicensedSkips(evaluateStep(workflow));
     const unlicensed = needsList(workflow.jobs[AGGREGATOR_JOB]).filter((l) => !licensed.has(l));
@@ -851,22 +783,23 @@ describe('CI-gate execution policy (DR-10)', () => {
     }
   });
 
+  /**
+   * The derived loop above covers `grep-gates`, and this test names the lane
+   * explicitly. The lane hosts the enforcement gates. If a path filter makes it
+   * skip, CI Gate must fail.
+   */
   it('Aggregator_GrepGatesSkipped_Reddens', async () => {
-    // Named explicitly, not just covered by the derived loop above: this is
-    // the kill fixture the task specifies. `grep-gates` hosts the whole
-    // enforcement substrate, so if a future PR gives it a path filter that
-    // excludes the changed files, the lane skips — and CI Gate must redden
-    // rather than print success.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const run = await runAggregator(workflow, synthesizeNeeds(workflow, { results: { 'grep-gates': 'skipped' } }));
     expect(run.status, `grep-gates skipped but the gate passed:\n${run.output}`).not.toBe(0);
     expect(run.output).toContain('grep-gates');
   });
 
+  /**
+   * The policy is total over the `needs` context. A new lane with no licence is
+   * strict from the moment it joins, so an omission fails closed.
+   */
   it('Aggregator_LaneAddedToNeedsWithoutPolicyEdit_Reddens', async () => {
-    // The structural claim, made executable: the policy is TOTAL over the
-    // needs context, so a lane nobody has licensed is governed the moment it
-    // is added. Omission fails closed.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const run = await runAggregator(
       workflow,
@@ -876,9 +809,8 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(run.output).toContain('future-lane');
   });
 
+  /** A licensed skip must pass. If it fails, the gate is noise and someone weakens it. */
   it('Aggregator_LicensedLaneSkippedUnderItsFilter_Passes', async () => {
-    // The other half of the contract: a legitimate skip must NOT redden, or
-    // the gate becomes noise and gets weakened back.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const licensed = declaredLicensedSkips(evaluateStep(workflow));
     expect(licensed.size).toBeGreaterThan(0);
@@ -895,12 +827,13 @@ describe('CI-gate execution policy (DR-10)', () => {
     }
   });
 
+  /**
+   * A licence names a `changes` output. A key that `changes` does not declare
+   * reads as not 'true', the same as a declared 'false'. So the script must also
+   * check that `changes` declares the key. If not, a renamed or deleted output
+   * lets each lane on that key skip while CI Gate reports success.
+   */
   it('Aggregator_LicenceKeyNotDeclaredByChanges_Reddens', async () => {
-    // THE THIRD DECLARATION SITE. A licence names a `changes` output, and
-    // `changes_output` returned the empty string both for a declared 'false'
-    // and for a key that does not exist — so renaming or deleting an entry in
-    // the `changes` `outputs:` block licensed every lane keyed on it to skip,
-    // with CI Gate reporting success. Nothing tied LICENSED_SKIPS to that block.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const licensed = declaredLicensedSkips(evaluateStep(workflow));
     expect(licensed.size).toBeGreaterThan(0);
@@ -921,10 +854,11 @@ describe('CI-gate execution policy (DR-10)', () => {
     }
   });
 
+  /**
+   * A filtered lane that skips while its own filter key is 'true' is a
+   * regression of the path filter or the matrix. It is not a licensed skip.
+   */
   it('Aggregator_LicensedLaneSkippedDespiteItsFilterFiring_Reddens', async () => {
-    // Supersedes DR-2's "skip-guard coverage" grep, and preserves the wave-S
-    // DR-3 guarantee: a filtered lane that skips when its own filter says the
-    // area DID change is a path-filter/matrix regression, not a licence.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const licensed = declaredLicensedSkips(evaluateStep(workflow));
     expect(licensed.size).toBeGreaterThan(0);
@@ -942,10 +876,12 @@ describe('CI-gate execution policy (DR-10)', () => {
     }
   });
 
+  /**
+   * A licence reads the `changes` outputs. When `changes` does not succeed, its
+   * outputs are empty. Empty outputs must not read as "nothing changed" and
+   * license each skip.
+   */
   it('Aggregator_LicensedSkipWhileChangeDetectionDidNotSucceed_Reddens', async () => {
-    // A licence is read off the `changes` outputs, so it is only as good as
-    // that lane. If change detection did not succeed its outputs are empty,
-    // which would otherwise read as "nothing changed" and license everything.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const licensed = declaredLicensedSkips(evaluateStep(workflow));
     const [lane] = [...licensed.keys()];
@@ -966,9 +902,8 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(run.status, `an unclassifiable result was treated as passing:\n${run.output}`).not.toBe(0);
   });
 
+  /** An aggregator that cannot read the context cannot prove that a lane ran, so it must fail. */
   it('Aggregator_UnreadableNeedsContext_Reddens', async () => {
-    // If the aggregator cannot read the context, it cannot prove any lane
-    // ran — the one thing it exists to prove.
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     for (const malformed of ['', 'not json', '[]', 'null', '{}']) {
       const run = await runAggregator(workflow, malformed);

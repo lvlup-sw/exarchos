@@ -1,33 +1,21 @@
 /**
- * Self-tests for the plugin-packaging gate (task 064, DR-24).
+ * Self-tests for the plugin-packaging gate (`tools/audit/gates/validate-plugin.mjs`).
  *
- * The gate's expectations are DATA (`.claude-plugin/packaging-policy.json`), so
- * these tests split cleanly in two:
+ * The expectations of the gate are data in `.claude-plugin/packaging-policy.json`, so the
+ * tests have two parts:
  *
- *   A. THE INTERPRETER is correct — every policy clause produces a check, and
- *      each clause can actually fail. Seeded trees, no repo state.
- *   B. THE SHIPPED POLICY still describes the shipped package — including the
- *      four clauses that had drifted the other way before this task, each of
- *      which is pinned here against the tree AND against the green assertions in
- *      src/install/plugin-validation.test.ts, so a future edit cannot resurrect the
- *      divergence in either direction.
+ *   A. The interpreter. Each policy clause gives a check, and each check can fail. These
+ *      tests use seeded trees, not the repository tree.
+ *   B. The shipped policy. It must describe the shipped package.
  *
- * Regression anchor: on 2026-08-07 the gate demanded `.mcp.json` (deleted in
- * 2b62e1bf3), demanded plugin.json `hooks` (removed in e334a392b), demanded a
- * `SessionEnd` hook (dropped by DR-7 task 016) and forbade `SessionStart`
- * (shipped per #1485). It was step 1 of an `&&` chain no workflow ran, so five
- * of its nine checks were wrong for months without anyone paying a cost.
- *
- * The gate is authored as ESM `.mjs`; NodeNext resolution requires the explicit
- * extension at import time.
+ * The gate is an `.mjs` module with no `.d.ts` file. `allowJs` in `tests/tsconfig.json`
+ * lets the checker infer its types.
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-// The gate has no `.d.ts`, but `allowJs` lets the checker read the `.mjs` and
-// infer one, so this import is typed rather than suppressed.
 import {
   evaluatePackaging,
   isClean,
@@ -63,9 +51,8 @@ const shippedPolicy = (): Record<string, unknown> =>
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 /**
- * A conforming synthetic tree: the minimum that satisfies the shipped policy.
- * Built as a plain map so a test can delete or corrupt exactly one entry and
- * watch exactly one check flip.
+ * The minimum file tree that satisfies the shipped policy. It is a plain map, so a test
+ * can delete or change one entry and see one check fail.
  */
 function conformingFiles(): Record<string, string> {
   return {
@@ -87,15 +74,14 @@ function conformingFiles(): Record<string, string> {
 
 const CONFORMING_DIRS = ['rendered/commands', 'rendered/skills'];
 
-/** An in-memory TreeReader over the maps above. */
+/**
+ * An in-memory `TreeReader` over a file map and a directory list. `readText` narrows with
+ * one lookup, because `Object.hasOwn` does not narrow the value type for the checker.
+ */
 function memoryTree(files: Record<string, string>, dirs: string[] = CONFORMING_DIRS) {
   return {
     fileExists: (rel: string) => Object.hasOwn(files, rel),
     dirExists: (rel: string) => dirs.includes(rel),
-    // Narrowed by reading once, not by `Object.hasOwn`: the guard proves the
-    // key is present but tells the checker nothing about the value, so the
-    // reader's return type stayed `string | undefined` and did not satisfy
-    // `TreeReader`. Same throw, same message, one lookup.
     readText: (rel: string): string => {
       const text = files[rel];
       if (text === undefined) throw new Error(`ENOENT: ${rel}`);
@@ -133,9 +119,8 @@ describe('validate-plugin — the interpreter (task 064, DR-24)', () => {
     expect(isClean(report)).toBe(false);
   });
 
+  /** A `hooks` field in `plugin.json` registers the hooks a second time, so the policy forbids it. */
   it('ValidatePlugin_ForbiddenManifestFieldPresent_Fails', () => {
-    // The exact regression that made the OLD gate wrong, now asserted in the
-    // direction the repo actually decided: declaring `hooks` double-registers.
     const files = conformingFiles();
     const manifest = JSON.parse(fileAt(files, '.claude-plugin/plugin.json')) as Record<string, unknown>;
     manifest.hooks = './hooks/hooks.json';
@@ -161,6 +146,7 @@ describe('validate-plugin — the interpreter (task 064, DR-24)', () => {
     expect(check(report, 'dir.rendered/skills')?.passed).toBe(false);
   });
 
+  /** The named server stays present, so only the exactness clause fails. */
   it('ValidatePlugin_ExtraBundledMcpServer_Fails', () => {
     const files = conformingFiles();
     const manifest = JSON.parse(fileAt(files, '.claude-plugin/plugin.json')) as Record<string, unknown>;
@@ -168,7 +154,6 @@ describe('validate-plugin — the interpreter (task 064, DR-24)', () => {
     files['.claude-plugin/plugin.json'] = JSON.stringify(manifest);
     const report: Report = evaluatePackaging(shippedPolicy(), memoryTree(files));
     expect(check(report, 'manifest.mcp-servers.exact')?.passed).toBe(false);
-    // The named server is still present — only the exactness clause trips.
     expect(check(report, 'manifest.mcp-server.exarchos')?.passed).toBe(true);
   });
 
@@ -182,9 +167,11 @@ describe('validate-plugin — the interpreter (task 064, DR-24)', () => {
     expect(check(report, 'hooks.exact')?.passed).toBe(false);
   });
 
+  /**
+   * A hook type that is not expected and not retired is still a new enforcement surface.
+   * Only the `exact` clause catches it.
+   */
   it('ValidatePlugin_UnlistedHookType_FailsTheExactnessClause', () => {
-    // A hook type nobody retired and nobody expected is still a new enforcement
-    // surface arriving by the back door — `exact` is what catches it.
     const files = conformingFiles();
     const hooks = JSON.parse(fileAt(files, 'hooks/hooks.json')) as { hooks: Record<string, unknown> };
     hooks.hooks.Notification = [{ hooks: [{ type: 'command', command: 'exarchos whatever' }] }];
@@ -213,12 +200,12 @@ describe('validate-plugin — the interpreter (task 064, DR-24)', () => {
     expect(check(report, 'hooks.token.{{CLI_PATH}}')?.passed).toBe(false);
   });
 
+  /**
+   * With invalid JSON, the parse clause fails. Each `expected` clause and the `exact`
+   * clause also fail, because the declared set is unknown. The token sweep reads the raw
+   * text, so it passes. The run still fails.
+   */
   it('ValidatePlugin_UnparseableHooksJson_FailsTheParseButStillSweepsTheText', () => {
-    // Readable-but-invalid JSON: the parse clause fails, and every hook-TYPE
-    // clause fails with it because the declared set is unknown. The token sweep
-    // is textual, so it genuinely did read its subject and honestly reports a
-    // clean sweep — the run still fails, on the clauses that could not be
-    // evaluated rather than on one that could.
     const files = conformingFiles();
     files['hooks/hooks.json'] = '{ not json';
     const report: Report = evaluatePackaging(shippedPolicy(), memoryTree(files));
@@ -247,9 +234,11 @@ describe('validate-plugin — non-empty denominator (task 064, DR-24)', () => {
     expect(renderReport(report)).toContain('**Result: FAIL**');
   });
 
+  /**
+   * No package can satisfy a policy that lists one hook as expected and as retired. The
+   * report must name the policy as the fault, not the package.
+   */
   it('ValidatePlugin_SelfContradictoryHookPolicy_IsReportedAsAPolicyViolation', () => {
-    // A hook listed as both expected and retired makes the policy unsatisfiable.
-    // That is a broken instrument, not a broken package, and it must say so.
     const policy = clone(shippedPolicy()) as { hooks: { retired: { type: string }[] } };
     policy.hooks.retired.push({ type: 'SessionStart' });
     const report: Report = evaluatePackaging(policy, memoryTree(conformingFiles()));
@@ -264,43 +253,43 @@ describe('validate-plugin — non-empty denominator (task 064, DR-24)', () => {
   });
 });
 
-// ─── The strict schema (task 085) ───────────────────────────────────────────
-//
-// The interpreter reads each family as `policy.<key> ?? []`, so an unrecognised
-// key is not a name it fails on — it is a family it never looks for. The
-// non-empty tooth above only fires when ALL families vanish at once, so a single
-// typo silently drops one family's checks and the gate still exits 0.
-
+/**
+ * The interpreter treats an absent family as empty, so it never looks for a family under
+ * a misspelled key. The zero-checks rule fails only when all families are absent. Thus
+ * one typo removes the checks of one family while the gate exits 0, unless the schema
+ * rejects the unknown key.
+ */
 describe('validate-plugin — the policy is validated before it is interpreted', () => {
-  /** How many checks the shipped policy produces against a conforming tree. */
   const baselineCheckCount = (): number =>
     (evaluatePackaging(shippedPolicy(), memoryTree(conformingFiles())) as Report).checks.length;
 
+  /**
+   * The typo changes one character of `requiredFiles`. The test first proves that the
+   * `file.` checks are gone. Thus the violation reports a real loss of coverage, not a
+   * harmless key.
+   */
   it('ValidatePluginPolicy_UnknownTopLevelKey_IsReportedAsFinding', () => {
     const policy = clone(shippedPolicy()) as Record<string, unknown>;
     const before = baselineCheckCount();
 
-    // The exact typo: one character, one family gone.
     policy['requiredfiles'] = policy['requiredFiles'];
     delete policy['requiredFiles'];
 
     const report: Report = evaluatePackaging(policy, memoryTree(conformingFiles()));
 
-    // The DEFECT, measured: checks really did disappear. Asserting this first
-    // means the violation below is attributable to a real loss of coverage
-    // rather than to a schema that objects to a harmless key.
     expect(report.checks.length).toBeLessThan(before);
     expect(report.checks.filter((c) => c.id.startsWith('file.'))).toEqual([]);
 
-    // And the gate now says so, by name, instead of exiting 0.
     expect(report.violations.join('\n')).toContain('[policy-unknown-key]');
     expect(report.violations.join('\n')).toContain('requiredfiles');
     expect(isClean(report)).toBe(false);
   });
 
+  /**
+   * Three families have misspelled keys. Each remaining check passes and the zero-checks
+   * rule stays silent, so only the three unknown-key violations fail the run.
+   */
   it('ValidatePluginPolicy_ThreeDroppedFamilies_NoLongerExitZero', () => {
-    // The measured case from the finding: three families dropped at once, every
-    // remaining check still passing, so the non-empty tooth stays silent.
     const policy = clone(shippedPolicy()) as Record<string, unknown>;
     for (const [wrong, right] of [
       ['requiredfiles', 'requiredFiles'],
@@ -318,9 +307,11 @@ describe('validate-plugin — the policy is validated before it is interpreted',
     expect(isClean(report)).toBe(false);
   });
 
+  /**
+   * A nested typo also removes its family. The schema thus checks the keys one level down
+   * and the keys of an array entry.
+   */
   it('ValidatePluginPolicy_TypoOneLevelDown_IsAlsoReported', () => {
-    // A nested typo drops its family exactly as completely, so the schema is
-    // recursive rather than a root-level key list.
     const nested = clone(shippedPolicy()) as { hooks: Record<string, unknown> };
     nested.hooks['retried'] = nested.hooks['retired'];
     delete nested.hooks['retired'];
@@ -329,7 +320,6 @@ describe('validate-plugin — the policy is validated before it is interpreted',
     expect(hooksReport.violations.join('\n')).toContain('hooks.retried');
     expect(hooksReport.checks.filter((c) => c.id.startsWith('hooks.retired.'))).toEqual([]);
 
-    // …and inside an array entry.
     const entry = clone(shippedPolicy()) as { requiredFiles: Record<string, unknown>[] };
     entry.requiredFiles[0]!['pth'] = entry.requiredFiles[0]!['path'];
     delete entry.requiredFiles[0]!['path'];
@@ -340,9 +330,8 @@ describe('validate-plugin — the policy is validated before it is interpreted',
     expect(isClean(entryReport)).toBe(false);
   });
 
+  /** A family of the wrong type gives no checks, which looks the same as a family that passed. */
   it('ValidatePluginPolicy_FamilyOfTheWrongType_IsReported', () => {
-    // A family declared as the wrong type contributes no checks, which reads
-    // identical to a family that passed.
     const policy = clone(shippedPolicy()) as Record<string, unknown>;
     policy['requiredFiles'] = {};
     const report: Report = evaluatePackaging(policy, memoryTree(conformingFiles()));
@@ -350,10 +339,8 @@ describe('validate-plugin — the policy is validated before it is interpreted',
     expect(isClean(report)).toBe(false);
   });
 
+  /** The failure message prints `because` and `decidedIn` as the citation, so each must be a string. */
   it('ValidatePluginPolicy_NonStringProvenance_IsReported', () => {
-    // Key membership is not shape. `because` and `decidedIn` are what the
-    // failure message prints as the citation, so a number there renders as a
-    // provenance nobody can follow — and used to pass the entry check silently.
     const policy = clone(shippedPolicy()) as Record<string, unknown>;
     (policy['requiredFiles'] as Record<string, unknown>[])[0] = {
       path: 'README.md',
@@ -368,11 +355,12 @@ describe('validate-plugin — the policy is validated before it is interpreted',
     expect(isClean(report)).toBe(false);
   });
 
+  /**
+   * The gate must report each violation, and a `TypeError` reports only one. A null entry
+   * and a null `hooks` family must each give a violation, not a throw. The gate must still
+   * interpret the valid entry of the same family.
+   */
   it('ValidatePluginPolicy_MalformedFamilies_AccumulateRatherThanThrow', () => {
-    // The discipline this gate exists to keep is "report every violation", and
-    // a TypeError reports exactly one. A null entry used to reach `entry.path`
-    // and a null `hooks` used to reach `hooksSpec.path`, so the run died on the
-    // first malformed value instead of listing all of them.
     const policy = clone(shippedPolicy()) as Record<string, unknown>;
     policy['requiredFiles'] = [null, { path: 'README.md' }];
     policy['hooks'] = null;
@@ -387,15 +375,15 @@ describe('validate-plugin — the policy is validated before it is interpreted',
     expect(joined).toContain('hooks');
     expect(joined).toContain('[policy-type]');
     expect(isClean(report)).toBe(false);
-    // …and the surviving well-formed entry was still interpreted, so skipping
-    // the malformed one did not quietly drop the rest of the family.
     expect(report.checks.some((c) => c.id === 'file.README.md')).toBe(true);
   });
 
+  /**
+   * The control: the shipped policy gives no violation, so the rejections in the other
+   * tests come from the bad keys. The shipped policy holds a `$comment` key, which the
+   * schema accepts at the root.
+   */
   it('ValidatePluginPolicy_ShippedPolicy_UsesOnlyKnownKeys', () => {
-    // The negative twin: the live policy raises nothing, so the rejections above
-    // are attributable to the typo rather than to a schema that rejects
-    // everything. Includes the `$comment` prose channel, admitted at the root.
     const report: Report = evaluatePackaging(shippedPolicy(), memoryTree(conformingFiles()));
     expect(report.violations).toEqual([]);
     expect(report.checks.length).toBeGreaterThan(0);
@@ -413,22 +401,24 @@ describe('validate-plugin — the shipped policy vs the shipped tree (task 064, 
     expect(isClean(report)).toBe(true);
   });
 
+  /** An earlier bash gate stated each of these four clauses in the opposite direction. */
   it.each([
     ['.mcp.json stays absent (2b62e1bf3)', 'forbidden-file..mcp.json'],
     ['plugin.json does not declare `hooks` (e334a392b)', 'manifest.forbidden-field.hooks'],
     ['hooks.json ships SessionStart (#1485)', 'hooks.expected.SessionStart'],
     ['hooks.json does not ship SessionEnd (DR-7 / task 016)', 'hooks.retired.SessionEnd'],
   ])('ValidatePlugin_FormerlyInvertedClause_%s', (_label, id) => {
-    // The four clauses the old bash gate had backwards. Each is now stated once,
-    // in the policy, in the direction the repo actually decided.
     const result = check(report, id);
     expect(result, `${id} is not among the checks the policy produces`).toBeDefined();
     expect(result?.passed).toBe(true);
   });
 
+  /**
+   * The expected hook types of the policy must equal the hook types of the shipped
+   * `hooks/hooks.json`. `tests/unit/install/plugin-validation.test.ts` asserts the same
+   * two types.
+   */
   it('ValidatePlugin_PolicyHookSet_MatchesTheAssertionsInPluginValidationTest', () => {
-    // The divergence this task removed was between the gate and the test suite.
-    // This asserts they now agree by construction, against the shipped file.
     const policy = shippedPolicy() as { hooks: { expected: { type: string }[] } };
     const declared = Object.keys(
       (JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'hooks', 'hooks.json'), 'utf8')) as {
@@ -439,10 +429,8 @@ describe('validate-plugin — the shipped policy vs the shipped tree (task 064, 
     expect(declared).toEqual(['SessionStart', 'SubagentStop']);
   });
 
+  /** With the `because` text, a reader can tell a package regression from a stale policy entry. */
   it('ValidatePlugin_EveryPolicyEntry_CarriesItsReason', () => {
-    // Provenance is the thing that would have let a reader in 2026-08 tell
-    // "the package regressed" from "the gate is describing a package that
-    // stopped existing". An entry without `because` cannot support that call.
     const policy = shippedPolicy() as Record<string, unknown>;
     const manifest = policy.manifest as Record<string, unknown>;
     const hooks = policy.hooks as Record<string, unknown>;
@@ -477,10 +465,11 @@ describe('validate-plugin — CLI (task 064, DR-24)', () => {
     expect(stdout).toContain('**Result: PASS**');
   }, 20000);
 
+  /**
+   * The tree on disk has no `rendered/skills` directory and holds a forbidden `.mcp.json`.
+   * One run must report the two failures.
+   */
   it('ValidatePluginCli_SeededBrokenTree_ExitsOneAndNamesEveryFailure', async () => {
-    // A real tree on disk, missing skills/ AND carrying a forbidden .mcp.json:
-    // both failures must appear in one run. The old gate reported them too, but
-    // only because bash `check` accumulated — the property is worth pinning.
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'validate-plugin-fixture-'));
     try {
       fs.mkdirSync(path.join(dir, '.claude-plugin'), { recursive: true });

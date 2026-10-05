@@ -1,23 +1,18 @@
 #!/usr/bin/env bash
-# Self-test for tools/audit/gates/lint-envelopes.mjs (#1706 DR-2, task 002).
+# Self-test for tools/audit/gates/lint-envelopes.mjs.
 #
-# Drives the REAL wrapper (not a stand-in) against CONTROLLED fixtures, so the
-# assertions stay deterministic regardless of the real orchestrate/** tree's
-# current violation count (5 known violations at the time this gate was
-# wired — task 003 disposes of those separately). The fixtures are placed
-# under a temp subdirectory INSIDE src/verbs/, the
-# only path both the MCP tsconfig's `include` ("src/**/*") and
+# The test runs the real wrapper on fixtures, so the result does not depend on
+# the violation count of the real tree. The fixtures are copied to a temp
+# directory inside src/verbs/, the only tree that both tsconfig.json's `include` and
 # eslint.envelopes.config.js's `files` glob cover, and pointed at via the
-# wrapper's `--target` testability flag (mirrors check-module-intent.mjs's
-# `--src-root`/`--refgraph` seam) so the DEFAULT (no-flags) invocation used by
-# `npm run lint:envelopes` / the grep-gates CI step is never itself modified.
+# `--target` flag of the wrapper. The default invocation stays unchanged.
 #
-#   - violating fixture (reused from tools/eslint-rules/__fixtures__, DR-1's own
-#     fixture pair) → the wrapper exits 1 (ESLint reports errors).
-#   - compliant fixture (same pair)                → the wrapper exits 0.
-#   - fail-closed: --config pointed at a missing path → the wrapper exits 2,
-#     naming the cause. Confirms the wrapper does not mistake a broken/absent
-#     config for "nothing to report" (fail-closed, not fail-open).
+#   - violating fixture: the wrapper exits 1 and names the rule.
+#   - compliant fixture: the wrapper exits 0.
+#   - a `--config` path that does not exist: the wrapper exits non-zero and
+#     names the fail-closed cause.
+#   - the shared eslint.config.js does not load the envelope rule and sets no
+#     `parserOptions.project` for a file under src/verbs/.
 set -uo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -27,8 +22,8 @@ WRAPPER="tools/audit/gates/lint-envelopes.mjs"
 FIXTURES_DIR="tools/eslint-rules/__fixtures__"
 SELFTEST_DIR="src/verbs/__lint_envelopes_selftest__"
 
-# Remove only the leaf fixture dir. Do not rmdir its parent (`src/verbs/`) —
-# that directory is load-bearing source, not a leftover of this self-test.
+# Remove only the fixture directory. Its parent `src/verbs/` is source, not a
+# leftover of this self-test.
 cleanup() {
   rm -rf "$SELFTEST_DIR"
 }

@@ -28,7 +28,7 @@ const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
 /** Test files by name, wherever they live. */
 const TEST_FILE = /\.(test|type-test|bench)\.[cm]?[jt]s$/;
 
-/** Benchmarks are the one place a test may measure elapsed time. */
+/** Only a benchmark file can assert on elapsed time. The elapsed-time scan skips it. */
 const BENCH_FILE = /\.bench\.[cm]?[jt]s$/;
 
 /** Code that runs inside a vitest worker: every test file, and every module under `tests/` or `tools/test-helpers/`. */
@@ -38,9 +38,9 @@ function isTestCode(path: string): boolean {
 }
 
 /**
- * The scanned population, measured on the tree at 2026-10-01. Each floor sits
- * below what was measured, so the guard fails if the walk loses most of the
- * tree or stops recognising the shapes it scans for.
+ * The scanned population, measured on the tree at 2026-10-01. Each floor is less than
+ * the measured value. Thus the guard fails if the walk loses most of the tree, or if it
+ * stops seeing the shapes that it scans for.
  */
 const POLICY = {
   minimumScannedFiles: 1200,
@@ -48,7 +48,10 @@ const POLICY = {
   minimumWallClockFiles: 35,
 } as const;
 
-/** The longest `timeout` an exempt sync spawn may state: a quarter of the worker's 60 s RPC timeout. */
+/**
+ * The longest `timeout` that an exempt sync spawn can state: a quarter of the 60 s RPC
+ * timeout of the worker.
+ */
 const MAX_EXEMPT_TIMEOUT_MS = 15_000;
 
 /**

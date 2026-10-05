@@ -1,20 +1,16 @@
 #!/usr/bin/env bash
-# Self-test for check-enforcer-wiring.mjs (task 011, DR-5/DR-8).
+# Self-test for the fail-closed paths of check-enforcer-wiring.mjs.
 #
-# DR-8 requires every gate's FAIL-CLOSED paths to be proven in an UNFILTERED CI
-# host. The gate's own `.test.ts` cases run in the path-filtered `test-root`
-# job (its filter excludes `scripts/**`), so a scripts-only PR skips them. This
-# `.test.sh` re-asserts the two DR-8 fail-closed conditions in the UNFILTERED
-# `grep-gates` job (task 015):
+# The `.test.ts` cases of the gate run only in path-filtered CI jobs. This
+# script runs in the unfiltered `grep-gates` job.
 #
-#   - tool-missing       — the manifest (the gate's essential input) is absent:
-#                          the gate must FAIL (exit 1) with a cause-naming
-#                          diagnostic, not silently pass on missing evidence.
-#   - unparseable-output — the manifest is present but not valid JSON: the gate
-#                          must FAIL (exit 1) naming the parse failure.
+#   - tool-missing: the manifest file does not exist. The gate must exit 1 and
+#     name the cause.
+#   - unparseable-output: the manifest is not valid JSON. The gate must exit 1
+#     and name the parse failure.
 #
-# check-enforcer-wiring is a pure-analysis gate (no external binary); its
-# "tool" is the manifest / package.json inputs, so tool-missing ≙ input-missing.
+# The gate runs no external binary, so it has no tool that can be absent. A
+# missing manifest, one of its required inputs, is the tool-missing case.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"

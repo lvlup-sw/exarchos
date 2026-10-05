@@ -15,18 +15,22 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const SRC = 'src';
 
-// ── pure pair-derivation (no git) ────────────────────────────────────────────
 describe('deriveTouchedPairIds', () => {
+  /**
+   * The input holds a legacy copy, a canonical copy and a relocated sibling.
+   * The function ignores the last three paths: a file that is not a test, a
+   * test with no area directory, and an unrelated file.
+   */
   it('maps legacy, canonical, and relocated-sibling paths to the same (area, base) pair', () => {
     expect(
       deriveTouchedPairIds(
         [
-          `${SRC}/__tests__/workflow/guards.test.ts`, // legacy copy
-          `${SRC}/workflow/state-store.test.ts`, // canonical copy
-          `${SRC}/workflow/compensation.legacy.test.ts`, // relocated sibling
-          `${SRC}/workflow/guards.ts`, // not a .test.ts — ignored
-          `${SRC}/foo.test.ts`, // bare (no area subdir) — ignored
-          'README.md', // unrelated — ignored
+          `${SRC}/__tests__/workflow/guards.test.ts`,
+          `${SRC}/workflow/state-store.test.ts`,
+          `${SRC}/workflow/compensation.legacy.test.ts`,
+          `${SRC}/workflow/guards.ts`,
+          `${SRC}/foo.test.ts`,
+          'README.md',
         ],
         SRC,
       ),
@@ -43,7 +47,14 @@ describe('deriveTouchedPairIds', () => {
   });
 });
 
-// ── the gate against a real temp git repo (fixture-based, NOT the live tree) ──
+/**
+ * Each case runs the gate against a temp git repository, not the live tree.
+ * `LEGACY_MERGE` and `CANON_MERGE` have identical preambles modulo the import
+ * path, so the pair is a valid merge target. `rawGit` is the git runner of the
+ * two fail-closed cases. It is synchronous, because `run` takes a synchronous
+ * runner. The gate must not accept an unexpected git error as an absent case
+ * or as "no pair touched".
+ */
 describe('manifest-gate-ci (temp-git fixtures)', () => {
   let dir: string;
 
@@ -85,8 +96,6 @@ describe('manifest-gate-ci (temp-git fixtures)', () => {
     return { code, out: out.join('\n'), err: err.join('\n') };
   };
 
-  // Base state for the merge scenarios: legacy + canonical with IDENTICAL
-  // preambles (modulo import path), so the pair is a legitimate merge target.
   const LEGACY_MERGE = `import { describe, it, expect } from 'vitest';
 import { guards } from '../../workflow/guards.js';
 describe('guards', () => {
@@ -112,9 +121,9 @@ describe('guards', () => {
     return baseSha;
   };
 
+  /** The canonical copy gains `legacy_only`, and the commit removes the legacy copy. */
   it('clean merge (every pre-image case carried into the canonical) → PASSES', async () => {
     const base = await seedMergeBase();
-    // Merge: canonical gains legacy_only; legacy copy removed.
     write(
       `${SRC}/workflow/guards.test.ts`,
       `import { describe, it, expect } from 'vitest';
@@ -135,9 +144,9 @@ describe('guards', () => {
     expect(out).toContain('workflow/guards: OK');
   });
 
+  /** The merge result omits `legacy_only`. */
   it('dropping a LEGACY case (no surviving twin) → FAILS', async () => {
     const base = await seedMergeBase();
-    // legacy_only is silently dropped from the merge result.
     write(
       `${SRC}/workflow/guards.test.ts`,
       `import { describe, it, expect } from 'vitest';
@@ -158,10 +167,9 @@ describe('guards', () => {
     expect(err).toMatch(/\(legacy\)/);
   });
 
+  /** The merge result omits `canonical_only`. The gate must catch a loss on the canonical side also. */
   it('dropping a pre-existing CANONICAL case → FAILS (bidirectional)', async () => {
     const base = await seedMergeBase();
-    // canonical_only is dropped — the gate must catch loss on the canonical
-    // side too, not only the legacy side.
     write(
       `${SRC}/workflow/guards.test.ts`,
       `import { describe, it, expect } from 'vitest';
@@ -182,8 +190,13 @@ describe('guards', () => {
     expect(err).toMatch(/\(canonical\)/);
   });
 
+  /**
+   * The legacy copy at the base has an extra `vi.mock`, so the pair is a
+   * relocate target. The commit moves the legacy content to
+   * `guards.legacy.test.ts` with rewritten imports and removes the legacy copy.
+   * It does not change the canonical copy.
+   */
   it('clean relocate (legacy moved to a rewritten sibling) → PASSES', async () => {
-    // Base with a DIVERGENT legacy preamble (extra vi.mock) → relocate, not merge.
     const legacyDivergent = `import { describe, it, expect, vi } from 'vitest';
 import { guards } from '../../workflow/guards.js';
 vi.mock('../../workflow/guards.js', () => ({ guards: () => 9 }));
@@ -198,9 +211,6 @@ describe('guards', () => {
     const base = await git('rev-parse', 'HEAD');
     await git('checkout', '-q', '-b', 'pr');
 
-    // Relocate: legacy content moved to <base>.legacy.test.ts with imports
-    // rewritten from ../../workflow/ to ./ ; legacy __tests__ copy removed;
-    // canonical untouched.
     write(
       `${SRC}/workflow/guards.legacy.test.ts`,
       `import { describe, it, expect, vi } from 'vitest';
@@ -231,14 +241,16 @@ describe('guards', () => {
     expect(out).toContain('no consolidation pair touched');
   });
 
+  /**
+   * The base holds only a co-located file, so no pair exists. The commit
+   * removes a case from that file, and the gate must not fail.
+   */
   it('a lone co-located test with NO legacy twin is SKIPPED (not false-blocked)', async () => {
-    // Only a canonical file at base — never a two-directory pair.
     write(`${SRC}/workflow/solo.test.ts`, CANON_MERGE);
     await git('add', '-A');
     await git('commit', '-q', '-m', 'base: solo co-located test (no legacy twin)');
     const base = await git('rev-parse', 'HEAD');
     await git('checkout', '-q', '-b', 'pr');
-    // Legitimately delete a case from this non-pair file — must NOT fail the gate.
     write(
       `${SRC}/workflow/solo.test.ts`,
       `import { describe, it, expect } from 'vitest';
@@ -262,8 +274,6 @@ describe('guards', () => {
     expect(err).toContain('merge-base');
   });
 
-  // ── fail-CLOSED on unexpected git failures (a transient error must never
-  //    read as "no pairs touched" / "case absent" and pass the gate silently) ──
   const rawGit = (args: string[], cwd: string) => {
     const res = spawnSync('git', args, { cwd, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, timeout: 15_000 });
     return { status: res.status ?? 1, stdout: res.stdout ?? '', stderr: res.stderr ?? '' };
@@ -286,9 +296,9 @@ describe('guards', () => {
     expect(out.join('\n')).not.toContain('no consolidation pair touched');
   });
 
+  /** The commit touches a pair, so the gate calls `git show`. */
   it('fails CLOSED when `git show` errors for a reason other than an absent path', async () => {
     const base = await seedMergeBase();
-    // A real consolidation edit so a pair IS touched → verifyPair calls git show.
     write(`${SRC}/workflow/guards.test.ts`, CANON_MERGE);
     del(`${SRC}/__tests__/workflow/guards.test.ts`);
     await git('add', '-A');

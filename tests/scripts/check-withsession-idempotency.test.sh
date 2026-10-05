@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# check-withsession-idempotency.test.sh — Test Suite
-# Validates that the withSession idempotency CI gate correctly identifies
-# call sites missing operationId or allowNonIdempotent: true.
+# Tests for the withSession idempotency CI gate. The gate must find each call
+# site that has neither `operationId` nor `allowNonIdempotent: true`.
 
 set -euo pipefail
 
@@ -273,11 +272,8 @@ teardown
 # --------------------------------------------------
 # Test 11: CommentedWithSession_DoesNotTriggerFalsePositive
 # --------------------------------------------------
-# A non-compliant .withSession( commented out (line comment) or
-# embedded in a multi-line comment must not trigger a violation.
-# Previously the anchor regex matched any `.withSession(` substring,
-# even inside `//` or `*` lines — every doc reference produced a
-# spurious failure (Sentry finding #14039483).
+# A non-compliant .withSession( in a line comment or in a multi-line comment
+# must not be a violation. A documentation reference is not a call site.
 setup
 cat > "$TMPDIR_ROOT/commented-only.ts" << 'EOF'
 import { AtomicAppender } from '../event-store/atomic-appender.js';

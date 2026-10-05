@@ -19,6 +19,10 @@ function track<T extends SpawnedMcpClient>(c: T): T {
 }
 
 describe('spawnMcpClient', () => {
+  /**
+   * Terminates each tracked client, kills each leaked child and clears the tracker, so
+   * each test starts from an empty registry. Teardown ignores errors.
+   */
   afterEach(async () => {
     while (activeClients.length > 0) {
       const c = activeClients.pop();
@@ -26,16 +30,12 @@ describe('spawnMcpClient', () => {
       try {
         await c.terminate();
       } catch {
-        // ignore — teardown best effort
       }
     }
-    // Force-kill any leaked children, then reset the tracker so each test
-    // starts from an empty registry.
     for (const child of listAlive()) {
       try {
         child.kill('SIGKILL');
       } catch {
-        // ignore
       }
     }
     clear();
@@ -71,8 +71,11 @@ describe('spawnMcpClient', () => {
     ).rejects.toThrow(/boom/);
   });
 
+  /**
+   * The child opens stdio but never speaks MCP, so `initialize` times out.
+   * The rejection must leave no live child in the tracker.
+   */
   it('SpawnMcpClient_InitTimeout_RejectsCleanly', async () => {
-    // A child that opens stdio but never speaks MCP: initialize must time out.
     await expect(
       spawnMcpClient({
         command: 'node',
@@ -80,8 +83,6 @@ describe('spawnMcpClient', () => {
         timeout: 500,
       }),
     ).rejects.toThrow(/timed? out|timeout/i);
-    // No dangling client was returned, but the child we started should have
-    // been torn down — assert there are no leaks after rejection.
     expect(listAlive()).toHaveLength(0);
   });
 
@@ -91,7 +92,6 @@ describe('spawnMcpClient', () => {
       args: [MOCK_SERVER],
     });
     await spawned.terminate();
-    // Second call must not throw.
     await expect(spawned.terminate()).resolves.toBeUndefined();
   });
 

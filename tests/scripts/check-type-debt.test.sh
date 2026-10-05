@@ -1,34 +1,19 @@
 #!/usr/bin/env bash
-# Self-test for check-type-debt.mjs (task 002, DR-9/DR-10).
+# Self-test for check-type-debt.mjs. The gate has no `.test.ts` suite, so this
+# script proves each case. Each failure must name the artifact and the reason.
 #
-# This is the ONLY test suite for the gate (no companion `.test.ts`), so it
-# has to prove every direction itself: the two FAIL directions, the PASS
-# direction, every FAIL-CLOSED provenance path (DR-8/DR-10 — every failure
-# names the artifact + reason, never a silent pass), and the exclusion proof.
-#
-#   - over-budget           — a file's actual cast count exceeds its
-#                              baselined budget → FAIL (exit 1).
-#   - unbaselined-debt       — a file has casts but no baseline entry → FAIL
-#                              (exit 1).
-#   - fresh-baseline PASSES  — `--update` on a tree, then checking that SAME
-#                              tree against the baseline it just produced →
-#                              clean (exit 0). Uses the real repo tree
-#                              (whatever it is at test-run time) rather than
-#                              the checked-in baseline, so this assertion is
-#                              immune to cast-count drift from other in-
-#                              flight tasks landing between baseline
-#                              generation (this task) and gate wiring (task
-#                              007 re-runs `--update` per the spec).
-#   - missing baseline       — FAIL CLOSED (exit 2), names the artifact.
-#   - unparseable baseline   — FAIL CLOSED (exit 2), names the artifact.
-#   - provenance-less        — a baseline with no `censusHash` at all → FAIL
-#     baseline                CLOSED (exit 2).
-#   - census-hash mismatch   — a baseline generated under a DIFFERENT census
-#                              definition → FAIL CLOSED (exit 2).
-#   - exclusion proof        — seeded `.d.ts` / `__shims__` / `.bench.ts` /
-#                              `evals` files carrying casts are NOT counted:
-#                              a tree containing only such files produces an
-#                              EMPTY baseline and passes.
+#   - fresh baseline: `--update` on the current repo tree, then a check of the
+#     same tree against the new baseline. The gate must exit 0. The case does
+#     not read the checked-in baseline, so cast-count drift cannot fail it.
+#   - over-budget: the cast count of a file is above its budget. Exit 1.
+#   - unbaselined-debt: a file has casts and no baseline entry. Exit 1.
+#   - missing baseline: exit 2 (fail closed).
+#   - unparseable baseline: exit 2 (fail closed).
+#   - provenance-less baseline: the baseline has no `censusHash`. Exit 2.
+#   - census-hash mismatch: the baseline holds a different census hash. Exit 2.
+#   - census root that is not a directory: exit 2 (fail closed).
+#   - exclusion proof: a tree with casts only in files outside the census gives
+#     an empty baseline and passes.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"
@@ -63,7 +48,7 @@ export const a = 1 as unknown as string;
 EOF
 node "$GATE" --repo-root "$TMP/over-budget" --update --baseline "$TMP/over-budget/baseline.json" \
   >"$TMP/over-budget/update.out"
-# Introduce a second cast WITHOUT re-baselining — actual(2) > budget(1).
+# Add a second cast and keep the baseline. The count is 2 and the budget is 1.
 cat >> "$TMP/over-budget/src/foo.ts" <<'EOF'
 export const b = 2 as unknown as string;
 EOF
@@ -151,11 +136,9 @@ grep_cause "hash-mismatch" "census-hash mismatch" "$TMP/mismatch.err"
 grep_cause "hash-mismatch" "baseline.json" "$TMP/mismatch.err"
 
 # ── unavailable census root (exists but not a directory) → FAIL CLOSED (2) ──
-# A configured census root that is PRESENT but unreadable (here `src` is a
-# regular file, not a directory) must fail closed, not be silently treated as
-# empty — otherwise an I/O fault / path drift would drop an entire source tree
-# from enforcement. (A genuinely-absent root — ENOENT — stays tolerated: every
-# fixture above lacks `src` and still runs.)
+# Here `src` is a regular file. The gate reads only an absent root as empty. It
+# must fail closed here, or a path fault can drop the source tree from
+# enforcement.
 mkdir -p "$TMP/badroot"
 printf 'not a directory\n' > "$TMP/badroot/src"
 cat > "$TMP/badroot/baseline.json" <<'EOF'
@@ -187,8 +170,8 @@ EOF
 cat > "$TMP/excluded/tools/evals/evals/harness.ts" <<'EOF'
 export const x = 1 as unknown as string;
 EOF
-# Every seeded file carries a cast, but every one is excluded by the census —
-# a fresh --update over this tree must therefore capture ZERO files.
+# Each seeded file holds a cast, and the census counts none of them. An
+# `--update` on this tree must record zero files.
 node "$GATE" --repo-root "$TMP/excluded" --update --baseline "$TMP/excluded/baseline.json" \
   >"$TMP/excluded/update.out"
 if grep -Eq '"files":[[:space:]]*\{\}' "$TMP/excluded/baseline.json"; then

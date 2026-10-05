@@ -19,10 +19,12 @@ import {
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 describe('hermetic install identity scratch directory', () => {
+  /**
+   * `vitest.config.ts` sets the run id in the host process, and the worker inherits it.
+   * An absent value shows that the run id did not cross the fork.
+   */
   it('InstallIdentityScratch_IsKeyedOnThisRunsHostProcessAndRunId', () => {
     const dir = process.env['EXARCHOS_INSTALL_STATE_DIR'];
-    // Minted in the host by vitest.config.ts and inherited by this worker; an
-    // absent value here would mean the discriminator never crossed the fork.
     const runId = process.env['EXARCHOS_TEST_RUN_ID'];
 
     expect(runId, 'the run id did not reach the worker').toMatch(/^[a-z0-9]+$/);
@@ -31,19 +33,18 @@ describe('hermetic install identity scratch directory', () => {
     expect(fs.existsSync(dir ?? '')).toBe(true);
   });
 
+  /** The test uses the real predicate on its own pid, which is alive during the assertion. */
   it('InstallIdentityLiveness_ThisProcessIsAlive', () => {
-    // The real predicate, on the one pid guaranteed to exist for the duration
-    // of the assertion.
     expect(isProcessAlive(process.pid)).toBe(true);
   });
 
+  /**
+   * The test injects liveness. The OS can give the pid of an exited child to a new
+   * process, so a real dead pid is not reliable. The subject is the decision of the sweep.
+   */
   it('InstallIdentitySweep_RemovesADeadRunsDirectoryAndKeepsLiveOnes', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'install-identity-sweep-'));
     try {
-      // Liveness is injected rather than measured: a reaped pid can be recycled
-      // by the OS, so a test that spawned-and-exited a child to obtain a dead
-      // pid would be betting on the interval before reuse. The decision under
-      // test is the sweep's, not the kernel's.
       const deadPid = 4_000_001;
       const livePid = 4_000_002;
       const hostPid = 4_000_003;
@@ -74,11 +75,13 @@ describe('hermetic install identity scratch directory', () => {
     }
   });
 
+  /**
+   * The pid of an exited host can go to this host, so liveness reads the earlier directory
+   * as alive. Only the run id in the name separates the two directories. The sweep must
+   * remove a directory that holds this pid under another run id or under the bare-pid name.
+   * The stub reports each pid as alive, so only the rule for the host pid removes a directory.
+   */
   it('InstallIdentitySweep_AnEarlierIncarnationOfThisHostsPid_IsSweptNotReused', () => {
-    // Liveness cannot see this case: the exited host's pid is now THIS host's,
-    // so its directory reads as alive. Only the run id tells them apart, and a
-    // directory carrying our pid under another run id — or under the bare-pid
-    // layout that predated run ids — must go, or its lock is inherited.
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'install-identity-reuse-'));
     try {
       const hostPid = 4_000_004;

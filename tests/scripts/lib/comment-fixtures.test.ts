@@ -16,18 +16,15 @@ function findingsFor(fixture: string) {
 }
 
 describe('kill fixtures', () => {
+  /** Some comments in the fixture are prose about it, so the test asserts a floor on the finding count. */
   it('Fixtures_EveryOffender_IsRejected', () => {
     const findings = findingsFor('offenders.ts');
 
-    // The header block is prose about the fixture, so assert on the count of
-    // DISTINCT comment lines caught rather than requiring every comment to trip.
     expect(findings.length).toBeGreaterThanOrEqual(10);
   });
 
+  /** One greedy pattern can satisfy a bare count, so the test requires the id of each pattern that the fixture exercises. */
   it('Fixtures_MeasuredOffenders_EachCaughtAtItsOwnLine', () => {
-    // Each measured offender is verified individually: a single greedy pattern
-    // catching everything would satisfy a bare count while leaving real classes
-    // unenforced.
     const byPattern = new Set(findingsFor('offenders.ts').map((f) => f.patternId));
 
     expect(byPattern).toContain('design-requirement');
@@ -43,10 +40,11 @@ describe('kill fixtures', () => {
     expect(byPattern).toContain('previously-narration');
   });
 
+  /**
+   * This comment states its constraint, and only its leading ordinal makes it an offender.
+   * A bulk delete of such comments also deletes the reasoning.
+   */
   it('Fixtures_AtomicWriteComment_IsAnOffenderInItsCommittedForm', () => {
-    // The comment states its constraint and would survive on content alone. It
-    // is an offender only because it opens with a bare ordinal — which is the
-    // case that makes bulk stripping wrong, since the reasoning would go too.
     const findings = findingsFor('offenders.ts').filter((f) => f.match === 'DR-16');
 
     expect(findings).toHaveLength(1);
@@ -61,15 +59,14 @@ describe('kill fixtures', () => {
     ).toEqual([]);
   });
 
+  /** A guard that flags its own kill fixtures cannot be tested. */
   it('Fixtures_Directory_IsStructurallyExempt', () => {
-    // A guard that flagged its own kill fixtures could not be tested.
     expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/offenders.ts', 'comment-content')).toBe(true);
     expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/permitted.ts', 'comment-content')).toBe(true);
   });
 
+  /** The fixtures are real TypeScript, so the extractor takes the same path as it takes for the tree. */
   it('Fixtures_BothCorpora_Parse', () => {
-    // They are real TypeScript, so the extractor exercises the same path it
-    // takes over the tree rather than a string-literal shortcut.
     expect(() => findingsFor('offenders.ts')).not.toThrow();
     expect(() => findingsFor('permitted.ts')).not.toThrow();
   });

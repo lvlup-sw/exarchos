@@ -1,37 +1,14 @@
+/**
+ * A CLI invoker for the process-fidelity harness. It runs any command, and the default is the
+ * one `exarchos` binary with its subcommands.
+ */
 import { spawn } from 'node:child_process';
 import { register, unregister } from './process-tracker.js';
 
-/**
- * Target-agnostic CLI invoker for the process-fidelity harness.
- *
- * Design: docs/designs/archive/2026-04-19-process-fidelity-harness.md §5.3
- * v2.9 retarget: docs/designs/archive/2026-05-05-e2e-v29-revisited.md
- *
- * v2.9 collapsed the CLI surface into a single `exarchos` binary with
- * subcommands (e.g. `exarchos install-skills`, `exarchos version`,
- * `exarchos mcp`). The legacy multi-binary names like `exarchos-install`
- * no longer exist. Accordingly `command` defaults to `'exarchos'` so the
- * common case is a one-liner — callers only set `command` to override
- * (e.g. `'node'` for inline interpreter scripts in tests).
- *
- * - Non-zero exit codes do NOT throw; the caller asserts on `exitCode`.
- * - Timeouts reject with an Error; the child is SIGKILLed before rejection.
- * - Every spawned child is registered with the process-tracker so leaks can
- *   be detected by `expectNoLeakedProcesses()`.
- *
- * @example
- *   // v2.9 default surface — install skills via the single binary.
- *   await runCli({ args: ['install-skills'] });
- *
- * @example
- *   // Override for inline node scripts in unit tests.
- *   await runCli({ command: 'node', args: ['-e', 'process.exit(0)'] });
- */
-
 export interface RunCliOpts {
   /**
-   * Binary or interpreter to execute. Defaults to `'exarchos'` — the v2.9
-   * single-binary surface. Override with e.g. `'node'` for inline scripts.
+   * The binary or interpreter to run. The default is `'exarchos'`, the one shipped binary.
+   * A test passes a different value, such as `'node'` for an inline script.
    */
   command?: string;
   /** Arguments passed to the command. */
@@ -40,7 +17,7 @@ export interface RunCliOpts {
   env?: Record<string, string>;
   /** Working directory for the child. Defaults to `process.cwd()`. */
   cwd?: string;
-  /** Data piped to the child's stdin; stdin is closed after writing. */
+  /** Data written to the stdin of the child. The stream closes after the write. */
   stdin?: string;
   /** Max runtime in ms before SIGKILL + reject. Defaults to 30_000. */
   timeout?: number;
@@ -56,20 +33,19 @@ export interface CliResult {
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
- * Spawn `command` with `args`, collect stdout/stderr, and resolve with the
- * structured result. Rejects only on timeout (or on `child_process.spawn`
- * `error` events such as `ENOENT`).
+ * Spawns `command` with `args`, collects stdout and stderr, and resolves with the result.
+ * A non-zero exit code does not reject: the caller asserts on `exitCode`. A timeout sends
+ * SIGKILL and then rejects, and a spawn `error` event such as `ENOENT` also rejects.
+ * `runCli` ignores a kill error, because the child can be gone already.
  *
- * `command` defaults to `'exarchos'` — the v2.9 single-binary surface. This
- * keeps the common e2e idiom a one-liner:
+ * `runCli` registers the child with the process tracker immediately after the spawn. Thus
+ * `expectNoLeakedProcesses()` sees a child that crashes before the first I/O handler.
  *
+ * When a signal ends the child, Node reports a `null` code. The result then holds
+ * `128 + <signal number>`, so `exitCode` is always a number.
+ *
+ * @example
  *   await runCli({ args: ['install-skills'] });
- *
- * Tests that need to invoke another interpreter (e.g. `node -e '<script>'`)
- * pass `command` explicitly.
- *
- * Design: docs/designs/archive/2026-04-19-process-fidelity-harness.md §5.3
- * v2.9 retarget: docs/designs/archive/2026-05-05-e2e-v29-revisited.md
  */
 export function runCli(opts: RunCliOpts): Promise<CliResult> {
   const {
@@ -91,8 +67,6 @@ export function runCli(opts: RunCliOpts): Promise<CliResult> {
       stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    // Register IMMEDIATELY after spawn so a leak detector never misses a
-    // short-lived crash between spawn and the first I/O handler.
     register(child);
 
     let stdout = '';
@@ -114,7 +88,6 @@ export function runCli(opts: RunCliOpts): Promise<CliResult> {
       try {
         child.kill('SIGKILL');
       } catch {
-        // child may already have exited
       }
       unregister(child);
       reject(
@@ -141,9 +114,6 @@ export function runCli(opts: RunCliOpts): Promise<CliResult> {
       settled = true;
       clearTimeout(timer);
       unregister(child);
-      // If the process was killed by a signal, Node reports code === null.
-      // Surface a numeric exitCode so callers never have to handle null: use
-      // 128 + signal convention for signalled exits, else default to 1.
       const exitCode =
         typeof code === 'number'
           ? code
@@ -168,9 +138,8 @@ export function runCli(opts: RunCliOpts): Promise<CliResult> {
 }
 
 /**
- * Minimal signal-name → number mapping for the subset we care about when
- * synthesising an exitCode for signalled exits. Returns undefined if unknown,
- * which the caller treats as 0.
+ * Maps a signal name to its number, for the few signals that `runCli` expects. It returns
+ * `undefined` for an unknown signal, which the caller treats as 0.
  */
 function signalNumber(signal: NodeJS.Signals): number | undefined {
   const table: Partial<Record<NodeJS.Signals, number>> = {

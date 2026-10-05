@@ -52,6 +52,7 @@ describe('checkBaseSubstrate', () => {
     expect(err.join('\n')).toMatch(/check-coverage-ratchet\.mjs/);
   });
 
+  /** The expected paths come from `path.join`, so they have the native separators of each OS (#1699). */
   it('uses the provided repoRoot to resolve file paths', () => {
     const fileChecks: string[] = [];
     const { deps } = captureDeps({
@@ -61,8 +62,6 @@ describe('checkBaseSubstrate', () => {
       },
     });
     checkBaseSubstrate(deps, '/custom/repo');
-    // Build expected paths with path.join so the assertion matches the source's
-    // native separators on every OS (Windows uses `\`, not `/`) — #1699 lane fix.
     expect(fileChecks).toContainEqual(path.join('/custom/repo', 'tools', 'audit', 'coverage-baseline.json'));
     expect(fileChecks).toContainEqual(path.join('/custom/repo', 'tools', 'audit', 'gates', 'check-coverage-ratchet.mjs'));
   });

@@ -1,9 +1,9 @@
 /**
  * Wiring reachability and ActionId-scoped contract closure have disjoint
- * jobs. A subject can be wiring-closed and still omit a contract dimension
- * or carry an orphan projection; the reachability walk must not claim that
- * detection. The G5 action-contract row names the closure instrument for
- * that population, not the wiring census.
+ * jobs. A wiring-closed subject can still omit a contract dimension or carry
+ * an orphan projection. The reachability walk must not claim that detection.
+ * The `action-contract` topology row names the closure instrument for that
+ * population, not the wiring census.
  */
 import { describe, expect, it } from 'vitest';
 import {

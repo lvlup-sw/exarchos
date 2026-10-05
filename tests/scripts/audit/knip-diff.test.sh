@@ -1,25 +1,17 @@
 #!/usr/bin/env bash
-# Self-test for knip-diff.ts (task 012, DR-6/DR-8).
+# Self-test for the fail-closed paths of knip-diff.ts.
 #
-# DR-8 requires every gate's FAIL-CLOSED paths to be proven in an UNFILTERED CI
-# host. The gate's own `.test.ts` cases run in the path-filtered `test-root`
-# job (its filter excludes `scripts/**`), so a scripts-only PR skips them. This
-# `.test.sh` re-asserts the two DR-8 fail-closed conditions in the UNFILTERED
-# `grep-gates` job (task 015), driving the REAL CLI (`defaultRunKnip`) via its
-# EXARCHOS_KNIP_BIN testability seam — no need to uninstall knip:
+# The `.test.ts` cases of the gate run only in path-filtered CI jobs. This
+# script runs in the unfiltered `grep-gates` job. It drives the real CLI and
+# sets EXARCHOS_KNIP_BIN, so it does not need to uninstall knip.
 #
-#   - tool-missing       — the knip binary path is absent: spawn fails →
-#                          found:false → the gate FAILS CLOSED (exit 2) naming
-#                          "tool-missing".
-#   - unparseable-output — knip (stubbed) emits garbage instead of JSON: the
-#                          gate FAILS CLOSED (exit 2) naming "unparseable-output".
-#   - vacuous-exemption  — knip (stubbed) emits a well-formed but EMPTY report,
-#                          i.e. it resolved nothing. Both the gate reading and the
-#                          inverted denominator reading come back empty, so the
-#                          `@proof` exemption cannot be shown to match anything.
-#                          The gate FAILS CLOSED (exit 2) rather than printing
-#                          "0 findings, OK" — the DR-24 non-empty-denominator
-#                          requirement, proven end-to-end through the real CLI.
+#   - tool-missing: the binary path does not exist. The gate must exit 2 and
+#     name "tool-missing".
+#   - unparseable-output: a stub prints text that is not JSON. The gate must
+#     exit 2 and name "unparseable-output".
+#   - vacuous-exemption: a stub prints a valid report with no issues. The
+#     inverted reading then finds no symbol that the `@proof` exemption matches.
+#     The gate must exit 2 and name "vacuous-exemption". It must not print "OK:".
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../tools/audit" && pwd)"
@@ -27,14 +19,14 @@ GATE="$SCRIPT_DIR/knip-diff.ts"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-# A stub "binary" that exits 0 but writes non-JSON garbage to stdout.
+# A stub binary that exits 0 and writes text that is not JSON to stdout.
 cat > "$TMP/garbage-bin.sh" <<'EOF'
 #!/usr/bin/env bash
 echo "garbage — not a knip JSON report"
 EOF
 chmod +x "$TMP/garbage-bin.sh"
 
-# A stub that emits a VALID but empty report — a knip that resolved no files.
+# A stub that prints a valid report with no issues, as when knip resolves no files.
 cat > "$TMP/empty-bin.sh" <<'EOF'
 #!/usr/bin/env bash
 echo '{"issues":[]}'
