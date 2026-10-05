@@ -1,6 +1,9 @@
 # Code comment and docstring quality audit
 
 **Audit date:** 2026-08-21
+**Status (2026-09-30):** the enforcement gap described below is closed. `npm run lint:comments`
+(`tools/audit/gates/lint-comments.mjs`) enforces the policy in CI, and known violations sit in the
+fingerprint baseline `tools/audit/comment-quality/baseline.tsv`.
 **Scope:** 2,193 tracked TypeScript and JavaScript files
 **Method:** parse-based extraction through `tools/audit/lib/comment-prose.mjs`,
 classification through the repository policy, and a second-pass smell census

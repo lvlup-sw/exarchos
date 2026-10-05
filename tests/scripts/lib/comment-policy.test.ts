@@ -5,11 +5,11 @@ import path from 'node:path';
 import {
   loadPolicy,
   isExempt,
-  isWaived,
   compilePattern,
   PolicyError,
   DEFAULT_POLICY_PATH,
 } from '../../../tools/audit/lib/comment-policy.mjs';
+import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 const REPO_POLICY = path.resolve(import.meta.dirname, '../../../.exarchos/comment-policy.json');
 
@@ -27,9 +27,8 @@ function validDatum(overrides: Record<string, unknown> = {}): string {
     forbiddenOrdinals: [{ id: 'dr', pattern: 'DR-\\d+', flags: 'gi', enabled: true, remedy: 'say why' }],
     allowedReferences: [{ id: 'url', pattern: 'https?://\\S+', flags: 'gi', reason: 'resolvable' }],
     changelogPatterns: [{ id: 'formerly', pattern: '\\bformerly\\b', flags: 'gi', enabled: true }],
-    exemptPaths: [{ glob: 'tools/audit/__fixtures__/**', reason: 'fixtures carry offender text' }],
-    waivers: [],
-    coverage: {},
+    rules: ['comment-content'],
+    exemptPaths: [{ glob: 'tools/audit/__fixtures__/**', rules: ['comment-content'], reason: 'fixtures carry offender text' }],
     ...overrides,
   });
 }
@@ -42,7 +41,7 @@ describe('loadPolicy', () => {
     expect(policy.allowedReferences.map((p) => p.id)).toEqual(['url']);
     expect(policy.changelogPatterns.map((p) => p.id)).toEqual(['formerly']);
     expect(policy.exemptPaths.map((p) => p.glob)).toEqual(['tools/audit/__fixtures__/**']);
-    expect(policy.waivers).toEqual([]);
+    expect(policy.rules).toEqual(['comment-content']);
   });
 
   it('LoadPolicy_MissingFile_ExitsNonZero', () => {
@@ -55,38 +54,6 @@ describe('loadPolicy', () => {
     expect(() => loadPolicy(writeTempPolicy('{ not json'))).toThrow(PolicyError);
   });
 
-  it('LoadPolicy_ExpiredWaiver_Fails', () => {
-    const file = writeTempPolicy(
-      validDatum({
-        waivers: [
-          { glob: 'src/legacy.ts', owner: 'reed', expires: '2020-01-01', reason: 'inherited debt' },
-        ],
-      }),
-    );
-
-    expect(() => loadPolicy(file)).toThrow(/expired on 2020-01-01/);
-  });
-
-  it('LoadPolicy_LiveWaiver_Accepted', () => {
-    const file = writeTempPolicy(
-      validDatum({
-        waivers: [
-          { glob: 'src/legacy.ts', owner: 'reed', expires: '2099-01-01', reason: 'inherited debt' },
-        ],
-      }),
-    );
-
-    expect(loadPolicy(file).waivers[0]?.owner).toBe('reed');
-  });
-
-  it('LoadPolicy_WaiverWithoutOwner_Fails', () => {
-    const file = writeTempPolicy(
-      validDatum({ waivers: [{ glob: 'src/a.ts', expires: '2099-01-01', reason: 'x' }] }),
-    );
-
-    expect(() => loadPolicy(file)).toThrow(/owner/);
-  });
-
   it('LoadPolicy_ExemptPathWithoutExpiry_Accepted', () => {
     expect(loadPolicy(writeTempPolicy(validDatum())).exemptPaths).toHaveLength(1);
   });
@@ -96,11 +63,11 @@ describe('loadPolicy', () => {
     // that could lapse would start failing files that must contain the text.
     const file = writeTempPolicy(
       validDatum({
-        exemptPaths: [{ glob: 'scripts/x/**', reason: 'r', expires: '2099-01-01' }],
+        exemptPaths: [{ glob: 'scripts/x/**', rules: ['comment-content'], reason: 'r', expires: '2099-01-01' }],
       }),
     );
 
-    expect(() => loadPolicy(file)).toThrow(/Structural exemptions are permanent/);
+    expect(() => loadPolicy(file)).toThrow(/Exemptions are permanent/);
   });
 
   it('LoadPolicy_PatternWithoutExplicitEnabled_Fails', () => {
@@ -119,6 +86,23 @@ describe('loadPolicy', () => {
     );
 
     expect(() => loadPolicy(file)).toThrow(/invalid pattern/);
+  });
+
+  it('LoadPolicy_MissingRulesRoster_Fails', () => {
+    expect(() => loadPolicy(writeTempPolicy(validDatum({ rules: undefined })))).toThrow(/rules must be an array/);
+    expect(() => loadPolicy(writeTempPolicy(validDatum({ rules: [] })))).toThrow(/rules is empty/);
+  });
+
+  it('LoadPolicy_ExemptPathWithoutRules_Fails', () => {
+    const file = writeTempPolicy(validDatum({ exemptPaths: [{ glob: 'a/**', reason: 'r' }] }));
+
+    expect(() => loadPolicy(file)).toThrow(/exemptPaths\.a\/\*\*\.rules must be an array/);
+  });
+
+  it('LoadPolicy_ExemptPathNamingUnknownRule_Fails', () => {
+    const file = writeTempPolicy(validDatum({ exemptPaths: [{ glob: 'a/**', rules: ['comment-nothing'], reason: 'r' }] }));
+
+    expect(() => loadPolicy(file)).toThrow(/not in the rules roster/);
   });
 
   it('LoadPolicy_EmptyForbiddenOrdinals_Fails', () => {
@@ -152,23 +136,29 @@ describe('the repository policy datum', () => {
     // author wrote.
     const policy = loadPolicy(REPO_POLICY);
 
-    expect(isExempt(policy, 'tests/evals/some-suite/runs/2026-08-01/output.md')).toBe(true);
+    expect(isExempt(policy, 'tests/evals/some-suite/runs/2026-08-01/output.md', 'comment-content')).toBe(true);
   });
 
   it('Policy_OwnSourcesAndFixtures_AreExempt', () => {
     const policy = loadPolicy(REPO_POLICY);
 
-    expect(isExempt(policy, '.exarchos/comment-policy.json')).toBe(true);
-    expect(isExempt(policy, 'tools/audit/lib/comment-classifier.mjs')).toBe(true);
-    expect(isExempt(policy, 'tools/audit/__fixtures__/comment-hygiene/offenders.ts')).toBe(true);
-    expect(isExempt(policy, 'tools/eslint-rules/comment-content.js')).toBe(true);
+    for (const rel of [
+      '.exarchos/comment-policy.json',
+      'tools/audit/lib/comment-classifier.mjs',
+      'tools/audit/__fixtures__/comment-hygiene/offenders.ts',
+      'tools/eslint-rules/comment-content.js',
+      'tools/audit/gates/lint-comments.mjs',
+      'tests/scripts/eslint-rules/comment-content.test.ts',
+    ]) {
+      expect(isExempt(policy, rel, 'comment-content'), rel).toBe(true);
+    }
   });
 
   it('Policy_OrdinaryProductionSource_NotExempt', () => {
     const policy = loadPolicy(REPO_POLICY);
 
-    expect(isExempt(policy, 'src/registry.ts')).toBe(false);
-    expect(isExempt(policy, 'tests/evals/harness/grader.ts')).toBe(false);
+    expect(isExempt(policy, 'src/registry.ts', 'comment-content')).toBe(false);
+    expect(isExempt(policy, 'tests/evals/harness/grader.ts', 'comment-content')).toBe(false);
   });
 
   it('Policy_MeasuredBelowFloor_ShipsDisabledWithItsNumber', () => {
@@ -183,27 +173,21 @@ describe('the repository policy datum', () => {
     }
   });
 
-  it('Policy_CoverageRatchet_ShipsDisabledUntilTheTreeSettles', () => {
-    const coverage = loadPolicy(REPO_POLICY).coverage as {
-      exportedDeclarations?: { enabled?: boolean };
-    };
+  it('Policy_EveryExemptGlob_MatchesATrackedFile', async () => {
+    const tracked = (await execFileAsync('git', ['ls-files'], { cwd: path.dirname(path.dirname(REPO_POLICY)) }))
+      .split('\n')
+      .filter((line) => line.length > 0);
+    const policy = loadPolicy(REPO_POLICY);
+    const dead = policy.exemptPaths
+      .filter((entry) => !tracked.some((file) => entry.rules.some((rule) => isExempt({ ...policy, exemptPaths: [entry] }, file, rule))))
+      .map((entry) => entry.glob);
 
-    expect(coverage.exportedDeclarations?.enabled).toBe(false);
+    expect(policy.exemptPaths.length).toBeGreaterThan(0);
+    expect(dead, 'exemption globs that match no tracked file').toEqual([]);
   });
-});
 
-describe('isWaived', () => {
-  it('IsWaived_LiveWaiverMatchingPath_ReturnsTrue', () => {
-    const policy = loadPolicy(
-      writeTempPolicy(
-        validDatum({
-          waivers: [{ glob: 'src/legacy/**', owner: 'reed', expires: '2099-01-01', reason: 'debt' }],
-        }),
-      ),
-    );
-
-    expect(isWaived(policy, 'src/legacy/deep/file.ts')).toBe(true);
-    expect(isWaived(policy, 'src/current/file.ts')).toBe(false);
+  it('IsExempt_RuleOutsideTheRoster_Throws', () => {
+    expect(() => isExempt(loadPolicy(REPO_POLICY), 'src/a.ts', 'comment-nothing')).toThrow(PolicyError);
   });
 });
 
@@ -221,20 +205,20 @@ describe('compilePattern', () => {
 describe('glob matching', () => {
   it('Glob_DoubleStar_CrossesDirectories', () => {
     const policy = loadPolicy(
-      writeTempPolicy(validDatum({ exemptPaths: [{ glob: 'a/**/c.ts', reason: 'r' }] })),
+      writeTempPolicy(validDatum({ exemptPaths: [{ glob: 'a/**/c.ts', rules: ['comment-content'], reason: 'r' }] })),
     );
 
-    expect(isExempt(policy, 'a/b/c.ts')).toBe(true);
-    expect(isExempt(policy, 'a/b/d/c.ts')).toBe(true);
-    expect(isExempt(policy, 'a/c.ts')).toBe(true);
+    expect(isExempt(policy, 'a/b/c.ts', 'comment-content')).toBe(true);
+    expect(isExempt(policy, 'a/b/d/c.ts', 'comment-content')).toBe(true);
+    expect(isExempt(policy, 'a/c.ts', 'comment-content')).toBe(true);
   });
 
   it('Glob_SingleStar_DoesNotCrossDirectories', () => {
     const policy = loadPolicy(
-      writeTempPolicy(validDatum({ exemptPaths: [{ glob: 'a/*.ts', reason: 'r' }] })),
+      writeTempPolicy(validDatum({ exemptPaths: [{ glob: 'a/*.ts', rules: ['comment-content'], reason: 'r' }] })),
     );
 
-    expect(isExempt(policy, 'a/b.ts')).toBe(true);
-    expect(isExempt(policy, 'a/b/c.ts')).toBe(false);
+    expect(isExempt(policy, 'a/b.ts', 'comment-content')).toBe(true);
+    expect(isExempt(policy, 'a/b/c.ts', 'comment-content')).toBe(false);
   });
 });

@@ -102,7 +102,8 @@ them locally.
   names a reason and pins its count (`tests/architecture/locality.test.ts`).
 - **Comments name no planning ordinal** — no `DR-<n>`, `task <n>`, `INV-<n>`, `wave <n>`, or
   `docs/specs/…` path. State the constraint in words; the policy and its rationale are in
-  `.exarchos/comment-policy.json`.
+  `.exarchos/comment-policy.json`. `npm run lint:comments` enforces it. Existing violations sit in
+  `tools/audit/comment-quality/baseline.tsv`, which only shrinks: an edited comment must pass.
 
 ## Workflow Dispatch
 

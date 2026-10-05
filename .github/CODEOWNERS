@@ -13,3 +13,6 @@ rendered/ @reedsalus
 
 # The single test tree
 tests/ @reedsalus
+
+# Policy data, including the comment policy and its exemptions
+.exarchos/ @reedsalus
