@@ -1,3 +1,4 @@
+import { parse as parseToml } from '@iarna/toml';
 import { default as yaml } from 'js-yaml';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -121,7 +122,34 @@ export function pathFilterGlobs(workflow: Workflow, repoRoot: string = REPO_ROOT
   return out;
 }
 
-/** Parses `[lanes.<key>].paths` out of the ci-lanes manifest. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+
+/**
+ * Reads the `paths` globs of each `[lanes.<key>]` table from the text of a ci-lanes
+ * manifest. Text that is not valid TOML throws. A lane whose `paths` is not an array
+ * of strings also throws. The audit thus cannot read a broken lane as a lane with no globs.
+ */
+export function lanePathsFromToml(text: string): Record<string, string[]> {
+  const lanes: unknown = parseToml(text)['lanes'];
+  if (!isRecord(lanes)) return {};
+  const out: Record<string, string[]> = {};
+  for (const [key, lane] of Object.entries(lanes)) {
+    const paths: unknown = isRecord(lane) ? lane['paths'] : undefined;
+    if (!isStringArray(paths)) {
+      throw new Error(`${CI_LANES_MANIFEST}: lanes.${key}.paths must be an array of strings`);
+    }
+    out[key] = paths;
+  }
+  return out;
+}
+
+/** Reads the lane globs of the ci-lanes manifest in `repoRoot`. An absent manifest gives `{}`. */
 export function lanePathsFromManifest(repoRoot: string = REPO_ROOT): Record<string, string[]> {
   let text: string;
   try {
@@ -129,53 +157,5 @@ export function lanePathsFromManifest(repoRoot: string = REPO_ROOT): Record<stri
   } catch {
     return {};
   }
-  const out: Record<string, string[]> = {};
-  let current: string | null = null;
-  let inPaths = false;
-  for (const rawLine of text.split('\n')) {
-    const line = rawLine.replace(/#.*$/, '');
-    const table = /^\[lanes\.([a-z][a-z0-9_]*)\]\s*$/.exec(line);
-    if (table) {
-      current = table[1] ?? null;
-      inPaths = false;
-      if (current && out[current] === undefined) out[current] = [];
-      continue;
-    }
-    if (/^\s*\[/.test(line)) {
-      current = null;
-      inPaths = false;
-      continue;
-    }
-    if (current === null) continue;
-    const inline = /^\s*paths\s*=\s*\[(.*)\]\s*$/.exec(line);
-    if (inline) {
-      out[current] = quotedStrings(inline[1] ?? '');
-      inPaths = false;
-      continue;
-    }
-    if (/^\s*paths\s*=\s*\[\s*$/.test(line)) {
-      out[current] = [];
-      inPaths = true;
-      continue;
-    }
-    if (inPaths) {
-      if (/^\s*\]\s*$/.test(line)) {
-        inPaths = false;
-        continue;
-      }
-      out[current]?.push(...quotedStrings(line));
-    }
-  }
-  return out;
-}
-
-function quotedStrings(fragment: string): string[] {
-  const values: string[] = [];
-  const pattern = /"((?:\\.|[^"\\])*)"/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(fragment)) !== null) {
-    const value = match[1];
-    if (value !== undefined && value !== '') values.push(value);
-  }
-  return values;
+  return lanePathsFromToml(text);
 }

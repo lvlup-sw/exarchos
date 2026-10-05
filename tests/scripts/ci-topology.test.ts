@@ -223,6 +223,19 @@ function isUnitProjectScript(scripts: Record<string, string>, name: string, hops
   return alias !== null && hops < 1 && isUnitProjectScript(scripts, alias[1] ?? '', hops + 1);
 }
 
+/**
+ * Returns whether the job checks out the repository before it runs the verdict
+ * step of the `ci-lanes` action. The verdict reads the manifest from the checkout.
+ */
+function verdictFollowsCheckout(job: WorkflowJob | undefined): boolean {
+  const steps = job?.steps ?? [];
+  const verdict = steps.findIndex((s) => s.uses === CI_LANES_ACTION && s.with?.mode === 'verdict');
+  const checkout = steps.findIndex(
+    (s) => typeof s.uses === 'string' && s.uses.startsWith('actions/checkout@'),
+  );
+  return checkout >= 0 && verdict > checkout;
+}
+
 describe('CI path-filter & guard coverage (DR-22)', () => {
   it('Filters_RootFilter_IncludesProjectionRootGlobs', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
@@ -471,6 +484,28 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(step?.with?.gate).toBe(AGGREGATOR_JOB);
     expect(String(step?.with?.needs ?? '').trim()).toBe('${{ toJSON(needs) }}');
     expect(step?.['continue-on-error']).toBeUndefined();
+  });
+
+  /**
+   * The verdict reads the manifest from the checkout. Without a checkout before it,
+   * the action cannot read the manifest and the required check fails on each PR.
+   * The `check` mode of the action does not test this, so the decoys prove the matcher.
+   */
+  it('Aggregator_ChecksOutTheRepositoryBeforeTheVerdict', () => {
+    const workflow = loadWorkflow(CI_WORKFLOW_PATH);
+    expect(
+      verdictFollowsCheckout(workflow.jobs[AGGREGATOR_JOB]),
+      'ci-gate must check out the repository before the verdict step',
+    ).toBe(true);
+
+    const verdictStep: WorkflowStep = {
+      uses: CI_LANES_ACTION,
+      with: { mode: 'verdict', gate: AGGREGATOR_JOB },
+    };
+    const checkoutStep: WorkflowStep = { uses: 'actions/checkout@v4' };
+    expect(verdictFollowsCheckout({ steps: [verdictStep] })).toBe(false);
+    expect(verdictFollowsCheckout({ steps: [verdictStep, checkoutStep] })).toBe(false);
+    expect(verdictFollowsCheckout({ steps: [checkoutStep, verdictStep] })).toBe(true);
   });
 
   it('Aggregator_NeedsPlannerPlusMappedJobs', () => {

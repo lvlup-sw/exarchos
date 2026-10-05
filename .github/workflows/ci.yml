@@ -1294,6 +1294,9 @@ jobs:
     needs: [plan, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests]
     if: always()
     steps:
+      # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the
+      # action cannot read the manifest, and the required check fails on each PR.
+      - uses: actions/checkout@v4
       - uses: lvlup-sw/.github/actions/ci-lanes@v1
         with:
           mode: verdict
