@@ -14,6 +14,7 @@
 import tseslint from 'typescript-eslint';
 import commentContent from './tools/eslint-rules/comment-content.js';
 import commentBaseline from './tools/eslint-rules/comment-baseline.js';
+import commentPlacement from './tools/eslint-rules/comment-placement.js';
 import { LINT_GLOBS, LINT_IGNORES } from './tools/audit/lib/lint-scope.mjs';
 
 export default [
@@ -29,13 +30,16 @@ export default [
     // "unused" just because we keep their rules off.
     plugins: {
       '@typescript-eslint': tseslint.plugin,
-      comments: { rules: { 'comment-content': commentContent, 'comment-baseline': commentBaseline } },
+      comments: {
+        rules: { 'comment-content': commentContent, 'comment-placement': commentPlacement, 'comment-baseline': commentBaseline },
+      },
     },
     linterOptions: {
       reportUnusedDisableDirectives: 'off',
     },
     rules: {
       'comments/comment-content': 'error',
+      'comments/comment-placement': 'error',
       'comments/comment-baseline': 'error',
       'no-restricted-syntax': [
         'error',

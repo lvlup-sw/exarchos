@@ -85,6 +85,13 @@ describe('isTypeAnnotation', () => {
     expect(isTypeAnnotation('* @type {string} ')).toBe(true);
     expect(isTypeAnnotation('*\n * @param {string} name\n * @returns {number}\n ')).toBe(true);
     expect(isTypeAnnotation('*\n * @typedef {object} Point\n * @property {number} x\n ')).toBe(true);
+    expect(isTypeAnnotation('*\n * @typedef {{\n *   a: string,\n * }} Pair\n ')).toBe(true);
+    expect(isTypeAnnotation("* @import { A } from './a.js' ")).toBe(true);
+  });
+
+  it('IsTypeAnnotation_TypeTagFollowedByProse_ReturnsFalse', () => {
+    expect(isTypeAnnotation('* @typedef {object} P The point. ')).toBe(false);
+    expect(isTypeAnnotation('* @type {string} DR-7 says so ')).toBe(false);
   });
 
   it('IsTypeAnnotation_TagWithProse_ReturnsFalse', () => {
