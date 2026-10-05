@@ -29,18 +29,28 @@ const CORE_BENCHES = [
 ];
 
 /**
+ * The first setup file of every project. After each test file it undoes `vi.stubEnv`, and it
+ * restores `process.env` and the working directory to their values at the start of the file. Thus
+ * files that share a worker cannot see the state of each other (#2030).
+ * `tests/architecture/vitest-config.test.ts` checks that every project lists it first.
+ */
+export const FILE_BOUNDARY_RESET = './tests/helpers/reset-process-state.ts';
+
+/**
+ * Closes every SQLite handle after each test file. Every project whose files can share one worker
+ * process registers it, and the config test checks that.
+ */
+export const CLOSE_SQLITE = './tests/helpers/close-sqlite.ts';
+
+const HERMETIC_INSTALL_IDENTITY = './tests/helpers/hermetic-install-identity.ts';
+
+/**
  * Windows headroom factor for the tier budgets (#1699). The budgets are calibrated on Linux, where a
  * `git` spawn is cheap. On the 2-core Windows runner a spawn costs one to two orders of magnitude
  * more, so a tight budget fails by timeout at random. The factor scales the whole tier, because the
  * set of tests that spawn a child process grows with the suite. Linux stays unscaled, so a real
  * hang still fails fast. Tests import this value and keep no copy of the number.
  */
-export const FILE_BOUNDARY_RESET = './tests/helpers/reset-process-state.ts';
-
-export const CLOSE_SQLITE = './tests/helpers/close-sqlite.ts';
-
-const HERMETIC_INSTALL_IDENTITY = './tests/helpers/hermetic-install-identity.ts';
-
 export const WIN32_SPAWN_HEADROOM = process.platform === 'win32' ? 6 : 1;
 const tierTimeout = (linuxBudgetMs: number): number => linuxBudgetMs * WIN32_SPAWN_HEADROOM;
 
@@ -64,12 +74,12 @@ export default defineConfig({
   test: {
     globals: false,
     environment: 'node',
+    globalSetup: [TEMP_RUN_ROOT_SETUP],
     /**
      * This file configures coverage at the root, because vitest ignores a `coverage` block on a
      * project. `test:coverage` runs `--project core`. The blocking coverage ratchet in `ci.yml`
      * reads the summary that this block writes.
      */
-    globalSetup: [TEMP_RUN_ROOT_SETUP],
     coverage: {
       provider: 'v8',
       /**
