@@ -15,9 +15,10 @@ describe('package.json scripts', () => {
   });
 
   /**
-   * The other projects lack the `bun:sqlite` alias or load the process preflight.
-   * Without a project filter, `vitest bench` collects the EventStore benches in
-   * those projects, and the regression gate fails before it compares numbers.
+   * The `unit` and `process` projects have no `bun:sqlite` alias, and `process`
+   * also loads the process preflight. Without a project filter, `vitest bench`
+   * collects the EventStore benches in those projects, and the regression gate
+   * fails before it compares numbers.
    */
   it('PackageJson_BenchScript_RunsCoreProjectOnly', () => {
     const raw = fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8');

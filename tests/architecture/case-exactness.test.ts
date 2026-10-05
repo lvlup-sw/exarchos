@@ -191,7 +191,8 @@ describe('case exactness', () => {
   /**
    * Normalization depends on the path and not on its separator. The cases
    * hold both separator forms of one path, so a pass-through normalizer fails.
-   * The test normalizes with an inline `replaceAll` call.
+   * The test normalizes with an inline `replaceAll` call and calls no
+   * production normalizer.
    */
   it('PathHandling_NormalizationHolds_ForEverySeparatorForm', () => {
     const cases: ReadonlyArray<readonly [string, string]> = [

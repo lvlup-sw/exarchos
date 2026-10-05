@@ -52,7 +52,8 @@ describe('CI binary matrix wiring', () => {
 
   /**
    * The matrix can be a `target:` list or an `include:` list of objects. The
-   * expected names come from `TARGETS`, so the workflow YAML is the only side that can drift.
+   * expected names come from `TARGETS`, so only the workflow YAML can drift from them.
+   * The entry count 5 is a literal. A change to the length of `TARGETS` needs an edit here.
    */
   it('CiWorkflow_BinaryMatrix_FiveTargets', () => {
     const wf = loadWorkflow();

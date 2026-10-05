@@ -54,7 +54,7 @@ const TEST_KEY_ID = 'test.publisher';
 
 /**
  * A tracked file in `SOURCE_TREE_ROOTS` that is not in `GENERATED_AT_BUILD_PATHS`.
- * The source-state tests edit a sandbox git copy of it. Other tests read the live checkout at the same time.
+ * The source-state tests edit a sandbox git copy of it, because other tests read the live checkout at the same time.
  */
 const PLANT_TARGET = 'tools/release/build-binary-targets.ts';
 
@@ -204,10 +204,10 @@ function hostAssetName(): string {
 }
 
 /**
- * Returns the absolute path of the real `bun` executable.
- * On Windows, npm installs bun as a `bun.cmd` shim next to `node_modules/bun/bin/bun.exe`.
- * A spawn of `bun` without a shell then fails with ENOENT, so this function finds the `.exe`.
- * Thus the suite runs on Windows too.
+ * Returns the path of the real `bun` executable, or the bare name `bun` when the search finds none.
+ * On Windows, npm installs bun as a `bun.cmd` shim, and a spawn of `bun` without a shell fails with ENOENT.
+ * There, the function looks in each `PATH` directory for `bun.exe`, and then for `node_modules/bun/bin/bun.exe` below it.
+ * With the real `.exe`, the suite runs on Windows too.
  */
 function resolveBunExecutable(): string {
   const dirs = (process.env['PATH'] ?? '').split(delimiter).filter((d) => d.length > 0);
@@ -391,8 +391,9 @@ describe('DR-20 release manifest producer', () => {
   });
 
   /**
-   * An installer can reject a wrong source, contract or asset only when the produced manifest carries fields that differ.
-   * The test changes one expected value at a time against the real signed manifest.
+   * An installer can reject a wrong source, contract or asset only when the produced manifest carries a field for each.
+   * The test changes one installer input at a time: the commit, the tree digest, the contract digest, then the observed asset digest.
+   * Against the real signed manifest, `verifyReleaseInstall` must reject each change with the matching reason.
    */
   it('ReleaseManifest_CarriesFieldsThatDiscriminateSourceContractAndAsset', () => {
     const baseline = {

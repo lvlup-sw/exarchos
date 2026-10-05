@@ -5,9 +5,9 @@
  * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts, ../../content/synthesis/skills/synthesize/SKILL.md
  *
  * The model reads the prose, and the gate checks the row. No generator joins them: the skills
- * renderer is in `src/install`, which must not import `src/verbs`. This test reads the passage
- * in one machine-readable shape and compares the two sets. It fails when the prose and the row
- * disagree.
+ * renderer is in `src/install`, which must not import `src/verbs`. Each passage has a
+ * machine-readable shape, a line or a table. This test reads the passage and compares the two
+ * sets. It fails when the prose and the row disagree.
  *
  * The test reads only the content source. `render:guard` pins `rendered/` to `content/`.
  */

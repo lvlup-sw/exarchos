@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for the plugin-packaging gate, tools/audit/gates/validate-plugin.sh.
 #
-# tests/scripts/validate-plugin.test.ts runs only in a path-filtered CI job.
+# tests/scripts/validate-plugin.test.ts runs only in path-filtered CI jobs.
 # This script asserts the same fail-closed properties in the unfiltered
 # `grep-gates` job, which runs on every PR. check-type-debt.test.sh and
 # check-coverage-ratchet.test.sh use the same pattern.
@@ -76,8 +76,9 @@ JSON
 
 # Seeds a conforming tree and assigns its path to the named variable.
 #
-# It assigns and does not echo. `dir=$(mktree)` runs the body in a subshell, so
-# `TMPDIRS+=` does not reach the parent and each fixture directory leaks.
+# It assigns and does not echo. An echo needs `dir=$(mktree)`, which runs the
+# body in a subshell. Then `TMPDIRS+=` does not reach the parent, and each
+# fixture directory leaks.
 mktree() {
   local __outvar="$1"
   local d
@@ -91,7 +92,8 @@ echo "## validate-plugin.sh Tests"
 echo
 
 # 1. The shipped tree satisfies the shipped policy. If this case fails, the
-#    packaging changed. Then edit the policy on purpose.
+#    packaging and the policy disagree. For an intended packaging change, edit
+#    the policy.
 assert_exit "real repository tree passes" 0 bash "$GATE" --repo-root "$REPO_ROOT"
 
 # 2. A conforming synthetic tree passes against the same policy document. Thus

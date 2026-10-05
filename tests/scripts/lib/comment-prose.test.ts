@@ -141,7 +141,7 @@ describe('extractCommentProse', () => {
     expect(prose).not.toContain('in a string');
   });
 
-  /** A token scanner cannot resume a template literal after `${…}`, so the tail looked like a comment. */
+  /** A token scanner cannot resume a template literal after `${…}`, so it reads the tail as a comment. */
   it('CommentProse_TemplateSubstitutionTailIsNotProse', () => {
     const source = 'const probe = `${self}\\n// invented prose here`;';
 

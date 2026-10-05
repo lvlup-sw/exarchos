@@ -53,9 +53,9 @@ describe('isKeepClassRelPath — suffix/area/explicit classifier (DR-5)', () => 
   });
 
   /**
-   * The dedicated-suite suffix decides keep-class status, and the imports of a
-   * file do not. A file that imports fast-check but has a plain `.test.ts`
-   * suffix is a consolidation target, not a protected suite.
+   * The path of a file decides keep-class status, and its imports do not. A
+   * file that imports fast-check but has a plain `.test.ts` suffix is a
+   * consolidation target, not a protected suite.
    */
   it('is NOT fooled by a file merely importing fast-check (events/tools.test.ts)', () => {
     expect(isKeepClassRelPath('event-store/tools.test.ts')).toBe(false);
@@ -129,9 +129,10 @@ describe('buildInventory / loadInventory round trip', () => {
   });
 
   /**
-   * A root that does not exist gives an empty walk, so each suite under it
-   * loses protection. Nothing reports that, because the regenerated snapshot
-   * matches the empty walk.
+   * The walk skips a listed root that does not exist, so the suites that moved
+   * out of that root lose protection. Nothing else reports that, because the
+   * regenerated snapshot matches the empty walk. Thus each root must exist and
+   * hold a keep-class suite.
    */
   it('PROTECTED_ROOTS_ALL_EXIST', () => {
     expect(PROTECTED_ROOTS.length).toBeGreaterThan(0);

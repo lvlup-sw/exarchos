@@ -104,6 +104,9 @@ const PWSH = await resolvePwsh();
  * A bare `skipIf` drops every test of an absent shell, and the run still reports success.
  * Off CI, the skip stays, so a contributor without pwsh can run the rest of the suite.
  * On CI, both shells are required. The waiver names an issue and an expiry date, and a test asserts the expiry.
+ *
+ * The same date is in `ci.yml` and in `tools/audit/gates/validate-manifest.json`.
+ * `tests/scripts/run-validate.test.ts` requires the three dates to agree.
  */
 const SHELL_SKIP_WAIVER = Object.freeze({
   issue: '#1789',
@@ -632,7 +635,7 @@ describe('DR-20 — the installers consume the signed release manifest', () => {
 
     /**
      * The second run pins the key that signed the fixture, and the install succeeds.
-     * Thus the pin caused the rejection.
+     * Thus the first rejection came from the pin, not from an unconditional refusal.
      */
     it('Installer_ManifestMismatch_RejectsInstall — a manifest signed by an unpinned key aborts', async () => {
       const { fixture, origin } = await scenario('sh-wrongkey', { signWithWrongKey: true });

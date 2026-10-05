@@ -3,8 +3,8 @@
  * `WorkflowEvent` into `WorkflowStateView`.
  *
  * A file is a workflow-state fold when it holds both a `case 'workflow.transition'`
- * arm and a `case 'merge.executed'` arm. Readiness and pipeline views fold only
- * the first arm, and the merge-orchestrator projection folds only the second.
+ * arm and a `case 'merge.executed'` arm. Readiness and pipeline views hold only
+ * the first arm, and the merge-orchestrator projection holds only the second.
  * The allowlist holds the canonical fold (`projections/views/workflow-state-projection.ts`)
  * and the distinct rehydration projection. Each other match fails.
  */

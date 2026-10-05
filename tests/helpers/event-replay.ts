@@ -160,16 +160,17 @@ export async function snapshotEventStream(
 }
 
 /**
- * Appends the events of `snapshot` to the server of `client`.
- * The target stream must be empty or a prefix of the snapshot. The function compares
- * the target events with that prefix and throws on a mismatch, because equal counts
- * do not prove equal history. It skips the events that the target already holds,
- * so a second call with the same snapshot appends nothing.
+ * Appends the events of `snapshot` to the server of `client`. The target stream must be
+ * empty or a prefix of the snapshot. The function compares the target events with that
+ * prefix and throws on a mismatch, because equal counts do not prove equal history.
+ * It skips the events that the target already holds, so a repeated call appends nothing.
  *
  * It appends the raw rows, because a normalized row holds placeholders such as `<UUID>`.
- * It throws if `raw` is absent or its length differs from `events`. The target server
- * assigns `streamId`, `sequence` and `timestamp`, so the append omits them. A recorded
- * `idempotencyKey` goes to `append` as a top-level argument, not inside the event.
+ * Before the first append, it throws if `raw` is absent or its length differs from `events`.
+ * The append omits `streamId`, `sequence` and `timestamp`, so the target server assigns them.
+ * A recorded `idempotencyKey` goes to `append` as a top-level argument, because the server
+ * reads it only there. The server stores each event before `append` returns, so no poll is
+ * necessary after the call.
  */
 export async function replayInto(
   client: SpawnedMcpClient,

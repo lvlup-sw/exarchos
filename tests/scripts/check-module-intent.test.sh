@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for the fail-closed paths of check-module-intent.mjs.
 #
-# The `.test.ts` cases of the gate run only in a path-filtered CI job. This
+# The `.test.ts` cases of the gate run only in path-filtered CI jobs. This
 # script runs in the unfiltered `grep-gates` job. It drives the real CLI
 # through the `--refgraph` flag.
 #

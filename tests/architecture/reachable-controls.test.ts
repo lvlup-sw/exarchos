@@ -100,9 +100,10 @@ const CALLER_BODIES: ReadonlyMap<string, string> = new Map(
 );
 
 /**
- * The source of one file without its import and re-export statements. A symbol
- * in `import { x } from` or `export { x } from` is routed and not used. Thus a
- * barrel that re-exports a dead control does not make it reachable.
+ * The lexed source of one file without its import and re-export statements. A
+ * file that names a symbol in `import { x } from` or `export { x } from` routes
+ * the symbol and does not use it. Thus a barrel that re-exports a dead control
+ * does not make it reachable.
  */
 function executableSource(relativePath: string): string {
   return executableSourceOf(readFileSync(path.join(REPO_ROOT, relativePath), 'utf8'), relativePath);
@@ -120,8 +121,8 @@ function executableSourceOf(source: string, relativePath: string): string {
  *
  * The check is for a reference and not a call. Production wiring often passes
  * an enabler as a value: as a default, or in a probe array. The declaring file
- * also counts, because a control that its own file invokes is reachable. Only
- * the declaration itself is removed from that file.
+ * also counts, because a control that its own file invokes is reachable. The
+ * check removes only the declaration itself from that file.
  */
 function hasProductionUse(symbol: string, declaredIn: string): boolean {
   const reference = new RegExp(`\\b${symbol}\\b`);

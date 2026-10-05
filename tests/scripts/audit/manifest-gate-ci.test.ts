@@ -50,9 +50,10 @@ describe('deriveTouchedPairIds', () => {
 /**
  * Each case runs the gate against a temp git repository, not the live tree.
  * `LEGACY_MERGE` and `CANON_MERGE` have identical preambles modulo the import
- * path, so the pair is a valid merge target. `rawGit` is the synchronous git
- * runner of the two fail-closed cases. An unexpected git error must not read
- * as "no pair touched" or as an absent case, and must not pass the gate.
+ * path, so the pair is a valid merge target. `rawGit` is the git runner of the
+ * two fail-closed cases. It is synchronous, because `run` takes a synchronous
+ * runner. The gate must not accept an unexpected git error as an absent case
+ * or as "no pair touched".
  */
 describe('manifest-gate-ci (temp-git fixtures)', () => {
   let dir: string;

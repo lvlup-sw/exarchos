@@ -136,8 +136,9 @@ grep_cause "hash-mismatch" "census-hash mismatch" "$TMP/mismatch.err"
 grep_cause "hash-mismatch" "baseline.json" "$TMP/mismatch.err"
 
 # ── unavailable census root (exists but not a directory) → FAIL CLOSED (2) ──
-# Here `src` is a regular file. The gate must fail closed and must not read the
-# root as empty, or a path fault can drop the source tree from enforcement.
+# Here `src` is a regular file. The gate reads only an absent root as empty. It
+# must fail closed here, or a path fault can drop the source tree from
+# enforcement.
 mkdir -p "$TMP/badroot"
 printf 'not a directory\n' > "$TMP/badroot/src"
 cat > "$TMP/badroot/baseline.json" <<'EOF'

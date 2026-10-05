@@ -14,6 +14,8 @@
  * in for the guard.
  * `globMatches` comes from the guard inventory, so both read the workflow globs
  * the same way.
+ * The `grep-gates` lane has no path filter and also runs this file. A PR that
+ * the `root` filter does not match thus still runs these tests.
  */
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
@@ -65,6 +67,7 @@ interface AllowlistEntry {
  * The top-level jobs that can stay outside `ci-gate.needs`, each with its reason.
  * The list is in this test file and not in a separate config. The diff that adds
  * such a job then also shows the allowlist edit.
+ * `docs/guides/ci-gate-hosting.md` states the contract for an entry.
  */
 const NON_BLOCKING_ALLOWLIST: Record<string, AllowlistEntry> = {
   'e2e-process': {
@@ -368,7 +371,8 @@ function npmRunInvocation(scriptName: string): RegExp {
  * Returns whether `cmd` is a vitest invocation that selects exactly `project`.
  * The option must be an argument of vitest itself. `echo --project unit` runs
  * nothing, and `vitest && echo --project unit` gives the option to a later command.
- * `--project core-extra` does not count for `core`, although `\b` matches before a hyphen.
+ * `--project core-extra` does not count for `core`. The pattern ends at white
+ * space or at the end of the text, because `\b` also matches before a hyphen.
  *
  * Only the first shell command belongs to vitest. The function cuts at `;`, `|`,
  * `&` and a newline before it matches, so `\s+` cannot span a newline.
@@ -442,7 +446,7 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
 
   /**
    * Membership is not protection. After a directory rename, a glob stays in the
-   * filter and selects nothing, so the gated job stops on the PRs that it polices.
+   * filter and selects nothing. The gated job then does not run on the PRs that it polices.
    * A skipped required job reads as passed.
    * A negation selects by exclusion and can match nothing, so the test skips each
    * glob that starts with `!`.
@@ -663,9 +667,9 @@ describe('CI-topology conformance (DR-2)', () => {
 });
 
 /**
- * The first tests are structural preconditions for the tests that run the script.
- * The script must run outside GitHub, its lane list must be the `needs` context
- * itself, and its skip licences must match the path filters.
+ * The tests that do not run the script are structural preconditions for the
+ * tests that run it. The script must run outside GitHub, its lane list must be
+ * the `needs` context itself, and its skip licences must match the path filters.
  */
 describe('CI-gate execution policy (DR-10)', () => {
   /**

@@ -81,8 +81,8 @@ while IFS= read -r hit; do
   # specifier ends in `.js` or has no extension, and the source file ends in `.ts`.
   spec=$(printf '%s\n' "$hit" | sed -E "s/.*from ['\"](\.+\/install)(\.js|\.ts)?['\"].*/\1/")
   # Parse guard: a captured specifier starts with a dot. If sed captures
-  # nothing, the line stays unchanged and starts with the importer path. Then
-  # flag the hit as unresolvable.
+  # nothing, the line stays unchanged and starts with the importer path. The
+  # loop then counts the hit as dangling.
   if [[ "$spec" != .* ]]; then
     DANGLING="${DANGLING}${hit}\n"
     continue

@@ -57,7 +57,10 @@ describe('loadPolicy', () => {
     expect(loadPolicy(writeTempPolicy(validDatum())).exemptPaths).toHaveLength(1);
   });
 
-  /** An exemption is structural and permanent. An expired exemption fails files that must contain the text. */
+  /**
+   * An exemption is structural and permanent, so the loader rejects an `expires` key.
+   * An exemption that lapses makes the guard fail files that must contain the forbidden text.
+   */
   it('LoadPolicy_ExemptPathWithExpiry_Fails', () => {
     const file = writeTempPolicy(
       validDatum({

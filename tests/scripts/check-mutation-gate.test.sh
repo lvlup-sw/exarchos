@@ -4,10 +4,12 @@
 # The test builds a git fixture repo in a temp directory. It uses no network and
 # does not run Stryker. The `mutation:` entry in the fixture `.exarchos.yml`
 # runs fixture-runner.mjs, which prints a chosen Stryker report fixture. The
-# real handler then reads that report through the real bun bridge of the gate.
+# gate calls the real handler through its real bun bridge, and the handler
+# parses that report.
 #
 # Requires a real `bun` on PATH (the same tool test-mcp already sets up via
-# `oven-sh/setup-bun@v2`) for each case except the case with a bad `--bun-bin`.
+# `oven-sh/setup-bun@v2`). Without `bun`, the script exits 1 before the first
+# case. Cases 1, 2 and 7 to 10 run the handler under `bun`.
 #
 # Cases:
 #   1. NoCoverage over budget in the diff     → fails            exit 1

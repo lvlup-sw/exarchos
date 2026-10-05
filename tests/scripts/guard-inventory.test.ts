@@ -339,7 +339,7 @@ describe('Wave-1 guard inventory — CI reachability proof (DR-24, task 063)', (
 describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
   /**
    * The live audit must name each guard that only path-filtered jobs host, and each must carry a filter key.
-   * `layer-boundaries-seam.ts` is the named live instance.
+   * `layer-boundaries-seam.ts` is the named live instance, so the criterion keeps a live subject.
    * The seeded guard has its source outside the filter and no unfiltered `pull_request` host, so the audit must fail it.
    */
   it('GuardInventory_PathFilteredGuard_IsReportedNotSilentlyAccepted', () => {
@@ -465,8 +465,8 @@ describe('Path-filtered hosting (#1711 skipped-as-passed)', () => {
 
 describe('Non-empty denominator', () => {
   /**
-   * The live inventory and the live manifest must also be non-empty.
-   * An inventory that finds nothing must not satisfy this criterion.
+   * An inventory of zero guards must fail the audit.
+   * The live inventory and the live manifest must be non-empty, so the live proof does not rest on an empty scan.
    */
   it('GuardInventory_ZeroGuardsResolved_FailsClosed', () => {
     const audit = auditGuardInventory(inventoryOf([]), { exemptions: [] });
@@ -559,9 +559,9 @@ describe('Guard-suite discovery (channel 4)', () => {
   });
 
   /**
-   * A census that loses its self-test must appear in a report.
+   * A census that loses its self-test must appear in `modulesWithoutSelfTest`, and the inventory must carry that list.
    * If it leaves the population silently, a deleted test deletes a guard.
-   * A module cannot be in both lists.
+   * A module cannot be in both lists of the scan.
    */
   it('GuardSuite_ModuleWithoutSelfTest_IsReportedNotSilentlyDropped', () => {
     const scan = scanGuardSuiteRoots();
@@ -704,7 +704,7 @@ describe('Derivations the inventory rests on', () => {
 
   /**
    * A mirror entry whose source tree moved still returns candidate paths, but the files do not exist.
-   * An unpaired artifact reads as "no self-test" and not as an error, so each entry must pair one real file.
+   * An unpaired artifact reads as "no self-test" and not as an error, so each entry must pair at least one real file.
    */
   it('GuardInventory_EverySelfTestMirror_PairsSomethingReal', () => {
     for (const [from, to] of SELF_TEST_MIRRORS) {
@@ -816,7 +816,7 @@ describe('Exclusions stay reviewable', () => {
   /**
    * `tsc` enforces these modules and no CI step runs them, so execution reachability does not apply to them.
    * The test asserts a property and pins no file name, because a module can gain a self-test and leave the set.
-   * No member can also be a guard, because each guard has a self-test.
+   * A member has no self-test and no runnable entry point, so the test fails when a member is also in `guards`.
    */
   it('GuardInventory_CompileTimeOnlyWave1Artifacts_AreReported', () => {
     expect(
@@ -1011,8 +1011,8 @@ describe('The indirection resolver is itself measured (non-empty denominator)', 
   });
 
   /**
-   * The live walk must examine real steps and wrappers.
-   * A walk that finds nothing must not satisfy the fail-closed rule.
+   * The live walk must examine real run-steps and real wrapper scripts.
+   * Thus the live proof does not rest on a walk that finds nothing.
    */
   it('GuardInventory_LiveIndirectionWalk_IsGenuinelyNonEmpty', () => {
     expect(liveInventory.indirection.runStepsWalked).toBeGreaterThan(50);
@@ -1160,7 +1160,7 @@ describe('Historical spec paths resolve against the current tree', () => {
 
   /**
    * The `…/src/agents/` rule must win over the `…/src/` rule.
-   * If it does not, a moved subtree resolves to a wrong path.
+   * If it does not, a moved subtree can resolve to a wrong path.
    */
   it('GuardInventory_HistoricalPathRewrites_AreOrderedSpecificBeforeCatchAll', () => {
     expect(resolveHistoricalPath('servers/exarchos-mcp/src/agents/dispatch-shape.ts', onDisk)).toBe(

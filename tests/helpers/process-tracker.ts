@@ -1,17 +1,17 @@
 import type { ChildProcess } from 'node:child_process';
 
 /**
- * The child processes that this worker spawned. Each vitest worker has its own
- * copy of this module, so the registry holds only the children of that worker.
- * `runCli`, `spawnMcpClient` and `expectNoLeakedProcesses` use it. The fixture
- * barrel does not export it.
+ * The registry of spawned child processes. Each vitest worker has its own copy
+ * of this module, so the registry holds only the children that this worker
+ * registered. `runCli`, `spawnMcpClient` and `expectNoLeakedProcesses` use it.
+ * The fixture barrel does not export it.
  */
 const registry: Set<ChildProcess> = new Set();
 
 /**
  * The command of each child, copied when `register` runs. The leak detector
- * names the command in its error after the child is dead, when `spawnargs`
- * can be unreliable.
+ * prints this copy in its error, because `spawnargs` can be unreliable after
+ * the child is dead.
  */
 const commandByChild: WeakMap<ChildProcess, readonly string[]> = new WeakMap();
 
@@ -32,8 +32,8 @@ export function unregister(child: ChildProcess): void {
 }
 
 /**
- * Returns each registered child that did not exit. A child that exits stays in
- * the registry until `unregister` or `clear` removes it.
+ * Returns each registered child that is still alive. A child that exits stays
+ * in the registry until `unregister` or `clear` removes it.
  */
 export function listAlive(): ChildProcess[] {
   const alive: ChildProcess[] = [];

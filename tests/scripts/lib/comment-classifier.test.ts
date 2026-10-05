@@ -73,7 +73,7 @@ describe('forbidden ordinals', () => {
     ).toEqual([]);
   });
 
-  /** The shorthand pattern requires a hyphen, so a bare `T1` or `T0` is not an ordinal. */
+  /** The shorthand patterns require a hyphen or at least three digits, so a bare `T1` or `T0` is not an ordinal. */
   it('Classify_GenericTypeParameter_NotClassifiedAsOrdinal', () => {
     expect(idsFor('returns Map<T1, T2> for the caller')).toEqual([]);
     expect(idsFor('measured from T0 to first byte')).toEqual([]);

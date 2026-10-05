@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Self-test for the fail-closed paths of check-enforcer-wiring.mjs.
 #
-# The `.test.ts` cases of the gate run only in a path-filtered CI job. This
+# The `.test.ts` cases of the gate run only in path-filtered CI jobs. This
 # script runs in the unfiltered `grep-gates` job.
 #
 #   - tool-missing: the manifest file does not exist. The gate must exit 1 and
@@ -9,8 +9,8 @@
 #   - unparseable-output: the manifest is not valid JSON. The gate must exit 1
 #     and name the parse failure.
 #
-# The gate runs no external binary. Its input is the manifest, so a missing
-# manifest is the tool-missing case.
+# The gate runs no external binary, so it has no tool that can be absent. A
+# missing manifest, one of its required inputs, is the tool-missing case.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../tools/audit/gates" && pwd)"

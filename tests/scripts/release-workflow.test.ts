@@ -69,7 +69,10 @@ describe('Release workflow (task 2.7)', () => {
     expect(wf.jobs?.['binary-matrix']).toBeDefined();
   });
 
-  /** The matrix is a `target` list of names or an `include` list of objects. The expected names come from `TARGETS`. */
+  /**
+   * The test accepts a `target` list of names or an `include` list of objects with a
+   * `target` key. The expected names come from `TARGETS`.
+   */
   it('ReleaseWorkflow_BinaryMatrix_FiveTargets', () => {
     const wf = loadReleaseWorkflow();
     const job = wf.jobs?.['binary-matrix'];
@@ -102,9 +105,9 @@ describe('Release workflow (task 2.7)', () => {
   /**
    * The `files` lists of the gh-release steps must hold one binary and one `.sha512`
    * sidecar for each `TARGETS` entry, plus the signed release manifest. The manifest
-   * pins the source and contract identity of the published bytes. The comparison
-   * ignores order and rejects duplicates, because a count check accepts a wrong
-   * sidecar name. Only the Windows binary has the `.exe` extension.
+   * pins the source and contract identity of the published bytes. The test compares the
+   * exact path set, because a count check accepts a wrong sidecar name. The comparison
+   * ignores order and rejects duplicates. Only the Windows binary has the `.exe` extension.
    */
   it('ReleaseWorkflow_UploadsBinariesAndChecksums', () => {
     const wf = loadReleaseWorkflow();
@@ -175,8 +178,9 @@ describe('Release workflow (task 2.7)', () => {
   });
 
   /**
-   * The release body gives the install command for each installer script. The check
-   * searches the full workflow text, comments included.
+   * The release body must give the install command for each installer script. The check
+   * only searches the full workflow text for the two script names, and that text includes
+   * comments.
    */
   it('ReleaseWorkflow_BodyMentionsBootstrapUrls', () => {
     const raw = loadReleaseWorkflowRaw();

@@ -160,7 +160,8 @@ describe('DepcruiseRule_SeededViolation_StillFails', () => {
   /**
    * If the gate does not invoke the config, liveness has no value. The gate
    * returns `SKIP` when it finds no config, so the gate source must name the
-   * config file.
+   * config file. The first pattern matches only the description of
+   * `runBoundaryLint`, because the call passes its arguments as an array.
    */
   it('the rule is the one static analysis actually runs', () => {
     const staticAnalysis = readFileSync(

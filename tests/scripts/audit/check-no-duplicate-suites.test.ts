@@ -13,7 +13,7 @@ import {
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Each case builds a synthetic source tree. Legacy copies are under
+ * The cases build a synthetic source tree. Legacy copies are under
  * `__tests__/<area>/` and co-located copies are under `<area>/`. A twin is a
  * subject that is present in both. The ratchet fails on a twin that is not in
  * the allowlist.
@@ -59,7 +59,7 @@ describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
     expect(err.join('\n')).toContain('workflow/guards');
   });
 
-  /** A key on the basename alone collapses the two ids into one. */
+  /** If the key is the basename alone, the two ids collapse into one and this case fails. */
   it('keys on (area, basename): the two `schemas` twins are DISTINCT violations', () => {
     writeTwin('workflow', 'schemas');
     writeTwin('event-store', 'schemas');
@@ -99,8 +99,9 @@ describe('check-no-duplicate-suites (DR-1 ratchet)', () => {
 
   /**
    * A waiver of `workflow/schemas` alone leaves `event-store/schemas` flagged.
-   * An allowlist that keys on the basename waives both. A waiver of both ids
-   * clears the ratchet, and the empty allowlist flags both.
+   * If the allowlist keys on the basename, that waiver clears both and this
+   * case fails. A waiver of both ids clears the ratchet, and the empty
+   * allowlist flags both.
    */
   it('findViolations honors the allowlist by full (area, basename) id, not basename', () => {
     writeTwin('workflow', 'schemas');

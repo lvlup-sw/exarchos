@@ -2,7 +2,10 @@
  * Self-tests for the enforcer-wiring gate, `tools/audit/gates/check-enforcer-wiring.mjs`.
  * A name search proves only that a `check-*` gate exists.
  * A walk of the npm-script chains and the workflow run steps proves that a regression fails CI.
- * Each trap class has one synthetic fixture that the gate must reject.
+ *
+ * Four trap classes each have one synthetic fixture that the gate must reject:
+ * orphan, unreachable-npm, exit-code-swallowed and missing-synchronize.
+ * The filtered-ci-path class has a probe on the live tree.
  * A conforming synthetic tree and the real repository tree must pass.
  * NodeNext resolution needs the `.mjs` extension in the import, and `allowJs` infers the types.
  */
@@ -59,7 +62,8 @@ interface AuditInput {
  * A synthetic conforming tree, built fresh for each test.
  * `check-alpha.mjs` is gating: `ci.yml` runs it directly, and it can fail.
  * `lint-advisory.mjs` is advisory: a guard chain reaches it, but `|| true` hides its exit code, as for the real `lint-inv6`.
- * The return type is an annotation, not a cast. A cast widens `disposition` to `string` and hides a mismatch with `audit`.
+ * The return type is an annotation, not an `as` cast, so the compiler checks each entry against the `ManifestEntry` type of the gate.
+ * An `as` cast can widen `disposition` to `string` and hide a mismatch with the input of `audit`.
  */
 function baseline(): AuditInput {
   return {
@@ -399,7 +403,8 @@ describe('enforcer-wiring gate — the unfiltered-CI-path claim has live subject
   });
 
   /**
-   * The probe adds an `if:` condition to the job that hosts a claiming primary, and the audit must reject the claim.
+   * The probe adds a path-filter term to the `if:` of the `grep-gates` job, which hosts the claiming primaries.
+   * The audit must reject the claim of one such primary with `filtered-ci-path`.
    * Without this check, a filter makes the gate skip, and read as passed, on the PRs that it guards.
    */
   it('UnfilteredCiPath_ClaimAgainstAFilteredLane_Fails', () => {

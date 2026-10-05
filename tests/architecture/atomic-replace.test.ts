@@ -7,8 +7,8 @@
 //
 // The guard counts a seam binding such as `rename: (from, to) => fs.rename(from, to)`
 // and allows it. The binding only passes the capability on, and each call
-// through the seam is itself a use. The guard asserts the number of files that
-// it parsed, and it proves its matcher on seeded violations and a clean twin.
+// through the seam is itself a use. The guard asserts a lower bound on the files
+// that it parses, and it proves its matcher on seeded violations and a clean twin.
 
 import { describe, it, expect } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
@@ -168,7 +168,10 @@ function scanSourceTree(): Map<string, RenameScan> {
 describe('atomic replace owns every rename in src/', () => {
   const scans = scanSourceTree();
 
-  /** A guard that parses nothing, or that has a dead binding matcher, passes the other tests. */
+  /**
+   * A guard that parses nothing finds no offender. This test asserts the
+   * denominators: the file count, the seam bindings, and the known sites.
+   */
   it('AtomicReplaceGuard_ParsesTheSourceTreeAndFindsItsKnownSites', () => {
     const bindings = [...scans.values()].reduce((sum, scan) => sum + scan.bindings, 0);
 

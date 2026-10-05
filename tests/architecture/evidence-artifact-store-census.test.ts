@@ -368,11 +368,11 @@ describe('EvidenceStoreConstructionCensus — one root for evidence artifacts', 
   });
 
   /**
-   * Two namespace forms that name neither the class at the use site nor its
-   * directory at the import. `ns.Store` is the class with an alias inside a
-   * namespace. `inner` is a namespace that a barrel re-exports and a named
-   * import reaches. A scanner that resolves a namespace member against the
-   * class name sees neither.
+   * The two namespace forms here do not name the directory of the class at the
+   * import. `ns.Store` is the class with an alias inside a namespace, so its use
+   * site does not name the class. `inner` is a namespace that a barrel
+   * re-exports and a named import reaches. A scanner that resolves a namespace
+   * member against the class name sees neither.
    */
   it('Census_NamespaceReExportedAndAliased_IsADoorToo', async () => {
     const root = await seededTree({

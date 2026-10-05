@@ -23,7 +23,7 @@ describe('kill fixtures', () => {
     expect(findings.length).toBeGreaterThanOrEqual(10);
   });
 
-  /** One greedy pattern can satisfy a bare count, so the test requires each pattern id. */
+  /** One greedy pattern can satisfy a bare count, so the test requires the id of each pattern that the fixture exercises. */
   it('Fixtures_MeasuredOffenders_EachCaughtAtItsOwnLine', () => {
     const byPattern = new Set(findingsFor('offenders.ts').map((f) => f.patternId));
 

@@ -1,9 +1,10 @@
 // A class that owns a SQLite handle and has a `close()` method must not open a
-// handle after `close()` runs. An append that is still in flight can reach the
-// lazy open after the owner closes. Then the new handle has no owner, and on
-// Windows it keeps `exarchos.db` locked.
+// handle after `close()` runs. Without a barrier, an append that is still in
+// flight reaches the lazy open after the owner closes and opens a new handle.
+// That handle has no owner, and on Windows it keeps `exarchos.db` locked.
 //
-// This guard parses every tracked source file under `src/`. In each class that
+// This guard reads every tracked source file under `src/` that is not a test
+// file, and parses each one that names an opener. In each class that
 // declares `close()`, it finds each `new SqliteBackend(...)` and each
 // `new Database(...)` outside the constructor. Each one must come after a call
 // to `this.assertOpen()` in the same member. The tests also prove that the scan

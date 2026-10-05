@@ -28,8 +28,8 @@ export const INSTALL_IDENTITY_SCRATCH_PREFIX = 'exarchos-test-install-identity-'
 
 /**
  * The pid of the process that owns this vitest run. Under `pool: 'forks'` a worker is a
- * child of the vitest host, so `ppid` names the run. Under a threads pool the worker is
- * the host process.
+ * child of the vitest host, so `ppid` names the run. Under a threads pool the worker runs
+ * in the host process, so `pid` names the run.
  */
 export function runHostPid(): number {
   return isMainThread ? process.ppid : process.pid;
@@ -57,7 +57,8 @@ export function isProcessAlive(pid: number): boolean {
  * The function keeps `keep` and the directories of live runs, and returns the removed names.
  * A directory that it cannot remove stays for the next run.
  *
- * `isAlive` is a parameter, because the OS can reuse the pid of an exited process.
+ * `isAlive` is a parameter, so a test can set the result. A test cannot rely on a real
+ * dead pid, because the OS can reuse the pid of an exited process.
  */
 export function sweepOrphanInstallIdentityDirs(
   tmp: string,

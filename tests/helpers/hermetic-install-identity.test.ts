@@ -33,7 +33,7 @@ describe('hermetic install identity scratch directory', () => {
     expect(fs.existsSync(dir ?? '')).toBe(true);
   });
 
-  /** The test uses the real predicate on the one pid that exists during the assertion. */
+  /** The test uses the real predicate on its own pid, which is alive during the assertion. */
   it('InstallIdentityLiveness_ThisProcessIsAlive', () => {
     expect(isProcessAlive(process.pid)).toBe(true);
   });
@@ -76,9 +76,10 @@ describe('hermetic install identity scratch directory', () => {
   });
 
   /**
-   * The pid of an exited host can go to this host, so the earlier directory reads as alive.
-   * Only the run id separates the two. The sweep must remove a directory that holds this
-   * pid under another run id or under the bare-pid name. If it stays, this run inherits its lock.
+   * The pid of an exited host can go to this host, so liveness reads the earlier directory
+   * as alive. Only the run id in the name separates the two directories. The sweep must
+   * remove a directory that holds this pid under another run id or under the bare-pid name.
+   * The stub reports each pid as alive, so only the rule for the host pid removes a directory.
    */
   it('InstallIdentitySweep_AnEarlierIncarnationOfThisHostsPid_IsSweptNotReused', () => {
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'install-identity-reuse-'));

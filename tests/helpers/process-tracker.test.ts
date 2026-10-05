@@ -8,7 +8,7 @@ import {
   clear,
 } from './process-tracker.js';
 
-/** Spawns a child that stays alive: a 1 s interval keeps its event loop busy. */
+/** Spawns a child that does not exit by itself: a 1 s interval keeps its event loop alive. */
 function spawnLongLived(): ChildProcess {
   return spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
 }

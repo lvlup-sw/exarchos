@@ -204,6 +204,8 @@ describe('SkillFixtures', () => {
    * A `files` negation is necessary only while a shipped root holds what it
    * excludes. The check keys on shipped roots and not on repository presence,
    * because `tools/audit/test-fixtures/` exists on disk and does not ship.
+   * The pack test in `tests/scripts/installer-verify.test.ts` asserts that the
+   * tarball holds no fixture.
    */
   it('AfterRelocation_AreNoLongerExcludedByPackaging', () => {
     const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf8')) as {

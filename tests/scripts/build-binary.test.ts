@@ -95,8 +95,8 @@ describe('tools/release/build-binary.ts', () => {
   });
 
   /**
-   * The test checks only that the output starts with a `N.N.N` version.
-   * It reads `package.json` but does not compare the output with that version.
+   * The binary must exit 0 and print text that starts with a `N.N.N` version.
+   * The test reads `package.json` but does not compare the output with that version.
    */
   it('BuildBinary_CompiledBinary_RespondsToVersionFlag', async () => {
     const pkgJson = JSON.parse(

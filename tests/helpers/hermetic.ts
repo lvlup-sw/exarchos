@@ -38,8 +38,9 @@ let hermeticEnvLock: Promise<void> = Promise.resolve();
  * `WORKFLOW_STATE_DIR`, and no source file reads `EXARCHOS_STATE_DIR`.
  *
  * A mutex makes concurrent callers run one at a time, and a throw still releases it.
- * Cleanup always runs. It restores the environment first, then removes the directories.
- * A removal failure logs a warning and does not throw, so a locked file fails no test.
+ * Cleanup runs when the callback returns or throws. It restores the environment first,
+ * then removes the directories. A removal failure logs a warning and does not throw, so
+ * a locked file fails no test.
  */
 export async function withHermeticEnv<T>(
   callback: (env: HermeticEnv) => Promise<T>,

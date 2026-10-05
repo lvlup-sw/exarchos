@@ -150,9 +150,9 @@ describe('generate-legacy-skill-hashes (Task 023, DR-8)', () => {
   /**
    * The legacy window is `[MIN_RELEASE, MAX_RELEASE_EXCLUSIVE)`. Without the upper
    * bound, a new `v2.12.x` tag makes a new manifest differ from the committed one.
-   * The synthetic tags span both bounds, and `v2.12.0-preview.1` has the base of
-   * the upper bound. Enumeration reads only `git tag`, so lightweight tags on an
-   * empty commit are sufficient.
+   * The synthetic tags span both bounds. `v2.12.0-preview.1` has the base of the
+   * upper bound, so the window excludes it. Enumeration reads only `git tag`, so
+   * lightweight tags on an empty commit are sufficient.
    * The result is in ascending order, with the prerelease before its release.
    */
   it('legacyHashManifest_ExcludesReleasesAtOrAboveMaxBound', async () => {

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Self-test for check-coverage-ratchet.mjs.
 #
-# Each case uses a fixture summary and a fixture baseline in a temp directory.
-# No case reads the real `tools/audit/coverage-baseline.json`.
+# Each gate run gets its `--summary` path and its `--baseline` path in a temp
+# directory. No run reads the real `tools/audit/coverage-baseline.json`.
 #
 #   - a regression larger than epsilon: exit 1
 #   - an identical summary: exit 0

@@ -129,6 +129,7 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
    * test. The floor applies to each arm, because a different accessor reads
    * each arm and each can return nothing. `contractEnsuredEventsOf` returns
    * `[]` on any failure, and its events are a subset of the emissions arm.
+   * Thus only the floor on the `ensures` arm shows a collapse of that reader.
    *
    * The liveness arm must equal the registry sum: one start type plus each
    * terminal type of each descriptor. A literal floor passes when a terminal
@@ -221,9 +222,9 @@ describe('ActionContractConjunct — a declared event is a governance event', ()
 
   /**
    * Probes a false demotion: the launch start claim filed as telemetry. The
-   * claim is governance on the live map. With the flipped map, this arm names
-   * the liveness descriptor that pairs on the claim. This arm also covers the
-   * merge and mutation start claims, which no module reads raw.
+   * claim is governance on the live map. With the flipped map, the
+   * `liveness-pair` arm names the descriptor that pairs on the claim. That arm
+   * also covers the merge and mutation start claims, which no module reads raw.
    */
   it('ActionContractConjunct_ADemotedLivenessStart_WouldBeNamedBySite', () => {
     const launchStart = 'launch.executing_started';

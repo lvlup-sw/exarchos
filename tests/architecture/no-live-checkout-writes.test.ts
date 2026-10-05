@@ -211,7 +211,7 @@ describe('no test writes into the live checkout (#2030)', () => {
     expect(stale).toEqual([]);
   });
 
-  /** Each seeded line writes into the checkout by one route that the scan follows. */
+  /** Each seeded write reaches the checkout by one route that the scan follows. */
   it('NoLiveCheckoutWrites_Matcher_NamesSeededWrites', () => {
     const seeded = [
       ...PREAMBLE,

@@ -7,7 +7,7 @@
  * An exemption list replaces a judgment call. A directory of small, independent
  * modules is not the same failure as a directory of interdependent modules.
  * Each exemption names a reason and pins the count at the time of the grant. An
- * exempt directory that grows fails this test on its next file.
+ * exempt directory that grows past that count fails this test.
  */
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';

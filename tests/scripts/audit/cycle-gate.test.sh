@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Self-test for the fail-closed paths of cycle-gate.ts.
 #
-# The `.test.ts` cases of the gate run only in a path-filtered CI job. This
+# The `.test.ts` cases of the gate run only in path-filtered CI jobs. This
 # script runs in the unfiltered `grep-gates` job. It drives the real CLI and
-# sets EXARCHOS_DEPCRUISE_BIN, so it does not uninstall dependency-cruiser.
+# sets EXARCHOS_DEPCRUISE_BIN, so it does not need to uninstall
+# dependency-cruiser.
 #
 #   - tool-missing: the binary path does not exist. The gate must exit 2 and
 #     name "tool-missing".

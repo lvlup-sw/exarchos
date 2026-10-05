@@ -1,6 +1,7 @@
 /**
- * Tests for `runCli`, the CLI invoker. Each test runs `node -e '<inline script>'` and no
- * project binary, so the suite depends only on `node`.
+ * Tests for `runCli`, the CLI invoker. All tests but one run `node -e '<inline script>'`.
+ * The other test expects the spawn of the default command to fail. Thus no test needs a
+ * project binary, and the suite depends only on `node`.
  */
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { mkdtempSync, realpathSync } from 'node:fs';
@@ -73,8 +74,8 @@ describe('runCli', () => {
   });
 
   /**
-   * After the rejection, the tracker must hold no live child. The 50 ms wait gives the OS time
-   * to complete the kill.
+   * After the rejection, the tracker must hold no live child. `runCli` unregisters the child
+   * before it rejects, so this check does not prove that the kill stopped the child.
    */
   it('RunCli_Timeout_RejectsAndKillsChild', async () => {
     await expect(

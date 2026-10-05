@@ -2,7 +2,7 @@
  * The repository root is an allow-list. An entry at the root is either declared here with a
  * reason, or it is a defect.
  *
- * The test reads the filesystem, not `git ls-files`. A tracked-file census cannot see an
+ * The directory checks read the filesystem, not `git ls-files`. A tracked-file census cannot see an
  * empty directory, which is the usual residue of a structural refactor. It also cannot see
  * `dist/` or `node_modules/`, and the contract must hold on a built tree and on a fresh clone.
  */
@@ -16,7 +16,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
 /**
  * The directories that carry the structure of the repository. The first six are that
- * structure. `binding` and `hooks` are here because a contract outside this repository
+ * structure. `binding` and `hooks` are here because a consumer outside this repository
  * requires each path.
  */
 const ALLOWED_DIRS: Record<string, string> = {

@@ -50,8 +50,8 @@ const TIER_OWNER: Readonly<Record<string, string | null>> = {
   outcome: 'outcome',
   acceptance: 'acceptance',
   /**
-   * `support` holds fixtures and shell suites. `null` means that vitest must collect nothing
-   * here, so a stray `.test.ts` fixture fails the guard.
+   * `support` holds fixtures and shell suites. `null` means that no project glob can name
+   * this tier. Thus vitest collects nothing here, and a `.test.ts` fixture cannot run as a test.
    */
   support: null,
 };

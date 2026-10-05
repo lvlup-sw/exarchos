@@ -91,8 +91,9 @@ export interface Relaxation {
  * The copy keeps each probe off the live tree. A probe that edits `src/` cannot restore it
  * after a thrown assertion, a timeout or a worker crash.
  *
- * Each `find` must occur exactly once. `String.replace` edits the first match, so a `find`
- * with two matches relaxes the wrong site, and the probe reports that the guard held.
+ * Each `find` must occur exactly once, or the function throws. `String.replace` edits only
+ * the first match, so a `find` with two matches can relax the wrong site. Then the probe
+ * reports that the guard held.
  */
 export function materializeCarrier(dir: string, relaxations: readonly Relaxation[]): void {
   fs.writeFileSync(

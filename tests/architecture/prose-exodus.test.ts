@@ -1,5 +1,6 @@
-// The prose exodus. The manifest proves that each relocated document arrived
-// at its destination before this repository removed it.
+// The prose exodus. The manifest records each document that left this
+// repository, so a reconciliation can prove that the document arrived at its
+// destination.
 //
 // The manifest holds a source path, a destination path, a byte length and a
 // SHA-256 digest for each file.
@@ -110,7 +111,8 @@ describe('ProseManifest_EveryRelocatedFile_IsPresentAtTheDestinationWithAMatchin
    * Only git can prove that an ignore rule matches the mount, because a pattern
    * that matches nothing looks the same as one that matches. Only a directory
    * that is fully relocated is a mount. A partly relocated directory stays a
-   * real directory, and an ignore rule there hides the files that remain.
+   * real directory, and an ignore rule there hides the files that remain. A
+   * subtree name with a `.` is a loose file, and a loose file is not a mount.
    */
   it('every FULLY relocated directory is ignored, so a mount cannot be committed', async () => {
     const emptied = manifest.subtrees.filter(

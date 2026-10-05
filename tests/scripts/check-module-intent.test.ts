@@ -128,7 +128,11 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
     }
   });
 
-  /** A RESERVED header with a future date and members of the allowlist classes pass in one tree. */
+  /**
+   * One tree holds a RESERVED header with a future date, one module of each convention class,
+   * and named members of `declared-gate-machinery`. The gate passes.
+   * The tree holds no `declared-dormant-surface` member.
+   */
   it('ValidReservedAndClassAllowlist_Pass', () => {
     const { srcRoot, cleanup } = makeFixtureSrc({
       'keep/reserved-thing.ts':
@@ -222,6 +226,7 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
    * refgraph reads only `.ts` files, so it does not see that edge.
    * The first assertion pins the import in the bridge, so the test cannot pass on a bridge that omits it.
    * The explicit `src` scan must not report `embedded.ts`, and that file must carry no RESERVED declaration.
+   * `OUT_OF_SUBJECT` also skips `install/`, so the absence of `embedded.ts` from the report does not prove the sweep.
    */
   it('CrossRootImporter_KeepsAModuleOutOfTheDeadSet', () => {
     const bridge = readFileSync(
@@ -245,6 +250,7 @@ describe('check-module-intent CLI (DR-7/DR-8)', () => {
    * `npm run hooks:guard` is an alias of `render:guard`, which runs the build output of `src/install/render-guard.ts`.
    * The filename regex that refgraph uses for entry points can miss such a script subject.
    * The explicit `src` scan must not report `render-guard.ts`, and that file must carry no RESERVED declaration.
+   * `OUT_OF_SUBJECT` also skips `install/`, so this scan passes with or without the sweep.
    */
   it('NpmScriptEntrypoint_KeepsAModuleOutOfTheDeadSet', () => {
     const pkg = JSON.parse(readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as {

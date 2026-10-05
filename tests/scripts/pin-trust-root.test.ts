@@ -1,8 +1,8 @@
 // Tests for tools/release/pin-trust-root.mjs and the release gate that runs it.
 //
 // Each tool case uses temporary copies of the two installers that hold the
-// sentinel. Thus the cases pass before and after the real key is pinned. Each
-// case generates its keys at runtime.
+// sentinel. As a result, the cases pass before and after the real key is pinned.
+// The cases generate their keys at runtime and write no key to the repository.
 // The gate cases read the workflows. The gate must run before every job that
 // publishes. Only release.yml runs the gate, so pull-request CI passes while
 // the key is unpinned.

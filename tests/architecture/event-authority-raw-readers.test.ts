@@ -188,7 +188,10 @@ describe('RawReaderCensus — no fold-external reader depends on a telemetry eve
     expect(blind, `the scanner no longer resolves these read spellings`).toEqual([]);
   });
 
-  /** The count assertion fails a table with no raw-reader witness, which makes the check vacuous. */
+  /**
+   * A table with no raw-reader witness makes the stale-witness check vacuous.
+   * The count assertion fails such a table.
+   */
   it('RawReaderCensus_DeclaredRawReaderWitness_IsNamedByALiveReader', async () => {
     const census = await censusPromise;
     const declared = Object.entries(GOVERNANCE_WITNESSES).filter(

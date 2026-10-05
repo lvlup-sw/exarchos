@@ -5,10 +5,11 @@
  * tests have two parts:
  *
  *   A. The interpreter. Each policy clause gives a check, and each check can fail. These
- *      tests use seeded trees and no repository state.
+ *      tests use seeded trees, not the repository tree.
  *   B. The shipped policy. It must describe the shipped package.
  *
- * The gate is an `.mjs` module with no `.d.ts` file. `allowJs` infers its types.
+ * The gate is an `.mjs` module with no `.d.ts` file. `allowJs` in `tests/tsconfig.json`
+ * lets the checker infer its types.
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -200,9 +201,9 @@ describe('validate-plugin — the interpreter (task 064, DR-24)', () => {
   });
 
   /**
-   * With invalid JSON, the parse clause fails. Each hook-type clause also fails, because
-   * the declared set is unknown. The token sweep reads the raw text, so it passes. The run
-   * still fails.
+   * With invalid JSON, the parse clause fails. Each `expected` clause and the `exact`
+   * clause also fail, because the declared set is unknown. The token sweep reads the raw
+   * text, so it passes. The run still fails.
    */
   it('ValidatePlugin_UnparseableHooksJson_FailsTheParseButStillSweepsTheText', () => {
     const files = conformingFiles();
@@ -285,8 +286,8 @@ describe('validate-plugin — the policy is validated before it is interpreted',
   });
 
   /**
-   * Three families have misspelled keys and each remaining check passes, so the
-   * zero-checks rule does not fail.
+   * Three families have misspelled keys. Each remaining check passes and the zero-checks
+   * rule stays silent, so only the three unknown-key violations fail the run.
    */
   it('ValidatePluginPolicy_ThreeDroppedFamilies_NoLongerExitZero', () => {
     const policy = clone(shippedPolicy()) as Record<string, unknown>;

@@ -8,7 +8,7 @@
  *   3. An unprobed proof rung is a gap, not a pass, and the report keeps the two apart.
  *
  * The first test runs the real CLI, so the derived side comes from the live `TOOL_REGISTRY` census.
- * A number from this file on that side makes the fixture and the oracle one authority.
+ * When this file supplies the derived number, the fixture and the oracle are one authority, and the test proves nothing.
  * The gate is a `.mjs` file with JSDoc types, and `allowJs` infers the types for the import.
  */
 import { describe, it, expect } from 'vitest';
@@ -110,9 +110,9 @@ function claimsNamed(report: Report, name: string): ReportClaim[] {
 describe('check-measured-premises (task 054, DR-27)', () => {
   /**
    * The fixture is revision 3 of the spec with annotations added and its literals unchanged.
-   * The first three assertions guard those literals, so a corrected fixture cannot pass for the wrong reason.
+   * Three `toContain` assertions guard those literals, so a corrected fixture cannot pass for the wrong reason.
    * The derived side is the live tree, which changes, so the test names no claim that must drift or agree.
-   * It asserts only that at least one claim drifts, and that each drift is a real difference between literal and derived value.
+   * For the claim verdicts, it asserts only that at least one claim drifts and that each drifted literal differs from its derived value.
    * `MeasuredPremises_LiveLiteral_Agrees` shows that the checker does not reject every claim.
    */
   it('MeasuredPremises_Rev3Document_ReportsDr4CountsAsDrifted', async () => {
@@ -160,7 +160,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
   }, 120_000);
 
   /**
-   * A checker that reports every claim as drifted fails the fixture test for the wrong reason.
+   * A checker that reports every claim as drifted can also pass the fixture test.
    * This test takes a value that the checker derived in a fixture run and writes a one-claim document with that value.
    * The claim must agree. A hardcoded literal goes stale when the tree changes.
    */
@@ -327,7 +327,8 @@ describe('check-measured-premises (task 054, DR-27)', () => {
 
   /**
    * Each CI call of the gate must carry a `--tolerate-gaps-until` date that is after today.
-   * Thus the test fails when the date expires, and when a call omits the flag.
+   * Thus the test fails when a call omits the flag.
+   * It also fails from the last tolerated day, one day before the gate starts to fail, because the gate counts that day as tolerated.
    */
   it('MeasuredPremises_CiLaneToleration_IsDatedAndStillLive', () => {
     const ci = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
@@ -367,7 +368,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     expect(new Set([EXIT_PASS, EXIT_FAIL, EXIT_GAPS]).size).toBe(3);
   }, 300_000);
 
-  /** An annotation with a name that no derivation implements fails. If it passed, a document can assert any number. */
+  /** An annotation with a name that no derivation implements fails. Otherwise a document can invent a name and assert any number. */
   it('MeasuredPremises_UnregisteredDerivationName_FailsRatherThanSkips', () => {
     const document = [
       '| Property | Scope | Consequence if false | Primary proof (rung) | Proof artifact | Failure signal | Rollback |',
@@ -537,7 +538,8 @@ describe('check-measured-premises (task 054, DR-27)', () => {
   });
 
   /**
-   * A scan root with no files gives zero import sites, which reads as a complete migration. Thus the derivation throws.
+   * A scan root that is missing or holds no files gives zero import sites, which reads as a complete migration.
+   * Thus the derivation throws. The test calls it with a root that does not exist.
    * The checker reports a derivation that cannot run as a failure, not as a missing number.
    */
   it('SdkImportScan_ScanRootResolvingNoFiles_ThrowsRatherThanReportingZero', () => {
@@ -600,7 +602,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
   });
 
   /**
-   * `ts.createSourceFile` does not throw on broken input. It returns a partial tree, and a count on that tree is too low.
+   * `ts.createSourceFile` does not throw on broken input. It returns a partial tree, and a count on that tree can be too low.
    * Thus the scan throws when the module does not parse cleanly.
    */
   it('SourceScan_ModuleThatDoesNotParse_ThrowsRatherThanUnderCounting', () => {

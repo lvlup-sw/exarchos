@@ -21,7 +21,10 @@ export interface SpawnMcpClientOpts {
    * With an explicit `command`, the child gets `args` unchanged.
    */
   args?: string[];
-  /** Extra variables. The transport merges them over its default environment for the child. */
+  /**
+   * Extra variables for the child. The transport merges them over its default environment,
+   * a short list such as `HOME` and `PATH`. The child gets no other variable of the parent.
+   */
   env?: Record<string, string>;
   /**
    * Sets `WORKFLOW_STATE_DIR`, which the binary reads, and `EXARCHOS_STATE_DIR` in the
@@ -42,8 +45,9 @@ export interface SpawnedMcpClient {
    */
   server: ChildProcess;
   /**
-   * Closes the client and waits for the child to exit. After `FORCE_KILL_GRACE_MS` it
-   * sends `SIGKILL`. Then it unregisters the child. A second call does nothing.
+   * Closes the client and waits for the child to exit. If the child is still alive after
+   * `FORCE_KILL_GRACE_MS`, it sends `SIGKILL`. Then it unregisters the child. A second
+   * call does nothing.
    */
   terminate(): Promise<void>;
   /** The stderr chunks of the child, appended as they arrive. */

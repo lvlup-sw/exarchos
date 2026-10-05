@@ -80,7 +80,7 @@ describe('phase gates resolve their test command', () => {
     expect(offenders).toEqual({});
   });
 
-  /** Each seeded line is one form of a hard-coded `npm` or `npx` command. */
+  /** The seeded lines hold four forms of a hard-coded `npm` or `npx` command. */
   it('PhaseGateGuard_Matcher_FindsSeededViolations', () => {
     const seeded = [
       "runCommandSync('npm', ['run', 'test:run'], { cwd: repoRoot });",

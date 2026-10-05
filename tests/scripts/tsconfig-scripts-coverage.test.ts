@@ -1,15 +1,20 @@
 // Coverage guard for the `tsconfig.scripts.json` typecheck.
 //
 // Root `tsconfig.json` includes only `src`, so `tsconfig.scripts.json` typechecks the
-// guards under `tools/audit` and `tools/release`. `tsc -p` fails on a config that
-// resolves zero files (TS18003). It exits 0 on a config that resolves some files but
-// does not cover the guards. Thus the coverage floor is data (`REQUIRED_MEMBERS`).
-// The measurement is `ts.parseJsonConfigFileContent`, the resolver that `tsc -p` uses.
+// guards under `tools/audit` and `tools/release`. The `grep-gates` job of
+// `.github/workflows/ci.yml` runs `tsc -p tsconfig.scripts.json` and this test.
 //
-// The config includes each non-test `.ts` file in the two trees, and the ambient
-// `.d.ts` files of `src`. Some scripts import `src` modules that need the `bun:sqlite`
-// shim. The config excludes `*.test.ts` files by repository convention. It does not
-// include `.mjs` guards, because `allowJs` adds all JavaScript in the trees.
+// `tsc -p` fails on a config that resolves zero files (TS18003). It exits 0 on a config
+// that resolves some files but does not cover the guards. Thus the coverage floor is
+// data (`REQUIRED_MEMBERS`). The tests measure with `ts.parseJsonConfigFileContent`, the
+// resolver that `tsc -p` uses, and not with a hand-written glob or a scan of the JSON text.
+//
+// The config includes each non-test `.ts` file in the two trees, fixtures included, and
+// the ambient `.d.ts` files of `src`. Some guards import `src` modules that need the
+// `bun:sqlite` shim. A `src` implementation file must enter the program through an
+// import, not through a glob. The config excludes `*.test.ts` files by repository
+// convention. It does not include `.mjs` guards, because `allowJs` adds all JavaScript
+// in the trees.
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { dirname, join, resolve, relative, sep } from 'node:path';

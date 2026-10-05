@@ -115,8 +115,9 @@ set -e
 check "WiringGate_SkillRawMergeOrchestrate_Fails" 1 "$badskill_exit"
 grep -q "rule2-raw-merge-orchestrate-integration-directive" /tmp/wlm-badskill.out || { echo "  FAIL: missing rule2 tag"; fail=$((fail + 1)); }
 
-# A skill that names `merge_orchestrate` with the `serialize_merge` caveat must
-# pass. Thus the rule reads the directive, not the mention of the name.
+# A skill line that names `merge_orchestrate` in an integration context, with
+# the `serialize_merge` caveat on the same line, must pass. Thus the name alone
+# is not a violation.
 mkdir -p "$TMP/goodskill/some-skill"
 cat > "$TMP/goodskill/some-skill/SKILL.md" <<'EOF'
 ---

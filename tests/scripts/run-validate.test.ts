@@ -8,10 +8,12 @@
  *   1. A red step does not stop the later steps. The pure loop and a spawned CLI run each
  *      prove this, because the pure loop cannot see a short circuit in the CLI path.
  *   2. Zero declared steps fail the run, and zero executed steps fail the run.
- *   3. A step that cannot spawn shows as NOT RUN and fails the run.
+ *   3. A step that cannot spawn shows as NOT RUN, fails the run, and does not count as
+ *      passed.
  *   4. The declared count comes from the manifest, not from a literal in the runner.
  *
- * The runner is an `.mjs` module with no `.d.ts` file. `allowJs` infers its types.
+ * The runner is an `.mjs` module with no `.d.ts` file. `allowJs` in `tests/tsconfig.json`
+ * lets the checker infer its types.
  */
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs';
@@ -67,8 +69,9 @@ interface Summary {
 const step = (id: string, args: string[] = []): Step => ({ id, command: 'node', args });
 
 /**
- * Writes a manifest into a new temp directory and returns its path. Concurrent runs share
- * the system temp directory, so a fixed path lets one run overwrite the fixture of another.
+ * Writes a manifest into a new temp directory, and returns its path and a cleanup function.
+ * Concurrent runs share the system temp directory, so a fixed path lets one run overwrite
+ * the fixture of another.
  */
 function seedManifest(steps: unknown[]): { manifestPath: string; cleanup: () => void } {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-validate-fixture-'));
@@ -85,7 +88,7 @@ async function runCli(args: string[]): Promise<{ status: number | null; stdout: 
 describe('run-validate — anti-truncation (task 064, DR-24)', () => {
   /**
    * The pure loop runs steps 2 and 3 after a red step 1. The run still fails, and the
-   * summary shows that the later steps passed.
+   * outcomes show that the later steps ran and passed.
    */
   it('RunValidate_FailingFirstStep_StillExecutesEveryLaterStep', () => {
     const steps: Step[] = [step('red-first'), step('later-a'), step('later-b')];
@@ -196,7 +199,8 @@ describe('run-validate — declared count comes from data (task 064, DR-24)', ()
 
   /**
    * A manifest that names a deleted script must fail here, not only as a spawn failure at
-   * run time. The check reads only the arguments that start with `scripts/`.
+   * run time. The check reads only the arguments that start with `scripts/`. Each script of
+   * the shipped manifest is under `tools/audit/gates/`, so the check reads zero paths.
    */
   it('RunValidate_ShippedManifestSteps_AllPointAtFilesThatExist', () => {
     const raw: unknown = JSON.parse(
@@ -228,10 +232,10 @@ describe('run-validate — malformed manifests fail closed (task 064, DR-24)', (
 
 /**
  * The verdict of a step must be the verdict that the step computed. The gate
- * `check-measured-premises.mjs` gives `gaps` its own exit code. The runner must show that
- * verdict and must not infer a pass from the exit code. These tests cover the runner.
- * `MeasuredPremises_GapsVerdict_ExitsDistinctFromPass` in `check-measured-premises.test.ts`
- * covers the gate.
+ * `check-measured-premises.mjs` gives `gaps` its own exit code. The runner must show the
+ * verdict that the manifest declares for that code and must not count the step as passed.
+ * These tests cover the runner. `MeasuredPremises_GapsVerdict_ExitsDistinctFromPass` in
+ * `check-measured-premises.test.ts` covers the gate.
  */
 describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
   const TODAY = '2026-08-09';

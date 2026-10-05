@@ -7,7 +7,7 @@ import {
 } from './process-tracker.js';
 import { expectNoLeakedProcesses } from './leak-detector.js';
 
-/** Spawns a child that stays alive until a kill. `setInterval` keeps its event loop busy. */
+/** Spawns a child that stays alive until a kill. `setInterval` keeps its event loop alive. */
 function spawnLongLived(): ChildProcess {
   return spawn('node', ['-e', 'setInterval(()=>{}, 1000)']);
 }
@@ -51,7 +51,7 @@ describe('expectNoLeakedProcesses', () => {
     expect(child.exitCode !== null || child.signalCode !== null).toBe(true);
   });
 
-  /** The helper clears the registry, so the next test starts with no tracked child. */
+  /** The helper kills the child and clears the registry. Then `listAlive()` must be empty. */
   it('ExpectNoLeakedProcesses_AfterKill_TrackerIsEmpty', async () => {
     const child = spawnLongLived();
     register(child);

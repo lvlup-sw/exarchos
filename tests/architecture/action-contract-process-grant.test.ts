@@ -61,8 +61,8 @@ describe('action contract process grant', () => {
 
   /**
    * The `mcp:exarchos` family has tiers, and the grant names only the full
-   * tier. An action that needs read access alone must still admit. The grant
-   * and those contracts use different literals.
+   * tier. Admission must still allow an action that needs only read access.
+   * The grant and those contracts use different literals.
    */
   it('ProcessGrant_FullMcpTier_SubsumesTheReadonlyNeed', () => {
     const held = new Set(defaultProcessCapabilityIds());

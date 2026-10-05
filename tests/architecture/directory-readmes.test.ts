@@ -76,7 +76,7 @@ describe('Readmes_EveryTopLevelDirectory_HasOne', () => {
     ).toEqual([]);
   });
 
-  /** An edit under `rendered/` passes review, and the next build reverts it silently. */
+  /** An edit under `rendered/` can pass review, and the next build reverts it silently. */
   it('rendered/ says in as many words that it is generated', () => {
     const text = fs.readFileSync(path.join(REPO_ROOT, 'rendered/README.md'), 'utf8');
     expect(text).toMatch(/generated/i);

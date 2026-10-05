@@ -16,7 +16,7 @@ import {
 
 /**
  * Builds a depcruise `--output-type json` document from a list of edges. A
- * runtime edge has dependency types other than `type-only`. The detector
+ * runtime edge has no `type-only` entry in its dependency types. The detector
  * counts the runtime edges and ignores the rest. The fixtures use the `src/`
  * prefix, and the tests pass `srcPrefix: 'src'`.
  */
@@ -105,10 +105,11 @@ describe('detectCyclesOrThrow', () => {
   });
 
   /**
-   * Kill fixture. The graph parses, but the prefix matches no module, as after
-   * a moved tree or a depcruise run on the wrong path. Without this error, the
-   * node set and the cycle list are empty and the gate prints an OK verdict.
-   * The phantom check does not catch that, because the baseline is empty.
+   * Kill fixture. The graph parses, but the prefix matches no module. A moved
+   * tree or a depcruise run on the wrong path gives this state. Without this
+   * error, the node set and the cycle list are empty and the gate prints an OK
+   * verdict. The phantom check does not catch that, because the baseline is
+   * empty.
    */
   it('throws EmptyCycleGraphError when the prefix resolves no first-party node', () => {
     expect(() => detectCyclesOrThrow(CYCLE_AB, 'no/such/prefix')).toThrow(EmptyCycleGraphError);

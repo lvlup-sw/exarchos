@@ -3,7 +3,8 @@
  *
  * A referrer is live when a reader or a tool follows it: source, config,
  * snapshots, and instruction markdown outside `docs/`. A dated record under
- * `docs/` that mentions a path is history.
+ * `docs/` that mentions a path is history. The census reads file text, so a
+ * subtree path in a comment of a scanned file also counts as a referrer.
  *
  * A `RETAINED` list governs the prose exodus, and `prose-exodus.test.ts`
  * enforces it. The census answers the question that the list cannot answer
@@ -65,9 +66,10 @@ const deletionCandidates = Object.entries(census.subtrees).filter(
  * The subtrees that left for the external documents repository. Each one is in
  * the census with zero files of its own, because its directory is a mount point.
  *
- * They are apart from the cleared set because an empty directory always has
- * zero live referrers. One cleared list reports them as ready to delete
- * forever. Only the file count separates an empty subtree from a clean one.
+ * They are apart from the cleared set because a referrer count cannot tell an
+ * empty subtree from a clean one. One cleared list reports an empty subtree
+ * with no live referrer as ready to delete forever. Only the file count
+ * separates the two.
  */
 const RELOCATED = ['docs/audits', 'docs/bugs', 'docs/market', 'docs/refactors'];
 

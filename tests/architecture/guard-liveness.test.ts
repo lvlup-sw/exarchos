@@ -33,8 +33,8 @@ const baseline = JSON.parse(
 
 /**
  * The live measurement, from the same measurer that produced the baseline. An
- * assertion on the committed capture only stays green after a guard dies on
- * disk, until a person measures again.
+ * assertion that reads only the committed capture stays green after a guard
+ * dies on disk, until a person measures again.
  */
 const live = JSON.parse(
   await execFileAsync(process.execPath, [path.join(REPO_ROOT, 'tools/audit/measure-guard-liveness.mjs')], {
@@ -107,8 +107,8 @@ describe('guard liveness', () => {
   });
 
   /**
-   * A surface that declares N entries and resolves fewer lost part of its
-   * scope, which a count above zero hides. Reads the live tree.
+   * When a surface declares N entries and resolves fewer, it lost part of its
+   * scope. A count above zero hides that loss. The test reads the live tree.
    */
   it('GuardLiveness_DeclaredCount_ResolvesToRealFiles', () => {
     const partial = liveEntries
@@ -129,7 +129,8 @@ describe('guard liveness', () => {
 
   /**
    * CODEOWNERS has no extension, so a scan that filters by file extension does
-   * not see it. A pattern that matches nothing falls to the `*` rule silently.
+   * not see it. When a pattern matches nothing, its files fall to the `*` rule
+   * silently.
    */
   it('GuardLiveness_CodeownersPatterns_AreEnumeratedByName', () => {
     const codeowners = liveEntries.filter(([name]) => name.startsWith('codeowners:'));
@@ -178,7 +179,7 @@ describe('guard liveness', () => {
   /**
    * A surface can still match some files after it loses most of its scope. Each
    * surface in both captures must still match. A declared count must resolve in
-   * full, and an undeclared surface must stay above its minimum. A surface in
+   * full, and an undeclared surface must not go below its minimum. A surface in
    * the capture that the live measurement lacks is a retarget or a regression.
    * The pinned empty set makes each such change visible in review.
    */

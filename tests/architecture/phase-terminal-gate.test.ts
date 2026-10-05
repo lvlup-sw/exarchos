@@ -73,9 +73,11 @@ describe('Phase2_CiStillDeclaresTheJobsThatWouldFindOut', () => {
    * collects the layer census (`auditLayerBoundaries`). Linux runs that project
    * as `test:coverage`, Windows runs it as `test:core`, and `test:run` never
    * collects it. Both names are required, because a substring check on one name
-   * stays green when the other platform stops. Knip runs in the
-   * `validate-no-legacy` rollup and has no npm script name. `quality-check` is
-   * not a CI job: `lint:invariants` and `render:guard` run its two parts.
+   * stays green when the other platform stops.
+   *
+   * Knip runs in the `validate-no-legacy` rollup and has no npm script name.
+   * `quality-check` is not a CI job. CI runs its two parts: `lint:invariants`
+   * directly, and `lint:test-first-drift` through `render:guard`.
    */
   it('CI still invokes the gates the phase depends on before ci-gate', () => {
     const requiredInvocations = [

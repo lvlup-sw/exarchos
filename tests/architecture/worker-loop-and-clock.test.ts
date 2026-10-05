@@ -28,7 +28,7 @@ const REPO_ROOT = resolve(fileURLToPath(new URL('.', import.meta.url)), '../..')
 /** Test files by name, wherever they live. */
 const TEST_FILE = /\.(test|type-test|bench)\.[cm]?[jt]s$/;
 
-/** A benchmark is the only test file that can measure elapsed time. */
+/** Only a benchmark file can assert on elapsed time. The elapsed-time scan skips it. */
 const BENCH_FILE = /\.bench\.[cm]?[jt]s$/;
 
 /** Code that runs inside a vitest worker: every test file, and every module under `tests/` or `tools/test-helpers/`. */

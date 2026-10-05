@@ -10,15 +10,16 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 GATE="$SCRIPT_DIR/check-windows-portability.mjs"
 TMP="$(mktemp -d)"
 # The scan-root cases put each probe in its own `mktemp -d` directory inside the
-# real tree and record the directory here. The EXIT trap removes only those
-# directories. A fixed probe name can collide between two concurrent runs.
+# real tree and record the directory here. In the real tree, the EXIT trap
+# removes only those directories, so an early exit leaves the repo clean. A
+# fixed probe name can collide between two concurrent runs.
 PROBE_DIRS=()
 cleanup() {
   rm -rf "$TMP"
   # Under `set -u`, an empty array is an unbound expansion, so the loop uses
-  # `${PROBE_DIRS[@]+…}`. This function runs from the EXIT trap, and its status
-  # becomes the status of the script. With `return 0`, a false last test cannot
-  # give exit 1 after each case passed.
+  # `${PROBE_DIRS[@]+…}`. This function runs from the EXIT trap. Under `set -e`,
+  # a non-zero status of the trap becomes the exit status of the script. With
+  # `return 0`, a false last test cannot give exit 1 after each case passed.
   for dir in ${PROBE_DIRS[@]+"${PROBE_DIRS[@]}"}; do
     if [[ -n "$dir" ]]; then rm -rf "$dir"; fi
   done
@@ -284,8 +285,9 @@ nested_tooling_exit=$?
 set -e
 check "nested servers/*/scripts/ CI tooling is exempt from rule 4" 0 "$nested_tooling_exit"
 
-# `tools/audit/` under a fixture root must be exempt from rule 4, as the live
-# tree is.
+# `tools/audit/` under a fixture root must be exempt, as the live tree is. The
+# fixture holds a variable-bin spawn (rule 4) and a literal `npx` spawn
+# (rule 1). The gate must flag neither.
 mkdir -p "$TMP/fold/tools/audit"
 cat > "$TMP/fold/tools/audit/adapter.mjs" <<'EOF'
 import { execFileSync } from 'node:child_process';
@@ -361,8 +363,9 @@ check "shipped src/tools/audit/ is NOT exempt (rule 4 still checks it)" 1 "$ship
 # root proves nothing, so each case plants a violation in one tree and observes
 # that the gate reports it.
 # Each probe sits in its own `mktemp -d` directory inside the scan root, and the
-# case removes only that directory. A fixed file name in the real tree can
-# overwrite, and then delete, a file of a concurrent run or a later source file.
+# case removes only that directory. With a fixed file name, a run can overwrite
+# the probe of a concurrent run, or a source file with that name. The cleanup
+# then deletes that file.
 for subtree in src tools/audit; do
   probe_dir="$(mktemp -d "$REPO_ROOT/$subtree/portability_probe_XXXXXX")"
   PROBE_DIRS+=("$probe_dir")

@@ -5,7 +5,7 @@
 
 /** How to compare the CLI result and the MCP result of one action. */
 export type ParitySpec = {
-  /** The action key, such as `workflow.describe`. It is the same for both transports. */
+  /** A logical key for the action, such as `event.query`. One key covers both transports. */
   action: string;
   /** Dot-paths whose values must be equal across transports after `normalize`. */
   fieldsRequiringEquality: string[];
@@ -18,8 +18,9 @@ export type ParitySpec = {
 
 /**
  * The contract entries. Add an action when a parity test needs it.
- * `exarchos_view` has no describe, event-log or rehydrate action. Those actions are
- * `exarchos_workflow.describe`, `exarchos_event.query` and `exarchos_workflow.rehydrate`.
+ * `action` is a logical key, not always the action on the wire. `event.query` and
+ * `workflow.rehydrate` name their own actions. The parity test for `workflow.describe`
+ * calls `exarchos_workflow.get` (CLI `workflow status`), which returns the workflow state.
  */
 export const PARITY_CONTRACT: ParitySpec[] = [
   {
@@ -46,9 +47,9 @@ export const PARITY_CONTRACT: ParitySpec[] = [
     /**
      * `data` is the rehydration document (see `src/workflow/rehydrate.ts`).
      * `data.taskProgress` is the task list that the projection folds from the task events.
-     * `data.projectionSequence` is the sequence of the last folded event. `normalize` does
-     * not replace it, so the comparison is on the real number. A difference after the same
-     * events shows a projection that is not deterministic.
+     * `data.projectionSequence` counts the events that the projection handled. `normalize`
+     * does not replace it, so the comparison is on the real number. A difference after the
+     * same events shows a projection that is not deterministic.
      */
     fieldsRequiringEquality: [
       'success',
@@ -92,7 +93,8 @@ function resolveDotPath(
 }
 
 /**
- * Throws if the CLI envelope and the MCP envelope differ on a required path of `spec`.
+ * Throws if the two envelopes differ on a required path of `spec`. The usual pair is one
+ * CLI envelope and one MCP envelope, but a caller can also pass two MCP envelopes.
  * Each required path must exist on both sides. The comparison is on the JSON text of the
  * two values, so key order counts and the caller must normalize both envelopes first.
  * The error names the first path that is missing or different.

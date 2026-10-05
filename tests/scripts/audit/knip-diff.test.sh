@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Self-test for the fail-closed paths of knip-diff.ts.
 #
-# The `.test.ts` cases of the gate run only in a path-filtered CI job. This
+# The `.test.ts` cases of the gate run only in path-filtered CI jobs. This
 # script runs in the unfiltered `grep-gates` job. It drives the real CLI and
-# sets EXARCHOS_KNIP_BIN, so it does not uninstall knip.
+# sets EXARCHOS_KNIP_BIN, so it does not need to uninstall knip.
 #
 #   - tool-missing: the binary path does not exist. The gate must exit 2 and
 #     name "tool-missing".

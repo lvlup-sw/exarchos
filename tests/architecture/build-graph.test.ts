@@ -161,7 +161,7 @@ describe('BuildGraph_BunSqliteAlias_ResolvesInEveryProject', () => {
 
   /**
    * Denominator check. If the pattern drifts from the config and matches
-   * nothing, the other tests in this group pass on an empty list.
+   * nothing, the shim-exists test loops over an empty list and passes.
    */
   it('every project that needs the alias declares it', () => {
     expect(targets.length).toBeGreaterThanOrEqual(2);
@@ -264,8 +264,10 @@ describe('BuildGraph_CoverageRatchet_StillReceivesItsInputs', () => {
   });
 
   /**
-   * The ratchet fails closed on a baseline that has no run ids. This test
-   * names that failure before CI reports a bare exit code.
+   * The ratchet fails closed on a baseline with fewer than three distinct run
+   * ids. This test names that failure before CI reports a bare exit code. The
+   * ratchet also requires a `spread` for each metric, which this test does not
+   * check.
    */
   it('the baseline carries the provenance the ratchet refuses to run without', () => {
     const baseline = JSON.parse(
