@@ -1,15 +1,13 @@
 // @ts-check
 /**
- * @fileoverview Samples real matches from the tree so each pattern's precision
- * can be adjudicated before it is allowed to block.
+ * @fileoverview Samples real matches from the tree, so a reviewer can judge the
+ * precision of each pattern before it blocks.
  *
- * A pattern that fires on prose it should not spends more reviewer attention
- * than it saves, and the only way to know its rate is to read its actual
- * matches. Sampling is deterministic — sorted by path, then line, then take the
- * first N — so re-running it produces the same sample and the recorded verdicts
- * stay attached to the matches they were made about.
+ * A pattern that fires on the wrong prose costs more reviewer time than it
+ * saves. The sample is deterministic, so a rerun gives the same sample and the
+ * recorded verdicts stay with their matches.
  *
- * This is a measurement instrument, not a gate. It reports; it never fails.
+ * This is a measurement instrument, not a gate. It reports and never fails.
  *
  * Usage: `node tools/audit/lib/comment-precision-sample.mjs [--limit 50] [--out FILE]`
  */
@@ -45,15 +43,13 @@ export function trackedSourceFiles(repoRoot) {
 }
 
 /**
- * Collect every match, grouped by pattern id.
+ * Collects every match, grouped by pattern id. It turns every pattern on,
+ * because a pattern ships disabled while its rate is unknown.
  *
  * @param {string} repoRoot
  * @param {ReturnType<typeof loadPolicy>} policy
  */
 export function collectMatches(repoRoot, policy) {
-  // Sample with every pattern forced on. A pattern ships disabled precisely
-  // because its rate is unknown, so sampling only the enabled ones would leave
-  // the undecided case permanently unmeasurable.
   const measuring = {
     ...policy,
     forbiddenOrdinals: policy.forbiddenOrdinals.map((p) => ({ ...p, enabled: true })),

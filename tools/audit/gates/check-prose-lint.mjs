@@ -1,38 +1,13 @@
 #!/usr/bin/env node
 /**
- * Prose-lint CI gate (task T049, DR-13).
+ * CI gate: keeps the prose of the rehydration template free of the AI-writing
+ * patterns of the `humanize` skill. Agents that hydrate from the template copy its style.
  *
- * Invoked from the root `npm run validate` chain. The purpose of this
- * gate is to keep the rehydration document's prose surface (the
- * `behavioralGuidance` template strings + surrounding doc comments) free
- * of the AI-writing patterns cataloged by the `humanize` skill. Without
- * the gate, an editor could silently re-introduce slop into the template
- * and the agents that hydrate from it would learn to mirror those tells
- * back into their own output.
+ * The pattern catalog and scanner are in `src/projections/rehydration/prose-lint.ts`.
+ * This wrapper runs the co-located `prose-lint-cli.ts` with `tsx`, so the gate needs
+ * no prior build. `--template-source <path>` lints that file instead of the template.
  *
- *   Exit 0 — no violations (clean prose).
- *   Exit 1 — one or more violations (printed to stderr as
- *            `pattern  line  excerpt` rows).
- *   Exit 2 — usage / environment error (tsx not found, file unreadable).
- *
- * How we reach the lint:
- *   - The canonical pattern catalog + scanner live in
- *     `src/projections/rehydration/prose-lint.ts`.
- *   - A tiny TS entrypoint (`prose-lint-cli.ts`, co-located with the
- *     module) calls either `lintTemplate()` or `lintProse(readFileSync(
- *     <path>))` and prints violations to stderr.
- *   - This `.mjs` shells out to `tsx` (devDep at the repo root) to
- *     execute that entrypoint. We deliberately avoid importing a
- *     compiled dist so the validate chain does not depend on a prior
- *     build step.
- *
- * Flags (primarily for testability):
- *   --template-source <path>  Read the file at <path> and lint its
- *                             contents instead of the live template.
- *                             Used by the wrapper's test suite to seed
- *                             AI-writing patterns without mutating the
- *                             real template.
- *   --help                    Show usage.
+ * Exit 0 when clean, 1 on violations (rows on stderr), and 2 on a usage or environment error.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
@@ -51,24 +26,9 @@ const CLI_ENTRY = path.join(
 );
 
 /**
- * Resolve the tsx binary. Search order: root `node_modules/.bin/tsx`
- * (the devDep that is guaranteed installed by `npm install`), then the
- * MCP server's local `node_modules/.bin/tsx`, then `tsx` on PATH. We
- * prefer explicit paths over PATH so the check is reproducible across
- * shells.
- *
- * @returns {string} absolute path to a tsx binary, or the literal `tsx`
- *   for PATH fallback.
- */
-/**
- * Resolve how to invoke `tsx`, returning `{ command, args }` for
- * `spawnSync`. Prefers the actual JS CLI entrypoint
- * (`tsx/dist/cli.mjs`) run via `process.execPath` over the
- * `node_modules/.bin/tsx` shim — the shim is a POSIX shebang script with
- * no `.exe`/`.cmd` extension, so Win32's executable resolution can't
- * launch it directly (no `shell: true` here). Invoking the `.mjs` CLI
- * with `node` sidesteps shim resolution entirely and works identically
- * on every platform.
+ * Returns `{ command, args }` for `spawnSync`. It runs `tsx/dist/cli.mjs` with
+ * `process.execPath` when that file exists, because Windows cannot launch the
+ * `node_modules/.bin/tsx` shell shim without `shell: true`. Else it runs `tsx` from PATH.
  */
 function resolveTsx() {
   const candidates = [
@@ -84,15 +44,12 @@ function resolveTsx() {
   for (const candidate of candidates) {
     if (existsSync(candidate)) return { command: process.execPath, args: [candidate] };
   }
-  // PATH fallback — let spawnSync resolve the `tsx` shim itself.
   return { command: 'tsx', args: [] };
 }
 
 /**
- * Parse argv. Returns `{ templateSource }` or exits on usage error /
- * help. The wrapper intentionally validates flags here (rather than
- * delegating to the TS CLI) so usage errors fail fast without paying
- * the tsx spawn cost.
+ * Returns `{ templateSource }`, or exits on a usage error or `--help`. The wrapper
+ * checks the flags itself, so a usage error fails before the `tsx` spawn.
  *
  * @param {string[]} argv
  */
@@ -142,6 +99,10 @@ function printHelp() {
   );
 }
 
+/**
+ * Runs the TS CLI and forwards its stderr, which holds the violation rows, and its stdout.
+ * Statuses 0, 1, and 2 come from the TS CLI. Any other status is an environment error.
+ */
 function main() {
   const { templateSource } = parseArgs(process.argv.slice(2));
 
@@ -164,14 +125,9 @@ function main() {
     process.exit(2);
   }
 
-  // Forward the TS CLI's stderr (which contains the violation rows) so
-  // CI logs name the offending patterns + line numbers without a second
-  // tool invocation. stdout is reserved for clean-run summaries.
   if (result.stderr) process.stderr.write(result.stderr);
   if (result.stdout) process.stdout.write(result.stdout);
 
-  // Statuses 0/1/2 come straight from the TS CLI (clean / violations /
-  // usage-or-env error). Any other status is treated as an env failure.
   switch (result.status) {
     case 0:
       process.stdout.write('check-prose-lint: OK (no violations)\n');

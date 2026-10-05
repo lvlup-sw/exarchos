@@ -1,46 +1,15 @@
-// servers/exarchos-mcp/scripts/report-coupling-ratchet-guard.ts
+// The executable report-coupling ratchet, and the only place that reads the wall clock for it.
 //
-// DR-2 / G3 — the executable report-coupling ratchet, and the ONE place the wall
-// clock is read for it.
+// The census library takes `today` as a required ISO-day string and reads no clock. A clock in
+// the library puts the expiry inside the unit suite, where a due entry turns every `vitest run` red.
+// {@link resolveToday} is the one production clock read, so the printed report reproduces the verdict.
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THE CLOCK IS READ HERE AND NOWHERE ELSE
+// {@link runGuard} takes its clock, census, seed and pin as optional arguments for the self-test.
+// It parses no argv, because an `--as-of` flag in the workflow file can neuter the gate.
 //
-// G3's expiry tooth used to read `new Date()` inside
-// `architecture/report-coupling-census.ts`, against the discipline its two
-// sibling ratchets already follow. That module's guard IS its co-located vitest,
-// so the wall clock sat inside the unit suite: on the day a seed entry came due,
-// `vitest run` went red on every developer's machine for a reason unrelated to
-// their change, and the cheapest green would have been to fix the CLOCK — freeze
-// it, stub it, widen the assertion — rather than the debt. A deadline that
-// teaches that lesson is worse than no deadline.
-//
-// So the library takes `today` as a required ISO-day string and reads no clock at
-// all, and {@link resolveToday} below is the single production clock read in G3's
-// mechanism. Everything downstream is a pure function of its result, which also
-// means the verdict is reproducible from the report this guard prints.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THE SEAMS ARE PARAMETERS AND NOT CLI FLAGS
-//
-// {@link runGuard} takes its clock, its census, its seed and its pin as optional
-// arguments so the co-located self-test can pose a lapsed expiry and an emptied
-// denominator without touching the live seed. It parses NO argv: an `--as-of`
-// flag would be a documented, discoverable way to neuter the gate from the
-// workflow file that invokes it — the same shape as the `|| true` trap
-// `check-enforcer-wiring.mjs` exists to catch. The seam is reachable from a test
-// import and from nothing else.
-//
-// POLICY IS DATA, NOT PROSE IN A TEST BODY: the seeded population and every
-// deadline live in `src/architecture/report-coupling-seed.ts`; the key-set digest
-// lives in `src/architecture/report-coupling-seed-pin.ts`. This module reads them
-// and exits non-zero. It decides nothing.
-//
-// The KILL FIXTURES stay in `src/architecture/report-coupling-census.test.ts`,
-// which `ci.yml` runs in the same unfiltered step — DR-24's "each guard's
-// self-test runs in the same CI job as the guard".
-//
-// Implements: DR-7 (task 085), over DR-2's task 013 mechanism.
+// The seed and every deadline live in `report-coupling-seed.ts`, and the key-set digest lives in
+// `report-coupling-seed-pin.ts`, both under `tools/conformance/src/`. This module reads them and
+// sets the exit code. The kill fixtures in `report-coupling-census.test.ts` run in the same CI job.
 
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -63,9 +32,8 @@ import {
 import { REPORT_COUPLING_SEED_KEY_SET_DIGEST } from '../../conformance/src/report-coupling-seed-pin.js';
 
 /**
- * The live artifacts this guard governs, named once so the self-test can assert
- * that the production defaults really are these objects rather than a stub. A
- * guard proven only through its injected seams has been proven about the seams.
+ * The live artifacts this guard governs. The self-test asserts that the production
+ * defaults are these objects and not a stub.
  */
 export const LIVE_SUBJECT = Object.freeze({
   seed: REPORT_COUPLING_SEED,
@@ -88,22 +56,17 @@ export interface GuardOptions {
 }
 
 /**
- * The current UTC calendar day. The single production clock read in G3's
- * mechanism; everything downstream is a pure function of its result.
+ * The current UTC calendar day. This is the only production clock read for the ratchet.
+ * Everything downstream is a pure function of its result.
  */
 export function resolveToday(now: Date = new Date()): string {
   return isoDayUtc(now);
 }
 
 /**
- * Run both halves and return a process exit code.
- *
- * `0` — the ratchet is clean: the seed is exactly the live report-coupled
- * population, no entry has lapsed, and the key set hashes to its pin.
- *
- * `1` — at least one finding. The report names every one, with the legal repair,
- * because "the gate is red" without the repair is how a ratchet turns into a
- * thing people delete.
+ * Runs both audits and returns a process exit code. `0`: the seed is exactly the live
+ * report-coupled population, no entry has lapsed, and the key set hashes to its pin.
+ * `1`: one or more findings. The report names each finding with its legal repair.
  */
 export function runGuard(options: GuardOptions = {}): number {
   const out = options.stdout ?? ((chunk: string): void => void process.stdout.write(chunk));
@@ -143,25 +106,9 @@ export function runGuard(options: GuardOptions = {}): number {
   return 1;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// THE ENTRYPOINT TAIL
-//
-// The predicate compares the RESOLVED PATH of the process entrypoint against this
-// module's own URL rather than testing `argv[1]` against a filename: a filename
-// comparison couples self-execution to the file's NAME, so a rename leaves a CI
-// step that still runs, prints nothing and exits 0. Symlinks are resolved on both
-// sides because Node reports the main module's realpath while `argv[1]` keeps the
-// link.
-//
-// NOTE FOR ANYONE EDITING BELOW: `process.exit` must stay a TOP-LEVEL call.
-// `scripts/guard-inventory.ts` classifies a module as a runnable gate by finding
-// exactly that (an AST walk that rejects a `process.exit` nested inside a
-// function), and a gate it cannot see drops out of DR-24's CI-reachability proof.
-
 /**
- * A canonical absolute path for comparison: symlinks resolved where possible,
- * falling back to plain resolution for a path that does not exist on disk (so an
- * exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ * An absolute path with symlinks resolved where possible. For a path that does not exist,
+ * it returns the plain resolved path, so an odd `argv[1]` reads as not the entry point.
  */
 function canonicalPath(candidate: string): string {
   const absolute = resolve(candidate);
@@ -172,15 +119,19 @@ function canonicalPath(candidate: string): string {
   }
 }
 
+/**
+ * True when this module is the process entry point. It compares resolved paths, not a filename,
+ * so a rename cannot turn the CI step into a silent no-op. Node reports the realpath of the main
+ * module, but `argv[1]` keeps a symlink, so both sides resolve symlinks.
+ *
+ * The guard sets `process.exitCode` outside any function. `process.exit` can cut stdout before
+ * it drains, and `hasDirectRunExit` finds a gate only through a statement outside a function.
+ */
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
   canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
-  // `exitCode`, never `exit(…)`: the guard's diagnostics go to stdout, and
-  // `process.exit` can sever the pipe before it drains — a red gate with its
-  // reason truncated away. Statement-level either way, so `hasDirectRunExit`
-  // still classifies this module as a runnable gate.
   process.exitCode = runGuard();
 }

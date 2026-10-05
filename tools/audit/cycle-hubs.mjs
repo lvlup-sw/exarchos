@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// cycle-hubs.mjs — production import-graph analysis: circular dependencies (SCCs),
-// mutual (2-node) import pairs, and fan-in hubs. Reuses refgraph.mjs's ESM .js->.ts
-// resolver so the codebase's `.js` specifiers resolve to real `.ts` sources
-// (naive tools miss this). READ-ONLY.
+// Reports the production import graph: circular dependencies (SCCs), mutual
+// two-node import pairs, and fan-in hubs. It resolves `.js` specifiers to `.ts`
+// sources with a copy of the `refgraph.mjs` resolver. It writes no files.
+// The SCC search is an iterative Tarjan, so a deep graph does not overflow the stack.
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { join, dirname, resolve, relative, sep } from 'node:path';
 const ROOT = process.argv[2] || '.';
@@ -40,7 +40,6 @@ for (const f of prod) {
 for (const [, ts] of adj) { for (const t of ts) indeg.set(t, indeg.get(t) + 1); }
 const lines = (f) => { try { return readFileSync(f, 'utf8').split(/\r?\n/).length; } catch { return 0; } };
 const rel = (f) => relative(ROOT, f).split(sep).join('/');
-// Tarjan SCC (iterative to avoid stack limits)
 let idx = 0; const index = new Map(), low = new Map(), onst = new Set(), st = []; const sccs = [];
 for (const s of prod) {
   if (index.has(s)) continue;

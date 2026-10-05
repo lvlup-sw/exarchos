@@ -1,13 +1,12 @@
-// Finds every Exarchos MCP call a skill's prose spells out, and every harness
-// call it prescribes, as a located site.
+// Finds each Exarchos MCP call and each harness call that the prose of a skill
+// spells out, as a located site.
 //
-// The extractor decides only what is mechanical: which text is a call, which
-// tool and action it names, and whether the registry serves that pair. Which
-// path a call belongs to is a judgement, and lives in the intent models where
-// each one is recorded against the line it was made from.
+// The extractor decides only mechanical facts: which text is a call, which tool
+// and action it names, and whether the registry serves that pair. The path of a
+// call is a judgement. The intent models record it against its source line.
 //
-// Tool names come from the registry snapshot rather than from this file, so a
-// renamed or added composite tool is recognised without an edit here.
+// Tool names come from the registry snapshot, so a new or renamed composite tool
+// needs no edit here.
 
 export interface RegistryTool {
   readonly name: string;
@@ -42,7 +41,7 @@ export type SiteStatus = 'registered' | 'unregistered' | 'ambiguous' | 'harness'
 export interface Site {
   /** 1-based line of the tool token (or of the key, for a bare action key). */
   readonly line: number;
-  /** Last line the call's text spans; equal to `line` for single-line spellings. */
+  /** Last line of the call text. It equals `line` for a call on one line. */
   readonly endLine: number;
   /** `tool.action`, `?.action` when no tool resolves, or `native:<name>`. */
   readonly call: string;
@@ -67,10 +66,9 @@ export interface RunbookLike {
 }
 
 /**
- * Placeholders whose rendered form is a harness CALL. The runtime yaml defines
- * more tokens than these, but the rest name a tool or a hook in prose
- * (`TASK_TOOL`, `SUBAGENT_COMPLETION_HOOK`) or are not calls at all
- * (`COMMAND_PREFIX`), so counting them would count mentions.
+ * Placeholders that render as a harness call. The runtime yaml defines more tokens.
+ * The others name a tool or a hook in prose (`TASK_TOOL`, `SUBAGENT_COMPLETION_HOOK`),
+ * or are not calls (`COMMAND_PREFIX`). A count of them counts mentions.
  */
 const HARNESS_CALL_PLACEHOLDERS: ReadonlySet<string> = new Set([
   'SPAWN_AGENT_CALL',
@@ -118,7 +116,7 @@ function lineOf(starts: readonly number[], offset: number): number {
   return lo + 1;
 }
 
-/** Index of the brace closing the one at `open`, skipping quoted strings; -1 when unbalanced. */
+/** Index of the brace that closes the brace at `open`, past quoted strings. It returns -1 when the braces do not balance. */
 function matchBrace(text: string, open: number): number {
   let depth = 0;
   let quote: string | null = null;
@@ -154,6 +152,16 @@ interface RawSite {
   readonly runbookId: string | null;
 }
 
+/**
+ * Finds each call site in `text`, sorted by position. It runs these scans:
+ *
+ * - A fenced shell block is one harness call, and no other scan reads a site from it.
+ *   An unclosed fence runs to the end of the file, as Markdown renders it.
+ * - A call expression `tool({ ... action: "x" ... })`, with any prefix before the tool name.
+ * - A backtick span that names a tool: `tool verb`, `tool` `verb`, or `tool` and a later `action:` key on the line.
+ * - An `action:` key with no tool beside it. It resolves only when exactly one tool serves the action.
+ * - A placeholder in `HARNESS_CALL_PLACEHOLDERS`.
+ */
 export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
   if (registry.tools.length === 0) {
     throw new Error('registry snapshot names no tools; every call would read as unrecognised');
@@ -167,9 +175,6 @@ export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
   const consumedActionKeys = new Set<number>();
   const raw: RawSite[] = [];
 
-  // A fenced shell block is one harness call. What it holds is shell, not a
-  // call spelled in prose, so no other scan may read a site out of it. An
-  // unclosed fence runs to the end of the file, as Markdown renders it.
   const shellFences: { readonly start: number; readonly end: number }[] = execAll(SHELL_FENCE, text).map((m) => {
     const afterOpen = m.index + m[0].length;
     const close = CLOSING_FENCE.exec(text.slice(afterOpen));
@@ -178,8 +183,6 @@ export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
   const inShellFence = (offset: number): boolean =>
     shellFences.some((fence) => offset >= fence.start && offset <= fence.end);
 
-  // A call expression: `tool({ ... action: "x" ... })`, whatever prefix a
-  // runtime spelling puts before the tool name.
   for (const m of execAll(new RegExp(`(${toolAlternation})\\s*\\(\\s*\\{`), text)) {
     if (inShellFence(m.index)) continue;
     const tool = m[1] ?? '';
@@ -200,8 +203,6 @@ export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
     });
   }
 
-  // Backtick spans naming a tool in prose: `tool verb`, `tool` `verb`, or
-  // `tool` followed on the same line by an `action:` key.
   const toolOnly = new RegExp(`^(?:[\\w-]+:)?(${toolAlternation})$`);
   const toolVerb = new RegExp(`^(?:[\\w-]+:)?(${toolAlternation})\\s+([a-z][\\w-]*)$`);
   const bareWord = /^[a-z][\w-]*$/;
@@ -271,8 +272,6 @@ export function extractSites(text: string, registry: RegistrySnapshot): Site[] {
     }
   }
 
-  // An `action:` key with no tool beside it. The tool is whichever one serves
-  // that action name, and only when exactly one does.
   for (const m of execAll(ACTION_KEY, text)) {
     if (consumedActionKeys.has(m.index) || inShellFence(m.index)) continue;
     const action = m[1] ?? '';

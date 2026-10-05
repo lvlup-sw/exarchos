@@ -1,46 +1,17 @@
 #!/usr/bin/env node
-// tools/audit/gates/lint-test-first-drift.mjs — ENFORCING lint guarding against the return
-// of test-FIRST ordering framing across the SDLC content surfaces (#1591, #1515
-// Phase 4).
+// lint-test-first-drift.mjs: an enforcing lint against the return of mandatory test-first
+// ordering in the SDLC content. It fails when the retired framing appears:
+//   1. iron-law                   - the literal "Iron Law".
+//   2. no-production-code-first   - "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST".
+//   3. unconditional-rgr-template - all three of [RED], [GREEN] and [REFACTOR] in one file,
+//      with no `<!-- ladder-rgr-optin -->` marker. Rules 1 and 2 have no opt-out.
 //
-// The verification-ladder reconciliation (#1586–#1590) excised mandatory
-// test-first ordering from commands/, agents/, and the skill sources. The drift
-// returned last time precisely because nothing guarded these surfaces — and the
-// first pass guarded only commands/ + agents/, leaving the skill sources
-// (content/) uncovered, where two residual mandates survived silently. This
-// lint fails CI when the retired framing reappears:
-//   1. iron-law                  — the literal "Iron Law"
-//   2. no-production-code-first  — "NO PRODUCTION CODE WITHOUT A FAILING TEST FIRST"
-//   3. unconditional-rgr-template — a [RED]/[GREEN]/[REFACTOR] task-phase template
-//      (all three bracketed markers in one file), UNLESS the file carries an
-//      explicit opt-in marker `<!-- ladder-rgr-optin -->` (the legitimate
-//      high-tier opt-in lane). Rules 1 and 2 are never allowlisted.
+// It scans every `.md` file under the given directories. The default is `content` and
+// `rendered/agents`, the scope that `npm run lint:test-first-drift` passes. Agent `.md` files
+// are generated from TypeScript, so `rendered/agents/` is the only agent surface it can see.
 //
-// Scope: every *.md under the scanned directories (default: content/ and
-// rendered/agents/). content/ is the source-of-truth for skills AND commands
-// (authored at content/<domain>/commands/*.md); guarding it rather than the
-// generated rendered/ trees catches drift at the authoring layer, mirroring how
-// lint:inv6 scans content/.
-//
-// Defaults retargeted by task 042. They read `commands/ agents/ content/`, and
-// the DR-4 render split retired the first two as top-level directories. CI
-// coverage was never affected — `npm run lint:test-first-drift` passes
-// `content rendered/agents` explicitly and always overrode these — but a
-// default that contradicts the only real invocation is a trap: it is what a
-// direct `node lint-test-first-drift.mjs` run uses, and what a reader takes as
-// the declared scope. Aligning it removes the disagreement.
-//
-// Commands folded INTO content/, so that root needed no replacement. Agents are
-// different and the asymmetry is deliberate: their .md is GENERATED from
-// TypeScript under src/runtime/agents/, so there is no .md authoring layer to
-// guard, and rendered/agents/ is the only surface this lint can see for them.
-// Drift entering through a TS string literal is invisible to this gate either
-// way — that gap is real and belongs to the generator's own tests, not here.
-// Output: JSON to stdout: { findings: [...], advisory: false }.
-// Exit code: 1 when findings exist (enforcing), else 0.
-//
-// Run via `npm run lint:test-first-drift`; also exercised by
-// test/lint-test-first-drift.test.ts (seeded fixture must fail; clean tree must pass).
+// Output: JSON on stdout, `{ findings: [...], advisory: false }`. Exit 1 when it finds a match.
+// Self-test: `tests/scripts/lint-test-first-drift.test.ts`.
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -65,12 +36,12 @@ const RULES = {
 
 const SEVERITY = 'HIGH';
 
+/**
+ * Lists every `.md` file under `dir`. Throws when `dir` does not exist, so a wrong
+ * directory cannot pass as a clean tree. It skips a subdirectory that it cannot read.
+ */
 function walkMarkdown(dir) {
   const out = [];
-  // Fail fast on a missing scan root: silently returning zero files would let
-  // the guard PASS while scanning less than intended (a misconfigured dir list
-  // reads as a clean tree). A missing subdir mid-walk is still tolerated below
-  // (readdirSync try/catch) — only the requested root must exist.
   if (!fs.existsSync(dir)) {
     throw new Error(`lint-test-first-drift: scan directory does not exist: ${dir}`);
   }
@@ -95,6 +66,10 @@ function walkMarkdown(dir) {
   return out;
 }
 
+/**
+ * Applies the per-line rules and the whole-file template rule to one file.
+ * The template check ignores case, so `[Red]` cannot bypass it.
+ */
 function lintFile(file, findings) {
   let text;
   try {
@@ -104,7 +79,6 @@ function lintFile(file, findings) {
   }
   const lines = text.split('\n');
 
-  // Per-line literal rules (iron-law, no-production-code-first).
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i];
     for (const rule of Object.values(RULES)) {
@@ -121,9 +95,6 @@ function lintFile(file, findings) {
     }
   }
 
-  // Whole-file rule: an unconditional [RED]/[GREEN]/[REFACTOR] task template —
-  // all three bracketed phase markers present, with no explicit opt-in marker.
-  // Case-insensitive so a trivial `[Red]`/`[red]` variant can't bypass the guard.
   const hasRed = /\[red\]/i.test(text);
   const hasGreen = /\[green\]/i.test(text);
   const hasRefactor = /\[refactor\]/i.test(text);

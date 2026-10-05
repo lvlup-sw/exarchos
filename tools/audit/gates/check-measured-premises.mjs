@@ -1,120 +1,18 @@
 #!/usr/bin/env node
 /**
- * check-measured-premises — DR-27 measured-premise drift gate.
+ * CI gate: drift in the measured premises of the documents in {@link DEFAULT_DOCUMENTS}.
  *
- * ── The defect this closes ──────────────────────────────────────────────────
- * Every numeric and structural claim in `docs/specs/2026-08-06-internal-
- * mechanics-overhaul.md` is a REPRESENTATION OF A DERIVATION, and none of them
- * were bound to it. That is the program's own defect class — "a declaration
- * exists, is enforced, and cannot fail" — instantiated by the document that
- * defines it. It is not hypothetical:
+ * A measured claim is an inline annotation such as
+ * `<!-- measured: output-schema-vacuous -->112<!-- /measured -->`. Its name resolves to an
+ * entry in {@link DERIVATIONS}, and the gate compares the literal with the derived value.
+ * A run that resolves zero claims fails. Each row of the obligation map needs exactly one
+ * `rung-probe` annotation: `fixture:<path>`, `command:<npm script>`, or `none`.
  *
- *   - rev 1 was refuted 3/3 by an adversarial panel for stale measurements: it
- *     was authored against a worktree 7 commits behind `origin/main` and never
- *     re-measured against the branch it lands on;
- *   - rev 3 reproduced the class in DR-4 — it asserted 109 vacuous of 123 when
- *     the tree said 112 of 122, and called two declarations "typed" that are in
- *     fact vacuous.
- *
- * DR-24 already carries the rule ("re-derive wave premises against the landing
- * branch at plan time") — but as prose a human must remember, which is PDD's
- * *"a fix relies on someone remembering a convention"* row. This gate makes it
- * mechanical: the document may not assert a number that nothing produces.
- *
- * ── What is checked ─────────────────────────────────────────────────────────
- * 1. MEASURED CLAIMS. A claim is annotated inline:
- *
- *        <!-- measured: output-schema-vacuous -->112<!-- /measured -->
- *
- *    The name resolves to a DERIVATION in {@link DERIVATIONS} — a census
- *    function, a script, or a counted scan. The literal between the markers is
- *    compared against the re-derived value; disagreement FAILS.
- *
- * 2. NON-EMPTY DENOMINATOR. A run that resolves ZERO annotated claims FAILS
- *    rather than passing clean. Without this tooth, deleting every annotation —
- *    or renaming the document — reads green, which is precisely the failure
- *    mode the gate exists to prevent.
- *
- * 3. PROOF RUNGS. DR-0 failed DIFFERENTLY from a stale count: it asserted a
- *    proof rung its subject could not carry ("a partially-migrated tree must
- *    fail typecheck" — impossible, because TypeScript has no nominal package
- *    identity). A rung is therefore a CLAIM ABOUT THE SUBJECT and is falsifiable
- *    like any other. Each obligation-map row carries a one-line probe:
- *
- *        | 3 — structural<!-- rung-probe: fixture:path/to/x.test.ts --> | ...
- *        | 2 — types<!-- rung-probe: none -->                           | ...
- *
- *    An UNPROBED rung is a reportable GAP, not a pass — "nothing" is a
- *    reportable answer, per the obligation map's own `Failure signal` column.
- *    A row carrying NO annotation at all is a different thing: the map is then
- *    partial, the instrument cannot see the row, and that FAILS (the rung-side
- *    analogue of the non-empty-denominator rule).
- *
- * ── Verdicts and exit codes ─────────────────────────────────────────────────
- *   pass  → exit 0. Every claim agrees; every obligation row is probed.
- *   gaps  → exit 3 (exit 1 under `--fail-on-gap`). No drift, but one or more
- *           rungs are unprobed. Deliberately NOT reported as a pass.
- *   fail  → exit 1. Drift, an empty denominator, an unknown derivation, a
- *           malformed literal, or an obligation row with no probe annotation.
- *   usage → exit 2. Bad flags, unreadable document, derivation subprocess
- *           failure. Fail-closed: a gate that no-ops on a tooling error is a
- *           gate that isn't there.
- *
- * DR-7 — `gaps` used to exit 0. The report said `VERDICT: GAPS` and the words
- * "reportable, NOT a pass" with 11 of 13 rungs unprobed, and every machine
- * reading it saw the pass code: `npm run validate` recorded `PASS
- * measured-premises` 9/9 exit 0, and the CI lane went green. A verdict that
- * only a human can see is not a verdict the pipeline has. Exit 0 now means
- * `pass` and nothing else.
- *
- * A caller that wants to tolerate gaps must SAY SO, and say until when:
- * `--tolerate-gaps-until YYYY-MM-DD` maps `gaps` back to exit 0 up to that day
- * and to exit 1 after it. The rendered verdict is unchanged either way — the
- * reader still sees GAPS — so the toleration adjusts consequence, never
- * reporting. An undated toleration is not offered on purpose: "temporary"
- * without a date is how eleven unprobed rungs became the status quo.
- *
- * ── Scope ───────────────────────────────────────────────────────────────────
- * `docs/specs/2026-08-06-internal-mechanics-overhaul.md` plus
- * `.exarchos/invariants.md`, and NOTHING else. Generalizing to all of `docs/`
- * is explicitly out of scope per DR-27 and needs its own ADR.
- *
- * ── Why every `scan` derivation PARSES (task 061) ───────────────────────────
- * The `scan` derivations read TypeScript source. Until task 061 they read it as
- * TEXT: `sdkImportFiles` matched `source.includes('@modelcontextprotocol/sdk')`,
- * so a module that merely NAMED the package in a comment or a string counted as
- * an import site. That is the defect class this whole program exists to remove —
- * an instrument that is declared, is enforced, and measures a property other
- * than the one it names — instantiated INSIDE the instrument built to catch it.
- * It was not theoretical: the derivation reported 40 files across 13 directories
- * where the tree holds 23 across 9, a 74% inflation, and every one of the 17
- * extra files names the package only in prose or in a lint fixture string.
- *
- * The comment-blanking half of the old approach — a hand-rolled `blankComments`
- * lexer, since removed — was not a fix either. It preserved string and template
- * literals by design, so a call site written inside a string still counted, and
- * a NESTED template (`` `x${`…`}z` ``) desynced it outright. Both failures are
- * pinned as tests, so `cli-handwritten-literals` and `withcappedshape-count`
- * carried the same class latently even though they agreed with the parse on
- * today's tree. Re-deriving TypeScript's lexical grammar by hand is how the
- * original defect arrived; `typescript` cannot disagree with the compiler about
- * what an import — or a call site — is.
- *
- * `typescript` is a root devDependency and this gate already rides CI's
- * tsx-backed deps tail rather than the zero-dep prefix (see
- * `tools/audit/gates/enforcer-wiring-manifest.json`), so the dependency costs nothing that
- * was not already installed — the same trade `tools/audit/consolidate-suite.mjs`
- * and `tools/audit/tsconfig-strictness/count-casts.ts` already make.
- *
- * Flags:
- *   --document <path>   Scan this document instead of the default scope.
- *                       Repeatable. Paths resolve against the repo root.
- *   --fail-on-gap       Promote unprobed rungs from `gaps` to `fail`.
- *   --tolerate-gaps-until <YYYY-MM-DD>
- *                       Exit 0 on `gaps` up to and including that day; exit 1
- *                       after it. The reported verdict is unaffected.
- *   --json              Emit the machine-readable report on stdout.
- *   --help              Show usage.
+ * Exit 0 on `pass`. Exit 1 on `fail`: drift, an empty denominator, an unknown derivation,
+ * a malformed literal, or a row with no probe. Exit 3 on `gaps` (unprobed rungs), or 1 with
+ * `--fail-on-gap`. `--tolerate-gaps-until <YYYY-MM-DD>` maps `gaps` to exit 0 through that
+ * day and to exit 1 after it, and the report still says GAPS. Exit 2 on a usage or tooling error.
+ * `--document <path>` (repeatable) sets the input, and `--json` prints the report as JSON.
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
@@ -122,35 +20,26 @@ import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import process from 'node:process';
 import ts from 'typescript';
-// Task 064's packaging gate, imported so `validate-plugin-checks` derives the
-// number a real run reports rather than re-implementing the policy's expansion.
 import { evaluatePackaging, diskTree } from './validate-plugin.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(SCRIPT_DIR, '..', '..', '..');
 
-/** DR-27's declared scope. Two documents. Not `docs/**`. */
+/** The declared scope: two documents and no others. */
 export const DEFAULT_DOCUMENTS = Object.freeze([
   'docs/specs/2026-08-06-internal-mechanics-overhaul.md',
   '.exarchos/invariants.md',
 ]);
 
-/**
- * The three verdict-bearing exit codes. All exported, because a test that
- * asserts their distinctness against local literals asserts nothing — it has to
- * read the same constants the process exits with.
- */
+/** Verdict exit codes. They are exported, so a test reads the same constants that the process exits with. */
 export const EXIT_PASS = 0;
 export const EXIT_FAIL = 1;
 const EXIT_USAGE = 2;
 /**
- * `gaps` — distinct from BOTH pass and fail so the verdict survives the process
- * boundary. Exported so the aggregating runner's manifest and this gate cannot
- * drift on the number.
+ * The exit code of `gaps`. It differs from pass and fail, so the verdict survives the
+ * process boundary. It is exported, so its consumers cannot drift from this gate.
  */
 export const EXIT_GAPS = 3;
-
-// ─── Annotation grammar ─────────────────────────────────────────────────────
 
 const MEASURED_RE =
   /<!--\s*measured:\s*([a-z0-9][a-z0-9-]*)\s*-->([\s\S]*?)<!--\s*\/measured\s*-->/g;
@@ -185,9 +74,8 @@ export function scanMeasuredClaims(text) {
 }
 
 /**
- * Parse a claim literal. Accepts plain integers and thousands-separated forms
- * (`1,613`) because the document writes both. Anything else is malformed —
- * a literal the checker cannot read is a claim it cannot bind.
+ * Parses a claim literal: a plain integer or a thousands-separated form such as `1,613`.
+ * It returns `undefined` for any other text, and the check reports that as malformed.
  *
  * @param {string} raw
  * @returns {number | undefined}
@@ -200,8 +88,6 @@ export function parseClaimLiteral(raw) {
   return Number.isSafeInteger(value) ? value : undefined;
 }
 
-// ─── Obligation map (the rung half) ─────────────────────────────────────────
-
 /**
  * @typedef {Object} ObligationRow
  * @property {string} property   First cell — the property being claimed.
@@ -210,7 +96,7 @@ export function parseClaimLiteral(raw) {
  * @property {number} line       1-based line of the row.
  */
 
-/** Split a markdown table row on UNESCAPED pipes. */
+/** Splits a markdown table row on unescaped pipes, and drops the empty cells outside the outer pipes. */
 function splitRow(line) {
   const cells = [];
   let current = '';
@@ -229,7 +115,6 @@ function splitRow(line) {
     current += ch;
   }
   cells.push(current);
-  // A markdown row is fenced by pipes, so the first and last splits are empty.
   if (cells.length >= 2 && cells[0].trim() === '') cells.shift();
   if (cells.length >= 1 && cells[cells.length - 1].trim() === '') cells.pop();
   return cells.map((c) => c.trim());
@@ -238,12 +123,9 @@ function splitRow(line) {
 const SEPARATOR_ROW = /^\s*\|?[\s:|-]+\|[\s:|-]*$/;
 
 /**
- * Locate the obligation map and read one record per row.
- *
- * The table is identified by its HEADER — a row carrying both a
- * `Primary proof (rung)` column and a `Failure signal` column. Identifying by
- * heading text would break the moment the section is renamed; identifying by
- * the columns the check actually reads cannot.
+ * Finds the obligation map and reads one record per row. The map is the first table whose
+ * header has a `Primary proof` column and a `Failure signal` column, so a renamed section
+ * heading does not hide it.
  *
  * @param {string} text
  * @returns {{ found: boolean, rows: ObligationRow[] }}
@@ -287,18 +169,9 @@ function stripAnnotations(cell) {
 }
 
 /**
- * Resolve a probe declaration against the working tree.
- *
- * `fixture:<repo-relative path>` — the file must exist. A probe pointing at a
- * file that is not there is worse than no probe: it asserts evidence that
- * cannot be inspected, so it degrades to a GAP with a named reason rather than
- * passing.
- *
- * `command:<npm script>` — the script must be declared in the root
- * `package.json`, so "run this to see the rung is bearable" is checkable.
- *
- * `none` — the honest answer when the subject has no probe yet. Reported as a
- * gap; never a pass.
+ * Resolves a probe against the working tree. `fixture:<path>` needs an existing file, and
+ * `command:<script>` needs a script in the root `package.json`. A missing target is a gap
+ * with a reason, not a pass. `none` is always a gap.
  *
  * @param {string} probe
  * @param {{ repoRoot?: string }} [opts]
@@ -338,8 +211,6 @@ export function resolveRungProbe(probe, opts = {}) {
   return { status: 'malformed', reason: `unknown probe kind '${kind}'` };
 }
 
-// ─── The check itself (pure — no I/O, no process exit) ──────────────────────
-
 /**
  * @typedef {Object} CheckOptions
  * @property {{ path: string, text: string }[]} documents
@@ -348,12 +219,13 @@ export function resolveRungProbe(probe, opts = {}) {
  * @property {(probe: string) => { status: string, reason?: string }} [resolveProbe]
  * @property {boolean} [failOnGap]
  * @property {string} [tolerateGapsUntil] `YYYY-MM-DD`, inclusive.
- * @property {string} [today] `YYYY-MM-DD`; injected so the expiry is testable.
+ * @property {string} [today] `YYYY-MM-DD`, injected so the expiry is testable.
  */
 
 /**
- * Compare every annotated claim against its derivation and classify every
- * obligation-map rung.
+ * Compares each annotated claim with its derivation and classifies each obligation-map rung.
+ * By default, each verdict has its own exit code. `failOnGap` and a gap toleration change
+ * only the exit code of `gaps`, never the verdict.
  *
  * @param {CheckOptions} options
  */
@@ -499,13 +371,6 @@ export function checkMeasuredPremises(options) {
   const gapCount = rungs.filter((r) => r.verdict === 'gap').length;
   const verdict = failures.length > 0 ? 'fail' : gapCount > 0 ? 'gaps' : 'pass';
 
-  // DR-7: each verdict gets its OWN code. `gaps` sharing the pass code is how a
-  // run that printed `VERDICT: GAPS` was recorded as `PASS measured-premises`.
-  //
-  // The toleration only moves the CONSEQUENCE. `verdict` above is computed
-  // before any of this and is never rewritten, so no caller can make the report
-  // claim a pass — the most a toleration buys is a zero exit while the report
-  // still says GAPS.
   const tolerationLive =
     typeof tolerateGapsUntil === 'string' && tolerateGapsUntil >= today;
   const gapsExit = failOnGap
@@ -539,22 +404,15 @@ export function checkMeasuredPremises(options) {
   };
 }
 
-// ─── Derivations ────────────────────────────────────────────────────────────
-//
-// Each entry binds an annotation name to the artifact that produces its value.
-// `ts` derivations are answered by one `tsx` subprocess against
-// `tools/audit/gates/measured-premises-derive.ts`; `scan` derivations are pure Node so
-// the common case needs no subprocess at all.
-
 const MCP_SRC = 'src';
 const CLI_SOURCE = `${MCP_SRC}/adapters/cli.ts`;
 const REGISTRY_SOURCE = `${MCP_SRC}/registry.ts`;
 
-/** Task 064's data files — see the two `validate-*` derivations below. */
+/** The data files of the two `validate-*` derivations. */
 const VALIDATE_MANIFEST = 'tools/audit/gates/validate-manifest.json';
 const PACKAGING_POLICY = '.claude-plugin/packaging-policy.json';
 
-/** Task 023's DR-5 policy data — see the `cli-allowlisted-literals` derivation below. */
+/** The policy data of the `cli-allowlisted-literals` derivation. */
 const CLI_DERIVATION_ALLOWLIST = 'tools/audit/core/cli-derivation-allowlist.json';
 /** @type {Record<string, { kind: 'ts' | 'scan', describe: string, fn?: (root: string) => number }>} */
 export const DERIVATIONS = {
@@ -609,15 +467,10 @@ export const DERIVATIONS = {
     describe: `parsed \`.command('<literal>')\` call sites in ${CLI_SOURCE}`,
     fn: (root) => countCommandLiterals(readSource(root, CLI_SOURCE), CLI_SOURCE),
   },
-  // Task 023 (DR-5). The spec's Task 023 prose named EIGHT verbs and included
-  // `merge-orchestrate`; the parse says ELEVEN literals, of which
-  // `merge-orchestrate` is the kill fixture and is not allowlistable — so the
-  // tracked population is TEN. That is a second unannotated number in the same
-  // document that was wrong when re-derived, which is exactly DR-27's class.
-  // It derives now. The number is bound to the parse from the other side too:
-  // `auditCliAllowlistMembership` fails when a tracked name is not a live
-  // literal AND when a live literal is untracked, so this count cannot drift
-  // from `cli-handwritten-literals` without the ratchet going red.
+  /**
+   * `auditCliAllowlistMembership` fails when a tracked name is not a live literal, and when a
+   * live literal is not tracked. This count therefore cannot drift from the parsed literals.
+   */
   'cli-allowlisted-literals': {
     kind: 'scan',
     describe:
@@ -630,12 +483,6 @@ export const DERIVATIONS = {
     describe: `parsed \`outputSchema: withCappedShape(...)\` declaration sites in ${REGISTRY_SOURCE}`,
     fn: (root) => countWithCappedShapeDeclarations(readSource(root, REGISTRY_SOURCE), REGISTRY_SOURCE),
   },
-  // Task 064 (DR-24). The spec's own account of `npm run validate` carried two
-  // unannotated numbers and BOTH were wrong when re-derived on the landing
-  // branch — it said a 17-step chain whose step 1 "fails 4 of 9 checks", where
-  // the tree held a NINE-step chain whose step 1 failed FIVE of nine. That is
-  // exactly DR-27's class: a representation of a derivation with nothing behind
-  // it, in the document that defines the class. Both numbers now derive.
   'validate-chain-steps': {
     kind: 'scan',
     describe: `declared steps in ${VALIDATE_MANIFEST} — the denominator \`npm run validate\` reports`,
@@ -651,11 +498,8 @@ export const DERIVATIONS = {
 };
 
 /**
- * Steps declared by the validate manifest.
- *
- * Non-empty denominator, the same tooth `sdk-import-sites` carries: a manifest
- * resolving zero steps would let the document assert `0` and read green, when
- * "the runner knows of no gates" is the failure task 064 exists to remove.
+ * Returns the number of steps in the validate manifest. A missing manifest or zero steps
+ * throws, because an empty denominator lets the document assert `0` and pass.
  *
  * @param {string} root
  * @returns {number}
@@ -676,12 +520,9 @@ export function countValidateSteps(root) {
 }
 
 /**
- * Checks the packaging policy produces against the tree at `root`.
- *
- * Re-evaluates the real gate rather than counting policy entries, because the
- * number the spec talks about is the number a RUN reports — clauses expand into
- * more than one check apiece, and a count of entries would drift from the
- * observable output the moment that mapping changed.
+ * Returns the number of checks that the packaging policy produces against the tree at
+ * `root`. It runs the real gate, because one clause can expand into more than one check.
+ * A missing policy or zero checks throws.
  *
  * @param {string} root
  * @returns {number}
@@ -702,19 +543,10 @@ export function countPackagingChecks(root) {
 }
 
 /**
- * Tolerated hand-written CLI verbs in the DR-5 shrink-only allowlist.
- *
- * Counts the KEYS of the `allowed` map rather than re-deriving the population
- * from the composition root, because the two are already bound to each other by
- * `auditCliAllowlistMembership` in BOTH directions — an untracked literal and a
- * tracked non-literal both fail the ratchet. Re-implementing the exclusion of
- * the kill fixture here would copy DR-5's policy into this file, where it could
- * disagree with the guard.
- *
- * Non-empty denominator, the same tooth the other `scan` derivations carry: a
- * policy file resolving zero entries would let the document assert `0` and read
- * green, when "the allowlist was moved, renamed or emptied" is a broken
- * measurement. The legitimate zero state is DR-19, and it deletes this file.
+ * Returns the number of keys in the `allowed` map of the CLI derivation allowlist.
+ * `auditCliAllowlistMembership` binds that map to the live literals in both directions,
+ * so this function does not copy the kill-fixture rule. A missing file, a bad shape, or
+ * zero entries throws.
  *
  * @param {string} root
  * @returns {number}
@@ -764,31 +596,17 @@ function walkTypeScript(dir, out) {
   return out;
 }
 
-/**
- * The owned SDK seam (DR-26, task 052). Nothing under this directory is a
- * DIRECT-import subject: `contract/sdk/seam.ts` is the sanctioned importer and
- * `contract/sdk/brand.ts` is its generation vocabulary. Counting them would make the
- * denominator include the very module that closes it — and would hand task 053
- * a migration target that must not be migrated.
- */
+/** The owned SDK seam. Its modules are the sanctioned importers, so `sdkImportFiles` leaves them out. */
 const SDK_SEAM_DIR = `${MCP_SRC}/sdk`;
 
 /** The v1 package root. Every `@modelcontextprotocol/sdk/...` subpath is v1. */
 const SDK_V1_PACKAGE = '@modelcontextprotocol/sdk';
 
-// ─── Source parsing ─────────────────────────────────────────────────────────
-
 /**
- * Parse one module, refusing a RECOVERED parse.
- *
- * `ts.createSourceFile` never throws: handed broken input it returns a partial
- * tree with nodes silently missing, which under-reports. An under-counting
- * derivation is strictly worse than an over-counting one — it lets the document
- * assert a number smaller than the truth and still reads green — so a recovered
- * parse is fatal here. `parseDiagnostics` is off the public `ts.SourceFile`
- * surface but is the only way to tell a clean parse from a recovered one; this
- * is the same access `tools/audit/tsconfig-strictness/count-casts.ts` makes for the
- * same reason.
+ * Parses one module and throws on a recovered parse. `ts.createSourceFile` never throws,
+ * and a recovered tree silently drops nodes, so a count can fall below the truth.
+ * `parseDiagnostics` is not public API, but it is the only signal of a recovered parse.
+ * The `false` argument skips the parent pointers.
  *
  * @param {string} source
  * @param {string} fileName
@@ -799,7 +617,7 @@ export function parseModule(source, fileName = 'source.ts') {
     fileName,
     source,
     ts.ScriptTarget.Latest,
-    /* setParentNodes */ false,
+    false,
     ts.ScriptKind.TS,
   );
   const diagnostics = sourceFile.parseDiagnostics ?? [];
@@ -817,18 +635,9 @@ export function parseModule(source, fileName = 'source.ts') {
 }
 
 /**
- * Every MODULE SPECIFIER the parsed program actually imports or re-exports.
- *
- * Covers every form the tree uses or could use, so the parse cannot under-report
- * where the old text match could not miss anything:
- *
- *   `import x from 'p'` · `import type { T } from 'p'` · `import 'p'` ·
- *   `export { x } from 'p'` · `export * from 'p'` · `await import('p')` ·
- *   `require('p')` · `import p = require('p')`
- *
- * A specifier inside a comment, a string, or a template literal is NOT one of
- * these nodes and is therefore absent by construction rather than by filtering —
- * which is the whole point of parsing instead of matching.
+ * Returns each module specifier that the parsed program imports or re-exports: static
+ * imports and exports, side-effect imports, `import()`, `require()`, and `import x = require()`.
+ * A specifier in a comment, a string, or a template literal is not such a node, so it never counts.
  *
  * @param {string} source
  * @param {string} [fileName]
@@ -873,10 +682,8 @@ export function collectModuleSpecifiers(source, fileName = 'source.ts') {
 }
 
 /**
- * True when `specifier` is exactly `pkg` or one of its subpaths.
- *
- * Deliberately NOT `startsWith(pkg)`: that would swallow a hypothetical future
- * `@modelcontextprotocol/sdk-next`, which is a different package.
+ * True when `specifier` is exactly `pkg` or one of its subpaths. A plain `startsWith(pkg)`
+ * also matches a different package such as `@modelcontextprotocol/sdk-next`.
  *
  * @param {string} specifier
  * @param {string} pkg
@@ -886,13 +693,8 @@ function isPackageOrSubpath(specifier, pkg) {
 }
 
 /**
- * How many v1 SDK specifiers one module actually imports. Zero for a module that
- * only NAMES the package — in a comment, a string, or a lint fixture written as
- * a template literal.
- *
- * This is the kill-fixture surface for task 061: the superseded predicate was
- * `source.includes('@modelcontextprotocol/sdk')`, which answers 1 for a
- * comment-only mention where this answers 0.
+ * Returns the number of v1 SDK specifiers that one module imports. A module that only
+ * names the package in a comment, a string, or a template literal returns 0.
  *
  * @param {string} source
  * @param {string} [fileName]
@@ -905,17 +707,9 @@ export function countSdkImportSpecifiers(source, fileName = 'source.ts') {
 }
 
 /**
- * The DR-26 kill-fixture subject: every file that IMPORTS an SDK package
- * DIRECTLY — that is, outside the owned seam — tests included. Tests are counted
- * deliberately: DR-26's seam rule forbids the direct import everywhere, and a
- * subject list that quietly omits the test tree would under-report the
- * denominator it exists to prove non-empty.
- *
- * NON-EMPTY DENOMINATOR (the count-casts rule, one boundary over): a scan that
- * resolves ZERO TypeScript files throws instead of returning an empty list. A
- * relocated `src/`, a typo in {@link MCP_SRC} or a renamed package directory all
- * present the same way — as a clean run over nothing — and would report a LOWER
- * count, which reads as "the migration made progress" and passes the gate.
+ * Returns each file under {@link MCP_SRC} that imports an SDK package outside the owned seam.
+ * Tests count too, because the seam rule forbids a direct import everywhere. A missing scan
+ * root or zero TypeScript files throws, because an empty scan reads as a finished migration.
  *
  * @param {string} root
  * @returns {string[]}
@@ -946,9 +740,8 @@ function sdkImportFiles(root) {
 }
 
 /**
- * A test file, by the repo's own convention (`tools/audit/tsconfig-strictness/
- * count-casts.ts` uses the same two rules): a `.test` / `.bench` / `.type-test`
- * / `.fixture` basename, or any path segment named `__tests__`.
+ * True for a test file: a `.test`, `.bench`, `.type-test`, or `.fixture` basename, or a
+ * path with a `__tests__` segment.
  *
  * @param {string} file Absolute or repo-relative path.
  */
@@ -961,18 +754,9 @@ function isTestFile(file) {
 }
 
 /**
- * Count `.command('<string literal>')` call sites — the hand-written half of
- * the CLI surface. Sites whose first argument is an identifier expression
- * (`cliName`, `harness`, `commandName`) are the derivation loops and are NOT
- * counted: G1's whole policy is that provenance is visible in the source and
- * erased in the built tree.
- *
- * Parsed, not matched (task 061). A JSDoc block in `cli.ts` writes
- * `program.command(...)` in prose and a naive `/\.command\(/g` counts it; the
- * comment-blanking predecessor handled that case but still counted a call site
- * written inside a STRING, and desynced on a nested template literal. The AST
- * has neither problem: a call expression inside a string literal is not a call
- * expression.
+ * Counts the `.command('<string literal>')` call sites, the hand-written half of the CLI.
+ * A call whose first argument is an identifier is a derivation loop and does not count.
+ * The count parses the source, so a call in a comment or a string never counts.
  *
  * @param {string} source
  * @param {string} [fileName]
@@ -1003,14 +787,9 @@ export function countCommandLiterals(source, fileName = 'source.ts') {
 }
 
 /**
- * Count the declaration sites that construct a substantive `outputSchema`.
- *
- * Scoped to the `outputSchema: withCappedShape(...)` PROPERTY ASSIGNMENT on
- * purpose: the source also carries the function's own declaration and a JSDoc
- * mention, neither of which is a declaration. This derivation is INDEPENDENT of
- * the census — it reads the parsed source, the census reads the Zod object — so
- * the two agreeing on 10 is a genuine cross-check rather than one number quoted
- * twice.
+ * Counts the `outputSchema: withCappedShape(...)` property assignments. The function
+ * definition and a JSDoc mention do not count. The census reads the Zod objects and this
+ * count reads the parsed source, so their agreement is an independent cross-check.
  *
  * @param {string} source
  * @param {string} [fileName]
@@ -1037,13 +816,10 @@ export function countWithCappedShapeDeclarations(source, fileName = 'source.ts')
   return count;
 }
 
-// ─── tsx bridge (same idiom as check-prefix-fingerprint.mjs) ────────────────
-
 /**
- * Resolve how to invoke `tsx`. Prefers the JS CLI entrypoint run under
- * `process.execPath` over the `node_modules/.bin/tsx` shim, because the shim is
- * a POSIX shebang script with no `.exe`/`.cmd` extension and Win32 cannot
- * launch it without a shell.
+ * Returns `{ command, args }` for `spawnSync`. It runs `tsx/dist/cli.mjs` with
+ * `process.execPath` when that file exists, because Windows cannot launch the
+ * `node_modules/.bin/tsx` shell shim without a shell. Else it runs `tsx` from PATH.
  */
 function resolveTsx(root) {
   const candidates = [
@@ -1057,10 +833,8 @@ function resolveTsx(root) {
 }
 
 /**
- * Run the TS derivation entrypoint once and return its value map. Any failure
- * is fatal (exit 2) rather than "no value": a derivation that cannot run must
- * not be silently downgraded to a missing number, or the gate reports clean on
- * the very tooling break that disabled it.
+ * Runs the TS derivation entrypoint once and returns its value map. Any failure exits 2,
+ * so a tooling break never reads as a missing value and a clean run.
  */
 function loadTsDerivations(root) {
   const entry = path.join(root, 'tools', 'audit', 'gates', 'measured-premises-derive.ts');
@@ -1095,8 +869,8 @@ function loadTsDerivations(root) {
 }
 
 /**
- * Build the lazy derivation seam. The `tsx` subprocess runs at most once, and
- * only if a `ts`-backed name is actually referenced by a scanned document.
+ * Builds the lazy, memoized derivation seam. The `tsx` subprocess runs at most once, and
+ * only when a scanned document names a `ts` derivation.
  */
 export function makeDeriver(root) {
   /** @type {Record<string, number> | undefined} */
@@ -1127,8 +901,6 @@ export function makeDeriver(root) {
   };
 }
 
-// ─── CLI ────────────────────────────────────────────────────────────────────
-
 function fatal(message) {
   process.stderr.write(`check-measured-premises: ${message}\n`);
   process.exit(EXIT_USAGE);
@@ -1155,6 +927,10 @@ function printHelp() {
   );
 }
 
+/**
+ * Parses the flags. `--tolerate-gaps-until` needs a `YYYY-MM-DD` date, so an unreadable
+ * date fails and is never ignored.
+ */
 function parseArgs(argv) {
   const documents = [];
   let failOnGap = false;
@@ -1176,9 +952,6 @@ function parseArgs(argv) {
         failOnGap = true;
         break;
       case '--tolerate-gaps-until':
-        // A date is REQUIRED, and it must parse. An unreadable date would
-        // otherwise be silently ignored, leaving `gaps` on exit 3 or — worse,
-        // if the default flipped — tolerated forever.
         if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
           printHelp();
           fatal('--tolerate-gaps-until requires a YYYY-MM-DD date');
@@ -1207,6 +980,10 @@ function parseArgs(argv) {
   };
 }
 
+/**
+ * Renders the text report. A gap toleration adds its own line, so the verdict line never
+ * presents GAPS as a pass.
+ */
 function formatReport(report) {
   const lines = [];
   const { counts } = report;
@@ -1246,8 +1023,6 @@ function formatReport(report) {
 
   lines.push('');
   lines.push(`  VERDICT: ${report.verdict.toUpperCase()}`);
-  // The verdict line above never changes shape under a toleration — this is a
-  // separate line about CONSEQUENCE, so a reader is never told GAPS is a pass.
   if (report.toleration !== undefined && report.verdict === 'gaps') {
     lines.push(
       report.toleration.live
@@ -1263,6 +1038,11 @@ function isOptionalMount(relative) {
   return relative.startsWith('docs/specs/') || relative.startsWith('docs/guides/');
 }
 
+/**
+ * Loads the documents, runs the check, and exits with the verdict code. An absent optional
+ * mount can leave only an empty denominator or a missing rung map. That run passes, because
+ * the subject is absent and not broken.
+ */
 function main() {
   const { documents, failOnGap, json, tolerateGapsUntil } = parseArgs(process.argv.slice(2));
 
@@ -1290,9 +1070,6 @@ function main() {
     ...(tolerateGapsUntil === undefined ? {} : { tolerateGapsUntil }),
   });
 
-  // The overhaul spec lives in the mounted docs corpus. An unmounted checkout
-  // (CI, and any local tree that has not run `docs:mount`) has nothing to
-  // re-derive; that is not an empty-denominator defect — the subject is absent.
   if (
     skipped.length > 0 &&
     report.counts.claimsResolved === 0 &&

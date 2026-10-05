@@ -1,9 +1,7 @@
-// Resolve every quoted RELATIVE specifier in the MCP tree against its own file.
-//
-// Catches what the move codemod structurally cannot see: module paths in
-// non-import positions. Deliberately a DIAGNOSTIC, not a gate — a good share of
-// its hits are synthetic fixture paths that are supposed not to resolve, so it
-// wants a human read rather than a CI failure.
+// Resolves every quoted relative specifier under `servers/exarchos-mcp` against
+// its own file. It finds module paths in non-import positions, which the move
+// codemod cannot see. It is a diagnostic, not a gate. Many hits are fixture paths
+// that must not resolve, so a person reads the output.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,7 +14,7 @@ const files = execFileSync('git', ['-C', ROOT, 'ls-files', 'servers/exarchos-mcp
   encoding: 'utf8', maxBuffer: 64e6,
 }).split('\n').filter(Boolean).filter((f) => /\.ts$/.test(f) && !f.includes('node_modules'));
 
-// A quoted specifier that looks like a relative module path.
+/** A quoted specifier that looks like a relative module path. */
 const SPEC = /(['"])(\.\.?\/[A-Za-z0-9._/-]+\.(?:js|ts))\1/g;
 
 /** Try the .js -> .ts mapping NodeNext uses. */
@@ -35,7 +33,6 @@ for (const rel of files) {
   for (const m of src.matchAll(SPEC)) {
     const spec = m[2];
     if (resolves(dir, spec)) continue;
-    // Line number for the report.
     const line = src.slice(0, m.index).split('\n').length;
     bad.push({ rel, line, spec });
   }

@@ -1,28 +1,15 @@
 #!/usr/bin/env node
 /**
- * Golden-fixture PR-body marker check (task T053, DR-15).
+ * PR-body marker check for load-bearing golden fixtures.
  *
- * DR-15 ("Load-bearing golden fixtures") requires that any change to a file
- * under `tests/core/fixtures/load-bearing/**` be explicitly
- * acknowledged in the PR body with the marker
+ * A change to a file under `tests/core/fixtures/load-bearing/` needs a PR-body
+ * line that starts with `GOLDEN-FIXTURE-UPDATE: <reason>`. The marker shows the
+ * change to reviewers and blocks a silent edit that breaks the rehydrate golden test.
  *
- *     GOLDEN-FIXTURE-UPDATE: <free-form reason>
- *
- * on a line by itself (or as a leading token on a line). The marker makes
- * changes to load-bearing fixtures visible to reviewers and blocks silent
- * edits that would invalidate the rehydrate golden test.
- *
- * This module exports a single pure function, `checkGoldenFixtureNote`,
- * which is unit-tested. A thin CLI main is provided for CI wiring: run the
- * script directly with Node 20+ and it reads:
- *
- *   - `--body-file <path>` or `--body <string>`   → PR body text
- *   - `--changed-files-file <path>`               → newline-separated paths
- *   - `GITHUB_EVENT_PATH` env var                 → pull_request event JSON
- *     (used as a fallback body source when `--body*` flags are absent)
- *
- * The script exits 0 on pass, 1 on fail, 2 on usage error. Only Node
- * built-ins are used (`node:fs`, `node:process`).
+ * `checkGoldenFixtureNote` is the pure check. The CLI reads the body from
+ * `--body` or `--body-file`, or else from the `GITHUB_EVENT_PATH` event JSON. It
+ * reads the changed paths from `--changed-files-file`. It exits 0 on pass, 1 on
+ * fail, and 2 on a usage error.
  */
 import { readFileSync } from 'node:fs';
 import process from 'node:process';
@@ -43,8 +30,7 @@ const MARKER = 'GOLDEN-FIXTURE-UPDATE:';
  */
 
 /**
- * Pure, side-effect-free check: returns pass/fail without throwing or
- * logging. Callers (tests, CLI main, future GitHub Action) decide how to
+ * Returns pass or fail, and does not throw or log. The caller decides how to
  * report.
  *
  * @param {CheckInput} input
@@ -74,20 +60,19 @@ export function checkGoldenFixtureNote({ changedFiles, prBody }) {
 
 /** @param {string} path */
 function isLoadBearingFixture(path) {
-  // Normalise Windows-style separators defensively; the rule lives in a
-  // POSIX path namespace.
   const normalised = path.replace(/\\/g, '/');
   return normalised.startsWith(LOAD_BEARING_PREFIX);
 }
 
-/** @param {string} body */
+/**
+ * True when a line starts with the marker and a non-empty reason. The check
+ * ignores leading whitespace, so an indented body matches. The colon in the marker
+ * rejects `GOLDEN-FIXTURE-UPDATED`. A bare marker fails, because the reason is
+ * the context for the reviewer.
+ *
+ * @param {string} body
+ */
 function hasMarker(body) {
-  // Accept the marker as a leading token on any line (ignoring leading
-  // whitespace) so that quoted/indented bodies still match. The colon is
-  // part of the marker to avoid accidental prefix matches like
-  // `GOLDEN-FIXTURE-UPDATED`. The marker MUST be followed by a non-empty
-  // reason — DR-15's whole point is to force reviewer context, so a bare
-  // `GOLDEN-FIXTURE-UPDATE:` line must NOT satisfy the gate.
   const lines = body.split(/\r?\n/);
   for (const line of lines) {
     const trimmed = line.replace(/^\s+/, '');
@@ -101,15 +86,15 @@ function hasMarker(body) {
   return false;
 }
 
-// ─── CLI main ────────────────────────────────────────────────────────────
-// Only runs when invoked directly (not when imported by the test file).
-
+/**
+ * True when Node runs this file directly, not when a test imports it. It uses
+ * `fileURLToPath`, because `new URL(import.meta.url).pathname` gives `/D:/…` on
+ * Windows, which never equals `process.argv[1]`.
+ */
 const invokedDirectly = (() => {
   try {
     const argv1 = process.argv[1];
     if (!argv1) return false;
-    // `new URL(import.meta.url).pathname` yields `/D:/…` on Windows, which never
-    // equals `process.argv[1]` and doubles to `D:\D:\…` under `path.resolve`.
     const self = fileURLToPath(import.meta.url);
     return argv1 === self || /[/\\]check-golden-fixture-note\.mjs$/.test(argv1);
   } catch {
@@ -123,6 +108,12 @@ if (invokedDirectly) {
 }
 
 /**
+ * Parses the flags, runs the check, and returns the exit code. A missing
+ * `--body` value, or a known flag in its place, is a usage error. Other values
+ * that start with `-` pass, because body text can start with `-`. An unreadable
+ * file exits 2. Without a body flag, the body comes from the `GITHUB_EVENT_PATH`
+ * event JSON.
+ *
  * @param {string[]} argv
  * @returns {number} exit code
  */
@@ -132,11 +123,6 @@ function runCli(argv) {
   /** @type {string[] | undefined} */
   let changedFiles;
 
-  // Known flag tokens. We reject `--body <token>` only when the next argv is
-  // exactly one of these (i.e. the user forgot the value and the parser would
-  // otherwise eat the next flag) — *not* on every `-`-prefixed string, since
-  // legitimate body text can begin with `-` (a leading dash, a "- bullet"
-  // line, etc.). (CodeRabbit PR #1178 follow-up review.)
   const KNOWN_FLAGS = new Set([
     '--body',
     '--body-file',
@@ -161,11 +147,6 @@ function runCli(argv) {
         try {
           body = readFileSync(value, 'utf8');
         } catch (err) {
-          // Route through usage() so the failure surface (missing path,
-          // permission error, unreadable file) maps to the same exit
-          // code path as malformed flags rather than crashing with an
-          // unhandled exception. Preserve the underlying error message
-          // so debugging stays cheap.
           const msg = err instanceof Error ? err.message : String(err);
           return usage(`--body-file ${value}: ${msg}`);
         }
@@ -193,7 +174,6 @@ function runCli(argv) {
     }
   }
 
-  // Fallback: PR body from GitHub event payload.
   if (body === undefined && process.env.GITHUB_EVENT_PATH) {
     try {
       const raw = readFileSync(process.env.GITHUB_EVENT_PATH, 'utf8');
@@ -202,7 +182,6 @@ function runCli(argv) {
         body = evt.pull_request.body;
       }
     } catch {
-      // Fall through — treated as missing body below.
     }
   }
 

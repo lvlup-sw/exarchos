@@ -1,58 +1,20 @@
 #!/usr/bin/env node
 /**
- * validate-plugin — plugin-packaging gate (task 064, DR-24).
+ * Plugin-packaging gate.
  *
- * ── The defect this closes ──────────────────────────────────────────────────
- * The previous implementation (a bash + jq script) hard-coded its expectations
- * in shell. Those expectations went stale and nobody noticed, because the gate
- * they belonged to was step 1 of an `&&` chain no workflow ran. Measured on the
- * integration tip on 2026-08-07 it failed 5 of its 9 checks — and all five were
- * the GATE being wrong, not the package:
+ * The policy is data in `.claude-plugin/packaging-policy.json`, and this module
+ * only interprets it. The test suites read the same file, so they cannot
+ * disagree with the gate. Each check comes from a policy entry.
  *
- *   - it demanded `.mcp.json`, deleted on purpose in 2b62e1bf3;
- *   - it demanded a `hooks` field in plugin.json, removed on purpose in e334a392b;
- *   - it demanded a `SessionEnd` hook, dropped on purpose by DR-7 / task 016;
- *   - it forbade `SessionStart`, which the plugin ships on purpose per #1485.
+ * A policy that yields zero checks fails, because an empty gate reads like a
+ * pass. A hook type in both `expected` and `retired` also fails. The policy must
+ * match a closed key set at every level. An unknown key is a
+ * `[policy-unknown-key]` violation, because the interpreter never reads it and
+ * its checks vanish silently.
  *
- * Each of the four contradicts an assertion in the green `src/plugin-validation.
- * test.ts` / `src/install/hooks-validation.test.ts` suites. Two statements of one policy,
- * no channel between them, so drift was invisible until something forced them
- * into the same room.
- *
- * ── The fix ─────────────────────────────────────────────────────────────────
- * The policy is DATA — `.claude-plugin/packaging-policy.json` — and this module
- * is only its interpreter. The test suites read the same file, so they cannot
- * disagree with the gate about the contract. Every check this gate reports is
- * generated from a policy entry; there is no expectation written here that the
- * policy does not name.
- *
- * ── Non-empty denominator ───────────────────────────────────────────────────
- * A policy that yields ZERO checks FAILS. A gate that finds nothing to assert
- * is indistinguishable from a gate that passed, and this task exists precisely
- * because that confusion cost the repo sixteen months of unexecuted gates. The
- * same tooth rejects a policy whose `expected` and `retired` hook sets overlap:
- * the run would then be self-contradictory rather than merely empty.
- *
- * ── Strict schema (task 085) ────────────────────────────────────────────────
- * The interpreter reads every family through `policy.<key> ?? []`, so an
- * unrecognised key is not a name it fails on — it is a family it never looks
- * for. A single mistyped `requiredFiles` -> `requiredfiles` silently drops every
- * check in that family, and the non-empty tooth above cannot see it: it fires
- * only when ALL families vanish at once. Measured on this tree, three declared
- * families were dropped and the gate still exited 0 with a clean report.
- *
- * So the policy is validated against a CLOSED key set before it is interpreted,
- * at every level including array entries, and anything outside it is a
- * `[policy-unknown-key]` violation. The schema below is the only place a key is
- * named; adding a family means adding it there and in the interpreter, which is
- * the coupling that makes the drop impossible rather than merely unlikely.
- *
- * Usage: validate-plugin.mjs [--repo-root <path>] [--policy <path>] [--json]
- *
- * Exit codes:
- *   0 = all checks pass
- *   1 = one or more checks fail (including an empty or self-contradictory policy)
- *   2 = usage error / unreadable policy — fail closed, never no-op
+ * Usage: `validate-plugin.mjs [--repo-root <path>] [--policy <path>] [--json]`.
+ * Exit 0 is a pass, 1 is a failed check or a policy violation, and 2 is a usage
+ * error or an unreadable policy.
  */
 import { readFileSync, existsSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -65,7 +27,7 @@ export const DEFAULT_POLICY_PATH = '.claude-plugin/packaging-policy.json';
 
 /**
  * @typedef {object} CheckResult
- * @property {string} id            Stable identifier, e.g. `manifest.field.name`.
+ * @property {string} id            Stable identifier, for example `manifest.field.name`.
  * @property {string} description   Human-readable statement of what was asserted.
  * @property {boolean} passed
  * @property {string} [detail]      Why it failed, and the recorded reason it matters.
@@ -82,16 +44,13 @@ export const DEFAULT_POLICY_PATH = '.claude-plugin/packaging-policy.json';
  */
 
 /**
- * A real on-disk tree rooted at `root`.
+ * A real on-disk tree rooted at `root`. It uses `path.resolve`, not `path.join`,
+ * so an absolute `--policy` path addresses the file that it names.
  *
  * @param {string} root
  * @returns {TreeReader}
  */
 export function diskTree(root) {
-  // `resolve`, not `join`: an ABSOLUTE path handed to `--policy` must address
-  // the file it names. `join` would concatenate it onto the root and report
-  // "policy could not be read", which reads as a broken tree rather than a
-  // mis-typed flag.
   const at = (rel) => path.resolve(root, rel);
   const kind = (rel) => {
     try {
@@ -131,15 +90,12 @@ function provenance(entry) {
 }
 
 /**
- * The CLOSED key set of the packaging policy, at every level.
+ * The closed key set of the packaging policy, at every level.
  *
- * `object` maps a key to a nested shape; `entries` describes the objects inside
- * an array-valued key. Every key the interpreter below reads appears here, and
- * nothing else is admitted — see the header's "Strict schema" note for why a
- * silently-ignored key is the failure mode this closes.
- *
- * `$comment` is admitted at the root only: it is the file's own prose channel
- * and carries no policy.
+ * `keys` maps a key to a nested shape. `entryKeys` lists the keys of the objects
+ * in an array-valued key, and `requires` names the key that each entry must
+ * declare. Each key that the interpreter reads appears here, and nothing else
+ * passes. `$comment` passes at the root only, as the prose channel of the file.
  */
 const POLICY_SCHEMA = {
   keys: {
@@ -186,35 +142,28 @@ function jsonTypeOf(value) {
 }
 
 /**
- * The entries of a family, or none.
+ * The object entries of a family, or none.
  *
- * `for (const entry of policy.requiredFiles ?? [])` throws a TypeError on a
- * family declared as an object — an unhandled crash where the schema has already
- * recorded a `[policy-type]` violation. The interpreter yields nothing for a
- * malformed family and lets the violation carry the verdict, so the report stays
- * complete instead of stopping at the first bad key.
+ * A family of the wrong type, or an entry that is not an object, already has a
+ * `[policy-type]` violation. The interpreter skips it, so the run fails with that
+ * violation and not with a TypeError. The report thus stays complete.
  */
 function entriesOf(value) {
   if (!Array.isArray(value)) return [];
-  // Drop entries that are not objects. `validatePolicyShape` has already
-  // recorded a `[policy-type]` violation for each of them, so the run fails
-  // either way — but it must fail with that violation rather than with a
-  // TypeError from `entry.path` three functions later. Accumulating every
-  // violation is the whole discipline here; crashing reports exactly one.
   return value.filter((entry) => entry !== null && typeof entry === 'object' && !Array.isArray(entry));
 }
 
 /**
- * Check `node` against `shape`, pushing a violation for every key the schema
- * does not admit and every value whose type it does not expect.
+ * Checks `node` against `shape`. It pushes a violation for each key that the
+ * schema does not admit and each value of an unexpected type.
  *
- * Recursive over nested objects and array entries so a typo cannot hide one
- * level down — `hooks.retried` drops the retired-hook family exactly as
- * completely as a root-level typo drops `requiredFiles`.
+ * It recurses into nested objects and array entries, so a typo cannot hide one
+ * level down. Each entry value must be a string, because `because` and
+ * `decidedIn` carry the provenance that a failure message prints.
  *
  * @param {unknown} node
  * @param {object} shape
- * @param {string} where  Dotted path for the message, e.g. `manifest.mcpServers`.
+ * @param {string} where  Dotted path for the message, for example `manifest.mcpServers`.
  * @param {string[]} violations
  */
 function validatePolicyShape(node, shape, where, violations) {
@@ -267,10 +216,6 @@ function validatePolicyShape(node, shape, where, violations) {
             );
             continue;
           }
-          // Membership alone is not shape. Every entry key this gate defines is
-          // string-valued, and `because` / `decidedIn` carry the provenance the
-          // failure message prints — a number there renders as "1" and reads
-          // like a citation nobody can follow.
           if (typeof entryValue !== 'string') {
             violations.push(
               `[policy-type]  \`${entryAt}.${entryKey}\` must be string, found ` +
@@ -290,18 +235,18 @@ function validatePolicyShape(node, shape, where, violations) {
 }
 
 /**
- * Evaluate a packaging policy against a tree.
+ * Evaluates a packaging policy against a tree.
  *
- * Pure: every filesystem touch goes through `tree`. Returns the full check list
- * even when an early check fails — the aggregation discipline this task exists
- * to install applies inside the gate as much as across the chain.
+ * Each filesystem read goes through `tree`. It validates the policy shape first,
+ * and returns the full check list even when an early check fails. A `hooks` value
+ * that is not an object gets no hook checks. The token sweep reads the hooks file
+ * as text, so a token in any position counts.
  *
  * @param {unknown} policy
  * @param {TreeReader} tree
  * @returns {{ checks: CheckResult[], violations: string[] }}
- *   `violations` holds structural problems with the POLICY itself (unknown key,
- *   wrong type, empty, self-contradictory), which are distinct from a failing
- *   check.
+ *   `violations` holds structural problems with the policy itself, apart from a
+ *   failing check.
  */
 export function evaluatePackaging(policy, tree) {
   /** @type {CheckResult[]} */
@@ -316,11 +261,8 @@ export function evaluatePackaging(policy, tree) {
     return { checks, violations };
   }
 
-  // Before interpreting: every key must be one this gate acts on. A key it does
-  // not recognise is a family it will never look for.
   validatePolicyShape(policy, POLICY_SCHEMA, '', violations);
 
-  // ── plugin.json ───────────────────────────────────────────────────────────
   const manifestSpec = policy.manifest ?? {};
   const manifestPath = typeof manifestSpec.path === 'string' ? manifestSpec.path : undefined;
   if (manifestPath === undefined) {
@@ -389,7 +331,6 @@ export function evaluatePackaging(policy, tree) {
     }
   }
 
-  // ── Referenced directories / files ────────────────────────────────────────
   for (const entry of entriesOf(policy.requiredDirs)) {
     const ok = tree.dirExists(entry.path);
     add(
@@ -420,10 +361,6 @@ export function evaluatePackaging(policy, tree) {
     );
   }
 
-  // ── hooks/hooks.json ──────────────────────────────────────────────────────
-  // Same reasoning as `entriesOf`: a `hooks` that is null, an array, or a
-  // scalar has already been recorded as a `[policy-type]` violation. Reading
-  // `.path` off it here would replace that message with a stack trace.
   const hooksSpec = policy.hooks;
   if (hooksSpec !== null && typeof hooksSpec === 'object' && !Array.isArray(hooksSpec)) {
     const hooksPath = hooksSpec.path;
@@ -485,8 +422,6 @@ export function evaluatePackaging(policy, tree) {
     }
 
     for (const entry of entriesOf(hooksSpec.forbiddenTokens)) {
-      // Read as TEXT: a placeholder can hide in any string value, and the point
-      // is that it never reaches a consumer's machine in ANY position.
       let raw = parsed.raw;
       if (raw === undefined) {
         try {
@@ -509,7 +444,6 @@ export function evaluatePackaging(policy, tree) {
     }
   }
 
-  // ── Non-empty denominator ─────────────────────────────────────────────────
   if (checks.length === 0) {
     violations.push(
       '[empty-policy]  the packaging policy produced ZERO checks — a gate that ' +
@@ -542,8 +476,6 @@ export function renderReport({ checks, violations }) {
 export function isClean({ checks, violations }) {
   return violations.length === 0 && checks.length > 0 && checks.every((c) => c.passed);
 }
-
-// ─── CLI ────────────────────────────────────────────────────────────────────
 
 const USAGE = `Usage: validate-plugin.mjs [--repo-root <path>] [--policy <path>] [--json]
 
@@ -582,6 +514,7 @@ function parseArgs(argv) {
   return options;
 }
 
+/** An unreadable policy exits 2, not 1. It is a broken instrument, not a failed check. */
 function main(argv) {
   let options;
   try {
@@ -602,9 +535,6 @@ function main(argv) {
   const tree = diskTree(options.repoRoot);
   const policyRead = readJson(tree, options.policyPath);
   if (policyRead.value === undefined) {
-    // Fail CLOSED (exit 2, not 1): an unreadable policy is a broken instrument,
-    // and an instrument that no-ops on its own breakage is the class of defect
-    // this whole task is about.
     process.stderr.write(
       `Error: packaging policy ${options.policyPath} could not be read — ${policyRead.error}\n`,
     );

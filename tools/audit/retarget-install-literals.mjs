@@ -1,16 +1,11 @@
-// The other half of the literal reconciliation (task 020).
+// Rewrites string literals that name a root `src/` file of the pre-move tree
+// (`HEAD~1`) to the same path under `src/install/`. A config that names a moved
+// file does not fail. It matches nothing. `retarget-literals.mjs` handles the
+// literals that name `servers/exarchos-mcp`.
 //
-// `retarget-literals.mjs` rewrites strings naming the DISSOLVED package. This
-// one rewrites strings naming the OLD ROOT `src/` — the installer and renderer
-// toolchain that task 019 moved down into `src/install/`. Those literals never
-// contained `servers/exarchos-mcp`, so the first pass could not see them, and
-// they are the quieter half: a config that names a moved file does not fail,
-// it just matches nothing.
-//
-// Ambiguity is resolved by the PRE-MOVE tree rather than by pattern: a literal
-// is rewritten only when that exact path was a root-`src/` file before the
-// move. A `src/…` path that did not exist then is a core path and is left
-// alone.
+// A literal changes only when that exact path was a root `src/` file before the
+// move. A match must not continue with a word character, `.`, `-`, or `/`, so
+// `src/a.ts` does not match inside `src/a.ts.map`. Without `--apply`, it is a dry run.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,7 +23,7 @@ const preMoveSrc = execFileSync(
   .split('\n')
   .filter(Boolean);
 
-// Longest first so `src/a/b.ts` is never shadowed by `src/a`.
+/** Old-to-new path pairs, longest old path first, so `src/a` never shadows `src/a/b.ts`. */
 const RENAMES = preMoveSrc
   .map((old) => [old, 'src/install/' + old.slice('src/'.length)])
   .sort((a, b) => b[0].length - a[0].length);
@@ -36,8 +31,10 @@ const RENAMES = preMoveSrc
 const SCANNED = /\.(ts|tsx|mts|cts|js|mjs|cjs|json|yml|yaml|sh|ps1)$/;
 const EXCLUDED = ['docs/', 'evals/captured/', 'node_modules/', 'tools/audit/move-table.mjs'];
 
-// Only files that did NOT move: a moved file's internal relative paths were
-// already handled arithmetically, and rewriting them textually would fight that.
+/**
+ * The new paths of the moved files. The scan skips them, because the move already fixed
+ * their relative paths.
+ */
 const movedInto = new Set(RENAMES.map(([, next]) => next));
 const tracked = execFileSync('git', ['-C', ROOT, 'ls-files'], { encoding: 'utf8', maxBuffer: 256e6 })
   .split('\n')
@@ -65,8 +62,6 @@ for (const rel of tracked) {
   let n = 0;
   for (const [oldPath, newPath] of RENAMES) {
     if (!out.includes(oldPath)) continue;
-    // Guard against `src/a.ts` matching inside `src/a.ts.map` or a longer name
-    // that merely starts with it.
     const re = new RegExp(oldPath.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + String.raw`(?![\w.\-/])`, 'g');
     const before = out;
     out = out.replace(re, newPath);

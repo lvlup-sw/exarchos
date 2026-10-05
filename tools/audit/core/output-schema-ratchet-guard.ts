@@ -1,65 +1,15 @@
-// tools/audit/core/output-schema-ratchet-guard.ts
+// The executable `outputSchema` vacuity ratchet, and the only place that reads the wall clock for it.
 //
-// DR-4 / G2 — the executable `outputSchema` vacuity ratchet, and the ONE place
-// the wall clock is read.
+// The census library takes `today` as an argument and reads no clock. A clock in the library puts
+// the expiry inside the unit suite, where a due waiver turns every `vitest run` red.
+// {@link resolveToday} is the one production clock read, so the printed report reproduces the verdict.
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THIS FILE EXISTS AT ALL
+// {@link runGuard} takes its clock, entries, horizon and registry as optional arguments for the
+// self-test. It parses no argv, because an `--as-of` flag in the workflow file can neuter the gate.
 //
-// Before task 017 the whole `auditVacuity*` family was driven by NOTHING except
-// its own co-located vitest, hosted in the `mcp`-path-filtered `test-mcp` job.
-// `tools/audit/gates/guard-inventory.ts` names that state in its own header as an instance
-// of R-11 ("the mechanism ships and nothing calls it"), and #1711 names the
-// sharper half: a path-filtered gate is SKIPPED-AS-PASSED on exactly the PRs a
-// filter does not arm. This module is the executable gate, hosted on the
-// UNFILTERED `grep-gates` deps tail (see `docs/guides/ci-gate-hosting.md` — it
-// needs `tsx`/`typescript` resolvable, so it cannot ride the zero-dep prefix).
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THE CLOCK IS READ HERE AND NOWHERE ELSE
-//
-// DR-4's exceptions row says the expiry is "enforced, not advisory", and an
-// enforced deadline is by definition a verdict that changes with the date. That
-// makes WHERE the clock is read a design decision, not an implementation detail:
-//
-//   • Inside the library → every audit becomes time-dependent and its unit tests
-//     become date bombs. On the day the debt comes due the suite stops working,
-//     and the cheapest green is to fix the CLOCK (freeze it, stub it, widen the
-//     assertion) rather than the debt. The deadline would have taught the
-//     opposite lesson from the one it exists to teach.
-//   • Inside the unit suite → same failure, plus a developer who cannot run
-//     `vitest` locally for a reason that has nothing to do with their change.
-//   • HERE, at the gate that blocks the merge → the deadline reddens the thing a
-//     deadline should redden. `auditVacuityExpiry` stays a pure function of
-//     (today, entries, horizon), so the verdict is reproducible from the report
-//     this guard prints, and every assertion about it is deterministic.
-//
-// So `architecture/output-schema-census.ts` contains no `new Date()` at all, and
-// {@link resolveToday} below is the single production clock read in DR-4's
-// mechanism.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THE SEAMS ARE PARAMETERS AND NOT CLI FLAGS
-//
-// {@link runGuard} takes its clock, its entries, its horizon and its registry as
-// optional arguments so the co-located self-test can pose an expired waiver, a
-// self-renewed one and an emptied allowlist without touching the live seed. It
-// deliberately parses NO argv: an `--as-of` flag would be a documented,
-// discoverable way to neuter the gate from the workflow file that invokes it,
-// which is the same shape as the `|| true` trap `check-enforcer-wiring.mjs`
-// exists to catch. The seam is reachable from a test import and from nothing
-// else.
-//
-// POLICY IS DATA, NOT PROSE IN A TEST BODY: the waived population and every
-// deadline live in `src/output-schema-vacuity-allowlist.ts`; the schedule anchor,
-// its step, the runway budget and the seed digest live in
-// `src/output-schema-seed-pin.ts`. This module reads them, DERIVES the per-owner
-// schedule from the seed's own owners (see {@link deriveOwnerCohorts}, which is
-// mechanism — the alternative is a table of dates keyed by team name, which is
-// the transcribed population this program spends its time deleting), and exits
-// non-zero. It chooses nothing.
-//
-// Implements: DR-4 (tasks 017 and 093).
+// The waivers and their deadlines live in `src/output-schema-vacuity-allowlist.ts`. The schedule
+// anchor, step, runway budget and seed digest live in `tools/conformance/src/output-schema-seed-pin.ts`.
+// This module derives the per-owner schedule from them and sets the exit code.
 
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -93,9 +43,8 @@ import {
 } from '../../conformance/src/output-schema-seed-pin.js';
 
 /**
- * The live artifacts this guard governs, named once so the self-test can assert
- * that the production defaults really are these objects rather than a stub. A
- * guard proven only through its injected seams has been proven about the seams.
+ * The live artifacts that the guard governs. The self-test checks that the production
+ * defaults are these objects and not a stub.
  */
 export const LIVE_SUBJECT = Object.freeze({
   entries: VACUITY_ALLOWLIST,
@@ -110,10 +59,10 @@ export const LIVE_SUBJECT = Object.freeze({
 
 /** Every input {@link runGuard} will accept. Absent fields resolve to the live artifact. */
 export interface GuardOptions {
-  /** ISO `YYYY-MM-DD`. Defaults to {@link resolveToday} — the only clock read. */
+  /** ISO `YYYY-MM-DD`. Defaults to {@link resolveToday}, the only clock read. */
   readonly today?: string;
   readonly entries?: Readonly<Record<string, VacuityWaiverEntry>>;
-  /** The graveyard, needed for its OWNERS — the schedule is derived from the whole seed. */
+  /** The retired entries. The schedule uses their owners, because it derives from the whole seed. */
   readonly retiredEntries?: Readonly<Record<string, VacuityRetiredEntry>>;
   readonly horizon?: string;
   readonly stepDays?: number;
@@ -127,66 +76,30 @@ export interface GuardOptions {
 }
 
 /**
- * The current UTC calendar day. The single production clock read in DR-4's
- * mechanism; everything downstream is a pure function of its result.
+ * The current UTC calendar day. It is the one production clock read, and each audit is a
+ * pure function of it.
  */
 export function resolveToday(now: Date = new Date()): string {
   return isoDayUtc(now);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// THE STAGGERED SCHEDULE (task 093)
-//
-// Task 017 gave every waiver one cap and the whole seed sat on it. That is a
-// working mechanism with a broken incentive: nothing comes due before the
-// horizon, so the modelled outcome is the entire allowlist failing on one
-// morning and being cleared by one bump — the "permanent exemption wearing a
-// date" the allowlist header says 017 set out to end, moved eighteen months out
-// rather than removed. Pressure has to arrive in instalments to be paid in
-// instalments.
-//
-// So each OWNER's cohort gets its own slot, one {@link VACUITY_STAGGER_STEP_DAYS}
-// step ahead of the next, and an entry dated past ITS OWNER's slot fails.
-//
-// ── Why the schedule is derived from the SEED and not from today's allowlist ──
-// The obvious derivation ranks owners by how many waivers they hold RIGHT NOW.
-// It is also wrong, and expensively so: paying a cohort down would change its
-// rank, move its own remaining deadline and move other teams' deadlines with it.
-// A gate that reddens on a legitimate paydown is the trip-wire this program has
-// already removed twice from this very mechanism's tests.
-//
-// The seed — `VACUITY_ALLOWLIST ∪ VACUITY_RETIRED` — is the quantity the frozen
-// digest already pins, and a paydown MOVES an entry between the two maps without
-// changing the union or the entry's owner. Ranking on it therefore yields a
-// schedule that no legal edit can perturb: the slots are fixed for the life of
-// the ratchet, and an owner whose cohort is fully paid down keeps its (now
-// empty) slot rather than shuffling everyone behind it forward.
-//
-// Smallest cohort first, ties broken by owner name so the order is total. The
-// team with the least to do comes due first, which is the only ordering under
-// which the earliest deadline is also the most payable one.
-
-/** One owner's place in the derived schedule. */
+/** The place of one owner in the derived schedule. */
 export interface OwnerCohort {
   readonly owner: string;
   /** 0 is the earliest slot. Derived from the seed, so it never moves. */
   readonly rank: number;
-  /** Waivers this owner was SEEDED with — live plus retired. The ranking key. */
+  /** Seeded waivers of this owner, live plus retired. The rank uses this count. */
   readonly seeded: number;
-  /** Waivers still outstanding. The number that should be falling. */
+  /** Waivers still outstanding. */
   readonly live: number;
-  /** The last day any of this owner's waivers may be dated. */
+  /** The last day that a waiver of this owner can carry. */
   readonly horizon: string;
 }
 
 /**
- * `day` moved `days` back, as an ISO day.
- *
- * The day RULE — what counts as a calendar day, how an instant becomes one, how
- * two are subtracted — is DR-6's `waiver-ledger.ts` and is imported, not
- * restated. Only the shift lives here, because the ledger has no use for one:
- * `Date.UTC` normalises an out-of-range day component, so December's overflow
- * into November needs no arithmetic of its own.
+ * Returns `day` moved `days` back as an ISO day, or `''` for a malformed input. The day
+ * rule comes from `waiver-ledger.ts`. `Date.UTC` normalizes an out-of-range day, so a
+ * shift across a month boundary needs no extra arithmetic.
  */
 function shiftIsoDayBack(day: string, days: number): string {
   if (!isIsoDay(day) || !Number.isInteger(days)) return '';
@@ -197,8 +110,12 @@ function shiftIsoDayBack(day: string, days: number): string {
 }
 
 /**
- * The schedule, derived from the seed's owners. The LAST slot is `anchor`; every
- * earlier one is a step ahead of the slot behind it.
+ * Derives the schedule from the owners of the seed. The last slot is `anchor`, and each
+ * earlier slot is one step before the next. The smallest cohort comes due first, and the
+ * owner name in code-unit order breaks ties, so the runner locale cannot change the order.
+ *
+ * The rank uses the seed (live plus retired entries), not the live allowlist. A paydown
+ * moves an entry between the two maps, so it changes no rank and moves no deadline.
  */
 export function deriveOwnerCohorts(
   entries: Readonly<Record<string, VacuityWaiverEntry>>,
@@ -216,8 +133,6 @@ export function deriveOwnerCohorts(
     seeded.set(entry.owner, (seeded.get(entry.owner) ?? 0) + 1);
   }
 
-  // Code-unit order, not `localeCompare`: a collator is locale-dependent, and a
-  // gate whose verdict shifts with the runner's locale is not a gate.
   const ordered = [...seeded.entries()].sort(
     ([leftOwner, leftCount], [rightOwner, rightCount]) =>
       leftCount - rightCount || (leftOwner < rightOwner ? -1 : leftOwner > rightOwner ? 1 : 0),
@@ -238,14 +153,9 @@ export function deriveOwnerCohorts(
 }
 
 /**
- * A condition that makes the staggered schedule, or an entry's place in it,
- * invalid.
- *
- * There is deliberately no "this waiver's owner has no slot" code. The schedule
- * is derived from a SUPERSET of the live population, so every live owner has one
- * by construction — and an owner arriving from nowhere means an id arriving from
- * nowhere, which is an ADDITION and already a `SEED_KEY_SET_DRIFT`. A branch
- * nothing can reach is a branch nothing can test.
+ * A condition that makes the schedule, or the place of an entry in it, invalid. There is
+ * no code for an owner without a slot. The schedule derives from a superset of the live
+ * owners. A new owner means a new id, which is already a `SEED_KEY_SET_DRIFT`.
  */
 export type VacuityStaggerFinding =
   | { readonly code: 'MALFORMED_SCHEDULE'; readonly message: string }
@@ -260,36 +170,24 @@ export type VacuityStaggerFinding =
 export interface VacuityStaggerAudit {
   readonly ok: boolean;
   readonly today: string;
-  /** The last slot — {@link VACUITY_EXPIRY_HORIZON} in production. */
+  /** The last slot, {@link VACUITY_EXPIRY_HORIZON} in production. */
   readonly anchor: string;
   readonly stepDays: number;
   readonly runwayBudgetDays: number;
-  /** Whole days from `today` to `anchor`. What the budget is measured against. */
+  /** Whole days from `today` to `anchor`, measured against the budget. */
   readonly runwayDays: number;
   readonly cohorts: readonly OwnerCohort[];
   readonly findings: readonly VacuityStaggerFinding[];
 }
 
 /**
- * Audit the schedule and every live waiver's place in it, as of a NAMED day.
+ * Audits the schedule and the place of each live waiver in it, as of `today`. An entry
+ * dated past the slot of its owner fails. The runway from `today` to `anchor` must stay
+ * within the budget, so the anchor cannot move out by years. The runway is the only part
+ * of the verdict that depends on the date and not only on the seed.
  *
- * Three teeth the single horizon did not have:
- *   1. PER-OWNER CAP. An entry dated past its own cohort's slot fails, whether
- *      or not it is inside the anchor. This is what makes the stagger real
- *      rather than decorative — the anchor alone would still accept every entry
- *      at the last slot.
- *   2. NO UNSCHEDULED OWNER. A live waiver whose owner has no slot has no
- *      deadline, so it fails closed rather than passing for want of a comparison.
- *   3. RUNWAY BUDGET. The anchor itself is measured against the clock. A
- *      staggered schedule hanging off one constant is still one constant; this
- *      is the tooth that stops that constant being moved by years. It is
- *      deliberately the only part of the verdict that is not a pure function of
- *      the seed.
- *
- * Deliberately NOT re-checked here: malformed entries and past-due entries, both
- * of which `auditVacuityExpiry` already reports over the same population. A
- * second opinion on the same defect is noise in a report whose job is to name
- * the repair.
+ * Malformed and past-due entries are not checked here, because `auditVacuityExpiry`
+ * reports them for the same entries.
  */
 export function auditVacuityStagger(
   today: string,
@@ -362,13 +260,8 @@ export function auditVacuityStagger(
   for (const id of Object.keys(entries).sort()) {
     const entry = entries[id];
     if (entry === undefined) continue;
-    // Every live owner has a slot: `deriveOwnerCohorts` ranks over these very
-    // entries plus the graveyard, so the schedule cannot omit one.
     const cohort = slots.get(entry.owner);
     if (cohort === undefined) continue;
-    // A date that is not a day at all is `auditVacuityExpiry`'s MALFORMED_WAIVER,
-    // reported there with the repair. Comparing it here would say the same thing
-    // twice in different words.
     if (!isIsoDay(entry.expires) || !isIsoDay(cohort.horizon)) continue;
     if (entry.expires > cohort.horizon) {
       findings.push({
@@ -398,12 +291,8 @@ export function auditVacuityStagger(
 }
 
 /**
- * The per-owner waiver counts, rendered for every run — green or red.
- *
- * The point of printing it on the HAPPY path is the trend. A ratchet that only
- * speaks at the cliff tells a reviewer nothing about whether the debt is moving;
- * `live of seeded` beside each cohort's date makes the paydown visible in the
- * log of the PR that did it.
+ * Renders the per-owner waiver counts on each run, green or red. `live of seeded` beside
+ * each slot date shows the paydown in the log of the PR that did it.
  */
 export function formatOwnerCohorts(audit: VacuityStaggerAudit): string {
   const width = Math.max(0, ...audit.cohorts.map((cohort) => cohort.owner.length));
@@ -423,7 +312,7 @@ export function formatOwnerCohorts(audit: VacuityStaggerAudit): string {
   return lines.join('\n');
 }
 
-/** Render the stagger findings for a human or an agent. */
+/** Renders the stagger audit for a human or an agent. */
 export function formatVacuityStaggerAudit(audit: VacuityStaggerAudit): string {
   const lines = [
     `outputSchema vacuity schedule: ${audit.cohorts.length} owner cohort(s) as of ` +
@@ -442,15 +331,10 @@ export function formatVacuityStaggerAudit(audit: VacuityStaggerAudit): string {
 }
 
 /**
- * Run all four teeth and return a process exit code.
- *
- * `0` — the ratchet is clean: every vacuous declaration is waived, every waiver
- * still corresponds to live vacuity, the seed key set hashes to its pin, and no
- * waiver is malformed, self-renewed or past due.
- *
- * `1` — at least one finding. The report names every one, with the legal repair
- * for each, because "the gate is red" without the repair is how a ratchet turns
- * into a thing people delete.
+ * Runs the four audits and returns the process exit code. `0` means a clean ratchet.
+ * Each vacuous declaration is waived, each waiver matches live vacuity, and the seed key
+ * set matches its pin. No waiver is malformed, self-renewed, past due, or past its owner
+ * slot. `1` means at least one finding, and the report names the legal repair for each.
  */
 export function runGuard(options: GuardOptions = {}): number {
   const out = options.stdout ?? ((chunk: string): void => void process.stdout.write(chunk));
@@ -518,43 +402,9 @@ export function runGuard(options: GuardOptions = {}): number {
   return 1;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// THE ENTRYPOINT TAIL — and why it is not a filename comparison (task 018)
-//
-// These are the two lines that turn a verdict into a merge block, and until task
-// 018 they were the only lines in DR-4's mechanism that nothing executed: every
-// assertion task 017 shipped calls `runGuard()` DIRECTLY and reads its RETURN
-// VALUE, so the `isDirectRun` predicate and the `process.exit` that consumes it
-// were never run by any test.
-//
-// They were also wrong. The predicate used to be
-// `process.argv[1].endsWith('output-schema-ratchet-guard.ts')`, which couples
-// self-execution to the FILE'S NAME. Renaming the file — and updating the
-// `run:` step in ci.yml to match, which is what a rename means — leaves a CI
-// step that still exists, still runs, still resolves, prints NOTHING and exits
-// 0. Measured on the landing branch: a byte-identical copy under any other name
-// produced 0 bytes on stdout, 0 bytes on stderr, exit 0. That is precisely
-// "guard-execution failure passes as success", in the guard whose own self-test
-// exists to make that impossible.
-//
-// The repo already had the correct idiom in two places (`scripts/
-// validate-plugin.mjs`, `tools/audit/gates/run-validate.mjs`): compare the RESOLVED PATH
-// of the process entrypoint against this module's own URL. That is rename-proof
-// by construction, because both sides move together. {@link canonicalPath}
-// additionally resolves symlinks, because Node reports the main module's
-// realpath while `argv[1]` keeps the link — comparing the two unresolved would
-// trade a filename-shaped silent no-op for a symlink-shaped one.
-//
-// NOTE FOR ANYONE EDITING BELOW: `process.exit` must stay a TOP-LEVEL call.
-// `tools/audit/gates/guard-inventory.ts` classifies a module as a runnable gate by finding
-// exactly that (`hasDirectRunExit`, an AST walk that rejects a `process.exit`
-// nested inside a function), and a gate it cannot see drops out of DR-24's
-// CI-reachability proof.
-
 /**
- * A canonical absolute path for comparison: symlinks resolved where possible,
- * falling back to plain resolution for a path that does not exist on disk (so
- * an exotic `argv[1]` degrades to "not the entrypoint" rather than throwing).
+ * An absolute path with symlinks resolved where possible. For a path that does not exist,
+ * it returns the plain resolved path, so an odd `argv[1]` reads as not the entry point.
  */
 function canonicalPath(candidate: string): string {
   const absolute = resolve(candidate);
@@ -565,13 +415,19 @@ function canonicalPath(candidate: string): string {
   }
 }
 
+/**
+ * True when this module is the process entry point. It compares resolved paths, not a filename,
+ * so a rename cannot turn the CI step into a silent no-op. Node reports the realpath of the main
+ * module, but `argv[1]` keeps a symlink, so both sides resolve symlinks.
+ *
+ * The guard sets `process.exitCode` outside any function. `process.exit` can cut stdout before
+ * it drains, and `hasDirectRunExit` finds a gate only through a statement outside a function.
+ */
 const isDirectRun =
   typeof process !== 'undefined' &&
   typeof process.argv[1] === 'string' &&
   canonicalPath(process.argv[1]) === canonicalPath(fileURLToPath(import.meta.url));
 
 if (isDirectRun) {
-  // `exitCode`, never `exit(…)` — see report-coupling-ratchet-guard.ts: exiting
-  // can sever stdout before the diagnostics drain.
   process.exitCode = runGuard();
 }

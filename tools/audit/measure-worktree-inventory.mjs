@@ -1,18 +1,10 @@
 // @ts-check
 /**
- * @fileoverview Inventories worktrees and branches WITHOUT removing anything.
+ * @fileoverview Inventories worktrees and branches. It removes no worktree and no branch.
  *
- * The design originally called for pruning. That is withdrawn: at least one of
- * these worktrees held the only copy of an unlanded implementation, discovered
- * while looking for something else, and there is no cheap way to know which
- * others do without reading them. An inventory costs nothing and keeps every
- * option open; a prune is irreversible and, on this evidence, would have
- * destroyed work.
- *
- * So this reports what exists and what carries commits absent from the default
- * branch. Deciding what to do with them is a separate, human step.
- *
- * Reports. Never removes, never writes to any worktree.
+ * A worktree can hold the only copy of unlanded work, and a prune is irreversible.
+ * Thus the script reports each worktree and its count of commits absent from the base branch.
+ * A human decides what to do with them.
  *
  * Usage: `node tools/audit/measure-worktree-inventory.mjs [--out FILE]`
  */
@@ -52,10 +44,8 @@ function worktrees() {
 }
 
 /**
- * Commits on `ref` that are not reachable from the default branch.
- *
- * This is the question that matters: a worktree whose branch is fully merged
- * carries nothing, while one with unique commits may be the only copy.
+ * Counts the commits on `ref` that `base` cannot reach, or returns `unknown` when git fails.
+ * A merged branch carries nothing. A branch with unique commits can hold the only copy of work.
  *
  * @param {string} ref
  * @param {string} base
@@ -68,6 +58,11 @@ function unmergedCount(ref, base) {
   }
 }
 
+/**
+ * Writes the inventory as JSON to the `--out` file or to stdout.
+ * `capturedIn` names the worktree of the run. Thus the artifact alone shows that the
+ * run is in its own records, and that a prune here is self-destructive.
+ */
 function main() {
   const argv = process.argv.slice(2);
   const outFlag = argv.indexOf('--out');
@@ -102,11 +97,6 @@ function main() {
 
   const payload = {
     capturedAt: new Date().toISOString().slice(0, 10),
-    // The worktree this census ran in. Recorded so the "a prune here is
-    // self-destructive" property is checkable from the artifact alone: the
-    // capturing session appears in its own records. The accompanying test used
-    // to pin that by branch NAME, which held only until that worktree was
-    // removed and then failed for a reason unrelated to the property.
     capturedIn: REPO_ROOT,
     base,
     disposition: 'inventory-only',

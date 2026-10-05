@@ -1,15 +1,15 @@
-// Third and last pass over directory-anchored path literals (task 020).
+// Third and last pass over directory-anchored path literals. It rewrites the
+// directory expression written inline, as in
+// `join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')`.
 //
-// The three passes are DISJOINT by construction, which is what makes running
-// them in sequence safe even though none is idempotent:
+// The three passes match disjoint call shapes. Thus a sequential run is safe,
+// although no pass is idempotent:
 //
-//   1. retarget-dirname-paths.mjs   `resolve(__dirname, '…')`
-//   2. retarget-anchored-paths.mjs  `resolve(HERE, '…')`, HERE a named binding
-//   3. this one                     the dirname expression written INLINE:
-//                                   `join(path.dirname(fileURLToPath(import.meta.url)), '..', '..')`
+//   1. retarget-dirname-paths.mjs: `resolve(__dirname, '…')`
+//   2. retarget-anchored-paths.mjs: `resolve(HERE, '…')`, with HERE a named binding
+//   3. this pass: the inline directory expression
 //
-// A literal already corrected by an earlier pass cannot match a later pass's
-// anchor, so nothing is shifted twice.
+// A literal that an earlier pass corrected cannot match the anchor of a later pass.
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,8 +19,7 @@ import { mapPathTarget } from './move-table.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const APPLY = process.argv.includes('--apply');
 
-// `join(<selfDirExpr>, 'a', 'b')` where <selfDirExpr> is the file's own
-// directory computed in place.
+/** Regex source for the directory of the file itself, computed in place. `INLINE_CALL` matches it as the first argument of `join` or `resolve`. */
 const SELF_DIR_EXPR =
   String.raw`(?:(?:path\.)?dirname\(\s*fileURLToPath\(\s*import\.meta\.url\s*\)\s*\)|fileURLToPath\(\s*new URL\(\s*'\.'\s*,\s*import\.meta\.url\s*\)\s*\))`;
 const INLINE_CALL = new RegExp(
@@ -33,8 +32,7 @@ const tracked = execFileSync('git', ['-C', ROOT, 'ls-files'], { encoding: 'utf8'
   .split('\n')
   .filter(Boolean);
 
-// The move is already committed, so HEAD is post-move. The pre-move tree is the
-// commit before it — that is what says where each file came from.
+/** The script expects the move in the HEAD commit. `HEAD~1` is the pre-move tree, which gives the old path of each moved file. */
 const preMoveRef = execFileSync('git', ['-C', ROOT, 'rev-parse', 'HEAD~1'], { encoding: 'utf8' }).trim();
 const oldOf = new Map();
 for (const old of execFileSync('git', ['-C', ROOT, 'ls-tree', '-r', '--name-only', preMoveRef], {

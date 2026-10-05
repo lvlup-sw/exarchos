@@ -1,12 +1,9 @@
-// Fixture: registrations whose handler shape is GENUINELY unresolvable by any
-// of the rule's known shapes — proves the `unresolvedHandler` fail-loud path
-// reports a rule error instead of silently dropping a registered handler from
-// the census. Both census channels are covered: an ACTION_HANDLERS map entry
-// (#1706 review M1) and a DERIVED special-branch dispatch, which used to fail
-// open through `if (!fnNode) return;`.
+// Fixture: registrations with a handler shape that no known shape of the rule resolves.
+// The rule must report each through `unresolvedHandler`, and not drop it from the census.
+// It covers both census channels: an `ACTION_HANDLERS` map entry and a derived
+// special-branch dispatch.
 //
-// Kept as its OWN file (not folded into handler-throw.violating.ts) so these
-// dedicated reports don't perturb that fixture's exact-count assertion.
+// It has its own file, so these reports do not change the exact count of the violating fixture.
 
 type ToolResult =
   | { success: true; data?: unknown }
@@ -26,11 +23,10 @@ function makeHandlerExternally(): ActionHandler {
   return async () => ({ success: true });
 }
 
-// Zero-arg factory whose body does NOT `return` a function/arrow literal
-// directly — it returns the RESULT of calling another function. The rule's
-// factory-return unwrap only follows a literal function/arrow returned
-// directly (the real composite.ts `adaptSetupWorktree()` shape); this
-// indirect shape is intentionally unresolvable.
+/**
+ * A zero-arg factory that returns the result of another call, not a function literal.
+ * The factory unwrap follows only a returned function literal, so this shape is unresolvable.
+ */
 function adaptViaIndirectReturn(): ActionHandler {
   return makeHandlerExternally();
 }
@@ -43,11 +39,10 @@ function envelopeWrap(result: ToolResult, _startedAt: number): ToolResult {
   return result;
 }
 
-// A module-scoped binding that holds a handler VALUE produced elsewhere — no
-// function/arrow literal declaration for the resolver to reach, so no body to
-// scan. Dispatched from a real branch, so the census can NAME it
-// (`unresolved_branch`) but cannot SCAN it: that is a hole, and the branch
-// channel now reports it rather than returning silently.
+/**
+ * A module-level binding to a handler value made elsewhere, so it has no body to scan.
+ * A real branch dispatches it, so the census can name it (`unresolved_branch`) but cannot scan it.
+ */
 const handleUnresolvableBranch: ActionHandler = makeHandlerExternally();
 
 async function dispatchUnresolvableBranch(

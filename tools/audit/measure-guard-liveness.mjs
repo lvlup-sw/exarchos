@@ -1,20 +1,15 @@
 // @ts-check
 /**
- * @fileoverview Records what every guard and governance surface currently
- * MATCHES, so one that stops matching after the move is detectable.
+ * @fileoverview Records what each guard and governance surface matches, so a
+ * surface that stops matching after a move shows up as a diff.
  *
- * Each of these is configured with literal paths, and the structure refactor
- * rewrites nearly all of them. The dangerous outcome is not a guard that fails
- * — it is a guard whose glob resolves to nothing and therefore passes forever.
- * A count captured before the move is what turns that silence into a diff.
+ * A guard whose glob resolves to nothing passes forever. A CODEOWNERS pattern
+ * that matches nothing falls back to `*` without an error. A `files[]` entry
+ * that names a missing path ships a short package. A count captured before a
+ * move turns this silence into a diff.
  *
- * Governance surfaces are included alongside the guards because they share the
- * failure mode: a CODEOWNERS pattern matching nothing collapses ownership to
- * the `*` fallback without any error, and a `files[]` entry naming a missing
- * path ships a package quietly short of what it promised.
- *
- * Reports. Throws only when the named boundary rule is missing from the
- * loaded config; every other assertion lives in the accompanying test.
+ * The script reports counts. It throws when it cannot read a surface scope from
+ * its config. The accompanying test holds the other assertions.
  *
  * Usage: `node tools/audit/measure-guard-liveness.mjs [--out FILE]`
  */
@@ -30,9 +25,9 @@ const requireConfig = createRequire(import.meta.url);
 const REPO_ROOT = process.cwd();
 
 /**
- * Load the live error-severity domain-core / IO-facade rule.
- * Missing or malformed config fails closed — a regex scrape of the file
- * would keep reporting counts after the rule was renamed or deleted.
+ * Loads the live error-severity boundary rule `no-domain-core-to-io-adapters`.
+ * A missing or malformed rule throws. A regex scrape keeps reporting counts
+ * after a rename or a removal of the rule.
  *
  * @returns {{ from: string, to: string }}
  */
@@ -79,6 +74,17 @@ function readIfPresent(file) {
   }
 }
 
+/**
+ * Measures each surface and writes the JSON report to `--out` or stdout.
+ *
+ * The scopes are read from their configs, not restated, so the report cannot
+ * measure a stale copy. Both sides of the boundary rule are counted, because
+ * the rule stops working when either set is empty. Protected-suite entries
+ * resolve as written first, and count only when tracked. Catalog references
+ * come from `references:` blocks only. Their anchors are stripped. A
+ * `<owner>/<repo>:<path>` reference to another repository counts as `relocated`,
+ * not as declared.
+ */
 function main() {
   const argv = process.argv.slice(2);
   const outFlag = argv.indexOf('--out');
@@ -88,11 +94,6 @@ function main() {
   /** @type {Record<string, { kind: string, matched: number, detail?: unknown }>} */
   const surfaces = {};
 
-  // ── dependency-cruiser: the live `error`-severity boundary rule ────────────
-  // Both sides are measured. The rule can evaporate from either end: if the
-  // constrained set empties it constrains nothing, and if the forbidden target
-  // set empties there is nothing left to forbid. The config is loaded, not
-  // scraped: a missing named rule throws rather than omitting the surfaces.
   const boundary = liveBoundaryRule();
   const fromRe = new RegExp(boundary.from);
   const toRe = new RegExp(boundary.to);
@@ -107,7 +108,6 @@ function main() {
     detail: { pattern: boundary.to },
   };
 
-  // ── CODEOWNERS — enumerated by name because it is extensionless ────────────
   const codeowners = readIfPresent('.github/CODEOWNERS');
   if (codeowners !== undefined) {
     for (const line of codeowners.split('\n')) {
@@ -123,13 +123,6 @@ function main() {
     }
   }
 
-  // ── package.json files[] — a shipped entry naming nothing ships nothing ────
-  //
-  // Source-tree entries are counted from `git ls-files`. Build outputs
-  // (`dist/…`) are not tracked and are legitimately absent before
-  // `npm run build`; they are recorded as `build-output` so a pre-build
-  // suite can skip the emptiness check without treating a missing source
-  // path the same way.
   const pkg = JSON.parse(readIfPresent('package.json') ?? '{}');
   for (const entry of pkg.files ?? []) {
     if (typeof entry !== 'string' || entry.startsWith('!')) continue;
@@ -145,21 +138,10 @@ function main() {
     };
   }
 
-  // ── protected-suites — explicit test paths under a generated root ──────────
   const protectedSuites = JSON.parse(readIfPresent('tools/audit/protected-suites.json') ?? '{}');
   if (Array.isArray(protectedSuites.files)) {
-    // The entries are already repository-relative despite `generatedFrom`
-    // naming the root they were generated from. Joining the two double-prefixes
-    // every path and reports a confident zero — which is the same false signal
-    // this instrument exists to detect, produced by the instrument itself. So
-    // resolve an entry as-is, and only fall back to the join when that fails.
     const root = protectedSuites.generatedFrom ?? '';
     const resolve = (rel) => (exists(rel) ? rel : path.posix.join(root, rel));
-    // Membership is tracked files, the same predicate the governance census
-    // uses. Disk `exists()` would count an untracked local copy as live while
-    // the census reported the path dead — two greens that mean different
-    // things. `resolve` still consults the working tree only to recover the
-    // `generatedFrom` prefix when the declared path is written relative to it.
     const present = protectedSuites.files.filter((rel) => {
       const resolved = resolve(rel);
       return tracked.includes(rel) || tracked.includes(resolved);
@@ -171,11 +153,6 @@ function main() {
     };
   }
 
-  // ── invariants catalog `references:` keys — they name source AND test ──────
-  // Scoped to `references:` blocks specifically. Scraping every list item that
-  // ends in a code extension also picks up `applies-to:` entries, which are
-  // conceptual labels rather than paths — `format.ts` there names a concern,
-  // not a file, and resolving it reports an evaporation that is not real.
   const catalog = readIfPresent('.exarchos/invariants.md') ?? '';
   /** @type {string[]} */
   const refs = [];
@@ -196,15 +173,7 @@ function main() {
     }
     refs.push(item[2]);
   }
-  // A reference may carry an anchor (`docs/architecture/runtime.md#§4`). The
-  // anchor is part of the citation, not part of the path, and resolving it
-  // verbatim reports every deep link as broken.
   const uniqueRefs = [...new Set(refs.map((rel) => rel.split('#')[0]))];
-  // A `<owner>/<repo>:<path>` reference names a document in ANOTHER repository
-  // and is never expected to resolve here. Counting those as declared-but-
-  // unresolved reports the catalog as partially evaporated every time a
-  // document relocates — a false finding that would train a reader to ignore
-  // the real one, which is a LOCAL path that stopped existing.
   const localRefs = uniqueRefs.filter((rel) => !/^[\w.-]+\/[\w.-]+:/.test(rel));
   surfaces['invariants:references'] = {
     kind: 'catalog-reference',
@@ -212,13 +181,6 @@ function main() {
     detail: { declared: localRefs.length, relocated: uniqueRefs.length - localRefs.length },
   };
 
-  // ── lint scopes — the CLI glob is what bounds the run, not the config ──────
-  //
-  // These are READ from the configs they describe, never restated. A measurer
-  // that carries its own copy of a path measures its own copy: task 042 found
-  // this surface hard-coded to `src/**/*.ts` while the lint script had already
-  // been widened, so it reported a number no run would ever produce — a
-  // liveness instrument that had itself gone stale.
   const lintScript = String(JSON.parse(readIfPresent('package.json') ?? '{}').scripts?.lint ?? '');
   const lintGlobs = [...lintScript.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   if (lintGlobs.length === 0) {
@@ -243,11 +205,6 @@ function main() {
     ).length,
     detail: { glob: inv6Roots.join(' ') },
   };
-  // Read from the gate's own DEFAULT_DIRS for the same reason. This surface
-  // restated `commands/ agents/ content/` — the pre-DR-4 roots — and so counted
-  // two directories that no longer exist while missing rendered/agents/, which
-  // the npm script actually scans. It stayed comfortably non-zero on content/
-  // alone, which is how a surface reports health while measuring the wrong set.
   const driftGate = readIfPresent('tools/audit/gates/lint-test-first-drift.mjs') ?? '';
   const driftDirs = [...(/const DEFAULT_DIRS = \[([^\]]*)\]/.exec(driftGate)?.[1] ?? '')
     .matchAll(/'([^']+)'/g)].map((m) => m[1]);
@@ -262,10 +219,6 @@ function main() {
     detail: { glob: driftDirs.join(' ') },
   };
 
-  // ── knip workspaces ───────────────────────────────────────────────────────
-  // Count tracked files under the workspace's `project` globs. `exists(ws)`
-  // for workspace `.` is always 1 and proves the key exists, not that knip
-  // scans anything.
   const knip = JSON.parse(readIfPresent('knip.json') ?? '{}');
   for (const [ws, cfg] of Object.entries(knip.workspaces ?? {})) {
     const project = Array.isArray(cfg?.project) ? cfg.project : [];
