@@ -11,13 +11,16 @@ const COMMIT = 'a'.repeat(40);
 
 /**
  * Return a deterministic `sha256:` digest of 64 hex characters from a short seed.
- * A character that is not a hex digit becomes `0`.
+ * A character outside `0-9a-f` becomes `0`.
  */
 function hex(seed: string): string {
   return `sha256:${(seed.repeat(64)).slice(0, 64).replace(/[^0-9a-f]/g, '0')}`;
 }
 
-/** An approved lock with an entry for each id in `AUTHORITY_IDS`. `overrides` replaces fields of a pin. */
+/**
+ * An approved lock with an entry for each id in `AUTHORITY_IDS`. `overrides` replaces
+ * fields of a pin. `base` holds no `contract-surface` pin, so that entry is an empty object.
+ */
 function makeLock(overrides: Partial<Record<string, Partial<AuthorityPin>>> = {}): AuthorityLock {
   const base: Record<string, AuthorityPin> = {
     'strategos-contracts': {

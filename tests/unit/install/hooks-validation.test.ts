@@ -43,7 +43,10 @@ function collectCommands(config: HooksConfig): Array<{ hookType: string; command
  */
 const ENFORCEMENT_HOOK_TYPES = ['PreToolUse', 'TaskCompleted', 'TeammateIdle', 'SubagentStart'];
 const ENFORCEMENT_SUBCOMMANDS = ['guard', 'task-gate', 'teammate-gate', 'subagent-context'];
-/** The observer hooks. `SubagentStop` records token telemetry. `SessionEnd` is not an observer hook. */
+/**
+ * The observer hooks that `hooks/hooks.json` must declare. `SubagentStop`
+ * records token telemetry. `SessionEnd` is not one of them.
+ */
 const OBSERVER_HOOK_TYPES = ['SessionStart', 'SubagentStop'];
 
 describe('hooks/hooks.json — observe-only (#1476)', () => {
@@ -147,10 +150,13 @@ describe('hooks/hooks.json — observe-only (#1476)', () => {
 
 describe('enforcement-handler excision grep-sweep (#1476)', () => {
   /**
-   * No tracked file under `src/` or `scripts/` can name a retired enforcement
-   * subcommand or its handler module. Test files are exempt. The path patterns
-   * name `lifecycle/`, the directory that holds the hook handlers. `git grep`
-   * exits 1 when it finds no match, and the `catch` reads each failure as a pass.
+   * A tracked file under `src/` or `scripts/` must not name a retired enforcement
+   * subcommand, handler module or handler function. Test files are exempt.
+   *
+   * The path patterns must name `lifecycle/`, the directory that holds the hook
+   * handlers. A pattern for a different directory can never match, so it guards
+   * nothing. `git grep` exits 1 when it finds no match, and the `catch` reads
+   * each failure as a pass.
    */
   it('NoSourceReferences_ToRetiredEnforcementSubcommands', async () => {
     const patterns = [

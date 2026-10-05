@@ -130,7 +130,7 @@ describe('RuntimeMapSchema', () => {
   });
 
   /**
-   * The issue code must be an invalid enum value.
+   * The issue must have an invalid-enum-value code (`invalid_enum_value` or `invalid_value`).
    * A schema without the field gives an unrecognized-key issue, which must not pass this test.
    */
   it('RuntimeMapSchema_InvalidPreferredFacade_ThrowsValidationError', () => {

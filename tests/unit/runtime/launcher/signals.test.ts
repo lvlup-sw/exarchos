@@ -2,7 +2,7 @@
  * Tests for the launcher signal trap, `installSignalHandlers`.
  *
  * Each test calls a captured listener through a fake `SignalRegistrar`, so no real signal reaches
- * the test runner. The child is a fake that records each `kill` call and each read of `exit`.
+ * the test runner. The child is a fake that records each `kill` call.
  * One suite emits the terminal through the real `emitLaunchExecuted` on a real `EventStore`.
  */
 
@@ -153,7 +153,7 @@ describe('installSignalHandlers — signal handling + orphan prevention (DR-6)',
         .filter((event) => event.type === LAUNCH_EXECUTED);
     }
 
-    /** No terminal exists before the signal. After it, the `worktrees` stream holds one `launch.executed` row with `exitCode: null`. */
+    /** No terminal exists before the signal. After the signal, the `worktrees` stream holds one `launch.executed` row with `exitCode: null`. */
     it('Signals_SigtermPath_EmitsLaunchExecutedTerminal', async () => {
       const log: string[] = [];
       const fake = makeFakeChild(log);
@@ -180,7 +180,7 @@ describe('installSignalHandlers — signal handling + orphan prevention (DR-6)',
     });
   });
 
-  /** The trap sends the trapped signal to the child and reads `child.exit`, the promise that the reap waits for. */
+  /** The trap forwards the trapped signal to the child and reads `child.exit`, the promise that the reap waits for. */
   it('Signals_LauncherDies_ChildNotOrphaned', async () => {
     const log: string[] = [];
     const fake = makeFakeChild(log);
@@ -199,7 +199,7 @@ describe('installSignalHandlers — signal handling + orphan prevention (DR-6)',
     expect(fake.exitObserved()).toBe(true);
   });
 
-  /** Two `SIGTERM` deliveries give one forward, one teardown and one terminal. */
+  /** Two `SIGTERM` deliveries give one `kill` call, one teardown run and one terminal. */
   it('Signals_DoubleSignal_TeardownIdempotent', async () => {
     const log: string[] = [];
     const fake = makeFakeChild(log);

@@ -158,8 +158,9 @@ describe('AgentSpec capability declarations', () => {
   });
 
   /**
-   * Only the isolated agents carry the worktree-hygiene section. The section must name no `npm`
-   * command, so that it also fits a Cargo, pytest or dotnet project.
+   * Only the isolated agents carry the worktree-hygiene section. Their prompt must hold no
+   * `npm --prefix` and no `npm run typecheck`, so that it also fits a Cargo, pytest or dotnet
+   * project. It must keep the `git -C` and "project test command" guidance.
    */
   it('WorktreeHygiene_Prose_IsToolchainNeutral_NoHardcodedNpm', () => {
     for (const spec of ALL_AGENT_SPECS) {

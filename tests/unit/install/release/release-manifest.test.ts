@@ -64,7 +64,7 @@ describe('digestAssetBytes (raw-byte asset digest)', () => {
     expect(digestAssetBytes(ASSET_BYTES)).toMatch(/^sha256:[0-9a-f]{64}$/);
   });
 
-  /** A binary is not text, so the raw-byte digest keeps CRLF and LF distinct. */
+  /** A binary is not text, so the raw-byte digest keeps CRLF and LF distinct. The text digest `digestText` normalizes them. */
   it('AssetDigest_DoesNotNormalizeLineEndings_UnlikeTextDigest', () => {
     const crlf = digestAssetBytes(new Uint8Array([0x41, 0x0d, 0x0a, 0x42]));
     const lf = digestAssetBytes(new Uint8Array([0x41, 0x0a, 0x42]));

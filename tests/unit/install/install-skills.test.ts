@@ -490,7 +490,10 @@ describe('registerExarchosInClaudeJson (#1217)', () => {
     }
   });
 
-  /** The test waits 20 ms before the second call, so a second write gives a different `mtimeMs`. */
+  /**
+   * The test waits 20 ms before the second call. That is more than the mtime
+   * resolution of each supported platform, so a second write changes `mtimeMs`.
+   */
   it('registerExarchosInClaudeJson_idempotent_secondCallPreservesMtime', async () => {
     const home = makeTmpHome();
     try {
@@ -950,8 +953,8 @@ describe('legacy-render + install-manifest provenance helpers', () => {
 
   /**
    * The test reads the committed legacy manifest, which must index the skills
-   * that the rename migration targets. An absent manifest path gives `undefined`,
-   * and the migration then keeps the directories.
+   * that the rename migration targets. A manifest path with no file gives
+   * `undefined`, and the migration then keeps the directories.
    */
   it('loadLegacyHashIndex_ParsesRealCommittedManifest', () => {
     const manifestPath = findLegacyHashManifestPath();

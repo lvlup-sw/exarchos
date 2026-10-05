@@ -1,8 +1,8 @@
 /**
  * Tests for the launcher on-ramps and for the lifecycle wording of the Tier-1 runtime maps.
  *
- * Each on-ramp is a pure-data `HarnessDescriptor`. `harness-registry.type-test.ts` pins that
- * at compile time, and the runtime checks here repeat it.
+ * Each on-ramp is a pure-data `HarnessDescriptor`. `harness-registry.type-test.ts` holds the
+ * type-level pin for that, and the runtime checks here repeat it on the values.
  * Each `content/harness/runtimes/<id>.yaml` describes `isolation:worktree` as launcher-managed
  * lifecycle and makes no space-enforcement claim, because the launcher does not enforce space.
  */
@@ -42,7 +42,7 @@ function parseRuntimeYaml(runtimeId: string): RuntimeYamlShape {
   return parsed as RuntimeYamlShape;
 }
 
-/** Tells if `value` is a function or holds one at any depth. It is the runtime twin of the compile-time `HasFunctionDeep` pin. */
+/** Tells if `value` is a function or holds one at any depth. It is the runtime twin of the type-level `HasFunctionDeep` pin. */
 function containsFunctionDeep(value: unknown): boolean {
   if (typeof value === 'function') return true;
   if (Array.isArray(value)) return value.some(containsFunctionDeep);
@@ -55,7 +55,7 @@ function containsFunctionDeep(value: unknown): boolean {
 describe('launcher on-ramps + runtimes lifecycle semantics (DR-1, DR-3)', () => {
   /**
    * The on-ramp keys equal `TIER1_HARNESSES`.
-   * In each descriptor, `command`, `args`, `cwd` and `env` hold strings, and no field holds a function at any depth.
+   * In each descriptor, `command` and `cwd` are strings, `args` and `env` hold only strings, and no field holds a function at any depth.
    */
   it('OnRamp_EachTier1_DeclarativeDescriptor', () => {
     expect(Object.keys(HARNESS_ON_RAMPS).sort()).toEqual([...TIER1_HARNESSES].sort());

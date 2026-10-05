@@ -74,8 +74,8 @@ function collectSkillMdPaths(root: string): string[] {
 
 /**
  * Return the first line that differs between `expected` and `actual`, for the failure message.
- * Return `null` when the strings are equal. The last return is unreachable, because two
- * strings with equal lines are equal.
+ * Return `null` when the strings are equal. The last return is a fallback for a difference
+ * that the line loop does not find.
  */
 function firstDiffContext(
   expected: string,

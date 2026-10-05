@@ -38,8 +38,8 @@ describe('CheckpointSkill_HouseRulesBlock (T-31, P3; DR-3 fold-in)', () => {
   });
 
   /**
-   * The sentence must match the rehydrate skill byte for byte. The neutral render
-   * uses the bare verb `delegate`, with no `/exarchos:` prefix.
+   * The sentence must match the rehydrate skill byte for byte. The skill source
+   * names the bare verb `delegate`, with no `/exarchos:` prefix.
    */
   it('renders the discipline reminder sentence verbatim per brief §5.4', () => {
     const disciplineReminder =
@@ -72,7 +72,7 @@ describe('CheckpointSkill_SummaryPreservation (T-31, P3; DR-3 fold-in)', () => {
     expect(body).toContain('Tasks: X/Y complete');
   });
 
-  /** The neutral render names the bare verb `rehydrate`, with no `/exarchos:` prefix. */
+  /** The skill source names the bare verb `rehydrate`, with no `/exarchos:` prefix. */
   it('preserves the Resume Instructions block pointing back at the rehydrate verb', () => {
     expect(body).toContain('### Resume Instructions');
     expect(body).toContain('run `rehydrate`');

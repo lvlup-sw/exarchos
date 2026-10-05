@@ -61,7 +61,7 @@ describe('commands tree — thin-shim collapse (DR-3, Task 007)', () => {
   const skillBacked = Object.keys(COMMAND_TO_SKILL).sort();
 
   /**
-   * A thin body stays under the line limit and holds no fenced code block.
+   * A thin body stays within the line limit and holds no fenced code block.
    * It references exactly the skills that its `COMMAND_TO_SKILL` entry declares.
    */
   it('commandsTree_SkillBackedCommands_NoBodyDuplication', () => {

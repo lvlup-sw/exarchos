@@ -124,7 +124,10 @@ describe('content/harness/runtimes/copilot.yaml — local task --agent primitive
     );
   });
 
-  /** The YAML must omit each capability that the adapter marks `unsupported`, and must agree on each other level. */
+  /**
+   * The YAML must omit each capability that the adapter marks `unsupported`.
+   * For all other capabilities, the YAML level must equal the adapter level.
+   */
   it('CopilotYaml_AdapterAlignment_MatchesSupportLevels', () => {
     const data = loadCopilotYaml();
     const supported = data.supportedCapabilities as Record<string, unknown>;

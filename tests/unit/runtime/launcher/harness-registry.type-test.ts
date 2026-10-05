@@ -1,8 +1,10 @@
 // Type-level assertions that `HarnessDescriptor` is pure data: no field is a function or holds one
 // at any depth. A runtime value check cannot prove this, because a function-typed field with a data
-// default passes it. Thus the assertions are conditional types, and a `tsc` compile of this file
-// fails when a function-typed field enters the type. Vitest strips types, so the runtime `it` block
-// is only an anchor.
+// default passes it. Thus the assertions are conditional types.
+//
+// The assertions fail only as a compile error, in a `tsc` program that includes this file.
+// `tests/tsconfig.json` excludes `unit/**`, so `npm run typecheck` does not compile this file.
+// Vitest strips types, so the runtime `it` block is only an anchor.
 
 import { describe, it, expect } from 'vitest';
 import type { HarnessDescriptor, InjectionCandidate } from '../../../../src/runtime/launcher/harness-registry.js';
@@ -30,7 +32,7 @@ type AssertPureData<T> = HasFunctionDeep<T> extends false ? true : never;
 
 /**
  * The gate. When a `HarnessDescriptor` field is a function or holds one, `AssertPureData` resolves
- * to `never` and this assignment does not compile. The check includes the `injection` lists.
+ * to `never` and this assignment does not compile. The check includes the `injection` field.
  */
 const pureDataAssertionHolds: AssertPureData<HarnessDescriptor> = true;
 
@@ -57,7 +59,7 @@ type ExpectPure_Shape = HasFunctionDeep<{
 /**
  * A function in one member of a discriminated union, the shape of `InjectionCandidate`.
  * `HasFunctionDeep` distributes over the union to `boolean`, so `AssertPureData` resolves to
- * `never`. The tuple wrap stops distribution over `never`, so this type is `true` only on detection.
+ * `never`. The `[T] extends [never]` form then gives `true` only on detection.
  */
 type ExpectFn_InUnionMember = [
   AssertPureData<{ kind: 'a'; x: string } | { kind: 'b'; run: () => void }>,
@@ -79,7 +81,10 @@ const detectorSelfTest: [
 ] = [true, true, true, true, true];
 
 describe('harness-registry pure-data (DR-4)', () => {
-  /** A runtime anchor only. The guarantee is the set of module-level type assignments. */
+  /**
+   * A runtime anchor only. The guarantee is the set of module-level type assignments, and only a
+   * `tsc` compile checks them.
+   */
   it('Registry_DescriptorPureData_CompileTimeAssertion', () => {
     expect(pureDataAssertionHolds).toBe(true);
     expect(injectionPureDataAssertionHolds).toBe(true);

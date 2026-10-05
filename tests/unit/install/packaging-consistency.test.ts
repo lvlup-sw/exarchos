@@ -4,7 +4,8 @@
  *  1. Version fan-out. The root `package.json` is the single source of the version.
  *     `tools/release/sync-versions.sh` writes it to `.claude-plugin/plugin.json`
  *     (`.version` and `.metadata.compat.minBinaryVersion`), to `manifest.json`, and
- *     to both `SERVER_VERSION` literals. This test repeats that check in the `vitest` run.
+ *     to both `SERVER_VERSION` literals. This test compares each of those sinks with
+ *     the root version, so the `vitest` run finds drift without the `version:check` gate.
  *  2. Plugin manifest coherence. Each path that `plugin.json` declares exists on disk.
  *     Each rendered `SKILL.md` has YAML frontmatter with a `name` and a `description`.
  */
@@ -19,7 +20,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 /**
  * The version of the release tag for this tree. `sync-versions.sh` does not write this constant.
- * On each version bump, update it together with `package.json` and cut the `v<version>` git tag.
+ * On each version bump, update it together with `package.json` and create the `v<version>` git tag.
  */
 const PREVIEW_VERSION = '2.12.1';
 

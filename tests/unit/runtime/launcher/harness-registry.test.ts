@@ -77,7 +77,10 @@ describe('harness-registry (DR-1, DR-4)', () => {
     }
   });
 
-  /** `claude` is a runtime id, not a harness value, so it fails as each other unknown input does. */
+  /**
+   * `claude` is a runtime id, not a harness value. `resolveHarness` rejects it, and each other
+   * unknown input, with `INVALID_INPUT` and the five `validTargets`.
+   */
   it('Registry_Unknown_StructuredError', () => {
     const result = resolveHarness('claude');
     expect(result.success).toBe(false);

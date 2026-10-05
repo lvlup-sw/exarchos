@@ -56,7 +56,7 @@ describe('PluginManifestSchema', () => {
 
   /**
    * The fixture has the shape of the live `.claude-plugin/plugin.json`. The test reads the fixture,
-   * not the repository root, so it is deterministic and runs from a packaged tarball.
+   * not the live file, so it is deterministic and runs from a packaged tarball.
    */
   it('PluginManifestSchema_AcceptsRepresentativeManifest', () => {
     const fixturePath = path.join(__dirname, '__fixtures__/plugin-manifest.fixture.json');

@@ -76,7 +76,7 @@ describe('CopilotAdapter', () => {
 
   /**
    * `tools` must be an array of names, not the boolean map of the OpenCode format.
-   * The implementer resolves to `fs:read`, `fs:write` and `shell:exec`, which map to `read`, `write` and `shell`.
+   * The capabilities of the implementer include `fs:read`, `fs:write` and `shell:exec`, which map to `read`, `write` and `shell`.
    */
   it('CopilotAdapter_LowerImplementer_EmitsToolsArray', () => {
     const { contents } = adapter.lowerSpec(IMPLEMENTER_FIXTURE);

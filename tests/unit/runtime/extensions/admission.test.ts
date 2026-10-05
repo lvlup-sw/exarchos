@@ -161,7 +161,7 @@ describe('admitExtension — exit proof: fail closed before execution (P03-08)',
     expect(loader).not.toHaveBeenCalled();
   });
 
-  /** A signed field changes after the signature, so the signature does not cover the manifest. */
+  /** The test changes the signed `version` field, so the signature does not match the manifest. */
   it('Admit_TamperedSignedField_FailsClosedUntrusted', async () => {
     const loader = vi.fn(async () => CONTENT);
     const signed = signManifest();

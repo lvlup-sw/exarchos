@@ -39,7 +39,7 @@ afterEach(async () => {
 const WT_ID = '/srv/wt/launch-a';
 
 describe('launcher liveness emitters (DR-2)', () => {
-  /** Each emitter writes one row on the `worktrees` stream. The first terminal call reports `appended: true`. */
+  /** Each emitter writes one row on the `worktrees` stream with its liveness fields. The terminal call reports `appended: true`. */
   it('Liveness_EmitsStartedAndExecuted', async () => {
     const eventStore = await createStore();
 
@@ -73,7 +73,7 @@ describe('launcher liveness emitters (DR-2)', () => {
   });
 
   /**
-   * A signal path and a teardown path each emit the terminal for one launch.
+   * The test emits the terminal two times for one launch: with `exitCode: null` (the signal path), then with `exitCode: 0` (teardown).
    * One row persists with the first exit code, and the second call reports `appended: false`.
    */
   it('Liveness_TerminalSeam_Idempotent', async () => {

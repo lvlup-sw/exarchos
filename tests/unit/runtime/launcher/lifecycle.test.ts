@@ -2,7 +2,7 @@
  * Integration tests for `runLifecycle` and for its binding in the launcher verb.
  *
  * Each test uses a real `EventStore` and a real git repo in temp directories.
- * A fake `spawnHarnessChild` gives a fixed exit, so no harness binary starts.
+ * Each test injects a fake `spawnHarnessChild`, so no harness binary starts and the test controls the child exit.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -197,7 +197,10 @@ describe('runLifecycle — launcher lifecycle integrator (real git + real event 
     expect(terminals[0].data?.exitCode).toBe(0);
   }, 20_000);
 
-  /** After a normal exit, the core made no `setInterval` call, sent no `kill`, spawned one child and wrote one terminal. */
+  /**
+   * After a normal exit, the core made no `setInterval` call, sent no `kill`, spawned one child and wrote one terminal.
+   * The test spies on `setInterval` because a repeating timer keeps the event loop alive after the child exits.
+   */
   it('Lifecycle_NoHandleOutlivesChild', async () => {
     const fake = makeFakeSpawn({ code: 0, signal: null });
 

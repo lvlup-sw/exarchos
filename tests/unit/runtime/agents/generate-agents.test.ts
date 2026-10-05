@@ -236,8 +236,8 @@ describe('generateAgents', () => {
   });
 
   /**
-   * A second run into the same directory must give byte-identical files. This catches an iteration
-   * order that is not deterministic.
+   * A second run into the same directory must give byte-identical files. The test compares each
+   * file by path, so it catches only a nondeterministic order inside the contents of a file.
    */
   it('GenerateAgents_Idempotency_RunningTwiceProducesSameOutput', () => {
     generateAgents({
@@ -452,8 +452,10 @@ function expectNonEmptyString(
  *
  * - Each pair: a non-empty path with an extension. Each Markdown runtime: a non-empty body.
  * - Claude and Cursor: YAML `name`, `description` and `model`. A Claude name is `exarchos-<id>`.
- * - OpenCode: YAML `mode` (`subagent`), `description`, and a `tools` map of booleans.
- * - Copilot: YAML `description` and a `tools` array of strings.
+ * - OpenCode: YAML `mode` (`subagent`), `description`, and a `tools` map of booleans. OpenCode
+ *   ignores a non-boolean entry silently.
+ * - Copilot: YAML `description` and a `tools` array of strings. Copilot rejects an agent file
+ *   without them.
  * - Codex: top-level TOML `name` (the spec id), `description` and `developer_instructions`.
  */
 describe('Per-runtime smoke validation', () => {

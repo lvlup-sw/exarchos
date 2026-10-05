@@ -233,7 +233,10 @@ describe('ClaudeAdapter_LowerSpec_McpReadonlyTier', () => {
     expect(fm.mcpServers).toBeUndefined();
   });
 
-  /** Claude is the reference runtime. `validateSupport` rejects only an `unsupported` capability, so it accepts the readonly tier. */
+  /**
+   * Each capability is `native` in the Claude support map. `validateSupport` rejects only an `unsupported` capability, so it accepts the readonly tier.
+   * The assertion does not tell `native` from `advisory`.
+   */
   it('ClaudeAdapter_ValidateSupport_ReadonlyTier_IsNative', () => {
     forceCapabilities(['fs:read', 'mcp:exarchos:readonly']);
     expect(claudeAdapter.validateSupport(IMPLEMENTER)).toEqual({ ok: true });

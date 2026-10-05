@@ -48,7 +48,7 @@ const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 /**
  * The path of a seeded enforcement primary. The scan recognizes primaries only under
  * `ENFORCEMENT_PRIMARY_DIR`. A fixture with a hard-coded prefix can drift from that value.
- * It then finds zero sites, and that empty result looks the same as a clean result.
+ * The scan then finds zero sites, and that empty result looks the same as a clean result.
  */
 const primary = (name: string): string => `${ENFORCEMENT_PRIMARY_DIR}/${name}`;
 
@@ -175,8 +175,8 @@ function pkg(scripts: Readonly<Record<string, string>>): string {
 }
 
 /**
- * The type makes each mandated field required, and this pass rejects a blank value. The loop
- * blanks one mandated field at a time, in the validator and then through the ratchet.
+ * The type makes each mandated field required, and `validateAdvisoryGovernance` rejects a blank
+ * value. The loop blanks one mandated field at a time, in the validator and then through the ratchet.
  */
 describe('validateAdvisoryGovernance', () => {
   it('AdvisoryGovernance_CompleteEntry_NoProblems', () => {
@@ -825,7 +825,7 @@ describe('analyzeCiPathFilters (path-filter modelling)', () => {
     expect(a.unfiltered).toBe(true);
   });
 
-  /** The gate reads the output of a `dorny/paths-filter` job, the form that `ci.yml` uses. */
+  /** The job `if:` reads the output of a `dorny/paths-filter` job, the form that `ci.yml` uses. */
   it('CiPathFilters_JobLevelIfGate_FailsTheUnfilteredClaim', () => {
     const a = analyzeCiPathFilters(
       wf({ jobIf: `(${FORK_GUARD}) && needs.changes.outputs.root == 'true'` }),
@@ -884,7 +884,7 @@ describe('analyzeCiPathFilters (path-filter modelling)', () => {
     expect(analyzeCiPathFilters(text, { stepMatch: MATCH }).unfiltered).toBe(true);
   });
 
-  /** A well-formed workflow path with a narrowed lane must fail. The shape of the path proves nothing. */
+  /** A workflow with a well-formed path and a narrowed lane must fail the claim. The shape of the path proves nothing. */
   it('CiPathFilters_FilenameShapeAloneNoLongerSatisfiesTheClaim', () => {
     const a = analyzeCiPathFilters(
       wf({ on: ['  pull_request:', '    paths:', "      - 'docs/**'"] }),

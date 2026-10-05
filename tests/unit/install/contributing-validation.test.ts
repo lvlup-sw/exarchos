@@ -17,7 +17,7 @@ describe('CONTRIBUTING.md validation', () => {
   /**
    * `build:binary` must sit within 300 characters of prose about the bootstrap
    * script, the compiled output or the install path. The test removes the token
-   * from that window before it scans for the context words.
+   * from that window before the scan, so the token cannot match a context word.
    */
   it('Contributing_MentionsBuildBinary', () => {
     const content = readContributing();

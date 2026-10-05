@@ -12,8 +12,9 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 describe('Cleanup Validation', () => {
   /**
-   * Each workspace glob must match a directory. A glob that matches nothing makes tooling
-   * treat the repository as a monorepo root. The test passes when `workspaces` is absent.
+   * A workspace glob that matches nothing makes tooling treat the repository as a monorepo root.
+   * For each glob, the test checks only that the path before the trailing wildcard exists.
+   * The test passes when `workspaces` is absent.
    */
   it('WorkspaceConfig_RootPackageJson_DeclaresNoDeadWorkspaceGlob', () => {
     const pkg = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf-8'));

@@ -179,11 +179,11 @@ describe('prepare_review emits its bound dispatch shape (DR-25)', () => {
 
 describe('DispatchShape validation self-test (DR-25)', () => {
   /**
-   * The contradiction is a `read-only` provisioning with a named, worktree-isolated launch. The test
-   * also rejects a named launch without isolation, which produces phantom teammates, and a
-   * `shared-mutating` result that claims a subagent. The last loop proves that the validator runs:
-   * the canonical shape of each declared posture must pass. A validator that rejects everything
-   * satisfies the negative checks and enforces nothing.
+   * The contradiction is a `read-only` provisioning with a named, worktree-isolated launch. The
+   * validator must also reject a named launch without isolation, which produces phantom teammates,
+   * and a `shared-mutating` result that claims a subagent. The last loop proves that the validator
+   * runs: the canonical shape of each declared posture must pass. A validator that rejects
+   * everything satisfies the negative checks and enforces nothing.
    */
   it('DispatchShape_ShapeContradictsPosture_FailsValidation', () => {
     const contradictory: DispatchLaunch = {
@@ -325,8 +325,8 @@ describe('DispatchShape runtime resolution (DR-25, INV-4)', () => {
  * probes on `unfrozenTwin`, an unfrozen copy, to prove that those probes can mutate.
  *
  * `noSpawn` cannot spawn but meets the `requires` of the `read-only` fallback. Thus the resolution
- * degrades and returns the shared fallback object. `reachable` collects each object under a root,
- * through own enumerable properties.
+ * degrades and returns the shared fallback object. `reachable` collects the root and each object
+ * under it, through own enumerable properties.
  */
 describe('DispatchShape immutability (DR-25)', () => {
   const noSpawn: RuntimeCapabilityDeclaration = {
@@ -354,7 +354,7 @@ describe('DispatchShape immutability (DR-25)', () => {
    * without it, a probe that mutates nothing proves immutability for any implementation. The shipped
    * fallback must then refuse each probe, which includes an in-place write and an append on
    * `requires`. `Object.assign` covers the throwing form of a plain assignment in strict mode. Last,
-   * a later resolution must still return the declared shape.
+   * a later resolution must return the same fallback object with its values unchanged.
    */
   it('DispatchShape_FallbackMutationAttempt_LeavesTheSharedShapeIntact', () => {
     const first = resolveDispatchShape('read-only', noSpawn);

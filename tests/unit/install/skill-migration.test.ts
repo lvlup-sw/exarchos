@@ -82,7 +82,7 @@ const SKILLS_REQUIRING_VCS_PREAMBLE = [
 ];
 
 describe('skill-migration — T34: gh to MCP action migration', () => {
-  /** A Markdown table row is the only line that can name `gh pr create`. */
+  /** Only a Markdown table row can name `gh pr create`. */
   it('NoActionableGhPrCreate_InSkillSources', () => {
     const files = collectMarkdownFiles(SKILLS_SRC_DIR);
     const violations: Array<{ file: string; line: number; text: string }> = [];
@@ -114,7 +114,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
     ).toEqual([]);
   });
 
-  /** A Markdown table row is the only line that can name `gh pr merge`. */
+  /** Only a Markdown table row can name `gh pr merge`. */
   it('NoActionableGhPrMerge_InSkillSources', () => {
     const files = collectMarkdownFiles(SKILLS_SRC_DIR);
     const violations: Array<{ file: string; line: number; text: string }> = [];
@@ -252,7 +252,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
    * Three contexts can name `gh pr list`:
    * - the prune files in `ALLOWED_FILES`, because the prune safeguards use `gh` internally
    * - a Markdown table row
-   * - explanatory text with the word "from" before the command
+   * - text with the word "from" directly before the command in backticks
    * `ALLOWED_FILES` matches the path below the skill, not the path below the content root.
    * Thus a move of the skill to another domain does not remove the exemption.
    */
@@ -296,7 +296,7 @@ describe('skill-migration — T34: gh to MCP action migration', () => {
   });
 
   /**
-   * Two lines can name `gh pr view`: a Markdown table row, and a line with `--json autoMergeRequest`.
+   * Two kinds of line can name `gh pr view`: a Markdown table row, and a line with `--json autoMergeRequest`.
    * No MCP action does the auto-merge check.
    */
   it('NoActionableGhPrView_InSkillSources_ExceptAllowedOperations', () => {

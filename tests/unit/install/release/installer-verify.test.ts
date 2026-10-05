@@ -91,7 +91,7 @@ describe('verifyReleaseInstall — exit-proof (f): a valid manifest verifies', (
 });
 
 describe('verifyReleaseInstall — exit-proof (b): source mismatch rejected', () => {
-  /** The manifest keeps its valid signature. Only the expected source of the installer differs. */
+  /** The manifest keeps its valid signature. Only the source that the installer expects is different. */
   it('SourceMismatch_RejectedEvenWhenValidlySigned', () => {
     const f = makeFixture();
     const inputs: VerifyReleaseInputs = {

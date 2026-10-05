@@ -157,8 +157,8 @@ describe('CommandShimEmitter', () => {
   });
 
   /**
-   * Proves that the comparison catches drift. The test changes a copy of the key set in two ways,
-   * and each copy must fail the comparison. The real export stays unchanged.
+   * This test proves that the comparison catches drift. It changes a copy of the key set in two
+   * ways, and each copy must fail the comparison. The real export stays unchanged.
    */
   it('CommandShim_Guard_FailsOnInjectedDrift', () => {
     const realKeys = Object.keys(COMMAND_DESCRIPTIONS);

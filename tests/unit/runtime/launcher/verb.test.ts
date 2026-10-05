@@ -39,6 +39,7 @@ describe('exarchos <harness> launcher verb (DR-1)', () => {
 
   /**
    * The base is a real temp directory, so the derived sibling path has a real parent directory.
+   * A wrong creation can then succeed, so the check that the sibling path is absent can fail.
    * The dry run must not call the lifecycle runner and must not create that sibling path.
    */
   it('Verb_DryRun_ShowsPathAndPlanNoSpawn', async () => {

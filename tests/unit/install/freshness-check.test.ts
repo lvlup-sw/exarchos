@@ -10,7 +10,7 @@ import {
 
 /**
  * Inputs for the identity that the running binary requires. `observedWith`
- * changes them to build the installed identity.
+ * overrides some of them to build an observed identity.
  */
 const BASE_RAW: RawInstallInputs = {
   binaryVersion: '2.12.0',

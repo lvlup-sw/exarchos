@@ -213,9 +213,9 @@ describe('recorded install-identity lock', () => {
 
   /**
    * `readRecordedIdentity` treats a torn lock as no lock. Thus a crash during a plain write
-   * can change a blocked freshness verdict into `bootstrapped`, and the default write seam
-   * must call `atomicWriteFile`. `EXARCHOS_INSTALL_STATE_DIR` sends the lock to a temp
-   * directory. Without it, the default path is in the real home directory.
+   * can change a blocked freshness verdict into `bootstrapped`. To prevent this, the default
+   * write seam must call `atomicWriteFile`. `EXARCHOS_INSTALL_STATE_DIR` sends the lock to a
+   * temp directory. Without it, the default path is in the real home directory.
    * The publish must leave no staged temp file beside the lock.
    */
   it('default lock write publishes atomically (tmp+fsync+rename), never a torn plain write', () => {

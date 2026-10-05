@@ -50,8 +50,8 @@ function outsideContent(text: string): string {
 describe('insertManagedBlock', () => {
   /**
    * The file holds a lone `START` marker beside consumer content. The function
-   * appends a new block and keeps the original bytes. The result then holds
-   * two `START` markers: the stray one and the new one.
+   * appends a new block and keeps the original bytes. The file then holds two
+   * `START` markers: the stray one and the new one.
    */
   it('insertManagedBlock_IncompletePair_TreatsAbsentAppendsFresh', () => {
     const filePath = freshPath();

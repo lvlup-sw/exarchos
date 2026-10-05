@@ -129,7 +129,8 @@ describe('loadAllRuntimes', () => {
 
   /**
    * Reads the runtime YAML files that the repository ships.
-   * Hosts with native MCP (claude, cursor, codex) prefer `mcp`. Runtimes with thin or no MCP support prefer `cli`.
+   * Runtimes with native MCP (claude, cursor, codex) prefer `mcp`.
+   * Runtimes with thin or no MCP support (opencode, copilot, generic) prefer `cli`.
    */
   it('LoadAllRuntimes_PreferredFacadeAssignments_MatchCapabilityMatrix', () => {
     const runtimes = loadAllRuntimes(REPO_RUNTIMES_DIR, { warn: () => {} });

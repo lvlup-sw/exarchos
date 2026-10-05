@@ -205,7 +205,7 @@ describe('buildCommandAliases — alias file shape', () => {
     expect(ideate).toContain('$ARGUMENTS');
   });
 
-  /** The search includes the backticks, so the plain word in the command title and the description does not match. */
+  /** The search for the `review` skill includes the backticks, so the plain word in the command title and the description does not match. */
   it('multi-skill commands name every mapped skill in order (review)', () => {
     const aliasDir = emitOpencode();
     const review = readFileSync(join(aliasDir, 'review.md'), 'utf8');

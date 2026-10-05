@@ -84,7 +84,7 @@ describe('RehydrateSkill_HouseRulesBlock (T-30, P3; DR-3 fold-in)', () => {
   });
 
   /**
-   * The checkpoint skill test pins the same sentence. The neutral render uses the bare
+   * The checkpoint skill test pins the same sentence. The skill source names the bare
    * verb `delegate`, with no `/exarchos:` prefix.
    */
   it('renders the discipline reminder sentence verbatim per brief §5.4', () => {

@@ -20,8 +20,9 @@ function collectMdFiles(dir: string): string[] {
 }
 
 /**
- * Matches a `Skill({ skill: "X" })` call where X has no namespace prefix. Each
- * `word:` prefix passes, so the namespaces of companion plugins pass too.
+ * Matches a `Skill({ skill: "X" })` call where X has no namespace prefix. A
+ * prefix of lowercase letters and hyphens that ends in `:` passes, so the
+ * namespaces of companion plugins pass too.
  */
 const UN_NAMESPACED_SKILL = /Skill\(\{\s*skill:\s*"(?![a-z][-a-z]*:)[a-z]/g;
 

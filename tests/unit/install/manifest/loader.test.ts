@@ -227,7 +227,7 @@ describe('Manifest Loader (A2)', () => {
   describe('getDefaultSelections', () => {
     /**
      * The selection holds no MCP servers. Optional servers have no `default`
-     * flag, and required servers always install.
+     * flag, and the installer always installs required servers.
      */
     it('getDefaultSelections_Manifest_ReturnsDefaults', () => {
       const manifest = createValidManifest();
@@ -265,9 +265,9 @@ describe('Real Manifest File (E5)', () => {
   });
 
   /**
-   * The assertion is exact. No production code reads `components.core`, so no
-   * other guard sees an entry that nothing installs. A new entry must change
-   * this test.
+   * The assertion is exact. No production code reads the entries of
+   * `components.core`, so no other guard sees an entry that nothing installs. A
+   * new entry must change this test.
    */
   it('manifest_ContainsAllCoreComponents', () => {
     const manifest = loadManifest(manifestPath);

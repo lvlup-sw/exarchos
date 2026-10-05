@@ -193,8 +193,8 @@ describe('validateSymlinks (B5)', () => {
   });
 
   /**
-   * The fixture holds one link of each class. The healthy link has its source. The
-   * broken link has no source. The missing link does not exist.
+   * The expected links hold one link of each class. The healthy link has its source.
+   * The broken link has no source. The missing link does not exist.
    */
   it('validateSymlinks_MixedState_ReturnsDetailedReport', () => {
     const healthySrc = path.join(tmpDir, 'healthy-src');

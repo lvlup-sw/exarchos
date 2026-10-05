@@ -115,7 +115,7 @@ function makeDeps(cwdValue: string): CapturedDeps {
   return captured;
 }
 
-/** Run `main()` and catch only the sentinel exit error. Each other error fails the test. */
+/** Run `main()` and catch only the sentinel exit error. Any other error fails the test. */
 async function runMain(argv: string[], deps: CapturedDeps): Promise<void> {
   try {
     await main(argv, {

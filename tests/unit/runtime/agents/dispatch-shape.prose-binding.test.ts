@@ -5,8 +5,8 @@
 // state `subagent` and `workspace`, and a row with `subagent: true` must state `naming`. Each
 // stated cell must agree with the map.
 //
-// Not covered: `requires`, `fallback`, `rationale`, and the "At the call site" column. The section
-// gives them in sentences, and a parser over free prose turns vacuous before it catches drift.
+// Not covered: `requires`, `fallback`, `rationale`, and the "At the call site" column. The Markdown
+// states them only as free prose. A parser over free prose turns vacuous before it catches drift.
 //
 // The two authorities are the skill Markdown under `content/` and the frozen map in
 // `dispatch-shape.ts`. The test reads the authored file, because a rendered copy only checks the
@@ -182,7 +182,7 @@ function toTable(block: readonly ProseLine[]): RawTable | undefined {
 
 /**
  * Every pipe table in `lines`. The scan skips a guard-comment line and does not treat it as blank.
- * Thus a `<!-- requires:… -->` line between two rows cannot split one table into two, which
+ * Thus a `<!-- requires:… -->` line between two rows cannot split one table into two. Such a split
  * silently shrinks the parsed row count.
  */
 function tablesIn(lines: readonly ProseLine[]): readonly RawTable[] {
@@ -527,8 +527,8 @@ describe('Delegate skill prose ⇄ POSTURE_DISPATCH_MAP (DR-25, task 056)', () =
 
   /**
    * The seed changes the `naming` cell of the `read-only` row from `anonymous` to `named`, the drift
-   * that produces phantom teammates. The needle must occur exactly once. If it does not, the fixture
-   * is not mutated and the probe measures the shipped file. The row count proves that the fixture
+   * that produces phantom teammates. The needle must occur exactly once. With no occurrence, the
+   * fixture is the shipped file and the probe kills nothing. The row count proves that the fixture
    * still parses, so the failure is a disagreement. The unmutated file must still agree, which
    * proves that the binding does not fail on everything.
    */

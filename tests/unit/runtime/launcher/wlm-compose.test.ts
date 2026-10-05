@@ -164,7 +164,7 @@ describe('LauncherWlm — WLM composition (real git + real event store)', () => 
   /**
    * The launcher creates and reserves a worktree, then `adopt` lists the worktrees on disk.
    * `adopt` skips the reserved worktree because it is already tracked, and its state stays `reserved`.
-   * The count of `worktree.adopted` events must increase, which shows that `adopt` ran on the untracked worktrees.
+   * The count of `worktree.adopted` events must increase, which shows that `adopt` ran on the untracked main and base worktrees.
    */
   it('Compose_LauncherCreatedWorktree_NotReAdopted', async () => {
     const wlm = createLauncherWlm({ ctx });

@@ -137,8 +137,9 @@ describe('evaluateInstallFreshness — five independently-seeded mismatches bloc
   });
 
   /**
-   * The gate blocks when the schema of the running binary is newer than the
-   * schema in the lock. The test records a lock that is one version older.
+   * The gate passes the lock as `expected` and the running binary as `observed`.
+   * The schema dimension blocks only when `observed` is newer than `expected`.
+   * The test records a lock that is one schema version older than the binary.
    */
   it('SCHEMA mismatch blocks when the store/lock schema is NEWER than the binary', () => {
     const files = coherentFiles();
@@ -152,7 +153,10 @@ describe('evaluateInstallFreshness — five independently-seeded mismatches bloc
     }
   });
 
-  /** The test records a lock that is one schema version newer than the binary. */
+  /**
+   * The test records a lock that is one schema version newer than the binary.
+   * Then `observed` is older than `expected`, so the schema dimension does not block.
+   */
   it('does NOT block when the store/lock schema is OLDER than the binary (forward-migrate)', () => {
     const files = coherentFiles();
     const base = identityFrom(files);

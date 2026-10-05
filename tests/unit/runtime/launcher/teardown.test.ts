@@ -1,7 +1,7 @@
 /**
  * Tests for launcher teardown safety and crash recovery.
  *
- * Each test uses a real `EventStore`, and a real git repo where teardown probes a git target.
+ * Each test gets a real `EventStore` and a real git repo in temp directories.
  * The tests inject the release, process-table and git seams, so each outcome is deterministic.
  */
 
@@ -103,7 +103,7 @@ function recordingGit(): { runner: GitRunner; calls: string[][] } {
   return { runner, calls };
 }
 
-/** A git runner that runs no git. `route` gives the result for each arg vector. */
+/** A git runner that runs no git. It records each arg vector, and `route` gives the result. */
 function scriptedGit(
   route: (args: readonly string[]) => { status: number; stdout?: string },
 ): { runner: GitRunner; calls: string[][] } {
@@ -199,7 +199,10 @@ function makeFakeRegistrar(): {
   };
 }
 
-/** `makeRealWorktree` creates a reserved launcher worktree on disk and returns its id and path. */
+/**
+ * `makeRealWorktree` creates a reserved launcher worktree on disk and returns its id and path.
+ * A test that uses the default release passes the same owner, so the manager accepts the release.
+ */
 describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => {
   let stateDir: string;
   let workdir: string;
@@ -373,9 +376,10 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
   }, 30_000);
 
   /**
-   * Simulates a crash during spawn: a reservation by a dead PID, a worktree on disk, and a
+   * The test simulates a crash during spawn: a reservation by a dead PID, a worktree on disk, and a
    * `worktree.create.requested` with no paired terminal. The process table holds only this process, outside the worktree.
-   * The entry is `reserved` before recovery. Recovery writes the create terminal and releases the reservation.
+   * The entry is `reserved` before recovery, because the reservation comes before `git worktree add`.
+   * Recovery writes the create terminal and releases the reservation.
    * Then `prune` lists the worktree as a candidate. Recovery runs no `git reset --hard`, and the worktree stays on disk.
    */
   it('Recovery_CrashMidSpawn_NoOrphanWorktree', async () => {
@@ -536,7 +540,8 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
   /**
    * The injected origin probe returns a promise that the test resolves later.
    * Teardown stays pending while the probe is in flight, and releases after the probe resolves `true`.
-   * The wait loop has no tick limit, because the terminal append before the origin gate is a real SQLite write.
+   * The wait loop has no tick limit. The terminal append before the origin gate is a real SQLite write.
+   * On a loaded runner, that write can take more ticks than a fixed limit.
    * A sync `ls-remote` in teardown settles the call with no probe start, and then the `probeStarted` assertion fails.
    */
   it('Teardown_OriginProbe_NonBlocking', async () => {
@@ -585,7 +590,7 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
   }, 20_000);
 
   /**
-   * The fake child never emits `close` or `error`, as a hung `git ls-remote` does.
+   * The fake child never emits `close` or `error`, like a hung `git ls-remote`.
    * After `ORIGIN_PROBE_TIMEOUT_MS`, the default probe sends `SIGTERM` to the child and resolves `false`.
    */
   it('DefaultOriginReachable_HungRemote_FailsClosedOnTimeout', async () => {
@@ -616,9 +621,9 @@ describe('teardownLaunch — launcher teardown safety + recovery (DR-6)', () => 
   });
 
   /**
-   * Runs the real `installSignalHandlers` and the real `teardownLaunch` on a reserved worktree.
+   * The test runs the real `installSignalHandlers` and the real `teardownLaunch` on a reserved worktree.
    * The process table lists the child in the worktree until a caller reads `child.exit`, and only the reap reads it.
-   * Thus the release succeeds only when teardown runs after the reap.
+   * Thus the release succeeds only when teardown runs after the reap. Otherwise teardown reports `worktree-in-use`.
    * The entry becomes `released`, one terminal persists, and no `git reset --hard` runs.
    */
   it('Teardown_ChildExitsDuringSignalPath_ReservationReleasedNotLingering', async () => {

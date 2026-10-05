@@ -7,6 +7,7 @@
  *   - start of promotion: the rename of `target` to the backup fails
  *   - mid-promotion: the rename of the staging directory to `target` fails
  *   - hard crash: the mid-promotion rename and the rollback restore both fail
+ *   - finalize: the removal of the backup after the commit fails
  *
  * After each failure, the destination must be the complete old tree or the complete new tree,
  * by {@link digestTree}. A retry must converge, and a dry run must change nothing.
@@ -270,7 +271,7 @@ describe('promoteTreeSync — fault injection leaves no torn state', () => {
 /**
  * An entry path is caller data, and it must not escape the staging directory. The engine checks
  * each path component with the guard of the artifact store. A violation throws the typed
- * error of the module before any byte is written.
+ * error of the module, and the engine writes no byte of that entry.
  */
 describe('promoteTreeSync — staging containment', () => {
   /**
@@ -443,7 +444,8 @@ describe('promoteTree — effect carrier', () => {
    * The recorder blocks, so the test can see whether the promotion promise settles while its
    * record is in flight. A fire-and-forget append lets the promise settle first. One log gets
    * an entry from the recorder and an entry from the promise continuation, so it gives their
-   * order. The record must parse with the catalog schema, and its owner must be the plan owner.
+   * order. The two event-loop turns after `entered` give an early settle the time to show.
+   * The record must parse with the catalog schema, and its owner must be the plan owner.
    */
   it('PromoteTree_LiveMode_CommitsItsEventBeforeReturning', async () => {
     let releaseRecorder!: () => void;

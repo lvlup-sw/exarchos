@@ -131,7 +131,7 @@ describe('SupportLevels (cross-adapter contract)', () => {
     }
   });
 
-  /** Each adapter must accept the implementer spec. If one rejects it, the agent generator reports a validation error. */
+  /** Each adapter must accept the implementer spec. If one rejects it, `generateAgents` throws before it writes a file. */
   describe('ValidateSupport_CanonicalImplementerSpec_AllAdaptersAccept', () => {
     for (const { name, adapter } of ADAPTERS) {
       it(`${name} accepts IMPLEMENTER`, () => {
@@ -175,7 +175,10 @@ describe('SupportLevels (cross-adapter contract)', () => {
     });
   });
 
-  /** Each adapter emits a native capability under the tool name of its runtime. */
+  /**
+   * Each adapter emits a native capability in the form of its runtime.
+   * The form is a tool entry, the Cursor `readonly` flag, or a line in the Codex `developer_instructions`.
+   */
   describe('LowerSpec_NativeCapability_EmittedAsTool', () => {
     it('claude emits Read, Write, Bash for fs:read/fs:write/shell:exec', () => {
       const { contents } = claudeAdapter.lowerSpec(IMPLEMENTER);

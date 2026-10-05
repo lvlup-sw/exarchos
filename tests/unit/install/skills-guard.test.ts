@@ -33,7 +33,7 @@ function makeTempDir(): string {
 const noopRegenerateAgents = (_cwd: string): void => {
 };
 
-/** Removes each temp directory. A removal error does not fail the test. */
+/** Remove each temp directory. A removal error does not fail the test. */
 afterEach(() => {
   while (tempDirs.length > 0) {
     const d = tempDirs.pop()!;

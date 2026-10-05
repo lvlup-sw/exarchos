@@ -86,14 +86,19 @@ function makeSkillsSource(
   };
 }
 
+/**
+ * The two `installSkills` tests pass `platform: 'linux'` and a no-op `symlink`.
+ * The platform selects the POSIX placement branch on every host. The win32
+ * branch copies the canonical entries, and that adds `copyDir` calls. The no-op
+ * keeps the real `fs.symlinkSync` out of the test, because a symlink needs
+ * elevated privileges on Windows.
+ */
 describe('install-skills characterization (DR-9, task 003)', () => {
   /**
-   * Pins one `copyDir` call for each skill. The source is relative to the source
-   * root, and the destination is `<HOME>/.claude/skills/<skill>`. It also pins
-   * one MCP registration with the home dir. The copy order follows `readdir`, so
-   * the test sorts the calls. `platform: 'linux'` and a no-op `symlink` select
-   * the POSIX placement branch on each host. A real symlink needs elevated
-   * privileges on Windows.
+   * The test pins one `copyDir` call for each skill. The source is relative to
+   * the source root, and the destination is `<HOME>/.claude/skills/<skill>`. It
+   * also pins one MCP registration with the home dir. The copy order follows
+   * `readdir`, so the test sorts the calls.
    */
   it('InstallSkills_LocalCopyAndRegister_PinnedWrites', async () => {
     const home = makeTmpHome();
@@ -204,10 +209,10 @@ describe('install-skills characterization (DR-9, task 003)', () => {
   });
 
   /**
-   * Pins the full text that `registerExarchosInClaudeJson` writes into a new
-   * `~/.claude.json`: 2-space indent and a trailing newline. The file is JSON
-   * text, so `JSON.stringify` doubles each backslash of a Windows home path. The
-   * test escapes `home` in the same way before it replaces the path.
+   * The test pins the full text that `registerExarchosInClaudeJson` writes into
+   * a new `~/.claude.json`: 2-space indent and a trailing newline. The file is
+   * JSON text, so `JSON.stringify` doubles each backslash of a Windows home path.
+   * The test escapes `home` in the same way before it replaces the path.
    */
   it('RegisterExarchosInClaudeJson_FreshHome_PinnedJsonShape', () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-char-cj-'));

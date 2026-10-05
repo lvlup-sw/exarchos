@@ -12,7 +12,7 @@ describe('evaluateIsolation (P03-08 posture-boundary integration)', () => {
     expect(evaluateIsolation(policy, 'task-isolated').contained).toBe(true);
   });
 
-  /** The `read-only` posture grants only `fs:read` and `mcp:exarchos:readonly`, so `shell:exec` escalates. */
+  /** The `read-only` posture grants only `fs:read` and `mcp:exarchos:readonly`, so `shell:exec` is an escalation. */
   it('Isolation_CapabilityOutsidePosture_FailsClosed', () => {
     const policy = IsolationPolicySchema.parse({
       allowedCapabilities: ['fs:read', 'shell:exec'],

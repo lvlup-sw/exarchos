@@ -115,6 +115,7 @@ describe('catalog-registration gating lint (DR-33)', () => {
   /**
    * The population comes from the tree. When a source starts to gate on the catalog, it enters the population.
    * The corpus must be more than two times the size of the gated set.
+   * Thus a sweep of only the gated set misses most of the tree, and the `devCatalog` sweep must read every source.
    */
   it('SkillsSrcGating_PopulationTracksTheTree_NotATranscribedList', async () => {
     const files = await trackedSkillSources();

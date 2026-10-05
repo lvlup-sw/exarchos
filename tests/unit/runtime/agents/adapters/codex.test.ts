@@ -129,14 +129,14 @@ describe('CodexAdapter', () => {
     expect(contents).not.toMatch(/^sandbox_mode\s*=\s*"workspace-write"\s*$/m);
   });
 
-  /** The implementer resolves to `fs:write` and `shell:exec`. */
+  /** The capabilities of the implementer include `fs:write` and `shell:exec`. */
   it('CodexAdapter_LowerSpec_IncludesWriteAccess_WhenSpecHasFsWrite', () => {
     const { contents } = codexAdapter.lowerSpec(IMPLEMENTER);
     expect(contents).toMatch(/^sandbox_mode\s*=\s*"workspace-write"\s*$/m);
     expect(contents).not.toMatch(/^sandbox_mode\s*=\s*"read-only"\s*$/m);
   });
 
-  /** The `sandbox_mode` lines must differ. Thus the adapter enforces the read-only contract of the reviewer, not only the prompt. */
+  /** The `sandbox_mode` lines must differ. Thus the read-only contract of the reviewer is in the rendered file, and not only in the prompt text. */
   it('CodexAdapter_LowerSpec_REVIEWER_AND_IMPLEMENTER_HaveDistinctToolSurfaces', () => {
     const r = codexAdapter.lowerSpec(REVIEWER);
     const i = codexAdapter.lowerSpec(IMPLEMENTER);
@@ -148,7 +148,7 @@ describe('CodexAdapter', () => {
   });
 
   /**
-   * Reads the committed `.codex/agents/*.toml` files, to catch drift between the adapter output and the files that ship.
+   * The test reads the committed `.codex/agents/*.toml` files, to catch drift between the adapter output and the files that ship.
    * A stale render or a hand edit can leave a wrong `sandbox_mode` in a committed file while the `lowerSpec` tests pass.
    * The repo root is five directories up from this test file.
    */

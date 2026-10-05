@@ -281,7 +281,7 @@ describe('SHIM_REGISTRY — real repo (exit proof e)', () => {
   });
 });
 
-/** The port type name, spliced so that a tree scan does not take this test file for a renderer. */
+/** The port type name, spliced so that a tree scan does not detect this test file as a renderer. */
 const PORT = 'Runtime' + 'Adapter';
 
 interface RendererFixtureOptions {
@@ -704,7 +704,7 @@ describe('DR-14 live tree — the inventory reflects the shipped renderers', () 
     expect(renderers).toHaveLength(5);
   });
 
-  /** This test shows that the marker scan cannot find the shipped renderers. */
+  /** No shipped renderer file holds a marker, so the marker scan finds none of them. */
   it('DiscoverRenderers_RealRepo_NoneOfTheFiveCarriesAShimMarker', () => {
     const markers = discoverShims({ repoRoot: REPO_ROOT, roots: SHIM_SCAN_ROOTS });
     const markerFiles = new Set(markers.map((m) => m.file));

@@ -55,8 +55,8 @@ describe('detectAgentEnvironments — baseline', () => {
 });
 
 /**
- * `mapFs` builds an fs probe from a map of absolute path to file content. A path that is not in the map throws ENOENT.
- * `stat` reports each path in `dirs` as a directory.
+ * `mapFs` builds an fs probe from a map of absolute path to file content. `readFile` throws ENOENT for a path that is not in the map.
+ * `stat` reports each path in `dirs` as a directory, and it throws ENOENT for a path that is in neither.
  */
 describe('detectAgentEnvironments — claude-code', () => {
   function mapFs(files: Record<string, string>, dirs: string[] = []): NonNullable<DetectorDeps['fs']> {

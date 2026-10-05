@@ -1,5 +1,6 @@
 /**
- * Tests for the `hooks:guard` CI check, the hooks twin of `skills-guard.test.ts`.
+ * Tests for the `hooks:guard` CI check. This file is the hooks twin of
+ * `skills-guard.test.ts`.
  *
  * The guard builds the hooks tree in process and runs `git diff --exit-code` on
  * `hooks/` and `binding/`. A diff means stale committed output or a hand edit of
@@ -177,8 +178,11 @@ function shrunkRuntimeYaml(name: string, hooksLines: string[]): string {
 
 /**
  * Provision a temp project whose `hooks.json` source holds `SessionStart` and
- * `SubagentStop`, and no `SessionEnd`. The runtimes cover each dispatch branch:
- * claude gets the one active `hooks.json`, and codex and opencode get a note.
+ * `SubagentStop`, and no `SessionEnd`. The runtimes cover the `claude-json`,
+ * `opencode-plugin` and `none` profiles. The claude runtime gets the one active
+ * `hooks.json`, and each other runtime gets a note. Codex also declares
+ * `claude-json`, so it covers the note branch of that profile.
+ *
  * The opencode plugin template is present, although the renderer does not read
  * it. Thus a renderer that emits the plugin again still builds, and the shape
  * assertions catch it.
@@ -318,8 +322,9 @@ describe('runHooksGuard — #1476 T10', () => {
 
 describe('runHooksGuard — shrunk hook tree (DR-7)', () => {
   /**
-   * The shape assertions bind the pass to the shrunk tree. The Claude `hooks.json`
-   * is the one active artifact, and codex and opencode emit no lifecycle artifact.
+   * A pass of the guard is not sufficient, so the test also asserts the shape of
+   * the shrunk tree. The Claude `hooks.json` is the one active artifact, and
+   * codex and opencode emit no lifecycle artifact.
    */
   it('hooksGuard_ShrunkTree_Passes', async () => {
     const { root, outDir } = await provisionShrunkProject();

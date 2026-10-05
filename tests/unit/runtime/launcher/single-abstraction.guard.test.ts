@@ -6,9 +6,9 @@
  * The harness names come from `TIER1_HARNESSES`. Each scanner test first runs its scanner on
  * synthetic bad and good fixtures, so a scanner that reports nothing fails the test.
  *
- * The compile-time pin in `harness-registry.type-test.ts` is the primary gate for a function in a
- * descriptor. A text scan cannot see a dispatch table that is built at runtime or across modules.
- * Thus a green scan is necessary but not sufficient.
+ * The type-level pin in `harness-registry.type-test.ts` is the primary gate for a function in a
+ * descriptor, and it holds only when `tsc` compiles that file. A text scan cannot see a dispatch
+ * table that is built at runtime or across modules. Thus a green scan is necessary but not sufficient.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -114,7 +114,7 @@ function stripComments(src: string): string {
 
 /**
  * Finds control flow that branches on a harness name. It reports three shapes:
- *  - `switch (<expr>)` where the discriminant contains "harness" in any case.
+ *  - `switch (<name>)` where the name or dotted path contains "harness", in upper or lower case.
  *  - A `case '<member>':` label.
  *  - `===` or `!==` against a `'<member>'` literal, in either order.
  * It does not match an object-literal key or a bracket access that holds a member name.
@@ -151,7 +151,7 @@ function scanHarnessNameBranching(source: string, members: readonly string[]): V
  * `Record<HarnessTarget, HarnessDescriptor>` passes. It reports three shapes:
  *  - `Record<Harness…, (…) => …>`, an arrow-function value type.
  *  - `Record<Harness…, X>` where the name `X` ends in Fn, Func, Function, Handler, Callback, Hook or Behavior.
- *  - An object-literal entry that maps a member key to an arrow function or a `function` expression.
+ *  - An object-literal entry that maps a member key to a `(…) =>` arrow function or a `function` expression.
  * A member that is not a valid identifier matches only as a quoted key.
  */
 function scanHarnessKeyedBehaviorMap(source: string, members: readonly string[]): Violation[] {
@@ -280,8 +280,8 @@ describe('single-abstraction anti-drift structural guard (DR-4)', () => {
   });
 
   /**
-   * `harness-registry.type-test.ts` still holds the compile-time pin, bound to the `pureDataAssertionHolds` declaration.
-   * `tsc --noEmit` does the type check. This test only detects removal of the pin.
+   * `harness-registry.type-test.ts` still holds the type-level pin, bound to the `pureDataAssertionHolds` declaration.
+   * Only a `tsc` compile of that file does the type check. This test only detects removal of the pin.
    */
   it('Descriptor_TypeLevel_PureData', () => {
     const typeTestPath = resolve(__dirname, '../../../tests/unit/runtime/launcher/harness-registry.type-test.ts');

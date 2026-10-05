@@ -2,8 +2,8 @@
  * Tests for `content/harness/runtimes/opencode.yaml`.
  *
  * - `supportedCapabilities` must be a YAML mapping that agrees with `OpenCodeAdapter.supportLevels`.
- *   It holds six native and two advisory entries. It omits the three `unsupported` capabilities:
- *   the two Claude-only signal hooks and `team:agent-teams`.
+ *   It holds six native and two advisory entries. It omits the three `unsupported` capabilities, which are
+ *   Claude-only: `subagent:completion-signal`, `subagent:start-signal` and `team:agent-teams`.
  * - `SPAWN_AGENT_CALL` must set `subagent_type` to the `{{agent}}` token, not to `exarchos-implementer`.
  *   The adapter writes each agent file to `.opencode/agents/<id>.md` with no plugin prefix.
  */

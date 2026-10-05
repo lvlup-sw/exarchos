@@ -43,7 +43,7 @@ describe('digestText mirrors P03-01 authority-digest', () => {
 
 /**
  * Tree 3 holds two entries that give the same bytes when no delimiter divides path and content.
- * Tree 4 starts with a BOM.
+ * The content of the entry in tree 4 starts with a BOM.
  */
 describe('digestTree mirrors P05-04 install-identity', () => {
   const trees: ReadonlyArray<ReadonlyArray<{ path: string; content: string }>> = [

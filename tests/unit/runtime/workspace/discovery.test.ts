@@ -36,7 +36,10 @@ async function seedExarchosWorkspace(root: string, featureId: string): Promise<v
   );
 }
 
-/** Builds the `file://` URI with `pathToFileURL`, which escapes the drive letter and the backslashes of a Windows path. */
+/**
+ * Builds the `file://` URI with `pathToFileURL`.
+ * A hand-built `file://` string is wrong for a Windows path, which has a drive letter and backslashes.
+ */
 function fileUriFor(p: string): string {
   return pathToFileURL(p).href;
 }

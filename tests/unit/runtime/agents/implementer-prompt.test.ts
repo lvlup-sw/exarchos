@@ -48,8 +48,8 @@ describe('renderImplementerPrompt — tier-conditional verification note', () =>
   });
 
   /**
-   * The medium and high notes judge adequacy by outcome, test-after, and name no `REFACTOR` step.
-   * The `check_test_adequacy` kill-probe proves that a test can fail.
+   * The medium and high notes judge adequacy by outcome and accept test-after. They name no
+   * `REFACTOR` step. The `check_test_adequacy` kill-probe proves that a test can fail.
    */
   it('RenderImplementerPrompt_MediumHighTier_EmitsAdequacyBlock_TestAfter', () => {
     for (const riskTier of ['medium', 'high'] as const) {

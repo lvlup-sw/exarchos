@@ -167,7 +167,10 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
     expect(tempArtifacts()).toEqual([]);
   });
 
-  /** The fixture is a truncated document, such as a non-atomic write or an incomplete manual edit leaves. */
+  /**
+   * The fixture is a truncated document. A non-atomic write or an incomplete
+   * manual edit can leave such a file.
+   */
   it('ReadJsonConfig_CorruptFile_ThrowsTypedErrorNotSilentDefault', () => {
     fs.writeFileSync(target, '{ "mcpServers": { "exarchos": ', 'utf-8');
 
@@ -182,7 +185,7 @@ describe('atomic JSON configuration I/O (EFF-008)', () => {
 
   /**
    * An absent file is a normal first-run state. A reader that gives the same result
-   * for an absent file and a corrupt file lets a later write replace a config silently.
+   * for an absent file and a corrupt file lets a later write replace a configuration silently.
    */
   it('ReadJsonConfig_MissingFile_IsAbsentNotCorrupt', () => {
     expect(readJsonConfig(path.join(dir, 'nope.json'))).toBeNull();

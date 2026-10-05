@@ -72,8 +72,8 @@ describe('Core Plugin Structure', () => {
 
     /**
      * The declared `minBinaryVersion` must equal the `SERVER_VERSION` constant. The
-     * test reads the constant from the source text and does not import
-     * `src/index.ts`, the entry point of the binary.
+     * test reads the constant from the source text. An import of `src/index.ts`
+     * loads the whole import graph of the binary, which this assertion does not need.
      */
     it('PluginJson_MinBinaryVersion_MatchesCurrentBinary', () => {
       const pluginPath = join(repoRoot, '.claude-plugin', 'plugin.json');

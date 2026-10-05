@@ -48,7 +48,7 @@ describe('injection-seam (DR-7)', () => {
   /**
    * The repo dir is the cwd of the child, and it starts empty. The test lists its files before and
    * after the injection, so it catches a write through any `fs` import. The env assertion proves
-   * that the injection ran, because a function that does nothing also writes nothing.
+   * that the injection ran. Without it, a function that does nothing passes the test.
    */
   it('Injection_Payload_NoRepoWrite', () => {
     const before = listFilesDeep(repoDir);
@@ -66,6 +66,7 @@ describe('injection-seam (DR-7)', () => {
    * The payload carries the `orientation` channel and `authoritative: false`, and it differs from
    * a directive payload. The injection writes the two orientation keys and never the directive
    * key. The exported type invariants and the `expectTypeOf` calls state the same tag as types.
+   * `expectTypeOf` checks nothing at runtime.
    */
   it('Injection_TaggedNonAuthoritativeOrientation', () => {
     const payload = orientationPayload('some orientation');
@@ -176,8 +177,8 @@ describe('applyOrientationChannel — resolved native-channel applier (DR-6)', (
   });
 
   /**
-   * The flag and the temp-file path follow the existing args, and the temp file gets the
-   * orientation content. The tagged orientation env keys carry the content too.
+   * The flag and the temp-file path follow the existing args, and the `writeTempFile` seam receives
+   * the orientation content. The orientation env keys carry the content and the authority marker.
    */
   it('applyFlagChannel_FileForm_WritesTempFileAndTagsEnv', () => {
     const captured: string[] = [];
@@ -226,8 +227,9 @@ describe('applyOrientationChannel — resolved native-channel applier (DR-6)', (
   });
 
   /**
-   * The size guard limits only inline placement on argv or env. The `config-json` form writes the
-   * content to a temp file, as the `dir` form does, so oversized content does not throw.
+   * The size guard applies only to the `string` and `assignment` flag forms, which place the
+   * content inline on argv. The `config-json` form writes the content to disk, as the `dir` form
+   * does, so oversized content does not throw.
    */
   it('applyEnvChannel_ConfigJsonForm_NoSizeGuard_ContentWritesToDiskRegardlessOfSize', () => {
     const oversized = 'x'.repeat(33 * 1024);

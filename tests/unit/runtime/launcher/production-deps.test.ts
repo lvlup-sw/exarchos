@@ -2,7 +2,8 @@
  * Tests for the production launcher wiring, `makeLauncherLifecycleDeps` and `recoverBeforeLaunch`.
  *
  * The composed `RunLifecycleDeps` must carry the fail-closed teardown and the real signal handlers.
- * Each test uses a real `EventStore` and injects the git, process-table and signal seams.
+ * Each test uses a real `EventStore`. The teardown tests inject the git and process-table seams.
+ * The signal tests inject the registrar, and the recovery tests inject the recovery pass.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -174,7 +175,7 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
 
   /**
    * The wired `installSignals` registers a `SIGTERM` listener on the injected registrar.
-   * On the signal, it forwards to the child, runs teardown and emits the terminal.
+   * On the signal, the listener forwards `SIGTERM` to the child, emits the terminal and runs teardown.
    * The uninstaller removes the listener.
    */
   it('ProdDeps_InstallSignals_ForwardsAndTearsDown', async () => {
@@ -222,7 +223,7 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
   });
 
   /**
-   * A teardown that throws on the signal path reaches `launcherLogger.error` with the error, the signal and the holder PID.
+   * When teardown throws on the signal path, the wiring calls `launcherLogger.error` with the error, the signal and the holder PID.
    * The default `onError` of `installSignalHandlers` is a no-op, so this test fails when the wiring passes no `onError`.
    */
   it('ProdDeps_InstallSignals_OnError_LogsSignalPathFailure', async () => {
@@ -276,7 +277,7 @@ describe('makeLauncherLifecycleDeps / recoverBeforeLaunch — production wiring 
     expect(calledWith).toEqual({ repoRoot: '/repo/root' });
   });
 
-  /** A recovery pass that throws does not make `recoverBeforeLaunch` reject. */
+  /** A recovery pass that throws does not make `recoverBeforeLaunch` reject, so a recovery failure cannot block a launch. */
   it('RecoverBeforeLaunch_SwallowsFailure', async () => {
     await expect(
       recoverBeforeLaunch(ctx, '/repo/root', {

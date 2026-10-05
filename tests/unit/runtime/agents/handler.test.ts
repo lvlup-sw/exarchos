@@ -4,6 +4,7 @@ import { describe, it, expect } from 'vitest';
 import { handleAgentSpec, agentSpecSchema } from '../../../../src/runtime/agents/handler.js';
 
 describe('handleAgentSpec', () => {
+  /** Each skill has its name and an empty `content`, because the runtime loads the skill content. */
   it('AgentSpec_ValidAgent_ReturnsFullSpec', async () => {
     const args = { agent: 'implementer' as const, outputFormat: 'full' as const };
 

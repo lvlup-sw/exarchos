@@ -117,7 +117,7 @@ describe('build pipeline wiring (Task 6)', () => {
   describe('BuildPipeline_GenerateAgentsScript_RunsWithoutError', () => {
     let sandbox: string;
 
-    /** The generator updates the `agents` field of an existing `.claude-plugin/plugin.json`, so the sandbox gets a minimal manifest. */
+    /** The generator throws when `.claude-plugin/plugin.json` is missing, so the sandbox gets a minimal manifest. */
     beforeAll(() => {
       sandbox = fs.mkdtempSync(
         path.join(os.tmpdir(), 'exarchos-build-pipeline-'),

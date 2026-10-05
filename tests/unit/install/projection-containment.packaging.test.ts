@@ -4,8 +4,8 @@
  *
  *   1. Each projection kind has at least one projection.
  *   2. The tree passes containment for presence and selection.
- *   3. For each kind, a seeded removal, replacement or stale duplicate of a real
- *      projection fails.
+ *   3. For each kind, a seeded removal or replacement of a real projection fails.
+ *      A seeded stale duplicate fails only when it is ahead of the packaged layer.
  *   4. `package.json` `files[]` declares each projection root, or its embedded-binary carrier.
  *
  * The packaged layer is an in-memory copy of the committed generated trees, not the
@@ -159,7 +159,8 @@ describe('projection roots are actually shipped (package.json files[])', () => {
 
   /**
    * `findCommandAliasesSourceDir` resolves `rendered/command-aliases` at install time,
-   * so `files[]` must hold the `rendered` root.
+   * so `files[]` must hold the `rendered` root. Without that root, the alias install
+   * copies nothing and reports no error.
    */
   it('the command-aliases projection root ships (regression for the P05-03 packaging gap)', () => {
     expect(files).toContain('rendered');

@@ -8,8 +8,9 @@
  * state with faults through the {@link PromotionIo} seam, then remove or corrupt the journal.
  * The assertions compare the content digest of the backup tree.
  *
- * The second suite pins that the refusal is narrow. A first install, a normal replacement, a
- * stale backup beside a present `target`, and a usable journal all promote.
+ * The second suite pins that the refusal is narrow, because a refusal of a legitimate state
+ * blocks the install. A first install, a normal replacement, a stale backup beside a present
+ * `target`, and a usable journal all promote.
  */
 
 import * as fs from 'node:fs';
@@ -112,8 +113,8 @@ class InjectedFault extends Error {}
 /**
  * Drive the real promotion into the state that a kill between the two renames leaves. In that
  * state `target` is absent, the backup holds the full old tree, and the journal is on disk.
- * It faults the commit rename and the rollback restore, then asserts that state. Each test
- * then decides how the journal is lost.
+ * It faults the commit rename and the rollback restore, then asserts that state. Each caller
+ * then removes the journal, corrupts it, or keeps it.
  */
 function crashBetweenRenames(): void {
   writeTree(target, OLD_TREE);
@@ -250,7 +251,7 @@ describe('DR-17 — an orphan backup is refused, never destroyed', () => {
   /**
    * Through the effect carrier, a refusal must arrive as an error outcome, not as a throw. The
    * recorder gets no call, because the run promoted nothing. The `cause` keeps the typed
-   * `ORPHAN_BACKUP` error, so a caller can tell it from each other install failure.
+   * `ORPHAN_BACKUP` error, so a caller can tell it from any other install failure.
    */
   it('PromoteTree_OrphanBackup_SurfacesRefusalThroughTheEffectCarrier', async () => {
     crashBetweenRenames();
@@ -312,7 +313,7 @@ describe('DR-17 — the refusal does not fire on any legitimate promotion', () =
     expect(fs.existsSync(journalFile())).toBe(false);
   });
 
-  /** The promotion removes the backup that it made, so the guard leaves no permanent orphan. */
+  /** The promotion still removes the backup that it made. The guard does not make that backup a permanent orphan. */
   it('PromoteTree_ExistingTargetNoJournal_PromotesAndCleansItsOwnBackup', () => {
     writeTree(target, OLD_TREE);
     expect(diskDigest(target)).toBe(OLD_DIGEST);

@@ -1,11 +1,11 @@
 // A cross-process integration test of the injection spawn seam. `writeFakeHarness` writes a fake
-// harness binary, a POSIX shell script. On `--help` the script prints the given help text and
-// appends a line to a probe-count file. On a normal run it writes its argv and the injected env to
-// a capture file.
+// harness binary, a bash script. On `--help` the script prints the given help text and appends a
+// line to a probe-count file. On a normal run it writes its argv and the orientation and directive
+// env values to a capture file. The script is POSIX-only, so the suite does not run on win32.
 //
 // `runSeam` runs the real seam: `resolveInjectionChannel` with the default `--help` probe,
 // `applyOrientationChannel` with a real temp file, and `spawnHarnessChild`. It then parses the
-// capture file, which shows what reached the child. The suite does not run on win32.
+// capture file, which shows what reached the child.
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';

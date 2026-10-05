@@ -41,7 +41,10 @@ afterEach(async () => {
   }
 });
 
-/** A process table with a fixed snapshot. It has no `isSupported` predicate, so an absent PID is provably dead. */
+/**
+ * A process table with a fixed snapshot. It has no `isSupported` predicate, so it reads as supported.
+ * Thus an absent PID is provably dead.
+ */
 function tableSource(records: readonly ProcessRecord[]): ProcessTableSource {
   return { list: () => records };
 }

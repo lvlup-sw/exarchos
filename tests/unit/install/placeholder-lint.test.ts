@@ -319,7 +319,10 @@ describe('placeholder-lint — task 002 (collapsed-vocabulary rules)', () => {
     expect(result.passed).toBe(true);
   });
 
-  /** `enforceCollapsedVocabulary` is off by default, and then the collapsed-vocabulary pass does not run. */
+  /**
+   * `enforceCollapsedVocabulary` is off by default. When it is off, the
+   * collapsed-vocabulary pass does not run.
+   */
   it('lintPlaceholders_PrefixTokenInProceduralSkill_NotEnforcedByDefault', () => {
     const sourcesDir = makeTempDir();
     mkdirSync(join(sourcesDir, 'proc'), { recursive: true });

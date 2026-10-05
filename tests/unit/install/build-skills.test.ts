@@ -1,7 +1,7 @@
 /**
- * Tests for the skills renderer in `src/install/build-skills.ts`. They cover placeholder
- * substitution, token arguments, reference copy, CALL macros, `requires` guards, the
- * vocabulary lint, skill classification, and `buildAllSkills`.
+ * Tests for the skills renderer, which `src/install/build-skills.ts` exports. They cover
+ * placeholder substitution, token arguments, reference copy, CALL macros, `requires` guards,
+ * the vocabulary lint, skill classification, and `buildAllSkills`.
  */
 
 import { describe, it, expect, afterEach, beforeAll, afterAll } from 'vitest';
@@ -133,7 +133,7 @@ describe('render — task 004: error handling', () => {
     expect(err!.message).toContain('content/harness/runtimes/claude.yaml');
   });
 
-  /** The input is a dirty string built by hand, not the output of `render`. */
+  /** The input is a hand-written string with a leftover token, not the output of `render`. */
   it('Render_UnresolvedPostRender_ThrowsViaAssert', () => {
     const rendered = 'line1\nline2 has {{LEFTOVER}}\nline3';
     expect(() =>
@@ -488,8 +488,9 @@ describe('buildAllSkills — task 007', () => {
 });
 
 /**
- * The loaded `RuntimeMap` must keep `preferredFacade`, typed as `PreferredFacade`. Both tests
- * load a real runtime YAML file: `claude.yaml` declares `mcp` and `generic.yaml` declares `cli`.
+ * The loaded `RuntimeMap` must keep `preferredFacade`. Both tests load a real runtime YAML
+ * file: `claude.yaml` declares `mcp` and `generic.yaml` declares `cli`. The assignment to a
+ * `PreferredFacade` constant checks the type only when a typecheck covers this file.
  */
 describe('renderer RuntimeMap — task 003 (DR-1)', () => {
   it('Renderer_RuntimeMap_ExposesPreferredFacade', () => {
@@ -606,7 +607,7 @@ describe('parseCallMacro', () => {
 /**
  * The `beforeAll` hook wires the real registry lookup, `findActionInRegistry`. The `afterAll`
  * hook clears it, because the `renderCallMacros` blocks that follow use calls that the real
- * registry does not hold.
+ * registry rejects. One example is the `set` action of `exarchos_workflow`, which is absent.
  */
 describe('validateCallMacro', () => {
   let validateCallMacro: typeof import('../../../src/install/build-skills.js').validateCallMacro;
@@ -1011,8 +1012,9 @@ describe('buildAllSkills — task 009: render-time CALL macro failures', () => {
  * These tests cover the per-runtime token values, the runtime token coverage check, the
  * `<!-- requires:* -->` and `<!-- requires:native:* -->` guards, reference pruning, and a
  * repeated build. The fixtures are synthetic and do not read the real `content/` tree.
- * `makeWaveARuntimeYaml` takes a `supportedCapabilities` map, so a test can vary the guard
- * result. `FULL_PLACEHOLDERS` holds each token that a runtime must declare.
+ * Each runtime fixture gets its `supportedCapabilities` map from `SUPPORTED_BY_RUNTIME`, so
+ * the guard result differs by runtime. `FULL_PLACEHOLDERS` holds each token that a runtime
+ * must declare.
  */
 describe('buildAllSkills — Wave A: capability-aware prose renderer', () => {
   function makeWaveARuntimeYaml(
@@ -1652,7 +1654,7 @@ describe('buildAllSkills — Wave B: post-render vocabulary lint', () => {
   });
 
   /**
-   * `TaskOutput` is outside a guard and a code block, so it reaches the OpenCode render.
+   * `TaskOutput` is in no guard and in no code block, so it reaches the OpenCode render.
    * The error names the term, the runtime, the source path, line 5, and a remediation.
    */
   it('VocabularyLint_ForbiddenTermInOpenCodeRender_FailsCI', () => {
@@ -1874,7 +1876,7 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
   }
 
   /**
-   * The reference body must hold the value of each runtime, not the literal token.
+   * Each rendered reference must hold the token value of its runtime, not the literal token.
    * The Claude value must not reach the OpenCode reference.
    */
   it('BuildSkills_ReferenceFile_TokenExpansion_RendersPerRuntime', () => {
@@ -2080,8 +2082,8 @@ describe('buildAllSkills — Wave C: reference rendering + lint', () => {
 });
 
 /**
- * `classifySkill` reads only the canonical placeholder tokens of a source. An orchestration
- * token makes the skill `orchestration`, and each other source is `procedural`.
+ * `classifySkill` derives the class from only the canonical placeholder tokens of a source.
+ * An orchestration token makes the skill `orchestration`, and each other source is `procedural`.
  * `assertProceduralSkill` rejects an orchestration token or a `<!-- requires:* -->` guard.
  * A procedural skill has one render, so neither construct can vary by runtime in it.
  */
