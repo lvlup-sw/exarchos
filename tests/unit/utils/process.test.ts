@@ -1,6 +1,27 @@
 import { describe, it, expect } from 'vitest';
-import { needsWindowsShell, runCommandSync, spawnCommandSync } from '../../../src/utils/process.js';
+import { EventEmitter, once } from 'node:events';
+import type { ChildProcess, SpawnOptions } from 'node:child_process';
+import {
+  needsWindowsShell,
+  runCommandSync,
+  spawnCommand,
+  spawnCommandSync,
+  type ChildSpawn,
+} from '../../../src/utils/process.js';
 import { isolatedSync } from '../../../tools/test-helpers/spawn.js';
+
+/** A {@link ChildSpawn} double that records each launch and returns an idle child. */
+function recordingSpawn(): {
+  readonly calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }>;
+  readonly spawn: ChildSpawn;
+} {
+  const calls: Array<{ command: string; args: readonly string[]; options: SpawnOptions }> = [];
+  const spawn: ChildSpawn = (command, args, options) => {
+    calls.push({ command, args, options });
+    return new EventEmitter() as unknown as ChildProcess;
+  };
+  return { calls, spawn };
+}
 
 describe('needsWindowsShell (#1623)', () => {
   it('NeedsWindowsShell_BarePackageManagerOnWin32_True', () => {
@@ -66,5 +87,33 @@ describe('spawnCommandSync (#1623)', () => {
     // exit code so callers (post-merge) can branch on it.
     const r = await isolatedSync(() => spawnCommandSync('node', ['-e', 'process.exit(3)'], { encoding: 'utf-8' }));
     expect(r.status).toBe(3);
+  });
+});
+
+describe('spawnCommand', () => {
+  it('SpawnCommand_BareShimOnWin32_LaunchesThroughTheShellWithQuotedArgs', () => {
+    const recorder = recordingSpawn();
+    spawnCommand('npx', ['--yes', 'a b'], { stdio: 'pipe' }, { platform: 'win32', spawn: recorder.spawn });
+    expect(recorder.calls).toEqual([
+      { command: 'npx', args: ['--yes', '"a b"'], options: { stdio: 'pipe', shell: true } },
+    ]);
+  });
+
+  it('SpawnCommand_NativeCommandOnWin32_LaunchesWithNoShell', () => {
+    const recorder = recordingSpawn();
+    spawnCommand('git', ['log', 'a b'], {}, { platform: 'win32', spawn: recorder.spawn });
+    expect(recorder.calls).toEqual([{ command: 'git', args: ['log', 'a b'], options: {} }]);
+  });
+
+  it('SpawnCommand_ShimOnPosix_LaunchesWithNoShell', () => {
+    const recorder = recordingSpawn();
+    spawnCommand('npx', ['--yes', 'a b'], {}, { platform: 'linux', spawn: recorder.spawn });
+    expect(recorder.calls).toEqual([{ command: 'npx', args: ['--yes', 'a b'], options: {} }]);
+  });
+
+  it('SpawnCommand_DefaultSpawn_RunsTheChildAndReportsItsExitCode', async () => {
+    const child = spawnCommand(process.execPath, ['-e', 'process.exit(3)'], { stdio: 'ignore' });
+    const [code] = await once(child, 'close');
+    expect(code).toBe(3);
   });
 });

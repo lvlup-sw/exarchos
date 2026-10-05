@@ -33,7 +33,7 @@
  *             Fixes #1217 (non-interactive no-op + missing MCP registration).
  */
 
-import { spawn as nodeSpawn, type SpawnOptions } from 'node:child_process';
+import type { SpawnOptions } from 'node:child_process';
 import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -52,6 +52,7 @@ import {
   unknownRuntimeMessage,
 } from './install-skills-messages.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
+import { spawnCommand, type SpawnCommandDeps } from '../utils/process.js';
 
 /**
  * Result shape returned by the injected spawn function. We intentionally keep
@@ -525,23 +526,26 @@ function printInstallSummary(
 }
 
 /**
- * Default spawn wrapper: wires `child_process.spawn` into the `SpawnFn` shape
- * used by `installSkills`. Captures stderr so callers can surface it verbatim
- * on failure (task 021). Not used in unit tests — they inject a fake.
+ * Make the default {@link SpawnFn}. It starts the child with {@link spawnCommand}, so on win32 the `npx`
+ * shim launches through `cmd.exe`. It captures stderr for the caller, and it also copies stderr to the
+ * real stderr so the user sees live output. Tests pass `deps` to plan a win32 launch on a POSIX host.
  */
-const defaultSpawn: SpawnFn = (cmd, args, opts) => {
-  return new Promise<SpawnResult>((resolve, reject) => {
-    const child = nodeSpawn(cmd, args, { stdio: ['inherit', 'inherit', 'pipe'], ...opts });
-    let stderr = '';
-    child.stderr?.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
-      // Also surface to the real stderr so users see live output.
-      process.stderr.write(chunk);
+export function createDefaultSpawn(deps: SpawnCommandDeps = {}): SpawnFn {
+  return (cmd, args, opts) =>
+    new Promise<SpawnResult>((resolve, reject) => {
+      const child = spawnCommand(cmd, args, { stdio: ['inherit', 'inherit', 'pipe'], ...opts }, deps);
+      let stderr = '';
+      child.stderr?.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8');
+        process.stderr.write(chunk);
+      });
+      child.on('error', (err) => reject(err));
+      child.on('close', (code) => resolve({ code: code ?? 0, stderr }));
     });
-    child.on('error', (err) => reject(err));
-    child.on('close', (code) => resolve({ code: code ?? 0, stderr }));
-  });
-};
+}
+
+/** The {@link SpawnFn} that `installSkills` uses when the caller injects none. */
+const defaultSpawn: SpawnFn = createDefaultSpawn();
 
 /**
  * Find a runtime by name. Returns `undefined` if the name is not present in
@@ -573,6 +577,13 @@ export function mapRuntimeToSkillsCliAgent(runtimeName: string): string {
       return runtimeName;
   }
 }
+
+/**
+ * The form of an agent ID that `installSkills` passes to the `skills` CLI. A runtime name is caller
+ * data. On win32 the `npx` launch goes through `cmd.exe`, which reads `&` or `|` in an argument as
+ * a command separator.
+ */
+const SKILLS_AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 // ─── Canonical layout + provenance manifest (DR-4, DR-8) ─────────────────────
 //
@@ -1230,7 +1241,7 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const runtimes = opts.runtimes ?? [];
   const log = opts.log ?? ((msg: string) => console.log(msg));
   const errLog = opts.errLog ?? ((msg: string) => console.error(msg));
-  const spawn = opts.spawn ?? defaultSpawn;
+  const spawnChild = opts.spawn ?? defaultSpawn;
   const homeDirFn = opts.homeDir ?? (() => homedir());
   const registerMcp = opts.registerMcp ?? registerExarchosInClaudeJson;
   const isInteractive =
@@ -1403,6 +1414,12 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const skillsDest = expandTilde(runtime.skillsInstallPath, home);
 
   const skillsAgentId = mapRuntimeToSkillsCliAgent(runtime.name);
+  if (!SKILLS_AGENT_ID.test(skillsAgentId)) {
+    throw new Error(
+      `install-skills: runtime name ${JSON.stringify(runtime.name)} is not a valid skills agent ID. ` +
+        'Use letters, digits, ".", "_" and "-" only.',
+    );
+  }
   const cmd = 'npx';
   const args = [
     '--yes',
@@ -1426,7 +1443,7 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   //   - Echo the exact command for manual retry.
   //   - Throw an Error carrying the child's exitCode so the CLI main() can
   //     forward it to process.exit(code).
-  const result = await spawn(cmd, args, {
+  const result = await spawnChild(cmd, args, {
     // Force the upstream CLI off colorized output and into a CI-friendly
     // mode so its progress spinner does not write thousands of escape
     // sequences when run under a pipe. Pure cosmetics; functionally a no-op.

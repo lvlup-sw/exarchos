@@ -7,7 +7,7 @@
     "testFiles": 1315,
     "parsedFiles": 1269,
     "shellFiles": 46,
-    "cases": 14504,
+    "cases": 14511,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -33147,6 +33147,21 @@
           "suite": "legacy-render + install-manifest provenance helpers",
           "name": "installManifestVouchesForDir_MatchesRecordedWholeDirHash",
           "dynamic": false
+        },
+        {
+          "suite": "installSkills default spawn",
+          "name": "InstallSkills_DefaultSpawnOnWin32_RunsTheNpxShimThroughTheShell",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills default spawn",
+          "name": "InstallSkills_DefaultSpawnOnPosix_RunsNpxWithNoShell",
+          "dynamic": false
+        },
+        {
+          "suite": "installSkills default spawn",
+          "name": "InstallSkills_AgentIdWithShellMetacharacter_RefusesBeforeAnyLaunch",
+          "dynamic": false
         }
       ]
     },
@@ -51022,6 +51037,26 @@
         {
           "suite": "spawnCommandSync (#1623)",
           "name": "SpawnCommandSync_NonZeroExit_CapturesStatusWithoutThrowing",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnCommand",
+          "name": "SpawnCommand_BareShimOnWin32_LaunchesThroughTheShellWithQuotedArgs",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnCommand",
+          "name": "SpawnCommand_NativeCommandOnWin32_LaunchesWithNoShell",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnCommand",
+          "name": "SpawnCommand_ShimOnPosix_LaunchesWithNoShell",
+          "dynamic": false
+        },
+        {
+          "suite": "spawnCommand",
+          "name": "SpawnCommand_DefaultSpawn_RunsTheChildAndReportsItsExitCode",
           "dynamic": false
         }
       ]
