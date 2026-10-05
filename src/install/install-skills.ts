@@ -578,6 +578,13 @@ export function mapRuntimeToSkillsCliAgent(runtimeName: string): string {
   }
 }
 
+/**
+ * The form of an agent ID that `installSkills` passes to the `skills` CLI. A runtime name is caller
+ * data. On win32 the `npx` launch goes through `cmd.exe`, which reads `&` or `|` in an argument as
+ * a command separator.
+ */
+const SKILLS_AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
 // ─── Canonical layout + provenance manifest (DR-4, DR-8) ─────────────────────
 //
 // DR-4 aligns installs to the cross-client `.agents/skills/` convention: the
@@ -1407,6 +1414,12 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const skillsDest = expandTilde(runtime.skillsInstallPath, home);
 
   const skillsAgentId = mapRuntimeToSkillsCliAgent(runtime.name);
+  if (!SKILLS_AGENT_ID.test(skillsAgentId)) {
+    throw new Error(
+      `install-skills: runtime name ${JSON.stringify(runtime.name)} is not a valid skills agent ID. ` +
+        'Use letters, digits, ".", "_" and "-" only.',
+    );
+  }
   const cmd = 'npx';
   const args = [
     '--yes',

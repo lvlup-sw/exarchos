@@ -1124,4 +1124,25 @@ describe('installSkills default spawn', () => {
     expect(recorder.calls.map((call) => call.options.shell)).toEqual([undefined]);
     expect(recorder.calls.flatMap((call) => call.args)).toContain('github:lvlup-sw/exarchos');
   });
+
+  /**
+   * A runtime name is caller data, and on win32 the launch goes through `cmd.exe`. A `&` in the agent
+   * ID starts a second command there, so the installer must refuse the name before any launch.
+   */
+  it('InstallSkills_AgentIdWithShellMetacharacter_RefusesBeforeAnyLaunch', async () => {
+    const recorder = recordingChildSpawn();
+    const unsafe = makeRuntime({ name: 'x&calc', skillsInstallPath: '~/.x/skills' });
+
+    await expect(
+      installSkills({
+        agent: 'x&calc',
+        runtimes: [unsafe],
+        spawn: createDefaultSpawn({ platform: 'win32', spawn: recorder.spawn }),
+        log: () => {},
+        homeDir: () => '/home/tester',
+        registerMcp: () => {},
+      }),
+    ).rejects.toThrow('is not a valid skills agent ID');
+    expect(recorder.calls).toEqual([]);
+  });
 });
