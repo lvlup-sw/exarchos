@@ -3,8 +3,6 @@ import fc from 'fast-check';
 import type { EvalCase } from './types.js';
 import { isDuplicate, computeStructuralSimilarity } from './deduplication.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeCase(id: string, input: Record<string, unknown>): EvalCase {
   return {
     id,
@@ -17,39 +15,30 @@ function makeCase(id: string, input: Record<string, unknown>): EvalCase {
   };
 }
 
-// ─── isDuplicate Tests ──────────────────────────────────────────────────────
-
 describe('isDuplicate', () => {
   it('IsDuplicate_IdenticalInput_ReturnsTrue', () => {
-    // Arrange
     const candidate = makeCase('c-1', { tool: 'workflow', action: 'set', featureId: 'feat-1' });
     const existing = [
       makeCase('e-1', { tool: 'workflow', action: 'set', featureId: 'feat-1' }),
     ];
 
-    // Act
     const result = isDuplicate(candidate, existing);
 
-    // Assert
     expect(result).toBe(true);
   });
 
   it('IsDuplicate_CompletelyDifferent_ReturnsFalse', () => {
-    // Arrange
     const candidate = makeCase('c-1', { tool: 'workflow', action: 'set' });
     const existing = [
       makeCase('e-1', { x: 42, y: 'hello', nested: { a: true } }),
     ];
 
-    // Act
     const result = isDuplicate(candidate, existing);
 
-    // Assert
     expect(result).toBe(false);
   });
 
   it('IsDuplicate_SlightVariation_BelowThreshold_ReturnsFalse', () => {
-    // Arrange — enough structural differences to fall below 0.9
     const candidate = makeCase('c-1', {
       tool: 'workflow',
       action: 'set',
@@ -67,15 +56,12 @@ describe('isDuplicate', () => {
       }),
     ];
 
-    // Act
     const result = isDuplicate(candidate, existing, 0.9);
 
-    // Assert
     expect(result).toBe(false);
   });
 
   it('IsDuplicate_SlightVariation_AboveThreshold_ReturnsTrue', () => {
-    // Arrange — nearly identical, one small value change
     const candidate = makeCase('c-1', {
       tool: 'workflow',
       action: 'set',
@@ -91,15 +77,12 @@ describe('isDuplicate', () => {
       }),
     ];
 
-    // Act — use a lower threshold that this variation should exceed
     const result = isDuplicate(candidate, existing, 0.7);
 
-    // Assert
     expect(result).toBe(true);
   });
 
   it('IsDuplicate_DifferentTypes_ReturnsFalse', () => {
-    // Arrange — same keys but completely different value types
     const candidate = makeCase('c-1', {
       a: 'string',
       b: 42,
@@ -113,19 +96,14 @@ describe('isDuplicate', () => {
       }),
     ];
 
-    // Act
     const result = isDuplicate(candidate, existing);
 
-    // Assert
     expect(result).toBe(false);
   });
 });
 
-// ─── computeStructuralSimilarity Tests ──────────────────────────────────────
-
 describe('computeStructuralSimilarity', () => {
   it('ComputeSimilarity_NestedObjects_ComparesStructurally', () => {
-    // Arrange
     const a = {
       tool: 'workflow',
       config: { phase: 'delegate', retry: true },
@@ -137,28 +115,21 @@ describe('computeStructuralSimilarity', () => {
       tags: ['feature'],
     };
 
-    // Act
     const similarity = computeStructuralSimilarity(a, b);
 
-    // Assert — mostly similar structure, one nested value differs
     expect(similarity).toBeGreaterThan(0.7);
     expect(similarity).toBeLessThan(1.0);
   });
 
   it('ComputeSimilarity_EmptyObjects_Returns1', () => {
-    // Arrange
     const a = {};
     const b = {};
 
-    // Act
     const similarity = computeStructuralSimilarity(a, b);
 
-    // Assert
     expect(similarity).toBe(1.0);
   });
 });
-
-// ─── Property-Based Tests ───────────────────────────────────────────────────
 
 describe('computeStructuralSimilarity properties', () => {
   it('symmetry: similarity(a, b) === similarity(b, a)', () => {

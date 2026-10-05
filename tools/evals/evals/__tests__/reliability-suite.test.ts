@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { EvalSuiteConfigSchema, EvalCaseSchema } from '../types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// Navigate from tools/evals/evals/__tests__/ to repo root
+/** The repository root, four levels above this directory. */
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
 const SUITE_DIR = path.join(REPO_ROOT, 'tests', 'evals', 'reliability');
 
@@ -13,15 +13,12 @@ const REQUIRED_CATEGORIES = ['stall', 'loop', 'budget', 'phase', 'recovery', 'co
 
 describe('reliability eval suite', () => {
   it('reliabilitySuite_ConfigValid_ParsesWithEvalSuiteConfigSchema', () => {
-    // Arrange
     const configPath = path.join(SUITE_DIR, 'suite.json');
     const raw = fs.readFileSync(configPath, 'utf-8');
     const parsed = JSON.parse(raw);
 
-    // Act
     const result = EvalSuiteConfigSchema.safeParse(parsed);
 
-    // Assert
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.metadata.skill).toBe('reliability');
@@ -30,11 +27,9 @@ describe('reliability eval suite', () => {
   });
 
   it('reliabilitySuite_AllDatasets_ParseAsValidEvalCases', () => {
-    // Arrange
     const configPath = path.join(SUITE_DIR, 'suite.json');
     const config = EvalSuiteConfigSchema.parse(JSON.parse(fs.readFileSync(configPath, 'utf-8')));
 
-    // Act & Assert — each dataset file parses as valid EvalCase lines
     for (const [_name, dataset] of Object.entries(config.datasets)) {
       const datasetPath = path.resolve(SUITE_DIR, dataset.path);
       const content = fs.readFileSync(datasetPath, 'utf-8');
@@ -51,11 +46,9 @@ describe('reliability eval suite', () => {
   });
 
   it('reliabilitySuite_AllCases_HaveReliabilityLayer', () => {
-    // Arrange
     const configPath = path.join(SUITE_DIR, 'suite.json');
     const config = EvalSuiteConfigSchema.parse(JSON.parse(fs.readFileSync(configPath, 'utf-8')));
 
-    // Act & Assert — every case must have layer: 'reliability'
     for (const [_name, dataset] of Object.entries(config.datasets)) {
       const datasetPath = path.resolve(SUITE_DIR, dataset.path);
       const content = fs.readFileSync(datasetPath, 'utf-8');
@@ -69,13 +62,11 @@ describe('reliability eval suite', () => {
   });
 
   it('reliabilitySuite_CoversSixCategories_StallLoopBudgetPhaseRecoveryCompaction', () => {
-    // Arrange
     const configPath = path.join(SUITE_DIR, 'suite.json');
     const config = EvalSuiteConfigSchema.parse(JSON.parse(fs.readFileSync(configPath, 'utf-8')));
 
     const foundCategories = new Set<string>();
 
-    // Act — collect tags from all cases
     for (const [_name, dataset] of Object.entries(config.datasets)) {
       const datasetPath = path.resolve(SUITE_DIR, dataset.path);
       const content = fs.readFileSync(datasetPath, 'utf-8');
@@ -91,7 +82,6 @@ describe('reliability eval suite', () => {
       }
     }
 
-    // Assert — all 6 categories must be covered
     for (const category of REQUIRED_CATEGORIES) {
       expect(foundCategories.has(category), `Missing category: ${category}`).toBe(true);
     }

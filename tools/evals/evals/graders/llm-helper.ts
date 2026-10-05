@@ -20,7 +20,6 @@ export async function callLlmAssertion(
   const passReason = options?.passReason ?? 'Passed';
   const failReason = options?.failReason ?? 'Failed';
 
-  // Skip if no API key
   if (!process.env['ANTHROPIC_API_KEY']) {
     return {
       passed: true,

@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { LlmRubricGrader } from './llm-rubric.js';
 
-// promptfoo is an opt-in eval-only dependency (DR-3) and is NOT installed in the
-// default test closure, so it cannot be mocked by bare specifier. Instead mock
-// the loader seam the grader depends on — `loadPromptfooAssertions()` — which is
-// exactly where the grader now obtains the promptfoo `assertions` surface.
+/**
+ * Stands in for promptfoo `matchesLlmRubric`. The default install does not hold promptfoo, so a mock of the
+ * bare specifier cannot resolve. The test mocks the loader seam `loadPromptfooAssertions()` instead.
+ */
 const mockMatchesLlmRubric = vi.fn();
 
 vi.mock('./promptfoo-loader.js', async (importOriginal) => {
@@ -223,6 +223,7 @@ describe('LlmRubricGrader', () => {
 });
 
 describe.skipIf(!process.env.RUN_EVALS || !process.env.ANTHROPIC_API_KEY)('LlmRubricGrader (live)', () => {
+  /** The LLM verdict is not deterministic, so this test asserts only the shape of the result. */
   it('should grade with real Anthropic API call', { timeout: 30_000 }, async () => {
     const grader = new LlmRubricGrader();
     const result = await grader.grade(
@@ -231,8 +232,6 @@ describe.skipIf(!process.env.RUN_EVALS || !process.env.ANTHROPIC_API_KEY)('LlmRu
       {},
       { rubric: 'Does the output contain a greeting?', outputPath: 'text' },
     );
-    // Verify the grader returns a well-formed GradeResult — the LLM's
-    // pass/fail judgment is non-deterministic, so we only assert structure.
     expect(typeof result.passed).toBe('boolean');
     expect(typeof result.score).toBe('number');
     expect(result.score).toBeGreaterThanOrEqual(0);

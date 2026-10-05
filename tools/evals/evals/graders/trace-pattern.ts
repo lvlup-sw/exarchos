@@ -94,19 +94,17 @@ function countUnorderedMatches(
 }
 
 /**
- * Count patterns matched in order (longest ordered subsequence).
- * Uses LCS approach for patterns that appear as a subsequence in trace.
+ * Counts the patterns that match in order. A pattern with `min` matches when the trace has at least
+ * `min` matching events, and order does not apply to it. For the other patterns, a greedy scan
+ * counts the longest prefix of those patterns, in list order, that occurs in trace order.
  */
 function countOrderedMatches(
   trace: TraceEvent[],
   patterns: TracePattern[]
 ): number {
-  // For ordered matching with simple patterns (no min count),
-  // find longest subsequence of patterns appearing in trace order
   const simplePatterns = patterns.filter((p) => p.min === undefined);
   const countPatterns = patterns.filter((p) => p.min !== undefined);
 
-  // Count patterns with min constraints separately (order doesn't apply to counts)
   let countMatched = 0;
   for (const pattern of countPatterns) {
     const matchingEvents = trace.filter((event) =>
@@ -117,7 +115,6 @@ function countOrderedMatches(
     }
   }
 
-  // Greedy ordered subsequence for simple patterns
   let patIdx = 0;
   for (const event of trace) {
     const pat = simplePatterns[patIdx];

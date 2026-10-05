@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
-// ─── Score constraint (reusable) ────────────────────────────────────────
-
 const ScoreSchema = z.number().min(0).max(1);
-
-// ─── GradeResult ────────────────────────────────────────────────────────
 
 export const GradeResultSchema = z.object({
   passed: z.boolean(),
@@ -15,8 +11,6 @@ export const GradeResultSchema = z.object({
 
 export type GradeResult = z.infer<typeof GradeResultSchema>;
 
-// ─── AssertionConfig ────────────────────────────────────────────────────
-
 export const AssertionConfigSchema = z.object({
   type: z.enum(['exact-match', 'schema', 'tool-call', 'trace-pattern', 'llm-rubric', 'llm-similarity']),
   name: z.string(),
@@ -25,8 +19,6 @@ export const AssertionConfigSchema = z.object({
 });
 
 export type AssertionConfig = z.infer<typeof AssertionConfigSchema>;
-
-// ─── AssertionResult ────────────────────────────────────────────────────
 
 export const AssertionResultSchema = z.object({
   name: z.string(),
@@ -40,8 +32,6 @@ export const AssertionResultSchema = z.object({
 
 export type AssertionResult = z.infer<typeof AssertionResultSchema>;
 
-// ─── EvalCase ───────────────────────────────────────────────────────────
-
 export const EvalCaseSchema = z.object({
   id: z.string().min(1),
   type: z.enum(['single', 'trace']),
@@ -54,8 +44,6 @@ export const EvalCaseSchema = z.object({
 
 export type EvalCase = z.infer<typeof EvalCaseSchema>;
 
-// ─── EvalResult ─────────────────────────────────────────────────────────
-
 export const EvalResultSchema = z.object({
   caseId: z.string(),
   suiteId: z.string(),
@@ -66,8 +54,6 @@ export const EvalResultSchema = z.object({
 });
 
 export type EvalResult = z.infer<typeof EvalResultSchema>;
-
-// ─── EvalSuiteConfig ────────────────────────────────────────────────────
 
 export const EvalSuiteConfigSchema = z.object({
   description: z.string(),
@@ -88,8 +74,6 @@ export const EvalSuiteConfigSchema = z.object({
 
 export type EvalSuiteConfig = z.infer<typeof EvalSuiteConfigSchema>;
 
-// ─── RunSummary ─────────────────────────────────────────────────────────
-
 export const RunSummarySchema = z.object({
   runId: z.string(),
   suiteId: z.string(),
@@ -103,8 +87,6 @@ export const RunSummarySchema = z.object({
 });
 
 export type RunSummary = z.infer<typeof RunSummarySchema>;
-
-// ─── IGrader Interface ──────────────────────────────────────────────────
 
 export interface IGrader {
   readonly name: string;

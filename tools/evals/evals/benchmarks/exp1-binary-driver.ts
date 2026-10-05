@@ -1,34 +1,17 @@
-// ─── Exp 1: Binary-Driven Before/After Delegation Diff (#1670, DR-1/DR-2/DR-7) ─
-//
-// PR #1669 fixed #1636 (per-task risk-tier/boundary stamps now thread end-to-end
-// into `prepare_delegation`). The prior benchmark (`plan-format-corpus.ts`) only
-// MODELED that by calling the pure `classifyTask` function in-process — it never
-// crossed the binary boundary, so it could not prove the FIX shipped in a real
-// artifact. That is the exact #1669 sin (a pure-function result mislabeled as
-// measured).
-//
-// This driver replaces the modeled measurement with a MECHANICAL one. It drives
-// `prepare_delegation` THROUGH each built binary's real MCP tool surface (a
-// spawned `<binary> mcp` stdio server — never the pure TS function), over the
-// stamped `docs/specs/` corpus, and diffs the returned `taskClassifications`.
-//
-// Arm asymmetry (verified empirically — the pre-fix binaries have NO `planPath`
-// support; it was added by #1669):
-//   - before-arm: invoke a pre-fix binary with `tasks:[{id,title}]` and NO
-//     `planPath` → heuristic classification (every bare task → medium /
-//     no-boundary / [check_static_analysis, check_test_adequacy]).
-//   - after-arm: invoke a fixed binary WITH `planPath` (the corpus spec) so the
-//     stamp-lift path runs → the plan's authored high/low/boundary tiers +
-//     check_integration_suite on high tasks.
-//
-// Fail-honest (DR-7): a binary that will not dispatch a spec records a `blocked`
-// result — never a substituted / modeled number.
-//
-// This module is split so the PURE diff core (`diffClassifications` + helpers)
-// is independently testable without spawning anything; the MCP-spawning halves
-// are the impure orchestration.
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Exp 1: a before/after diff of delegation classification, driven through real binaries.
+ *
+ * The driver spawns `<binary> mcp` for each reference binary and calls `prepare_delegation` over
+ * the stamped spec corpus. Then it diffs the returned `taskClassifications`. An in-process call to
+ * `classifyTask` cannot prove that a fix shipped in a built artifact.
+ *
+ * The before arm sends `tasks` with no `planPath`, because the pre-fix binaries do not support it.
+ * These binaries return the heuristic classification. The after arm sends `planPath`, so the binary
+ * lifts the authored risk tiers and boundary stamps from the spec.
+ *
+ * A binary that does not dispatch a spec records a `blocked` result, never a modeled number. The
+ * diff core (`diffClassifications` and its helpers) is pure and spawns nothing.
+ */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -43,8 +26,6 @@ import {
 import { parseTaskStamps } from '../../../../src/verbs/tasks/parse-task-stamps.js';
 import { DEFAULT_SPEC_DIR } from '../../../../src/config/artifacts.js';
 import { stampProvenance, type ProvenanceStamped } from '../provenance.js';
-
-// ─── Pure diff core (the graded / kill-probe surface) ────────────────────────
 
 /** The measured shape captured from one task's `taskClassifications` entry. */
 export interface ClassificationSnapshot {
@@ -81,13 +62,13 @@ export function sequencesEqual(a: readonly string[], b: readonly string[]): bool
 
 /**
  * Whether two snapshots for the same task represent a changed classification.
- * A missing snapshot on either side is always a change (presence differs). Pure.
+ * A snapshot that is present on one side only is a change. Pure.
  */
 export function snapshotChanged(
   before: ClassificationSnapshot | undefined,
   after: ClassificationSnapshot | undefined,
 ): boolean {
-  if (!before || !after) return before !== after; // one present, one absent → changed
+  if (!before || !after) return before !== after;
   return (
     before.riskTier !== after.riskTier ||
     before.boundaryTouching !== after.boundaryTouching ||
@@ -145,11 +126,9 @@ export function countChanged(diffs: readonly TaskDiff[]): number {
   return diffs.filter((d) => d.changed).length;
 }
 
-// ─── Corpus loading (harness setup — NOT the measured surface) ────────────────
-
 /** A corpus spec reduced to the `{id,title}` task inputs the arms are driven with. */
 export interface CorpusSpecTasks {
-  /** Basename of the spec file, e.g. `2026-07-09-...md`. */
+  /** Basename of the spec file. */
   readonly specId: string;
   /** Absolute path — used as `planPath` for the after-arm. */
   readonly specPath: string;
@@ -158,18 +137,16 @@ export interface CorpusSpecTasks {
 }
 
 /**
- * Load every spec under `specsDir` that carries at least one stamped task,
- * reducing each to its `{id,title}` task list via the PRODUCTION stamp parser
- * (`parseTaskStamps`) so the ids the arms pass match the ids the after-binary
- * lifts stamps against. Harness setup only — the classification itself happens
- * inside the binary.
+ * Loads every spec under `specsDir` that has at least one stamped task, as its `{id,title}` task
+ * list. The production stamp parser (`parseTaskStamps`) reads the tasks. So the ids that the arms
+ * send match the ids that the after-arm binary lifts stamps against.
  */
 export function loadCorpusTasks(specsDir: string): CorpusSpecTasks[] {
   const specs: CorpusSpecTasks[] = [];
   for (const file of fs.readdirSync(specsDir).filter((f) => f.endsWith('.md')).sort()) {
     const specPath = path.join(specsDir, file);
     const parsed = parseTaskStamps(fs.readFileSync(specPath, 'utf-8'));
-    if (!parsed.some((t) => t.riskTier !== undefined)) continue; // unstamped doc — skip
+    if (!parsed.some((t) => t.riskTier !== undefined)) continue;
     specs.push({
       specId: file,
       specPath,
@@ -178,8 +155,6 @@ export function loadCorpusTasks(specsDir: string): CorpusSpecTasks[] {
   }
   return specs;
 }
-
-// ─── Binary refs + provenance (task 003) ─────────────────────────────────────
 
 export type BinaryArm = 'before' | 'after';
 
@@ -210,17 +185,17 @@ export interface ConfoundCommit {
 export type BinaryRefMeta = Omit<BinaryRef, 'binaryPath'>;
 
 /**
- * The four Exp-1 reference binaries (task 003). SHAs/dates are the refs' own git
- * values (deterministic — the commit's committer date, no wall-clock). The
- * `causal` pair isolates #1669 alone; the `released` pair is CONFOUNDED (it also
- * spans #1659, `585c154c`, a dispatch-guard change touching the measured path).
+ * The four Exp-1 reference binaries. Each SHA and date is the git value of the ref, with no wall
+ * clock. The `causal` pair isolates #1669. The `released` pair also spans #1659 (`585c154c`), a
+ * dispatch-guard change on the measured path, so that pair is confounded.
  */
 export const EXP1_BINARY_REFS: readonly BinaryRefMeta[] = [
   {
     label: 'causal-before',
     arm: 'before',
     binaryTag: 'v2.12.0-preview.1',
-    gitSha: '585c154cb978013b82264b8502d9226bb92ed49c', // a240b4d8^ (#1659, NOT #1669)
+    /** `a240b4d8^`, the parent of the #1669 merge. */
+    gitSha: '585c154cb978013b82264b8502d9226bb92ed49c',
     buildDate: '2026-07-09T18:50:14-07:00',
     has1659: true,
     has1669: false,
@@ -229,7 +204,8 @@ export const EXP1_BINARY_REFS: readonly BinaryRefMeta[] = [
     label: 'causal-after',
     arm: 'after',
     binaryTag: 'v2.12.0-preview.1',
-    gitSha: 'a240b4d84c932fcbe1fa8519fb8efbb04a2fa4d8', // #1669 merge (has #1659 AND #1669)
+    /** The #1669 merge commit. */
+    gitSha: 'a240b4d84c932fcbe1fa8519fb8efbb04a2fa4d8',
     buildDate: '2026-07-09T21:14:09-07:00',
     has1659: true,
     has1669: true,
@@ -238,7 +214,8 @@ export const EXP1_BINARY_REFS: readonly BinaryRefMeta[] = [
     label: 'released-before',
     arm: 'before',
     binaryTag: 'v2.12.0-preview.1',
-    gitSha: 'f70b1e82c2a6f07966d4e4a35df821460364b79b', // tag v2.12.0-preview.1 (NEITHER)
+    /** The `v2.12.0-preview.1` tag. */
+    gitSha: 'f70b1e82c2a6f07966d4e4a35df821460364b79b',
     buildDate: '2026-07-06T06:29:03+00:00',
     has1659: false,
     has1669: false,
@@ -247,7 +224,8 @@ export const EXP1_BINARY_REFS: readonly BinaryRefMeta[] = [
     label: 'released-after',
     arm: 'after',
     binaryTag: 'v2.12.0-preview.2',
-    gitSha: '5501cce6a915052cad858cb5acd4a890b26884ab', // tag v2.12.0-preview.2 (BOTH)
+    /** The `v2.12.0-preview.2` tag. */
+    gitSha: '5501cce6a915052cad858cb5acd4a890b26884ab',
     buildDate: '2026-07-09T22:59:39-07:00',
     has1659: true,
     has1669: true,
@@ -261,9 +239,9 @@ export const EXP1_PAIRS: ReadonlyArray<{ readonly pair: string; readonly before:
 ];
 
 /**
- * Commits co-resident in the released window `v2.12.0-preview.1..v2.12.0-preview.2`.
- * #1659 is the documented CONFOUND — the released pair cannot attribute its delta
- * to #1669 alone; the causal pair (a240b4d8^ → a240b4d8) can.
+ * Commits in the released window `v2.12.0-preview.1..v2.12.0-preview.2`. #1659 is the confound.
+ * The released pair cannot attribute its delta to #1669 alone. The causal pair
+ * (`a240b4d8^` to `a240b4d8`) can.
  */
 export const RELEASED_WINDOW_CONFOUNDS: readonly ConfoundCommit[] = [
   {
@@ -296,9 +274,8 @@ function roleFor(ref: BinaryRefMeta): string {
 }
 
 /**
- * Build the full task-003 provenance artifact: every binary stamped through
- * `stampProvenance`, plus the enumerated released-window confound list and the
- * model-free note. Pure — takes the refs/confounds as input, no I/O.
+ * Builds the provenance artifact: every binary stamped through `stampProvenance`, the
+ * released-window confound list, and the model-free note. Pure.
  */
 export function buildProvenanceArtifact(
   refs: readonly BinaryRefMeta[] = EXP1_BINARY_REFS,
@@ -338,7 +315,7 @@ export function buildProvenanceArtifact(
  */
 export const EXP1_MODEL_IDS: readonly string[] = ['none'];
 
-/** A provenance-stamped binary record for the task-003 artifact. */
+/** The record that `stampBinaryProvenance` stamps for one binary. */
 export interface BinaryProvenanceRecord {
   readonly label: string;
   readonly arm: BinaryArm;
@@ -351,8 +328,8 @@ export interface BinaryProvenanceRecord {
 }
 
 /**
- * Stamp a binary ref through the task-001 provenance helper (`stampProvenance`).
- * `date`/`gitSha`/`binaryTag` are the ref's own values (no ambient clock). Pure.
+ * Stamps a binary ref through `stampProvenance`. The `date`, `gitSha` and `binaryTag` come from
+ * the ref, with no ambient clock. Pure.
  */
 export function stampBinaryProvenance(
   ref: BinaryRef,
@@ -377,8 +354,6 @@ export function stampBinaryProvenance(
     },
   );
 }
-
-// ─── MCP invocation through the real binary (impure) ─────────────────────────
 
 /**
  * Provision a git repo the spawned MCP server can pass its dispatch guards from:
@@ -411,11 +386,9 @@ export type SpecRunResult =
   | { readonly ok: false; readonly blocked: { readonly reason: string; readonly detail: string } };
 
 /**
- * Runtime schema for the MCP tool envelope. This is the boundary where the driver
- * crosses into the REAL binary (the whole point of Exp 1), so the payload is
- * validated with Zod rather than cast — a malformed or differently-shaped response
- * from the binary is caught here, not silently propagated as wrong types into the
- * diff/CSV.
+ * Runtime schema for the MCP tool envelope. The driver crosses into the real binary here, so Zod
+ * validates the payload instead of a cast. A malformed response stops here and does not reach the
+ * diff or the CSV.
  */
 const EnvelopeSchema = z.object({
   success: z.boolean().optional(),
@@ -469,14 +442,15 @@ function toSnapshots(env: EnvelopeShape): ClassificationSnapshot[] {
 }
 
 /**
- * Spawn `<binary> mcp`, and for each corpus spec seed a ready delegation stream
- * (plan-review transition + plan artifact + one `task.assigned` per task) then
- * call `exarchos_orchestrate prepare_delegation` — WITH `planPath` for the
- * after-arm, WITHOUT for the before-arm. Returns per-spec snapshots (or a
- * fail-honest `blocked` result when a spec will not dispatch).
+ * Spawns `<binary> mcp` and drives each corpus spec through it. For each spec, it seeds a ready
+ * delegation stream: a plan-review transition, the plan artifact, and one `task.assigned` per task.
+ * Then it calls `exarchos_orchestrate prepare_delegation`, with `planPath` for the after arm only.
+ * A spec that does not dispatch records a `blocked` result.
  *
- * One server process + one fresh event store (`WORKFLOW_STATE_DIR`) per binary;
- * each spec is an isolated `featureId` stream.
+ * Each binary gets one server process and one fresh event store (`WORKFLOW_STATE_DIR`). Each spec
+ * is an isolated `featureId` stream, folded to `/^[a-z0-9-]+$/` because stream ids must match it.
+ * The connect call is inside the `try`, so a handshake failure still closes the client and removes
+ * the state directory.
  */
 export async function runArmOverCorpus(
   ref: BinaryRef,
@@ -498,13 +472,8 @@ export async function runArmOverCorpus(
 
   const results = new Map<string, SpecRunResult>();
   try {
-    // Inside the try so a handshake failure is still torn down (client.close +
-    // stateDir removal) rather than orphaning the spawned `mcp` process.
     await connectV2Client(client, transport);
     for (const spec of corpus) {
-      // The event store requires streamId to match /^[a-z0-9-]+$/ — lowercase,
-      // fold every other character (dots, underscores, uppercase) to a hyphen,
-      // and collapse/trim runs so the featureId is always a valid stream.
       const featureId = `exp1-${ref.label}-${spec.specId}`
         .toLowerCase()
         .replace(/[^a-z0-9-]+/g, '-')
@@ -568,14 +537,10 @@ export async function runArmOverCorpus(
     }
   } finally {
     await client.close();
-    // Remove the per-binary temp state dir so repeated runs (e.g. CI) don't
-    // accumulate orphaned directories.
     fs.rmSync(stateDir, { recursive: true, force: true });
   }
   return results;
 }
-
-// ─── Pair diffing + CSV emission (task 004) ──────────────────────────────────
 
 /** A per-(pair, spec, task) row for the CSV artifact. */
 export interface DiffRow {
@@ -692,8 +657,6 @@ export function toCsv(rows: readonly DiffRow[]): string {
   return [header, ...body].join('\n') + '\n';
 }
 
-// ─── Reproducible end-to-end run (task 003+004) ──────────────────────────────
-
 /** The changed-task tally for one before→after pair over the dispatched corpus. */
 export interface PairSummary {
   readonly pair: string;
@@ -775,9 +738,10 @@ export async function runExp1(opts: {
 }
 
 /**
- * CLI entry: `tsx tools/evals/evals/benchmarks/exp1-binary-driver.ts` — regenerates
- * the committed artifacts under `tests/evals/data/2026-07-09/`. Binaries are resolved
- * from `EXP1_BINARIES_DIR` (default `/tmp/1670-exp1`), each built per task 003.
+ * CLI entry: `tsx tools/evals/evals/benchmarks/exp1-binary-driver.ts`. It regenerates the
+ * committed artifacts under `tests/evals/data/2026-07-09/`, and reads the binaries from
+ * `EXP1_BINARIES_DIR` (default `/tmp/1670-exp1`). The module calls it only when `argv[1]` ends
+ * with this file name, so a vitest import does not run it.
  */
 export async function main(): Promise<void> {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../..');
@@ -811,8 +775,6 @@ export async function main(): Promise<void> {
   }
 }
 
-// Direct-execution guard: run `main()` only when invoked as a script (tsx),
-// never when imported by vitest (argv[1] is the test runner there).
 if (process.argv[1] && process.argv[1].endsWith('exp1-binary-driver.ts')) {
   await main();
 }

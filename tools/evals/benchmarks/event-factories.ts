@@ -1,7 +1,5 @@
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 
-// ─── Gate Names ────────────────────────────────────────────────────────────
-
 const GATE_NAMES = [
   'typecheck',
   'lint',
@@ -18,10 +16,9 @@ const SKILLS = [
   'planning',
 ] as const;
 
-// ─── Gate Executed Event Factory ───────────────────────────────────────────
-
 /**
- * Create a realistic `gate.executed` event for benchmarking.
+ * Creates a `gate.executed` event for benchmarks. A sequence number that is a multiple of 7 gives a
+ * failed gate.
  */
 export function createGateExecutedEvent(
   sequence: number,
@@ -29,7 +26,7 @@ export function createGateExecutedEvent(
 ): WorkflowEvent {
   const gateName = GATE_NAMES[sequence % GATE_NAMES.length];
   const skill = SKILLS[sequence % SKILLS.length];
-  const passed = sequence % 7 !== 0; // ~14% failure rate
+  const passed = sequence % 7 !== 0;
   const duration = 50 + (sequence % 200);
 
   return {
@@ -51,8 +48,6 @@ export function createGateExecutedEvent(
     },
   };
 }
-
-// ─── Mixed Event Factories ─────────────────────────────────────────────────
 
 const MIXED_EVENT_TYPES = [
   'workflow.started',
@@ -108,10 +103,7 @@ function createEventData(type: MixedEventType, sequence: number): Record<string,
   }
 }
 
-/**
- * Create an array of mixed event types for benchmarking.
- * Events cycle through various types to simulate realistic workload.
- */
+/** Creates `count` benchmark events that cycle through `MIXED_EVENT_TYPES`. */
 export function createMixedEvents(
   count: number,
   streamId: string,

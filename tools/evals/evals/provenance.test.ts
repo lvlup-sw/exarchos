@@ -11,8 +11,6 @@ import {
   type SourcedRecord,
 } from './provenance.js';
 
-// ─── Arbitraries ────────────────────────────────────────────────────────────
-
 const arbNonEmptyString = fc.string({ minLength: 1 }).filter((s) => s.trim().length > 0);
 
 const arbProvenance: fc.Arbitrary<Provenance> = fc.record({
@@ -27,26 +25,21 @@ const arbRecord = fc.record({
   label: fc.string(),
 });
 
-// ─── stampProvenance: property round-trip on the pure core ──────────────────
-
 describe('stampProvenance property', () => {
   it('Roundtrip_ArbitraryValidInputs_RequiredKeysIntact', () => {
     fc.assert(
       fc.property(arbRecord, arbProvenance, (record, provenance) => {
         const stamped = stampProvenance(record, provenance);
 
-        // All four required provenance keys round-trip intact.
         expect(stamped.provenance.binaryTag).toBe(provenance.binaryTag);
         expect(stamped.provenance.gitSha).toBe(provenance.gitSha);
         expect(stamped.provenance.modelIds).toEqual(provenance.modelIds);
         expect(stamped.provenance.date).toBe(provenance.date);
 
-        // The exact required-key set is present on the stamp.
         for (const key of REQUIRED_PROVENANCE_KEYS) {
           expect(stamped.provenance).toHaveProperty(key);
         }
 
-        // The record's own fields survive unchanged.
         expect(stamped.metric).toBe(record.metric);
         expect(stamped.label).toBe(record.label);
       }),
@@ -75,8 +68,6 @@ describe('stampProvenance property', () => {
     expect(stamped.provenance.modelIds).toEqual(['opus', 'sonnet']);
   });
 });
-
-// ─── stampProvenance: throws when a required key is missing ─────────────────
 
 describe('stampProvenance validation', () => {
   const complete: Provenance = {
@@ -109,8 +100,6 @@ describe('stampProvenance validation', () => {
   });
 });
 
-// ─── assertMeasured: rejects modeled/assumed, accepts measured ──────────────
-
 describe('assertMeasured', () => {
   it('Accepts_MeasuredRecord_DoesNotThrow', () => {
     const record: SourcedRecord = { source: 'measured' };
@@ -141,12 +130,9 @@ describe('assertMeasured', () => {
   it('Narrows_MeasuredRecord_AfterAssertion', () => {
     const record: SourcedRecord & { value: number } = { source: 'measured', value: 42 };
     assertMeasured(record);
-    // After the assertion the record is narrowed to the measured variant; value survives.
     expect(record.value).toBe(42);
   });
 });
-
-// ─── isMeasured: non-throwing predicate ─────────────────────────────────────
 
 describe('isMeasured', () => {
   it('True_ForMeasured_FalseOtherwise', () => {

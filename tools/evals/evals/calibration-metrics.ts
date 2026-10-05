@@ -1,7 +1,5 @@
 import type { HumanGradedCase, CalibrationReport } from './calibration-types.js';
 
-// ─── Types ─────────────────────────────────────────────────────────────────
-
 export interface JudgeVerdict {
   verdict: boolean;
   reason: string;
@@ -14,8 +12,6 @@ export interface Disagreement {
   humanRationale: string;
   judgeReason: string;
 }
-
-// ─── extractDisagreements ──────────────────────────────────────────────────
 
 /**
  * Filter human-graded cases to only those where the judge verdict disagrees
@@ -45,11 +41,10 @@ export function extractDisagreements(
   return disagreements;
 }
 
-// ─── computeConfusionMatrix ────────────────────────────────────────────────
-
 /**
  * Compute a full confusion matrix and derived metrics (TPR, TNR, accuracy, F1)
  * by comparing judge verdicts against a human gold standard.
+ * A case without a judge verdict does not count. The report takes `skill` and `rubricName` from the first case.
  *
  * Convention for undefined rates:
  * - TPR is 0 when there are no actual positives (TP + FN = 0)
@@ -80,14 +75,12 @@ export function computeConfusionMatrix(
     } else if (!humanPass && judgePass) {
       fp++;
     } else {
-      // humanPass && !judgePass
       fn++;
     }
   }
 
   const total = tp + tn + fp + fn;
 
-  // Derived rates with safe division
   const tpr = safeDivide(tp, tp + fn);
   const tnr = safeDivide(tn, tn + fp);
   const accuracy = safeDivide(tp + tn, total);
@@ -95,7 +88,6 @@ export function computeConfusionMatrix(
   const recall = tpr;
   const f1 = safeDivide(2 * precision * recall, precision + recall);
 
-  // Extract skill and rubricName from the first case
   const firstCase = cases[0];
   const skill = firstCase?.skill ?? '';
   const rubricName = firstCase?.rubricName ?? '';
@@ -118,8 +110,6 @@ export function computeConfusionMatrix(
     disagreements,
   };
 }
-
-// ─── Utilities ─────────────────────────────────────────────────────────────
 
 /**
  * Safe division: returns 0 when the denominator is 0.

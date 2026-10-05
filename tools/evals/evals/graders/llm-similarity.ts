@@ -6,10 +6,9 @@ import { loadPromptfooAssertions } from './promptfoo-loader.js';
 const DEFAULT_THRESHOLD = 0.8;
 
 /**
- * LLM-based similarity grader that wraps Promptfoo's matchesSimilarity assertion.
- * promptfoo is loaded lazily via the opt-in eval package (DR-3) so it never
- * ships with the default MCP-server install; a missing package yields an
- * actionable install hint rather than an opaque import crash.
+ * Grades output with the promptfoo `matchesSimilarity` assertion. The grader loads
+ * promptfoo lazily from the opt-in eval package, which the default install does not ship.
+ * If promptfoo is missing, the failure reason gives an install hint.
  */
 export class LlmSimilarityGrader implements IGrader {
   readonly name = 'llm-similarity';
@@ -34,7 +33,6 @@ export class LlmSimilarityGrader implements IGrader {
       };
     }
 
-    // Resolve expected text: config.expected takes priority, then expected param via expectedPath
     let expectedText: string | null;
     if (typeof config?.expected === 'string') {
       expectedText = config.expected;

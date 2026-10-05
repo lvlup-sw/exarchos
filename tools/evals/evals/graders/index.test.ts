@@ -9,8 +9,6 @@ import { LlmSimilarityGrader } from './llm-similarity.js';
 import type { IGrader, GradeResult } from '../types.js';
 
 describe('GraderRegistry', () => {
-  // ─── Default registry contains all 6 types ──────────────────────────
-
   it('CreateDefaultRegistry_ContainsAllSixTypes', () => {
     const registry = createDefaultRegistry();
     expect(() => registry.resolve('exact-match')).not.toThrow();
@@ -20,8 +18,6 @@ describe('GraderRegistry', () => {
     expect(() => registry.resolve('llm-rubric')).not.toThrow();
     expect(() => registry.resolve('llm-similarity')).not.toThrow();
   });
-
-  // ─── Resolve each type returns correct grader ────────────────────────
 
   it('Resolve_ExactMatch_ReturnsExactMatchGrader', () => {
     const registry = createDefaultRegistry();
@@ -47,8 +43,6 @@ describe('GraderRegistry', () => {
     expect(grader).toBeInstanceOf(TracePatternGrader);
   });
 
-  // ─── LLM graders ───────────────────────────────────────────────────
-
   it('createDefaultRegistry_ResolvesLlmRubricGrader', () => {
     const registry = createDefaultRegistry();
     const grader = registry.resolve('llm-rubric');
@@ -61,14 +55,10 @@ describe('GraderRegistry', () => {
     expect(grader).toBeInstanceOf(LlmSimilarityGrader);
   });
 
-  // ─── Unknown type throws ─────────────────────────────────────────────
-
   it('Resolve_UnknownType_Throws', () => {
     const registry = createDefaultRegistry();
     expect(() => registry.resolve('nonexistent')).toThrow();
   });
-
-  // ─── Custom registration works ───────────────────────────────────────
 
   it('Register_CustomGrader_Resolvable', () => {
     const registry = new GraderRegistry();
@@ -95,8 +85,6 @@ describe('GraderRegistry', () => {
     registry.register('exact-match', customGrader);
     expect(registry.resolve('exact-match')).toBe(customGrader);
   });
-
-  // ─── Empty registry ──────────────────────────────────────────────────
 
   it('EmptyRegistry_Resolve_Throws', () => {
     const registry = new GraderRegistry();

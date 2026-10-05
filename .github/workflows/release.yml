@@ -7,7 +7,7 @@ name: Release
 #   2. `binary-matrix` +
 #      `publish-release`   — cross-compiled native binaries (5 targets)
 #                            + SHA-512 checksum sidecars + an Ed25519-signed
-#                            release manifest (DR-20) attached to the
+#                            release manifest attached to the
 #                            GitHub Release so the bootstrap scripts
 #                            (`tools/release/get-exarchos.sh` / `.ps1`) can
 #                            fetch them by predictable URL.
@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # fetch-depth: 0 — this job runs the root `npm run test:run`, which includes
-      # the DR-8 legacy-hash manifest test. That test rebuilds the manifest from the
+      # the legacy-hash manifest test. That test rebuilds the manifest from the
       # historical release-tag trees via `git show`/`git ls-tree`, so it needs the
       # tags AND their objects; a tag-triggered shallow checkout has neither and
       # would red the release before `npm publish`. The manifest's frozen upper
@@ -137,7 +137,7 @@ jobs:
   #
   #   1. `TARGETS` tuple         — tools/release/build-binary.ts (canonical)
   #   2. `matrix.target` here    — release.yml binary-matrix (this job)
-  #   3. `matrix.target`         — ci.yml binary-matrix (task 1.5 PR gate)
+  #   3. `matrix.target`         — ci.yml binary-matrix (PR gate)
   #   4. `files:` list           — publish-release step below
   #      (must enumerate each target's binary + .sha512 sidecar, plus the
   #      signed release manifest; the asset counts below (list 4's shape
@@ -246,7 +246,7 @@ jobs:
   # publish-release
   # ─────────────────────────────────────────────────────────────────────
   # Downloads every per-target artifact produced by `binary-matrix`,
-  # builds + SIGNS the DR-20 release manifest over those exact bytes, and
+  # builds + SIGNS the release manifest over those exact bytes, and
   # attaches the collected assets (one binary + one sha512 sidecar per
   # `TARGETS` entry, plus the signed manifest) to the GitHub Release
   # associated with the current tag.
@@ -299,14 +299,11 @@ jobs:
       - name: Install dependencies
         run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
-      # DR-8: the matrix-asset counts below are DERIVED from `TARGETS`
-      # (`tools/release/build-binary-targets.ts`) rather than hard-coded literals.
-      # Previously both this workflow's `expected=` values AND
-      # `scripts/release-workflow.test.ts`'s asset-set assertion were
-      # transcribed from the same population by hand, so editing `TARGETS`
-      # without also editing this file and its matrix left every check green.
-      # A target added here now diverges from a `TARGETS`-derived expectation
-      # instead of agreeing with another literal.
+      # The matrix-asset counts below are DERIVED from `TARGETS`
+      # (`tools/release/build-binary-targets.ts`), not hard-coded literals.
+      # Two hand-copied literals can agree with each other and still miss a
+      # `TARGETS` edit. A target added here diverges from a `TARGETS`-derived
+      # expectation instead.
       - name: Compute target count from TARGETS
         id: target-count
         run: |

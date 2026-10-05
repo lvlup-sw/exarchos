@@ -1,21 +1,15 @@
-// ─── Plan-Format Corpus Benchmark (#1636) ────────────────────────────────────
-//
-// Deterministic benchmark: run the REAL production classifiers over the corpus
-// of stamped plan-format specs in `docs/specs/`, and measure how the delegation
-// DECISION diverges across arms:
-//
-//   E  (exarchos, plan-honoring) — classifyTask WITH the planner's stamp (the fix)
-//   H0 (true production)         — classifyTask({id,title}) — everything else is
-//                                  stripped at the MCP boundary today (#1636)
-//   H1 (heuristic ceiling)       — stamp stripped but files/testLayer retained
-//   N  (native flat model)       — no per-task routing; one flat model (opus)
-//
-// Dimensions measured (no live agents — this is the deterministic backbone):
-//   1. Model / agent selection  (scaffolder|implementer, haiku|opus, vs flat N)
-//   2. Verification depth        (riskTier, boundaryTouching, gate sequence)
-//
-// Run:  npx tsx tools/evals/evals/benchmarks/plan-format-corpus.ts
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Plan-format corpus benchmark. It runs the production classifier over every stamped spec in the spec directory.
+ * Then it compares the delegation decision across these arms:
+ *
+ * - E (plan-honoring): `classifyTask` with the stamp of the planner.
+ * - H0 (bare): `classifyTask` with `{ id, title }` and nothing more.
+ * - H1 (heuristic ceiling): no stamp, but the files, the test layer and the dependencies stay.
+ * - N (native flat model): one model, `opus`, for every task.
+ *
+ * It measures the model and agent selection, and the verification depth. It runs no live agent.
+ * It writes a Markdown report and a JSON report under `tests/evals/`. Run it with `npm run bench:plan-format`.
+ */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -29,16 +23,11 @@ import {
 import { parseTaskStamps, type TaskStamp } from '../../../../src/verbs/tasks/parse-task-stamps.js';
 import { DEFAULT_SPEC_DIR } from '../../../../src/config/artifacts.js';
 
-// ─── Corpus parsing ──────────────────────────────────────────────────────────
-//
-// The corpus is parsed by the PRODUCTION stamp parser (`parseTaskStamps`) — the
-// same code that lifts stamps onto `prepare_delegation` — so the benchmark and
-// the dispatch path can never drift.
-
-/** A parsed corpus task = a plan stamp plus the spec it came from. */
+/**
+ * A plan stamp plus the name of its spec. The production parser `parseTaskStamps` reads it,
+ * and `prepare_delegation` uses the same parser, so the benchmark and the dispatch path agree.
+ */
 type CorpusTask = TaskStamp & { readonly spec: string };
-
-// ─── Arms ────────────────────────────────────────────────────────────────────
 
 /** Build the TaskInput for the plan-honoring arm (E): includes the stamp. */
 function stampedInput(t: CorpusTask): TaskInput {
@@ -54,10 +43,8 @@ function stampedInput(t: CorpusTask): TaskInput {
 }
 
 /**
- * Heuristic-with-context arm (H1): stamp stripped, but files/testLayer/deps
- * retained. This is the heuristic's CEILING — the best it could do if a diligent
- * orchestrator forwarded task context (which the current registry schema does
- * NOT accept). Isolates "heuristic vs plan" holding context constant.
+ * Heuristic-ceiling arm (H1): no stamp, but the files, the test layer and the dependencies stay.
+ * The heuristic derives the risk tier and the boundary flag, so this arm measures the heuristic against the plan with the same context.
  */
 function strippedInput(t: CorpusTask): TaskInput {
   return {
@@ -66,17 +53,10 @@ function strippedInput(t: CorpusTask): TaskInput {
     files: t.files,
     blockedBy: t.blockedBy,
     ...(t.testLayer ? { testLayer: t.testLayer } : {}),
-    // riskTier / boundaryTouching intentionally omitted — force heuristic derivation.
   };
 }
 
-/**
- * True-production arm (H0): `{ id, title }` ONLY. This is what actually reaches
- * `handlePrepareDelegation` today — `registry.ts:1441` registers
- * `tasks: z.array(z.object({ id, title }))`, so Zod strips files/testLayer/deps
- * AND the planner stamp before the handler runs, and the delegate skill only
- * sends `{id, title, modules}`. This is the real #1636 dispatched behavior.
- */
+/** Bare arm (H0): `{ id, title }` and nothing more, as from a caller that sends no stamp and no task context. */
 function trueProductionInput(t: CorpusTask): TaskInput {
   return { id: t.id, title: t.title };
 }
@@ -90,12 +70,13 @@ interface Row {
   readonly stamped: boolean;
   readonly boundaryStamped: boolean;
   readonly fileCount: number;
-  readonly E: TaskClassification; // plan-honoring (the fix)
-  readonly H: TaskClassification; // H1: heuristic ceiling (files+testLayer, no stamp)
-  readonly H0: TaskClassification; // true production ({id,title} only)
+  /** The plan-honoring arm. */
+  readonly E: TaskClassification;
+  /** The heuristic-ceiling arm, H1. */
+  readonly H: TaskClassification;
+  /** The bare arm. */
+  readonly H0: TaskClassification;
 }
-
-// ─── Main ────────────────────────────────────────────────────────────────────
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(__dirname, '../../../..');
@@ -123,6 +104,11 @@ function pct(n: number, d: number): string {
   return d === 0 ? '0%' : `${((100 * n) / d).toFixed(0)}%`;
 }
 
+/**
+ * Classifies every corpus task in each arm and writes the reports. Only the tasks with a `riskTier` stamp enter the comparison.
+ * A tier under the plan tier is the harm, because the task gets less verification than the plan asks for.
+ * `NATIVE_FLAT_MODEL` stands for the native default model. `cheaperThanNative` counts the tasks that arm E routes to `haiku`.
+ */
 function main(): void {
   const { specPaths, tasks: parsed } = loadCorpus();
   const rows: Row[] = parsed.map((t) => ({
@@ -137,18 +123,15 @@ function main(): void {
     H0: classifyTask(trueProductionInput(t)),
   }));
 
-  // Only tasks that actually carry a planner riskTier stamp are meaningful for
-  // the divergence dimension (the corpus is authored to always stamp riskTier).
   const stampedRows = rows.filter((r) => r.stamped);
 
-  // ── Dimension 2: verification-depth divergence (E vs H) ──
   let tierMatch = 0;
-  let tierUnder = 0; // heuristic weaker than plan → UNDER-verified (the #1636 harm)
-  let tierOver = 0; // heuristic stronger than plan → wasted verification
+  let tierUnder = 0;
+  let tierOver = 0;
   const confusion: Record<string, number> = {};
-  let boundaryLost = 0; // plan says boundary, heuristic misses it → steer dropped
-  let boundaryPhantom = 0; // heuristic says boundary, plan didn't
-  let integrationRungLost = 0; // E has check_integration_suite, H doesn't
+  let boundaryLost = 0;
+  let boundaryPhantom = 0;
+  let integrationRungLost = 0;
   for (const r of stampedRows) {
     const pt = r.E.riskTier;
     const ht = r.H.riskTier;
@@ -164,8 +147,6 @@ function main(): void {
     if (eHasIntegration && !hHasIntegration) integrationRungLost++;
   }
 
-  // ── Same divergence, but against the TRUE-production arm (H0: {id,title}) ──
-  // This is what actually ships today. H1 above is the heuristic's ceiling.
   let tierMatch0 = 0;
   let tierUnder0 = 0;
   let tierOver0 = 0;
@@ -186,19 +167,17 @@ function main(): void {
     }
   }
 
-  // ── Dimension 1: model / agent selection ──
   const modelDist: Record<string, number> = {};
   const agentDist: Record<string, number> = {};
-  // model × tier cross-tab (does model track blast-radius tier?)
   const modelByTier: Record<string, Record<string, number>> = {
     low: {},
     medium: {},
     high: {},
   };
-  let highTierCheapModel = 0; // high-risk task routed to haiku (under-powered?)
-  let lowTierExpensiveModel = 0; // low-risk task routed to opus (over-powered?)
-  const NATIVE_FLAT_MODEL = 'opus'; // native default (session model / defaultModel)
-  let cheaperThanNative = 0; // E routes below the native flat model
+  let highTierCheapModel = 0;
+  let lowTierExpensiveModel = 0;
+  const NATIVE_FLAT_MODEL = 'opus';
+  let cheaperThanNative = 0;
   for (const r of stampedRows) {
     modelDist[r.E.recommendedModel] = (modelDist[r.E.recommendedModel] ?? 0) + 1;
     agentDist[r.E.recommendedAgent] = (agentDist[r.E.recommendedAgent] ?? 0) + 1;
@@ -213,7 +192,6 @@ function main(): void {
 
   const n = stampedRows.length;
 
-  // ── Emit markdown report ──
   const out: string[] = [];
   out.push('# Plan-Format Corpus Benchmark (#1636) — deterministic arm');
   out.push('');
@@ -345,7 +323,6 @@ function main(): void {
     ),
   );
 
-  // Console summary
   process.stdout.write(report + '\n');
   process.stdout.write(`\n[written] ${path.relative(REPO_ROOT, mdPath)}\n`);
   process.stdout.write(`[written] ${path.relative(REPO_ROOT, jsonPath)}\n`);

@@ -31,7 +31,6 @@ export class ToolCallGrader implements IGrader {
       return { passed: true, score: 1.0, reason: 'No tool calls to check' };
     }
 
-    // Count matched required calls
     let matchedRequired: number;
     if (ordered) {
       matchedRequired = longestOrderedSubsequence(outputCalls, requiredCalls);
@@ -39,7 +38,6 @@ export class ToolCallGrader implements IGrader {
       matchedRequired = countUnorderedMatches(outputCalls, requiredCalls);
     }
 
-    // Count forbidden violations
     let forbiddenViolations = 0;
     for (const forbidden of forbiddenCalls) {
       if (outputCalls.some((call) => callMatches(call, forbidden))) {
@@ -100,8 +98,9 @@ function countUnorderedMatches(
 }
 
 /**
- * Find length of longest common subsequence where matching preserves order.
- * Uses dynamic programming LCS approach.
+ * Returns the length of the longest common subsequence of `output` and `required`, by dynamic
+ * programming. `dp[i][j]` holds the length for `output[0..i-1]` and `required[0..j-1]`. The table
+ * is fully allocated, so the `undefined` guards and `?? 0` only narrow the index-access type.
  */
 function longestOrderedSubsequence(
   output: ToolCallEntry[],
@@ -109,14 +108,11 @@ function longestOrderedSubsequence(
 ): number {
   const m = output.length;
   const n = required.length;
-  // dp[i][j] = LCS length of output[0..i-1] and required[0..j-1]
   const dp: number[][] = Array.from({ length: m + 1 }, () =>
     Array(n + 1).fill(0)
   );
 
   for (let i = 1; i <= m; i++) {
-    // dp is fully pre-allocated (m+1 × n+1), so every row/cell below is
-    // present; the guards/`?? 0` narrow the index-access widening only.
     const row = dp[i];
     const prevRow = dp[i - 1];
     const outI = output[i - 1];

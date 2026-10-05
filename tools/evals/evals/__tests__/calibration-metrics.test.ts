@@ -3,8 +3,6 @@ import { fc } from '@fast-check/vitest';
 import type { HumanGradedCase } from '../calibration-types.js';
 import { computeConfusionMatrix, extractDisagreements } from '../calibration-metrics.js';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────
-
 function makeCase(
   caseId: string,
   humanVerdict: boolean,
@@ -30,11 +28,8 @@ function makeVerdicts(
   return map;
 }
 
-// ─── computeConfusionMatrix ────────────────────────────────────────────────
-
 describe('computeConfusionMatrix', () => {
   it('ComputeConfusionMatrix_AllCorrect_PerfectScores', () => {
-    // Arrange: 3 true positives + 2 true negatives = all correct
     const cases: HumanGradedCase[] = [
       makeCase('c1', true),
       makeCase('c2', true),
@@ -50,10 +45,8 @@ describe('computeConfusionMatrix', () => {
       ['c5', false, 'bad'],
     ]);
 
-    // Act
     const report = computeConfusionMatrix(cases, judgeVerdicts, 'validation');
 
-    // Assert
     expect(report.totalCases).toBe(5);
     expect(report.truePositives).toBe(3);
     expect(report.trueNegatives).toBe(2);
@@ -70,7 +63,6 @@ describe('computeConfusionMatrix', () => {
   });
 
   it('ComputeConfusionMatrix_AllWrong_ZeroScores', () => {
-    // Arrange: judge always disagrees with human
     const cases: HumanGradedCase[] = [
       makeCase('c1', true),
       makeCase('c2', true),
@@ -84,10 +76,8 @@ describe('computeConfusionMatrix', () => {
       ['c4', true, 'wrong'],
     ]);
 
-    // Act
     const report = computeConfusionMatrix(cases, judgeVerdicts, 'test');
 
-    // Assert
     expect(report.totalCases).toBe(4);
     expect(report.truePositives).toBe(0);
     expect(report.trueNegatives).toBe(0);
@@ -101,14 +91,17 @@ describe('computeConfusionMatrix', () => {
     expect(report.split).toBe('test');
   });
 
+  /**
+   * Two TP, one TN, one FP (c5), and one FN (c3). TPR is 2/3, TNR is 0.5, and accuracy is 0.6. Precision and
+   * recall are both 2/3, so F1 is 2/3.
+   */
   it('ComputeConfusionMatrix_MixedResults_CorrectTPRTNR', () => {
-    // Arrange: 2 TP, 1 TN, 1 FP, 1 FN
     const cases: HumanGradedCase[] = [
-      makeCase('c1', true),   // TP
-      makeCase('c2', true),   // TP
-      makeCase('c3', true),   // FN (judge says false)
-      makeCase('c4', false),  // TN
-      makeCase('c5', false),  // FP (judge says true)
+      makeCase('c1', true),
+      makeCase('c2', true),
+      makeCase('c3', true),
+      makeCase('c4', false),
+      makeCase('c5', false),
     ];
     const judgeVerdicts = makeVerdicts([
       ['c1', true, 'ok'],
@@ -118,29 +111,21 @@ describe('computeConfusionMatrix', () => {
       ['c5', true, 'oops'],
     ]);
 
-    // Act
     const report = computeConfusionMatrix(cases, judgeVerdicts, 'validation');
 
-    // Assert
     expect(report.truePositives).toBe(2);
     expect(report.trueNegatives).toBe(1);
     expect(report.falsePositives).toBe(1);
     expect(report.falseNegatives).toBe(1);
-    // TPR = TP / (TP + FN) = 2 / (2 + 1) = 2/3
     expect(report.tpr).toBeCloseTo(2 / 3, 10);
-    // TNR = TN / (TN + FP) = 1 / (1 + 1) = 0.5
     expect(report.tnr).toBeCloseTo(0.5, 10);
-    // Accuracy = (TP + TN) / total = 3 / 5 = 0.6
     expect(report.accuracy).toBeCloseTo(0.6, 10);
-    // Precision = TP / (TP + FP) = 2/3
-    // Recall = TP / (TP + FN) = 2/3
-    // F1 = 2 * (2/3 * 2/3) / (2/3 + 2/3) = 2/3
     expect(report.f1).toBeCloseTo(2 / 3, 10);
     expect(report.disagreements).toHaveLength(2);
   });
 
+  /** With no actual positives, TPR is undefined, and the convention is 0. */
   it('ComputeConfusionMatrix_NoPositives_TPRIsZero', () => {
-    // Arrange: all human verdicts are false (no positives)
     const cases: HumanGradedCase[] = [
       makeCase('c1', false),
       makeCase('c2', false),
@@ -150,10 +135,8 @@ describe('computeConfusionMatrix', () => {
       ['c2', false, 'ok'],
     ]);
 
-    // Act
     const report = computeConfusionMatrix(cases, judgeVerdicts, 'validation');
 
-    // Assert — no actual positives, so TPR is undefined; convention: 0
     expect(report.truePositives).toBe(0);
     expect(report.falseNegatives).toBe(0);
     expect(report.tpr).toBe(0);
@@ -161,8 +144,8 @@ describe('computeConfusionMatrix', () => {
     expect(report.accuracy).toBe(1);
   });
 
+  /** With no actual negatives, TNR is undefined, and the convention is 0. */
   it('ComputeConfusionMatrix_NoNegatives_TNRIsZero', () => {
-    // Arrange: all human verdicts are true (no negatives)
     const cases: HumanGradedCase[] = [
       makeCase('c1', true),
       makeCase('c2', true),
@@ -172,10 +155,8 @@ describe('computeConfusionMatrix', () => {
       ['c2', true, 'ok'],
     ]);
 
-    // Act
     const report = computeConfusionMatrix(cases, judgeVerdicts, 'validation');
 
-    // Assert — no actual negatives, so TNR is undefined; convention: 0
     expect(report.trueNegatives).toBe(0);
     expect(report.falsePositives).toBe(0);
     expect(report.tnr).toBe(0);
@@ -183,41 +164,37 @@ describe('computeConfusionMatrix', () => {
     expect(report.accuracy).toBe(1);
   });
 
+  /** One true positive. TNR is 0 by convention, because there are no negatives. */
   it('ComputeConfusionMatrix_SingleCase_CorrectMetrics', () => {
-    // Arrange: single true positive
     const cases: HumanGradedCase[] = [makeCase('c1', true)];
     const judgeVerdicts = makeVerdicts([['c1', true, 'correct']]);
 
-    // Act
     const report = computeConfusionMatrix(cases, judgeVerdicts, 'test');
 
-    // Assert
     expect(report.totalCases).toBe(1);
     expect(report.truePositives).toBe(1);
     expect(report.trueNegatives).toBe(0);
     expect(report.falsePositives).toBe(0);
     expect(report.falseNegatives).toBe(0);
     expect(report.tpr).toBe(1);
-    expect(report.tnr).toBe(0); // no negatives → convention 0
+    expect(report.tnr).toBe(0);
     expect(report.accuracy).toBe(1);
     expect(report.f1).toBe(1);
   });
 
+  /** One FN (c1) and one FP (c2) give precision 0 and recall 0, so F1 is 0. */
   it('ComputeF1_PrecisionAndRecallZero_ReturnsZero', () => {
-    // Arrange: 1 FP, 1 FN — precision=0, recall=0
     const cases: HumanGradedCase[] = [
-      makeCase('c1', true),  // FN: judge says false
-      makeCase('c2', false), // FP: judge says true
+      makeCase('c1', true),
+      makeCase('c2', false),
     ];
     const judgeVerdicts = makeVerdicts([
       ['c1', false, 'nope'],
       ['c2', true, 'yep'],
     ]);
 
-    // Act
     const report = computeConfusionMatrix(cases, judgeVerdicts, 'validation');
 
-    // Assert — precision = TP/(TP+FP) = 0/1 = 0, recall = TP/(TP+FN) = 0/1 = 0 → F1 = 0
     expect(report.truePositives).toBe(0);
     expect(report.falsePositives).toBe(1);
     expect(report.falseNegatives).toBe(1);
@@ -225,26 +202,22 @@ describe('computeConfusionMatrix', () => {
   });
 });
 
-// ─── extractDisagreements ──────────────────────────────────────────────────
-
 describe('extractDisagreements', () => {
+  /** The judge agrees on c1. c2 is an FP and c3 is an FN, so they are the two disagreements. */
   it('ExtractDisagreements_MismatchedVerdicts_ReturnsDetails', () => {
-    // Arrange
     const cases: HumanGradedCase[] = [
       makeCase('c1', true, 'human says pass'),
       makeCase('c2', false, 'human says fail'),
       makeCase('c3', true, 'human says pass again'),
     ];
     const judgeVerdicts = makeVerdicts([
-      ['c1', true, 'judge agrees'],   // agree — not a disagreement
-      ['c2', true, 'judge disagrees'], // disagree: FP
-      ['c3', false, 'judge missed'],   // disagree: FN
+      ['c1', true, 'judge agrees'],
+      ['c2', true, 'judge disagrees'],
+      ['c3', false, 'judge missed'],
     ]);
 
-    // Act
     const disagreements = extractDisagreements(cases, judgeVerdicts);
 
-    // Assert
     expect(disagreements).toHaveLength(2);
 
     const fp = disagreements.find(d => d.caseId === 'c2');
@@ -277,10 +250,7 @@ describe('extractDisagreements', () => {
   });
 });
 
-// ─── Property-Based Tests ──────────────────────────────────────────────────
-
 describe('Calibration Metrics Property Tests', () => {
-  // Arbitrary generators
   const arbHumanCase = fc.record({
     caseId: fc.uuid(),
     skill: fc.constant('test-skill'),
@@ -301,7 +271,6 @@ describe('Calibration Metrics Property Tests', () => {
         fc.array(arbHumanCase, { minLength: 1, maxLength: 50 }),
         fc.array(fc.boolean(), { minLength: 50, maxLength: 50 }),
         (cases, verdicts) => {
-          // Generate matching judge verdicts deterministically from fast-check
           const judgeVerdicts = new Map<string, { verdict: boolean; reason: string }>();
           for (let i = 0; i < cases.length; i++) {
             judgeVerdicts.set(cases[i].caseId, {
@@ -326,7 +295,6 @@ describe('Calibration Metrics Property Tests', () => {
         fc.array(arbHumanCase, { minLength: 1, maxLength: 50 }),
         fc.array(arbJudgeVerdict, { minLength: 1, maxLength: 50 }),
         (cases, verdicts) => {
-          // Pair up: use min(cases, verdicts) to build the map
           const judgeVerdicts = new Map<string, { verdict: boolean; reason: string }>();
           const limit = Math.min(cases.length, verdicts.length);
           for (let i = 0; i < limit; i++) {
@@ -352,12 +320,15 @@ describe('Calibration Metrics Property Tests', () => {
     );
   });
 
+  /**
+   * A judge that agrees with every human verdict gets accuracy 1. TPR and F1 are 1 when positives exist, and
+   * TNR is 1 when negatives exist.
+   */
   it('PerfectClassifier_AllCorrect_PerfectMetrics', () => {
     fc.assert(
       fc.property(
         fc.array(arbHumanCase, { minLength: 1, maxLength: 50 }),
         (cases) => {
-          // Judge agrees with every human verdict
           const judgeVerdicts = new Map<string, { verdict: boolean; reason: string }>();
           for (const c of cases) {
             judgeVerdicts.set(c.caseId, {
@@ -371,7 +342,6 @@ describe('Calibration Metrics Property Tests', () => {
           expect(report.accuracy).toBe(1);
           expect(report.disagreements).toHaveLength(0);
 
-          // TPR = 1 if there are any positives, else 0
           const hasPositives = cases.some(c => c.humanVerdict);
           const hasNegatives = cases.some(c => !c.humanVerdict);
 
@@ -382,7 +352,6 @@ describe('Calibration Metrics Property Tests', () => {
             expect(report.tnr).toBe(1);
           }
           if (hasPositives) {
-            // F1 is defined when there are positives
             expect(report.f1).toBe(1);
           }
         },

@@ -25,8 +25,6 @@ import {
 import { ProvenanceError, assertMeasured } from '../provenance.js';
 import { rmrf } from '../../../test-helpers/temp-dir.js';
 
-// ─── Pure diff core: property tests (symmetric + complete) ───────────────────
-
 const snapshotArb = fc.record({
   taskId: fc.string({ minLength: 1, maxLength: 4 }),
   riskTier: fc.constantFrom<string | null>('low', 'medium', 'high', null),
@@ -37,13 +35,14 @@ const snapshotArb = fc.record({
   ),
 });
 
-// Arrays with UNIQUE taskIds — mirrors the real classifications (one per task).
+/** Snapshot arrays with unique taskIds, like the real classifications, which hold one entry per task. */
 const snapshotSetArb = fc.uniqueArray(snapshotArb, {
   selector: (s) => s.taskId,
   maxLength: 8,
 });
 
 describe('diffClassifications — pure diff core (property)', () => {
+  /** The diffs also come back sorted by taskId. */
   it('is COMPLETE: exactly one diff per taskId in the union of both arms', () => {
     fc.assert(
       fc.property(snapshotSetArb, snapshotSetArb, (before, after) => {
@@ -51,7 +50,6 @@ describe('diffClassifications — pure diff core (property)', () => {
         const union = new Set([...before, ...after].map((s) => s.taskId));
         expect(diffs).toHaveLength(union.size);
         expect(new Set(diffs.map((d) => d.taskId))).toEqual(union);
-        // deterministic ordering (sorted)
         const ids = diffs.map((d) => d.taskId);
         expect([...ids].sort()).toEqual(ids);
       }),
@@ -91,15 +89,10 @@ describe('diffClassifications — pure diff core (property)', () => {
       boundaryTouching: false,
       verificationSequence: ['check_static_analysis', 'check_test_adequacy'],
     };
-    // identical → unchanged
     expect(snapshotChanged(base, { ...base })).toBe(false);
-    // tier differs
     expect(snapshotChanged(base, { ...base, riskTier: 'high' })).toBe(true);
-    // boundary differs
     expect(snapshotChanged(base, { ...base, boundaryTouching: true })).toBe(true);
-    // sequence differs
     expect(snapshotChanged(base, { ...base, verificationSequence: ['check_static_analysis'] })).toBe(true);
-    // one side absent → changed
     expect(snapshotChanged(base, undefined)).toBe(true);
     expect(snapshotChanged(undefined, undefined)).toBe(false);
   });
@@ -110,8 +103,6 @@ describe('diffClassifications — pure diff core (property)', () => {
     expect(sequencesEqual(['a'], ['a', 'b'])).toBe(false);
   });
 });
-
-// ─── Provenance stamping (task 003) ──────────────────────────────────────────
 
 const CAUSAL_BEFORE: BinaryRef = {
   label: 'causal-before',
@@ -163,6 +154,7 @@ describe('buildProvenanceArtifact — 4 stamped binaries + enumerated confounds'
     expect(art.causalPairIsolates).toContain('#1669');
   });
 
+  /** `released-before` carries neither #1659 nor #1669, so it is the source of the confound. */
   it('the causal pair carries #1659 on BOTH arms (isolating #1669)', () => {
     const cb = EXP1_BINARY_REFS.find((r) => r.label === 'causal-before')!;
     const ca = EXP1_BINARY_REFS.find((r) => r.label === 'causal-after')!;
@@ -170,15 +162,12 @@ describe('buildProvenanceArtifact — 4 stamped binaries + enumerated confounds'
     expect(cb.has1669).toBe(false);
     expect(ca.has1659).toBe(true);
     expect(ca.has1669).toBe(true);
-    // released-before has NEITHER — the confound source.
     const rb = EXP1_BINARY_REFS.find((r) => r.label === 'released-before')!;
     expect(rb.has1659).toBe(false);
     expect(rb.has1669).toBe(false);
     expect(RELEASED_WINDOW_CONFOUNDS.length).toBeGreaterThanOrEqual(2);
   });
 });
-
-// ─── CSV emission (task 004) ─────────────────────────────────────────────────
 
 describe('buildPairRows + toCsv', () => {
   const corpus: CorpusSpecTasks[] = [
@@ -193,6 +182,7 @@ describe('buildPairRows + toCsv', () => {
     has1669: true,
   };
 
+  /** A stray comma inside a field changes the column count, so the test counts the columns of the data row. */
   it('emits one row per (pair, spec, task) with both binaries` SHAs for traceability', () => {
     const beforeRuns = new Map([
       ['spec-a.md', { ok: true as const, classifications: [{ taskId: '001', riskTier: 'medium', boundaryTouching: false, verificationSequence: ['check_static_analysis', 'check_test_adequacy'] }] }],
@@ -216,7 +206,6 @@ describe('buildPairRows + toCsv', () => {
 
     const csv = toCsv(rows);
     expect(csv.split('\n')[0]).toBe(CSV_COLUMNS.join(','));
-    // No stray commas inside a field would corrupt the column count.
     expect(csv.trim().split('\n')[1].split(',')).toHaveLength(CSV_COLUMNS.length);
   });
 
@@ -233,8 +222,6 @@ describe('buildPairRows + toCsv', () => {
     expect(rows[0].changed).toBe(false);
   });
 });
-
-// ─── Corpus loading (harness) ────────────────────────────────────────────────
 
 describe('loadCorpusTasks', () => {
   it('reduces a stamped spec to its {id,title} task list and skips unstamped docs', () => {
@@ -256,13 +243,10 @@ describe('loadCorpusTasks', () => {
   });
 });
 
-// ─── Real-binary integration (fixture pair) — spawns the built binaries ──────
-//
-// Skips when the throwaway Exp1 binaries are absent (they live under /tmp and
-// are NOT committed — CI reproduces them via task 003's build steps). Present in
-// the authoring environment, so this runs green there and documents the exact
-// before→after contract #1669 changes at the binary boundary.
-
+/**
+ * The directory of the Exp1 binaries. They live under `/tmp` by default and are not committed, so
+ * the real-binary test skips when they are absent.
+ */
 const BIN_DIR = process.env['EXP1_BINARIES_DIR'] ?? '/tmp/1670-exp1';
 const beforeBin = path.join(BIN_DIR, 'causal-before/dist/bin/exarchos-linux-x64');
 const afterBin = path.join(BIN_DIR, 'causal-after/dist/bin/exarchos-linux-x64');
@@ -272,6 +256,7 @@ function seqHas(snap: ClassificationSnapshot | undefined, gate: string): boolean
   return !!snap && snap.verificationSequence.includes(gate);
 }
 
+/** Spawns the built binaries and records the contract that #1669 changes at the binary boundary. */
 describe.skipIf(!binariesPresent)('Exp1 real-binary fixture pair (causal-before → causal-after)', () => {
   const workRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'exp1-integ-'));
   const serverRoot = path.join(workRoot, 'serverroot');
@@ -296,6 +281,10 @@ describe.skipIf(!binariesPresent)('Exp1 real-binary fixture pair (causal-before 
     ] },
   ];
 
+  /**
+   * Without a planPath, the before arm cannot see the stamp and uses the heuristic. The
+   * high-tier-only `check_integration_suite` gate is then absent.
+   */
   it('before-arm (no planPath) → heuristic medium/no-boundary; after-arm (planPath) → high/boundary + check_integration_suite', async () => {
     setupServerRoot(serverRoot);
 
@@ -322,18 +311,14 @@ describe.skipIf(!binariesPresent)('Exp1 real-binary fixture pair (causal-before 
     const b001 = b.classifications.find((c) => c.taskId === '001');
     const a001 = a.classifications.find((c) => c.taskId === '001');
 
-    // before-arm: the stamp is invisible (no planPath) → heuristic medium/no-boundary,
-    // and the high-tier-only check_integration_suite gate is ABSENT.
     expect(b001?.riskTier).toBe('medium');
     expect(b001?.boundaryTouching).toBe(false);
     expect(seqHas(b001, 'check_integration_suite')).toBe(false);
 
-    // after-arm: the plan's stamp is lifted → high/boundary, WITH check_integration_suite.
     expect(a001?.riskTier).toBe('high');
     expect(a001?.boundaryTouching).toBe(true);
     expect(seqHas(a001, 'check_integration_suite')).toBe(true);
 
-    // and the diff core flags task 001 as changed.
     const diffs = diffClassifications(b.classifications, a.classifications);
     expect(diffs.find((d) => d.taskId === '001')?.changed).toBe(true);
 
