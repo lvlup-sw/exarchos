@@ -1,18 +1,13 @@
-// ─── Oneshot Workflow — End-to-End Integration Tests (T16) ─────────────────
+// End-to-end integration tests for the `oneshot` workflow type.
 //
-// Exercises the full init → plan → implementing → finalize chain for the
-// `oneshot` workflow type against real tmpdir state + a real EventStore,
-// covering the four synthesisPolicy × event combinations and the mid-
-// implementing cancel path.
+// The tests run the chain from init through plan and implementing to finalize, with a real temp
+// state directory and a real EventStore. They cover the four combinations of `synthesisPolicy` and
+// the `synthesize.requested` event, and a cancel in `implementing`.
 //
-// Unlike the unit tests in `verbs/tasks/finalize-oneshot.test.ts`, these
-// tests wire the orchestrate handlers together exactly as the composite
-// dispatcher does at runtime: `handleInit` → `handleSet` (plan artifact) →
-// `handleSet` (phase transition) → `handleRequestSynthesize` (optional) →
-// `handleFinalizeOneshot` / `handleCancel`. This verifies the choice-state
-// mechanism resolves correctly through the real HSM pipeline, not just at
-// the handler boundary.
-// ────────────────────────────────────────────────────────────────────────────
+// The unit tests in `verbs/tasks/finalize-oneshot.test.ts` stop at the handler boundary. These
+// tests call the handlers in the runtime order: `handleInit`, `handleSet` (plan artifact),
+// `handleSet` (phase transition), `handleRequestSynthesize` (optional), then
+// `handleFinalizeOneshot` or `handleCancel`. Thus the choice state resolves through the real HSM.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -25,8 +20,6 @@ import { EventStore } from '../../src/events/store.js';
 import { handleFinalizeOneshot } from '../../src/verbs/tasks/finalize-oneshot.js';
 import { handleRequestSynthesize } from '../../src/verbs/team/request-synthesize.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
-
-// ─── Shared fixtures ────────────────────────────────────────────────────────
 
 let tmpDir: string;
 let eventStore: EventStore;
@@ -41,16 +34,10 @@ afterEach(async () => {
   await rmrfAsync(tmpDir);
 });
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 /**
- * Initialize a oneshot workflow and drive it through plan → implementing.
- *
- * `synthesisPolicy` is passed directly to `handleInit` — the init schema
- * accepts it for oneshot workflows and seeds `state.oneshot.synthesisPolicy`
- * before the workflow exits `plan`. The `handleSet` mid-workflow override
- * path is still supported for runtime policy changes; these tests use the
- * init-time path because that is the primary documented API.
+ * Starts a oneshot workflow and moves it from `plan` to `implementing`. `handleInit` takes
+ * `synthesisPolicy` and seeds `state.oneshot.synthesisPolicy`. The plan artifact satisfies the
+ * `oneshotPlanSet` guard on the transition.
  */
 async function setupOneshotInImplementing(
   featureId: string,
@@ -71,7 +58,6 @@ async function setupOneshotInImplementing(
     );
   }
 
-  // Satisfy the `oneshotPlanSet` guard on plan → implementing
   const planResult = await handleSet(
     {
       featureId,
@@ -98,11 +84,7 @@ async function setupOneshotInImplementing(
   }
 }
 
-/**
- * Read the raw phase directly from the state file on disk, bypassing any
- * projection or view-layer caching. Tests assert against this to verify
- * the HSM persisted the expected transition.
- */
+/** Reads the phase from the state file on disk, not from a projection or a view. */
 async function readPhase(featureId: string): Promise<string> {
   const stateFile = path.join(tmpDir, `${featureId}.state.json`);
   const raw = await fs.readFile(stateFile, 'utf-8');
@@ -110,17 +92,16 @@ async function readPhase(featureId: string): Promise<string> {
   return parsed.phase ?? '';
 }
 
-// ─── Tests ──────────────────────────────────────────────────────────────────
-
 describe('oneshot workflow integration (T16)', () => {
+  /**
+   * With no policy at init, the schema default is `on-request`. No `synthesize.requested` event
+   * exists, so the `synthesisOptedOut` guard passes and the workflow completes.
+   */
   it('oneshotIntegration_defaultPolicy_directCommitPath', async () => {
     const featureId = 'oneshot-default';
 
-    // Init with no policy override — schema default is `on-request`.
     await setupOneshotInImplementing(featureId);
 
-    // No synthesize.requested event emitted; default policy = on-request
-    // with no opt-in event → synthesisOptedOut guard passes → completed.
     const result = await handleFinalizeOneshot({
       featureId,
       stateDir: tmpDir,
@@ -134,13 +115,12 @@ describe('oneshot workflow integration (T16)', () => {
     expect(await readPhase(featureId)).toBe('completed');
   });
 
+  /** A `synthesize.requested` event selects the synthesize branch. */
   it('oneshotIntegration_onRequestPolicyWithEvent_synthesizePath', async () => {
     const featureId = 'oneshot-on-request-event';
 
     await setupOneshotInImplementing(featureId, 'on-request');
 
-    // Runtime opt-in: appending synthesize.requested flips the guard toward
-    // the synthesize branch.
     const requestResult = await handleRequestSynthesize({
       featureId,
       reason: 'needs review before commit',
@@ -162,12 +142,12 @@ describe('oneshot workflow integration (T16)', () => {
     expect(await readPhase(featureId)).toBe('synthesize');
   });
 
+  /** The `always` policy selects the synthesize branch with no event. */
   it('oneshotIntegration_policyAlways_synthesizePathWithoutEvent', async () => {
     const featureId = 'oneshot-always';
 
     await setupOneshotInImplementing(featureId, 'always');
 
-    // Policy `always` should route to synthesize with no event needed.
     const result = await handleFinalizeOneshot({
       featureId,
       stateDir: tmpDir,
@@ -180,14 +160,15 @@ describe('oneshot workflow integration (T16)', () => {
     expect(await readPhase(featureId)).toBe('synthesize');
   });
 
+  /**
+   * `handleRequestSynthesize` does not read the policy, so it appends the event. The guard stops on
+   * `never`, so the workflow still completes directly.
+   */
   it('oneshotIntegration_policyNeverWithEvent_stillDirectCommit', async () => {
     const featureId = 'oneshot-never-with-event';
 
     await setupOneshotInImplementing(featureId, 'never');
 
-    // Attempt runtime opt-in. The event will be appended to the stream
-    // (request-synthesize does not inspect policy) — but the downstream
-    // guard short-circuits on `never`, so the direct-commit path wins.
     const requestResult = await handleRequestSynthesize({
       featureId,
       reason: 'policy should override this',
@@ -208,13 +189,12 @@ describe('oneshot workflow integration (T16)', () => {
     expect(await readPhase(featureId)).toBe('completed');
   });
 
+  /** The cancel uses the `cancelled` transition that the HSM base gives each workflow type. */
   it('oneshotIntegration_cancelMidImplementing_transitionsToCancelled', async () => {
     const featureId = 'oneshot-cancel-mid';
 
     await setupOneshotInImplementing(featureId);
 
-    // Mid-flight cancel via the universal cancelled transition that the
-    // HSM base installs on every workflow type.
     const cancelResult = await handleCancel(
       { featureId, reason: 'abandoning mid-implement for test' },
       tmpDir,

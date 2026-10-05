@@ -1,13 +1,12 @@
 import type { BenchmarkRun, ArmId } from './types.js';
 
+/** Renders a benchmark run as a Markdown report. */
 export function generateReport(run: BenchmarkRun): string {
   const sections: string[] = [];
 
-  // Title
   sections.push('# ICPC 2025 World Finals: Agent Workflow Comparison\n');
   sections.push(`Run: ${run.runId} | Model: ${run.model} | Commit: ${run.commit} | Language: ${run.language}\n`);
 
-  // Methodology
   sections.push('## Methodology\n');
   sections.push('This benchmark compares three approaches ("arms") for solving ICPC-style competitive programming problems:\n');
   for (const arm of run.arms) {
@@ -15,10 +14,8 @@ export function generateReport(run: BenchmarkRun): string {
   }
   sections.push('');
 
-  // Collect arm IDs in order
   const armIds = run.arms.map((a) => a.id);
 
-  // Summary table
   sections.push('## Summary\n');
   const header = `| Problem | ${armIds.join(' | ')} |`;
   const separator = `|---------|${armIds.map(() => '---').join('|')}|`;
@@ -35,7 +32,6 @@ export function generateReport(run: BenchmarkRun): string {
   }
   sections.push('');
 
-  // Aggregate metrics
   sections.push('## Aggregate Metrics\n');
 
   for (const armId of armIds) {
@@ -56,7 +52,6 @@ export function generateReport(run: BenchmarkRun): string {
   }
   sections.push('');
 
-  // Per-problem sections
   sections.push('## Per-Problem Results\n');
 
   for (const problem of run.problems) {
@@ -71,7 +66,6 @@ export function generateReport(run: BenchmarkRun): string {
     sections.push('');
   }
 
-  // Caveats
   sections.push('## Caveats\n');
   sections.push('- Results are based on **sample test cases only**, not full ICPC judge test suites.');
   sections.push('- LLM outputs are **non-deterministic**; results may vary across runs.');

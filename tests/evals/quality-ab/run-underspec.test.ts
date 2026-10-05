@@ -1,19 +1,12 @@
-// ─── Exp 3 run harness tests (#1670 · DR-4/DR-7 · task 010) ───────────────────
-//
-// The dispatch itself calls a live model, so the SEAM (`runModel`) is injected
-// here — these tests exercise the deterministic machinery around it:
-//   1. PARSE — the `===FILE:…===` block parser turns model text into files.
-//   2. PROMPT — the E arm carries the production verification steer; N does not.
-//   3. DISPATCH — an injected model result materializes a run dir; a failed /
-//      empty result yields a BLOCKED cell (never fabricated) — DR-7.
-//   4. CAPTURE (mechanical) — against a FIXTURE run dir, `captureCell` correctly
-//      aggregates hidden-oracle pass rate + strict tsc + durable-tests + the REAL
-//      diff-scoped kill-probe mutation score (genuine→1, vacuous→0, no-test→null).
-//      This drives the actual `gradeAdequacy`/`runProbe` gate — measured, not
-//      stubbed (DR-7 fail-honest).
-//   5. CSV — rows are stamped with the task-001 provenance shape; a blocked cell
-//      leaves EMPTY metric cells.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Tests for the run harness of experiment 3. The dispatch calls a live model, so each test injects the `runModel` seam.
+ * The tests cover the deterministic parts:
+ * - Parse: the `===FILE:<name>===` block parser turns model text into files.
+ * - Prompt: arm E carries the production verification steer, and arm N does not.
+ * - Dispatch: an injected model result writes a run directory. A failed or empty result gives a blocked cell.
+ * - Capture: `captureCell` grades a fixture run directory with the real `gradeAdequacy` and `runProbe`, not a stub.
+ * - CSV: each row carries the provenance stamp, and a blocked cell has empty metric cells.
+ */
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
@@ -39,17 +32,14 @@ import type { Provenance } from '../../../tools/evals/evals/provenance.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const SUBPROCESS_TIMEOUT = 120_000;
-// The grading path spawns `tsx`/`git` subprocesses (oracle run + diff-scoped
-// mutation gate). These dev-only eval harnesses are Linux-oriented; the npm
-// `.cmd` bin shims + tmpdir semantics don't spawn cleanly on win32, so the
-// subprocess-grading blocks are skipped there (the pure parser/prompt/CSV blocks
-// still run everywhere). Coverage is exercised on the Linux lane.
+/**
+ * The grading path starts `tsx` and `git` subprocesses, and the npm `.cmd` shims do not spawn cleanly on win32.
+ * The suite that grades skips there and runs on the Linux lane. The other suites run on every platform.
+ */
 const WIN32 = process.platform === 'win32';
 
 const TOKEN_BUCKET = TASKS.find((t) => t.name === 'token-bucket')!;
 const PARSE_DURATION = TASKS.find((t) => t.name === 'parse-duration')!;
-
-// ── 1. PARSE ──────────────────────────────────────────────────────────────────
 
 describe('parseProducedFiles — model-output block parser', () => {
   it('extracts a single impl.ts block', () => {
@@ -87,8 +77,6 @@ describe('parseProducedFiles — model-output block parser', () => {
   });
 });
 
-// ── 2. PROMPT ─────────────────────────────────────────────────────────────────
-
 describe('buildUserPrompt — both arms implement+test; ONLY the steer varies', () => {
   const spec = '# Task: parseDuration\nImplement it well.';
   const stub = 'export function parseDuration(s: string): number { throw new Error("x"); }';
@@ -103,8 +91,8 @@ describe('buildUserPrompt — both arms implement+test; ONLY the steer varies', 
 
   it('N arm asks for the SAME durable test.ts but carries NO steer (symmetric test request)', () => {
     const p = buildUserPrompt(PARSE_DURATION, 'N', spec, stub);
-    expect(p).toContain('===FILE:test.ts==='); // test request is held constant across arms
-    expect(p).not.toContain('check_test_adequacy'); // …but the verification STEER is absent
+    expect(p).toContain('===FILE:test.ts===');
+    expect(p).not.toContain('check_test_adequacy');
     expect(p).not.toContain('kill-probe');
   });
 
@@ -112,7 +100,6 @@ describe('buildUserPrompt — both arms implement+test; ONLY the steer varies', 
     const e = buildUserPrompt(PARSE_DURATION, 'E', spec, stub);
     const n = buildUserPrompt(PARSE_DURATION, 'N', spec, stub);
     const contract = '===FILE:test.ts===';
-    // Both request the test; the E-only prefix is exactly the verification note.
     expect(e.slice(e.indexOf(contract))).toBe(n.slice(n.indexOf(contract)));
   });
 
@@ -123,8 +110,6 @@ describe('buildUserPrompt — both arms implement+test; ONLY the steer varies', 
     expect(n).not.toContain('mock only what you own');
   });
 });
-
-// ── 3. DISPATCH (injected model) ──────────────────────────────────────────────
 
 describe('dispatchCell — materialize a run dir from an injected model result', () => {
   let base: string;
@@ -185,14 +170,12 @@ describe('dispatchCell — materialize a run dir from an injected model result',
     };
     const out = await dispatchCell(runs, cell, { runModel: model, tasksDir, skipExisting: true });
     expect(out.status).toBe('ok');
-    expect(called).toBe(false); // did not re-spend
+    expect(called).toBe(false);
     expect(fs.readFileSync(path.join(runDir, 'impl.ts'), 'utf-8')).toContain('prior');
   });
 });
 
-// ── 4. CAPTURE (real mechanical grading against a fixture run dir) ─────────────
-
-// A tiny self-contained `add` task: stub throws, oracle checks a few cases.
+/** The stub of the fixture task `add`. The stub throws, and `ADD_ORACLE` checks three cases. */
 const ADD_STUB = `export function add(a: number, b: number): number {\n  throw new Error('not implemented');\n}\n`;
 const ADD_IMPL = `export function add(a: number, b: number): number {\n  return a + b;\n}\n`;
 const ADD_ORACLE = `import { add } from './impl.ts';
@@ -206,9 +189,9 @@ let passed = 0; const failures: string[] = [];
 for (const [n, f] of checks) { try { f(); passed++; } catch (e) { failures.push(n + ': ' + (e as Error).message); } }
 console.log(JSON.stringify({ passed, failed: failures.length, total: checks.length, failures }));
 `;
-// GENUINE test: asserts add() → red when impl reverts to the throwing stub.
+/** A genuine test. It asserts the result of `add`, so it goes red when the impl reverts to the stub. */
 const GENUINE_TEST = `import assert from 'node:assert/strict';\nimport { add } from './impl.ts';\nassert.equal(add(2, 3), 5);\nassert.equal(add(-1, 1), 0);\nconsole.log('ok');\n`;
-// VACUOUS test: imports impl but asserts nothing about add → stays green.
+/** A vacuous test. It imports the impl and asserts nothing about `add`, so it stays green after the revert. */
 const VACUOUS_TEST = `import assert from 'node:assert/strict';\nimport './impl.ts';\nassert.equal(1 + 1, 2);\nconsole.log('ok');\n`;
 
 describe.skipIf(WIN32)('captureCell — mechanical per-cell aggregation (oracle · tsc · mutation)', () => {
@@ -250,7 +233,7 @@ describe.skipIf(WIN32)('captureCell — mechanical per-cell aggregation (oracle 
       expect(row.typecheckOk).toBe(true);
       expect(row.wroteTests).toBe(true);
       expect(row.adequacyProbed).toBe(true);
-      expect(row.adequacyScore).toBe(1); // mechanically KILLED, not self-reported
+      expect(row.adequacyScore).toBe(1);
     },
   );
 
@@ -263,16 +246,15 @@ describe.skipIf(WIN32)('captureCell — mechanical per-cell aggregation (oracle 
       const row = await captureCell(runsDir, cell, dispatch, { tasksDir });
       expect(row.wroteTests).toBe(true);
       expect(row.adequacyProbed).toBe(true);
-      expect(row.adequacyScore).toBe(0); // survived the revert → vacuous
+      expect(row.adequacyScore).toBe(0);
     },
   );
 
+  /** Both arms get the test request, but a model can omit the test file. The score must then be `null`, not 0. */
   it(
     'cell with no test file: mutation UNMEASURABLE (score null), never a fabricated 0 — DR-7',
     { timeout: SUBPROCESS_TIMEOUT },
     async () => {
-      // Both arms are now asked to test, but a model can still fail to emit one —
-      // the grader must stay honest (null, not 0) on that branch.
       const cell = seedRun('sonnet', 'N', 1, ADD_IMPL);
       const dispatch = { status: 'ok' as const, runDir: cellRunDir(runsDir, cell), modelId: 'm', costUsd: 0.01, filesWritten: ['impl.ts'] };
       const row = await captureCell(runsDir, cell, dispatch, { tasksDir });
@@ -294,8 +276,6 @@ describe.skipIf(WIN32)('captureCell — mechanical per-cell aggregation (oracle 
   });
 });
 
-// ── 5. CSV / provenance ───────────────────────────────────────────────────────
-
 describe('buildCsv — provenance-stamped rows; blocked cells stay empty', () => {
   const provenance: Provenance = {
     binaryTag: 'v2.12.0-preview.1',
@@ -314,21 +294,20 @@ describe('buildCsv — provenance-stamped rows; blocked cells stay empty', () =>
     adequacyProbed: null, adequacyScore: null, adequacyDiscriminant: 'blocked', costUsd: null, note: 'timeout',
   };
 
+  /** In the blocked row, field 5 is `status`, field 6 is `oraclePassed` and field 12 is `adequacyScore`. */
   it('emits a header + one row per cell, provenance stamped on every row', () => {
     const csv = buildCsv([okRow, blockedRow], provenance);
     const lines = csv.trim().split('\n');
     expect(lines[0]).toContain('model,modelId,task,arm,rep,status');
     expect(lines[0]).toContain('binaryTag');
-    expect(lines).toHaveLength(3); // header + 2 rows
-    // ok row carries measured numbers + provenance
+    expect(lines).toHaveLength(3);
     expect(lines[1]).toContain('v2.12.0-preview.1');
     expect(lines[1]).toContain('claude-opus-4-8|claude-sonnet-5');
     expect(lines[1]).toContain('measured');
-    // blocked row: empty metric cells, never a fabricated number
     const blockedFields = (lines[2] ?? '').split(',');
-    expect(blockedFields[5]).toBe('blocked'); // status
-    expect(blockedFields[6]).toBe(''); // oraclePassed empty
-    expect(blockedFields[12]).toBe(''); // adequacyScore empty
+    expect(blockedFields[5]).toBe('blocked');
+    expect(blockedFields[6]).toBe('');
+    expect(blockedFields[12]).toBe('');
   });
 
   it('throws (fail-loud) when provenance is incomplete — no unstamped data', () => {
@@ -336,8 +315,6 @@ describe('buildCsv — provenance-stamped rows; blocked cells stay empty', () =>
     expect(() => buildCsv([okRow], bad)).toThrow(/gitSha/);
   });
 });
-
-// ── aggregate (report table) ──────────────────────────────────────────────────
 
 describe('aggregate — per model×task×arm summary over ok cells', () => {
   const row = (over: Partial<CellRow>): CellRow => ({
@@ -371,7 +348,6 @@ describe('aggregate — per model×task×arm summary over ok cells', () => {
   });
 });
 
-// runName sanity (grade.ts-compatible grammar)
 describe('runName', () => {
   it('produces the <task>__<arm>__r<rep> grammar grade.ts expects', () => {
     expect(runName('csv-line', 'E', 3)).toBe('csv-line__E__r3');

@@ -1,47 +1,19 @@
-// ─── Exp 3: under-specified E-vs-N A/B, two models, mechanical grading ────────
-// (#1670 · DR-4/DR-7 · task 010)
-//
-// The provisional full-spec A/B (RESULTS.md / ANALYSIS.md) tied both arms at
-// 100% on the oracle: every task FULLY enumerated its edge cases, so a competent
-// model implements-to-spec without any verification steer. The steer ("cover the
-// edge cases / write tests that can fail") can only have CORRECTNESS value when
-// the edge cases must be DISCOVERED — i.e. on UNDER-SPECIFIED tasks. This script
-// runs exactly that missing condition:
-//
-//   arms   : E = the production `buildVerificationNote` (the exarchos implementer
-//                verification steer, tier-selected per task);
-//            N = no steer. BOTH arms are told to implement AND write a durable
-//                test, so the ONLY cross-arm variable is the steer's CONTENT and
-//                the contrast is test ADEQUACY (mutation kills), not test PRESENCE.
-//                (Corrected from the first run, which asked only E to test.)
-//   tasks  : the UNDER-SPEC variants (`SPEC.underspec.md`) for token-bucket,
-//            parse-duration, csv-line — edge-case enumeration stripped, HIDDEN
-//            oracle unchanged.
-//   models : opus + sonnet.
-//   metric : per cell — oracle pass rate (hidden oracle), strict tsc, durable
-//            tests, and the task-009 MECHANICAL mutation-adequacy score
-//            (`gradeAdequacy` runs the real diff-scoped kill-probe — NOT
-//            self-reported).
-//
-// ── DR-7 fail-honest ─────────────────────────────────────────────────────────
-// A cell whose model call errors, or that yields no parseable `impl.ts`, is
-// recorded `status: 'blocked'` with NULL metrics — never a fabricated number.
-// If the headless model cannot be invoked at all, the run is blocked wholesale
-// and reported as such. The mutation score is measured by the real kill-probe
-// (imported from grade.ts), so it is measured, not claimed.
-//
-// ── Oracle isolation (eval integrity) ────────────────────────────────────────
-// The model is dispatched as a PURE TEXT generator (`claude -p --tools ""`): it
-// has NO filesystem/tool access, so it structurally cannot read the hidden
-// `tasks/*/oracle.ts` answer key. The spec + stub are the only task context it
-// sees, passed inline. The oracle is copied in only at grade time (by grade.ts)
-// and removed again.
-//
-// Run:  tsx tests/evals/quality-ab/run-underspec.ts [reps]
-//   env QAB_REPS=<n>          replicates per cell (default 2)
-//   env QAB_MODELS=opus,sonnet   models to run (default opus,sonnet)
-//   env QAB_SKIP_EXISTING=0   re-dispatch cells that already produced an impl
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Experiment 3 of the quality A/B eval: under-specified tasks, arm E against arm N, two models, graded by `grade.ts`.
+ * On the full specs both arms scored 100% on the oracle, because each spec lists every edge case.
+ * Each task here uses `SPEC.underspec.md`, which omits the edge-case list. The hidden oracle is the same.
+ *
+ * Arm E carries the production `buildVerificationNote` for the risk tier of the task. Arm N carries no steer.
+ * Both arms must implement the task and write a durable test, so the only variable is the content of the steer.
+ * The contrast is test adequacy (the kill-probe result), not the presence of a test.
+ *
+ * A cell with a failed model call or no parseable `impl.ts` gets `status: 'blocked'` and null metrics, never an invented number.
+ * The model runs as a text generator (`claude -p --tools ""`) with no file access, so it cannot read an oracle.
+ *
+ * Run: `tsx tests/evals/quality-ab/run-underspec.ts [reps]`
+ * Environment: `QAB_REPS` (default 2), `QAB_MODELS` (default `opus,sonnet`), `QAB_TASKS` (a task filter).
+ * `QAB_SKIP_EXISTING=0` dispatches again each cell that already holds an impl.
+ */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -61,26 +33,25 @@ import { stampProvenance, type Provenance } from '../../../tools/evals/evals/pro
 import { execFileAsync, spawnAsync } from '../../../tools/test-helpers/spawn.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const QAB = __dirname; // tests/evals/quality-ab
+const QAB = __dirname;
 const TASKS_DIR = path.join(QAB, 'tasks');
-// Nest under the existing `runs/` tree so vitest's `docs/**/runs/**` exclude
-// covers any agent-authored `*.test.ts` here (their module-load `process.exit`
-// harness must never be collected as a project test). The full-spec grader's
-// `discoverRunDirs` ignores the `underspec/` subdir (not a `__[EN]__r<n>` name).
+/**
+ * The runs of this experiment sit under the `runs` tree, which vitest excludes at any depth.
+ * A run can hold a model-written test file that calls `process.exit`, and vitest must never collect it.
+ * `discoverRunDirs` in `grade.ts` does not match the directory name `underspec`.
+ */
 const RUNS_DIR = path.join(QAB, 'runs', 'underspec');
 const DATA_DIR = path.resolve(REPO_ROOT, 'tests/evals/data/2026-07-09');
 const CSV_PATH = path.join(DATA_DIR, 'exp3-underspec-ab.csv');
 
-// ─── Study matrix ─────────────────────────────────────────────────────────────
-
-/** One under-spec task: its risk stamp drives the E-arm verification note. */
+/** One under-specified task. Its risk stamp selects the verification note of arm E. */
 export interface TaskSpec {
   readonly name: string;
   readonly riskTier: RiskTier;
   readonly boundaryTouching: boolean;
 }
 
-/** Risk stamps mirror each task's `SPEC.underspec.md` header (task 008). */
+/** The tasks of the study. Each risk stamp is the one in the header of the `SPEC.underspec.md` of the task. */
 export const TASKS: readonly TaskSpec[] = [
   { name: 'token-bucket', riskTier: 'high', boundaryTouching: true },
   { name: 'parse-duration', riskTier: 'medium', boundaryTouching: false },
@@ -90,19 +61,14 @@ export const TASKS: readonly TaskSpec[] = [
 export type Arm = 'E' | 'N';
 export const ARMS: readonly Arm[] = ['E', 'N'];
 
-/** Neutral system prompt — IDENTICAL across arms/models so the ONLY cross-arm
- *  variable is the verification note in the E-arm user prompt. Silent about
- *  testing (the test request lives symmetrically in BOTH arms' user prompts, so
- *  it is held constant and never a cross-arm variable). */
+/**
+ * The system prompt, identical for every arm and model. It does not mention tests.
+ * The test request is in the user prompt of both arms, so it is constant across arms.
+ */
 export const SYSTEM_PROMPT =
   'You are a senior TypeScript engineer implementing a small, self-contained module. Write correct, production-quality code.';
 
-// ─── Prompt construction ──────────────────────────────────────────────────────
-
-// The `===FILE:name===\n…\n===ENDFILE===` wrapper is shared harness plumbing (how
-// the run dir is materialized). BOTH arms are asked to implement AND write a
-// durable test — the ONLY cross-arm variable is the verification-steer CONTENT
-// (E carries `buildVerificationNote`, N does not). See buildUserPrompt.
+/** The output contract for `impl.ts`. The harness reads the `===FILE:<name>===` and `===ENDFILE===` markers to write the run directory. */
 const IMPL_BLOCK = [
   '## Output format (STRICT)',
   'Wrap each file EXACTLY like this, with NO prose outside the markers:',
@@ -111,10 +77,10 @@ const IMPL_BLOCK = [
   '===ENDFILE===',
 ].join('\n');
 
-// Requested from BOTH arms: a durable, runnable test alongside the impl. The
-// contract (self-executing, exits non-zero on failure) is what the kill-probe
-// grades. Symmetric across arms so "did a test get written" is held constant and
-// the measured contrast is test ADEQUACY, not test PRESENCE.
+/**
+ * The request for a durable test, sent to both arms. The test must run by itself and exit non-zero on a failure.
+ * The kill probe grades against that contract.
+ */
 const TEST_CONTRACT = [
   '',
   'Also emit a durable test file the SAME way, named `test.ts`:',
@@ -127,19 +93,11 @@ const TEST_CONTRACT = [
 ].join('\n');
 
 /**
- * Build the user prompt for a cell. The spec + stub + the impl/test output
- * contract are IDENTICAL across arms — both are told to implement and to write a
- * durable `test.ts`. The E arm additionally carries the production verification
- * note (the steer, tier-selected from the task's risk stamp); the N arm carries
- * no steer. So the ONLY cross-arm variable is the steer's CONTENT, and the
- * measured contrast is test ADEQUACY (mutation kills) — not test PRESENCE.
- *
- * (Corrected design, #1670 review: the first run asked ONLY the E arm for a test,
- * which confounded "was steered" with "was told to test" and let the durable-test
- * delta be read as the note's persuasion. Holding the test request constant
- * isolates the steer's actual contribution.)
- *
- * Pure — depends only on inputs.
+ * Builds the user prompt for a cell. The function is pure.
+ * The spec, the stub and the output contract are identical across arms.
+ * Arm E also carries the production verification note for the risk stamp of the task, verbatim, and arm N carries no steer.
+ * If only arm E gets the test request, "has a steer" and "must write a test" are one variable.
+ * So both arms get the test request, and the contrast is test adequacy, not the presence of a test.
  */
 export function buildUserPrompt(task: TaskSpec, arm: Arm, specText: string, stubText: string): string {
   const parts: string[] = [
@@ -155,7 +113,6 @@ export function buildUserPrompt(task: TaskSpec, arm: Arm, specText: string, stub
     '',
   ];
   if (arm === 'E') {
-    // The verbatim production steer, tier-selected from the task's risk stamp.
     parts.push(buildVerificationNote({ riskTier: task.riskTier, boundaryTouching: task.boundaryTouching }));
     parts.push('');
   }
@@ -163,20 +120,18 @@ export function buildUserPrompt(task: TaskSpec, arm: Arm, specText: string, stub
   return parts.join('\n');
 }
 
-// ─── Model dispatch seam (DI) ─────────────────────────────────────────────────
-
-/** Result of one headless model invocation. */
+/** The result of one headless model call. */
 export interface ModelRunResult {
   readonly ok: boolean;
-  /** The model's raw text output (the fenced FILE blocks live here). */
+  /** The raw text output of the model, which holds the FILE blocks. */
   readonly result: string;
-  /** Resolved model id the provider actually served (e.g. `claude-opus-4-8`). */
+  /** The model id that the provider served, for example `claude-opus-4-8`. */
   readonly modelId: string | null;
   readonly costUsd: number | null;
   readonly error?: string;
 }
 
-/** Dispatch a single headless model call. Injected in tests; real impl below. */
+/** Dispatches one headless model call. A test injects a fake, and {@link runModelViaClaude} is the real one. */
 export type RunModelFn = (args: {
   readonly prompt: string;
   readonly model: string;
@@ -184,13 +139,13 @@ export type RunModelFn = (args: {
 }) => Promise<ModelRunResult>;
 
 /**
- * REAL dispatch: `claude -p` as a pure TEXT generator.
- *   --tools ""            no tool access → cannot read the hidden oracle (isolation)
- *   --system-prompt       neutral prompt (clean A/B, low overhead)
- *   --strict-mcp-config   no MCP servers loaded (no exarchos tools)
- *   --output-format json  capture result text + resolved model id + error status
- * Never throws: a spawn failure / non-zero exit / provider error degrades to
- * `{ ok: false, error }` so the caller records a BLOCKED cell (DR-7).
+ * The real dispatch: `claude -p` as a text generator. It never throws.
+ * A failed spawn, a non-zero exit or a provider error gives `{ ok: false, error }`, and the caller records a blocked cell.
+ *
+ * - `--tools ""`: no tool access, so the model cannot read the hidden oracle.
+ * - `--system-prompt`: the neutral prompt.
+ * - `--strict-mcp-config`: no MCP server loads.
+ * - `--output-format json`: gives the result text, the resolved model id and the error status.
  */
 export const runModelViaClaude: RunModelFn = async ({ prompt, model, systemPrompt }) => {
   try {
@@ -226,36 +181,28 @@ export const runModelViaClaude: RunModelFn = async ({ prompt, model, systemPromp
   }
 };
 
-// ─── Output parsing ───────────────────────────────────────────────────────────
-
 const FILE_BLOCK_RE = /===FILE:\s*([^\s=]+)\s*===\r?\n([\s\S]*?)\r?\n?===ENDFILE===/g;
 
 /**
- * Parse the strict `===FILE:name===\n...\n===ENDFILE===` blocks a model emits
- * into a filename→contents map. Tolerant of a stray leading/trailing code fence
- * INSIDE a block (some models wrap the body in ```ts). Pure. Returns an empty
- * map when nothing parses (the caller treats a missing `impl.ts` as blocked).
+ * Parses the `===FILE:<name>===` blocks in the model output into a map of file name to contents.
+ * It removes a code fence that wraps the whole body of a block.
+ * It skips a match that lacks a name or a body, so no file gets the name `undefined`.
+ * When nothing parses, it returns an empty map, and the caller treats a missing `impl.ts` as blocked.
+ * The function is pure.
  */
 export function parseProducedFiles(result: string): Map<string, string> {
   const files = new Map<string, string>();
   for (const m of result.matchAll(FILE_BLOCK_RE)) {
-    // Both groups are non-optional in `FILE_BLOCK_RE`, so a match participates
-    // in both; skipping a block that somehow lacks either keeps the documented
-    // "returns an empty map when nothing parses" contract instead of writing a
-    // file named `undefined`.
     const rawName = m[1];
     let body = m[2];
     if (rawName === undefined || body === undefined) continue;
     const name = rawName.trim();
-    // Strip a whole-body ```lang … ``` fence if the model wrapped the file.
     const fenced = body.match(/^\s*```[a-zA-Z]*\r?\n([\s\S]*?)\r?\n?```\s*$/);
     if (fenced?.[1] !== undefined) body = fenced[1];
     files.set(name, body.endsWith('\n') ? body : body + '\n');
   }
   return files;
 }
-
-// ─── Cell dispatch (produce a run dir) ────────────────────────────────────────
 
 export interface CellId {
   readonly model: string;
@@ -264,12 +211,12 @@ export interface CellId {
   readonly rep: number;
 }
 
-/** `<task>__<arm>__r<rep>` — compatible with grade.ts's run-name grammar. */
+/** The run name `<task>__<arm>__r<rep>`, in the grammar that `grade.ts` reads. */
 export function runName(task: string, arm: Arm, rep: number): string {
   return `${task}__${arm}__r${rep}`;
 }
 
-/** Absolute run dir for a cell: `<base>/<model>/<task>__<arm>__r<rep>`. */
+/** The run directory of a cell: `<base>/<model>/<task>__<arm>__r<rep>`. */
 export function cellRunDir(baseRunsDir: string, cell: CellId): string {
   return path.join(baseRunsDir, cell.model, runName(cell.task.name, cell.arm, cell.rep));
 }
@@ -284,9 +231,10 @@ export interface DispatchOutcome {
 }
 
 /**
- * Dispatch one cell: build the arm prompt, call the model, parse the emitted
- * files, and materialize the run dir (`impl.ts` + any `test.ts`). Blocked (never
- * fabricated) when the call errors or no `impl.ts` is produced.
+ * Dispatches one cell: builds the arm prompt, calls the model, parses the files and writes the run directory.
+ * It writes only `impl.ts` and test files, and ignores every other block.
+ * When the call fails or the output holds no `impl.ts`, the cell is blocked.
+ * When `skipExisting` is not `false` and the run directory holds a non-empty `impl.ts`, it reuses that run and calls no model.
  */
 export async function dispatchCell(
   baseRunsDir: string,
@@ -296,7 +244,6 @@ export async function dispatchCell(
   const runDir = cellRunDir(baseRunsDir, cell);
   const implPath = path.join(runDir, 'impl.ts');
   if (deps.skipExisting !== false && fs.existsSync(implPath) && fs.readFileSync(implPath, 'utf-8').trim().length > 0) {
-    // Resume: a prior run already produced this cell — do not re-spend.
     const existing = fs.readdirSync(runDir).filter((f) => f !== 'oracle.ts');
     return { status: 'ok', runDir, modelId: null, costUsd: null, filesWritten: existing };
   }
@@ -318,7 +265,6 @@ export async function dispatchCell(
   fs.mkdirSync(runDir, { recursive: true });
   const written: string[] = [];
   for (const [name, body] of files) {
-    // Only materialize impl.ts + test files; ignore any stray blocks.
     if (name === 'impl.ts' || /\.(test|spec)\.[tj]s$|^test\.ts$/.test(name)) {
       fs.writeFileSync(path.join(runDir, name), body);
       written.push(name);
@@ -326,8 +272,6 @@ export async function dispatchCell(
   }
   return { status: 'ok', runDir, modelId: res.modelId, costUsd: res.costUsd, filesWritten: written.sort() };
 }
-
-// ─── Cell capture (grade the produced run dir) ────────────────────────────────
 
 export interface CellRow {
   readonly model: string;
@@ -349,9 +293,8 @@ export interface CellRow {
 }
 
 /**
- * Grade a produced run dir: hidden-oracle pass rate + strict tsc + durable-tests
- * + the MECHANICAL mutation-adequacy score (real kill-probe via `gradeAdequacy`).
- * A blocked dispatch is passed through as a blocked row with NULL metrics.
+ * Grades a run directory: oracle pass rate, strict `tsc`, the presence of tests, and the adequacy score from `gradeAdequacy`.
+ * A blocked dispatch gives a blocked row with null metrics.
  */
 export async function captureCell(
   baseRunsDir: string,
@@ -402,8 +345,6 @@ export async function captureCell(
   };
 }
 
-// ─── CSV ──────────────────────────────────────────────────────────────────────
-
 const CSV_COLUMNS = [
   'model', 'modelId', 'task', 'arm', 'rep', 'status',
   'oraclePassed', 'oracleTotal', 'oracleRate',
@@ -418,11 +359,9 @@ function csvCell(v: unknown): string {
 }
 
 /**
- * Serialize graded rows to CSV, stamping the task-001 provenance shape onto each
- * row (`stampProvenance` — throws if provenance is incomplete). `source` is
- * `measured`: every number is produced by a real model call + the real grader;
- * a blocked cell carries `status=blocked` with EMPTY metric cells, never a
- * fabricated value (DR-7). Pure.
+ * Serializes the graded rows to CSV. `stampProvenance` stamps each row and throws when the provenance is incomplete.
+ * Each row gets `source: 'measured'`, because the numbers come from a model call and the grader.
+ * A blocked cell has `status=blocked` and empty metric cells. The function is pure.
  */
 export function buildCsv(rows: readonly CellRow[], provenance: Provenance): string {
   const modelIdsJoined = provenance.modelIds.join('|');
@@ -442,9 +381,7 @@ export function buildCsv(rows: readonly CellRow[], provenance: Provenance): stri
   return lines.join('\n') + '\n';
 }
 
-// ─── Report ───────────────────────────────────────────────────────────────────
-
-/** Mean-over-ok-cells summary per model×task×arm (for the console table). */
+/** The summary of one model, task and arm for the console table. The counts after `blocked` cover only the `ok` cells. */
 export interface CellAgg {
   readonly key: string;
   readonly runs: number;
@@ -499,8 +436,6 @@ export function renderReport(rows: readonly CellRow[]): string {
   return lines.join('\n');
 }
 
-// ─── Script entry point (guarded — import-safe) ───────────────────────────────
-
 async function gitSha(): Promise<string> {
   try {
     return (await execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: REPO_ROOT })).trim();
@@ -518,6 +453,10 @@ function binaryTag(): string {
   }
 }
 
+/**
+ * Runs every cell of the matrix, writes the CSV and prints the report. It exits 3 when every cell is blocked.
+ * When no cell resolves a model id, the provenance stamp takes the requested model names, so the stamp stays complete.
+ */
 async function main(): Promise<void> {
   const reps = Number(process.argv[2] ?? process.env.QAB_REPS ?? 2);
   const models = (process.env.QAB_MODELS ?? 'opus,sonnet').split(',').map((m) => m.trim()).filter(Boolean);
@@ -556,8 +495,6 @@ async function main(): Promise<void> {
     }
   }
 
-  // Provenance: model ids default to the study matrix if nothing resolved (e.g.
-  // wholesale-blocked run) so the stamp is always complete/honest.
   const modelIds = resolvedModelIds.size ? [...resolvedModelIds].sort() : models;
   const provenance: Provenance = { binaryTag: binaryTag(), gitSha: await gitSha(), modelIds, date: '2026-07-09' };
 

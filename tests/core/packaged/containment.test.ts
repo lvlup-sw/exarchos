@@ -1,43 +1,15 @@
 /**
- * DR-21 / T-29 — generated-projection containment proven against PACKED BYTES.
+ * Proves the containment of generated projections against the bytes of a real `npm pack` tarball.
+ * The proof needs two independent reads, because a map compared with itself cannot disagree.
  *
- * ## The defect this replaces
+ * - The source tree: `enumerateProjections` walks the committed projection roots and gives the
+ *   expected digest of each projection.
+ * - The tarball: a real `npm pack` runs, a real `tar` unpacks it, and
+ *   `readPackedProjectionLayer` reads the packaged layer from those bytes only.
  *
- * The previous headline proof (`src/install/projection-containment.packaging.test.ts`)
- * derived BOTH sides of the comparison from one read: `enumerateProjections()`
- * produced a `contents` map, the required inventory was digested from that map,
- * and the "packaged layer" was `packagedLayerFromContents(contents)` — the same
- * map again. A map compared with itself cannot disagree. Deleting a real agent,
- * alias or hook shrank both sides together and the proof stayed green, so it
- * carried no information about the shipped artifact at all.
- *
- * ## What this suite does instead
- *
- * Two genuinely independent reads:
- *
- *   Authority A — the AUTHORED SOURCE TREE. `enumerateProjections(repoRoot)`
- *     walks the committed projection roots (`skills/`, `command-aliases/`,
- *     `agents/`, `hooks/`, `.claude-plugin/plugin.json`, `AGENTS.md`) and says
- *     what MUST ship, with an expected content digest per projection.
- *
- *   Authority B — the PACKED TARBALL BYTES. A real `npm pack` runs against the
- *     real repository, the real `.tgz` is unpacked with a real `tar`, and
- *     `readPackedProjectionLayer()` reads the packaged layer out of THOSE BYTES.
- *     Nothing on this side is derived from Authority A.
- *
- * Containment is then a digest comparison across the seam. Because the sides are
- * two reads, they CAN disagree — which is exactly what the two seeded fixtures
- * below demonstrate: deleting one projection file from the unpacked tarball
- * fails with `missing`, and rewriting one projection file's bytes fails with
- * `content-mismatch`.
- *
- * ## Delivery-mode scope (honesty note)
- *
- * Only `npm-files` projections can be observed as tarball entries. The `runtime`
- * kind is codegen'd into `src/install/runtimes/embedded.ts` and compiled into the
- * single-file binary (`dist/bin`), so it is deliberately out of scope here —
- * `checkShippedCoverage` remains its proof. `npmFilesSpecs()` makes that
- * exclusion explicit rather than accidental.
+ * The seeded fixtures show that the two reads can disagree. A deleted file reports `missing`, and
+ * rewritten bytes report `content-mismatch`. Only `npm-files` kinds are tarball entries. The
+ * `runtime` kind is compiled into the binary, and `checkShippedCoverage` is its proof.
  *
  * @oracle-sources: authored projection tree committed in the repository working copy, npm pack tarball bytes unpacked from the generated archive
  */
@@ -65,8 +37,6 @@ import {
 import { spawnAsync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Repo-root discovery ─────────────────────────────────────────────────────
-
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 function findRepoRoot(startDir: string): string {
@@ -87,27 +57,20 @@ function findRepoRoot(startDir: string): string {
 
 const REPO_ROOT = findRepoRoot(HERE);
 
-// ─── Real `npm pack` + real `tar` (no hand-rolled archive handling) ──────────
-
 /**
- * Run the REAL `npm pack` against the repository and return the tarball path.
- *
- * `--ignore-scripts` skips the `prepare` (`tsc`) lifecycle: it emits only
- * `dist/**`, none of which is a projection, and running it would make this
- * suite depend on a compile rather than on the packaging manifest.
- */
-/**
- * The setup hook shells out to `npm pack` over the whole package and walks the
- * ~1k-file projection tree: ~31s on ubuntu-latest, 47s to over 60s on
- * windows-latest, which is the core tier's entire hook budget. The budget here
- * is this hook's own, not the tier's. Vitest's hook timer cannot interrupt a
- * synchronous spawn, so each child carries its own bound and is killed when it
- * exceeds it: a hung `npm pack` fails the hook instead of holding it.
+ * The setup hook runs `npm pack` over the whole package and walks about 1000 projection files.
+ * On Windows that takes the whole 60 s hook budget of the core tier, so this hook has its own
+ * budget. A child that exceeds its own timeout gets `SIGKILL`, so a hung `npm pack` fails the hook.
  */
 const PACK_CHILD_TIMEOUT_MS = 150_000;
 const EXTRACT_CHILD_TIMEOUT_MS = 20_000;
 const PACK_HOOK_TIMEOUT_MS = 180_000;
 
+/**
+ * Runs the real `npm pack` on the repository and returns the tarball path. `--ignore-scripts`
+ * skips the `prepare` script (`tsc`), so the suite does not depend on a compile. That script emits
+ * only `dist` files, and none of them is a projection.
+ */
 async function runNpmPack(repoRoot: string, destDir: string): Promise<string> {
   fs.mkdirSync(destDir, { recursive: true });
   const res = await spawnAsync('npm', ['pack', '--ignore-scripts', '--pack-destination', destDir], {
@@ -131,12 +94,10 @@ async function runNpmPack(repoRoot: string, destDir: string): Promise<string> {
 }
 
 /**
- * Unpack `tarball` with the REAL `tar` binary and return the `package/` dir.
- *
- * The archive is copied next to the extraction point and invoked by a BARE
- * RELATIVE name from that cwd: GNU tar parses an absolute Windows path
- * (`C:\…`) as a `host:path` remote spec and fails with "Cannot connect to C",
- * while bsdtar accepts it. A relative name from `cwd` works under both.
+ * Unpacks `tarball` with the real `tar` binary and returns the `package/` directory. The function
+ * copies the archive into `intoDir` and gives `tar` a bare relative name. GNU tar reads an
+ * absolute Windows path (`C:\…`) as a `host:path` remote spec and fails. A relative name works
+ * with GNU tar and with bsdtar.
  */
 async function extractTarball(tarball: string, intoDir: string): Promise<string> {
   fs.mkdirSync(intoDir, { recursive: true });
@@ -161,14 +122,12 @@ async function extractTarball(tarball: string, intoDir: string): Promise<string>
   return packageDir;
 }
 
-// ─── Fixture state ───────────────────────────────────────────────────────────
-
 let workDir = '';
-/** The pristine, unmodified unpacked tarball — never mutated. */
+/** The unpacked tarball. No test changes it. */
 let pristinePackageDir = '';
-/** The `npm-files` projection kinds, i.e. the ones observable as tarball entries. */
+/** The `npm-files` projection kinds, which are the kinds that the tarball carries as files. */
 const PACKED_KINDS: readonly ProjectionKind[] = npmFilesSpecs().map((s) => s.kind);
-/** Authority A, read once from the source tree. */
+/** The required inventory. The setup hook reads it one time from the source tree. */
 let sourceProjections: readonly RequiredProjection[] = [];
 
 function firstOfKind(kind: ProjectionKind): RequiredProjection {
@@ -177,7 +136,7 @@ function firstOfKind(kind: ProjectionKind): RequiredProjection {
   return found;
 }
 
-/** Copy the pristine unpacked package into a fresh scratch tree. */
+/** Copies the unpacked package into a fresh scratch tree. */
 function scratchCopy(label: string): string {
   const dest = path.join(workDir, `scratch-${label}`, 'package');
   rmrf(path.dirname(dest));
@@ -186,16 +145,11 @@ function scratchCopy(label: string): string {
 }
 
 /**
- * Re-read the (possibly mutated) packed tree off disk and check it against the
- * source-tree inventory captured in `beforeAll` — i.e. the same two-authority
- * comparison `verifyPackedContainment` performs, but without re-walking the
- * ~1k-file source tree on every sweep iteration.
- *
- * This is NOT a shortcut around the seam: side B is still read fresh from the
- * archive bytes after each mutation, and side A was read from the source tree
- * BEFORE any mutation, so the two can still disagree. The fully composed
- * `verifyPackedContainment` / `assertPackedContainment` path (which re-reads
- * both authorities itself) is exercised end-to-end in every test below.
+ * Reads the packed tree from disk and checks it against the source inventory from the setup hook.
+ * It makes the comparison of `verifyPackedContainment` without a new walk of the source tree in
+ * each loop pass. The two reads stay independent: the packed side is read after each mutation, and
+ * the source side was read before any mutation. Each test that uses this helper also calls
+ * `assertPackedContainment`, which reads both sides itself.
  */
 function verifyPackedAgainstSource(packageDir: string): ContainmentResult {
   const packed = readPackedProjectionLayer(packageDir);
@@ -213,16 +167,15 @@ afterAll(() => {
   if (workDir !== '') rmrf(workDir);
 });
 
-// ─── The headline proof, over real packed bytes ──────────────────────────────
-
 describe('projection containment against packed bytes', () => {
+  /**
+   * Guards against a vacuous proof. The archive must carry more than 40 projections, more files
+   * than projections, and at least one projection of each packed kind.
+   */
   it('unpacks a real npm pack tarball carrying real projection bytes', () => {
     const packed = readPackedProjectionLayer(pristinePackageDir);
-    // Anti-vacuity: the archive must actually carry the fan-out, and the
-    // projection subset must be a proper subset of everything packed.
     expect(packed.paths.length).toBeGreaterThan(40);
     expect(packed.totalFiles).toBeGreaterThan(packed.paths.length);
-    // The bytes come off disk from the archive, not from the source tree.
     for (const kind of PACKED_KINDS) {
       const anyOfKind = packed.paths.some((p) => classifyProjectionPath(p, npmFilesSpecs()) === kind);
       expect(anyOfKind, `packed tarball carries no ${kind} projection`).toBe(true);
@@ -239,12 +192,9 @@ describe('projection containment against packed bytes', () => {
   });
 
   /**
-   * The anti-circularity claim itself. DR-21's finding was that both sides came
-   * from one map, so a change to the artifact necessarily changed the
-   * expectation too. Here the source-tree inventory is read BEFORE the tarball
-   * is mutated and is *unaffected* by that mutation — the two authorities move
-   * independently, which is the property that makes every assertion below
-   * capable of failing.
+   * The source inventory does not depend on the artifact. The test deletes one packed agent, so
+   * the packed side shrinks by one. A new read of the source tree keeps its length and still holds
+   * the deleted path. This independence lets each assertion in the suite fail.
    */
   it('the inventory authority is independent of the packed artifact', () => {
     const scratch = scratchCopy('independence');
@@ -254,27 +204,25 @@ describe('projection containment against packed bytes', () => {
     fs.rmSync(path.join(scratch, victim.path));
 
     const after = readPackedProjectionLayer(scratch);
-    // Side B shrank …
     expect(after.paths.length).toBe(before.paths.length - 1);
     expect(after.paths).not.toContain(victim.path);
-    // … while side A, re-read from the untouched source tree, did NOT.
     const reread = enumerateProjections(REPO_ROOT, npmFilesSpecs()).projections;
     expect(reread.length).toBe(sourceProjections.length);
     expect(reread.some((p) => p.path === victim.path)).toBe(true);
   });
 });
 
-// ─── Seeded fixture 1: a DELETED projection file ─────────────────────────────
-
 describe('seeded packed-artifact defects', () => {
   /**
-   * BLOCKING CLAIM — a projection dropped from the shipped tarball must fail
-   * verification, for every `npm-files` projection kind independently.
+   * BLOCKING CLAIM: a projection that is absent from the shipped tarball must fail verification,
+   * for each `npm-files` projection kind on its own.
    *
    * @kill-seam: the packed bytes read off disk by readPackedProjectionLayer — delete one projection file from the unpacked tarball and the source-tree inventory still requires it, so verification must report `missing`
    *
-   * NEGATIVE TWIN — the same scratch tree, restored, passes again; that is what
-   * attributes the red to the deletion rather than to the fixture setup.
+   * NEGATIVE TWIN: the same scratch tree passes again after the test restores the file. That
+   * attributes the failure to the deletion, not to the fixture setup. Last,
+   * `assertPackedContainment` must throw a `PackedContainmentError` that names the path and
+   * `missing`.
    */
   it('PackedContainment_DeletedProjectionFile_FailsVerification', () => {
     const scratch = scratchCopy('deleted');
@@ -296,13 +244,11 @@ describe('seeded packed-artifact defects', () => {
       expect(violation?.projection).toBe(kind);
       expect(violation?.detail).toContain(victim.path);
 
-      // NEGATIVE TWIN: restore the byte-identical file → green again.
       fs.writeFileSync(abs, saved, 'utf8');
       const restored = verifyPackedAgainstSource(scratch);
       expect(restored.ok, `restoring packed ${kind} '${victim.path}' did not return to green`).toBe(true);
     }
 
-    // The assertion helper fails closed with a typed, attributable error.
     const agent = firstOfKind('agent');
     fs.rmSync(path.join(scratch, agent.path));
     let thrown: unknown;
@@ -317,15 +263,16 @@ describe('seeded packed-artifact defects', () => {
   });
 
   /**
-   * BLOCKING CLAIM — a projection whose bytes were rewritten in the shipped
-   * tarball must fail verification. Same path, different content: a
-   * path-existence check would pass, so only a content digest can catch it.
+   * BLOCKING CLAIM: a projection with rewritten bytes in the shipped tarball must fail
+   * verification. The path is the same and the content differs, so only a content digest finds it.
+   * The test first checks that the tampered text has a different digest.
    *
    * @kill-seam: the content digest of the packed bytes versus the authored source digest — rewrite one packed projection file in place and verification must report `content-mismatch`, not merely `missing`
    *
-   * NEGATIVE TWIN — rewriting the SAME logical content with CRLF line endings
-   * must NOT fail: the digest is deliberately line-ending-canonical, so a red
-   * there would mean the fixture detects any write rather than a real change.
+   * NEGATIVE TWIN: a rewrite of the same content with CRLF line endings must pass, because the
+   * digest ignores line endings. A failure there means that the fixture detects any write, not a
+   * content change. Last, `assertPackedContainment` must throw a `PackedContainmentError` that
+   * names the path and `content-mismatch`.
    */
   it('PackedContainment_RewrittenProjectionBytes_FailsVerification', () => {
     const scratch = scratchCopy('rewritten');
@@ -336,7 +283,6 @@ describe('seeded packed-artifact defects', () => {
       const saved = fs.readFileSync(abs, 'utf8');
 
       const tampered = `${saved}\nT29-TAMPERED-PROJECTION-BYTES\n`;
-      // Guard the fixture itself: the rewrite must genuinely change the digest.
       expect(digestText(tampered)).not.toBe(digestText(saved));
 
       fs.writeFileSync(abs, tampered, 'utf8');
@@ -351,9 +297,6 @@ describe('seeded packed-artifact defects', () => {
       expect(violation?.projection).toBe(kind);
       expect(violation?.detail).toContain(victim.digest);
 
-      // NEGATIVE TWIN: a CRLF-only rewrite is the same content — still green.
-      // Without this arm the fixture could be detecting "the file was written"
-      // rather than "the content changed".
       fs.writeFileSync(abs, saved.replace(/\r?\n/g, '\r\n'), 'utf8');
       const crlf = verifyPackedAgainstSource(scratch);
       expect(crlf.ok, `a CRLF-only rewrite of ${kind} '${victim.path}' must not fail containment`).toBe(true);
@@ -361,7 +304,6 @@ describe('seeded packed-artifact defects', () => {
       fs.writeFileSync(abs, saved, 'utf8');
     }
 
-    // The assertion helper fails closed with a typed, attributable error.
     const agent = firstOfKind('agent');
     const abs = path.join(scratch, agent.path);
     fs.writeFileSync(abs, `${fs.readFileSync(abs, 'utf8')}\nT29-TAMPERED-PROJECTION-BYTES\n`, 'utf8');
@@ -377,10 +319,8 @@ describe('seeded packed-artifact defects', () => {
   });
 
   /**
-   * The third direction: a projection SMUGGLED into the tarball that the
-   * authored source tree does not require. The old single-map proof could not
-   * express this at all, because an extra packed file would simply have been an
-   * extra inventory entry.
+   * A tarball that holds a projection the source tree does not require must fail. A proof from one
+   * shared map cannot find this case, because the extra file becomes an extra inventory entry.
    */
   it('an unauthored projection added to the tarball fails verification', () => {
     const scratch = scratchCopy('smuggled');
@@ -393,8 +333,8 @@ describe('seeded packed-artifact defects', () => {
   });
 
   /**
-   * Anti-vacuity for the reader itself: an EMPTY packed tree must throw rather
-   * than report "0 required, 0 violations, all good".
+   * An empty packed tree and an absent directory must throw. A result of zero required projections
+   * and zero violations proves nothing.
    */
   it('an empty packed tree fails loudly instead of proving nothing', () => {
     const empty = path.join(workDir, 'empty-package');

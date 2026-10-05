@@ -1,16 +1,9 @@
-// ─── PR2 / #1362 — Windows ancestry-debug instrumentation outcome ────────────
-//
-// Phase-1 instrumentation contract: when `EXARCHOS_PREFLIGHT_DEBUG=1` AND the
-// ancestry guard fails, `mergePreflight` must attach a structured `debug` block
-// to its result. When the env var is unset (or set but ancestry passes), no
-// debug block is attached — the gating is failure-only by design (DIM-8 /
-// event-store growth concern; see plan T2.x and the design "Symmetry decision"
-// note). Phase-2 may introduce verbose sub-modes via `EXARCHOS_PREFLIGHT_DEBUG=2`
-// separately.
-//
-// Linux-only test path: drives ancestry-failure by creating an orphan branch
-// (no merge-base with `main`), then invokes `mergePreflight` against a real
-// tmp git repo.
+/**
+ * Outcome tests for the debug payload of `mergePreflight`, against a real git repo.
+ *
+ * `mergePreflight` attaches a `debug` block only when `EXARCHOS_PREFLIGHT_DEBUG=1` and the ancestry
+ * guard fails. An orphan branch has no merge base with `main`, so it makes the guard fail.
+ */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -22,9 +15,10 @@ import { withTmpGit } from './_helpers/tmp-git.js';
 import { mergePreflight } from '../../src/verbs/pure/merge-preflight.js';
 import type { GitExec } from '../../src/verbs/pure/merge-preflight.js';
 
-/** Default gitExec mirroring the handler's `defaultGitExec` (no throw, returns
- * `{ stdout, exitCode }`). Inline here so the outcome test does not depend on
- * the handler module's internal helper. */
+/**
+ * Runs git in `repoRoot` and returns `{ stdout, exitCode }`. It does not throw. A failed command
+ * returns its exit status, or 1 when the error has none.
+ */
 function liveGitExec(repoRoot: string, args: readonly string[]): {
   stdout: string;
   exitCode: number;
@@ -45,14 +39,11 @@ function liveGitExec(repoRoot: string, args: readonly string[]): {
   }
 }
 
-/** Set up an orphan source branch so `merge-base --is-ancestor main source`
- * fails with exit 1 (ancestry-missing). Returns the path of the primary
- * repo with the orphan branch checked in. */
+/**
+ * Checks out the orphan branch `feature/orphan` and commits one file on it. The branch shares no
+ * history with `main`, so `merge-base --is-ancestor main feature/orphan` exits 1.
+ */
 async function setupAncestryFailureTopology(repoPath: string): Promise<void> {
-  // The initial commit on `main` is empty (no tracked files). Create an orphan
-  // branch with no shared history, then commit a file so HEAD has a valid
-  // commit and `merge-base --is-ancestor main feature/orphan` returns exit 1
-  // (disjoint histories, no common ancestor).
   await execFileAsync('git', ['-C', repoPath, 'checkout', '--orphan', 'feature/orphan']);
   await fs.writeFile(path.join(repoPath, 'orphan.txt'), 'orphan\n');
   await execFileAsync('git', ['-C', repoPath, 'add', 'orphan.txt']);
@@ -60,12 +51,14 @@ async function setupAncestryFailureTopology(repoPath: string): Promise<void> {
 }
 
 describe('preflight debug payload (#1362 phase 1)', () => {
+  /**
+   * The test clears the variable first, so a value from the runner environment cannot change the
+   * result. Ancestry must fail, or the absent `debug` block proves nothing.
+   */
   it('Preflight_DebugEnvUnset_NoDebugField', async () => {
     await withTmpGit(async (repoPath) => {
       await setupAncestryFailureTopology(repoPath);
 
-      // Snapshot + clear the env var so this test is hermetic regardless of
-      // whether the runner has it set.
       const prior = process.env.EXARCHOS_PREFLIGHT_DEBUG;
       delete process.env.EXARCHOS_PREFLIGHT_DEBUG;
       try {
@@ -77,13 +70,9 @@ describe('preflight debug payload (#1362 phase 1)', () => {
           cwd: repoPath,
         });
 
-        // Ancestry must actually fail for this test to be meaningful.
         expect(result.passed).toBe(false);
         expect(result.ancestry.passed).toBe(false);
 
-        // No debug block when env var is unset. The debug block is attached at
-        // runtime and absent from the declared result type, so reach it by
-        // narrowing rather than by asserting a property the type denies.
         expect('debug' in result ? result.debug : undefined).toBeUndefined();
       } finally {
         if (prior !== undefined) process.env.EXARCHOS_PREFLIGHT_DEBUG = prior;
@@ -91,6 +80,10 @@ describe('preflight debug payload (#1362 phase 1)', () => {
     });
   });
 
+  /**
+   * With the variable set to `1`, the result must hold a `debug` block with each field of the
+   * payload.
+   */
   it('Preflight_DebugEnvSetAndAncestryFail_AttachesDebugBlock', async () => {
     await withTmpGit(async (repoPath) => {
       await setupAncestryFailureTopology(repoPath);
@@ -109,10 +102,6 @@ describe('preflight debug payload (#1362 phase 1)', () => {
         expect(result.passed).toBe(false);
         expect(result.ancestry.passed).toBe(false);
 
-        // Debug block MUST be attached and structurally complete. It is
-        // attached at runtime and absent from the declared result type, so it
-        // is reached by narrowing rather than by asserting a property the type
-        // denies.
         expect('debug' in result, 'no debug block attached').toBe(true);
         const debug: Record<string, unknown> =
           'debug' in result && result.debug !== null && typeof result.debug === 'object'

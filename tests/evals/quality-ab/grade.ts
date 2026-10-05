@@ -1,42 +1,15 @@
-// ─── Quality A/B grader (#1636 Phase 2 · #1670 mechanical adequacy) ───────────
-//
-// Grades each produced `impl.ts` against its task's HIDDEN oracle + strict tsc,
-// and MECHANICALLY measures test adequacy with the repo's own diff-scoped
-// kill-probe (mutation-testing-at-N=1). Runs are directories named
-// `<task>__<arm>__r<rep>` under the base dir; each holds the arm's final
-// `impl.ts` (and, for arms that wrote them, its test files). The oracle is
-// copied in ONLY at grade time (the agent never saw it).
-//
-// Metrics per run:
-//   - oraclePassRate  — fraction of hidden edge-case checks the impl passes
-//                       (correctness / spec-conformance)
-//   - typecheckOk     — `tsc --noEmit --strict` clean on impl.ts (errors)
-//   - wroteTests      — did the agent leave its own test file? (behavioral)
-//   - adequacyScore   — DR-4/DR-7: MECHANICALLY measured, never self-reported.
-//                       The repo's `check_test_adequacy` kill-probe is run over
-//                       a throwaway git repo whose BASE commit is the task stub
-//                       and whose working tree is the produced impl + its tests,
-//                       so the diff-scope is exactly stub→impl. The probe reverts
-//                       the impl SOURCE hunks to the stub, re-runs the produced
-//                       tests, and reports whether at least one went red. A test
-//                       suite that goes red on the revert is non-vacuous (score
-//                       1 / "killed"); one that stays green asserted nothing
-//                       about the change (score 0 / "survived"). This reuses the
-//                       production gate (`runProbe`) verbatim — no hand-rolled
-//                       mutation engine — so the adequacy figure is measured, not
-//                       claimed (DR-7 fail-honest).
-//
-// Run: tsx tests/evals/quality-ab/grade.ts <baseRunsDir> [tasksDir]
-//
-// ⚠️ ORACLE ISOLATION (eval integrity). The hidden oracles under `tasks/*/oracle.ts`
-// are the answer key. They are committed for GRADE-TIME reproducibility only — an
-// agent under test MUST run in a workspace that does NOT contain them, or it can
-// read the answers. This harness enforces that by construction: run dirs are seeded
-// with ONLY `SPEC.md` + the `impl.ts` stub, and the oracle is copied in (and removed
-// again) here at grade time. NEVER dispatch an agent from the repo checkout or any
-// dir that includes `tasks/*/oracle.ts`. CI-only / out-of-repo oracle storage is the
-// durable hardening — tracked in #1670.
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Grader for the quality A/B eval. A run is a directory named `<task>__<arm>__r<rep>` under the base directory.
+ * The grader scores the `impl.ts` of each run against the hidden oracle of its task and against strict `tsc`.
+ * It measures test adequacy with the production kill probe `runProbe`. No run reports its own score.
+ * The module of `runProbe` loads no event store and no SQLite, so this file stays a small `tsx` script.
+ *
+ * Run: `tsx tests/evals/quality-ab/grade.ts <baseRunsDir> [tasksDir]`
+ *
+ * Oracle isolation: each `oracle.ts` under `tasks` is an answer key. The repo holds it so that a grade is reproducible.
+ * An agent under test must run in a workspace that holds no oracle. Do not dispatch an agent from the repo checkout.
+ * The grader copies the oracle into the run directory at grade time and removes it again.
+ */
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -46,9 +19,6 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { execFileAsync, spawnAsync, SpawnFailure } from '../../../tools/test-helpers/spawn.js';
 
-// Reuse the production diff-scoped kill-probe (check_test_adequacy). `runProbe`
-// only type-imports `GitExec`, so importing it pulls in NO MCP runtime deps
-// (no event store, no SQLite) — the grader stays a lightweight tsx script.
 import {
   runProbe,
   type ProbeResult,
@@ -62,26 +32,20 @@ export const REPO_ROOT = path.resolve(__dirname, '../../../');
 export const TSX = path.join(REPO_ROOT, 'node_modules/.bin/tsx');
 export const TSC = path.join(REPO_ROOT, 'node_modules/.bin/tsc');
 
-// ─── Result shapes ────────────────────────────────────────────────────────────
-
 /**
- * Mechanically-measured adequacy of a run's own tests (DR-4/DR-7).
- *
- * `score` is `null` when the probe could not measure a suite (no tests written,
- * or the probe degraded to a revert/restore conflict) — never a fabricated 0/1.
- * When measured: `1` = the tests are non-vacuous (a test went red on the
- * source-revert / "killed"), `0` = vacuous (stayed green / "survived").
+ * The adequacy of the tests of a run, as the kill probe measured it.
+ * When the probe did not measure a suite, `score` is `null`. The grader never puts 0 or 1 in its place.
  */
 export interface AdequacyResult {
-  /** True when the probe actually ran a suite (tests existed and it measured them). */
+  /** True when the probe ran the suite of the run and measured it. */
   readonly probed: boolean;
-  /** True when reverting the impl to the stub made at least one test go red. */
+  /** True when at least one test went red after the probe reverted the impl to the stub. */
   readonly redObserved: boolean;
-  /** 1 (killed) / 0 (survived) when measured; null when unmeasurable. */
+  /** `1` when a test went red (killed), `0` when the suite stayed green (survived), `null` when not measured. */
   readonly score: number | null;
-  /** Probe discriminant when non-nominal (`no-new-tests`, `revert-conflict`, …). */
+  /** The cause of a result that is not nominal, such as `no-new-tests`, `revert-conflict` or `setup-failed`. */
   readonly discriminant?: string;
-  /** Set when the probe could not be run at all (surfaced, never swallowed). */
+  /** The reason when the grader did not measure the suite. A run with no tests carries no error. */
   readonly error?: string;
 }
 
@@ -95,7 +59,6 @@ export interface RunResult {
   oracleFailures: string[];
   typecheckOk: boolean;
   wroteTests: boolean;
-  // ── #1670: mechanical adequacy (additive; existing cells above unchanged) ──
   adequacyProbed: boolean;
   adequacyRedObserved: boolean;
   adequacyScore: number | null;
@@ -103,8 +66,10 @@ export interface RunResult {
   error?: string;
 }
 
-// ─── Oracle (unchanged behavior) ──────────────────────────────────────────────
-
+/**
+ * Runs the hidden oracle of `task` against the impl in `runDir`. It removes the oracle from the run directory in every case.
+ * When the oracle cannot run (a missing export, a throw at load, a syntax error), the run passes 0 of {@link countOracleChecks}.
+ */
 export async function gradeOracle(
   runDir: string,
   task: string,
@@ -119,29 +84,27 @@ export async function gradeOracle(
     const parsed = JSON.parse(line) as { passed: number; total: number; failures: string[] };
     return { oraclePassed: parsed.passed, oracleTotal: parsed.total, oracleFailures: parsed.failures };
   } catch (err) {
-    // Oracle crashed (missing export, runtime throw, syntax error) → 0 correct.
     const total = countOracleChecks(oracleSrc);
     const msg = err instanceof SpawnFailure && err.status !== null ? err.stderr : err instanceof Error ? err.message : String(err);
     return { oraclePassed: 0, oracleTotal: total, oracleFailures: ['oracle could not run against impl'], error: String(msg).split('\n').slice(0, 3).join(' ') };
   } finally {
-    // Don't leave the hidden oracle behind in the run dir.
     fs.rmSync(oracleDst, { force: true });
   }
 }
 
+/** Counts the `['<name>', () =>` entries in the oracle source. The count is the denominator when the oracle cannot run. */
 export function countOracleChecks(oraclePath: string): number {
-  // Best-effort count of `['...', () => ...]` entries for a denominator when the
-  // oracle can't run at all.
   const src = fs.readFileSync(oraclePath, 'utf-8');
   const m = src.match(/\[\s*'[^']+',\s*\(\)\s*=>/g);
   return m ? m.length : 0;
 }
 
+/**
+ * Type-checks `impl.ts` with strict `tsc`. The target and the lib are `es2022`, as in the repo.
+ * A bare `tsc` uses an ES5 lib and rejects valid modern TypeScript, such as private fields and sticky regular expressions.
+ */
 export async function gradeTypecheck(runDir: string): Promise<boolean> {
   try {
-    // Realistic target/lib (es2022) matching the repo — a bare `tsc` defaults to
-    // an ES5 lib and rejects modern-but-valid TS (private fields, sticky regex,
-    // etc.), which would be a grader artifact rather than an impl defect.
     await execFileAsync(
       TSC,
       ['--noEmit', '--strict', '--skipLibCheck', '--target', 'es2022', '--lib', 'es2022', 'impl.ts'],
@@ -153,7 +116,7 @@ export async function gradeTypecheck(runDir: string): Promise<boolean> {
   }
 }
 
-/** True when `f` is one of the run's own test files (not impl/oracle/SPEC). */
+/** True when `f` is a test file of the run. The impl, the oracle and the spec are not test files. */
 function isTestFile(f: string): boolean {
   return f !== 'oracle.ts' && f !== 'impl.ts' && f !== 'SPEC.md' && /\.(test|spec)\.[tj]s$|(^|[^a-z])test[^a-z]/i.test(f);
 }
@@ -162,17 +125,12 @@ export function detectTests(runDir: string): boolean {
   return fs.readdirSync(runDir).some(isTestFile);
 }
 
-/** The run's own test files (co-located `test.ts` / `*.test.ts` / `*.spec.ts`). */
+/** The test files in the run directory, in sorted order. */
 export function listTestFiles(runDir: string): string[] {
   return fs.readdirSync(runDir).filter(isTestFile).sort();
 }
 
-// ─── Mechanical adequacy (DR-4/DR-7) ──────────────────────────────────────────
-
-/**
- * Real git executor for the throwaway repo (mirrors the production `defaultGitExec`
- * contract: total — a non-zero exit is a value, never a throw).
- */
+/** The git executor for the throwaway repo. It is total: a non-zero exit is a value, never a throw. */
 export const evalGitExec: GitExec = (repoRoot, args) => {
   try {
     const stdout = execFileSync('git', [...args], {
@@ -199,10 +157,8 @@ async function evalGitAsync(repoRoot: string, args: readonly string[]): Promise<
 }
 
 /**
- * Build the probe's test runner: run each produced test file via `tsx` in the
- * throwaway repo. A produced test is a module-load harness (`node:assert`) that
- * exits non-zero on failure, so a thrown/failed run is the "red" the kill-probe
- * looks for. PASS iff every test file exits 0.
+ * Builds the test runner of the probe. The runner starts each test file of the run with `tsx` in the throwaway repo.
+ * A test file is a `node:assert` script that exits non-zero on a failure. The run passes only when every file exits 0.
  */
 export function makeEvalRunTests(tsx: string = TSX): TestRunFn {
   return async ({ repoRoot, testFiles }) => {
@@ -217,33 +173,29 @@ export function makeEvalRunTests(tsx: string = TSX): TestRunFn {
   };
 }
 
-/** Injectable probe seam (DI). Defaults to the real production {@link runProbe}. */
+/** The injectable probe seam. The default is the production {@link runProbe}. */
 export type ProbeFn = (args: Parameters<typeof runProbe>[0]) => Promise<ProbeResult>;
 
 export interface GradeAdequacyOptions {
   readonly tasksDir: string;
   readonly tsx?: string;
   /**
-   * Probe seam. Defaults to the REAL `runProbe` (production kill-probe) — DR-7
-   * fail-honest: the score is measured by the actual gate, never self-reported.
-   * Injected only in characterization tests that fix the adequacy value to keep
-   * the existing-metrics assertion fast and deterministic.
+   * The probe to run. The default is the production `runProbe`, so the real gate measures the score.
+   * Only a characterization test injects a probe, to fix the adequacy value and keep the test fast.
    */
   readonly probe?: ProbeFn;
 }
 
 /**
- * Mechanically measure a run's test adequacy with the diff-scoped kill-probe.
+ * Measures the test adequacy of a run with the diff-scoped kill probe.
+ * A failed setup step or a failed probe gives `score: null` and an `error`, not a throw.
+ * A run with no tests gives `no-new-tests` and no score. A revert conflict or a failed restore also gives no score.
  *
- * Throwaway-repo diff base (the tricky part): the gate needs a diff scope + a
- * worktree. We synthesize one per run — `git init` a temp repo, commit the task
- * STUB as `impl.ts` (the base commit), then place the produced impl + its tests
- * as the working tree. The diff-scope is therefore exactly stub→impl: precisely
- * the source hunks the probe must find covered. The probe reverts those hunks
- * back to the stub, re-runs the tests, and reports red/green. The temp repo is
- * always torn down (finally).
- *
- * Never throws: any setup/probe failure degrades to `{ score: null, error }`.
+ * The probe needs a diff, so the function builds a throwaway git repo for each run and always removes it.
+ * The base commit holds the task stub as `impl.ts`. The working tree holds the impl and the tests of the run.
+ * Thus the diff is exactly the change from the stub to the impl, and the probe reverts those hunks.
+ * The commit takes its identity and `commit.gpgsign=false` from `-c` flags, so it needs no global git config.
+ * `testGlobs` holds the exact test file names, because the default globs do not match a bare `test.ts`.
  */
 export async function gradeAdequacy(
   runDir: string,
@@ -261,7 +213,6 @@ export async function gradeAdequacy(
 
   const testFiles = listTestFiles(runDir);
   if (testFiles.length === 0) {
-    // No tests to probe — the ladder treats this as an advisory skip, not vacuous.
     return { probed: false, redObserved: false, score: null, discriminant: 'no-new-tests' };
   }
 
@@ -271,10 +222,7 @@ export async function gradeAdequacy(
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'qab-adequacy-'));
   try {
-    // 1. `git init` + a throwaway identity (robust to a missing global config;
-    //    `-c` flags avoid a second config round-trip and any gpg-sign prompt).
     await evalGitAsync(tmp, ['init', '-q']);
-    // 2. BASE commit = the task stub, written as `impl.ts`.
     fs.writeFileSync(path.join(tmp, 'impl.ts'), stubSrc);
     await evalGitAsync(tmp, ['add', 'impl.ts']);
     const commit = await evalGitAsync(tmp, [
@@ -292,16 +240,11 @@ export async function gradeAdequacy(
     }
     const baseRef = head.stdout.trim();
 
-    // 3. Working tree = produced impl + its tests (diff-scope = stub→impl).
     fs.writeFileSync(path.join(tmp, 'impl.ts'), implSrc);
     for (const tf of testFiles) {
       fs.copyFileSync(path.join(runDir, tf), path.join(tmp, tf));
     }
 
-    // 4. Run the production kill-probe over the synthesized diff. `testGlobs` are
-    //    the exact produced test-file names so a `test.ts` (which the default
-    //    co-located globs would miss) is still classified as a test, and `impl.ts`
-    //    stays classified as the source to revert.
     const probe = await probeFn({
       gitExec: evalGitExec,
       repoRoot: tmp,
@@ -315,7 +258,6 @@ export async function gradeAdequacy(
       return { probed: false, redObserved: false, score: null, discriminant: 'no-new-tests' };
     }
     if (probe.discriminant === 'revert-conflict' || probe.discriminant === 'restore-failed') {
-      // The probe could not measure cleanly — do NOT fabricate a 0/1 score.
       return { probed: false, redObserved: probe.redObserved, score: null, discriminant: probe.discriminant, error: `probe ${probe.discriminant}` };
     }
     return { probed: true, redObserved: probe.redObserved, score: probe.redObserved ? 1 : 0, ...(probe.discriminant ? { discriminant: probe.discriminant } : {}) };
@@ -326,21 +268,19 @@ export async function gradeAdequacy(
   }
 }
 
-// ─── Per-run + aggregate ──────────────────────────────────────────────────────
-
 export interface GradeRunOptions {
   readonly tasksDir: string;
   readonly tsx?: string;
   readonly probe?: ProbeFn;
 }
 
-/** Grade a single run directory: oracle + typecheck + wroteTests + adequacy. */
+/**
+ * Grades one run directory: oracle, typecheck, `wroteTests` and adequacy.
+ * It throws on a directory name that is not `<task>__<arm>__r<rep>`, because a row with an empty task or arm still enters the averages.
+ */
 export async function gradeRun(baseDir: string, run: string, options: GradeRunOptions): Promise<RunResult> {
   const runDir = path.join(baseDir, run);
   const [task, arm, repRaw] = run.split('__');
-  // A run directory is `<task>__<arm>__r<rep>`. Refuse a name that is not,
-  // rather than grading with an empty task or arm — a silently mislabelled row
-  // is worse than a missing one, because it still gets averaged in.
   if (task === undefined || arm === undefined || repRaw === undefined) {
     throw new Error(`Malformed run directory name (want <task>__<arm>__r<rep>): ${run}`);
   }
@@ -372,8 +312,9 @@ export interface Agg {
   oracleRate: number;
   typecheckOk: number;
   wroteTests: number;
-  // ── adequacy: mean over PROBED runs (score != null) ──
+  /** The count of runs with a measured score, which is an `adequacyScore` that is not `null`. */
   adequacyProbedRuns: number;
+  /** The sum of the measured scores. */
   adequacyScoreSum: number;
 }
 
@@ -383,21 +324,21 @@ export interface GradeReport {
   markdown: string;
 }
 
-/** Discover the run directories under `baseDir` (`<task>__<arm>__r<rep>`). */
+/** Finds the run directories under `baseDir`. A name must end in `__E__r<rep>` or `__N__r<rep>`. */
 export function discoverRunDirs(baseDir: string): string[] {
   return fs
     .readdirSync(baseDir)
     .filter((d) => /__[EN]__r\d+$/.test(d) && fs.statSync(path.join(baseDir, d)).isDirectory());
 }
 
-/** Human cell for a run's adequacy verdict. */
+/** The report cell for the adequacy verdict of a run. */
 function adequacyCell(r: RunResult): string {
   if (r.adequacyScore === 1) return '✓ killed';
   if (r.adequacyScore === 0) return '✗ survived';
   return r.adequacyDiscriminant === 'no-new-tests' ? '— no tests' : `— ${r.adequacyDiscriminant ?? 'n/a'}`;
 }
 
-/** Grade every run under `baseDir`, aggregate by task × arm, and render the report. */
+/** Grades every run under `baseDir`, aggregates the results by task and arm, and renders the report. */
 export async function gradeAll(
   baseDir: string,
   tasksDir: string,
@@ -453,8 +394,6 @@ export async function gradeAll(
   lines.push('');
   lines.push('| task | arm | runs | mean oracle pass rate | typecheck ok | wrote tests | adequacy (killed/probed) |');
   lines.push('|---|---|---|---|---|---|---|');
-  // `Object.entries` rather than keys + subscript: the value comes back
-  // non-optional, which is what the whole row below reads.
   for (const [key, a] of Object.entries(agg).sort(([l], [r]) => (l < r ? -1 : l > r ? 1 : 0))) {
     const [task, arm] = key.split('::');
     const adq = a.adequacyProbedRuns > 0 ? `${a.adequacyScoreSum}/${a.adequacyProbedRuns} (${((a.adequacyScoreSum / a.adequacyProbedRuns) * 100).toFixed(0)}%)` : '— none probed';
@@ -464,8 +403,6 @@ export async function gradeAll(
 
   return { results, agg, markdown: lines.join('\n') };
 }
-
-// ─── Script entry point (guarded — import-safe) ───────────────────────────────
 
 async function main(): Promise<void> {
   const baseDir = process.argv[2];
@@ -485,8 +422,7 @@ async function main(): Promise<void> {
   process.stdout.write(`\n[written] ${path.relative(REPO_ROOT, outMd)}\n[written] ${path.relative(REPO_ROOT, outJson)}\n`);
 }
 
-// Only run the script when invoked directly (`tsx grade.ts …`); importing the
-// module (tests) must NOT run main or call process.exit into the vitest worker.
+/** The URL of the invoked script. `main` runs only when it is this module, so an import by a test never calls `process.exit`. */
 const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : '';
 if (invokedPath === import.meta.url) {
   main().catch((err) => {

@@ -1,33 +1,18 @@
 /**
- * A handler that effects without committing its event fails the BUILD.
+ * A handler that performs an effect and does not commit its event fails the build.
  *
- * ## Why this file exists, and what it does NOT carry
+ * The exported `@proof` aliases of the carrier are the standing claim. They live in `src/`, the
+ * root `tsc` reads them on every build, and they fail when `src/` relaxes.
+ * An alias asserts only that a bad shape is not assignable. This file spawns a compiler and
+ * shows that a fixture fails. The fixtures compile against a copy of the carrier, so this file
+ * does not guard `src/`.
  *
- * The carrier's exported `@proof` aliases are the standing claim: they live in
- * `src/`, the root `tsc` reads them on every build, and they go red the moment
- * `src/` relaxes. That is the half that catches a regression.
+ * The file is in the acceptance tier because it spawns one compiler for each case.
  *
- * This file carries the other half, which an alias cannot: an alias asserts
- * that a bad shape is *not assignable*, but only a spawned compiler shows a
- * fixture actually FAILING. Both halves are needed and they are not
- * interchangeable — a fixture compiled against a COPY can never redden when the
- * real source relaxes, so nothing here should be read as guarding `src/`.
- *
- * ## Why the acceptance tier
- *
- * Not for isolation, and not because this tier is typechecked (whether the
- * HARNESS typechecks has no bearing on whether the FIXTURE compiles). It is
- * here because it spawns a compiler per case, which is an acceptance-shaped
- * cost rather than a unit-shaped one.
- *
- * ## Why copying the carrier is tractable
- *
- * `effect-carrier.ts` imports are rewritten onto local stubs so a copy
- * compiles standalone.
- * The stub widens `EventType` to `string`, which is sound for this fixture: the
- * subject is whether a plan may omit its emission declaration, not whether an
- * event name is registered. A copy is also what lets the kill probe relax the
- * guard without ever touching the live tree.
+ * The harness points the imports of the copy at local stubs, so the copy compiles standalone.
+ * The stub widens `EventType` to `string`. That is sound, because the subject is an omitted
+ * emission declaration, not a registered event name. The copy also lets the probe relax the
+ * guard with no change to the live tree.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -44,8 +29,8 @@ import {
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
- * The single relaxation this suite needs: the emission declaration becomes
- * optional again, and the one accessor that reads it is widened to match.
+ * The relaxation that this suite needs. The emission declaration becomes optional, and each site
+ * that reads it accepts an absent declaration.
  */
 const RELAX_REQUIRED_EMITS: readonly Relaxation[] = [
   { find: '  readonly emits: PlanEmissions;', replace: '  readonly emits?: PlanEmissions;' },
@@ -87,10 +72,13 @@ describe('omission fails the build, not the run', () => {
   });
 
   afterEach(() => {
-    // Removed on BOTH paths: a throwing assertion must not leave a tree behind.
     rmrf(dir);
   });
 
+  /**
+   * The output must name the fixture and the `emits` field. A fixture that fails for an unrelated
+   * reason otherwise looks like a guard that holds.
+   */
   it('CompileFail_EffectWithoutCommittedEvent_FailsTypecheck', async () => {
     materializeCarrier(dir, []);
     fs.writeFileSync(path.join(dir, 'fixture.ts'), OMITTING_FIXTURE, 'utf8');
@@ -100,16 +88,15 @@ describe('omission fails the build, not the run', () => {
     expect(run.accepted, `a plan omitting its emission declaration compiled:\n${run.output}`).toBe(
       false,
     );
-    // Named, not merely non-zero: a fixture that fails for an unrelated reason
-    // would otherwise read as the guard working.
     expect(run.output).toContain('fixture.ts');
     expect(run.output).toMatch(/emits/);
   });
 
+  /**
+   * The kill probe compiles the same fixture against a copy with the guard relaxed. If the fixture
+   * still fails, the first test measures a typo, not the requirement.
+   */
   it('CompileFail_FixtureCompilesWhenGuardRemoved', async () => {
-    // The probe: the SAME fixture against a copy whose guard is relaxed. If it
-    // still failed, the first assertion would be measuring a typo rather than
-    // the requirement.
     materializeCarrier(dir, RELAX_REQUIRED_EMITS);
     fs.writeFileSync(path.join(dir, 'fixture.ts'), OMITTING_FIXTURE, 'utf8');
 
@@ -121,10 +108,11 @@ describe('omission fails the build, not the run', () => {
     ).toBe(true);
   });
 
+  /**
+   * The probes run against copies. After the harness builds a relaxed copy, the real carrier must
+   * still declare the required field.
+   */
   it('CompileGate_ProbeLeavesTheLiveTreeUntouched', () => {
-    // The probes run against copies. This asserts the property rather than
-    // trusting it: the real carrier still declares the required field after a
-    // relaxed copy has been built from it.
     materializeCarrier(dir, RELAX_REQUIRED_EMITS);
     expect(fs.readFileSync(CARRIER_PATH, 'utf8')).toContain('readonly emits: PlanEmissions;');
   });

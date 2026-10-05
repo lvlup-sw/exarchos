@@ -1,26 +1,10 @@
-// ─── #1261 — dispatch.preflight + stash.detected end-to-end (outcome) ────────
-//
-// Outcome-tier pin for the dispatch-boundary preflight observability events.
-// Drives `handlePrepareDelegation` against a real tmp git repo + EventStore
-// and asserts that `dispatch.preflight` lands on the stream with the
-// expected per-guard outcome, exactly once per dispatch. Mirrors the
-// integration patterns in `prepare-delegation.integration.test.ts` but
-// runs without module-level mocks so the production primitives execute
-// against a live `git` binary.
-//
-// The two scenarios pinned here are the load-bearing observables for the
-// schema split chosen in PR B2:
-//   1. Happy path — all four guards pass, `passed: true`.
-//   2. Ancestry failure — disjoint history makes `merge-base
-//      --is-ancestor main <branch>` exit 1; the event records
-//      `guards.ancestry.passed: false` AND aggregate `passed: false`.
-//
-// Stash-detection is also wired into the dispatch boundary in this PR; a
-// third assertion verifies that no `stash.detected` event fires on a
-// clean worktree (advisory absence). Active-stash detection is covered
-// by the unit test in `dispatch-guard.test.ts` — replicating that here
-// would require mutating the test-runner's shared stash storage, which
-// the project's documented stash hazard explicitly bars.
+/**
+ * Outcome tests for the `dispatch.preflight` event of `handlePrepareDelegation`.
+ *
+ * The handler runs against a real git repo and a real `EventStore`, with no module mocks. Each
+ * dispatch must append one `dispatch.preflight` event with the result of each guard and the
+ * aggregate `passed` flag. A repo with no stash must append no `stash.detected` event.
+ */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -43,10 +27,9 @@ async function mkStateDir(label: string): Promise<string> {
 }
 
 /**
- * Run `fn` with `process.cwd()` set to `dir`. Restores the prior cwd
- * even if `fn` throws. `handlePrepareDelegation` uses `createGitExec`
- * with no explicit cwd, so the process's working directory determines
- * which repository the guards see.
+ * Runs `fn` with the process working directory set to `dir`, then restores it. The handler calls
+ * `createGitExec` with no directory, so the working directory selects the repo that the guards
+ * read.
  */
 async function withCwd<T>(dir: string, fn: () => Promise<T>): Promise<T> {
   const prior = process.cwd();
@@ -59,10 +42,13 @@ async function withCwd<T>(dir: string, fn: () => Promise<T>): Promise<T> {
 }
 
 describe('dispatch.preflight + stash.detected end-to-end (#1261)', () => {
+  /**
+   * The branch `feature/work` descends from `main`, so the ancestry guard passes. The repo is under
+   * `os.tmpdir()`, and the test assumes that this path does not hold `.claude/worktrees/`, so the
+   * worktree guards pass. The test asserts the events, not the readiness verdict of the handler.
+   */
   it('PrepareDelegation_AllGuardsPass_EmitsOneDispatchPreflightPassedTrue', async () => {
     await withTmpGit(async (repoPath) => {
-      // Set up a feature branch descending from `main` so the ancestry
-      // guard (`merge-base --is-ancestor main feature/work`) passes.
       await gitRun(repoPath, ['checkout', '-b', 'feature/work']);
 
       const stateDir = await mkStateDir('happy');
@@ -82,9 +68,6 @@ describe('dispatch.preflight + stash.detected end-to-end (#1261)', () => {
           stateDir,
           ctx,
         );
-        // The handler may return ready:false because the workflow has no
-        // tasks materialized — that's fine; the contract under test here
-        // is event emission, not the ready/blocked verdict.
         expect(result.success).toBe(true);
       });
 
@@ -105,17 +88,12 @@ describe('dispatch.preflight + stash.detected end-to-end (#1261)', () => {
       };
       expect(data.guards.ancestry.passed).toBe(true);
       expect(data.guards.protectedBranch.passed).toBe(true);
-      // `worktree.passed` reflects "not under .claude/worktrees/". The tmp
-      // repo path created by `withTmpGit` lives under `os.tmpdir()`, which
-      // does not contain that substring on the supported platforms, so
-      // the assertion is `true`.
       expect(data.guards.worktree.passed).toBe(true);
       expect(data.guards.mainWorktree.passed).toBe(true);
       expect(data.passed).toBe(true);
       expect(typeof data.durationMs).toBe('number');
       expect(data.durationMs).toBeGreaterThanOrEqual(0);
 
-      // Clean worktree → no stash.detected event.
       const stashEvents = await eventStore.query('outcome-1261-happy', {
         type: 'stash.detected',
       });
@@ -123,12 +101,13 @@ describe('dispatch.preflight + stash.detected end-to-end (#1261)', () => {
     });
   });
 
+  /**
+   * An orphan branch shares no history with `main`, so
+   * `merge-base --is-ancestor main feature/orphan` exits 1. The handler reports a blocked dispatch
+   * as `success: true`, and it still appends one `dispatch.preflight` event.
+   */
   it('PrepareDelegation_AncestryFails_EmitsDispatchPreflightPassedFalse', async () => {
     await withTmpGit(async (repoPath) => {
-      // Build an orphan branch with no shared history with `main` so
-      // `merge-base --is-ancestor main feature/orphan` exits 1
-      // (ancestry-missing). Mirrors the topology in
-      // `tests/outcome/preflight-debug.test.ts`.
       await execFileAsync('git', ['-C', repoPath, 'checkout', '--orphan', 'feature/orphan']);
       await fs.writeFile(path.join(repoPath, 'orphan.txt'), 'orphan\n');
       await execFileAsync('git', ['-C', repoPath, 'add', 'orphan.txt']);
@@ -151,13 +130,9 @@ describe('dispatch.preflight + stash.detected end-to-end (#1261)', () => {
           stateDir,
           ctx,
         );
-        // Handler still returns success:true with a blocked-shape data
-        // payload — its `success:false` slot is reserved for handler
-        // exceptions, not for blocked dispatches.
         expect(result.success).toBe(true);
       });
 
-      // Exactly one `dispatch.preflight` event, carrying ancestry failure.
       const preflightEvents = await eventStore.query(
         'outcome-1261-ancestry-fail',
         { type: 'dispatch.preflight' },

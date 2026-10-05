@@ -1,42 +1,18 @@
 /**
- * P05-02 — Packaged action + CLI proof (ART-004 / ART-005 / ART-014).
+ * The compiled-process half of the packaged proof. Each probe is a `spawn` of the shipped binary
+ * from `tools/release/build-binary.ts`, not an in-process import. The observations go to the
+ * coverage engine and the ratchet in `tools/conformance/src/parity/__tests__/packaged-proof.ts`.
  *
- * The COMPILED-PROCESS half of the packaged proof. It spawns the SHIPPED binary
- * produced by `tools/release/build-binary.ts` (the same artifact `compiled-binary-
- * mcp.test.ts` exercises) and drives real CLI invocations, then feeds the
- * observations to the pure coverage engine + ratchet in
- * `src/parity/__tests__/packaged-proof.ts`.
+ * - Actions: each registered action runs as `<tool> <action> --json` and must return a contract
+ *   envelope. An action with a `cli.alias` runs by that alias.
+ * - Host commands: each composite-tool CLI group and each top-level promoted verb.
+ * - Exit codes: the exit of each observed error must equal the stable exit code of its error code.
+ * - Effects: `wf init` writes the event store, and `list_prs` spawns `gh` or `git`.
+ * - Cancellation: a `wf init` and then a `wf cancel`.
  *
- * "Through the compiled process" is literal here: every action/alias/host-
- * command/error-family/effect probe below is a `spawn` of the native binary,
- * NOT an in-process import of the TypeScript modules. That is the distinction
- * ART-004/005 exist to prove.
- *
- * What is exercised through the real compiled artifact:
- *   • ACTIONS  — every registered action is invoked as `<tool> <action> --json`;
- *     the binary routes to it and returns a contract-shaped envelope (a success
- *     OR a stable/structured error). Reachability + contract-conformance of the
- *     whole action surface through the packaged binary.
- *   • PRESENTATION ALIASES — actions with a `cli.alias` are invoked BY that
- *     alias (the binary registers the alias as the primary subcommand name).
- *   • HOST COMMANDS — every composite-tool CLI group plus the four top-level
- *     promoted verbs (`ps`/`wait`/`describe`/`export`) are driven.
- *   • ERROR FAMILIES + STABLE EXIT CODES — every error the binary emits is
- *     checked: observed exit code == `exitCodeForError(code)` (P03-02 contract).
- *   • EFFECT FAMILIES — filesystem (a `wf init` writes the event store) and
- *     process (a `list_prs` spawns `gh`/`git`) are proven by observable effects.
- *   • CANCELLATION — a cooperative `wf init`→`wf cancel` round-trip and a
- *     bounded `wait` are driven through the binary.
- *
- * Honest gaps (recorded as accepted gaps in the baseline, held by the ratchet):
- *   • error families `authorization` / `output` / `presenter` / `task` are not
- *     organically triggerable through the CLI here; their exit-code mapping is
- *     pinned against the contract table in the unit test instead.
- *   • effect family `network` cannot be exercised hermetically (no CLI action
- *     makes an offline network call).
- *
- * Regenerate the baseline after an intentional coverage change:
- *   EXARCHOS_WRITE_PACKAGED_BASELINE=1 npx vitest run test/process/packaged-proof.test.ts
+ * The baseline records the accepted gaps: the error families `authorization`, `output`,
+ * `presenter` and `task`, and the effect family `network`. To write a new baseline, set
+ * `EXARCHOS_WRITE_PACKAGED_BASELINE=1` and run this file with `--project core`.
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -69,25 +45,18 @@ import {
 import { EXEC_TIMEOUT_MS } from '../../../src/vcs/shell.js';
 
 /**
- * Harness budget for one `spawn` of the compiled binary.
- *
- * MUST stay strictly greater than {@link EXEC_TIMEOUT_MS}, the budget the
- * binary imposes on its OWN child CLIs (`gh`, `git`). Those budgets nest: this
- * timer starts at spawn, the inner one only after the binary boots, so equal
- * values make this one win every race — a `gh` that is merely slow (Windows
- * runners routinely exceed 30s on `gh pr list`) would be SIGKILLed before the
- * action could turn the inner timeout into a VCS_ERROR envelope, and the sweep
- * would score a bounded failure as a hang. Doubling leaves the inner budget
- * room to fire and the envelope room to reach stdout, while still failing a
- * genuine hang.
+ * The harness budget for one spawn of the compiled binary. It must stay above
+ * {@link EXEC_TIMEOUT_MS}, the budget that the binary gives its own child CLIs (`gh`, `git`). This
+ * timer starts at the spawn, and the inner timer starts after the binary boots. With equal
+ * values, this timer kills a slow `gh` before the action turns the inner timeout into a
+ * `VCS_ERROR` envelope. The sweep then scores a bounded failure as a hang. On Windows runners,
+ * `gh pr list` can take more than 30 s. The doubled value still fails a real hang.
  */
 const CLI_TIMEOUT_MS = EXEC_TIMEOUT_MS * 2;
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = findRepoRoot(__dirname);
-// The baseline travelled with `parity/` into the extracted conformance
-// package (task 018a). Built segment-wise, so the literal passes that followed
-// the move could not see it.
+/** The checked-in coverage baseline. It sits beside the coverage engine in the conformance package. */
 const BASELINE_PATH = path.join(
   REPO_ROOT,
   'tools',
@@ -98,8 +67,6 @@ const BASELINE_PATH = path.join(
   'packaged-proof.baseline.json',
 );
 
-// ─── Compiled-binary CLI driver ──────────────────────────────────────────────
-
 interface CliRun {
   readonly exit: number | null;
   readonly stdout: string;
@@ -108,10 +75,11 @@ interface CliRun {
 }
 
 /**
- * Spawn the compiled binary with a hermetic environment: a fresh event-store
- * dir, a NON-git working directory (so git/gh-backed actions fail fast instead
- * of touching the developer's repo or the network), and `LOG_LEVEL=error` so
- * only the `--json` envelope reaches stdout.
+ * Spawns the compiled binary with `--json` in a hermetic environment. Each caller passes a fresh
+ * state directory and a working directory that is not a git repository. So a git or `gh` action
+ * fails fast and does not touch the repository of the developer. The empty `GH_TOKEN` and
+ * `GITHUB_TOKEN` values keep such an action away from a real remote. `LOG_LEVEL=error` keeps log
+ * lines out of stdout, where the envelope goes.
  */
 function runCli(
   binaryPath: string,
@@ -126,7 +94,6 @@ function runCli(
         WORKFLOW_STATE_DIR: opts.stateDir,
         EXARCHOS_PLUGIN_ROOT: REPO_ROOT,
         LOG_LEVEL: 'error',
-        // Never let a git/gh action reach a real remote in this hermetic probe.
         GH_TOKEN: '',
         GITHUB_TOKEN: '',
       } as Record<string, string>,
@@ -155,16 +122,16 @@ function runCli(
   });
 }
 
-/** Contract envelope shape the binary emits under `--json`. */
+/** The part of the contract envelope that the tests read. The binary prints it under `--json`. */
 interface Envelope {
   readonly success: boolean;
   readonly error?: { readonly code?: string };
 }
 
 /**
- * Extract the first COMPLETE balanced JSON object from `text` starting at
- * `from`, respecting string/escape context so a `}` inside a string does not
- * close the object early. Returns the substring, or undefined if unbalanced.
+ * Returns the first complete JSON object in `text` that starts at `from`, or `undefined` when the
+ * braces do not balance. It tracks strings and escapes, so a `}` inside a string does not close
+ * the object.
  */
 function balancedObjectAt(text: string, from: number): string | undefined {
   let depth = 0;
@@ -189,11 +156,10 @@ function balancedObjectAt(text: string, from: number): string | undefined {
 }
 
 /**
- * Extract the `--json` envelope from stdout. The envelope is pretty-printed
- * (opening `{` immediately followed by a newline), whereas a stray pino log is
- * single-line (`{"level":…`). We prefer the pretty-printed opener, then fall
- * back to the first `{`, and always brace-match so a trailing log line can't
- * defeat `JSON.parse`.
+ * Extracts the `--json` envelope from stdout. The envelope is pretty-printed, so a newline follows
+ * its opening `{`. A stray pino log line is one line (`{"level":…`). The function prefers the
+ * pretty-printed opener and falls back to the first `{`. It matches braces, so a log line after
+ * the envelope does not break `JSON.parse`.
  */
 function extractEnvelope(stdout: string): Envelope | undefined {
   const prettyCr = stdout.indexOf('{\r\n');
@@ -226,7 +192,7 @@ async function mkTmp(prefix: string): Promise<string> {
   return fsp.mkdtemp(path.join(os.tmpdir(), prefix));
 }
 
-/** Run an async mapper over `items` with bounded concurrency. */
+/** Runs an async mapper over `items` with at most `concurrency` calls at a time. */
 async function mapPool<T, R>(
   items: readonly T[],
   concurrency: number,
@@ -244,8 +210,6 @@ async function mapPool<T, R>(
   await Promise.all(workers);
   return results;
 }
-
-// ─── Sweep result ────────────────────────────────────────────────────────────
 
 interface ActionObservation {
   readonly plan: PackagedActionPlan;
@@ -278,6 +242,10 @@ interface SweepResult {
 let BINARY_PATH = '';
 let SWEEP: SweepResult;
 
+/**
+ * Runs each action of the CLI plan as `<tool> <action> --json`, six at a time. Each run has its
+ * own state directory, and all runs share one working directory.
+ */
 async function driveEveryAction(binaryPath: string): Promise<ActionObservation[]> {
   const plan = derivePackagedCliPlan();
   const sharedCwd = await mkTmp('exq-proof-cwd-');
@@ -307,31 +275,26 @@ async function driveEveryAction(binaryPath: string): Promise<ActionObservation[]
   return obs;
 }
 
+/**
+ * Runs the whole sweep and builds the exercise ledger and the coverage report.
+ *
+ * The top-level verbs come from the `cli.topLevel` hints of the registry, so the sweep drives a
+ * new promoted verb when the registry declares it. Each verb runs with no arguments. A read-only
+ * verb gives a result envelope. A mutating verb such as `merge-orchestrate` fails with
+ * `INVALID_INPUT` for its absent flags and has no effect. Both prove that the binary routes the
+ * verb through the contract envelope.
+ *
+ * The filesystem probe is a `wf init` that must leave files in the state directory. The process
+ * probe is `orch list_prs`. It passes when stdout holds a `gh` or git failure text, or the code
+ * `VCS_ERROR`.
+ */
 async function runSweep(binaryPath: string): Promise<SweepResult> {
   const observations = await driveEveryAction(binaryPath);
 
-  // ── Exit-code observations from the whole sweep (exit-proof c). ─────────────
   const exitObservations: ExitObservation[] = observations
     .filter((o) => o.hasEnvelope && !o.timedOut)
     .map((o) => ({ label: o.plan.actionId, code: o.code, exit: o.exit }));
 
-  // ── Top-level promoted verbs (host commands). ──────────────────────────────
-  //
-  // DERIVED from the registry's `cli.topLevel` hints, not written out. The list
-  // was hard-coded as ['ps','wait','describe','export'] until task 076 promoted
-  // `merge-orchestrate` through the same mechanism — at which point the packaged
-  // denominator grew but the exercise ledger did not, and the coverage ratchet
-  // reported a new gap for a verb that is in fact perfectly reachable. A hand-
-  // written driver list silently under-covers every promotion added after it;
-  // deriving it means a new `cli.topLevel` is exercised the moment it is
-  // declared.
-  //
-  // Each verb is invoked with NO arguments. For the read-only verbs that yields
-  // a result envelope; for a mutating verb like `merge-orchestrate` it yields an
-  // INVALID_INPUT envelope from the missing required flags. Either way the
-  // binary is proven to route the verb through the contract envelope, which is
-  // what this dimension claims — and the no-args form means a `shared-mutating`
-  // verb is exercised without performing its effect.
   const promotedVerbs = [
     ...new Set(
       derivePackagedCliPlan()
@@ -356,7 +319,6 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     }
   }
 
-  // ── Effect probe: filesystem — `wf init` writes the event store. ───────────
   const fsState = await mkTmp('exq-proof-fs-');
   const fsCwd = await mkTmp('exq-proof-fscwd-');
   let filesystemProven = false;
@@ -377,7 +339,6 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     await rmrfAsync(fsCwd).catch(() => undefined);
   }
 
-  // ── Effect probe: process — `list_prs` spawns a `gh`/`git` child process. ──
   const procState = await mkTmp('exq-proof-proc-');
   const procCwd = await mkTmp('exq-proof-proccwd-');
   let processProven = false;
@@ -388,7 +349,6 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
       timeoutMs: CLI_TIMEOUT_MS,
     });
     const env = extractEnvelope(run.stdout);
-    // The error message proves a child process was spawned (`gh pr list` / git).
     const spawnedChild = /gh pr list|failed to run git|not a git repos|NOT_GIT_REPO|VCS_ERROR/i.test(
       run.stdout,
     );
@@ -401,7 +361,6 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     await rmrfAsync(procCwd).catch(() => undefined);
   }
 
-  // ── Cancellation probe: cooperative `wf init` → `wf cancel`. ────────────────
   const cxState = await mkTmp('exq-proof-cx-');
   const cxCwd = await mkTmp('exq-proof-cxcwd-');
   let cancelEnvelope = false;
@@ -430,7 +389,6 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
     await rmrfAsync(cxCwd).catch(() => undefined);
   }
 
-  // ── Assemble the exercise ledger from the observations. ────────────────────
   const exercisedActions = observations.filter((o) => o.hasEnvelope);
 
   const actions = exercisedActions.map((o) => o.plan.actionId);
@@ -480,8 +438,10 @@ async function runSweep(binaryPath: string): Promise<SweepResult> {
   };
 }
 
-// ─── Build the binary + run the sweep once ───────────────────────────────────
-
+/**
+ * Builds the binary and runs the sweep one time for all tests. With
+ * `EXARCHOS_WRITE_PACKAGED_BASELINE=1`, the hook also writes the baseline file from the report.
+ */
 beforeAll(async () => {
   const { binaryPath } = await ensureBinaryBuilt(REPO_ROOT);
   BINARY_PATH = binaryPath;
@@ -506,21 +466,20 @@ function loadBaseline(): CoverageBaseline {
   return parseCoverageBaseline(JSON.parse(fs.readFileSync(BASELINE_PATH, 'utf8')));
 }
 
-// ─── Coverage + ratchet ──────────────────────────────────────────────────────
-
 describe('Packaged action + CLI proof — coverage through the compiled binary (P05-02)', () => {
+  /**
+   * No action can time out, because a hang is a defect and not an accepted gap. Each action must
+   * return a contract envelope. The ratchet test enforces the coverage count.
+   */
   it('EveryRegisteredAction_ReachableThroughTheCompiledBinary', () => {
     const actions = coverageFor(SWEEP.report, 'actions');
-    // Report the real numbers; the ratchet (below) enforces non-regression.
     // eslint-disable-next-line no-console
     console.log(
       `[packaged-proof] actions covered ${actions.covered}/${actions.total}` +
         (actions.missing.length > 0 ? ` — missing: ${actions.missing.join(', ')}` : ''),
     );
-    // No action may TIME OUT — a hang is a real defect, not an accepted gap.
     const timedOut = SWEEP.observations.filter((o) => o.timedOut).map((o) => o.plan.actionId);
     expect(timedOut, `actions timed out through the binary: ${timedOut.join(', ')}`).toEqual([]);
-    // Every action returned a contract-shaped envelope from the shipped binary.
     const noEnvelope = SWEEP.observations.filter((o) => !o.hasEnvelope).map((o) => o.plan.actionId);
     expect(noEnvelope, `actions with no contract envelope: ${noEnvelope.join(', ')}`).toEqual([]);
   });
@@ -536,9 +495,8 @@ describe('Packaged action + CLI proof — coverage through the compiled binary (
     expect(result.ok, JSON.stringify(result.regressions, null, 2)).toBe(true);
   });
 
+  /** Each baseline total must equal the live denominator, so the baseline omits no item. */
   it('Baseline_TotalsTrackTheLiveDenominators', () => {
-    // The compiled-process baseline must denominate against the SAME live
-    // surface as the pure engine — no silently-omitted dimension/item.
     const baseline = loadBaseline();
     const den = derivePackagedDenominators();
     for (const dim of COVERAGE_DIMENSIONS) {
@@ -546,8 +504,6 @@ describe('Packaged action + CLI proof — coverage through the compiled binary (
     }
   });
 });
-
-// ─── Exit-code contract (exit-proof c, through the compiled process) ─────────
 
 describe('Stable CLI exit codes through the compiled binary (P05-02)', () => {
   it('EveryObservedErrorCode_ExitsWithItsContractStableExitCode', () => {
@@ -564,9 +520,11 @@ describe('Stable CLI exit codes through the compiled binary (P05-02)', () => {
     ).toEqual([]);
   });
 
+  /**
+   * A protocol failure, such as an absent required argument, must exit 1. A shell caller branches
+   * on the exit code of this family.
+   */
   it('ProtocolFamily_InvalidInput_ExitsOneThroughTheBinary', () => {
-    // A protocol-layer failure (missing required arg) must exit 1 on the real
-    // binary — the family whose exit code a shell caller branches on.
     const invalidInput = SWEEP.exitObservations.filter((o) => o.code === 'INVALID_INPUT');
     expect(invalidInput.length, 'expected the sweep to organically emit INVALID_INPUT').toBeGreaterThan(0);
     for (const o of invalidInput) {
@@ -575,9 +533,8 @@ describe('Stable CLI exit codes through the compiled binary (P05-02)', () => {
     }
   });
 
+  /** A handler failure, such as a VCS failure outside a git repository, must exit 2. */
   it('HandlerFamily_BusinessFailure_ExitsTwoThroughTheBinary', () => {
-    // A handler-layer failure (e.g. a VCS/not-a-git-repo business failure) must
-    // exit 2 on the real binary.
     const handler = SWEEP.exitObservations.filter(
       (o) => o.code !== undefined && classifyErrorLayer(o.code) === 'handler',
     );
@@ -585,8 +542,6 @@ describe('Stable CLI exit codes through the compiled binary (P05-02)', () => {
     for (const o of handler) expect(o.exit, `${o.label} (${o.code})`).toBe(2);
   });
 });
-
-// ─── Effect families (through the compiled process) ──────────────────────────
 
 describe('Effect families through the compiled binary (P05-02)', () => {
   it('Filesystem_WfInitWritesTheEventStore', () => {
@@ -598,14 +553,12 @@ describe('Effect families through the compiled binary (P05-02)', () => {
   });
 });
 
-// ─── Cancellation path (exit-proof d, through the compiled process) ──────────
-
 describe('Cancellation path through the compiled binary (P05-02)', () => {
+  /**
+   * The `wf cancel` call must return a contract envelope, and its exit must be the stable exit
+   * code of its error code. The test does not assert that the cancel succeeds.
+   */
   it('CooperativeCancel_RoundTripsToAContractEnvelopeWithAStableExit', () => {
-    // The cooperative cancel path executes end-to-end through the shipped
-    // binary and returns a contract envelope with a stable exit code. (We do
-    // not assert cancel SUCCESS: the CLI trusted-caller path currently fails
-    // cancellation-request admission — see the P05-02 report finding.)
     expect(SWEEP.cancelEnvelope).toBe(true);
     expect(SWEEP.cancelExit).toBe(expectedExitForCode(SWEEP.cancelCode));
     // eslint-disable-next-line no-console
@@ -614,10 +567,13 @@ describe('Cancellation path through the compiled binary (P05-02)', () => {
     );
   });
 
+  /**
+   * Asserts only that the registry declares at least one cancellable action, and logs the covered
+   * count. The ratchet test enforces the coverage.
+   */
   it('EveryCancellableAction_ReachableThroughTheCompiledBinary', () => {
     const cancellation = coverageFor(SWEEP.report, 'cancellationPaths');
     expect(cancellation.total).toBeGreaterThan(0);
-    // Non-regression is enforced by the ratchet; here we just surface the count.
     // eslint-disable-next-line no-console
     console.log(
       `[packaged-proof] cancellation paths reachable ${cancellation.covered}/${cancellation.total}`,
@@ -625,14 +581,12 @@ describe('Cancellation path through the compiled binary (P05-02)', () => {
   });
 });
 
-// ─── Seeded-action drop through the REAL ledger (exit-proof b) ────────────────
-
 describe('Ratchet catches a seeded unexercised action against the real ledger (P05-02)', () => {
+  /**
+   * The denominator gets one registered action that nothing exercises, and the ledger stays the
+   * real one. The ratchet must then fail with a `new-gap` regression for `actions`.
+   */
   it('SeededRegisteredAction_UnexercisedByTheBinary_TripsTheRatchet', () => {
-    // Grow the denominator with a REGISTERED-but-unexercised action, keep the
-    // REAL compiled-process ledger (which cannot cover the seed), and confirm
-    // the ratchet fails — the coverage regression a new packaged action must
-    // cause if nothing exercises it.
     const seededDen = derivePackagedDenominators(seededRegistry());
     const report = computeCoverage(seededDen, SWEEP.ledger);
     const actions = coverageFor(report, 'actions');
@@ -646,11 +600,10 @@ describe('Ratchet catches a seeded unexercised action against the real ledger (P
   });
 });
 
-// ─── seeded registry helper (local to the process test) ──────────────────────
-
 import { TOOL_REGISTRY, type CompositeTool, type ToolAction } from '../../../src/registry.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
+/** Returns the registry with one more `exarchos_event` action, `p0502_unexercised_seed`. */
 function seededRegistry(): readonly CompositeTool[] {
   return TOOL_REGISTRY.map((tool) => {
     if (tool.name !== 'exarchos_event') return tool;

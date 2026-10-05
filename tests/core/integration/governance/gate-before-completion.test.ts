@@ -1,17 +1,15 @@
 /**
- * T2 governance tier — the *gate → durable evidence → completion* chain.
+ * Governance tier: the chain from gate to durable evidence to completion.
  *
- * DR-28: every assertion here is driven through the REAL public root
- * (`dispatch()`), against the production composition root built by
- * `createPublicRootHarness`. Nothing is stubbed: `check_static_analysis`
- * really shells out to a real fixture repo's npm scripts, the verdict is
- * really persisted as an `admission.evidence-recorded` row, and
- * `task_complete` really reads back the `gate.executed` signal minted from it.
+ * Each test drives the real `dispatch()` against the production composition root that `createPublicRootHarness` builds.
+ * Nothing is a stub. `check_static_analysis` runs the npm scripts of a real fixture repository.
+ * The verdict persists as an `admission.evidence-recorded` row.
+ * `task_complete` reads the `gate.executed` signal that the gate runner mints from that row.
  *
- * Criteria covered here (each with a BLOCKING arm and its NEGATIVE TWIN):
- *   DR-1  `task_complete` gates on a real event, not caller-supplied evidence
- *   DR-2  the governed cannot supply governance
- *   DR-6  `skipped` cannot render as PASS
+ * Each criterion has a BLOCKING ARM and its NEGATIVE TWIN:
+ * - `task_complete` gates on a real event, not on evidence from the caller.
+ * - The governed cannot supply governance.
+ * - A skipped constituent cannot render as a pass.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -30,7 +28,7 @@ type Rec = Record<string, unknown>;
 
 const FEATURE_ID = 'gov-t2-gate-before-completion';
 
-/** Real npm scripts — `node -e ""` is the cheapest process that exits 0/1. */
+/** Real npm scripts. `node -e` is the cheapest process that exits with 0 or 1. */
 const OK = 'node -e ""';
 const FAIL = 'node -e "process.exit(1)"';
 
@@ -38,7 +36,7 @@ let harness: PublicRootHarness;
 let verifiedComposites: readonly string[] = [];
 const scratchDirs: string[] = [];
 
-/** A real on-disk Node project the production static-analysis gate can run. */
+/** Makes a real Node project on disk that the production static-analysis gate can run. */
 async function makeNodeFixture(scripts: Record<string, string>): Promise<string> {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-t2-sa-')));
   scratchDirs.push(dir);
@@ -55,8 +53,8 @@ function payload(obs: DispatchObservation): Rec {
 }
 
 /**
- * The durable `gate.executed` rows for one task, read back out of the REAL
- * event store — this is the only oracle `task_complete` itself consults.
+ * Reads the durable `gate.executed` rows for one task from the real event store.
+ * `task_complete` consults only this oracle.
  */
 async function gateSignalsFor(taskId: string): Promise<readonly Rec[]> {
   const events = await harness.events(FEATURE_ID);
@@ -66,10 +64,12 @@ async function gateSignalsFor(taskId: string): Promise<readonly Rec[]> {
     .filter((d) => ((d.details as Rec | undefined)?.taskId ?? null) === taskId);
 }
 
+/**
+ * The override is a context seam only. It gives a trusted local-operator identity, which the durable gate producer requires.
+ * It replaces no handler.
+ */
 beforeAll(async () => {
   harness = await createPublicRootHarness({
-    // Context seam only: a trusted local-operator identity, which is what the
-    // durable gate producer requires. No handler is stubbed.
     overrides: { callerIdentity: deriveLocalOperatorIdentity('gov-t2-gate') },
   });
   await harness.runAction('exarchos_workflow', 'init', {
@@ -87,14 +87,10 @@ afterAll(async () => {
 
 describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
   /**
-   * NAMED ACCEPTANCE TEST.
-   *
-   * BLOCKING arm: a real red (degraded) static-analysis verdict is minted as
-   * `gate.executed{passed:false}`, and `task_complete` REFUSES with the
-   * specific `GATE_NOT_PASSED` / `unmetGates:['static-analysis']` contract.
-   * NEGATIVE TWIN: the very same call for a task whose gate ran green
-   * SUCCEEDS — so the refusal is attributable to the gate verdict and not to
-   * "task_complete never works".
+   * The named acceptance test for a red gate.
+   * BLOCKING ARM: the gate runs and returns a red verdict, which the gate runner mints as one `gate.executed` signal with `passed: false`.
+   * Then `task_complete` gets `GATE_NOT_PASSED` with `unmetGates: ['static-analysis']`, and no `task.completed` event exists for the task.
+   * NEGATIVE TWIN: the same call for a task with a green gate succeeds, so the gate verdict caused the refusal.
    */
   it('Governance_BlockingGateRed_BlocksTaskCompletion', async () => {
     const redRepo = await makeNodeFixture({
@@ -108,23 +104,20 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
       'quality-check': OK,
     });
 
-    // ── BLOCKING ARM ──────────────────────────────────────────────────────
     const redGate = await harness.runAction(
       'exarchos_orchestrate',
       'check_static_analysis',
       { featureId: FEATURE_ID, taskId: 'T-red', repoRoot: redRepo },
       { timeoutMs: 180_000 },
     );
-    expect(redGate.result?.success).toBe(true); // the gate RAN; its verdict is red
+    expect(redGate.result?.success).toBe(true);
     expect(payload(redGate).passed).toBe(false);
     expect(payload(redGate).failCount).toBeGreaterThan(0);
 
-    // The verdict is durable, and it is what task_complete will read.
     const redSignals = await gateSignalsFor('T-red');
     expect(redSignals).toHaveLength(1);
     expect(redSignals[0]?.gateName).toBe('static-analysis');
     expect(redSignals[0]?.passed).toBe(false);
-    // Provenance: minted by the gate runner, not by the caller.
     expect(redSignals[0]?.__source).toBe('gate-runner/v1/static-analysis');
 
     const blocked = await harness.runAction('exarchos_orchestrate', 'task_complete', {
@@ -136,7 +129,6 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     expect(blocked.result?.error?.unmetGates).toEqual(['static-analysis']);
     expect(blocked.handlerEntered).toBe(true);
 
-    // ...and the refusal is durable-observable: no task.completed for T-red.
     const afterBlock = await harness.events(FEATURE_ID);
     expect(
       afterBlock.filter(
@@ -144,7 +136,6 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
       ),
     ).toHaveLength(0);
 
-    // ── NEGATIVE TWIN ─────────────────────────────────────────────────────
     const greenGate = await harness.runAction(
       'exarchos_orchestrate',
       'check_static_analysis',
@@ -167,17 +158,14 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
   }, 400_000);
 
   /**
-   * DR-1 / DR-2: the gate is satisfied by a DURABLE event produced by the gate
-   * runner, never by evidence the caller hands to `task_complete`.
-   *
-   * BLOCKING arm: a fully-privileged local operator supplies its own passing
-   * `evidence` for a task with NO gate row — still refused, with the same
-   * typed `GATE_NOT_PASSED` contract.
-   * NEGATIVE TWIN: the identical call, minus the self-supplied evidence, for a
-   * task whose gate really ran green — accepted.
+   * The gate accepts only a durable event from the gate runner, never evidence that the caller gives to `task_complete`.
+   * BLOCKING ARM: a local operator supplies passing `evidence` for a task with no gate row, and still gets `GATE_NOT_PASSED`.
+   * The self-supplied evidence does not become a gate row.
+   * NEGATIVE TWIN: the identical call without an `evidence` field succeeds for a task whose gate ran green.
+   * That signal comes from the gate runner and refers to the persisted evidence record.
+   * Both arms use the same operator identity and the same action, so they differ only in the durable evidence.
    */
   it('Governance_Dr1Dr2_CallerSuppliedEvidence_CannotSatisfyBlockingGate', async () => {
-    // ── BLOCKING ARM: the governed tries to supply its own governance ─────
     expect(await gateSignalsFor('T-selfattested')).toHaveLength(0);
 
     const selfAttested = await harness.runAction('exarchos_orchestrate', 'task_complete', {
@@ -194,10 +182,8 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     expect(selfAttested.result?.error?.unmetGates).toEqual(['static-analysis']);
     expect(String(selfAttested.result?.error?.message)).toContain('static-analysis');
 
-    // The self-attestation did not become durable evidence either.
     expect(await gateSignalsFor('T-selfattested')).toHaveLength(0);
 
-    // ── NEGATIVE TWIN: independently produced durable evidence ────────────
     const repo = await makeNodeFixture({ lint: OK, typecheck: OK, 'quality-check': OK });
     await harness.runAction(
       'exarchos_orchestrate',
@@ -208,37 +194,28 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     const signals = await gateSignalsFor('T-attested');
     expect(signals).toHaveLength(1);
     expect(signals[0]?.passed).toBe(true);
-    // Produced by the runner, carrying a reference to the persisted evidence
-    // record — a caller-supplied `evidence` blob has neither property.
     expect(signals[0]?.__source).toBe('gate-runner/v1/static-analysis');
     expect(String((signals[0]?.details as Rec | undefined)?.evidenceId)).toMatch(/^evidence:/);
 
     const accepted = await harness.runAction('exarchos_orchestrate', 'task_complete', {
       taskId: 'T-attested',
       streamId: FEATURE_ID,
-      // NOTE: no `evidence` field at all — the durable row is what counts.
     });
     expect(accepted.result?.success).toBe(true);
     expect(accepted.errorCode).toBeUndefined();
 
-    // Cross-check that the two arms differ ONLY in the durable evidence:
-    // both used the same operator identity and the same action.
     expect(selfAttested.actionId).toBe(accepted.actionId);
   }, 400_000);
 
   /**
-   * DR-6: a SKIPPED constituent may not be rendered as PASS.
-   *
-   * BLOCKING arm: a fixture missing `quality-check` produces zero failures —
-   * `failCount === 0` — yet the gate must NOT report success: the verdict is
-   * DEGRADED/indeterminate, `gate.executed.passed === false`, and downstream
-   * `task_complete` is refused.
-   * NEGATIVE TWIN: add the missing script and the identical run reports PASS.
+   * A skipped constituent cannot render as a pass.
+   * BLOCKING ARM: a fixture without `quality-check` has no failure and one skip, but the gate reports `passed: false` and `degraded`.
+   * The signal has `passed: false` with the verdict `indeterminate`, and `task_complete` gets `GATE_NOT_PASSED`.
+   * NEGATIVE TWIN: with the missing script added to the same repository, the identical run reports a pass.
    */
   it('Governance_Dr6_SkippedConstituent_RendersDegradedNotPass', async () => {
     const partial = await makeNodeFixture({ lint: OK, typecheck: OK });
 
-    // ── BLOCKING ARM ──────────────────────────────────────────────────────
     const degraded = await harness.runAction(
       'exarchos_orchestrate',
       'check_static_analysis',
@@ -246,9 +223,9 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
       { timeoutMs: 180_000 },
     );
     const d = payload(degraded);
-    expect(d.failCount).toBe(0); // nothing FAILED …
-    expect(d.skipCount).toBe(1); // … one constituent was SKIPPED …
-    expect(d.passed).toBe(false); // … and that is NOT a pass.
+    expect(d.failCount).toBe(0);
+    expect(d.skipCount).toBe(1);
+    expect(d.passed).toBe(false);
     expect(d.degraded).toBe(true);
     expect(d.skipReason).toBe('constituent-skipped');
     expect(String(d.report)).toContain('**Result: DEGRADED**');
@@ -266,7 +243,6 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     expect(refused.errorCode).toBe('GATE_NOT_PASSED');
     expect(refused.result?.error?.unmetGates).toEqual(['static-analysis']);
 
-    // ── NEGATIVE TWIN: the same repo, one script added ────────────────────
     const pkgPath = path.join(partial, 'package.json');
     const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8')) as {
       scripts: Record<string, string>;
@@ -292,12 +268,10 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
   }, 400_000);
 
   /**
-   * DR-1: the completion runbook places no BLOCKING gate after `task_complete`
-   * — a gate that runs after the thing it is supposed to gate is decorative.
-   *
-   * The predicate is applied to BOTH the real resolved runbook (must be clean)
-   * and to a deliberately-corrupted copy (must be detected), so a predicate
-   * that always returns `[]` cannot pass this test.
+   * The completion runbook has no blocking gate after `task_complete`. A gate that runs after its subject is decorative.
+   * BLOCKING ARM: the predicate finds no blocking gate after `task_complete` in the real runbook, and blocking gates do exist.
+   * NEGATIVE TWIN: the predicate detects a blocking gate appended to a copy, and a list without a `task_complete` step.
+   * Thus a predicate that always returns `[]` cannot pass this test.
    */
   it('Governance_Dr1_TaskCompletionRunbook_HasNoBlockingGateAfterTaskComplete', async () => {
     interface Step {
@@ -322,13 +296,10 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     expect(steps.length).toBeGreaterThan(1);
     expect(steps.some((s) => s.action === 'task_complete')).toBe(true);
 
-    // ── BLOCKING ARM (the invariant) ──────────────────────────────────────
     expect(blockingGatesAfterCompletion(steps)).toEqual([]);
-    // The blocking gates that DO exist all precede completion.
     const gateSteps = steps.filter((s) => s.gate?.blocking === true);
     expect(gateSteps.length).toBeGreaterThan(0);
 
-    // ── NEGATIVE TWIN (the detector really detects) ───────────────────────
     const corrupted: Step[] = [
       ...steps,
       { seq: 999, action: 'check_static_analysis', gate: { blocking: true } },
@@ -340,9 +311,9 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
   }, 120_000);
 
   /**
-   * The tier's own anti-stub invariant. Asserting the RETURNED LIST matters:
-   * the check only inspects composites already loaded in this process, so an
-   * empty list would make it vacuous.
+   * The anti-stub invariant of this tier.
+   * The check inspects only the composites that this process loaded, so the test asserts the returned list.
+   * An empty list makes the check vacuous.
    */
   it('Governance_GateTier_DrivesRealCompositeHandlers', async () => {
     verifiedComposites = await assertNoStubbedCompositeHandlers();

@@ -41,6 +41,7 @@ describe('loadProblem', () => {
     expect(problemG.timeLimit).toBe(4);
   });
 
+  /** The samples directory exists but holds no file. */
   it('MissingSamples_ThrowsError', () => {
     const tempDir = mkdtempSync(resolve(tmpdir(), 'corpus-test-'));
     writeFileSync(
@@ -49,7 +50,6 @@ describe('loadProblem', () => {
     );
     writeFileSync(resolve(tempDir, 'problem.md'), '# Test');
     mkdirSync(resolve(tempDir, 'samples'));
-    // samples dir exists but is empty
 
     expect(() => loadProblem(tempDir)).toThrow();
   });
@@ -75,7 +75,6 @@ describe('loadCorpus', () => {
       'J-stacking-cups',
     ]);
 
-    // Each problem should have at least one sample
     for (const problem of corpus) {
       expect(problem.samples.length).toBeGreaterThanOrEqual(1);
       expect(problem.title).toBeTruthy();

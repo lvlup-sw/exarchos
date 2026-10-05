@@ -3,7 +3,8 @@ import { spawn } from 'node:child_process';
 export interface SandboxOptions {
   timeLimitMs: number;
   workDir: string;
-  maxOutputBytes?: number; // Default: 1MB
+  /** Byte limit for each of stdout and stderr. The default is 1 MB. */
+  maxOutputBytes?: number;
 }
 
 export interface SandboxResult {
@@ -14,8 +15,13 @@ export interface SandboxResult {
   truncated: boolean;
 }
 
-const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024; // 1MB
+const DEFAULT_MAX_OUTPUT_BYTES = 1024 * 1024;
 
+/**
+ * Runs a command with a time limit and an output limit. The promise always resolves.
+ * The process runs detached, so the timeout kills its whole process group, child processes included.
+ * When stdout or stderr exceeds the byte limit, the result keeps only the bytes that fit.
+ */
 export async function runInSandbox(
   command: string,
   args: string[],
@@ -55,13 +61,11 @@ export async function runInSandbox(
       timedOut = true;
       if (proc.pid === undefined) return;
       try {
-        // Kill the entire process group to catch child processes too
         process.kill(-proc.pid, 'SIGKILL');
       } catch {
         try {
           proc.kill('SIGKILL');
         } catch {
-          // Process may have already exited
         }
       }
     }, options.timeLimitMs);
@@ -70,7 +74,6 @@ export async function runInSandbox(
       if (stdoutTruncated) return;
       stdoutBytes += chunk.length;
       if (stdoutBytes > maxOutputBytes) {
-        // Take only what fits
         const remaining = maxOutputBytes - (stdoutBytes - chunk.length);
         if (remaining > 0) {
           stdoutChunks.push(chunk.subarray(0, remaining));
@@ -117,7 +120,6 @@ export async function runInSandbox(
       });
     });
 
-    // Non-blocking stdin write
     if (input) {
       proc.stdin.write(input, () => {
         proc.stdin.end();

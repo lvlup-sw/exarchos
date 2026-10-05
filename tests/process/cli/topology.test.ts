@@ -1,13 +1,11 @@
-// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.4 (T4.5)
 import { describe, it, expect } from 'vitest';
 import { withHermeticEnv } from '../../helpers/hermetic.js';
 import { runCli } from '../../helpers/cli-runner.js';
 
 describe('exarchos topology', () => {
+  /** Without a type argument, `topology` prints a `WorkflowTypeSummary`. */
   it('topology_default_outputsValidJson', async () => {
     await withHermeticEnv(async () => {
-      // Without args, `topology` returns a WorkflowTypeSummary listing
-      // (cli.ts §"Topology introspection command").
       const result = await runCli({ args: ['topology'] });
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout) as { workflowTypes: unknown[] };
@@ -16,11 +14,12 @@ describe('exarchos topology', () => {
     });
   });
 
+  /**
+   * With a workflow type, `topology` prints the `SerializedTopology` of that HSM.
+   * `feature` is a built-in workflow type, so its topology must hold states.
+   */
   it('topology_workflowType_returnsTypeSpecificGraph', async () => {
     await withHermeticEnv(async () => {
-      // With a workflow type, `topology` returns the SerializedTopology for
-      // that HSM. `feature` is a canonical workflow (registered in the
-      // state-machine registry) and must come back with phase nodes.
       const result = await runCli({ args: ['topology', 'feature'] });
       expect(result.exitCode).toBe(0);
       const parsed = JSON.parse(result.stdout) as {

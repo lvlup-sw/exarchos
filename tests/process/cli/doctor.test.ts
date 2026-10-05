@@ -1,26 +1,29 @@
-// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §4.4 (T4.2)
 import { describe, it, expect } from 'vitest';
 import { withHermeticEnv } from '../../helpers/hermetic.js';
 import { runCli } from '../../helpers/cli-runner.js';
 
 describe('exarchos doctor', () => {
+  /**
+   * In a clean temporary HOME, `doctor` can report warnings but no failed check.
+   * A failed check makes the exit code non-zero.
+   */
   it('doctor_cleanTmpHome_exitsZero', async () => {
     await withHermeticEnv(async () => {
-      // `doctor` reports diagnostic checks for the running env. With a clean
-      // tmp HOME it may emit warnings (e.g. agent-mcp-not-registered, no
-      // git repo), but never failed checks — exit must remain 0.
       const result = await runCli({ args: ['doctor'] });
       expect(result.exitCode).toBe(0);
     });
   });
 
+  /**
+   * `--json` prints the `ToolResult`, and its `data` holds `checks` and `summary`.
+   * The three check names are stable identifiers, so the test catches a rename or a lost list.
+   * A hermetic environment permits warnings but no failed check.
+   */
   it('doctor_jsonFlag_outputsValidJson', async () => {
     await withHermeticEnv(async () => {
       const result = await runCli({ args: ['doctor', '--json'] });
       expect(result.exitCode).toBe(0);
 
-      // Single-line JSON ToolResult shape per cli.ts emitResult(--json):
-      //   { success, data: { checks: DoctorCheck[], summary }, ... }
       const parsed = JSON.parse(result.stdout.trim()) as {
         success: boolean;
         data: {
@@ -31,15 +34,10 @@ describe('exarchos doctor', () => {
 
       expect(parsed.success).toBe(true);
       expect(parsed.data.checks.length).toBeGreaterThan(0);
-      // Spot-check known stable check identifiers — guards against a
-      // regression that drops the checks array entirely or renames the
-      // load-bearing diagnostics.
       const checkNames = parsed.data.checks.map((c) => c.name);
       expect(checkNames).toEqual(
         expect.arrayContaining(['node-version', 'state-dir', 'variables']),
       );
-      // No failed checks in a hermetic env (warnings are tolerated for
-      // skipped agent runtimes / plugin-version probes).
       expect(parsed.data.summary.failed).toBe(0);
     });
   });

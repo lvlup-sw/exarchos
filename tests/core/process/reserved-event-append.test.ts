@@ -1,19 +1,13 @@
-// ─── EFF-007: reserved-event append authorization, proven in the PACKAGED runtime
+// Reserved-event append authorization in the packaged runtime.
 //
-// The reserved-proof-event guard is built-in and fail-closed, but SHIP-F001
-// records `event.append` among the built-in actions with no located
-// compiled-binary/process proof: the guard was verified in-process only. A guard
-// that exists in `src/` but is absent (or inert) in the shipped artifact protects
-// nothing, and this is the action that would let a caller forge admission
-// evidence directly into the log.
+// The guard for reserved proof events is built in and fails closed. A guard that works in `src`
+// but is absent or inert in the compiled binary protects nothing. Without the guard,
+// `event.append` lets a caller write forged admission evidence into the log. Thus these cases
+// call the compiled binary over MCP.
 //
-// These cases drive the COMPILED BINARY over MCP:
-//   1. a reserved admission fact is rejected through generic append,
-//   2. a reserved cancellation fact is rejected the same way,
-//   3. the rejection happens BEFORE persistence — the log stays clean,
-//   4. a non-reserved event on the same surface still appends, so the guard is
-//      scoped rather than a blanket denial that would merely look safe.
-// ─────────────────────────────────────────────────────────────────────────────
+// A generic append must reject a reserved admission fact and a reserved cancellation fact. The
+// rejection must come before persistence, so the log stays clean. An event that is not reserved
+// must still append, which shows that the guard is not a blanket denial.
 
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +56,10 @@ async function call(
 describe('packaged reserved-event append authorization (EFF-007)', () => {
   const streamId = 'eff-007-packaged';
 
+  /**
+   * The message must name the rejected type. An operator can then act on the rejection when the
+   * envelope omits the structured field.
+   */
   it.each([
     ['admission fact', 'admission.evidence-recorded'],
     ['cancellation fact', 'cancel.compensation-completed'],
@@ -78,8 +76,6 @@ describe('packaged reserved-event append authorization (EFF-007)', () => {
 
         expect(rejected.success, `${eventType} must not append generically`).toBe(false);
         expect(rejected.error?.code).toBe('RESERVED_EVENT_TYPE');
-        // The envelope carries the offending type in the message even where the
-        // structured field is trimmed, so operators can act on the rejection.
         expect(rejected.error?.message).toContain(eventType);
       } finally {
         await closeFixture(fx);
@@ -88,6 +84,10 @@ describe('packaged reserved-event append authorization (EFF-007)', () => {
     60_000,
   );
 
+  /**
+   * Fail-closed means that the rejection comes before persistence. A guard that denies the caller
+   * but still writes the fact leaves forged evidence in the log for each projection.
+   */
   it('PackagedEventAppend_RejectedReservedEvent_NeverReachesTheLog', async () => {
     const fx = await openFixture(BINARY_PATH, REPO_ROOT);
     try {
@@ -98,9 +98,6 @@ describe('packaged reserved-event append authorization (EFF-007)', () => {
       });
       expect(rejected.success).toBe(false);
 
-      // Fail-closed means rejected BEFORE persistence. A guard that denies the
-      // caller but still writes the fact would leave forged evidence readable by
-      // every projection.
       const queried = await call(fx, 'exarchos_event', {
         action: 'query',
         stream: streamId,
@@ -113,9 +110,11 @@ describe('packaged reserved-event append authorization (EFF-007)', () => {
     }
   }, 60_000);
 
+  /**
+   * The guard must apply only to reserved facts. A blanket denial passes the rejection cases and
+   * breaks the generic append surface.
+   */
   it('PackagedEventAppend_NonReservedEvent_StillAppends', async () => {
-    // The guard must be scoped to reserved facts. A blanket denial would pass
-    // the rejection cases above while breaking the generic append surface.
     const fx = await openFixture(BINARY_PATH, REPO_ROOT);
     try {
       const accepted = await call(fx, 'exarchos_event', {

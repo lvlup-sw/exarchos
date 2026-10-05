@@ -16,7 +16,6 @@ describe('MetricsCollector', () => {
   it('MetricsCollector_RecordWallClock_CapturesDuration', () => {
     const collector = new MetricsCollector();
 
-    // Mock performance.now to control timing
     const mockNow = vi.spyOn(performance, 'now');
     mockNow.mockReturnValueOnce(1000).mockReturnValueOnce(3500);
 
@@ -39,6 +38,7 @@ describe('MetricsCollector', () => {
     expect(metrics.iterationCount).toBe(3);
   });
 
+  /** The sample holds 10 lines. `countLoc` excludes the 2 blank lines and the 2 comment-only lines. */
   it('MetricsCollector_CountLinesOfCode_ReturnsAccurateCount', () => {
     const collector = new MetricsCollector();
     const code = [
@@ -55,7 +55,6 @@ describe('MetricsCollector', () => {
     ].join('\n');
 
     const loc = collector.countLoc(code);
-    // Excludes: 2 blank lines, 2 comment-only lines = 6 actual lines
     expect(loc).toBe(6);
   });
 
@@ -82,9 +81,10 @@ describe('MetricsCollector', () => {
     mockNow.mockRestore();
   });
 
+  /** The estimate rounds down: 7 bytes give 1 token. */
   it('MetricsCollector_EstimateTokens_DividesByFour', () => {
     expect(MetricsCollector.estimateTokens(400)).toBe(100);
     expect(MetricsCollector.estimateTokens(0)).toBe(0);
-    expect(MetricsCollector.estimateTokens(7)).toBe(1); // rounds down via Math.floor
+    expect(MetricsCollector.estimateTokens(7)).toBe(1);
   });
 });

@@ -1,10 +1,9 @@
 /**
  * The emission verifier as a policy, over a real event store.
  *
- * The unit tests pin the comparison. This file pins the two properties that
- * only exist at the level of a whole run: that a run which checked nothing
- * cannot report itself clean, and that a handler which skips a declared
- * emission actually reddens a suite rather than being absorbed as a warning.
+ * The unit tests pin the comparison. This file pins two properties of a whole run.
+ * A run that checked nothing cannot report itself clean.
+ * A skipped declared emission fails the run. It is not only a warning.
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -60,20 +59,24 @@ beforeEach(async () => {
   await store.initialize();
 });
 
+/**
+ * The store holds a live SQLite connection in this temp directory. `close()` must run before the
+ * removal, or the handle stays open and Windows refuses the removal.
+ */
 afterEach(async () => {
-  // The store holds a live SQLite connection rooted in this temp directory,
-  // and `close()` is the documented precondition for removing it. Without the
-  // close the handle survives the test and Windows refuses the removal.
   store.close();
   await rmrfAsync(stateDir);
 });
 
 describe('emission verifier policy', () => {
+  /**
+   * The verifier can assess none of the three dispatches. They have no unconditional contract, no
+   * stream, and an unreadable store. The first two are `not-applicable` and the third is
+   * `indeterminate`. With zero determinate verdicts, the run is not clean although it has zero
+   * violations. The summary counts the two statuses apart, so a store outage does not look like an
+   * ordinary skip.
+   */
   it('EmissionVerifier_AllIndeterminateRun_FailsRatherThanReportingClean', async () => {
-    // Three dispatches, none of which could be assessed: no unconditional
-    // contract, no stream, and an unreadable store. The first two are benign
-    // exemptions and the third is an unread answer — different statuses, and
-    // together still a run that checked nothing.
     const noContract = await runEmissionVerifierInterceptor(store, {
       tool: 'exarchos_workflow',
       action: 'get',
@@ -113,27 +116,23 @@ describe('emission verifier policy', () => {
 
     const summary = summarizeEmissionRun([noContract, noStream, unreadable]);
 
-    // Three verdicts, zero violations — and NOT clean. This is the whole
-    // tooth: without the determinate count, this run is indistinguishable
-    // from a run that checked three contracts and found them all kept.
     expect(summary.total).toBe(3);
     expect(summary.violated).toBe(0);
     expect(summary.determinate).toBe(0);
     expect(summary.clean).toBe(false);
 
-    // And the two benign-vs-unanswered flavors are counted apart: the two
-    // `not-applicable` verdicts (no contract, no stream) are not the same
-    // finding as the one `indeterminate` verdict (the store itself failed) —
-    // folding them into one counter would make a store outage look like an
-    // ordinary out-of-subject skip.
     expect(summary.notApplicable).toBe(2);
     expect(summary.indeterminate).toBe(1);
   });
 
+  /**
+   * The action declares `workflow.started` unconditionally and nothing appends it. No dispatch
+   * fails, so the verifier must find the miss. The default mode, which a run with no project config
+   * gets, blocks on the verdict. The finding is a record on the stream, not only a log line.
+   * The contrast case keeps the same declaration, and is determinate and clean. `operationId` is on
+   * the event, not on the append options, because the verifier queries by it.
+   */
   it('EmissionPolicy_SeededSkippedEmission_FailsTheSuite', async () => {
-    // A handler that declares `workflow.started` unconditionally and then does
-    // not append it. Nothing about the dispatch fails — it is the verifier's
-    // job to notice, and the suite's job to go red when it does.
     const skipped = await runEmissionVerifierInterceptor(store, {
       tool: 'exarchos_workflow',
       action: 'init',
@@ -146,11 +145,8 @@ describe('emission verifier policy', () => {
     expect(skipped.status).toBe('violated');
     expect(skipped.missingEvents).toEqual(['workflow.started']);
 
-    // Under the default mode — which is what a run with no project config
-    // gets — this blocks. An advisory project still records it.
     expect(emissionViolationBlocks(skipped, undefined)).toBe(true);
 
-    // The finding outlived the run: it is on the stream, not only in a log.
     const recorded = await store.query('feature-b', {});
     const violation = recorded.find((event) => event.type === 'emission.violated');
     expect(violation).toBeDefined();
@@ -158,15 +154,11 @@ describe('emission verifier policy', () => {
       'workflow.started',
     ]);
 
-    // And the run summary refuses to call this clean.
     const summary = summarizeEmissionRun([skipped]);
     expect(summary.determinate).toBe(1);
     expect(summary.violated).toBe(1);
     expect(summary.clean).toBe(false);
 
-    // The contrast case: the same declaration, kept. Determinate AND clean.
-    // `operationId` rides on the EVENT, not the append options — it is the
-    // join key the verifier queries by.
     await store.append('feature-c', {
       type: 'workflow.started',
       operationId: 'op-kept',
@@ -188,11 +180,12 @@ describe('emission verifier policy', () => {
     expect(keptSummary.clean).toBe(true);
   });
 
+  /**
+   * The unconditional event lands, so the missing-events axis is empty. The action also declares a
+   * conditional edge to a retired event, and that event lands. The lifecycle axis alone makes the
+   * verdict `violated`, and the verifier must persist that finding as a record on the stream.
+   */
   it('EmissionVerifier_LifecycleOnlyViolation_PersistsEvidence', async () => {
-    // The unconditional promise is kept, so the missing-events axis is empty.
-    // The same action also carries a conditional edge onto a RETIRED event, and
-    // that edge lands anyway — the lifecycle axis's own fault, independent of
-    // whether anything is missing.
     await store.append('feature-lifecycle', {
       type: 'workflow.started',
       operationId: 'op-lifecycle',
@@ -220,9 +213,6 @@ describe('emission verifier policy', () => {
     expect(verdict.missingEvents).toEqual([]);
     expect(verdict.lifecycleViolations).toEqual([{ event: 'merge.rollback', lifecycle: 'retired' }]);
 
-    // The finding outlived the run on the LIFECYCLE axis alone — this is the
-    // subject of this test: before this change, a lifecycle-only violation
-    // still failed the verdict but was carried by a log line, not a record.
     const recorded = await store.query('feature-lifecycle', {});
     const violation = recorded.find((event) => event.type === 'emission.violated');
     expect(violation).toBeDefined();
@@ -231,10 +221,11 @@ describe('emission verifier policy', () => {
     expect(parsed.lifecycleViolations).toEqual([{ event: 'merge.rollback', lifecycle: 'retired' }]);
   });
 
+  /**
+   * `workflow.started` never lands and the retired event lands. Both axes fire on one operation,
+   * and the one persisted record must hold both.
+   */
   it('EmissionVerifier_CombinedViolation_PersistsBothAxes', async () => {
-    // The unconditional promise is BROKEN this time (`workflow.started` never
-    // lands) and the retired edge lands anyway — both axes fire on the same
-    // operation, and both have to survive onto the one persisted record.
     await store.append('feature-combined', {
       type: 'merge.rollback',
       operationId: 'op-combined',
@@ -265,10 +256,12 @@ describe('emission verifier policy', () => {
     expect(parsed.lifecycleViolations).toEqual([{ event: 'merge.rollback', lifecycle: 'retired' }]);
   });
 
+  /**
+   * A report that names no missing event and no lifecycle violation is not evidence. A schema that
+   * accepts it lets a clean run and a violation share one durable shape. Either axis alone is
+   * sufficient.
+   */
   it('EmissionViolatedData refuses a report with both axes empty', () => {
-    // The refinement's kill probe. A report naming neither a missing event nor
-    // a lifecycle violation is not evidence of anything — accepting `[]`/`[]`
-    // would let a clean run and a violation share one durable shape.
     expect(() =>
       EmissionViolatedData.parse({
         action: 'exarchos_workflow.init',
@@ -278,7 +271,6 @@ describe('emission verifier policy', () => {
       }),
     ).toThrow(/at least one axis/);
 
-    // Either axis alone is sufficient — the refinement is an OR, not an AND.
     expect(() =>
       EmissionViolatedData.parse({
         action: 'exarchos_workflow.init',
@@ -317,33 +309,24 @@ describe('emission verifier policy', () => {
   });
 });
 
-// ─── The mode reaches the OUTCOME, not only the log level ───────────────────
-//
-// `events.emission-enforcement` was resolved, documented and defaulted to
-// `block`, and `emissionViolationBlocks` computed the decision — but nothing in
-// `dispatch()` consulted it, so its only observable effect was whether the
-// finding was logged at `error` or `warn`. Every caller of these two functions
-// was a test, which is the shape that makes a control look enforced while it
-// enforces nothing.
-//
-// These cases run the real `dispatch()` and assert on its RETURN VALUE, which
-// is the surface a caller sees. The handler is installed straight into
-// `COMPOSITE_HANDLERS` rather than through `stubCompositeHandler`, because a
-// declared stub is now exempt by design: what is under test is a REGISTERED
-// handler that completed without keeping its own unconditional promise.
+/**
+ * These cases run the real `dispatch()` and assert on its return value, which is what a caller
+ * sees. The enforcement mode must change the outcome, not only the log level.
+ * `dispatchCleanup` writes the handler directly into `COMPOSITE_HANDLERS`, because the verifier
+ * skips a handler that `stubCompositeHandler` installs. `cleanup` declares `workflow.cleanup` with
+ * `condition: 'always'`. `silentHandler` succeeds and does not append it. `keepingHandler` appends
+ * it, and `append` takes the operationId from the ambient dispatch scope.
+ *
+ * `breakVerifierRead` fails only a stream query that filters by operationId and not by type, which
+ * is the verifier read. The ensures observer also filters by type, so it still reaches the store.
+ */
 describe('emission enforcement reaches the dispatch result', () => {
   const TOOL = 'exarchos_workflow';
-  // `cleanup` declares `workflow.cleanup` with `condition: 'always'`.
   const silentHandler = async (): Promise<ToolResult> => ({
     success: true,
     data: { performed: 'the-side-effect' },
   });
 
-  /**
-   * A handler that DOES keep its promise. `append` picks the operationId up
-   * from the ambient dispatch scope, so both post-dispatch axes can find the
-   * row — which is what makes an unread store distinguishable from a real miss.
-   */
   const keepingHandler = async (args: Record<string, unknown>): Promise<ToolResult> => {
     const featureId = typeof args.featureId === 'string' ? args.featureId : '';
     await store.append(featureId, {
@@ -353,12 +336,6 @@ describe('emission enforcement reaches the dispatch result', () => {
     return { success: true, data: { performed: 'the-side-effect' } };
   };
 
-  /**
-   * Break exactly the emission verifier's read — a stream query filtered by
-   * operationId and nothing else. The ensures observer filters by type as well,
-   * so it still reaches the real store: what is under test is one axis going
-   * unanswered, not the store disappearing.
-   */
   const breakVerifierRead = (): void => {
     const real = store.query.bind(store);
     vi.spyOn(store, 'query').mockImplementation(async (streamId, filters) => {
@@ -394,6 +371,11 @@ describe('emission enforcement reaches the dispatch result', () => {
     }
   };
 
+  /**
+   * The dispatch reaches this branch only after the handler reported success, so the effects are
+   * already performed. A bare failure envelope invites a retry that repeats a mutation. The message
+   * must tell the caller not to retry, and `data` must hold what the handler returned.
+   */
   it('EmissionEnforcement_BlockMode_UndeliveredEmissionFailsTheDispatch', async () => {
     const result = await dispatchCleanup('enforce-block');
 
@@ -401,21 +383,15 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect((result.error as Record<string, unknown>).code).toBe('EMISSION_CONTRACT_VIOLATED');
     expect((result.error as Record<string, unknown>).message).toContain('workflow.cleanup');
 
-    // This branch is reachable ONLY when the handler completed and reported
-    // success, so the effects are already performed. Half the actions behind
-    // this dispatch are non-idempotent, and a bare failure envelope reads as
-    // "your call did nothing" — which would invite a retry that repeats a
-    // mutation. The envelope therefore has to say so, and has to hand back what
-    // the operation produced rather than discarding it with the result.
     expect((result.error as Record<string, unknown>).message).toMatch(/do NOT retry/i);
     expect(result.data).toEqual({ performed: 'the-side-effect' });
   });
 
+  /**
+   * This case is the counterpart of the block case. Without it, a dispatch that rejects every
+   * violation in every mode satisfies the block case.
+   */
   it('EmissionEnforcement_AdvisoryMode_SameViolationReturnsTheHandlerResult', async () => {
-    // The other half. If this also failed, the first case would be satisfied by
-    // a dispatch that rejects every violation regardless of configuration —
-    // which is not the contract the key documents, and would leave an operator
-    // no way back to the recorded-but-not-fatal behavior.
     const result = await dispatchCleanup(
       'enforce-advisory',
       resolveConfig({ events: { 'emission-enforcement': 'advisory' } }),
@@ -424,11 +400,12 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect(result.success).toBe(true);
   });
 
+  /**
+   * Advisory mode adds no warning for a `violated` verdict, because `warnings` is for
+   * `indeterminate` verdicts. The caller still gets the handler payload, and the finding is durable
+   * on the stream.
+   */
   it('EmissionVerifier_AdvisoryViolation_ReturnsPayloadAndPersistsEvidence', async () => {
-    // Advisory does not add a warning for a VIOLATED verdict — that surface is
-    // reserved for `indeterminate` (see the branch above `result` is reused
-    // unchanged). What advisory still owes is the handler's own payload back
-    // to the caller, and the finding durable on the stream either way.
     const result = await dispatchCleanup(
       'advisory-violation-payload',
       resolveConfig({ events: { 'emission-enforcement': 'advisory' } }),
@@ -437,8 +414,6 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect(result.success).toBe(true);
     expect(result.data).toEqual({ performed: 'the-side-effect' });
 
-    // The finding outlived the run: the missing event is on the stream, not
-    // only in a log line the advisory run chose not to fail on.
     const recorded = await store.query('advisory-violation-payload', {});
     const violation = recorded.find((event) => event.type === 'emission.violated');
     expect(violation).toBeDefined();
@@ -446,36 +421,34 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect(parsed.missingEvents).toEqual(['workflow.cleanup']);
   });
 
+  /**
+   * The control dispatch keeps its promise and succeeds. Without the control, a dispatch that
+   * refuses this action in every condition satisfies the case. Then the same handler runs and only
+   * the verifier read fails. The contract is unassessed, which is not the same as no contract, and
+   * block mode refuses it. The code is not the violation code, because the verifier read nothing.
+   * The message tells the caller not to retry, because the effects are performed.
+   */
   it('EmissionVerifier_StoreUnavailable_IsIndeterminateAndCannotPromote', async () => {
-    // Control: the handler keeps its promise and the dispatch promotes. Without
-    // this the case below would be satisfied by a dispatch that refuses this
-    // action under every condition.
     const kept = await dispatchCleanup('indeterminate-control', undefined, keepingHandler);
     expect(kept.success).toBe(true);
 
-    // Same handler, same promise kept — only the verifier's read fails. The
-    // contract is now UNASSESSED, which is a different thing from having no
-    // contract, and block mode will not promote on it. Before the split this
-    // resolved `not-applicable` and promoted: a store that failed on every call
-    // disabled enforcement outright while every verdict read benign.
     breakVerifierRead();
     const result = await dispatchCleanup('indeterminate-block', undefined, keepingHandler);
 
     expect(result.success).toBe(false);
     const error = result.error as Record<string, unknown>;
     expect(error.code).toBe('EMISSION_VERIFICATION_INDETERMINATE');
-    // Not the violation code: nothing was found missing, because nothing was read.
     expect(error.code).not.toBe('EMISSION_CONTRACT_VIOLATED');
     expect(error.message).toContain('could not be verified');
-    // Same disposition as the violation envelope — the effects are performed.
     expect(error.message).toMatch(/do NOT retry/i);
     expect(result.data).toEqual({ performed: 'the-side-effect' });
   });
 
+  /**
+   * The mode comes from config, not from the environment. Advisory mode reports the unassessed
+   * contract in `warnings` and does not block.
+   */
   it('EmissionVerifier_StoreUnavailable_AdvisoryModeSurfacesWithoutBlocking', async () => {
-    // `block` and `advisory` remain the only two answers, and they are config,
-    // not environment. Advisory reports the unassessed contract on the envelope
-    // the caller already reads rather than swallowing it.
     breakVerifierRead();
     const result = await dispatchCleanup(
       'indeterminate-advisory',
@@ -488,10 +461,11 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect((result.warnings ?? []).join(' ')).toContain('workflow.cleanup');
   });
 
+  /**
+   * An action with no unconditional edge never reads the store. The verifier checks the contract
+   * before the read, so a failing store cannot turn the benign exemption into an unassessed one.
+   */
   it('EmissionVerifier_NoContract_RemainsBenignNotApplicable', async () => {
-    // An action with no unconditional edge never reads the store, so a store
-    // that would refuse cannot turn its benign exemption into an unassessed
-    // one. The ordering is the whole claim: contract first, read second.
     const querySpy = vi.spyOn(store, 'query');
     const verdict = await runEmissionVerifierInterceptor(store, {
       tool: 'exarchos_workflow',
@@ -510,10 +484,12 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect(emissionViolationBlocks(verdict, undefined)).toBe(false);
   });
 
+  /**
+   * A handler that refused the work owes no record of the work. The verifier decides this before
+   * any read, so a business failure never gets an infrastructure cause. Through the real dispatch,
+   * the caller reads the failure of the handler, not an emission verdict.
+   */
   it('EmissionVerifier_HandlerRefusal_RemainsBenignNotApplicable', async () => {
-    // A handler that refused the work owes no record of having done it, and it
-    // is decided BEFORE any read — so a business failure can never arrive
-    // wearing the infrastructure name.
     const querySpy = vi
       .spyOn(store, 'query')
       .mockRejectedValue(new Error('synthetic store failure'));
@@ -534,8 +510,6 @@ describe('emission enforcement reaches the dispatch result', () => {
     expect(emissionIndeterminacyBlocks(verdict, undefined)).toBe(false);
     querySpy.mockRestore();
 
-    // And through the real dispatch: the caller reads the handler's own
-    // failure, not an emission verdict laid over it.
     breakVerifierRead();
     const refusing = async (): Promise<ToolResult> => ({
       success: false,
@@ -547,16 +521,19 @@ describe('emission enforcement reaches the dispatch result', () => {
   });
 });
 
-// ─── The safe corpus, beyond workflow.init/cleanup ─────────────────────────
-//
-// The cases above dispatch two actions by hand. This one widens the exercised
-// surface to the whole safe-emission corpus the oracle already maintains
-// (`emissionProbeCorpus()` in `src/contract/oracle/fixtures.ts`) — real
-// registered actions, dispatched through their real implementation binding
-// into a private, per-probe state directory, never leaving it. Reusing that
-// membership means a newly-admitted safe emitter widens this coverage without
-// this file having to re-derive which actions are safe to dispatch locally.
+/**
+ * This case dispatches the whole safe-emission corpus that the oracle maintains
+ * (`emissionProbeCorpus()`). Each probe runs a real registered action through its real
+ * implementation binding, in a private state directory. A new safe emitter in the corpus widens
+ * this coverage with no change to this file.
+ */
 describe('emission verifier over the safe corpus', () => {
+  /**
+   * `verifyDeclaredEmissions` is the comparison that `runEmissionVerifierInterceptor` makes. Its
+   * input is the set of appends that the store confirmed durable for the probe, without the setup
+   * appends. The assertion message carries the denominator, because "0 violated" has meaning only
+   * next to the determinate count.
+   */
   it('EmissionVerifier_SafeCorpus_HasNonZeroDeterminateCoverage', async () => {
     const makeContext: DispatchContextFactory = (dir) => ({
       stateDir: dir,
@@ -574,9 +551,6 @@ describe('emission verifier over the safe corpus', () => {
       const probeDir = await fs.mkdtemp(path.join(os.tmpdir(), 'emission-safe-corpus-'));
       try {
         const run = await runEmissionProbe(probe, probeDir, makeContext);
-        // The same comparison `runEmissionVerifierInterceptor` makes, fed the
-        // exact appended set the store confirmed durable for THIS probe (the
-        // observer already excludes the setup dispatches' own appends).
         verdicts.push(
           verifyDeclaredEmissions({
             declared: contractEmissionsOf(action),
@@ -590,8 +564,6 @@ describe('emission verifier over the safe corpus', () => {
     }
 
     const summary = summarizeEmissionRun(verdicts);
-    // The denominator rides along with the assertion: "0 violated" only means
-    // something next to how many were actually determinate.
     expect(
       summary.determinate,
       `${summary.total} probed, ${summary.determinate} determinate, ${summary.indeterminate} indeterminate`,

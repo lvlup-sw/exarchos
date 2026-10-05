@@ -2,14 +2,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { spawnMcpClient, type SpawnedMcpClient } from '../helpers/mcp-client.js';
 import { clear, listAlive } from '../helpers/process-tracker.js';
 
-/**
- * Process-suite test for the v2.9 mode-dispatch default. Lives under
- * `test/process/` (not `test/fixtures/`) because it spawns the real
- * `exarchos` binary on PATH — the process suite's preflight asserts the
- * binary is installed and reports a v2.9.x version, so this test is only
- * exercised when those preconditions hold.
- */
-
+/** The clients that `afterEach` must terminate. */
 const activeClients: SpawnedMcpClient[] = [];
 
 function track<T extends SpawnedMcpClient>(c: T): T {
@@ -18,6 +11,7 @@ function track<T extends SpawnedMcpClient>(c: T): T {
 }
 
 describe('spawnMcpClient default command (v2.9 mode dispatch)', () => {
+  /** Teardown ignores each `terminate` and `kill` error, because the child can be gone already. */
   afterEach(async () => {
     while (activeClients.length > 0) {
       const c = activeClients.pop();
@@ -25,26 +19,22 @@ describe('spawnMcpClient default command (v2.9 mode dispatch)', () => {
       try {
         await c.terminate();
       } catch {
-        // ignore — teardown best effort
       }
     }
     for (const child of listAlive()) {
       try {
         child.kill('SIGKILL');
       } catch {
-        // ignore
       }
     }
     clear();
   });
 
+  /**
+   * One `exarchos` binary dispatches its modes by subcommand, and `exarchos mcp` starts the MCP server.
+   * Without overrides, `spawnMcpClient` must spawn that subcommand and not a separate `exarchos-mcp` binary.
+   */
   it('spawnMcpClient_defaultCommand_spawnsExarchosMcpSubcommand', async () => {
-    // v2.9 ships a single `exarchos` binary that dispatches subcommand
-    // modes — `exarchos mcp` is the MCP-server entrypoint (see
-    // src/adapters/cli.ts §"MCP server mode command").
-    // Calling spawnMcpClient() with no overrides must default to spawning
-    // `exarchos mcp ...`, NOT the deprecated standalone `exarchos-mcp`
-    // binary that PR #1166 originally assumed.
     const spawned = track(await spawnMcpClient());
     const spawnargs = spawned.server.spawnargs;
     expect(spawnargs.length).toBeGreaterThanOrEqual(2);

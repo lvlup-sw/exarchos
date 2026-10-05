@@ -72,7 +72,6 @@ function createMockDeps(opts: {
     ),
     buildPrompt: vi.fn().mockReturnValue('mock prompt'),
     generateReport: vi.fn().mockReturnValue('# Mock Report\n\nResults here.'),
-    // Compile/verify stubs
     compileAndRun: vi.fn().mockResolvedValue({
       verdict: 'pass' as const,
       sampleResults: [{ sampleId: 1, verdict: 'pass' as const, expectedOutput: '1\n' }] satisfies SampleResult[],
@@ -131,8 +130,11 @@ describe('runner orchestrator', () => {
     expect(deps.spawnSession).toHaveBeenCalledOnce();
   });
 
+  /**
+   * The run resumes with `p1:vanilla-plan` complete. It must spawn a session only for `p2`, and the
+   * result must hold both problems.
+   */
   it('runBenchmark_ResumePartial_SkipsCompletedPairs', async () => {
-    // Pre-populate a completed result for p1:vanilla-plan
     const completedPairs = new Set(['p1:vanilla-plan']);
 
     const deps = createMockDeps({
@@ -164,15 +166,16 @@ describe('runner orchestrator', () => {
       ]),
     });
 
-    // Should only call spawnSession for p2, not p1
     expect(deps.spawnSession).toHaveBeenCalledOnce();
     const call = deps.spawnSession.mock.calls[0] as [ProblemDefinition, ArmConfig];
     expect(call[0].id).toBe('p2');
 
-    // But result should contain both problems
     expect(run.problems).toHaveLength(2);
   });
 
+  /**
+   * The `vanilla-plan` session rejects, so its verdict is `rte`. The `exarchos` arm still passes.
+   */
   it('runBenchmark_ArmFailure_ContinuesOtherArms', async () => {
     const deps = createMockDeps({
       problems: [makeProblem('p1')],
@@ -190,12 +193,10 @@ describe('runner orchestrator', () => {
     const armResults = run.problems[0]?.arms ?? [];
     expect(armResults).toHaveLength(2);
 
-    // vanilla-plan should have error verdict
     const vanillaResult = armResults.find((a) => a.arm === 'vanilla-plan');
     expect(vanillaResult).toBeDefined();
     expect(vanillaResult!.verdict).toBe('rte');
 
-    // exarchos should succeed
     const exarchosResult = armResults.find((a) => a.arm === 'exarchos');
     expect(exarchosResult).toBeDefined();
     expect(exarchosResult!.verdict).toBe('pass');
@@ -209,14 +210,12 @@ describe('runner orchestrator', () => {
     const config = makeConfig({ arms: ['vanilla-plan'] });
     const run = await runBenchmark(config, deps);
 
-    // Report file should exist
     const reportPath = path.join(reportsDir, `${run.runId}.md`);
     expect(fs.existsSync(reportPath)).toBe(true);
 
     const content = fs.readFileSync(reportPath, 'utf-8');
     expect(content).toContain('Mock Report');
 
-    // Results file should exist
     const resultPath = path.join(resultsDir, `${run.runId}.json`);
     expect(fs.existsSync(resultPath)).toBe(true);
 

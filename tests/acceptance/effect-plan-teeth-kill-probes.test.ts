@@ -1,49 +1,18 @@
 /**
- * Every gate this slice adds is killed on purpose and observed to fail.
+ * Kill probes for the gates of the effect carrier. Each probe relaxes one gate and observes that
+ * the failure goes away. A guard with no kill probe does not show that it measures anything.
  *
- * ## What this file is for
+ * The probes cover four gates. Three are type-level: the required `emits` field, the evidence on
+ * the success arm and the branded replay witness. The fourth is the recorder that a live run
+ * requires. `effect-carrier-compile-gate.test.ts` probes the compile fixture itself.
  *
- * A guard with no kill probe has not been shown to measure anything. That is
- * the finding this programme keeps re-deriving, and it is the reason the plan
- * behind this slice was refuted three times: gates were repeatedly sited where
- * no compiler read them and no runner ran them, so they would have passed by
- * never being checked.
+ * Each relaxation applies to a copy of the carrier in a temp directory. A probe that edits `src/`
+ * cannot restore it after a thrown assertion, a timeout or a worker crash. The last test asserts
+ * that the live carrier keeps each guard.
  *
- * Four gates land here, and each is relaxed in a COPY of the carrier before
- * being asserted to stop failing:
- *
- *   1. `emits` required
- *   2. evidence on the success arm
- *   3. the branded replay witness
- *   4. the recorder required in live mode
- *
- * The fifth gate — the compile fixture itself — is probed by the harness that
- * owns it (`effect-carrier-compile-gate.test.ts`, second case) and is
- * deliberately not duplicated here.
- *
- * ## Why copies, and never the live tree
- *
- * A probe that edits `src/` cannot restore cleanly across a thrown assertion, a
- * timeout or a worker crash, and residue in the source tree reddens unrelated
- * gates for reasons that have nothing to do with the probe. Every relaxation
- * below is applied to text in a temp directory; the live carrier is never
- * opened for writing, and the last case asserts exactly that.
- *
- * ## Compile probes, and the one that must EXECUTE
- *
- * Three of the four gates are type-level, so relaxing one is observable as
- * `tsc` accepting a program it previously rejected. The fourth is NOT, and an
- * earlier draft of this file said it was: the unconditional-recorder demand has
- * a type-level half (the parameter) AND a runtime half (the brand check, whose
- * own comment calls itself "the boundary the type system does not govern").
- * Probing only the parameter leaves the runtime half unmeasured — restoring the
- * `declaredEmissions(plan).length > 0 &&` condition reopens the abstention hole
- * for every `records-nothing` plan while the type stays required and a
- * compile-only probe stays green.
- *
- * So that gate gets both: a compile probe on the parameter, and an EXECUTING
- * probe that emits the relaxed copy to JavaScript and runs it in a spawned
- * node process, reading the outcome off stdout.
+ * For a type-level gate, `tsc` accepts the fixture after the relaxation. The recorder gate also
+ * has a runtime half, the brand check. That gate gets a compile probe on the parameter and a
+ * probe that runs the relaxed copy in a spawned node process.
  */
 import * as fs from 'node:fs';
 import * as os from 'node:os';
@@ -62,17 +31,13 @@ import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 /**
- * The control arm: the REAL carrier must reject the fixture, and must reject it
- * FOR THE FIXTURE.
+ * The control arm. The real carrier must reject the fixture, and the diagnostic must name the
+ * fixture.
  *
- * Asserting only `accepted === false` is how both arms of a probe go vacuous at
- * once. The two arms are asymmetric by construction — the control keeps the
- * carrier's proof block while the treatment truncates it — so anything that
- * makes the control fail for an unrelated reason (a proof alias that does not
- * hold under this file's widened `EventType` stub, say) would leave the control
- * passing on a false negative and the treatment passing on a truncation, with
- * neither measuring the guard. Naming the fixture in the diagnostic is what
- * rules that out.
+ * `accepted === false` alone is not sufficient. The control keeps the proof block of the carrier,
+ * and the treatment truncates it. If the control fails for an unrelated reason (for example a
+ * proof alias that fails with the widened `EventType` stub), it passes on a false negative. The
+ * treatment then passes on the truncation, and neither arm measures the guard.
  */
 async function expectRejectedForTheFixture(
   dir: string,
@@ -88,20 +53,20 @@ async function expectRejectedForTheFixture(
 }
 
 /**
- * Emit the (possibly relaxed) carrier to JavaScript and RUN it.
+ * Emits the carrier copy to JavaScript and runs it.
  *
- * The recorder demand is the one gate with a runtime half, so it is the one
- * probe a compiler cannot observe. `runEffect` is called with `undefined` where
- * the capability belongs — the shape a transpiled or untyped caller produces,
- * which is exactly the population the runtime brand check exists for — and the
- * outcome is read off stdout rather than an exit code, so a crash in the
- * harness cannot be mistaken for the effect being refused.
+ * The recorder gate has a runtime half that a compiler cannot observe. The runner calls
+ * `runEffect` with `undefined` in the capability position, as a transpiled or untyped caller
+ * does. The outcome comes from stdout, not from the exit code, so a harness crash does not look
+ * like a refused effect.
+ *
+ * The function emits the local stubs with the carrier, because replay identity is a runtime
+ * import. `tsc` emits output when it reports errors, and the copy can produce some. Thus the
+ * function ignores the exit status of `tsc`.
  */
 async function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxation[]): Promise<string> {
   materializeCarrier(dir, relaxations);
 
-  // Emit rather than type-check. Replay identity is a runtime import, so the
-  // local stub has to be emitted beside the carrier.
   try {
     await execFileAsync(
       process.execPath,
@@ -122,8 +87,6 @@ async function runLiveWithNoRecorder(dir: string, relaxations: readonly Relaxati
       { cwd: dir },
     );
   } catch {
-    // tsc emits even when it reports errors; the relaxed copy is expected to
-    // produce some. The runner below is the observation, not this exit status.
   }
 
   fs.writeFileSync(
@@ -156,7 +119,7 @@ carrier
 }
 
 const FIXTURES: Record<string, string> = {
-  // A plan with no emission declaration.
+  /** A plan with no emission declaration. */
   'omits-emits.ts': `
 import type { EffectPlan } from './effect-carrier.js';
 export const plan: EffectPlan = {
@@ -166,12 +129,12 @@ export const plan: EffectPlan = {
   idempotent: true,
 };
 `,
-  // A success carrier with no evidence.
+  /** A success carrier with no evidence. */
   'success-without-evidence.ts': `
 import type { EffectOutcome } from './effect-carrier.js';
 export const outcome: EffectOutcome<number> = { kind: 'success', value: 1 };
 `,
-  // A witness nobody minted.
+  /** A witness that nobody minted. */
   'forged-witness.ts': `
 import type { EmissionEvidence } from './effect-carrier.js';
 export const evidence: EmissionEvidence = {
@@ -180,7 +143,7 @@ export const evidence: EmissionEvidence = {
   source: 'forged by hand',
 };
 `,
-  // A live run that supplies no capability.
+  /** A live run that supplies no capability. */
   'omits-recorder.ts': `
 import { runEffect, LIVE, recordsNothing } from './effect-carrier.js';
 import type { EffectPlan } from './effect-carrier.js';
@@ -260,6 +223,10 @@ describe('kill probes: every gate is shown to fail', () => {
     ).toBe(true);
   });
 
+  /**
+   * The second relaxation removes the brand from the constructor, which mints it. Without that
+   * relaxation, the copy fails at the mint site, not at the forgery.
+   */
   it('KillProbe_WitnessUnbranded_EvidenceBecomesForgeable', async () => {
     write(dir, 'forged-witness.ts');
 
@@ -271,9 +238,6 @@ describe('kill probes: every gate is shown to fail', () => {
         find: 'export interface ReplayedEvidence {\n  readonly [EMISSION_EVIDENCE_BRAND]: true;',
         replace: 'export interface ReplayedEvidence {',
       },
-      // The constructor mints the brand it no longer declares, so it has to be
-      // relaxed with the type. Leaving it would fail the copy on the MINT site
-      // rather than on the forgery, which is a different claim entirely.
       {
         find: "  return { [EMISSION_EVIDENCE_BRAND]: true, kind: 'replayed', event, source };",
         replace: "  return { kind: 'replayed', event, source };",
@@ -300,14 +264,13 @@ describe('kill probes: every gate is shown to fail', () => {
     ).toBe(true);
   });
 
+  /**
+   * The probe that runs code. The relaxation restores the `declaredEmissions(plan).length > 0 &&`
+   * condition. The parameter stays required, so the compile probe above stays green. A
+   * `records-nothing` plan then needs no capability, and only a run of the code shows that.
+   * The `find` text has two lines, because the first line alone also matches `recordEmissions`.
+   */
   it('KillProbe_RecorderMadeConditional_LiveRunProceeds', async () => {
-    // The EXECUTING probe, and the reason this file no longer claims every gate
-    // is type-level. Restoring the `declaredEmissions(plan).length > 0 &&`
-    // condition leaves the PARAMETER required, so the compile probe above stays
-    // green and the type-level proof stays true — while a `records-nothing`
-    // plan silently stops needing a capability at all. That is the abstention
-    // hole the unconditional demand closed, and only running the code can see
-    // it reopen.
     const refused = await runLiveWithNoRecorder(dir, []);
     expect(refused, 'the REAL carrier committed a live run with no capability').toMatch(
       /^OUTCOME:refused:/,
@@ -315,7 +278,6 @@ describe('kill probes: every gate is shown to fail', () => {
 
     const proceeded = await runLiveWithNoRecorder(dir, [
       {
-        // Two lines, because the first alone also matches `recordEmissions`.
         find:
           '  if (!isEmissionRecorder(recorder)) {\n' +
           "    throw new UnrecordedEmissionError(plan, 'before', 0, declaredEmissions(plan).length);",
@@ -331,16 +293,17 @@ describe('kill probes: every gate is shown to fail', () => {
     ).toMatch(/^OUTCOME:committed:success/);
   });
 
+  /**
+   * The check covers only what the probes write, not the byte identity of the repository. Other
+   * tiers write coverage, SQLite and `.exarchos/` state at the same time, and a whole-repository
+   * assertion measures their work. The live carrier must still declare each guard that the
+   * probes relaxed.
+   */
   it('KillProbes_LeaveNoResidue_InTheirOwnWriteSet', () => {
-    // Scoped to what the probes write, NOT to repository byte-identity: this
-    // suite runs alongside tiers that legitimately write coverage, SQLite and
-    // `.exarchos/` state, so a whole-repo assertion would measure their work
-    // and fail for reasons unrelated to any probe.
     materializeCarrier(dir, [
       { find: '  readonly emits: PlanEmissions;', replace: '  readonly emits?: PlanEmissions;' },
     ]);
 
-    // The live carrier still declares every guard the probes relaxed.
     const live = fs.readFileSync(CARRIER_PATH, 'utf8');
     expect(live).toContain('  readonly emits: PlanEmissions;');
     expect(live).toContain('  recorder: EmissionRecorder,');

@@ -76,13 +76,12 @@ describe('computeVerdict', () => {
     expect(computeVerdict(samples)).toBe('tle');
   });
 
+  /** A sample cannot carry `ce`, which is an arm-level verdict for a compile failure. With no pass, the verdict is `fail`. */
   it('computeVerdict_AnyCe_ReturnsCe', () => {
     const samples: SampleResult[] = [
       { sampleId: 1, verdict: 'fail', expectedOutput: '1' },
       { sampleId: 2, verdict: 'fail', expectedOutput: '2', actualOutput: '99' },
     ];
-    // ce is an arm-level verdict computed from compile failures, not sample-level
-    // With no passes, this should return fail
     expect(computeVerdict(samples)).toBe('fail');
   });
 });

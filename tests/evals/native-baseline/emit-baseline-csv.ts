@@ -1,19 +1,13 @@
-// ─── Exp 2 · Emit the measured native-baseline CSV from the captured fixtures ──
-//
-// Reduces the two real `claude -p` delegation transcripts (fixtures/) to the
-// committed raw-data table `../data/2026-07-09/exp2-native-baseline.csv`, one row
-// per observed subagent, each **stamped through the Task-001 provenance helper**
-// (`stampProvenance`, which throws if any pin is missing). Deterministic and
-// side-effect-free apart from the single file write — no clock, no network — so
-// the committed CSV is regenerable and verifiable in CI (harness.test.ts already
-// pins the fixtures; run-underspec/grade pin the other two experiments' CSVs).
-//
-// This closes the reproducibility gap the CSV would otherwise carry: its values
-// are DERIVED from the fixtures here, not hand-authored, and the provenance
-// columns are produced by the same helper every other #1670 artifact uses.
-//
-//   tsx tests/evals/native-baseline/emit-baseline-csv.ts          # regenerate
-//   tsx tests/evals/native-baseline/emit-baseline-csv.ts --check  # verify no drift
+/**
+ * Writes `../data/2026-07-09/exp2-native-baseline.csv` from the two captured `claude -p`
+ * delegation transcripts in `fixtures/`. The table has one row for each observed subagent.
+ * `stampProvenance` stamps each row, and it throws when a provenance field is missing.
+ *
+ * The script reads no clock and no network, so the same fixtures give the same file.
+ *
+ * - Regenerate: `tsx tests/evals/native-baseline/emit-baseline-csv.ts`
+ * - Check for drift: `tsx tests/evals/native-baseline/emit-baseline-csv.ts --check`
+ */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -66,7 +60,7 @@ const NOTE: Record<string, string> = {
   unresolved: 'model unresolved — not attributed',
 };
 
-/** Trim floating-point noise deterministically (e.g. 0.5174221499999999 → 0.51742215). */
+/** Rounds to 8 decimal places, so `0.5174221499999999` prints as `0.51742215`. */
 function num(n: number | undefined): string {
   return n === undefined ? '' : String(Number(n.toFixed(8)));
 }
@@ -76,6 +70,12 @@ function q(s: string): string {
   return `"${s.replace(/"/g, '""')}"`;
 }
 
+/**
+ * Builds the CSV text. The session cost is the sum of `costUSD` over every model in the session,
+ * so a mixed-model transcript reports its full cost.
+ *
+ * @throws Error when a fixture holds a malformed line or does not give a measured record.
+ */
 function buildCsv(): string {
   const rows: string[] = [HEADER];
   for (const { run, variant, fixture } of RUNS) {
@@ -88,12 +88,8 @@ function buildCsv(): string {
     }
     const r = record as MeasuredNativeBaseline;
     const dist = r.modelDistribution;
-    // Sum costUSD across every model in the session (not just the first
-    // subagent's), so a mixed-model transcript reports the true session cost
-    // rather than silently under-reporting. Single-model sessions are unchanged.
     const cost = Object.values(r.sessionModelUsage).reduce((sum, m) => sum + (m.costUSD ?? 0), 0);
     for (const s of r.subagents) {
-      // Stamp through the Task-001 helper: throws unless every pin is present.
       const { provenance } = stampProvenance({ run, subagent: s.toolUseId }, PROVENANCE);
       rows.push([
         run, variant, SPEC_REF, s.subagentType ?? 'unknown', q(s.description ?? ''),

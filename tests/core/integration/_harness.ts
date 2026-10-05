@@ -1,38 +1,16 @@
-// ─── Integration-suite harness — the PUBLIC ROOT seam (DR-27 / DR-28) ───────
-//
-// Every test in `test/integration/**` drives the system through this module.
-// Its whole purpose is to make the "public root" claim *mechanical* rather
-// than aspirational:
-//
-//   • the dispatch context is built by the PRODUCTION composition root
-//     (`dispatch/core/context.ts::initializeContext`) over a REAL SQLite storage
-//     backend (`index.ts::initializeBackend`) in a REAL temp state dir. No
-//     hand-rolled `{ stateDir, eventStore, … }` object literal is ever
-//     synthesized here — that is precisely the shortcut DR-27 forbids.
-//   • the entry point is the REAL `dispatch/core/dispatch.ts::dispatch`, imported
-//     directly. Nothing is `vi.mock`ed, and `assertNoStubbedCompositeHandlers`
-//     below actively proves that the handler the dispatcher cached is the
-//     genuine module export rather than a `stubCompositeHandler` install.
-//   • the wire envelope is produced by the SAME carrier adapter the CLI
-//     facade uses (`format.ts::toEnvelope`, called at `adapters/cli/cli.ts`
-//     `emitResult`), so envelope conformance is asserted against the shape a
-//     real caller observes — not against a test-local re-wrap.
-//
-// The action DENOMINATOR is deliberately *not* defined here. It is re-exported
-// from `src/parity/__tests__/packaged-proof.ts::derivePackagedDenominators`,
-// the same module the packaged (compiled-binary) sweep in
-// `test/process/packaged-proof.test.ts` measures itself against, so the two
-// tiers' denominators cannot drift apart (DR-27: "the same 120-action
-// denominator the packaged sweep uses").
-//
-// Consumed by:
-//   • T-36 / DR-27 — `test/integration/public-root/actions.test.ts`
-//   • T-37 / DR-28 — `test/integration/governance/**` (gate → durable
-//     evidence → admission → transition chains). For those, see
-//     `PublicRootHarness.events()` / `.appendEvent()` / `.phaseOf()` and the
-//     `overrides` option on `createPublicRootHarness` (vcsProvider /
-//     capabilityResolver / callerIdentity injection at the CONTEXT level —
-//     never at the handler level).
+/**
+ * The harness of the integration suite: the public-root seam.
+ * The public-root tests and most governance tests under `tests/core/integration` drive the system through this module.
+ *
+ * - The production composition root (`initializeContext`) builds the dispatch context over a real SQLite backend.
+ *   The state directory is a real temporary directory. This module never builds the context by hand.
+ * - The entry point is the real `dispatch`. Nothing is mocked.
+ *   `assertNoStubbedCompositeHandlers` proves that each cached handler is the module export.
+ * - `toEnvelope`, the adapter that the CLI facade uses, makes the wire envelope.
+ *
+ * The action denominator comes from `derivePackagedDenominators`, which the packaged sweep also measures against.
+ * Thus the denominators of the two tiers cannot drift apart.
+ */
 
 import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
@@ -56,18 +34,13 @@ import {
 import type { FailureLayer } from '../../../src/contract/error-families.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── The registered surface (single source: the live TOOL_REGISTRY) ─────────
-
 /**
- * One registered composite action, carrying the two schemas the contract
- * declares for it. `outputSchema` is the *registered* envelope schema — the
- * exact `z.ZodType` the MCP facade advertises — and is what
- * `PublicRoot_ActionEnvelope_MatchesRegisteredOutputSchema` validates the
- * observed envelope against. It is pulled off the registry entry, never
- * hand-written.
+ * One registered composite action.
+ * `outputSchema` is the registered envelope schema from the registry entry, which the MCP facade advertises.
+ * `PublicRoot_ActionEnvelope_MatchesRegisteredOutputSchema` validates the observed envelope against it.
  */
 export interface RegisteredAction {
-  /** `<tool>.<action>` — the identifier the coverage denominator uses. */
+  /** The `<tool>.<action>` identifier that the coverage denominator uses. */
   readonly actionId: string;
   readonly toolName: string;
   readonly actionName: string;
@@ -75,14 +48,9 @@ export interface RegisteredAction {
 }
 
 /**
- * Every registered action, keyed by the SAME `<tool>.<action>` identifier the
- * packaged sweep's denominator uses, with its registered output schema
- * attached.
- *
- * The id construction mirrors `contract/compiler/meta-model.ts` (which is what
- * `derivePackagedDenominators` runs through); the consistency of the two is
- * asserted, not assumed — see
- * `PublicRoot_DenominatorSource_IsThePackagedSweepSource`.
+ * Lists each registered action with its output schema, sorted by action id.
+ * The id has the same `<tool>.<action>` form as the denominator of the packaged sweep.
+ * `PublicRoot_DenominatorSource_IsThePackagedSweepDerivation` asserts that the two agree.
  */
 export function registeredActions(
   registry: readonly CompositeTool[] = TOOL_REGISTRY,
@@ -102,11 +70,9 @@ export function registeredActions(
 }
 
 /**
- * The COVERAGE DENOMINATOR — re-exported from the packaged sweep's own
- * derivation so the T1 tier and the packaged tier measure themselves against
- * one list. This is the *only* denominator source this harness exposes;
- * numerators come from {@link PublicRootHarness.reachedActionIds}, which is
- * populated at RUNTIME by actual `dispatch()` calls.
+ * The coverage denominator, from the derivation of the packaged sweep, so both tiers measure against one list.
+ * This harness exposes no other denominator source.
+ * The numerator comes from {@link PublicRootHarness.reachedActionIds}, which real `dispatch()` calls fill at run time.
  */
 export function packagedActionDenominator(
   registry: readonly CompositeTool[] = TOOL_REGISTRY,
@@ -114,24 +80,16 @@ export function packagedActionDenominator(
   return derivePackagedDenominators(registry).actions;
 }
 
-// ─── Routing classification (reachable ≠ non-throwing) ──────────────────────
-
 /**
- * Why an action was NOT reached. These are the envelopes dispatch emits when
- * it could not route the call to the named action at all:
+ * Why dispatch did not route a call to the named action:
+ * - `unknown-tool`: `UNKNOWN_TOOL`, because no composite has this tool name.
+ * - `unknown-action`: `UNKNOWN_ACTION` or `MISSING_ACTION` on the custom-tool path, or `INVALID_INPUT` on the built-in path.
+ * - `handler-load-failed`: `COMPOSITE_LOAD_FAILED`.
+ * - `threw`: `dispatch()` rejected.
+ * - `timed-out`: no envelope arrived in the budget of the action.
  *
- *   • `unknown-tool`      — `UNKNOWN_TOOL` (no composite for this tool name)
- *   • `unknown-action`    — the built-in path's `unknown action "<name>"`
- *                           INVALID_INPUT, or the custom-tool path's
- *                           `UNKNOWN_ACTION` / `MISSING_ACTION`
- *   • `handler-load-failed` — `COMPOSITE_LOAD_FAILED`
- *   • `threw`             — `dispatch()` rejected instead of returning
- *   • `timed-out`         — no envelope inside the per-action budget
- *
- * Everything else is REACHED: dispatch resolved the registered action and
- * returned a contract envelope for it. A typed error envelope (a missing
- * required field, a denied capability, a handler-layer failure) is a *reached*
- * outcome — the action exists, was routed to, and answered in-contract.
+ * Each other outcome is reached: dispatch resolved the action and returned a contract envelope.
+ * A typed error envelope, such as a missing required field or a denied capability, is a reached outcome.
  */
 export type RoutingRejection =
   | 'unknown-tool'
@@ -148,9 +106,9 @@ const UNROUTED_CODES: Readonly<Record<string, RoutingRejection>> = {
 };
 
 /**
- * Classify a returned `ToolResult` as routed / not-routed. Pure, so the test
- * can exercise it directly on synthetic envelopes (the classifier itself must
- * not be taken on faith).
+ * Classifies a `ToolResult` as routed (`null`) or not routed. The function is pure, so a test can call it on synthetic results.
+ * The built-in path reports an unknown action name, or an `action` field that is missing or not a string, as `INVALID_INPUT`.
+ * Both cases mean that dispatch did not route the call.
  */
 export function classifyRouting(result: ToolResult): RoutingRejection | null {
   const code = result.error?.code;
@@ -159,8 +117,6 @@ export function classifyRouting(result: ToolResult): RoutingRejection | null {
     if (mapped !== undefined) return mapped;
     if (code === 'INVALID_INPUT') {
       const message = result.error?.message ?? '';
-      // `dispatch/core/dispatch.ts` built-in path: unknown action name, or an `action`
-      // field that is missing/not-a-string. Both mean "never routed".
       if (/unknown action "/.test(message)) return 'unknown-action';
       if (/required field "action" is missing or not a string/.test(message)) {
         return 'unknown-action';
@@ -170,28 +126,25 @@ export function classifyRouting(result: ToolResult): RoutingRejection | null {
   return null;
 }
 
-// ─── Observations ──────────────────────────────────────────────────────────
-
 export interface DispatchObservation {
   readonly actionId: string;
   readonly toolName: string;
   readonly actionName: string;
-  /** The raw dispatch-core result (undefined when it threw / timed out). */
+  /** The raw result of the dispatch core. It is absent after a throw or a timeout. */
   readonly result?: ToolResult;
-  /** The wire envelope the CLI facade would emit (`toEnvelope(result)`). */
+  /** The wire envelope that the CLI facade emits: `toEnvelope(result)`. */
   readonly envelope?: unknown;
-  /** `null` when the action was reached; otherwise why it was not. */
+  /** `null` when dispatch reached the action. Otherwise, the reason that it did not. */
   readonly rejection: RoutingRejection | null;
   readonly reached: boolean;
   readonly success?: boolean;
   readonly errorCode?: string;
-  /** Contract failure layer of `errorCode`, via the stable error registry. */
+  /** The contract failure layer of `errorCode`, from the stable error registry. */
   readonly layer?: FailureLayer;
   /**
-   * True when the outcome could only have been produced by the composite
-   * handler itself: a success, or a failure whose layer is NOT one of the
-   * pre-handler dispatch layers (`protocol` = schema/routing validation,
-   * `authorization` = the readonly / shared-mutating capability gates).
+   * True when dispatch reached the action and only the composite handler can produce the outcome.
+   * That outcome is a success, or a failure whose layer is not a pre-handler layer.
+   * The pre-handler layers are `protocol` (schema and routing validation) and `authorization` (the capability gates).
    */
   readonly handlerEntered: boolean;
   readonly threw?: string;
@@ -203,21 +156,18 @@ const PRE_HANDLER_LAYERS: ReadonlySet<FailureLayer> = new Set<FailureLayer>([
   'authorization',
 ]);
 
-// ─── The harness ───────────────────────────────────────────────────────────
-
 export interface PublicRootHarness {
-  /** The production-built dispatch context (real store, real state dir). */
+  /** The dispatch context from the production composition root, with a real store and a real state directory. */
   readonly ctx: DispatchContext;
   readonly stateDir: string;
-  /** A real, NON-git scratch directory used as the workspace/cwd. */
+  /** A real scratch directory that is not a git repository. It is the workspace and the `cwd`. */
   readonly workspaceDir: string;
   readonly eventStore: EventStore;
   readonly storage: StorageBackend;
 
   /**
-   * Drive one registered action through the REAL `dispatch()`. Records an
-   * observation in the runtime ledger. `args` are merged over
-   * `{ action: <actionName> }`.
+   * Drives one registered action through the real `dispatch()` and records the observation.
+   * `args` merge over `{ action: <actionName> }`.
    */
   runAction(
     toolName: string,
@@ -226,31 +176,26 @@ export interface PublicRootHarness {
     opts?: { readonly timeoutMs?: number },
   ): Promise<DispatchObservation>;
 
-  /**
-   * Escape hatch for negative/control probes: dispatch an arbitrary payload
-   * (including a deliberately-unregistered action name) WITHOUT recording it
-   * in the coverage ledger.
-   */
+  /** Dispatches an arbitrary payload, such as an unregistered action name, and does not record the observation. */
   probe(
     toolName: string,
     args: Record<string, unknown>,
     opts?: { readonly timeoutMs?: number },
   ): Promise<DispatchObservation>;
 
-  /** Every observation recorded by `runAction`, in call order. */
+  /** Each observation that `runAction` recorded, in call order. */
   observations(): readonly DispatchObservation[];
 
   /**
-   * The RUNTIME numerator: the ids of actions that were actually driven
-   * through `dispatch()` AND reached. Derived from `observations()`, never
-   * from the registry.
+   * The runtime numerator: the sorted ids of the actions that `runAction` drove and dispatch reached.
+   * It comes from the recorded observations, never from the registry.
    */
   reachedActionIds(): readonly string[];
 
-  /** Real event-store read — the T2 tier's durable-evidence oracle. */
+  /** Reads the real event store. It is the durable-evidence oracle of the governance tier. */
   events(streamId: string): Promise<WorkflowEvent[]>;
 
-  /** Real event-store append — for seeding a governance precondition. */
+  /** Appends to the real event store, to seed a governance precondition. */
   appendEvent(streamId: string, event: Record<string, unknown>): Promise<unknown>;
 
   dispose(): Promise<void>;
@@ -258,17 +203,14 @@ export interface PublicRootHarness {
 
 export interface HarnessOptions {
   /**
-   * Project root handed to `initializeContext`. Defaults to `undefined`
-   * (the cold-start fast path: no config / vcs / hooks). T2 governance tests
-   * that need the real `.exarchos.yml`-driven wiring pass a fixture root.
+   * The project root for `initializeContext`. The default is `undefined`, the cold-start path with no config, VCS or hooks.
+   * A governance test that needs the wiring of a real `.exarchos.yml` passes a fixture root.
    */
   readonly projectRoot?: string;
   /**
-   * Context-level overrides merged onto the production-built context. Intended
-   * for T2: `vcsProvider`, `capabilityResolver`, `callerIdentity`, `cwd`.
-   * NOTE: this is a CONTEXT seam, not a handler seam — overriding a composite
-   * handler is out of bounds for this suite and
-   * {@link assertNoStubbedCompositeHandlers} will catch it.
+   * Context-level overrides that merge onto the production-built context.
+   * Examples are `vcsProvider`, `capabilityResolver`, `callerIdentity` and `cwd`.
+   * This is a context seam, not a handler seam. {@link assertNoStubbedCompositeHandlers} catches a stubbed composite handler.
    */
   readonly overrides?: Partial<DispatchContext>;
 }
@@ -276,14 +218,11 @@ export interface HarnessOptions {
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 /**
- * Prove that the composite handlers the dispatch core will use are the genuine
- * module exports, not `stubCompositeHandler` installs. Called by the T1 tier
- * both before and after the sweep.
+ * Proves that each loaded composite handler is the real module export, not a `stubCompositeHandler` install.
+ * It checks only the tools in the lazy cache, because a tool that is absent from the cache has no stub.
+ * It returns the tools that it verified, so a caller can assert that the check was not vacuous.
  *
- * Only tools that have already been LOADED are checked (the map is populated
- * lazily by `loadCompositeHandler`); a tool absent from the cache has no stub
- * by definition. Returns the list of tools it verified so a caller can assert
- * the check was not vacuous.
+ * @throws When a cached handler is not the module export.
  */
 export async function assertNoStubbedCompositeHandlers(): Promise<readonly string[]> {
   const verified: string[] = [];
@@ -303,15 +242,16 @@ export async function assertNoStubbedCompositeHandlers(): Promise<readonly strin
   return verified;
 }
 
+/** Makes a temporary directory and returns its real path, because `os.tmpdir()` is a symlink on macOS. */
 async function mkTemp(prefix: string): Promise<string> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
-  // `os.tmpdir()` is a symlink on macOS; realpath keeps paths comparable.
   return fs.realpath(dir);
 }
 
 /**
- * Build a public-root harness: real SQLite backend → real EventStore → real
- * DispatchContext via the production composition root.
+ * Builds a public-root harness: a real SQLite backend, a real event store, and a dispatch context from the production composition root.
+ * `toEnvelope`, the adapter that the CLI facade uses, makes each envelope.
+ * `dispose` is best-effort and ignores a store that is already closed.
  */
 export async function createPublicRootHarness(
   options: HarnessOptions = {},
@@ -379,7 +319,6 @@ export async function createPublicRootHarness(
     const rejection = classifyRouting(result);
     const errorCode = result.error?.code;
     const layer = errorCode !== undefined ? classifyErrorLayer(errorCode) : undefined;
-    // The envelope is produced by the SAME adapter the CLI facade uses.
     const envelope = toEnvelope(result);
 
     return {
@@ -442,7 +381,6 @@ export async function createPublicRootHarness(
       try {
         ctx.eventStore.close();
       } catch {
-        /* already closed — teardown is best-effort */
       }
       for (const dir of [stateDir, workspaceDir]) {
         await rmrfAsync(dir).catch(() => undefined);

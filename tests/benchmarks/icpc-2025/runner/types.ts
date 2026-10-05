@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-// --- Zod Schemas ---
-
 export const VerdictSchema = z.enum([
   'pass',
   'fail',
@@ -80,8 +78,6 @@ export const BenchmarkRunSchema = z.object({
   arms: z.array(ArmConfigSchema),
   problems: z.array(ProblemResultSchema),
 });
-
-// --- Inferred Types ---
 
 export type Verdict = z.infer<typeof VerdictSchema>;
 export type ArmId = z.infer<typeof ArmIdSchema>;

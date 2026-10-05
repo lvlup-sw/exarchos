@@ -1,12 +1,9 @@
-// Source: docs/designs/archive/2026-05-05-e2e-v29-revisited.md §5.2 (T2.4)
-// Regression test for #1208 — task.completed{worktreePath} must auto-detour the
-// rehydration envelope's `next_actions` so a `merge_orchestrate` verb is
-// surfaced. Per the documented behavior in
-// `content/delivery/skills/delegate/SKILL.md` § "Worktree-Bearing Tasks: Auto-Detour to
-// merge-pending", a runtime that consumes `next_actions` should be able to
-// dispatch the worktree merge automatically — without manual operator
-// intervention. Pre-fix the rehydrate envelope returns `next_actions: []` and
-// `workflow.phase === 'delegate'`, contradicting the skill contract.
+/**
+ * Regression test for the `merge-pending` detour.
+ * After a `task.completed` event with a `worktreePath`, the rehydration envelope must offer `merge_orchestrate` in `next_actions`.
+ * A runtime that reads `next_actions` can then start the worktree merge with no operator step.
+ * `content/delivery/skills/delegate/SKILL.md` documents this contract.
+ */
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
@@ -14,11 +11,11 @@ import { withHermeticEnv } from '../helpers/hermetic.js';
 import { spawnMcpClient } from '../helpers/mcp-client.js';
 import { driveSaga } from '../helpers/saga-driver.js';
 
-// Pin the spawned MCP server to the *worktree's* freshly built binary, not
-// whatever `exarchos` happens to be on PATH (which usually points at the
-// main repo's dist/). Otherwise the regression test would validate against
-// stale code and silently mask any fix.
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/**
+ * The binary that this checkout built. The test pins the MCP server to it.
+ * The `exarchos` on PATH can come from a different checkout, and then the test proves nothing about this branch.
+ */
 const WORKTREE_BINARY = path.resolve(
   __dirname,
   '..',
@@ -36,6 +33,11 @@ interface NextActionShape {
 }
 
 describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending', () => {
+  /**
+   * `task_complete` needs a passing `gate.executed` event for the blocking `static-analysis` gate.
+   * Caller evidence cannot replace that event, so the saga appends it with a top-level `taskId`.
+   * A thrown transport error in the saga fails the test and names the step.
+   */
   it('next_actions surfaces merge_orchestrate after worktree-bearing task.completed', async () => {
     await withHermeticEnv(async (env) => {
       const mcp = await spawnMcpClient({
@@ -73,13 +75,6 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
             },
           },
           {
-            // T-03/DR-1 closed the caller-evidence bypass for BLOCKING gates:
-            // `task_complete` now requires a durable `gate.executed` row for
-            // `static-analysis` and caller-supplied evidence can no longer
-            // stand in for it. Satisfy the gate via the documented
-            // operator-emitted shape (top-level `taskId`) that the
-            // task_complete tolerant reader accepts — this saga guards the
-            // #1208 detour contract, not the gate machinery.
             tool: 'exarchos_event',
             arguments: {
               action: 'append',
@@ -114,7 +109,6 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
           },
         ]);
 
-        // Halt-on-throw — if any step errored, surface it for diagnostics.
         const failedStep = transcript.steps.find((s) => s.kind === 'error');
         if (failedStep && failedStep.kind === 'error') {
           throw new Error(
@@ -129,15 +123,10 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
           arguments: { action: 'rehydrate', featureId: 'p2-detour' },
         });
 
-        // The MCP envelope returns content[0].text as the JSON-encoded payload.
         const [block] = view.content as Array<{ text: string }>;
         if (!block) throw new Error('the view envelope carried no content block');
         const content = JSON.parse(block.text) as { next_actions?: NextActionShape[] };
 
-        // The expected behavior per #1208 + content/delivery/skills/delegate/SKILL.md:
-        // a `merge_orchestrate` verb (with idempotency-key
-        // `<streamId>:merge_orchestrate:<taskId>`) MUST be surfaced after a
-        // worktree-bearing task.completed.
         expect(content.next_actions).toEqual(
           expect.arrayContaining([
             expect.objectContaining({ verb: 'merge_orchestrate' }),

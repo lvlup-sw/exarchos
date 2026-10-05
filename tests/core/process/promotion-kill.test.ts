@@ -1,72 +1,19 @@
-// ─── T-39 / DR-29: the T3 crash arm — a REAL process killed mid-promotion ────
+// The crash arm for atomic promotion: a real child process dies between the two renames.
 //
-// `atomic-promotion.ts` claims that a promotion is atomic at the
-// `rename(staging → target)` step, and that the one window it cannot make
-// disappear — between `rename(target → backup)` and that commit rename — is
-// closed by the on-disk journal plus `recoverInterruptedPromotion`. Every
-// existing test of that claim injects a fault THROUGH THE IO SEAM inside the
-// vitest process: the injected `throw` unwinds into `commitPromotion`'s catch,
-// which runs `recoverFromJournal` INLINE. Those tests therefore prove the
-// error handler works. They cannot prove anything about the state the design
-// actually exists for — a process that stops existing between the two renames,
-// running no catch block, no `finally`, no flush.
+// A fault that a test injects through the IO seam unwinds into the `catch` block of
+// `commitPromotion`, which runs recovery inline. Such a test cannot show the state after a process
+// stops between the renames. Here the `bun` driver runs the real `promoteTreeSync` in a temp
+// directory, parks between the renames, and publishes a sentinel with its own pid. The parent
+// waits for the sentinel and kills that pid through `deliverCrash`.
 //
-// This file supplies that missing experiment, and nothing about it is
-// simulated:
+// After the kill the target is absent and the old tree is in the scaffolding. A restart must give
+// the complete old tree or the complete new tree, never a mix. When the journal is lost, the
+// engine must refuse, because the backup is the only copy of the old tree.
 //
-//   - The promotion runs in a REAL child OS process (`bun`, driving the real
-//     `promoteTreeSync` against a real filesystem in a hermetic temp dir).
-//   - The child parks at the exact instant BETWEEN the two renames and
-//     publishes a sentinel carrying its OWN pid; the parent kills THAT pid.
-//     Readiness is signalled, never slept on, so the kill lands in the window
-//     deterministically rather than by racing a timer.
-//   - The fault is `process.kill(pid, 'SIGKILL')` — `TerminateProcess` on
-//     win32 — delivered through `deliverCrash`, the harness guard that REFUSES
-//     an in-process substitute (see the second case).
-//
-// What is then asserted is the real invariant, not an invented one. After the
-// kill the destination is genuinely absent and the old tree survives only in
-// the scaffolding; a restart must converge to EITHER the complete old tree or
-// the complete new one:
-//
-//   - restart via `recoverInterruptedPromotion` (pure repair) → fully OLD;
-//   - restart via the ordinary `promoteTreeSync` retry (what re-running an
-//     install does) → fully NEW.
-//
-// Never a mix — which is why the two trees are chosen to be mixable: they
-// disagree on shared files AND each carries a file the other lacks, so any
-// half-applied swap is detectable as a tree equal to neither.
-//
-// The third case pins the boundary of that convergence claim (DR-17 / T-24): a
-// crash whose journal did not survive leaves the backup as the ONLY copy of the
-// old tree, and there the engine REFUSES rather than converging — because both
-// ways of continuing destroy it. A refusal that preserves the old bytes is a
-// sound outcome; silently promoting over them would not be.
-//
-// ── The two authorities this file compares (DR-30) ──────────────────────────
-//
-// AUTHORITY A — THE BYTES ON DISK. What the child process actually left
-//   behind when the real SIGKILL landed between the two renames, and what is
-//   there after a restart. The PARENT reads it — `readTree` and `scaffolding`
-//   walk the directory with `readdirSync` in a process that executed none of
-//   the promotion code and holds no handle from the child. Nothing is
-//   inferred from the child's exit status; the filesystem is re-read.
-//
-// AUTHORITY B — THE HAND-AUTHORED TREES. `OLD_TREE` and `NEW_TREE` are
-//   literals written out below. They state what a COMPLETE tree is. The
-//   engine never computes them; it is only ever measured against them.
-//
-// They can disagree, and the disagreement has a name: `torn`. If the commit
-// were not one atomic `rename` — a per-file copy loop, say — the post-kill
-// target would hold some files from the old tree and some from the new, equal
-// to NEITHER literal, and `convergence()` would return `'torn'` where every
-// assertion here demands `'old'` or `'new'`. That is exactly why the two trees
-// are chosen to be mixable: they disagree on their shared files AND each
-// carries a file the other lacks, so a blend is detectable instead of being
-// absorbed into whichever side was read last.
+// The parent reads the bytes on disk and compares them with the hand-written `OLD_TREE` and
+// `NEW_TREE` literals. A tree that equals neither literal is `torn`.
 //
 // @oracle-sources: the on-disk bytes left by the SIGKILLed child process and re-read in the parent with readdirSync, the hand-authored OLD_TREE and NEW_TREE literals in this file
-// ─────────────────────────────────────────────────────────────────────────────
 
 import { spawn, type ChildProcess } from 'node:child_process';
 import * as fs from 'node:fs';
@@ -89,15 +36,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DRIVER = path.join(__dirname, 'promotion-kill.driver.mjs');
 const RESULT_PREFIX = 'EXARCHOS_PROMOTION_RESULT ';
 
-/**
- * Two trees that CANNOT be confused with a blend of themselves: they disagree
- * on both shared files and each contributes a file the other does not have. A
- * torn promotion — some files swapped, some not — is therefore equal to
- * neither, which is what makes "converged to old or new" a real assertion
- * rather than a tautology.
- */
 type Tree = Record<string, string>;
 
+/**
+ * `OLD_TREE` and `NEW_TREE` differ on each shared file, and each holds a file that the other lacks.
+ * Thus a partial swap equals neither tree, and "converged to old or new" is a real assertion.
+ */
 const OLD_TREE: Tree = {
   'index.md': 'OLD index',
   'nested/deep/note.md': 'OLD note',
@@ -145,15 +89,16 @@ async function makeTempDir(): Promise<string> {
   return dir;
 }
 
+/**
+ * Teardown is not fault injection, so it kills with a raw `process.kill` and not through the
+ * harness guard. A kill of a process that is already dead throws, and the hook ignores that error.
+ */
 afterEach(async () => {
-  // Teardown, not fault injection: a raw kill is correct here, and the harness
-  // guard deliberately has no place in it.
   while (parkedPids.length > 0) {
     const pid = parkedPids.pop()!;
     try {
       process.kill(pid, 'SIGKILL');
     } catch {
-      /* already dead — the common case */
     }
   }
   while (liveRuns.length > 0) {
@@ -161,7 +106,6 @@ afterEach(async () => {
     try {
       run.child.kill();
     } catch {
-      /* already gone */
     }
   }
   while (tempDirs.length > 0) {
@@ -170,11 +114,12 @@ afterEach(async () => {
   }
 });
 
+/**
+ * Spawns the driver under `bun`. On Windows `bun` is a `.cmd` shim that needs a shell, and
+ * `needsWindowsShell` owns that rule. Under a shell, an argument with whitespace must have quotes,
+ * or the shell splits it.
+ */
 function spawnDriver(args: readonly string[]): DriverRun {
-  // `bun` is a `.cmd` shim on Windows and cannot be spawned without a shell;
-  // the repo already owns that rule rather than re-deriving it here. Under a
-  // shell, whitespace-bearing paths must be quoted or the shell re-tokenizes
-  // them — the same treatment `runCommandSync` applies.
   const useShell = needsWindowsShell('bun');
   const argv = [DRIVER, ...args];
   const child = spawn('bun', useShell ? argv.map((a) => (/\s/.test(a) ? `"${a}"` : a)) : argv, {
@@ -239,10 +184,9 @@ interface Sentinel {
 }
 
 /**
- * Wait for the child to publish its readiness sentinel. Fails fast (with the
- * child's own output) if the child exits without ever publishing one — which is
- * exactly what a promotion that never renames into its target would do, so this
- * timeout is a real signal about the production code, not harness noise.
+ * Waits for the readiness sentinel of the child. If the child exits with no sentinel, the function
+ * throws at once with the output of the child. A promotion that never renames into its target
+ * exits that way, so the error is a signal about the production code.
  */
 async function waitForSentinel(
   run: DriverRun,
@@ -271,11 +215,11 @@ async function waitForSentinel(
   }
 }
 
-/** Read a directory into a `{ posix-relative path -> content }` map. */
+/**
+ * Reads a directory into a map from POSIX relative path to content. A path that is not a directory
+ * gives `undefined`, so the scaffolding scans can read the journal file like each other sibling.
+ */
 function readTree(dir: string): Tree | undefined {
-  // A non-directory (the promotion's journal FILE sits beside the trees) is
-  // simply "not a tree" — reported as absent rather than throwing, so the
-  // scaffolding scans below can walk every sibling uniformly.
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return undefined;
   const out: Tree = {};
   const walk = (current: string, prefix: string): void => {
@@ -299,10 +243,9 @@ function sameTree(a: Tree | undefined, b: Tree): boolean {
 }
 
 /**
- * The convergence verdict, stated in the vocabulary of the invariant: the store
- * is `old`, `new`, `absent` (no tree at all) or `torn` (a tree equal to
- * neither — some files swapped and some not, the state the whole design exists
- * to make unreachable).
+ * The convergence verdict for the target: `old`, `new`, `absent` (no tree), or `torn`. A `torn`
+ * tree equals neither literal, because some files swapped and some did not. The design must make
+ * that state unreachable.
  */
 function convergence(target: string): 'old' | 'new' | 'absent' | 'torn' {
   const tree = readTree(target);
@@ -350,15 +293,17 @@ interface CrashedPromotion {
 }
 
 /**
- * Seed the OLD tree with the real engine, start promoting the NEW tree in a
- * second real process, and SIGKILL that process at the instant it sits between
- * the two renames. Returns with the store frozen in the crash window.
+ * Seeds the old tree with the real engine, then starts a second process that promotes the new tree.
+ * It kills that process with SIGKILL between the two renames, and returns with the store in the
+ * crash window.
+ *
+ * The parent of the target holds no harness file, so each entry beside the target is promotion
+ * scaffolding. The kill goes through `deliverCrash` to a live child pid, so no handler and no
+ * `finally` runs in the promotion. The function asserts that the child printed no result line and
+ * that the target is absent. It also asserts that the scaffolding holds a complete old tree.
  */
 async function crashBetweenRenames(): Promise<CrashedPromotion> {
   const root = await makeTempDir();
-  // The target's parent is kept free of harness files so that "what is left
-  // beside the target" is exactly the promotion's own scaffolding — the
-  // assertions below read that directory directly.
   const store = path.join(root, 'store');
   const harness = path.join(root, 'harness');
   fs.mkdirSync(store, { recursive: true });
@@ -367,7 +312,6 @@ async function crashBetweenRenames(): Promise<CrashedPromotion> {
   const oldEntries = writeEntriesFile(harness, 'old.entries.json', OLD_TREE);
   const newEntries = writeEntriesFile(harness, 'new.entries.json', NEW_TREE);
 
-  // ─── Arrange: a real, complete OLD tree, promoted by production code ───────
   const seeded = await runDriverToCompletion(
     ['--mode', 'promote', '--target', target, '--entries', oldEntries],
     'seeding the OLD tree',
@@ -375,7 +319,6 @@ async function crashBetweenRenames(): Promise<CrashedPromotion> {
   expect(seeded.ok, `seed failed: ${JSON.stringify(seeded.error)}`).toBe(true);
   expect(readTree(target)).toEqual(OLD_TREE);
 
-  // ─── Act: crash a real process between the two renames ────────────────────
   const sentinelPath = path.join(harness, 'between-renames.sentinel');
   const run = spawnDriver([
     '--mode',
@@ -393,14 +336,10 @@ async function crashBetweenRenames(): Promise<CrashedPromotion> {
   expect(ready.phase).toBe('between-renames');
   expect(ready.pid, 'the parked promotion must be a different OS process').not.toBe(process.pid);
 
-  // The kill goes through the harness guard: a real SIGKILL to a real, live
-  // child pid — `TerminateProcess` on win32, so no handler, no `finally`, no
-  // flush runs inside the promotion.
   const killedPid = deliverCrash({ kind: 'sigkill', pid: ready.pid });
   await awaitProcessDeath(killedPid);
   parkedPids.pop();
 
-  // The killed process cannot have completed anything: no result line.
   const outcome = await run.done;
   expect(
     outcome.result,
@@ -408,15 +347,11 @@ async function crashBetweenRenames(): Promise<CrashedPromotion> {
       `${JSON.stringify(outcome.result)}`,
   ).toBeUndefined();
 
-  // ─── The crash really did land INSIDE the window ──────────────────────────
-  // Target renamed aside, staged tree not yet committed: this is the only
-  // interval in which the destination does not exist at all.
   expect(
     fs.existsSync(target),
     `the target still exists after the kill, so the process was not parked between the two ` +
       `renames: ${describeTarget(target)}`,
   ).toBe(false);
-  // …and the old bytes are not lost — they survive, complete, in the backup.
   expect(
     survivingCopiesOf(store, target, OLD_TREE),
     `no intact copy of the OLD tree survived the crash; scaffolding=${scaffolding(store, target).join()}`,
@@ -426,10 +361,14 @@ async function crashBetweenRenames(): Promise<CrashedPromotion> {
 }
 
 describe('T3 crash arm: SIGKILL between the renames of an atomic promotion (DR-29)', () => {
+  /**
+   * Two arms, each after its own crash. In the first arm the restart runs only the repair and must
+   * give the old tree. In the second arm the restart runs the promotion again and must give the
+   * new tree.
+   */
   it(
     'AtomicPromotion_SigkillBetweenRenames_ConvergesToOldOrNew',
     async () => {
-      // ─── Arm 1: restart runs pure repair → converges to the OLD tree ──────
       {
         const { store, target } = await crashBetweenRenames();
 
@@ -455,7 +394,6 @@ describe('T3 crash arm: SIGKILL between the renames of an atomic promotion (DR-2
         ).toEqual([]);
       }
 
-      // ─── Arm 2: restart re-runs the promotion → converges to the NEW tree ──
       {
         const { store, target, newEntries } = await crashBetweenRenames();
 
@@ -485,14 +423,15 @@ describe('T3 crash arm: SIGKILL between the renames of an atomic promotion (DR-2
     240_000,
   );
 
+  /**
+   * The limit of the convergence claim. Recovery reads the journal, so a crash with a lost journal
+   * leaves the backup as the only copy of the old tree. A removal of the backup or a new tree over
+   * it erases that copy, so the engine must refuse and the old bytes must stay. An operator who
+   * then renames the backup to the target gets the old tree.
+   */
   it(
     'AtomicPromotion_SigkillWithLostJournal_RefusesRatherThanDestroyingTheOldTree',
     async () => {
-      // The boundary of the convergence claim (DR-17 / T-24). Recovery is
-      // journal-driven; a crash whose journal never reached stable storage
-      // leaves the backup as the ONLY surviving copy of the old tree. Both ways
-      // of "converging" from there destroy it — so the engine must refuse, and
-      // the old bytes must still be there afterwards.
       const { store, target, newEntries } = await crashBetweenRenames();
 
       const journals = scaffolding(store, target).filter((n) => n.endsWith('.json'));
@@ -511,29 +450,29 @@ describe('T3 crash arm: SIGKILL between the renames of an atomic promotion (DR-2
       expect(refused.error?.name).toBe('PromotionError');
       expect(refused.error?.code).toBe('ORPHAN_BACKUP');
 
-      // The refusal is only sound because the old tree is still there to be
-      // recovered by hand.
       const survivors = survivingCopiesOf(store, target, OLD_TREE);
       expect(
         survivors,
         `the refusal did not preserve the OLD tree; scaffolding=${scaffolding(store, target).join()}`,
       ).toHaveLength(1);
 
-      // …and an operator who acts on the refusal converges the store to OLD.
       fs.renameSync(path.join(store, survivors[0]!), target);
       expect(convergence(target)).toBe('old');
     },
     240_000,
   );
 
+  /**
+   * An in-process `throw` runs the `catch` block, so it tests the error handler and not a dead
+   * process. `deliverCrash` must refuse it by name and must not run the injected fault. It must
+   * also refuse a `sigkill` at the test runner and at a pid that is not a live process.
+   *
+   * The positive control shows that the guard admits a live child process and that the kill works.
+   * A second kill of the same pid must fail, so a dead pid cannot pass as a real crash.
+   */
   it(
     'ProcessTier_InProcessThrowInjection_IsRejectedByHarness',
     async () => {
-      // ─── The rejection ────────────────────────────────────────────────────
-      // An in-process `throw` is the cheap substitute that makes a T3 arm
-      // vacuous while keeping it green: it runs the catch block, so it proves
-      // the error handler and nothing about a process that stops existing. The
-      // harness refuses it BY NAME, loudly, and never runs the injected fault.
       let injected = 0;
       const inject = (): never => {
         injected++;
@@ -562,9 +501,6 @@ describe('T3 crash arm: SIGKILL between the renames of an atomic promotion (DR-2
         CrashInjectionRejectedError,
       );
 
-      // Relabelling the same in-process fault as a `sigkill` does not get it
-      // past the guard either: a kill aimed at the test runner is in-process by
-      // definition, and a fabricated pid would be a silent no-op.
       try {
         deliverCrash({ kind: 'sigkill', pid: process.pid });
         expect.unreachable('deliverCrash accepted a kill aimed at the test process itself');
@@ -580,10 +516,6 @@ describe('T3 crash arm: SIGKILL between the renames of an atomic promotion (DR-2
         }
       }
 
-      // ─── The positive control ─────────────────────────────────────────────
-      // A guard that rejected everything would be just as useless as one that
-      // accepted everything: the arm below proves the ONLY thing it admits is a
-      // real, live child process — and that the admitted kill actually kills.
       const root = await makeTempDir();
       const sentinelPath = path.join(root, 'idle.sentinel');
       const run = spawnDriver(['--mode', 'idle', '--sentinel', sentinelPath]);
@@ -604,9 +536,6 @@ describe('T3 crash arm: SIGKILL between the renames of an atomic promotion (DR-2
         )}`,
       ).toBeUndefined();
 
-      // The same pid is now dead, so re-killing it is refused rather than
-      // silently succeeding — the property that stops a fabricated or
-      // already-exited pid from standing in for a real crash.
       try {
         deliverCrash({ kind: 'sigkill', pid: killedPid });
         expect.unreachable('deliverCrash accepted a kill on an already-dead process');

@@ -1,40 +1,16 @@
 /**
- * Task 2.9 — End-to-end fresh-environment bootstrap smoke tests.
+ * End-to-end smoke tests for an install in a fresh environment. The docker cases run the
+ * unmodified `tools/release/get-exarchos.sh` in a clean container, with no stub and no fixture
+ * server.
  *
- * This file is the PR2 integration gate: it proves the full install
- * story works from a completely empty Linux environment.
+ * The docker cases run only when all of these are true:
+ * - `ENABLE_E2E_SMOKE=1` is set. It is unset by default, so local runs and the PR gate stay fast.
+ * - The docker daemon answers `docker info`.
+ * - The bootstrap script exists.
  *
- * Preconditions that must all be true to run end-to-end:
- *   1. `ENABLE_E2E_SMOKE=1` is set in the environment. Default is unset
- *      so `npm run test:run` stays fast on developer machines and the
- *      PR CI gate.
- *   2. Docker is installed and the daemon is reachable (`docker info`
- *      exits 0). Local dev machines and some CI runners won't have it.
- *   3. A real GitHub Release tag exists with the new binary assets
- *      (`exarchos-linux-x64` + `.sha512`). The bootstrap script
- *      downloads from GitHub Releases, so the tests need a real
- *      release to pull from. Until v2.9.0 is cut post-merge, the
- *      download will 404 and the tests degrade gracefully to an
- *      INFO-logged skip rather than a hard failure.
- *
- * When any precondition is false, every test in this file skips with
- * a clear reason string. That is by design: the real signal is the
- * `.github/workflows/fresh-install-smoke.yml` weekly cron, not the
- * per-PR local run.
- *
- * The tests deliberately invoke the **real** bootstrap script
- * (`tools/release/get-exarchos.sh`) unmodified — no stubbing, no patching,
- * no fixture server. This is the one place we exercise the whole
- * download → verify → install → run pipeline end-to-end.
- *
- * Out of scope:
- *   - Windows smoke (bootstrap.ps1 under Windows CI — deferred until
- *     #1170).
- *   - Actually cutting the v2.9.0 release (user does that post-merge).
- *   - Any modification to bootstrap scripts (locked, tasks 2.5, 2.6).
- *
- * Implements: Plan task 2.9 — End-to-end smoke: fresh-environment
- *             bootstrap.
+ * The script downloads from GitHub Releases. When the release assets are missing, a docker case
+ * logs the fact and asserts only the download error. The weekly run of
+ * `.github/workflows/fresh-install-smoke.yml` is the real signal. Windows is out of scope.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -44,10 +20,6 @@ import { fileURLToPath } from 'node:url';
 
 import { spawnAsync } from '../../tools/test-helpers/spawn.js';
 
-// ---------------------------------------------------------------------
-// Module-scope paths
-// ---------------------------------------------------------------------
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 /** Absolute path to the repo root, derived from this file's location. */
@@ -55,16 +27,11 @@ const REPO_ROOT = resolve(__dirname, '..', '..');
 /** Absolute path to the real bootstrap script. */
 const BOOTSTRAP_SCRIPT = join(REPO_ROOT, 'tools', 'release', 'get-exarchos.sh');
 
-// ---------------------------------------------------------------------
-// Precondition gates
-// ---------------------------------------------------------------------
-
 const e2eEnabled = process.env.ENABLE_E2E_SMOKE === '1';
 
 /**
- * Probe the docker daemon with a short-timeout `docker info`. Any
- * non-zero exit, spawn error, or missing binary is treated as "docker
- * not available" — never a test failure.
+ * Returns true when `docker info` exits 0 within 5 seconds. A spawn error or a missing binary
+ * gives false, not a test failure.
  */
 async function isDockerAvailable(): Promise<boolean> {
   try {
@@ -79,16 +46,9 @@ async function isDockerAvailable(): Promise<boolean> {
 
 const dockerAvailable = await isDockerAvailable();
 
-// ---------------------------------------------------------------------
-// Docker command builder (extracted from the inline form in RED)
-// ---------------------------------------------------------------------
-
 /**
- * Canonical JSON-RPC `initialize` frame — serialized once at module
- * load so the shape is tested-once, used-many. Single quotes around
- * the literal in the shell wrapper demand that no single quote
- * appear inside the JSON payload; `JSON.stringify` gives us that
- * guarantee.
+ * The JSON-RPC `initialize` frame. The shell wrapper puts it in single quotes, so the payload must
+ * hold no single quote. These values serialize with none.
  */
 const INITIALIZE_FRAME = JSON.stringify({
   jsonrpc: '2.0',
@@ -102,39 +62,29 @@ const INITIALIZE_FRAME = JSON.stringify({
 });
 
 /**
- * Where the read-only bootstrap script mount appears inside the
- * container. The test copies from here to `/tmp` before executing so
- * the bind mount can stay read-only (defense-in-depth against an
- * errant `chmod -R` in the script).
+ * The path of the bootstrap script mount inside the container. The command copies the script to
+ * `/tmp` before it runs it, so the bind mount can stay read-only.
  */
 const MOUNT_PATH = '/mnt/get-exarchos.sh';
 
 interface BuildInContainerOpts {
   /**
-   * Distro-specific package-manager prelude that installs the minimum
-   * deps (`curl` + `ca-certificates`, plus `bash` on alpine). Must exit 0.
+   * The package-manager command that installs `curl` and `ca-certificates`, plus `bash` on Alpine.
+   * It must exit 0.
    */
   installPrelude: string;
-  /** Release tag to pin via `EXARCHOS_LATEST_VERSION` (skips GitHub API). */
+  /** The release tag for `EXARCHOS_LATEST_VERSION`, which skips the GitHub API lookup. */
   versionTag: string;
 }
 
 /**
- * Build the shell command string that runs *inside* the target docker
- * container. Pure function — easy to eyeball in review and unit-test
- * without spawning docker.
- *
- * The returned string:
- *   1. Runs the distro install prelude.
- *   2. Copies the mounted bootstrap to a writable path + chmods it.
- *   3. Invokes the script with `EXARCHOS_LATEST_VERSION` pinned so the
- *      GitHub API lookup is bypassed.
- *   4. Sources `~/.bashrc` (if present) + prepends `~/.local/bin` to
- *      PATH so the new binary resolves.
- *   5. Runs `exarchos --version`.
- *   6. Feeds one JSON-RPC `initialize` frame to `exarchos mcp` on
- *      stdin; the MCP server writes a well-formed response to stdout
- *      before exiting on EOF.
+ * Builds the shell command that runs inside the container. The command does these steps in order:
+ * 1. Runs the install prelude.
+ * 2. Copies the mounted bootstrap script to a writable path and makes it executable.
+ * 3. Runs the script with `EXARCHOS_LATEST_VERSION` set.
+ * 4. Sources `~/.bashrc` when it exists, and puts `~/.local/bin` first on `PATH`.
+ * 5. Runs `exarchos --version`.
+ * 6. Sends one JSON-RPC `initialize` frame to the stdin of `exarchos mcp`.
  */
 export function buildInContainerCommand(opts: BuildInContainerOpts): string {
   const { installPrelude, versionTag } = opts;
@@ -150,10 +100,7 @@ export function buildInContainerCommand(opts: BuildInContainerOpts): string {
   ].join(' && ');
 }
 
-/**
- * Build the argv for `spawnAsync('docker', ...)`. Factored out so the
- * volume-mount + shell invocation wiring has a single definition.
- */
+/** Builds the argv for `docker run`. The bootstrap script mounts read-only at {@link MOUNT_PATH}. */
 export function buildDockerArgs(
   image: string,
   inContainerCommand: string,
@@ -171,21 +118,24 @@ export function buildDockerArgs(
 }
 
 /**
- * Classified smoke result. Discriminated union so the caller can tell
- * "download 404 — expected before the first v2.9.0 release" from a
- * real failure.
+ * The classified result of one docker run. `download-missing` separates a missing release asset
+ * from a real failure.
  */
 type SmokeOutcome =
   | { kind: 'pass'; stdout: string; stderr: string }
   | { kind: 'download-missing'; stdout: string; stderr: string; status: number }
   | { kind: 'fail'; stdout: string; stderr: string; status: number | null };
 
+/**
+ * Runs the bootstrap script in `image` and classifies the result. `EXARCHOS_SMOKE_VERSION` selects
+ * the release tag. The docker process gets an empty environment, because the bootstrap needs no
+ * host variable.
+ */
 async function runDockerSmoke(image: string, installPrelude: string): Promise<SmokeOutcome> {
   const versionTag = process.env.EXARCHOS_SMOKE_VERSION ?? 'v2.9.0';
   const inContainer = buildInContainerCommand({ installPrelude, versionTag });
   const r = await spawnAsync('docker', buildDockerArgs(image, inContainer), {
     timeout: 180_000,
-    // Hermetic run — bootstrap needs no host env to function.
     env: {},
   });
   const stdout = r.stdout;
@@ -202,10 +152,6 @@ async function runDockerSmoke(image: string, installPrelude: string): Promise<Sm
   return { kind: 'fail', stdout, stderr, status: r.status };
 }
 
-// ---------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------
-
 const skipReason = (() => {
   if (!e2eEnabled)
     return 'ENABLE_E2E_SMOKE is not set — default-skipped so PR CI stays fast';
@@ -216,10 +162,11 @@ const skipReason = (() => {
   return null;
 })();
 
+/**
+ * Checks of the two pure builders. They run in every environment, with no docker and no
+ * `ENABLE_E2E_SMOKE`, and they pin the shell string that the docker cases use.
+ */
 describe('task 2.9 — fresh-environment bootstrap smoke (unit)', () => {
-  // Pure-function checks on the extracted builder. These run in every
-  // environment (no docker, no ENABLE_E2E_SMOKE needed) and lock the
-  // shell-string contract that the docker cases depend on.
   it('buildInContainerCommand_IncludesAllBootstrapSteps', () => {
     const cmd = buildInContainerCommand({
       installPrelude: 'INSTALL_PRELUDE',
@@ -234,22 +181,26 @@ describe('task 2.9 — fresh-environment bootstrap smoke (unit)', () => {
     expect(cmd).toContain('"method":"initialize"');
   });
 
+  /**
+   * The mount is read-only as a defense against a `chmod` in the script. A missing `-v` reads
+   * `undefined`, and the test names that failure apart from a mount without `:ro`.
+   */
   it('buildDockerArgs_WiresReadOnlyVolumeMount', () => {
     const args = buildDockerArgs('ubuntu:24.04', 'echo hi');
     expect(args[0]).toBe('run');
     expect(args).toContain('--rm');
     expect(args).toContain('ubuntu:24.04');
-    // Last arg is the in-container command payload.
     expect(args[args.length - 1]).toBe('echo hi');
-    // Volume mount is read-only to defend against a runaway chmod.
     const volArg = args[args.indexOf('-v') + 1];
-    // A missing `-v` would index past the end and read `undefined`, which is a
-    // different failure from a mount without `:ro` — name it as one.
     if (volArg === undefined) throw new Error('the docker invocation declares no -v mount');
     expect(volArg.endsWith(':/mnt/get-exarchos.sh:ro')).toBe(true);
   });
 });
 
+/**
+ * A `download-missing` outcome means that the release assets are not published. The case then logs
+ * the fact and asserts only the download error.
+ */
 describe('task 2.9 — fresh-environment bootstrap smoke', () => {
   it.skipIf(skipReason !== null)(
     'FreshInstall_BootstrapScript_ProducesWorkingBinary_Ubuntu',
@@ -259,7 +210,6 @@ describe('task 2.9 — fresh-environment bootstrap smoke', () => {
         'apt-get update -qq && apt-get install -y -qq curl ca-certificates >/dev/null',
       );
       if (outcome.kind === 'download-missing') {
-        // Expected before the first v2.9.0 release is cut.
         // eslint-disable-next-line no-console
         console.info(
           '[smoke] ubuntu: bootstrap reached download step but release ' +
@@ -283,15 +233,18 @@ describe('task 2.9 — fresh-environment bootstrap smoke', () => {
     240_000,
   );
 
+  /**
+   * Alpine has only musl. The bootstrap warns and still downloads the glibc binary, which cannot
+   * run under musl. A `fail` outcome is thus the expected result, and the case asserts a loader
+   * or glibc signature in the output. A `pass` outcome means that a musl build shipped.
+   *
+   * The first three signatures are the busybox missing-loader message, the exec failure on musl,
+   * and a missing libc in the musl loader. The last three are a libc symbol mismatch, a missing
+   * `GLIBC_2.x` version, and an absent glibc dynamic linker.
+   */
   it.skipIf(skipReason !== null)(
     'FreshInstall_BootstrapScript_ProducesWorkingBinary_Alpine',
     async () => {
-      // Alpine ships only musl. v2.9's bootstrap warns and still
-      // downloads the glibc binary — which will fail to execute under
-      // musl. This test is XFAIL-equivalent until the musl track
-      // lands (deferred per plan). When the script correctly bails
-      // with the glibc-on-musl error we still consider the smoke
-      // "observation complete" and record the outcome.
       const outcome = await runDockerSmoke(
         'alpine:latest',
         'apk add --no-cache curl ca-certificates bash >/dev/null',
@@ -309,12 +262,6 @@ describe('task 2.9 — fresh-environment bootstrap smoke', () => {
         return;
       }
       if (outcome.kind === 'fail') {
-        // Musl-on-glibc is an expected failure mode until true musl
-        // binaries ship. Match on the *specific* loader/glibc signatures
-        // that surface when a glibc-linked binary tries to run under musl
-        // — accepting any output containing the literal "exarchos" would
-        // let unrelated regressions (a typo in the install hint, a
-        // misnamed asset, etc.) silently pass this gate.
         // eslint-disable-next-line no-console
         console.info(
           '[smoke] alpine: bootstrap ran, binary failed to exec ' +
@@ -323,12 +270,12 @@ describe('task 2.9 — fresh-environment bootstrap smoke', () => {
         );
         const combined = outcome.stdout + outcome.stderr;
         const muslGlibcSignatures = [
-          /not found/i,                                // sh: ./exarchos: not found (busybox missing-loader form)
-          /no such file or directory/i,                // exec format failure on musl
-          /Error loading shared library/i,             // musl ld.so missing libc
-          /Error relocating/i,                         // libc symbol mismatch
-          /GLIBC_/,                                    // GLIBC_2.x not found
-          /ld-linux-x86-64\.so/,                       // glibc dynamic linker absent
+          /not found/i,
+          /no such file or directory/i,
+          /Error loading shared library/i,
+          /Error relocating/i,
+          /GLIBC_/,
+          /ld-linux-x86-64\.so/,
         ];
         expect(
           muslGlibcSignatures.some((re) => re.test(combined)),
@@ -336,8 +283,6 @@ describe('task 2.9 — fresh-environment bootstrap smoke', () => {
         ).toBe(true);
         return;
       }
-      // Unexpected pass on musl → strong signal that we shipped a musl
-      // build. Assert the JSON-RPC shape too.
       expect(outcome.stdout).toMatch(/exarchos/i);
       expect(outcome.stdout).toMatch(/"jsonrpc"\s*:\s*"2\.0"/);
     },

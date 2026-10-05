@@ -1,13 +1,12 @@
-// ─── Baseline regeneration (maintenance script, not a test) ─────────────────
+// Baseline regeneration. This file is a maintenance script, not a test.
 //
 //   npx tsx tests/core/integration/suite-invariants/regenerate-baseline.ts
 //
-// Rewrites `legacy-shape-debt.ts` from the CURRENT corpus. Run it when the
-// ratchet reports stale entries (a file was annotated, fell out of scope, or
-// was deleted) — never to silence a NEW unregistered file. New debt is
-// supposed to fail; regenerating it away is the one use of this script that
-// defeats its purpose, and the diff makes that visible in review because the
-// list grows instead of shrinking.
+// The script writes `legacy-shape-debt.ts` again from the current corpus. Run it
+// when the ratchet reports stale entries: an annotated file, a file out of
+// scope, or a deleted file. Do not run it to hide a new unregistered file,
+// because new debt must fail. A run that adds entries makes the list longer,
+// and the diff shows that in review.
 
 import { writeFileSync } from 'node:fs';
 import * as path from 'node:path';
@@ -18,8 +17,8 @@ import { parseOracleDeclarations } from './detectors.js';
 import { ACCEPTED_GAPS } from './registry.js';
 
 /**
- * Files carried by an INDIVIDUALLY registered gap never enter the bulk list —
- * DR-30 requires the named Class B instances to stay individually visible.
+ * The files of each individually registered gap. They stay out of the bulk
+ * list, so each of those gaps stays visible on its own.
  */
 const INDIVIDUALLY_REGISTERED = new Set(
   ACCEPTED_GAPS.filter((g) => g.id !== 'legacy/shape-annotation-debt').flatMap((g) => g.files),

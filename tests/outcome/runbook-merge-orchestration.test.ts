@@ -1,19 +1,11 @@
-// ─── T3.2 — MERGE_ORCHESTRATION runbook outcome (GREEN) ───────────────────
-//
-// Encodes the #1363 fix shipped in commit c0a59a7e (PR #1391). The contract
-// being locked: `exarchos_orchestrate.runbook({phase: 'merge-pending'})`
-// returns the populated `merge-orchestration` runbook summary, where
-// previously the registry had no entry for the `merge-pending` phase and
-// the call returned `[]`.
-//
-// The runbook's canonical step sequence is (1) preflight dryRun → (2) real
-// merge → (3) HSM transition back to delegate. It auto-emits four events
-// covering the merge lifecycle: `merge.preflight`, `merge.executed`,
-// `merge.rollback`, and `workflow.transition`. List mode (no `id`)
-// returns the summary view shape `{id, phase, description, stepCount}`.
-//
-// Backfill — fix is already on head. A future regression that removes the
-// runbook or drops its auto-emits fails CI.
+/**
+ * Outcome tests for the `merge-orchestration` runbook, read through `handleRunbook`.
+ *
+ * A list call with `phase: 'merge-pending'` returns the runbook summary (`id`, `phase`,
+ * `description`, `stepCount`). A detail call returns three steps: a dry-run preflight, the real
+ * merge, and the transition back to `delegate`. The runbook auto-emits four events:
+ * `merge.preflight`, `merge.executed`, `merge.recovered` and `workflow.transition`.
+ */
 
 import { describe, it, expect } from 'vitest';
 
@@ -27,8 +19,11 @@ interface RunbookSummary {
 }
 
 describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
+  /**
+   * `autoEmits` must hold exactly the four lifecycle events. `arrayContaining` alone accepts a
+   * longer list, so the test also asserts the length.
+   */
   it('Runbook_MergePendingPhase_ReturnsCanonicalFourEventSequence', async () => {
-    // ─── List mode summary ──────────────────────────────────────────────
     const listResult = await handleRunbook({ phase: 'merge-pending' });
     expect(listResult.success).toBe(true);
 
@@ -43,13 +38,6 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
     expect(mergeOrch!.description.length).toBeGreaterThan(0);
     expect(mergeOrch!.stepCount).toBe(3);
 
-    // ─── Detail mode — canonical step + auto-emit sequence ──────────────
-    //
-    // The four-event canonical sequence covers the full merge lifecycle.
-    // Order on `autoEmits` is the declared emission order: preflight
-    // fires first (dryRun), then `merge.executed` after the real merge
-    // succeeds OR `merge.rollback` after it fails, then
-    // `workflow.transition` regardless of outcome.
     const detailResult = await handleRunbook({ id: 'merge-orchestration' });
     expect(detailResult.success).toBe(true);
 
@@ -66,11 +54,6 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
     expect(detail.id).toBe('merge-orchestration');
     expect(detail.phase).toBe('merge-pending');
 
-    // Auto-emits must cover EXACTLY the four lifecycle events — no extras.
-    // The runbook registry at `runbooks/definitions.ts` is the canonical
-    // source. arrayContaining alone would permit silent growth of the list
-    // (a real risk if a future change wires in additional emit events without
-    // updating this matrix); pin the count explicitly to catch that drift.
     expect(detail.autoEmits).toHaveLength(4);
     expect(detail.autoEmits).toEqual(
       expect.arrayContaining([
@@ -81,9 +64,6 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
       ]),
     );
 
-    // Step shape: preflight (orchestrate) → real merge (orchestrate) →
-    // HSM transition (workflow). Each step carries `seq` for operator
-    // traceability.
     expect(detail.steps).toHaveLength(3);
     const [preflight, realMerge, transition] = detail.steps;
     expect(preflight?.tool).toBe('exarchos_orchestrate');
@@ -94,10 +74,11 @@ describe('MERGE_ORCHESTRATION runbook outcome (#1363)', () => {
     expect(transition?.action).toBe('transition');
   });
 
+  /**
+   * A registry change must not leave the `delegate`, `review` or `synthesize` phase with no
+   * runbook.
+   */
   it('Runbook_OtherPhases_StillPopulated', async () => {
-    // Quick regression guard: other phases the registry serves must remain
-    // populated. If a refactor accidentally narrows the runbook registry
-    // to merge-pending only (or drops a phase), this catches it.
     const phasesToCheck = ['delegate', 'review', 'synthesize'] as const;
     for (const phase of phasesToCheck) {
       const result = await handleRunbook({ phase });

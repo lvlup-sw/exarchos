@@ -1,42 +1,18 @@
 /**
- * DR-30 — the suite invariants, enforced mechanically (task T-40).
+ * The suite invariants: the suite must not reproduce the defect classes that
+ * it exists to catch.
  *
- * "The suite must not reproduce the defect classes it exists to catch."
+ * Part 1 proves each detector against a positive fixture that it must flag and
+ * a negative fixture that it must not flag. Part 2 runs the rules over the real
+ * scan roots and prints the denominators. Each shape must match a floor of
+ * real files, so a matcher that matches nothing fails.
  *
- * ── Why this file is shaped the way it is ──────────────────────────────────
+ * Scope comes from the assertion shapes, never from the annotation (see
+ * `shapes.ts`). Otherwise, a deleted annotation deletes the duty.
  *
- * A meta-test that walks 920 test files, matches nothing, and reports perfect
- * compliance is worse than no meta-test at all: it converts an unmeasured
- * surface into a measured-and-green one. So this file is deliberately split
- * into two halves that check each other:
- *
- *   PART 1 — DETECTOR PROOF. Every rule is run against a POSITIVE fixture that
- *            it must flag and a NEGATIVE fixture that it must not. A rule that
- *            has stopped working fails here, in the same run, before its
- *            corpus verdict is believed.
- *
- *   PART 2 — CORPUS SWEEP AND RATCHET. The rules are run over the real scan
- *            roots. Denominators are printed. Every shape must still match at
- *            least a ratcheted floor of real files, so a matcher edited into
- *            matching nothing turns this suite RED instead of green.
- *
- * ── Why scope is computed from assertion shape, never from the annotation ──
- *
- * DR-30 requires that "Removing an `@oracle-sources` annotation from an
- * in-scope test FAILS". If in-scope-ness were decided by "does this file carry
- * the annotation", deleting the annotation would delete the obligation and the
- * guard would be trivially evadable. `shapes.ts::isInScope` therefore reads
- * ONLY the file's assertion shapes; the annotation is never an input to scope,
- * only to compliance. `SuiteInvariant_DroppingTheAnnotation_DoesNotDropTheObligation`
- * pins that on this very file.
- *
- * ── This file governs itself ──────────────────────────────────────────────
- *
- * It asserts census closure over a corpus, so it is in scope by its own rules,
- * and it declares its own authorities below. Its two authorities are genuinely
- * independent: `corpus.ts` reads what the repository contains right now;
- * `registry.ts` is hand-written data that reads nothing. Neither reaches the
- * other in the import graph — which its own derived-authority check verifies.
+ * This file asserts census closure over a corpus, so it is in scope by its own
+ * rules. Its two authorities are independent: `corpus.ts` reads the
+ * repository, and `registry.ts` is hand-written data.
  *
  * @oracle-sources: ./suite-invariants/corpus.ts, ./suite-invariants/registry.ts
  */
@@ -75,101 +51,77 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const SELF_ABS = fileURLToPath(import.meta.url).replace(/\.js$/, '.ts');
 const SELF_REL = 'tests/core/integration/suite-invariants.test.ts';
 
-/** A virtual path inside this directory, so `./x.ts` authorities resolve. */
+/** A virtual path inside `suite-invariants/`, so the `./x.ts` authorities of the fixtures resolve. */
 const FIXTURE_PATH = path.join(HERE, 'suite-invariants', '__fixture__.test.ts');
 
 const rules = (vs: readonly Violation[]): readonly string[] => vs.map((v) => v.rule).sort();
 const oracle = (src: string): readonly Violation[] =>
   checkOracleSources(FIXTURE_PATH, src, { knownDerivations: KNOWN_DERIVATIONS });
 
-// ────────────────────────────────────────────────────────────────────────────
-// PART 1 — DETECTOR PROOF
-// ────────────────────────────────────────────────────────────────────────────
-
 describe('DR-30 part 1 — every detector is proved able to fire and able not to', () => {
   /**
-   * NAMED ACCEPTANCE TEST (T-40).
+   * An in-scope test must name at least two distinct authorities, and neither
+   * derives from the other. A comparison with one source cannot disagree with
+   * itself.
    *
-   * A comparison whose two sides come from one source can never disagree with
-   * itself — Class B. DR-30 makes that decidable by declaration: an in-scope
-   * test must name at least two DISTINCT, NON-DERIVED authorities.
-   *
-   * All four rejection modes are exercised, and each is paired with an
-   * acceptance so the rule is not merely "reject everything":
-   *   • one authority                       → rejected
-   *   • the same authority written twice    → rejected (distinctness, not arity)
-   *   • two authorities, one reachable from the other in the REAL static
-   *     import graph                        → rejected
-   *   • an authority that does not exist    → rejected
-   *   • two genuinely independent modules   → ACCEPTED
-   *   • two opaque non-path labels          → ACCEPTED
+   * The rule rejects one authority, and one module in two spellings. It rejects
+   * an authority that the other reaches in the real import graph. It rejects an
+   * authority that does not exist, and a declared derivation pair of labels.
+   * It accepts two independent modules and two non-path labels, so it does not
+   * reject every input.
    */
   it('SuiteInvariant_SingleSourceComparison_IsRejected', () => {
     expect(rules(oracle(F.FIXTURE_SINGLE_AUTHORITY))).toContain('oracle-sources-too-few');
 
-    // Distinctness is by RESOLVED IDENTITY, not by token count: `./corpus.ts`
-    // and `./corpus.js` are two spellings of one module.
     expect(rules(oracle(F.FIXTURE_SAME_AUTHORITY_TWICE))).toContain('oracle-sources-too-few');
 
-    // A real transitive import edge: registry.ts imports legacy-shape-debt.ts.
     expect(rules(oracle(F.FIXTURE_DERIVED_AUTHORITIES))).toContain('oracle-sources-derived');
 
-    // You may not cite an authority that does not exist.
     expect(rules(oracle(F.FIXTURE_UNRESOLVABLE_AUTHORITY))).toContain(
       'oracle-sources-unresolvable',
     );
 
-    // Opaque labels whose derivation is DECLARED (not inferred) are rejected.
     expect(rules(oracle(F.FIXTURE_KNOWN_DERIVED_LABELS))).toContain('oracle-sources-derived');
 
-    // ACCEPTANCE — the rule is discriminating, not blanket.
     expect(oracle(F.FIXTURE_INDEPENDENT_AUTHORITIES)).toEqual([]);
     expect(oracle(F.FIXTURE_OPAQUE_AUTHORITIES)).toEqual([]);
   });
 
   /**
-   * NAMED ACCEPTANCE TEST (T-40).
-   *
-   * DR-30: "Every blocking claim declares the seam its kill fixture kills."
-   * This suite's convention (T-37) is a blocking arm paired with a negative
-   * twin — the twin IS the kill fixture. The rule demands the twin NAME
-   * something: a decorative divider containing the phrase is not a
-   * declaration, which is the case that separates this check from a grep.
+   * Each blocking claim must declare the seam that its kill fixture kills. The
+   * convention pairs a blocking arm with a negative twin, and the twin is the
+   * kill fixture. The twin must name a seam, so a bare divider that holds only
+   * the phrase is rejected. Both declaration forms are accepted.
    */
   it('SuiteInvariant_BlockingClaimWithoutKillFixture_IsRejected', () => {
     expect(rules(checkBlockingClaims(FIXTURE_PATH, F.FIXTURE_BLOCKING_WITHOUT_SEAM))).toEqual([
       'blocking-claim-without-kill-fixture',
     ]);
 
-    // The phrase alone does not satisfy it — the seam must be named.
     expect(rules(checkBlockingClaims(FIXTURE_PATH, F.FIXTURE_BLOCKING_WITH_EMPTY_TWIN))).toEqual([
       'blocking-claim-without-kill-fixture',
     ]);
 
-    // ACCEPTANCE — both sanctioned declaration forms.
     expect(checkBlockingClaims(FIXTURE_PATH, F.FIXTURE_BLOCKING_WITH_TWIN)).toEqual([]);
     expect(checkBlockingClaims(FIXTURE_PATH, F.FIXTURE_BLOCKING_WITH_KILL_SEAM)).toEqual([]);
   });
 
   /**
-   * The anti-evasion criterion, pinned against a REAL in-scope file — this
-   * one. Scope is recomputed from assertion shape after the annotation is
-   * stripped; if scope were annotation-driven the stripped copy would be out
-   * of scope and clean, and this assertion would be the one that notices.
+   * Pins the rule against evasion on a real in-scope file: this one. The first
+   * assertions prove that this file is in scope and compliant. Then the test
+   * removes each declaration and changes nothing else. The copy must stay in
+   * scope with the same shapes, and it must report `oracle-sources-missing`.
    */
   it('SuiteInvariant_DroppingTheAnnotation_DoesNotDropTheObligation', () => {
     const self = readFileSync(SELF_ABS, 'utf8');
 
-    // Precondition: this file really is in scope, and really is compliant.
     expect(isInScope(self)).toBe(true);
     expect(parseOracleDeclarations(self).length).toBeGreaterThan(0);
     expect(checkOracleSources(SELF_ABS, self, { knownDerivations: KNOWN_DERIVATIONS })).toEqual([]);
 
-    // Now delete every declaration, changing nothing else.
     const stripped = self.split('@oracle-sources').join('@removed-annotation');
     expect(parseOracleDeclarations(stripped)).toEqual([]);
 
-    // Still in scope — because scope came from the assertions, not the comment.
     expect(isInScope(stripped)).toBe(true);
     expect(matchedShapes(stripped)).toEqual(matchedShapes(self));
     expect(
@@ -177,17 +129,17 @@ describe('DR-30 part 1 — every detector is proved able to fire and able not to
     ).toEqual(['oracle-sources-missing']);
   });
 
+  /** The negative half: a source that matches no covered shape owes no annotation. */
   it('SuiteInvariant_MissingAnnotationOnInScopeFile_IsRejected', () => {
     expect(rules(oracle(F.FIXTURE_NO_ANNOTATION))).toEqual(['oracle-sources-missing']);
-    // A test that asserts none of the covered properties owes nothing.
     expect(isInScope(F.FIXTURE_OUT_OF_SCOPE)).toBe(false);
     expect(oracle(F.FIXTURE_OUT_OF_SCOPE)).toEqual([]);
   });
 
   /**
-   * DR-30: "No test asserts `passed === true` where the verdict was 'could not
-   * run'." The negative arm is the load-bearing one: a test that BUILDS a
-   * could-not-run carrier to prove the system refuses it must NOT be flagged.
+   * No test asserts `passed === true` on a verdict that did not run. The
+   * negative arm carries the weight: the rule must not flag a test that builds
+   * such a carrier to prove that the system rejects it.
    */
   it('SuiteInvariant_PassedTrueOnCouldNotRunVerdict_IsRejected', () => {
     expect(rules(checkCouldNotRunVerdicts(FIXTURE_PATH, F.FIXTURE_PASSED_TRUE_INLINE))).toEqual([
@@ -201,10 +153,7 @@ describe('DR-30 part 1 — every detector is proved able to fire and able not to
     ).toEqual([]);
   });
 
-  /**
-   * Handed over by T-36: "no synthesized dispatch context" was enforced BY
-   * CONSTRUCTION, not by assertion. Now it is an assertion.
-   */
+  /** The rule flags a synthesized dispatch context and a mocked composite module. */
   it('SuiteInvariant_SynthesizedIntegrationRoot_IsRejected', () => {
     expect(rules(checkNoSynthesizedRoot(FIXTURE_PATH, F.FIXTURE_SYNTHESIZED_CONTEXT))).toEqual([
       'synthesized-dispatch-context',
@@ -216,29 +165,28 @@ describe('DR-30 part 1 — every detector is proved able to fire and able not to
   });
 
   /**
-   * The shape catalogue is itself ratcheted (DR-30). Deleting a shape — the
-   * cheapest way to make an inconvenient file fall out of scope — fails here.
+   * The shape list is ratcheted. A deleted shape fails here. Each live shape
+   * must also have a ratchet entry, so no shape exists without a floor.
    */
   it('SuiteInvariant_CoveredShapeList_CannotShrink', () => {
     const live = new Set(COVERED_SHAPES.map((s) => s.id));
     const dropped = SHAPE_RATCHET.filter((r) => !live.has(r.id)).map((r) => r.id);
     expect(dropped).toEqual([]);
-    // Every live shape must be ratcheted too, so a shape cannot be added
-    // without a floor and then quietly neutered.
     const ratcheted = new Set(SHAPE_RATCHET.map((r) => r.id));
     expect(COVERED_SHAPES.filter((s) => !ratcheted.has(s.id)).map((s) => s.id)).toEqual([]);
   });
 });
 
-// ────────────────────────────────────────────────────────────────────────────
-// PART 2 — CORPUS SWEEP AND RATCHET
-// ────────────────────────────────────────────────────────────────────────────
-
 describe('DR-30 part 2 — the real corpus', () => {
   const corpus = loadCorpus();
   const inScopeFiles = corpus.filter((f) => matchedShapes(f.source).length > 0);
 
-  /** DR-30 acceptance criterion 1: cover all three roots, report the denominator. */
+  /**
+   * Prints the denominator of each scan root. Each mandated root must hold
+   * files, and no root in `CORPUS_FLOORS` can fall below its floor. The list of
+   * mandated roots is pinned, so a root cannot lose its mandate without an
+   * edit here. A root with no `*.test.ts` file, such as `src`, is not mandated.
+   */
   it('SuiteInvariant_ScanRootsAndDenominator_AreReportedAndRatcheted', () => {
     const perRoot = SCAN_ROOTS.map((r) => ({
       root: r.id,
@@ -257,22 +205,7 @@ describe('DR-30 part 2 — the real corpus', () => {
         '\n────────────────────────────────────────────────────────────────',
     );
 
-    // All three DR-30-mandated roots are present and non-empty.
     const mandated = SCAN_ROOTS.filter((r) => r.mandatedByDr30).map((r) => r.id);
-    // `tools/conformance` joined the mandated set when task 018a extracted the
-    // suite out of `mcp/src`. It is mandated rather than optional because these
-    // files were already governed here — dropping the mandate would have let a
-    // directory move discharge DR-30 coverage.
-    // The two `src` roots became one when task 019 dissolved the nested
-    // package — they had already been the same directory, walked twice.
-    // `tests/unit` and `tests/integration` joined when task 030 lifted the
-    // co-located suites out of `src`, on the same reasoning as
-    // `tools/conformance`: the files were governed before they moved.
-    // `src` left the mandated set in task 030 — it holds no `*.test.ts` at all
-    // now, and a root that cannot contribute cannot be required to.
-    // The `test` root became `tests` in task 032, which dissolved `test/core/`
-    // into `tests/core/`. Two roots naming one directory would have walked every
-    // file twice, so they are one root carrying the mandate the first one had.
     expect(mandated).toEqual([
       'tests/unit',
       'tests/integration',
@@ -284,7 +217,6 @@ describe('DR-30 part 2 — the real corpus', () => {
       expect(corpus.filter((f) => f.root === id).length).toBeGreaterThan(0);
     }
 
-    // The denominator is ratcheted: a root cannot be quietly emptied.
     const belowFloor = CORPUS_FLOORS.filter(
       (f) => corpus.filter((c) => c.root === f.root).length < f.floor,
     ).map((f) => `${f.root} < ${f.floor}`);
@@ -293,10 +225,9 @@ describe('DR-30 part 2 — the real corpus', () => {
   });
 
   /**
-   * THE ANTI-VACUITY TOOTH. A scanner that matches nothing reports perfect
-   * compliance. Every covered shape must still match at least its ratcheted
-   * floor of real corpus files; break a matcher and this goes red before any
-   * "0 violations" verdict is believed.
+   * A scanner that matches nothing reports perfect compliance. Each covered
+   * shape must match at least its floor of real corpus files, so a broken
+   * matcher fails here.
    */
   it('SuiteInvariant_ShapeMatchers_AreNotVacuousAgainstTheRealCorpus', () => {
     const counts = new Map<string, number>();
@@ -310,8 +241,8 @@ describe('DR-30 part 2 — the real corpus', () => {
   });
 
   /**
-   * The same tooth for the kill-fixture rule: it is only meaningful if the
-   * corpus actually contains blocking claims for it to police.
+   * The same floor for the kill-fixture rule. The rule has meaning only when
+   * the corpus holds blocking claims.
    */
   it('SuiteInvariant_BlockingClaimCensus_IsNotEmpty', () => {
     let blocks = 0;
@@ -354,9 +285,9 @@ describe('DR-30 part 2 — the real corpus', () => {
   });
 
   /**
-   * The ratchet proper. Every in-scope file must either declare its
-   * authorities or be an explicitly registered, owned, expiring gap. New debt
-   * is not on the list, so new debt fails.
+   * The ratchet. Each in-scope file must declare its authorities or be a
+   * registered gap with an owner and an expiry date. New debt is not on the
+   * list, so it fails.
    */
   it('SuiteInvariant_NoUnregisteredOracleSourcesDebt', () => {
     const excused = new Set(
@@ -375,9 +306,8 @@ describe('DR-30 part 2 — the real corpus', () => {
   });
 
   /**
-   * The ratchet may only turn one way. An entry that has been fixed, has
-   * fallen out of scope, or no longer exists is STALE, and staleness is a
-   * failure — there is no way to leave a closed gap parked in the register.
+   * The register can only shrink. An entry is stale when its file is
+   * annotated, out of scope or gone, and a stale entry fails.
    */
   it('SuiteInvariant_AcceptedGapRegister_CanOnlyShrink', () => {
     const byRel = new Map(corpus.map((f) => [f.rel, f]));
@@ -428,10 +358,8 @@ describe('DR-30 part 2 — the real corpus', () => {
   });
 
   /**
-   * DR-30's last acceptance criterion. The three named Class B instances must
-   * be visible as INDIVIDUALLY owned, individually expiring entries — not
-   * amortised into the 317-file bulk backlog where they would be, in DR-30's
-   * words, "silently exempt".
+   * The three named Class B instances must be separate entries, each with its
+   * own owner and expiry date. They must not sit in the bulk backlog.
    */
   it('SuiteInvariant_KnownClassBInstances_AreIndividuallyRegisteredNotBulkExempt', () => {
     const bulk = new Set(LEGACY_SHAPE_DEBT);

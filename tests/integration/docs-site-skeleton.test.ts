@@ -1,26 +1,13 @@
-// ─── The published site, after the reduction ─────────────────────────────────
+// The published site is a skeleton: a config, one index and `public/`.
 //
-// `documentation/` held 46 hand-written pages describing an Exarchos several
-// refactors out of date. They were removed rather than migrated and what
-// survives is the machinery: a config, one index, and `public/`.
+// The site must build. The `docs:build` script and the `docs/` source tree are the wiring that these tests check.
 //
-// Two things have to stay true, and only one of them is obvious.
+// The build must publish only the skeleton. `docs/` is also the mount point of `npm run docs:mount`,
+// which links several hundred internal designs, plans and RCAs into it. A build that picks them up
+// succeeds and publishes them to a public GitHub Pages site, so no failure shows the leak.
 //
-// The obvious one is that the site still builds — a skeleton nobody can build
-// is not a skeleton, it is rubble, and the reduction moved the toolchain into
-// the root manifest and the source into `docs/`, so every part of that wiring
-// is new.
-//
-// The other is that the build publishes ONLY the skeleton. `docs/` is also the
-// mount point for the relocated documents: `npm run docs:mount` links several
-// hundred internal designs, plans and RCAs into this exact directory. Nothing
-// fails if they are picked up — the build succeeds, and publishes them to a
-// public GitHub Pages site. That failure is silent, which is why it is asserted
-// here rather than trusted to the config being obviously correct.
-//
-// The two sides never come from the same place: what the site PUBLISHES is read
-// out of the build output, and what it MUST NOT publish is read from the live
-// directory. A config that excluded nothing would agree with itself.
+// The two sides come from different places. The published set comes from the build output, and the
+// set that must stay private comes from the live directory. A config that excludes nothing agrees with itself.
 //
 // @oracle-sources: vitepress-build-output, live-docs-directory-listing, ../../package.json, ../../tools/release/mount-docs.mjs
 import { describe, it, expect, beforeAll } from 'vitest';
@@ -57,10 +44,8 @@ function publishedFiles(): string[] {
 
 let build: SpawnResult;
 
+/** The build runs through the npm script, not the vitepress binary, so a `docs:build` script that points at a wrong tree fails here. */
 beforeAll(async () => {
-  // Through the npm script, not the vitepress binary. The script string is
-  // itself part of what this task retargeted, and invoking the binary directly
-  // would leave a `docs:build` that points at the deleted tree passing.
   build = await spawnAsync('npm', ['run', 'docs:build'], {
     cwd: REPO_ROOT,
     timeout: 180_000,
@@ -68,6 +53,11 @@ beforeAll(async () => {
 }, 200_000);
 
 describe('the reduced documentation site', () => {
+  /**
+   * The index must hold the hero text, not only exist.
+   * `public/` is served verbatim, and the deploy workflow stages the bootstrap installers into it.
+   * A build that omits `public/` breaks the install one-liner in the README.
+   */
   it('Documentation_AfterReduction_VitePressStillBuilds', () => {
     expect(
       build.status,
@@ -76,43 +66,41 @@ describe('the reduced documentation site', () => {
 
     expect(existsSync(path.join(DIST_DIR, 'index.html')), 'no index.html was emitted').toBe(true);
 
-    // The hero index rendered rather than merely existing as an empty shell.
     const index = readFileSync(path.join(DIST_DIR, 'index.html'), 'utf8');
     expect(index).toContain('Exarchos');
 
-    // `public/` is served verbatim, and it is what the deploy workflow stages
-    // the bootstrap installers into. A build that drops it takes the README's
-    // install one-liner down with it.
     expect(existsSync(path.join(DIST_DIR, 'logo.svg')), 'public/ was not published').toBe(true);
   });
 
+  /**
+   * The pages must be exactly the home page and the 404 page of VitePress.
+   * A containment check passes with extra pages, so the check is an equality.
+   * `docs/README.md` explains the directory to a repository reader. VitePress treats it as an index candidate, so it must stay out.
+   */
   it('Documentation_AfterReduction_PublishesOnlyTheSkeleton', () => {
     expect(build.status, 'build failed; the publication set is not meaningful').toBe(0);
 
     const published = publishedFiles();
     const pages = published.filter((f) => f.endsWith('.html')).sort();
 
-    // Exactly the home page and VitePress's own 404. Stated as equality rather
-    // than "contains index.html", because the failure this guards is EXTRA
-    // pages, which every containment check passes.
     expect(pages, `unexpected pages published:\n${pages.join('\n')}`).toEqual([
       '404.html',
       'index.html',
     ]);
 
-    // `docs/README.md` explains the directory to someone reading the
-    // repository. VitePress also treats README.md as an index candidate, so
-    // leaving it in makes the home page ambiguous as well as public.
     expect(pages).not.toContain('README.html');
   });
 
+  /**
+   * With no mount, as on CI, the test prints a warning and checks only that `docs/index.md` exists.
+   * Each mount is a symlink to a directory of documents. If VitePress follows one, the documents appear as rendered pages under that name.
+   * The match needs an `.html` file under the mount name, not the name alone.
+   * Vite writes its chunks and fonts to `dist/assets/`, and `docs/assets` is one of the mounted subtrees.
+   */
   it('Documentation_WithDocumentsMounted_ExcludesEveryMountedSubtree', () => {
     const mounted = mountedSubtrees();
 
     if (mounted.length === 0) {
-      // Reported, never silently skipped. On CI nothing is mounted and there is
-      // genuinely nothing to exclude — but a reader has to be able to tell that
-      // from the assertion having run and found the tree clean.
       console.warn(
         '[docs-site] no relocated subtrees are mounted here, so the mount-leak arm had no ' +
           'subject. Run `npm run docs:mount` and re-run to exercise it.',
@@ -121,13 +109,6 @@ describe('the reduced documentation site', () => {
       return;
     }
 
-    // Each mount is a symlink to a directory of documents. If VitePress
-    // followed one, those documents land under that name in the output as
-    // RENDERED PAGES — which is the form that matters, and also the only form
-    // that can be told apart from the bundler's own output. Vite emits its
-    // chunks and fonts to `dist/assets/`, and `docs/assets` happens to be one
-    // of the mounted subtrees, so a match on directory name alone reports a
-    // leak on every build that ever bundles a stylesheet.
     const published = publishedFiles();
     const leaked = mounted.filter((name) =>
       published.some((f) => f.startsWith(`${name}/`) && f.endsWith('.html')),
@@ -141,9 +122,8 @@ describe('the reduced documentation site', () => {
     ).toEqual([]);
   });
 
+  /** The skeleton replaces the `documentation/` tree. If that tree stays, the repo holds two copies of the site. */
   it('Documentation_AfterReduction_TheRetiredSiteIsGone', async () => {
-    // The reduction is only real if the old tree left. A skeleton beside the
-    // 46 pages it replaced is not a reduction, it is a second copy.
     expect(
       existsSync(path.join(REPO_ROOT, 'documentation')),
       'documentation/ still exists — the site was reduced but the old tree was not removed',
@@ -167,10 +147,11 @@ describe('the reduced documentation site', () => {
     }
   });
 
+  /**
+   * The exclusion depends on this premise. If the site source leaves the directory that the documents mount into,
+   * the exclusion from symlinks excludes nothing and the other tests still pass.
+   */
   it('the mount point and the site source are the same directory', () => {
-    // The premise the exclusion rests on. If the site ever moves out of the
-    // directory the documents mount into, the symlink-derived exclusion becomes
-    // an elaborate no-op and this suite would keep passing.
     expect(existsSync(path.join(DOCS_DIR, '.vitepress', 'config.ts'))).toBe(true);
     const mountRoot = readFileSync(
       path.join(REPO_ROOT, 'tools', 'release', 'mount-docs.mjs'),
@@ -180,16 +161,15 @@ describe('the reduced documentation site', () => {
   });
 });
 
-/** Guard the helper itself: a walk that finds nothing passes every check above. */
+/** Guards the helpers. A walk of `dist` that finds nothing makes the mount-leak check pass with no subject. */
 describe('the publication census', () => {
   it('found the build output', () => {
     expect(build.status).toBe(0);
     expect(publishedFiles().length, 'the dist walk enumerated nothing').toBeGreaterThan(3);
   });
 
+  /** `docs/` also holds real files. If the census counts them as mounts, the exclusion covers the skeleton and the site publishes nothing. */
   it('reads mounts by link type, not by name', () => {
-    // `docs/` holds real entries too. If this ever counted them as mounts the
-    // exclusion would grow to cover the skeleton and publish nothing at all.
     for (const name of ['README.md', 'index.md']) {
       const p = path.join(DOCS_DIR, name);
       if (!existsSync(p)) continue;

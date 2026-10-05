@@ -1,43 +1,9 @@
-// Source: docs/designs/archive/2026-06-06-onboard-doctor-consolidation.md (DR-2/DR-5)
-//
-// Process-fidelity smoke tests for `exarchos onboard --runtime claude` — the
-// consolidated first-run verb that superseded the v2.9 `install-skills` /
-// `init` commands (DR-5). This file replaces the retired
-// `install-skills.test.ts`: `install-skills` is now a one-release rename stub
-// (it exits non-zero and prints `renamed → use 'exarchos onboard'`), so its old
-// "writes skills + registers MCP" contract no longer exists as a standalone
-// command. The behaviour moved INTO the onboard reconciler, whose unit/contract
-// coverage lives in `src/verbs/onboard/*.test.ts`
-// (including the #1355 per-runtime manifest-parity guard in `install.test.ts`).
-//
-// What this tier asserts is the *operator-visible* end-to-end contract of the
-// new verb — the part the unit suite cannot exercise because it needs the real
-// compiled CLI spawned as a child process:
-//
-//   1. `onboard` exits 0 — it drives the repo to a green doctor and converges
-//      (DR-2: a residual *blocking* check is the only non-zero path).
-//   2. A first run installs exactly ONE SubagentStop binding (the
-//      token-attribution seam DR-7 retains) under
-//      `<home>/.claude/settings.json` — the default-on hook step's one durable
-//      side effect in a fresh environment. The same pass also installs the
-//      #1485 SessionStart directive (DR-7: still written by
-//      `installBindings`'s single idempotent pass), but that binding is
-//      retired going forward — see (3).
-//   3. Re-running is idempotent AND completes the DR-7 retirement: a second
-//      invocation still exits 0, the SessionStart binding is gone (removed by
-//      `retired-hooks-present`, the launcher is now the lifecycle authority),
-//      and the SubagentStop binding still numbers exactly one (DR-8
-//      acceptance: "exactly one hook registration", now scoped to the
-//      binding DR-7 retains rather than the one it retires).
-//
-// Environment note: the exact set of *applied* reconcile steps varies with the
-// host's doctor state (e.g. whether MCP is already registered), so this smoke
-// deliberately asserts the STABLE guarantees (exit code + binding counts)
-// rather than the volatile `applied` step list.
-//
-// Hermeticity: every test wraps its work in `withHermeticEnv`, which sets `HOME`
-// to a per-test tmp dir and provides an isolated, git-init'd `gitDir` we run
-// onboard against — so onboard never reads or writes the real repo or `$HOME`.
+/**
+ * Process tests for `exarchos onboard --runtime claude`, run as the installed binary.
+ * They assert only the stable results: the exit code and the hook binding counts in `<home>/.claude/settings.json`.
+ * The list of applied steps changes with the doctor state of the host, so the tests do not read it.
+ * `withHermeticEnv` gives each test a temporary `HOME` and a new git repository, so `onboard` touches no real one.
+ */
 
 import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -45,9 +11,7 @@ import * as path from 'node:path';
 import { withHermeticEnv } from '../../helpers/hermetic.js';
 import { runCli } from '../../helpers/cli-runner.js';
 
-// Onboard runs detect → config → generate → install → verify. With no network
-// install step firing in the hermetic env it completes in well under a second,
-// but 60s gives ample headroom for a cold binary + slow CI runner.
+/** The time limit of one `onboard` run. It leaves room for a cold binary on a slow CI runner. */
 const ONBOARD_TIMEOUT_MS = 60_000;
 
 interface OnboardProbeResult {
@@ -57,9 +21,8 @@ interface OnboardProbeResult {
 }
 
 /**
- * Drive `exarchos onboard --runtime claude` against an isolated git repo with a
- * hermetic `HOME`. `--runtime claude` short-circuits agent-host detection so the
- * run is deterministic regardless of what the runner happens to have configured.
+ * Runs `exarchos onboard --runtime claude` in `cwd` with `HOME` set to `homeDir`.
+ * `--runtime claude` bypasses the agent-host probe, so the result does not depend on the runner configuration.
  */
 async function runOnboard(homeDir: string, cwd: string): Promise<OnboardProbeResult> {
   const result = await runCli({
@@ -76,9 +39,8 @@ async function runOnboard(homeDir: string, cwd: string): Promise<OnboardProbeRes
 }
 
 /**
- * Count bindings for a given hook `event` in `<home>/.claude/settings.json`
- * whose command carries `marker`. Returns 0 when the file is absent or carries
- * no matching binding.
+ * Counts the `event` hooks in `<home>/.claude/settings.json` whose command contains `marker`.
+ * An absent file gives 0.
  */
 async function bindingCount(homeDir: string, event: string, marker: string): Promise<number> {
   const settingsPath = path.join(homeDir, '.claude', 'settings.json');
@@ -109,6 +71,7 @@ const subagentStopBindingCount = (homeDir: string): Promise<number> =>
   bindingCount(homeDir, 'SubagentStop', 'exarchos subagent-stop');
 
 describe('exarchos onboard --runtime claude (process-fidelity smoke)', () => {
+  /** A first run must exit 0 and leave exactly one SubagentStop binding, which feeds token attribution. */
   it(
     'onboard_runtimeClaude_exitsZeroAndInstallsSubagentStopHook',
     async () => {
@@ -134,6 +97,10 @@ describe('exarchos onboard --runtime claude (process-fidelity smoke)', () => {
     ONBOARD_TIMEOUT_MS + 10_000,
   );
 
+  /**
+   * After a second run, no SessionStart binding and exactly one SubagentStop binding must stay.
+   * The `retired-hooks-present` step removes the SessionStart directive, because the launcher owns the session lifecycle.
+   */
   it(
     'onboard_idempotent_secondRunRetiresSessionStartAndKeepsSubagentStop',
     async () => {

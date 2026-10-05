@@ -1,19 +1,17 @@
 /**
- * T2 governance tier — the *evidence provenance* chain: who may PRODUCE
- * governance evidence, what the produced record is bound to, and how the
- * frozen coordinate that selected the gate is preserved.
+ * Governance tier: the evidence provenance chain.
+ * It covers who can produce governance evidence, what the record binds to, and how the frozen coordinate survives.
  *
- * DR-28: every assertion is driven through the REAL public root (`dispatch()`)
- * against the production composition root. Each test owns its harness
- * lifecycle because `initializeContext` binds process-level state-store
- * globals — two live harnesses would fight over them.
+ * Each test drives the real `dispatch()` against the production composition root.
+ * Each test owns the lifecycle of its harness, because `initializeContext` binds process-level globals of the state store.
+ * Two live harnesses conflict.
  *
- * Criteria covered here (each with a BLOCKING arm and its NEGATIVE TWIN):
- *   DR-2   the governed cannot supply governance (evidence production is
- *          capability-gated, and the signal is minted from the persisted record)
- *   DR-3   the frozen `riskTier` reaches the gate
- *   DR-4   degraded is never served as success
- *   DR-10  monotonic frozen resolution
+ * Each criterion has a BLOCKING ARM and its NEGATIVE TWIN:
+ * - The governed cannot supply governance. Evidence production needs a trusted caller, and the signal comes from the persisted record.
+ * - The frozen `riskTier` reaches the gate.
+ * - The frozen resolution is monotonic.
+ *
+ * `tests/unit/projections/fold-at-tail.test.ts` covers the degraded-projection marker, so no case here covers it.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -43,9 +41,8 @@ function data(obs: DispatchObservation): Rec {
 }
 
 /**
- * One live harness at a time: `initializeContext` rebinds the module-level
- * state-store backend, so a second concurrent harness would invalidate the
- * first. Create → use → dispose, strictly sequentially.
+ * Creates a harness, runs `body`, and disposes the harness.
+ * Only one harness can be live, because `initializeContext` rebinds the module-level backend of the state store.
  */
 async function withHarness<T>(
   options: HarnessOptions,
@@ -59,7 +56,7 @@ async function withHarness<T>(
   }
 }
 
-/** A real git repository whose feature branch adds production code and NO tests. */
+/** Makes a real git repository. Its feature branch adds production code and no tests. */
 async function makeGitFixture(): Promise<string> {
   const repo = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-t2-git-')));
   scratchDirs.push(repo);
@@ -98,15 +95,9 @@ afterAll(async () => {
 
 describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () => {
   /**
-   * DR-2: producing governance evidence is capability-gated. An anonymous
-   * dispatch caller — the shape a governed agent gets when it has not been
-   * granted an identity — cannot mint evidence for itself.
-   *
-   * BLOCKING arm: no caller identity ⇒ the SPECIFIC `TRUSTED_CALLER_REQUIRED`
-   * refusal, and the durable stream gains NO evidence row (the refusal is not
-   * "ran it and hid the answer").
-   * NEGATIVE TWIN: the identical call with an identified caller produces the
-   * evidence row.
+   * Evidence production needs a trusted caller. An anonymous caller cannot mint evidence for itself.
+   * BLOCKING ARM: without a caller identity, the call gets `TRUSTED_CALLER_REQUIRED`, and the stream gains no evidence row and no `gate.executed`.
+   * NEGATIVE TWIN: the identical call with an identified caller appends the evidence row.
    */
   it('Governance_Dr2_EvidenceProduction_RequiresTrustedCaller', async () => {
     const featureId = 'gov-t2-untrusted';
@@ -120,7 +111,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       boundaryTouching: true,
     };
 
-    // ── BLOCKING ARM: anonymous caller ────────────────────────────────────
     await withHarness({}, async (h) => {
       expect(h.ctx.callerIdentity).toBeUndefined();
       await h.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
@@ -139,7 +129,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       expect(types).not.toContain('gate.executed');
     });
 
-    // ── NEGATIVE TWIN: an identified caller ───────────────────────────────
     await withHarness(
       { overrides: { callerIdentity: deriveMcpCallerIdentity({ sessionId: 'gov-t2-session' }) } },
       async (h) => {
@@ -161,27 +150,14 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
   }, 300_000);
 
   /**
-   * DR-2, provenance half: the signal `task_complete` reads is MINTED FROM the
-   * persisted evidence record, so proof and signal cannot disagree.
+   * The signal that `task_complete` reads comes from the persisted evidence record, so proof and signal cannot disagree.
+   * The test asserts a three-way identity of the evidence id: the handler payload, the `admission.evidence-recorded` row, and `gate.executed.details`.
+   * The record names the producer, and the gate runner is the source of the signal.
    *
-   * This is also the tier's ANTI-SHALLOWNESS assertion: it does not check that
-   * "an envelope came back". It checks a three-way identity between values
-   * that a generic well-formed envelope simply does not contain — the handler
-   * payload's `evidenceReferences[0].evidenceId`, the `admission.evidence-recorded`
-   * row's `evidence.evidenceId`, and `gate.executed.details.evidenceId` — plus
-   * the producer's source string.
-   *
-   * BLOCKING arm: a blocked (`fail`) verdict mints `passed: false`.
-   * NEGATIVE TWIN: a POLICY-SKIPPED run on the same chain mints an
-   * `indeterminate` signal — non-blocking in the carrier, but never proof.
-   *
-   * The twin used to assert that this arm minted `passed: true` / `verdict:
-   * 'pass'`. That was the DR-7 defect written down as the contract: the low-tier
-   * arm is a policy SKIP, the gate never ran, and it was manufacturing durable
-   * proof for it. Both arms now show the same underlying property from opposite
-   * sides — `signal.passed === (persisted.verdict === 'pass')` — across three
-   * distinct verdicts, and the twin additionally pins that a skip is
-   * DISTINGUISHABLE from a run rather than silently equal to a pass.
+   * BLOCKING ARM: a `fail` verdict mints a signal with `passed: false`.
+   * NEGATIVE TWIN: a policy-skipped run on the same chain returns `passed: true` in the payload, but mints an `indeterminate` signal with `passed: false`.
+   * Thus a gate that did not run is distinguishable from a gate that passed.
+   * In both arms, `signal.passed` equals `persisted.verdict === 'pass'`.
    */
   it('Governance_Dr2_GateSignal_MintedFromPersistedEvidenceRecord', async () => {
     const featureId = 'gov-t2-provenance';
@@ -215,30 +191,23 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
         const recorded = events.filter((e) => e.type === 'admission.evidence-recorded');
         expect(recorded).toHaveLength(1);
         const persisted = (recorded[0]?.data as Rec).evidence as Rec;
-        // (1) the payload's claim IS the persisted record.
         expect(persisted.evidenceId).toBe(claimedId);
         expect((persisted.subject as Rec).taskId).toBe('T-prov');
-        // The producer is named, and it is not the caller.
         expect(String((persisted.producer as Rec).providerRef)).toBe('check_test_adequacy');
 
         const signals = events.filter((e) => e.type === 'gate.executed');
         expect(signals).toHaveLength(1);
         const signal = signals[0]?.data as Rec;
         const details = signal.details as Rec;
-        // (2) the signal is bound to the SAME persisted record …
         expect(details.evidenceId).toBe(claimedId);
-        // … and (3) minted by the gate runner, not by the caller.
         expect(String(signals[0]?.source)).toMatch(/^gate-runner\/v1\//);
         expect(details.taskId).toBe('T-prov');
 
-        // ── BLOCKING ARM: a non-pass verdict mints a non-pass signal ─────
         expect(details.verdict).toBe('fail');
         expect(signal.passed).toBe(false);
         expect(data(run).passed).toBe(false);
-        // proof and signal agree, by construction
         expect(signal.passed).toBe(persisted.verdict === 'pass');
 
-        // ── NEGATIVE TWIN: a policy-SKIPPED run on the same chain ─────────
         const skipped = await h.runAction(
           'exarchos_orchestrate',
           'check_test_adequacy',
@@ -253,8 +222,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
           },
           { timeoutMs: 180_000 },
         );
-        // The CARRIER stays non-blocking — the ladder does not stop for a gate
-        // its own policy excluded.
         expect(data(skipped).passed).toBe(true);
         expect(data(skipped).skipped).toBe(true);
 
@@ -264,16 +231,11 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
           .filter((d) => (d.details as Rec).taskId === 'T-prov-low');
         expect(twinSignals).toHaveLength(1);
         const twinDetails = twinSignals[0]?.details as Rec;
-        // …but the durable SIGNAL records that nothing was verified, and says
-        // why. This is what makes a gate that did not run distinguishable from
-        // one that passed — the property the fail arm above cannot show.
         expect(twinSignals[0]?.passed).toBe(false);
         expect(twinDetails.verdict).toBe('indeterminate');
         expect(twinDetails.skipped).toBe(true);
         expect(typeof twinDetails.discriminant).toBe('string');
 
-        // The same construction-level identity as the blocking arm, on a third
-        // verdict: the signal's `passed` is the persisted verdict, nothing else.
         const twinRecord = (await h.events(featureId))
           .filter((e) => e.type === 'admission.evidence-recorded')
           .map((e) => (e.data as Rec).evidence as Rec)
@@ -285,15 +247,13 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
   }, 300_000);
 
   /**
-   * DR-3: the frozen `riskTier` REACHES the gate and changes its decision.
+   * The frozen `riskTier` reaches the gate and changes its decision.
+   * BLOCKING ARM: at `riskTier: 'high'`, a diff with no new tests gets `disposition: 'blocked'` and a report that names the tier.
+   * NEGATIVE TWIN: at `riskTier: 'low'`, the identical diff is a policy skip, and the reason echoes the tier and `boundaryTouching`.
+   * If the tier does not reach the gate, both arms return the same verdict.
    *
-   * BLOCKING arm: `riskTier: 'high'` on a diff that adds no tests ⇒ the gate
-   * refuses with `disposition: 'blocked'`, `passed: false`, and a report that
-   * names the tier as the reason.
-   * NEGATIVE TWIN: the identical diff at `riskTier: 'low'` is a policy skip —
-   * `passed: true`, with a reason that echoes the tier it was resolved for.
-   * (If the tier did not reach the gate, both arms would return the same
-   * verdict — which is exactly what the kill probe removes.)
+   * Both task runbooks declare the coordinate as template variables and bind it into the params of a step.
+   * The test also applies the predicate to a stripped copy, so a predicate that always reports no gap fails.
    */
   it('Governance_Dr3_FrozenRiskTier_ReachesTheGate', async () => {
     const featureId = 'gov-t2-risk-tier';
@@ -308,7 +268,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
           baseBranch: 'main',
         };
 
-        // ── BLOCKING ARM ──────────────────────────────────────────────────
         const high = await h.runAction(
           'exarchos_orchestrate',
           'check_test_adequacy',
@@ -322,7 +281,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
         expect(String(data(high).report)).toContain('the high tier requires a kill probe');
         expect(data(high).skipped).toBeFalsy();
 
-        // ── NEGATIVE TWIN ─────────────────────────────────────────────────
         const low = await h.runAction(
           'exarchos_orchestrate',
           'check_test_adequacy',
@@ -333,19 +291,11 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
         expect(data(low).passed).toBe(true);
         expect(data(low).skipped).toBe(true);
         expect(data(low).discriminant).toBe('skipped-by-policy');
-        // The gate echoes the coordinate it was resolved AT — proof the frozen
-        // tier travelled all the way in, rather than being defaulted locally.
         expect(String(data(low).reason)).toContain("riskTier='low'");
         expect(String(data(low).reason)).toContain('boundaryTouching=true');
 
-        // The two arms differ ONLY in the coordinate.
         expect(data(high).passed).not.toBe(data(low).passed);
 
-        // DR-3 (runbook half): the coordinate is a first-class runbook input on
-        // BOTH task runbooks — declared as templateVars AND bound into the gate
-        // steps' params, so no step is expected to re-derive it. The predicate
-        // is applied to a deliberately-stripped copy too, so a predicate that
-        // always says "fine" cannot pass this.
         interface Step {
           readonly action?: string;
           readonly params?: Record<string, unknown>;
@@ -373,7 +323,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
           expect(missingCoordinate(templateVars, steps)).toEqual([]);
         }
 
-        // The detector really detects.
         expect(missingCoordinate([], [{ action: 'check_test_adequacy', params: {} }])).toEqual([
           'templateVar:riskTier',
           'param:riskTier',
@@ -384,29 +333,15 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
     );
   }, 300_000);
 
-  // A `Governance_Dr4_DegradedProjection_IsNeverServedAsSuccess` case sat here.
-  // It injected a `projection.degraded` marker on `meta/projection-health` and
-  // required the next `exarchos_workflow get` to refuse with
-  // PROJECTION_DEGRADED. That is the contract this action-admission work was
-  // originally written against, and it is no longer the shipped one: a durable
-  // marker is a point-in-time observation, not a current fact about the stream,
-  // so a read that can prove its own coverage folds forward and answers instead
-  // of deferring to it. The claim that replaced it — same injected numbers,
-  // opposite verdict — is asserted directly at the seam by
-  // `tests/unit/projections/fold-at-tail.test.ts >
-  // FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream`, so the
-  // question is still covered rather than merely dropped.
   /**
-   * DR-10: frozen resolution is MONOTONE. Once a phase attempt has been
-   * resolved at a coordinate, re-entering that phase may raise the coordinate
-   * but never weaken it.
+   * The frozen resolution is monotonic: a re-entry of a phase can raise the coordinate but never weaken it.
+   * `runCycle` freezes `plan-review` at `first`, goes back to `plan`, and freezes again at `second`.
+   * The state does change to `second`, so only the freeze refuses a weaker coordinate.
    *
-   * BLOCKING arm: freeze at `high`, then lower the state's `riskTier` to `low`
-   * and re-enter the same phase — the newly frozen `phase.entered` still
-   * records `high` and still carries the full gate set.
-   * NEGATIVE TWIN: an identical workflow frozen at `low` that is later RAISED
-   * to `high` does record `high` — so the blocking arm's `high` is a decision,
-   * not a hard-coded constant.
+   * BLOCKING ARM: frozen at `high` and then lowered to `low`, each `phase.entered` still records `high`, and the last keeps the gate set.
+   * NEGATIVE TWIN: frozen at `low` and then raised to `high`, the last `phase.entered` records `high`, so the first `high` is a decision.
+   *
+   * An absent coordinate fails safe: the frozen `riskTier` is `unknown`, not `low`, and `boundaryTouching` is true.
    */
   it('Governance_Dr10_FrozenResolution_IsMonotonic', async () => {
     await withHarness({}, async (h) => {
@@ -427,7 +362,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
             };
           });
 
-      /** Freeze `plan-review` at `first`, revise back to `plan`, re-freeze at `second`. */
       const runCycle = async (
         featureId: string,
         first: { riskTier: string; boundaryTouching: boolean },
@@ -459,7 +393,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
           updates: { ...second },
         });
         expect(changed.result?.success).toBe(true);
-        // The *state* really did change — the freeze is what refuses to follow.
         const readBack = await h.runAction('exarchos_workflow', 'get', { featureId });
         expect(data(readBack).riskTier).toBe(second.riskTier);
 
@@ -471,7 +404,6 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
         return frozenEntries(featureId);
       };
 
-      // ── BLOCKING ARM: a weakening is ignored ──────────────────────────
       const weakened = await runCycle(
         'gov-t2-monotonic-weaken',
         { riskTier: 'high', boundaryTouching: true },
@@ -479,11 +411,9 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       );
       expect(weakened).toHaveLength(3);
       expect(weakened.map((f) => f.riskTier)).toEqual(['high', 'high', 'high']);
-      // …and the gate set frozen at the raised coordinate is preserved too.
       expect(weakened[2]?.gates).toEqual(weakened[0]?.gates);
       expect((weakened[0]?.gates ?? []).length).toBeGreaterThan(0);
 
-      // ── NEGATIVE TWIN: a raise IS honoured ────────────────────────────
       const raised = await runCycle(
         'gov-t2-monotonic-raise',
         { riskTier: 'low', boundaryTouching: false },
@@ -492,15 +422,13 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
       expect(raised).toHaveLength(3);
       expect(raised.map((f) => f.riskTier)).toEqual(['low', 'low', 'high']);
 
-      // DR-10 criterion 1: an ABSENT coordinate fails safe — it never
-      // collapses to `low`, and `boundaryTouching` defaults to true.
       const unknownId = 'gov-t2-unknown-tier';
       await h.runAction('exarchos_workflow', 'init', {
         featureId: unknownId,
         workflowType: 'feature',
       });
       const stateRead = await h.runAction('exarchos_workflow', 'get', { featureId: unknownId });
-      expect(data(stateRead).riskTier ?? null).toBeNull(); // nothing was stated
+      expect(data(stateRead).riskTier ?? null).toBeNull();
       await h.runAction('exarchos_workflow', 'update', {
         featureId: unknownId,
         updates: { artifacts: { plan: 'docs/specs/unknown.md' } },
@@ -520,7 +448,7 @@ describe('T2 governance — evidence provenance (DR-2, DR-3, DR-4, DR-10)', () =
     });
   }, 180_000);
 
-  /** The tier's own anti-stub invariant; the returned list is asserted. */
+  /** The anti-stub invariant of this tier. The test asserts the returned list. */
   it('Governance_EvidenceTier_DrivesRealCompositeHandlers', async () => {
     await withHarness({}, async (h) => {
       await h.runAction('exarchos_workflow', 'get', { featureId: 'gov-t2-degraded' });

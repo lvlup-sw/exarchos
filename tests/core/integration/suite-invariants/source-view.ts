@@ -1,22 +1,18 @@
-// ─── Source views: code vs. comments vs. string literals ────────────────────
+// Source views: code, comments and string literals.
 //
-// Every detector in this directory needs to distinguish "this token appears in
-// the executable code" from "this token appears in a comment" from "this token
-// appears inside a string literal". Grepping the raw text conflates all three,
-// which is exactly how a shape matcher ends up matching a *description* of the
-// shape in a docblock instead of the shape itself — and how the meta-test
-// would quietly become the thing it exists to catch.
+// Each detector in this directory must know if a token is in executable code,
+// in a comment or in a string literal. A search of the raw text cannot tell the
+// three apart. Then a shape matcher matches a description of the shape in a
+// comment.
 //
-// `sourceViews()` runs ONE pass and returns three strings of EXACTLY the same
-// length as the input, each with the other two categories blanked out
-// (newlines always preserved). Offsets therefore agree across all views, so a
-// match found in one can be located in the others.
+// `sourceViews()` makes one pass and returns three strings of the same length
+// as the input. Each string keeps one category and blanks the other two.
+// Newlines stay. Thus an offset in one view is valid in the other views.
 //
-// This is a lexer, not a parser. It does not need to be a full TypeScript
-// tokenizer: it needs to be conservative and deterministic. Its limits are
-// stated in `LIMITATIONS.md`.
+// This module is a lexer, not a TypeScript parser. `LIMITATIONS.md` states its
+// limits.
 
-/** Characters that may legally precede a regex literal (vs. a division op). */
+/** A `/` that comes after one of these characters can start a regex literal. */
 const REGEX_PRECEDERS = new Set([
   '(',
   ',',
@@ -42,11 +38,11 @@ const REGEX_PRECEDERS = new Set([
 ]);
 
 export interface SourceViews {
-  /** Executable code; comments and string/template/regex bodies blanked. */
+  /** Executable code. Comments and the bodies of string, template and regex literals are blank. */
   readonly code: string;
-  /** Comment text only; code and string bodies blanked. */
+  /** Comment text only. */
   readonly comments: string;
-  /** String / template literal bodies only; everything else blanked. */
+  /** The bodies of string, template and regex literals only. */
   readonly strings: string;
 }
 
@@ -62,7 +58,11 @@ function lastMeaningfulCategoryChar(src: string, cat: Category[], upto: number):
   return '\n';
 }
 
-/** Classify every character of `src` as code / comment / string. */
+/**
+ * Puts each character of `src` in the code, comment or string category.
+ * The delimiters of a literal stay code, so an empty literal stays visible in
+ * the code view.
+ */
 export function classify(src: string): Category[] {
   const cat: Category[] = new Array<Category>(src.length).fill('code');
   const mark = (from: number, to: number, c: Category): void => {
@@ -99,7 +99,7 @@ export function classify(src: string): Category[] {
         if (src[j] === c || src[j] === '\n') break;
         j += 1;
       }
-      mark(i + 1, j, 'string'); // quotes stay 'code' so `''` is still visible
+      mark(i + 1, j, 'string');
       i = Math.min(src.length, j + 1);
       continue;
     }
@@ -178,10 +178,9 @@ export function sourceViews(src: string): SourceViews {
 }
 
 /**
- * Code with string-literal BODIES restored, comments still blanked. Needed by
- * any rule whose subject is itself a string — a module specifier in a
- * `vi.mock(...)` call, or a verdict value like `'could-not-run'` — because the
- * plain code view blanks exactly those characters.
+ * Returns the code with the bodies of string literals kept and the comments
+ * blank. A rule whose subject is a string needs this view. Examples are a
+ * module specifier in a `vi.mock(...)` call and the verdict value `'could-not-run'`.
  */
 export function codeAndStrings(src: string): string {
   const cat = classify(src);
@@ -193,7 +192,7 @@ export function codeAndStrings(src: string): string {
   return out.join('');
 }
 
-/** 1-based line number of a character offset. */
+/** Returns the 1-based line number of a character offset. */
 export function lineOf(src: string, offset: number): number {
   let line = 1;
   const stop = Math.min(offset, src.length);

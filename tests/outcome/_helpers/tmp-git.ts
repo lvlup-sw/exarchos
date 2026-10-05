@@ -6,25 +6,24 @@ import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 
 /**
- * Run `git -C <repo> <args>` with arguments passed as an array so no shell
- * interpretation occurs. Mirrors the `execSync` ergonomics callers expect
- * (utf8 stdout, rejects on non-zero exit) but is safe against paths or
- * branch names containing shell metacharacters.
+ * Runs `git -C <repo> <args>` and returns stdout. It rejects on a non-zero exit. The arguments go
+ * as an array, so no shell reads a path or a branch name.
  */
 function git(repo: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', ['-C', repo, ...args]);
 }
 
 /**
- * Run `fn` with a freshly-initialized git repo at a tmpdir. The repo has a
- * configured `user.email`/`user.name`, a `main` branch, and a single empty
- * initial commit. The tmpdir (plus any sibling worktrees added via
- * `addSiblingWorktree`) is removed after `fn` resolves or throws.
+ * Runs `fn` with a new git repo in a temp directory. The repo has `user.email` and `user.name` set,
+ * a `main` branch, and one empty commit.
+ *
+ * After `fn` resolves or throws, the helper removes each sibling worktree first and then the repo,
+ * so the worktree metadata stays clean. Cleanup is best-effort. A failure goes to stderr and does
+ * not throw, so a leaked directory is visible.
  */
 export async function withTmpGit<T>(fn: (repoPath: string) => Promise<T>): Promise<T> {
   const repo = fs.mkdtempSync(path.join(os.tmpdir(), 'exarchos-outcome-git-'));
   const siblings: string[] = [];
-  // Track siblings created during the callback so cleanup is exhaustive.
   const originalPush = siblings.push.bind(siblings);
   const tracker = {
     push: originalPush,
@@ -36,16 +35,10 @@ export async function withTmpGit<T>(fn: (repoPath: string) => Promise<T>): Promi
     await git(repo, ['config', 'user.name', 'test']);
     await git(repo, ['commit', '--allow-empty', '-m', 'init']);
 
-    // Stash tracker on a process-wide map keyed by repo path so
-    // `addSiblingWorktree` can register cleanups without callers threading
-    // state.
     SIBLING_REGISTRY.set(repo, tracker);
 
     return await fn(repo);
   } finally {
-    // Remove any sibling worktrees first so `git worktree` metadata is clean.
-    // Cleanup is best-effort, but surface failures on stderr so flaky outcome
-    // tests are debuggable instead of silently leaking tmpdirs / worktree refs.
     for (const sib of siblings) {
       try {
         await execFileAsync('git', ['-C', repo, 'worktree', 'remove', '--force', sib]);
@@ -77,20 +70,19 @@ interface SiblingTracker {
   push: (value: string) => number;
 }
 
+/**
+ * Maps a repo path to the tracker of its sibling worktrees, for the whole process.
+ * `addSiblingWorktree` records each sibling here, so `withTmpGit` can remove it and the caller
+ * passes no extra state.
+ */
 const SIBLING_REGISTRY = new Map<string, SiblingTracker>();
 
 /**
- * Create a sibling worktree of `repoPath` checked out on a new branch
- * `branchName`. The sibling lives outside `repoPath/.git` so `git worktree
- * remove` works cleanly. Returns the absolute path of the new worktree.
+ * Adds a worktree of `repoPath` on the new branch `branchName` and returns its absolute path. The
+ * worktree is a sibling directory of the repo, at `<repoPath>-wt-<branchName>`.
  *
- * Branch names commonly contain slashes (`feature/source`), so the sibling
- * path acquires a subdirectory segment. Some git versions auto-create
- * intermediate dirs for `worktree add`, but the behavior isn't documented
- * as contractual — pre-create the parent so the test's setup is robust
- * across platforms / git versions. This matters because the seed outcome
- * tests on the substrate branch run under `it.fails`, where a silent
- * setup failure would mask the actual trigger condition under test.
+ * A branch name can hold a slash, which puts the worktree in a subdirectory. The function creates
+ * the parent directory first, so the result does not depend on the git version.
  */
 export async function addSiblingWorktree(
   repoPath: string,

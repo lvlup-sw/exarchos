@@ -17,13 +17,10 @@ import {
 } from '../../../tools/audit/core/cli-derivation-guard.js';
 import { getFullRegistry } from '../../../src/registry.js';
 
-// ─── Synthetic-surface helpers ────────────────────────────────────────────────
-//
-// The guard's detection logic is pure over a `CliSurface`. We drive it directly
-// with planted surfaces so the FAIL path is exercised without mutating the real
-// registry, and we also build a small Commander program to prove `extractCliSurface`
-// walks names, aliases, and flags the way `buildCli` produces them.
-
+/**
+ * Builds a `CliSurface` from planted verbs and flags. The detection logic is pure over a
+ * `CliSurface`, so these tests reach the FAIL path with no change to the real registry.
+ */
 function surface(
   verbs: { path: string; token: string }[],
   flags: { path: string; token: string }[] = [],
@@ -31,11 +28,12 @@ function surface(
   return { verbs, flags };
 }
 
+/** Each case passes an empty exception set, so nothing excuses the banned token. */
 describe('cli-vocab-guard: findVocabViolations (FAIL path)', () => {
   it('flags a banned verb alias (`info`) with its canonical replacement', () => {
     const violations = findVocabViolations(
       surface([{ path: 'exarchos wf info', token: 'info' }]),
-      new Set(), // no exceptions — prove the ban bites
+      new Set(),
     );
     expect(violations).toHaveLength(1);
     expect(violations[0]).toMatchObject({
@@ -104,6 +102,7 @@ describe('cli-vocab-guard: findVocabViolations (FAIL path)', () => {
 });
 
 describe('cli-vocab-guard: findVocabViolations (PASS path)', () => {
+  /** `--skip-tests` skips a build step and is not a confirmation bypass, so it must not be a violation. */
   it('passes a surface using only canonical vocabulary', () => {
     const violations = findVocabViolations(
       surface(
@@ -115,7 +114,6 @@ describe('cli-vocab-guard: findVocabViolations (PASS path)', () => {
         [
           { path: 'exarchos wf get --json', token: '--json' },
           { path: 'exarchos wf cancel --force', token: '--force' },
-          // `--skip-tests` is a build-step skip, NOT a confirmation bypass — must not trip.
           { path: 'exarchos orch create_pr --skip-tests', token: '--skip-tests' },
         ],
       ),
@@ -145,6 +143,11 @@ describe('cli-vocab-guard: findVocabViolations (PASS path)', () => {
 });
 
 describe('cli-vocab-guard: extractCliSurface', () => {
+  /**
+   * A small Commander program shows that `extractCliSurface` reads the tree that `buildCli` makes.
+   * The program root is not a verb. Names and aliases are verbs. Each flag has the path of the
+   * command that declares it.
+   */
   it('walks command names, aliases, and long flags (skipping the program root)', () => {
     const program = new Command('exarchos');
     const wf = program.command('workflow').alias('wf');
@@ -155,11 +158,8 @@ describe('cli-vocab-guard: extractCliSurface', () => {
     const { verbs, flags } = extractCliSurface(program);
     const verbTokens = verbs.map((v) => v.token);
 
-    // Program root `exarchos` is not a verb.
     expect(verbTokens).not.toContain('exarchos');
-    // Names and aliases both appear.
     expect(verbTokens).toEqual(expect.arrayContaining(['workflow', 'wf', 'get', 'view', 'vw', 'pipeline', 'ls']));
-    // Flags carry their declaring command path.
     expect(flags).toEqual(
       expect.arrayContaining([
         { path: 'exarchos workflow get', token: '--json' },
@@ -170,46 +170,20 @@ describe('cli-vocab-guard: extractCliSurface', () => {
 });
 
 describe('cli-vocab-guard: live CLI surface', () => {
-  // This is the contract the guard protects: the real rendered surface must use
-  // canonical vocabulary (modulo tracked KNOWN_EXCEPTIONS). If anyone introduces
-  // a NEW banned verb/flag, this assertion goes red — which is exactly the
-  // regression `cli:vocab-guard` exists to catch in CI.
+  /**
+   * The contract that the guard protects: the real rendered surface uses canonical vocabulary,
+   * except for the tracked `KNOWN_EXCEPTIONS`. A new banned verb or flag fails this test. The
+   * `cli:vocab-guard` gate catches the same regression in CI.
+   */
   it('the current rendered CLI surface has no un-excepted vocabulary violations', () => {
     const violations = findLiveCliViolations();
     expect(violations).toEqual([]);
   });
 });
 
-// ════════════════════════════════════════════════════════════════════════════
-// DR-5 / G1 SELF-TEST (task 022) — the guard measures DERIVATION, not VOCABULARY
-// ════════════════════════════════════════════════════════════════════════════
-//
-// This suite lives beside `cli-vocab-guard` deliberately: the gap being closed
-// is THIS guard's. `cli-vocab-guard` walks the rendered Commander surface and
-// asks what each token IS. That question cannot distinguish a command whose name
-// was baked into the composition root by hand from one the registry supplied,
-// because the rendered tree records no provenance — `.command('wait')` and
-// `.command(commandName)` produce byte-identical nodes.
-//
-// So the self-test builds a hand-written command whose vocabulary is ENTIRELY
-// CLEAN and shows the two guards disagree about it:
-//
-//   - its NAME is a registry declaration (`cli.topLevel`), read out of the live
-//     registry rather than invented here;
-//   - its FLAGS are the canonical tokens `cli-vocab-guard` itself prescribes,
-//     read out of the guard's own output rather than transcribed;
-//   - `cli-vocab-guard` passes it with ZERO exceptions granted;
-//   - `cli-derivation-guard` REJECTS it, because it is hand-written.
-//
-// A guard that passed this command would be measuring vocabulary — the defect
-// this wave has now recorded seven times. The assertions below are written so
-// that any name-based, token-based or tree-based reformulation of the derivation
-// predicate turns this suite red.
-
 /**
- * The seeded command's NAME. Written down here by hand — the second authority.
- * The registry is the first; the two are asserted to agree below, so a rename in
- * either place is a disagreement rather than a silent drift.
+ * The name of the seeded command, written by hand as the second authority. The registry is the
+ * first. The self-test asserts that the registry declares this name, so a rename on one side fails.
  */
 const SELF_TEST_COMMAND_NAME = 'wait';
 
@@ -250,27 +224,38 @@ function governedSourceRelPath(): string {
   return rel;
 }
 
+/**
+ * `cli-vocab-guard` walks the rendered Commander tree and reads each token. That tree records no
+ * provenance: `.command('wait')` and `.command(commandName)` give identical nodes. Thus the
+ * vocabulary guard cannot find a command name that is hand-written in the composition root.
+ *
+ * The self-test builds a hand-written command with clean vocabulary. Its name is a `cli.topLevel`
+ * declaration in the live registry, and its flags are the canonical tokens that the vocabulary
+ * guard prescribes. `cli-vocab-guard` passes it with no exception, and `cli-derivation-guard`
+ * rejects it.
+ */
 describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-5)', () => {
+  /**
+   * `cli.ts` registers the name through a derived site. A twin built from the registry name gives
+   * the same surface, which is why the derivation guard reads source. The test seeds the command
+   * into the live `cli.ts` source and measures each count relative to the baseline scan. The seed
+   * must add exactly one literal and one violation.
+   *
+   * The decisive step rewrites only the argument of the one seeded call, from a string literal to
+   * an identifier. One site then moves from `literal` to `derived`, and the violation goes. A guard
+   * keyed on the name, the token or the rendered node cannot give both answers. The vocabulary
+   * guard reports nothing for the hand-written tree and for its twin.
+   */
   it('CliDerivationGuard_CleanVocabularyHandWrittenCommand_IsStillRejected', () => {
-    // ── 1. The name is a genuine registry declaration ────────────────────────
-    // Not a plausible-looking invention: `cli.ts` already registers this exact
-    // name through the DR-7 hoist loop, i.e. through `.command(commandName)` —
-    // a derived site. Anything asserted below is therefore about a name the
-    // registry owns.
     const declaredTopLevel = registryDeclaredTopLevelNames();
     expect(declaredTopLevel.length).toBeGreaterThan(0);
     expect(declaredTopLevel).toContain(SELF_TEST_COMMAND_NAME);
 
-    // ── 2. The flags are the vocabulary policy's own canonical tokens ────────
     const jsonFlag = canonicalReplacementFor('--format');
     const forceFlag = canonicalReplacementFor('--skip-confirmations');
     expect(jsonFlag).toBe('--json');
     expect(forceFlag).toBe('--force');
 
-    // ── 3. `cli-vocab-guard` PASSES the hand-written command ─────────────────
-    // Run for real over a rendered Commander tree, with an EMPTY exception set
-    // so nothing is excused. This is the "vocabulary is entirely clean" claim,
-    // established by the vocabulary guard itself rather than asserted in prose.
     const handWritten = new Command('exarchos');
     handWritten
       .command(SELF_TEST_COMMAND_NAME)
@@ -278,10 +263,6 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
       .option(forceFlag, 'Bypass the confirmation guard');
     expect(findVocabViolations(extractCliSurface(handWritten), new Set())).toEqual([]);
 
-    // ── 4. The rendered tree cannot tell the two apart ───────────────────────
-    // Build the SAME command from a name sourced out of the registry. The
-    // surfaces are identical, which is precisely why a tree-walking guard can
-    // never see this defect and why the derivation guard is source-level.
     const nameFromRegistry = declaredTopLevel.find((n) => n === SELF_TEST_COMMAND_NAME);
     if (nameFromRegistry === undefined) throw new Error('unreachable: membership asserted above');
     const derivedTwin = new Command('exarchos');
@@ -291,30 +272,15 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
       .option(forceFlag, 'Bypass the confirmation guard');
     expect(extractCliSurface(handWritten)).toEqual(extractCliSurface(derivedTwin));
 
-    // ── 5. `cli-derivation-guard` REJECTS it ─────────────────────────────────
-    // Seeded into the LIVE composition root's source, so the subject is the real
-    // `cli.ts` with one hand-written command added — not a synthetic file.
     const rel = governedSourceRelPath();
     const cliSource = readFileSync(path.join(REPO_ROOT, rel), 'utf8');
 
     const baseline = scanSourceForCommandSites(cliSource, rel);
-    // EVERY count here is DERIVED, never written down. The history of this block
-    // is the history of that lesson: task 022 pinned the literals at 11 with an
-    // empty allowlist; task 023 populated it and the VIOLATION count became 1;
-    // task 076 deleted the `merge-orchestrate` literal and the LITERAL count
-    // became 10 while violations became 0. Three correct changes, and each one
-    // would have broken a hard-coded number here. The claim this test makes is
-    // not any magnitude — it is that seeding a hand-written command MOVES the
-    // count by exactly one. So the baseline is measured, and every assertion
-    // below is relative to it.
     expect(baseline.literals.length).toBeGreaterThan(0);
     expect(baseline.derived.length).toBeGreaterThan(0);
     expect(baseline.indeterminate).toHaveLength(0);
 
     const baselineViolations = findDerivationViolations(baseline, readAllowlist());
-    // Zero as of task 076: the live tree is clean, which is why G1 could finally
-    // be wired blocking. Not asserted as `> 0` — that would demand the tree stay
-    // dirty. The delta below is what carries the claim.
     expect(baselineViolations.map((v) => v.name)).not.toContain(SELF_TEST_COMMAND_NAME);
 
     const handWrittenCall = `.command('${SELF_TEST_COMMAND_NAME}')`;
@@ -336,21 +302,11 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
     expect(reported[0]?.kind).toBe('literal');
     expect(reported[0]?.detail).toContain('bakes the command name into the composition');
 
-    // ── 6. THE DECISIVE ASSERTION ────────────────────────────────────────────
-    // Rewrite ONLY the seeded call's argument — string literal to identifier —
-    // and the verdict flips back to clean. Same command, same name, same flags,
-    // same file, same position; the single differing fact is HOW the name
-    // arrives. A guard keyed on the name, the token, or the rendered node cannot
-    // produce these two answers, so this is the assertion that fails if the
-    // derivation predicate is ever reformulated as a vocabulary check.
-    expect(seeded.split(handWrittenCall)).toHaveLength(2); // exactly one occurrence
+    expect(seeded.split(handWrittenCall)).toHaveLength(2);
     const derivedVariant = seeded.replace(handWrittenCall, '.command(topLevelName)');
     expect(derivedVariant).not.toBe(seeded);
 
     const derivedScan = scanSourceForCommandSites(derivedVariant, rel);
-    // The rewrite moves exactly ONE site from `literal` to `derived` and changes
-    // nothing else — stated relative to the seeded scan, not as transcribed
-    // totals, for the same reason as every other count in this block.
     expect(derivedScan.sites).toHaveLength(seededScan.sites.length);
     expect(derivedScan.literals).toHaveLength(seededScan.literals.length - 1);
     expect(derivedScan.derived).toHaveLength(seededScan.derived.length + 1);
@@ -358,10 +314,6 @@ describe('G1 self-test: a clean-vocabulary hand-written command still fails (DR-
     expect(derivedViolations).toHaveLength(baselineViolations.length);
     expect(derivedViolations.map((v) => v.name)).not.toContain(SELF_TEST_COMMAND_NAME);
 
-    // ── 7. And the vocabulary guard is unmoved by that same rewrite ──────────
-    // It reported nothing before and reports nothing after, because the fact
-    // that changed is invisible to it. The two guards measure different things,
-    // which is the whole content of DR-5's self-test criterion.
     expect(findVocabViolations(extractCliSurface(handWritten), new Set())).toEqual([]);
     expect(findVocabViolations(extractCliSurface(derivedTwin), new Set())).toEqual([]);
   });

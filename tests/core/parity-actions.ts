@@ -1,12 +1,8 @@
 /**
- * T045 — parity action table + per-action assertion helper.
- *
- * Keeps `parity.test.ts` declarative (data + a single for-loop) and
- * centralizes the invoke-both-arms-and-normalize flow here. Downstream
- * follow-ups that add a workflow action should add an entry to
- * {@link ACTION_TABLE}; the exhaustiveness sentinel in the test file
- * guarantees new actions surface as a named failure instead of silent
- * parity drift.
+ * The action table and the per-action assertion helper of the CLI and MCP parity gate, so
+ * `parity.test.ts` holds only the table loop. To cover one more workflow action, add its name to
+ * {@link WORKFLOW_ACTIONS} and a spec to {@link ACTION_TABLE}. The test file fails when the two
+ * lists differ.
  */
 
 import { expect } from 'vitest';
@@ -25,19 +21,14 @@ import {
   normalize as harnessNormalize,
 } from '../unit/parity-harness.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 /**
- * Canonical list of `exarchos_workflow` actions. Kept as a const so the
- * action-table's readonly spec type is exhaustive at the type level —
- * a new composite action will fail to compile here before it can silently
- * bypass the parity gate.
+ * The `exarchos_workflow` actions that the parity gate covers. The list is written by hand and
+ * does not read the registry. `as const` gives the {@link WorkflowAction} union, so a spec with
+ * another action name does not compile.
  */
 export const WORKFLOW_ACTIONS = [
   'init',
   'get',
-  // T5a.1/DR-4 (#1259, v2.11): `set` removed; `transition` is the
-  // canonical phase-mutation action and now anchors parity coverage.
   'transition',
   'cancel',
   'cleanup',
@@ -48,43 +39,30 @@ export const WORKFLOW_ACTIONS = [
 ] as const;
 export type WorkflowAction = (typeof WORKFLOW_ACTIONS)[number];
 
-/**
- * Descriptor for a single action's parity invocation.
- *
- * Data-only: keeping per-action specs as plain records (rather than
- * individual test functions) lets the driver loop iterate uniformly and
- * keeps the failure report shape consistent across actions.
- */
+/** The parity call of one action. A spec is a plain record, so one loop drives every action. */
 export interface ActionSpec {
   readonly action: WorkflowAction;
-  /**
-   * CLI sub-command alias (Commander command name). Most actions share
-   * their name with the MCP action; `get` is the exception (`wf status`).
-   */
+  /** The Commander command name. It equals the MCP action name, except that `get` is `status`. */
   readonly cliActionFlag: string;
   /**
-   * Args passed to both adapters. For the CLI arm, objects are
-   * JSON-stringified by the harness; for the MCP arm they flow through
-   * unchanged.
+   * The arguments for both adapters. For the CLI arm, the harness turns an object value into a
+   * JSON string. The MCP arm gets each value unchanged.
    */
   readonly args: Record<string, unknown>;
   /**
-   * When true, both arms are seeded with an `init` call before the target
-   * action runs — the action needs existing state to operate on. Seeding
-   * is done through the MCP dispatch path on each arm's own tmp state dir.
+   * When true, an `init` call seeds each arm before the target action, because the action needs
+   * existing state. The seed goes through MCP dispatch on the state directory of each arm.
    */
   readonly requiresInitSeed: boolean;
 }
 
-/** Fixture shape the test file threads into {@link assertActionParity}. */
+/** The fixture that the test file passes to {@link assertActionParity}. */
 export interface ParityFixture {
   readonly cliDir: string;
   readonly mcpDir: string;
   readonly cliCtx: DispatchContext;
   readonly mcpCtx: DispatchContext;
 }
-
-// ─── Fixture lifecycle ──────────────────────────────────────────────────────
 
 function makeCtx(stateDir: string): DispatchContext {
   return {
@@ -95,12 +73,8 @@ function makeCtx(stateDir: string): DispatchContext {
 }
 
 /**
- * Allocate two isolated tmp state dirs (CLI arm + MCP arm) wired up with
- * fresh EventStores and telemetry disabled. Paired with {@link teardownFixture}.
- *
- * Kept here (not in the test file) so the per-suite `beforeEach`/`afterEach`
- * collapse to a single line each — the test file's role is to express
- * coverage, not fiddle with lifecycle.
+ * Makes one temporary state directory for each arm, each with a fresh `EventStore` and with
+ * telemetry off. {@link teardownFixture} removes them.
  */
 export async function setupFixture(): Promise<ParityFixture> {
   const cliDir = await mkdtemp(path.join(tmpdir(), 'exarchos-parity-all-cli-'));
@@ -113,29 +87,19 @@ export async function setupFixture(): Promise<ParityFixture> {
   };
 }
 
-/**
- * Release the two tmp state dirs. Uses `force: true` so a crash mid-run
- * during a later test doesn't chain-fail subsequent cleanup.
- */
+/** Removes the two temporary state directories. */
 export async function teardownFixture(fixture: ParityFixture): Promise<void> {
   await rmrfAsync(fixture.cliDir);
   await rmrfAsync(fixture.mcpDir);
 }
 
-// ─── Normalization ──────────────────────────────────────────────────────────
-
 /**
- * Drop jitter / non-deterministic fields.
+ * Removes the values that differ between two runs.
  *
- * - `_perf` is dropped wholesale: `_perf.ms` is wall-clock measurement
- *   and the CLI and MCP arms run through different code paths (Commander
- *   vs direct dispatch), so durations naturally differ.
- * - Timestamps (ISO 8601) and UUIDs are placeholder-replaced (not dropped)
- *   so a shape-level mismatch (missing field vs. mistyped field) still
- *   surfaces as a diff.
- * - `minutesSinceActivity` is keyed out to `<MINUTES>`: the value is
- *   computed as `floor((now - activityTime) / 60_000)` and can cross a
- *   minute boundary between the two arm invocations on slow CI runners.
+ * - `_perf` goes, because the two arms take different code paths and their durations differ.
+ * - Timestamps and UUIDs become placeholders, so a missing field still shows as a diff.
+ * - `minutesSinceActivity` becomes `<MINUTES>`, because the value can cross a minute boundary
+ *   between the two calls.
  */
 function normalize(value: unknown): unknown {
   return harnessNormalize(value, {
@@ -144,28 +108,14 @@ function normalize(value: unknown): unknown {
   });
 }
 
-// ─── Action table ───────────────────────────────────────────────────────────
-
 /**
- * Minimal-valid-args table for every workflow action.
+ * One spec with small valid arguments for each covered action.
  *
- * Seeded actions (`requiresInitSeed: true`) are primed with an `init` call
- * on both arms before the target action runs. The args chosen for each
- * action exercise a success path through the handler:
- *
- *   - `cancel` with `dryRun: true` — avoids the compensation-event cascade
- *     (which would make the fixture a saga test, not a parity gate).
- *   - `cleanup` with `mergeVerified: true` + `dryRun: true` — likewise
- *     skips terminal-transition side effects while still returning the
- *     non-error envelope shape the gate asserts on.
- *   - `set` with an `artifacts.*` dotted-path update — hits the field-merge
- *     branch without firing an HSM phase transition (phase transitions
- *     bring in guard-dependent payloads that would dominate the diff).
- *   - `describe` with `actions: ['init']` — no feature id; returns schema
- *     catalog for the named action.
- *   - `rehydrate` requires the rehydration reducer to be registered with
- *     the default projection registry. The test file handles that via a
- *     side-effect import.
+ * - `cancel` uses `dryRun: true`, so the compensation runs in dry-run mode and the phase does not
+ *   change.
+ * - `cleanup` uses `mergeVerified: true` and `dryRun: true`, so the call makes no terminal
+ *   transition.
+ * - `describe` takes no feature id and returns the schema of the named action.
  */
 export const ACTION_TABLE: readonly ActionSpec[] = [
   {
@@ -181,11 +131,10 @@ export const ACTION_TABLE: readonly ActionSpec[] = [
     requiresInitSeed: true,
   },
   {
-    // T5a.1/DR-4 (#1259, v2.11): the prior `set` parity row exercised the
-    // deprecated rerouting surface. `transition` is the canonical
-    // phase-mutation action; a guard-failing call against a freshly-inited
-    // workflow still produces byte-identical CLI/MCP envelopes — which is
-    // what this gate measures.
+    /**
+     * A feature workflow starts in `plan`, so this call targets the current phase. The gate
+     * compares the two envelopes and needs no phase change.
+     */
     action: 'transition',
     cliActionFlag: 'transition',
     args: {
@@ -236,23 +185,16 @@ export const ACTION_TABLE: readonly ActionSpec[] = [
   },
 ];
 
-// ─── Parity assertion helper ────────────────────────────────────────────────
-
 /**
- * Run the target action through both adapters against the shared fixture
- * and assert normalized byte-equality of the envelope.
+ * Runs the target action through both adapters and asserts that the normalized envelopes are
+ * equal. When `requiresInitSeed` is true, an `init` call for a `feature` workflow seeds each arm
+ * first.
  *
- * Seeding note: when `requiresInitSeed` is true, both arms are primed with
- * `init(featureId, 'feature')` against their own tmp state dirs. This
- * matches the T014 parity convention — we are asserting the target
- * action's envelope, and a deterministic init is the cheapest way to
- * establish the pre-state both arms need.
+ * The CLI exit code must agree with the MCP `success` flag: `SUCCESS` on both arms, or not
+ * `SUCCESS` on both. That check finds an error code with a wrong mapping in `CLI_EXIT_CODES`.
  *
- * Exit-code contract (DR-3): the CLI arm's exit code must agree with the
- * MCP arm's `success` discriminator. SUCCESS on both or not-SUCCESS on
- * both — never mixed. Collapsing to a single check keeps the gate simple
- * while still catching divergent exit-code mappings (which historically
- * shipped as bugs when new error codes weren't wired into CLI_EXIT_CODES).
+ * The harness results keep their inferred envelope type. A `ToolResult` annotation does not
+ * typecheck, because the envelope has a wider `_eventHints`.
  */
 export async function assertActionParity(
   fixture: ParityFixture,
@@ -280,10 +222,6 @@ export async function assertActionParity(
     });
   }
 
-  // Left to inference: the harness returns `ErrorEnvelope | Envelope<unknown>`,
-  // whose `_eventHints` is wider than `ToolResult`'s. Only `.success` and the
-  // normalized comparison are used here, so narrowing it to `ToolResult` bought
-  // nothing and did not typecheck.
   const mcpResult = await harnessCallMcp(
     fixture.mcpCtx,
     'exarchos_workflow',

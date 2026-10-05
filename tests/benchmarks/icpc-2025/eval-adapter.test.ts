@@ -61,11 +61,12 @@ describe('toEvalResult', () => {
     expect(result.duration).toBe(25500);
   });
 
+  /** One of the two samples passes, so the score is 0.5. */
   it('FailingArm_MapsToFailedEvalResult', () => {
     const result = toEvalResult(failingArm, 'B');
     expect(result.id).toBe('icpc-2025-B-vanilla-plan');
     expect(result.passed).toBe(false);
-    expect(result.score).toBe(0.5); // 1 of 2 samples passed
+    expect(result.score).toBe(0.5);
     expect(result.duration).toBe(45000);
   });
 
@@ -81,10 +82,12 @@ describe('toEvalResult', () => {
 });
 
 describe('toJsonl', () => {
+  /**
+   * The output holds one line for each arm of each problem: the passing arm, then the failing arm.
+   */
   it('FullRun_ProducesValidJsonl', () => {
     const jsonl = toJsonl(fixture);
     const lines = jsonl.trim().split('\n');
-    // Should have one line per arm-problem combination
     expect(lines).toHaveLength(2);
 
     for (const line of lines) {
@@ -96,12 +99,10 @@ describe('toJsonl', () => {
       expect(parsed).toHaveProperty('metadata');
     }
 
-    // First line should be the passing arm
     const first = JSON.parse(lines[0] ?? '');
     expect(first.id).toBe('icpc-2025-A-exarchos');
     expect(first.passed).toBe(true);
 
-    // Second line should be the failing arm
     const second = JSON.parse(lines[1] ?? '');
     expect(second.id).toBe('icpc-2025-A-vanilla-plan');
     expect(second.passed).toBe(false);

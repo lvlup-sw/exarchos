@@ -84,7 +84,6 @@ describe('SampleResultSchema', () => {
     const result = SampleResultSchema.safeParse({
       sampleId: 1,
       verdict: 'pass',
-      // expectedOutput missing
     });
     expect(result.success).toBe(false);
   });

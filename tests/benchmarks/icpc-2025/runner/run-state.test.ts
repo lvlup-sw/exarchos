@@ -57,12 +57,10 @@ describe('RunStateManager', () => {
   it('RunState_LoadExisting_SkipsCompletedProblems', () => {
     tmpDir = makeTmpDir();
 
-    // First manager: record a completion
     const manager1 = new RunStateManager(tmpDir, 'run-002');
     manager1.load();
     manager1.recordCompletion('problemA', 'exarchos', makeArmResult('exarchos'));
 
-    // Second manager: load existing state
     const manager2 = new RunStateManager(tmpDir, 'run-002');
     manager2.load();
 
@@ -74,7 +72,6 @@ describe('RunStateManager', () => {
   it('RunState_CorruptedFile_StartsFromScratch', () => {
     tmpDir = makeTmpDir();
 
-    // Write garbage to the partial file
     const partialPath = join(tmpDir, 'run-003.partial.json');
     writeFileSync(partialPath, '{{not valid json!!!', 'utf-8');
 
