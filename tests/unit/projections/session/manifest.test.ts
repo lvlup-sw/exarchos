@@ -49,12 +49,10 @@ describe('Manifest Writer', () => {
     const entry = makeEntry();
     const sessionsDir = path.join(tmpDir, 'sessions');
 
-    // Verify sessions dir does not exist yet
     await expect(fs.access(sessionsDir)).rejects.toThrow();
 
     await writeManifestEntry(tmpDir, entry);
 
-    // Now sessions dir should exist
     const stat = await fs.stat(sessionsDir);
     expect(stat.isDirectory()).toBe(true);
   });
@@ -81,7 +79,6 @@ describe('Manifest Writer', () => {
   it('readManifestEntries_EmptyFile_ReturnsEmptyArray', async () => {
     const { readManifestEntries } = await import('../../../../src/projections/session/manifest.js');
 
-    // No manifest file exists
     const result = await readManifestEntries(tmpDir);
     expect(result).toEqual([]);
   });
@@ -95,7 +92,6 @@ describe('Manifest Writer', () => {
     await writeManifestEntry(tmpDir, entry1);
     await writeManifestEntry(tmpDir, entry2);
 
-    // Create events file for only the first session
     const eventsPath = path.join(tmpDir, 'sessions', 'extracted-session.events.jsonl');
     await fs.writeFile(eventsPath, '{"t":"summary"}\n', 'utf-8');
 

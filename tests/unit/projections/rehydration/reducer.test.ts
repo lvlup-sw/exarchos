@@ -3,11 +3,7 @@ import { rehydrationReducer } from '../../../../src/projections/rehydration/redu
 import { RehydrationDocumentSchema } from '../../../../src/projections/rehydration/schema.js';
 import { EventTypes, type WorkflowEvent } from '../../../../src/events/schemas.js';
 
-/**
- * Helper — build a minimal, schema-coherent WorkflowEvent. Only the fields the
- * reducer inspects (`type`, `data`) are load-bearing; the rest satisfy the
- * `WorkflowEventBase` shape so tests read naturally.
- */
+/** Builds a minimal `WorkflowEvent` on the `wf-test` stream with a fixed timestamp. */
 function makeEvent<T extends Record<string, unknown>>(
   type: string,
   data: T,
@@ -23,12 +19,7 @@ function makeEvent<T extends Record<string, unknown>>(
   } as WorkflowEvent;
 }
 
-/**
- * Helper — produce a rehydration document seeded as a feature workflow
- * already in `delegate` phase. Used by detour tests so they exercise the
- * realistic precondition (the detour gate post-#1208-rev requires
- * workflowType='feature' AND phase ∈ {delegate, merge-pending}).
- */
+/** A feature workflow in the `delegate` phase. The detour tests start from it, because only a feature workflow can detour. */
 function featureInDelegate(featureId = 'wf-test') {
   let s = rehydrationReducer.apply(
     rehydrationReducer.initial,
@@ -42,57 +33,38 @@ function featureInDelegate(featureId = 'wf-test') {
 }
 
 describe('rehydration reducer — initial state (T022, DR-3)', () => {
+  /** `phasePlaybook` is `null` in the initial document, because the rehydrate handler composes it at read time. */
   it('Rehydration_NoEvents_ReturnsV3InitialDocument', () => {
-    // GIVEN: no events
-    // WHEN: we read rehydrationReducer.initial
     const initial = rehydrationReducer.initial;
 
-    // THEN: the initial document parses cleanly via RehydrationDocumentSchema
-    // (v:3) and round-trips back to itself.
     expect(RehydrationDocumentSchema.parse(initial)).toEqual(initial);
 
-    // AND: the versioned envelope carries v === 4 and projectionSequence === 0.
-    // Bumped to v:4 in #1359 / PR4 T12 for the canonical task-status
-    // vocabulary contract change.
     expect(initial.v).toBe(4);
     expect(initial.projectionSequence).toBe(0);
 
-    // AND: volatile sections are empty containers
     expect(initial.taskProgress).toEqual([]);
     expect(initial.decisions).toEqual([]);
     expect(initial.artifacts).toEqual({});
     expect(initial.blockers).toEqual([]);
     expect(initial.nextAction).toBeUndefined();
 
-    // AND: phasePlaybook is null (v:3 nullable contract — null until T-20
-    // populates it live at handler time; not undefined so consumers can
-    // distinguish "no playbook" from "field absent").
     expect(initial.phasePlaybook).toBeNull();
 
-    // AND: stable sections carry minimal defaults (strings, possibly empty)
-    // Note: behavioralGuidance is NOT present in v:3 (dropped as vestigial).
     expect(typeof initial.workflowState.featureId).toBe('string');
     expect(typeof initial.workflowState.phase).toBe('string');
     expect(typeof initial.workflowState.workflowType).toBe('string');
 
-    // AND: handoff sliding window starts empty
     expect(initial.recentHandoffs).toEqual([]);
     expect(initial.latestHandoff).toBeUndefined();
   });
 
   it('Rehydration_ReducerIdentity_IsCanonical', () => {
-    // The canonical id convention (see types.ts docstring and registry.test.ts
-    // "duplicate projection id: rehydration@v1") is `rehydration@v1`.
     expect(rehydrationReducer.id).toBe('rehydration@v1');
     expect(rehydrationReducer.version).toBe(1);
   });
 
   it('Rehydration_ApplyUnknownEvent_ReturnsStateUnchanged', () => {
-    // GIVEN: the initial state and an arbitrary (unhandled) workflow event
     const state = rehydrationReducer.initial;
-    // A minimal WorkflowEvent-shaped object; the skeleton reducer in T022 does
-    // not interpret any event types yet — it returns state as-is. Later tasks
-    // (T023–T025) wire specific event handlers.
     const unknownEvent = {
       type: 'unknown.event.type',
       workflowId: 'wf-test',
@@ -102,55 +74,42 @@ describe('rehydration reducer — initial state (T022, DR-3)', () => {
       data: {},
     } as unknown as Parameters<typeof rehydrationReducer.apply>[1];
 
-    // WHEN: we fold the event through apply()
     const next = rehydrationReducer.apply(state, unknownEvent);
 
-    // THEN: state is returned unchanged (structural equality — skeleton)
     expect(next).toBe(state);
   });
 });
 
 describe('rehydration reducer — task events fold (T023, DR-3)', () => {
+  /** `task.assigned` starts the task, and `task.completed` with the same `taskId` ends it. */
   it('Rehydration_Given_TaskStartedCompleted_When_Fold_Then_ProgressShows1Of1', () => {
-    // GIVEN: the initial state
     const initial = rehydrationReducer.initial;
 
-    // AND: the canonical "task begins" event per event-store schemas is
-    // `task.assigned` (see EVENT_DATA_SCHEMAS → TaskAssignedData), followed by
-    // `task.completed` carrying the same `taskId`.
     const assigned = makeEvent('task.assigned', { taskId: '001', title: 'T001' }, 1);
     const completed = makeEvent('task.completed', { taskId: '001' }, 2);
 
-    // WHEN: we fold both events through apply()
     const afterAssigned = rehydrationReducer.apply(initial, assigned);
     const afterCompleted = rehydrationReducer.apply(afterAssigned, completed);
 
-    // THEN: taskProgress contains exactly one entry for task 001 with a
-    // terminal "complete" status (canonical vocabulary post #1359 / PR4).
     expect(afterCompleted.taskProgress).toHaveLength(1);
     expect(afterCompleted.taskProgress[0]).toMatchObject({
       id: '001',
       status: 'complete',
     });
 
-    // AND: projectionSequence was incremented once per handled event.
     expect(afterCompleted.projectionSequence).toBe(2);
 
-    // AND: the resulting document still conforms to RehydrationDocumentSchema.
     expect(RehydrationDocumentSchema.safeParse(afterCompleted).success).toBe(true);
 
-    // AND: purity — the initial state was not mutated.
     expect(initial.taskProgress).toEqual([]);
     expect(initial.projectionSequence).toBe(0);
   });
 
   it('Rehydration_Given_TaskFailed_When_Fold_Then_ProgressShowsFailed', () => {
-    // GIVEN: the initial state with an assigned task
     const initial = rehydrationReducer.initial;
     const assigned = makeEvent('task.assigned', { taskId: '002', title: 'T002' }, 1);
     const afterAssigned = rehydrationReducer.apply(initial, assigned);
 
-    // WHEN: the task fails
     const failed = makeEvent(
       'task.failed',
       { taskId: '002', error: 'baseline failed' },
@@ -158,7 +117,6 @@ describe('rehydration reducer — task events fold (T023, DR-3)', () => {
     );
     const next = rehydrationReducer.apply(afterAssigned, failed);
 
-    // THEN: the taskProgress entry reflects the "failed" terminal status.
     expect(next.taskProgress).toHaveLength(1);
     expect(next.taskProgress[0]).toMatchObject({
       id: '002',
@@ -168,15 +126,12 @@ describe('rehydration reducer — task events fold (T023, DR-3)', () => {
   });
 
   it('Rehydration_Given_DuplicateTaskCompleted_When_Fold_Then_ProgressIdempotent', () => {
-    // GIVEN: a state with one task already completed
     const initial = rehydrationReducer.initial;
     const completed = makeEvent('task.completed', { taskId: '003' }, 1);
     const afterFirst = rehydrationReducer.apply(initial, completed);
 
-    // WHEN: the same completion event is folded again
     const afterSecond = rehydrationReducer.apply(afterFirst, completed);
 
-    // THEN: there is still exactly one entry for task 003 (no duplicate).
     expect(afterSecond.taskProgress).toHaveLength(1);
     expect(afterSecond.taskProgress[0]).toMatchObject({
       id: '003',
@@ -186,45 +141,32 @@ describe('rehydration reducer — task events fold (T023, DR-3)', () => {
 });
 
 describe('rehydration reducer — workflow events fold (T024, DR-3)', () => {
+  /** `workflow.started` has no phase field, so `phase` stays `''` until a `workflow.transition` event. */
   it('Rehydration_Given_WorkflowStarted_When_Fold_Then_WorkflowStatePopulated', () => {
-    // GIVEN: the initial state
     const initial = rehydrationReducer.initial;
 
-    // AND: a `workflow.started` event whose data matches the registered
-    // `WorkflowStartedData` schema — carrying a `featureId` and a
-    // `workflowType`. Note: the registered schema does NOT carry a `phase`
-    // field (only `workflow.transition` does), so the "starting phase" of the
-    // workflow remains the projection's initial string default (`''`) until a
-    // subsequent `workflow.transition` event advances it.
     const started = makeEvent(
       'workflow.started',
       { featureId: 'feat-42', workflowType: 'axiom' },
       1,
     );
 
-    // WHEN: we fold the event through apply()
     const next = rehydrationReducer.apply(initial, started);
 
-    // THEN: the stable workflowState prefix reflects the new feature + type.
     expect(next.workflowState.featureId).toBe('feat-42');
     expect(next.workflowState.workflowType).toBe('axiom');
-    // AND: phase remains the initial default — no phase field on the event.
     expect(next.workflowState.phase).toBe('');
 
-    // AND: projectionSequence was incremented once for this handled event.
     expect(next.projectionSequence).toBe(1);
 
-    // AND: the resulting document still conforms to RehydrationDocumentSchema.
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
 
-    // AND: purity — initial state was not mutated.
     expect(initial.workflowState.featureId).toBe('');
     expect(initial.workflowState.workflowType).toBe('');
     expect(initial.projectionSequence).toBe(0);
   });
 
   it('Rehydration_Given_WorkflowTransition_When_Fold_Then_PhaseAdvances', () => {
-    // GIVEN: state after a `workflow.started` event
     const initial = rehydrationReducer.initial;
     const started = makeEvent(
       'workflow.started',
@@ -233,8 +175,6 @@ describe('rehydration reducer — workflow events fold (T024, DR-3)', () => {
     );
     const afterStarted = rehydrationReducer.apply(initial, started);
 
-    // WHEN: we fold a `workflow.transition` event whose `to` field is the
-    // target phase (per the registered `WorkflowTransitionData` schema).
     const transition = makeEvent(
       'workflow.transition',
       {
@@ -247,30 +187,19 @@ describe('rehydration reducer — workflow events fold (T024, DR-3)', () => {
     );
     const next = rehydrationReducer.apply(afterStarted, transition);
 
-    // THEN: phase advances to the `to` value from the event.
     expect(next.workflowState.phase).toBe('design');
-    // AND: featureId and workflowType are preserved from the prior state.
     expect(next.workflowState.featureId).toBe('feat-42');
     expect(next.workflowState.workflowType).toBe('axiom');
-    // AND: projectionSequence was incremented once per handled event.
     expect(next.projectionSequence).toBe(2);
-    // AND: the resulting document still conforms to RehydrationDocumentSchema.
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
   });
 });
 
+/** `exarchos_workflow set` appends a `state.patched` event. The reducer reads the artifacts from `data.patch.artifacts`. */
 describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
-  // The plan references `workflow.set` as the artifacts source, but that event
-  // type is NOT registered in the event-store. Artifacts are in fact recorded
-  // via `state.patched` events whose `data.patch.artifacts` record mirrors the
-  // workflow state's `ArtifactsSchema` (design, plan, pr, …). See
-  // `src/workflow/tools.ts` (~L759) where
-  // `exarchos_workflow set` appends `state.patched { data: { patch } }`.
   it('Rehydration_Given_StatePatchedWithArtifacts_When_Fold_Then_ArtifactsPopulated', () => {
-    // GIVEN: initial state
     const initial = rehydrationReducer.initial;
 
-    // AND: a `state.patched` event carrying an `artifacts` subtree in its patch.
     const patched = makeEvent(
       'state.patched',
       {
@@ -286,24 +215,18 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
       1,
     );
 
-    // WHEN: we fold the event
     const next = rehydrationReducer.apply(initial, patched);
 
-    // THEN: artifacts keys are populated
     expect(next.artifacts).toMatchObject({
       design: 'docs/designs/2026-04-23-rehydrate-foundation.md',
       plan: 'docs/plans/2026-04-23-rehydrate-foundation.md',
     });
-    // AND: projectionSequence was incremented
     expect(next.projectionSequence).toBe(1);
-    // AND: the document still conforms to the schema
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
-    // AND: purity — initial was not mutated
     expect(initial.artifacts).toEqual({});
   });
 
   it('Rehydration_Given_StatePatchedArtifactsTwice_When_Fold_Then_KeysMergedLastWins', () => {
-    // GIVEN: a state with an initial `design` artifact
     const initial = rehydrationReducer.initial;
     const first = makeEvent(
       'state.patched',
@@ -316,7 +239,6 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
     );
     const afterFirst = rehydrationReducer.apply(initial, first);
 
-    // WHEN: a second patch both overwrites `design` and adds `plan`
     const second = makeEvent(
       'state.patched',
       {
@@ -328,7 +250,6 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
     );
     const next = rehydrationReducer.apply(afterFirst, second);
 
-    // THEN: both keys are present, design is overwritten, plan is added
     expect(next.artifacts).toEqual({
       design: 'new-design.md',
       plan: 'plan.md',
@@ -337,9 +258,7 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
   });
 
   it('Rehydration_Given_StatePatchedWithoutArtifacts_When_Fold_Then_Unchanged', () => {
-    // GIVEN: initial state
     const initial = rehydrationReducer.initial;
-    // WHEN: a `state.patched` without an artifacts subtree is folded
     const patched = makeEvent(
       'state.patched',
       {
@@ -350,19 +269,14 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
       1,
     );
     const next = rehydrationReducer.apply(initial, patched);
-    // THEN: artifacts and projectionSequence are unchanged (no-op)
     expect(next.artifacts).toEqual({});
     expect(next.projectionSequence).toBe(0);
     expect(next).toBe(initial);
   });
 
+  /** A `null` value clears an artifact. `design` is not in the state, so the clear changes nothing and only `plan` is added. */
   it('Rehydration_Given_StatePatchedArtifactsWithNullEntry_When_Fold_Then_OtherKeysFolded', () => {
-    // GIVEN: initial state with no prior artifacts
     const initial = rehydrationReducer.initial;
-    // AND: a patch carrying a null artifact alongside a real entry. Null is
-    // the workflow-side "clear this artifact" signal (ArtifactsSchema is
-    // `string | null`); since `design` is not in state yet, the unset is a
-    // no-op and only `plan` materialises in the fold.
     const patched = makeEvent(
       'state.patched',
       {
@@ -377,9 +291,8 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
   });
 
+  /** The fold removes a key that a later patch sets to `null`. Otherwise a rehydrate keeps the stale path. */
   it('Rehydration_Given_StatePatchedArtifactsNullForExistingKey_When_Fold_Then_KeyDeleted', () => {
-    // GIVEN: state already carrying a `design` artifact (from an earlier
-    // `state.patched`).
     const initial = rehydrationReducer.initial;
     const seeded = rehydrationReducer.apply(
       initial,
@@ -398,7 +311,6 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
       plan: 'plan.md',
     });
 
-    // WHEN: a later `state.patched` clears `design` with `null`.
     const cleared = rehydrationReducer.apply(
       seeded,
       makeEvent(
@@ -412,18 +324,13 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
       ),
     );
 
-    // THEN: the cleared key is removed from the projection (otherwise
-    // downstream `rehydrate`/checkpoint paths would keep returning the
-    // stale design path forever — see CodeRabbit review on #1178).
     expect(cleared.artifacts).toEqual({ plan: 'plan.md' });
     expect(cleared.projectionSequence).toBe(seeded.projectionSequence + 1);
     expect(RehydrationDocumentSchema.safeParse(cleared).success).toBe(true);
   });
 
+  /** An object, an array and `''` are neither a set nor a clear. The patch is a no-op, and `projectionSequence` does not advance. */
   it('Rehydration_Given_StatePatchedArtifactsAllUnactionable_When_Fold_Then_NoOp', () => {
-    // Non-null, non-string values (objects, arrays, undefined, '') carry no
-    // unambiguous "set" or "clear" signal, so the entire patch is treated
-    // as a no-op — projectionSequence must NOT bump.
     const initial = rehydrationReducer.initial;
     const patched = makeEvent(
       'state.patched',
@@ -442,18 +349,10 @@ describe('rehydration reducer — artifacts fold (T025, DR-3)', () => {
   });
 });
 
+/** Three events add a blocker: `review.completed` with a `blocked` verdict, `review.escalated` and `workflow.guard-failed`. */
 describe('rehydration reducer — blockers fold (T025, DR-3)', () => {
-  // The plan references `task.blocked` and `review.failed` as sources. Neither
-  // event type is registered. The nearest registered events that capture a
-  // blocking condition are:
-  //   - `review.completed` with `verdict === 'blocked'` (per ReviewCompletedData)
-  //   - `review.escalated` (any occurrence — escalation is inherently a blocker)
-  //   - `workflow.guard-failed` (a guard rejection blocks a transition)
-  // We fold these three into `blockers`.
   it('Rehydration_Given_ReviewCompletedBlocked_When_Fold_Then_BlockerAppended', () => {
-    // GIVEN: initial state
     const initial = rehydrationReducer.initial;
-    // AND: a `review.completed` event with a `blocked` verdict
     const reviewed = makeEvent(
       'review.completed',
       {
@@ -464,18 +363,15 @@ describe('rehydration reducer — blockers fold (T025, DR-3)', () => {
       },
       1,
     );
-    // WHEN: we fold the event
     const next = rehydrationReducer.apply(initial, reviewed);
-    // THEN: a blocker entry is appended
     expect(next.blockers).toHaveLength(1);
     expect(next.projectionSequence).toBe(1);
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
   });
 
+  /** A `pass` verdict is not a blocker, and the reducer does not count the event. */
   it('Rehydration_Given_ReviewCompletedPass_When_Fold_Then_NoBlockerAdded', () => {
-    // GIVEN: initial state
     const initial = rehydrationReducer.initial;
-    // AND: a `review.completed` event with a `pass` verdict
     const reviewed = makeEvent(
       'review.completed',
       {
@@ -487,17 +383,13 @@ describe('rehydration reducer — blockers fold (T025, DR-3)', () => {
       1,
     );
     const next = rehydrationReducer.apply(initial, reviewed);
-    // THEN: no blockers appended — pass verdicts are not blockers
     expect(next.blockers).toEqual([]);
-    // AND: the event is not handled — projectionSequence stays at 0
     expect(next.projectionSequence).toBe(0);
     expect(next).toBe(initial);
   });
 
   it('Rehydration_Given_ReviewEscalated_When_Fold_Then_BlockerAppended', () => {
-    // GIVEN: initial state
     const initial = rehydrationReducer.initial;
-    // AND: a `review.escalated` event (per ReviewEscalatedData)
     const escalated = makeEvent(
       'review.escalated',
       {
@@ -515,9 +407,7 @@ describe('rehydration reducer — blockers fold (T025, DR-3)', () => {
   });
 
   it('Rehydration_Given_WorkflowGuardFailed_When_Fold_Then_BlockerAppended', () => {
-    // GIVEN: initial state
     const initial = rehydrationReducer.initial;
-    // AND: a `workflow.guard-failed` event (per WorkflowGuardFailedData)
     const guard = makeEvent(
       'workflow.guard-failed',
       {
@@ -535,18 +425,10 @@ describe('rehydration reducer — blockers fold (T025, DR-3)', () => {
   });
 });
 
-// Decisions — no decision-producing event type is registered in the
-// event-store (no `decision.*` namespace, and `state.patched` does not surface
-// a canonical decisions subtree), so there is nothing for a decisions fold to
-// consume and nothing to assert about it.
-//
-// DR-7 (task 078): this was a `describe.skip` wrapping an `it.skip` placeholder
-// — a suite that could not fail, whose justification lived only in the comment
-// above it. The justification is a CLAIM ABOUT THE TREE, and claims about the
-// tree are checkable. So instead of skipping, assert the premise: the day a
-// `decision.*` event type is registered, this goes red and the reducer's
-// missing fold becomes visible, rather than the skip quietly outliving its
-// reason.
+/**
+ * No `decision.*` event type is registered, so the reducer has no decisions fold.
+ * The test asserts that premise. It fails when such a type is registered, and then shows the missing fold.
+ */
 describe('rehydration reducer — decisions fold (T025, DR-3)', () => {
   it('RehydrationReducer_DecisionsFold_HasNoRegisteredEventSourceToFold', () => {
     const decisionEvents = EventTypes.filter((type) => type.startsWith('decision.'));
@@ -560,30 +442,10 @@ describe('rehydration reducer — decisions fold (T025, DR-3)', () => {
   });
 });
 
-// ─── Fix 2 (T2.1) — state.patched.tasks fold ─────────────────────────────────
-//
-// Issue #1179: rehydration drops pending tasks. The reducer previously folded
-// only the `artifacts` subtree of `state.patched`, ignoring `tasks`. Pending
-// tasks (those declared in state.json by the planner but not yet emitted as
-// `task.assigned`) were therefore invisible in the rehydration document, so
-// agents resuming a delegate phase saw only the in-flight subset.
-//
-// Contract: `state.patched.patch.tasks` carries the planner's full task list
-// (each entry has `id`, `title`, `status`). The reducer must seed taskProgress
-// from this list, then let subsequent dedicated `task.*` events override the
-// status. Status-aware upsert: events win over plan-state for the same id.
-// ─── #1359 / PR4 T11 — canonical task-progress vocabulary ───────────────────
-//
-// Pre-#1359 the reducer renamed `'complete' → 'completed'` and
-// `'in_progress' → 'assigned'`. That divergence from canonical
-// `TaskSchema.status` (`pending|in_progress|complete|failed`) meant a
-// rehydrate consumer comparing `byId.get(taskId) === 'complete'` against
-// canonical state would never match — and the outcome test at
-// `tests/outcome/rehydrate-projection-drift.test.ts` stayed RED.
+/** `taskProgress` uses the `TaskSchema.status` words, so a consumer can compare it with the canonical task state. */
 describe('rehydration reducer — canonical vocabulary (#1359 / PR4)', () => {
+  /** The plan status `complete` stays `complete`. The reducer does not rename it to `completed`. */
   it('RehydrationReducer_StatePatchedCompleteTask_SurfacesCanonicalCompleteVocabulary', () => {
-    // GIVEN: a `state.patched` event whose `patch.tasks` declares T001 as
-    // `'complete'` (canonical TaskSchema vocabulary).
     const initial = rehydrationReducer.initial;
     const patched = makeEvent(
       'state.patched',
@@ -597,20 +459,21 @@ describe('rehydration reducer — canonical vocabulary (#1359 / PR4)', () => {
       1,
     );
 
-    // WHEN: we fold the event
     const next = rehydrationReducer.apply(initial, patched);
 
-    // THEN: taskProgress surfaces canonical `'complete'` — NOT `'completed'`.
-    // Pre-fix this assertion failed because `extractPlanTasks` mapped
-    // `'complete' → 'completed'`.
     expect(next.taskProgress[0]?.status).toBe('complete');
     expect(next.taskProgress[0]?.id).toBe('T001');
   });
 });
 
+/**
+ * `data.patch.tasks` of `state.patched` holds the full task list of the planner.
+ * The reducer adds those tasks to `taskProgress`, so a pending task with no `task.*` event is visible.
+ * A plan status never lowers a status that a `task.*` event set.
+ */
 describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () => {
+  /** `T5` has no `task.*` event, so it keeps the `pending` status of the plan. */
   it('Rehydration_StatePatchedTasksWithMixedStatuses_FoldsAllAndAppliesEventOverrides', () => {
-    // GIVEN: initial state plus a `workflow.started` event
     const initial = rehydrationReducer.initial;
     const started = makeEvent(
       'workflow.started',
@@ -619,10 +482,6 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     );
     const afterStarted = rehydrationReducer.apply(initial, started);
 
-    // AND: a `state.patched` event whose patch.tasks declares 5 pending tasks
-    // — the canonical TaskSchema status enum is `pending|in_progress|complete|failed`
-    // (see workflow/schemas.ts:155). Note the reducer translates these into
-    // taskProgress entries (which use a separate but compatible status string).
     const planPatched = makeEvent(
       'state.patched',
       {
@@ -642,7 +501,6 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     );
     const afterPlan = rehydrationReducer.apply(afterStarted, planPatched);
 
-    // AND: dedicated task events for a subset (1 assigned, 2 completed, 1 failed)
     const assignedT1 = makeEvent('task.assigned', { taskId: 'T1', title: 'Task 1' }, 3);
     const completedT2 = makeEvent('task.completed', { taskId: 'T2' }, 4);
     const completedT3 = makeEvent('task.completed', { taskId: 'T3' }, 5);
@@ -653,14 +511,8 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     next = rehydrationReducer.apply(next, completedT3);
     next = rehydrationReducer.apply(next, failedT4);
 
-    // THEN: taskProgress contains all 5 tasks (NOT just the ones with events).
-    // Pre-fix this returns 4 (the event-derived entries only); post-fix it
-    // returns 5 because pending tasks are seeded from state.patched.patch.tasks.
     expect(next.taskProgress).toHaveLength(5);
 
-    // AND: the per-task status reflects event overrides where present, and
-    // falls back to the planner-declared "pending" otherwise. Canonical
-    // vocabulary post #1359 / PR4 T11: `in_progress` / `complete` / `failed`.
     const byId = new Map(next.taskProgress.map((t) => [t.id, t.status]));
     expect(byId.get('T1')).toBe('in_progress');
     expect(byId.get('T2')).toBe('complete');
@@ -668,19 +520,17 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     expect(byId.get('T4')).toBe('failed');
     expect(byId.get('T5')).toBe('pending');
 
-    // AND: the count of complete entries matches the events that fired.
     const completed = next.taskProgress.filter((t) => t.status === 'complete');
     expect(completed).toHaveLength(2);
 
-    // AND: the resulting document still conforms to the schema.
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
   });
 
+  /**
+   * A plan-review revision can narrow the plan, which is a normal outcome.
+   * The fold drops the pending tasks that the new plan does not list. Thus the document does not report the union of all revisions.
+   */
   it('Rehydration_PlanNarrowedByRevision_RetractsDroppedPendingTasks', () => {
-    // GIVEN: a plan-review revision narrows the plan — the planner stamps
-    // 4 tasks, then re-stamps only 2. This is the counted plan-review
-    // revision edge the HSM explicitly supports, so a narrowed plan is a
-    // normal outcome, not a corruption.
     const initial = rehydrationReducer.initial;
     const widePlan = rehydrationReducer.apply(
       initial,
@@ -721,19 +571,14 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       ),
     );
 
-    // THEN: the dropped ids are retracted rather than wedged in as
-    // permanent pending ghosts. Pre-fix this returned 4 — the fold could
-    // only append, so every id ever declared accumulated forever and the
-    // document reported the high-water union of all plan revisions.
     expect(narrowPlan.taskProgress).toHaveLength(2);
     expect(narrowPlan.taskProgress.map((t) => t.id).sort()).toEqual(['T1', 'T2']);
 
-    // AND: the resulting document still conforms to the schema.
     expect(RehydrationDocumentSchema.safeParse(narrowPlan).success).toBe(true);
   });
 
+  /** A dropped task with a `task.*` status stays, because it shows real work. Only the untouched pending task goes. */
   it('Rehydration_PlanDropsTaskCarryingLifecycleEvidence_RetainsIt', () => {
-    // GIVEN: a plan of 3 tasks where one is in flight and one has completed
     const initial = rehydrationReducer.initial;
     const plan = rehydrationReducer.apply(
       initial,
@@ -760,7 +605,6 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     );
     next = rehydrationReducer.apply(next, makeEvent('task.completed', { taskId: 'DONE' }, 3));
 
-    // WHEN: a revision drops all three of WORKED / DONE / GHOST
     const narrowed = rehydrationReducer.apply(
       next,
       makeEvent(
@@ -774,11 +618,6 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       ),
     );
 
-    // THEN: only the untouched pending ghost is retracted. Entries carrying
-    // lifecycle evidence are retained even though the plan dropped them —
-    // real work exists against them, and a plan that drops in-flight or
-    // completed work is an anomaly a human should see rather than one the
-    // projection silently erases.
     const byId = new Map(narrowed.taskProgress.map((t) => [t.id, t.status]));
     expect(byId.get('KEEP')).toBe('pending');
     expect(byId.get('WORKED')).toBe('in_progress');
@@ -786,12 +625,14 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
     expect(byId.has('GHOST')).toBe(false);
     expect(narrowed.taskProgress).toHaveLength(3);
 
-    // AND: the resulting document still conforms to the schema.
     expect(RehydrationDocumentSchema.safeParse(narrowed).success).toBe(true);
   });
 
+  /**
+   * An absent `tasks` subtree says nothing about the plan, so the fold must not read it as an empty plan.
+   * Otherwise an artifacts-only patch erases the plan tasks.
+   */
   it('Rehydration_StatePatchedWithoutTasksSubtree_LeavesTaskProgressIntact', () => {
-    // GIVEN: a stamped plan
     const initial = rehydrationReducer.initial;
     const plan = rehydrationReducer.apply(
       initial,
@@ -811,8 +652,6 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       ),
     );
 
-    // WHEN: a later state.patched carries only `artifacts` and no `tasks`
-    // subtree — the two subtrees are independent contributions.
     const artifactsOnly = rehydrationReducer.apply(
       plan,
       makeEvent(
@@ -826,18 +665,17 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       ),
     );
 
-    // THEN: retraction does NOT fire — an absent `tasks` subtree asserts
-    // nothing about membership, so it must not be read as "the plan is now
-    // empty". Without this, any artifacts-only patch would wipe the plan.
     expect(artifactsOnly.taskProgress).toHaveLength(2);
     expect(artifactsOnly.artifacts['pr']).toBe('https://example.test/pr/1');
 
-    // AND: the resulting document still conforms to the schema.
     expect(RehydrationDocumentSchema.safeParse(artifactsOnly).success).toBe(true);
   });
 
+  /**
+   * The planner stamps `tasks` again on a later `set` call, with A and B still `pending`.
+   * The plan status must not lower the `complete` and `failed` statuses that the events set.
+   */
   it('Rehydration_StatePatchedTasksFollowedByPlanReexpansion_DoesNotResurrectCompleted', () => {
-    // GIVEN: a plan was patched and one task completed
     const initial = rehydrationReducer.initial;
     const firstPlan = rehydrationReducer.apply(
       initial,
@@ -864,7 +702,6 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       afterCompletion.taskProgress.find((t) => t.id === 'A')?.status,
     ).toBe('complete');
 
-    // AND: a later task.failed event for B
     const afterFailure = rehydrationReducer.apply(
       afterCompletion,
       makeEvent('task.failed', { taskId: 'B', error: 'boom' }, 3),
@@ -873,12 +710,6 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       afterFailure.taskProgress.find((t) => t.id === 'B')?.status,
     ).toBe('failed');
 
-    // WHEN: a later state.patched re-asserts the same plan (this happens when
-    // the planner stamps `tasks` again on a later set call). The patch still
-    // marks A and B as `pending` because state.json's TaskSchema is plan-state,
-    // not execution-state. The reducer must NOT regress A back to `pending`
-    // (completed) or B back to `pending` (failed) — events are authoritative
-    // for execution status.
     const secondPlan = rehydrationReducer.apply(
       afterFailure,
       makeEvent(
@@ -898,8 +729,6 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
       ),
     );
 
-    // THEN: A stays complete, B stays failed, C is added pending.
-    // Canonical vocabulary post #1359 / PR4 T11.
     const byId = new Map(secondPlan.taskProgress.map((t) => [t.id, t.status]));
     expect(byId.get('A')).toBe('complete');
     expect(byId.get('B')).toBe('failed');
@@ -908,14 +737,10 @@ describe('rehydration reducer — state.patched.tasks fold (Fix 2 / #1179)', () 
   });
 });
 
-// ─── Worktree-bearing task.completed auto-detour (#1208 / DR-MO-1) ──────────
-//
-// `content/delivery/skills/delegate/SKILL.md` § "Worktree-Bearing Tasks: Auto-Detour to
-// merge-pending" specifies that a `task.completed` event carrying
-// `data.worktree` or `data.worktreePath` must drive the workflow into the
-// `merge-pending` substate so the rehydration envelope can surface a
-// `merge_orchestrate` verb. Pre-fix the reducer ignored worktree fields and
-// the substate was never observable from rehydration.
+/**
+ * A `task.completed` event with `data.worktree` or `data.worktreePath` moves a feature workflow to `merge-pending`.
+ * Then a consumer of the rehydration document can offer the `merge_orchestrate` verb.
+ */
 describe('rehydration reducer — worktree auto-detour (#1208)', () => {
   it('Rehydration_TaskCompletedWithWorktreePath_StampsMergePending', () => {
     const seeded = featureInDelegate();
@@ -955,15 +780,12 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     const completed = makeEvent('task.completed', { taskId: '003' }, 2);
     const next = rehydrationReducer.apply(seeded, completed);
 
-    // No worktree association, no detour — phase stays in `delegate`.
     expect(next.workflowState.phase).toBe('delegate');
     expect(next.workflowState.mergeOrchestrator).toBeUndefined();
   });
 
+  /** Only the feature HSM defines `merge-pending`, so a worktree on a non-feature workflow must not change the phase. */
   it('Rehydration_TaskCompletedWithWorktreeOnRefactorWorkflow_DoesNotDetour', () => {
-    // Coderabbit P2-saga: refactor / debug / oneshot / discovery streams
-    // do NOT have `merge-pending` in their HSM, so a worktree-bearing
-    // task.completed on a non-feature workflow must leave phase untouched.
     let s = rehydrationReducer.apply(
       rehydrationReducer.initial,
       makeEvent(
@@ -984,11 +806,8 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     expect(next.workflowState.mergeOrchestrator).toBeUndefined();
   });
 
+  /** The detour applies only in the `''`, `delegate` and `merge-pending` phases. A `task.completed` in `synthesize` must not rewrite the phase. */
   it('Rehydration_TaskCompletedWithWorktreeFeatureOutsideDelegate_DoesNotDetour', () => {
-    // Even on a feature workflow, the detour must not fire from a phase
-    // outside `delegate` / `merge-pending`. A task.completed during e.g.
-    // `synthesize` would otherwise rewrite phase to merge-pending and
-    // confuse downstream HSM consumers.
     let s = rehydrationReducer.apply(
       rehydrationReducer.initial,
       makeEvent(
@@ -1057,26 +876,22 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     expect(after.workflowState.mergeOrchestrator?.phase).toBe('aborted');
   });
 
+  /**
+   * A merge event with no earlier worktree `task.completed` must not invent a `mergeOrchestrator` entry.
+   * The handler returns `state` unchanged, so `projectionSequence` keeps the seed value.
+   */
   it('Rehydration_MergeTerminalEventWithoutPriorPending_NoOps', () => {
-    // Replay over a partial stream where the merge.* event has no preceding
-    // worktree task.completed must not fabricate a mergeOrchestrator entry.
     const seeded = featureInDelegate();
     const next = rehydrationReducer.apply(
       seeded,
       makeEvent('merge.executed', { taskId: '007', mergeSha: 'def' }, 2),
     );
     expect(next.workflowState.mergeOrchestrator).toBeUndefined();
-    // projectionSequence reflects the seed (started + transition) only — the
-    // merge.executed handler returned identity since there was nothing to
-    // terminate.
     expect(next.projectionSequence).toBe(seeded.projectionSequence);
   });
 
+  /** A whitespace-only `worktree` is not an association, so it must not start the detour. */
   it('Rehydration_TaskCompletedWithWhitespaceWorktree_DoesNotDetour', () => {
-    // Sentry HIGH: a whitespace-only `worktree` value is not a real
-    // association; predicate must reject it. Without the trim, the rehydration
-    // projection would diverge from the HSM guard's predicate, causing live
-    // state and rehydrated state to disagree on whether merge-pending fired.
     const seeded = featureInDelegate();
     const completed = makeEvent(
       'task.completed',
@@ -1088,12 +903,11 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     expect(next.workflowState.mergeOrchestrator).toBeUndefined();
   });
 
+  /**
+   * While task A has a pending merge, a worktree `task.completed` for task B must not replace that entry.
+   * Otherwise a later terminal merge event applies to the wrong task. `taskProgress` still records B as `complete`.
+   */
   it('Rehydration_TaskCompletedWithDifferentTaskActivePending_DoesNotClobberMergeOrchestrator', () => {
-    // Coderabbit P2-saga: when an active pending merge exists for task A and
-    // a worktree-bearing task.completed arrives for task B, the existing
-    // pending mergeOrchestrator MUST be preserved. Clobbering it would let a
-    // subsequent merge.executed / merge.rollback fire against the wrong
-    // taskId in applyMergeTerminalEvent.
     const seeded = featureInDelegate();
     const stampedA = rehydrationReducer.apply(
       seeded,
@@ -1108,25 +922,21 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
       stampedA,
       makeEvent('task.completed', { taskId: 'B', worktree: '.wt/B' }, 3),
     );
-    // mergeOrchestrator must still point at A, not B.
     expect(afterB.workflowState.mergeOrchestrator).toEqual({
       taskId: 'A',
       phase: 'pending',
     });
     expect(afterB.workflowState.phase).toBe('merge-pending');
-    // taskProgress folds B regardless — only the orchestrator stamp is
-    // protected from clobber.
     expect(afterB.taskProgress.find((t) => t.id === 'B')?.status).toBe(
       'complete',
     );
   });
 
+  /**
+   * After the merge of task A ends, a worktree `task.completed` for task B must set a new pending entry.
+   * Otherwise a workflow with more than one task stops at the first merge.
+   */
   it('Rehydration_TaskCompletedAfterTerminalForOtherTask_StampsForNewTask', () => {
-    // Companion to the previous test: once the prior task's merge has
-    // terminated, a new worktree-bearing task.completed MUST be allowed to
-    // (re)stamp mergeOrchestrator for the new task. Without this, a
-    // multi-task feature workflow would deadlock at the first completed
-    // merge.
     const seeded = featureInDelegate();
     const stampedA = rehydrationReducer.apply(
       seeded,
@@ -1139,7 +949,6 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     expect(mergedA.workflowState.mergeOrchestrator?.phase).toBe('completed');
     expect(mergedA.workflowState.phase).toBe('delegate');
 
-    // Task B's worktree-bearing completion lands AFTER A's terminal event.
     const afterB = rehydrationReducer.apply(
       mergedA,
       makeEvent('task.completed', { taskId: 'B', worktree: '.wt/B' }, 4),
@@ -1151,11 +960,8 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     expect(afterB.workflowState.phase).toBe('merge-pending');
   });
 
+  /** A repeated terminal merge event must not advance `projectionSequence`, because it changes nothing. */
   it('Rehydration_RefoldedTerminalMergeEvent_IsNoOp', () => {
-    // Sentry LOW: a duplicate merge.* event at the SAME taskId + terminalPhase
-    // must not bump projectionSequence — that would diverge replay count from
-    // truth-of-events count and produce phantom mutations for snapshot cadence
-    // and fingerprint comparisons.
     const seeded = featureInDelegate();
     const stamped = rehydrationReducer.apply(
       seeded,
@@ -1167,7 +973,6 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     );
     const beforeSequence = merged.projectionSequence;
 
-    // Re-apply the SAME merge.executed (replay scenario or duplicate emission).
     const refolded = rehydrationReducer.apply(
       merged,
       makeEvent('merge.executed', { taskId: '009', mergeSha: 'abc' }, 4),
@@ -1176,11 +981,11 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
     expect(refolded.workflowState.mergeOrchestrator?.phase).toBe('completed');
   });
 
+  /**
+   * A replayed worktree `task.completed` after the merge ended must not set the entry back to `pending`.
+   * Otherwise `next_actions` offers `merge_orchestrate` again.
+   */
   it('Rehydration_RefoldedSameTaskCompleted_DoesNotRegressTerminalMerge', () => {
-    // Idempotency: when replay re-applies a worktree task.completed AFTER the
-    // merge has already terminated, the terminal mergeOrchestrator phase must
-    // not regress to `pending` (otherwise next_actions would re-surface
-    // merge_orchestrate after a successful merge).
     const seeded = featureInDelegate();
     const stamped = rehydrationReducer.apply(
       seeded,
@@ -1190,7 +995,6 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
       stamped,
       makeEvent('merge.executed', { taskId: '008', mergeSha: 'sha' }, 3),
     );
-    // Re-apply the same worktree task.completed (replay scenario).
     const refolded = rehydrationReducer.apply(
       merged,
       makeEvent('task.completed', { taskId: '008', worktree: '.wt/008' }, 4),
@@ -1201,13 +1005,6 @@ describe('rehydration reducer — worktree auto-detour (#1208)', () => {
 });
 
 describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 / #1246)', () => {
-  /**
-   * Helper — build a synthetic `workflow.checkpoint` event with a `handoff`
-   * sub-payload. Matches the registered `WorkflowCheckpointData` shape: the
-   * envelope carries `counter`, `phase`, `featureId` (load-bearing for the
-   * event-store schema) plus the optional `handoff` payload (#1240) the
-   * reducer projects into `latestHandoff` / `recentHandoffs`.
-   */
   function makeCheckpoint(
     sequence: number,
     handoff: {
@@ -1238,11 +1035,10 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
     return evt;
   }
 
+  /** `eventRef` holds only `sequence` and `timestamp`, with no `id` key. */
   it('applyWorkflowCheckpoint_NonEmptyHandoff_SetsLatestHandoff', () => {
-    // GIVEN: the initial state
     const initial = rehydrationReducer.initial;
 
-    // AND: a workflow.checkpoint event with a non-empty handoff payload
     const evt = makeCheckpoint(
       7,
       {
@@ -1253,11 +1049,8 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
       { timestamp: '2026-05-08T12:34:56.000Z' },
     );
 
-    // WHEN: we fold the event through apply()
     const next = rehydrationReducer.apply(initial, evt);
 
-    // THEN: latestHandoff equals the input fields with eventRef keyed by
-    // sequence + timestamp (v:2 contract — no `id` key).
     expect(next.latestHandoff).toBeDefined();
     expect(next.latestHandoff?.context).toBe('design phase wrapping up');
     expect(next.latestHandoff?.nextSteps).toEqual(['run typecheck', 'open PR']);
@@ -1265,34 +1058,27 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
     expect(next.latestHandoff?.eventRef.sequence).toBe(7);
     expect(next.latestHandoff?.eventRef.timestamp).toBe('2026-05-08T12:34:56.000Z');
 
-    // AND: NO `id` key on eventRef (v:2 strict-deprecation per #1246).
     expect(Object.keys(next.latestHandoff!.eventRef).sort()).toEqual([
       'sequence',
       'timestamp',
     ]);
 
-    // AND: recentHandoffs has been seeded with a single entry mirroring
-    // latestHandoff (most-recent-first, length 1).
     expect(next.recentHandoffs).toHaveLength(1);
     expect(next.recentHandoffs[0]).toEqual(next.latestHandoff);
 
-    // AND: projectionSequence was bumped exactly once for this handled event.
     expect(next.projectionSequence).toBe(1);
 
-    // AND: purity — the initial state was not mutated.
     expect(initial.latestHandoff).toBeUndefined();
     expect(initial.recentHandoffs).toEqual([]);
     expect(initial.projectionSequence).toBe(0);
 
-    // AND: the resulting document still conforms to RehydrationDocumentSchema.
     expect(RehydrationDocumentSchema.safeParse(next).success).toBe(true);
   });
 
+  /** Three cases return `state` unchanged: no `handoff`, a `handoff` with no fields, and a `handoff` with only empty arrays. */
   it('applyWorkflowCheckpoint_EmptyHandoff_NoStateChange', () => {
-    // GIVEN: the initial state
     const initial = rehydrationReducer.initial;
 
-    // CASE 1: handoff omitted entirely (legacy / non-handoff checkpoint)
     const evtNoHandoff = makeCheckpoint(1, undefined);
     const next1 = rehydrationReducer.apply(initial, evtNoHandoff);
     expect(next1).toBe(initial);
@@ -1300,13 +1086,11 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
     expect(next1.latestHandoff).toBeUndefined();
     expect(next1.recentHandoffs).toEqual([]);
 
-    // CASE 2: handoff present but all fields missing
     const evtAllUndef = makeCheckpoint(2, {});
     const next2 = rehydrationReducer.apply(initial, evtAllUndef);
     expect(next2).toBe(initial);
     expect(next2.projectionSequence).toBe(0);
 
-    // CASE 3: handoff present with explicit empty arrays + missing context
     const evtEmptyArrays = makeCheckpoint(3, {
       nextSteps: [],
       suggestions: [],
@@ -1316,8 +1100,8 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
     expect(next3.projectionSequence).toBe(0);
   });
 
+  /** After 5 checkpoints, `recentHandoffs` holds the last 3, newest first. */
   it('applyWorkflowCheckpoint_MultipleEvents_RecentHandoffsBoundedToThree', () => {
-    // GIVEN: an initial state we will fold 5 sequential checkpoint events into
     let state = rehydrationReducer.initial;
     for (let i = 1; i <= 5; i++) {
       state = rehydrationReducer.apply(
@@ -1329,35 +1113,26 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
       );
     }
 
-    // THEN: the bounded sliding window holds at most 3 entries
     expect(state.recentHandoffs).toHaveLength(3);
 
-    // AND: ordering is most-recent-first (event 5, 4, 3)
     expect(state.recentHandoffs[0]?.context).toBe('checkpoint 5');
     expect(state.recentHandoffs[1]?.context).toBe('checkpoint 4');
     expect(state.recentHandoffs[2]?.context).toBe('checkpoint 3');
 
-    // AND: eventRef.sequence ordering matches the most-recent-first contract
     expect(state.recentHandoffs[0]?.eventRef.sequence).toBe(5);
     expect(state.recentHandoffs[1]?.eventRef.sequence).toBe(4);
     expect(state.recentHandoffs[2]?.eventRef.sequence).toBe(3);
 
-    // AND: latestHandoff tracks the head of the window (event 5)
     expect(state.latestHandoff?.context).toBe('checkpoint 5');
     expect(state.latestHandoff?.eventRef.sequence).toBe(5);
 
-    // AND: projectionSequence was bumped exactly once per handled event
     expect(state.projectionSequence).toBe(5);
 
-    // AND: the resulting document still conforms to the v:2 envelope schema
-    // (the .max(3) constraint on recentHandoffs is enforced at parse time)
     expect(RehydrationDocumentSchema.safeParse(state).success).toBe(true);
   });
 
+  /** Two folds of the same 4 events from the initial document must give equal documents. */
   it('applyWorkflowCheckpoint_ReplayFromInitial_ReconstructsLatest', () => {
-    // GIVEN: a stream of N=4 sequential checkpoint events with non-empty
-    // handoff payloads (DR-3 replay invariant — fold from initial, not from a
-    // hand-crafted v:1 doc).
     const events = [1, 2, 3, 4].map((i) =>
       makeCheckpoint(i, {
         context: `phase ${i} done`,
@@ -1366,31 +1141,25 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
       }),
     );
 
-    // WHEN: we incrementally fold the stream
     let incremental = rehydrationReducer.initial;
     for (const evt of events) {
       incremental = rehydrationReducer.apply(incremental, evt);
     }
 
-    // AND: when we fully replay the same stream from a fresh initial doc
     let replayed = rehydrationReducer.initial;
     for (const evt of events) {
       replayed = rehydrationReducer.apply(replayed, evt);
     }
 
-    // THEN: the two folds produce identical documents (no replay drift)
     expect(replayed).toEqual(incremental);
 
-    // AND: latestHandoff matches the most recent event (sequence 4)
     expect(replayed.latestHandoff?.eventRef.sequence).toBe(4);
     expect(replayed.latestHandoff?.context).toBe('phase 4 done');
 
-    // AND: recentHandoffs is bounded to 3 in most-recent-first order
     expect(replayed.recentHandoffs.map((e) => e.eventRef.sequence)).toEqual([
       4, 3, 2,
     ]);
 
-    // AND: every entry's eventRef carries only {sequence, timestamp} (no id)
     for (const entry of replayed.recentHandoffs) {
       expect(Object.keys(entry.eventRef).sort()).toEqual([
         'sequence',
@@ -1398,12 +1167,11 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
       ]);
     }
 
-    // AND: the document still parses against the v:2 schema
     expect(RehydrationDocumentSchema.safeParse(replayed).success).toBe(true);
   });
 
+  /** The strict schema already rejects an `id` in `eventRef`. This test checks the keys directly as a second guard. */
   it('applyWorkflowCheckpoint_EventRefSequenceIsPrimary_NoIdField', () => {
-    // GIVEN: a sequence of checkpoint events folded into the initial state
     let state = rehydrationReducer.initial;
     for (let i = 10; i <= 12; i++) {
       state = rehydrationReducer.apply(
@@ -1415,24 +1183,17 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
       );
     }
 
-    // THEN: every entry in recentHandoffs has an eventRef that contains ONLY
-    // {sequence, timestamp} — no `id` key smuggled in. Per #1246 v:2 strict
-    // deprecation, the schema's `.strict()` would already reject an `id`,
-    // but assert this directly via Object.keys for defense-in-depth.
     expect(state.recentHandoffs.length).toBeGreaterThan(0);
     for (const entry of state.recentHandoffs) {
       const refKeys = Object.keys(entry.eventRef).sort();
       expect(refKeys).toEqual(['sequence', 'timestamp']);
       expect(refKeys).not.toContain('id');
-      // Sanity: types — sequence must be a non-negative integer per the v:2
-      // schema; timestamp must be a string.
       expect(typeof entry.eventRef.sequence).toBe('number');
       expect(Number.isInteger(entry.eventRef.sequence)).toBe(true);
       expect(entry.eventRef.sequence).toBeGreaterThanOrEqual(0);
       expect(typeof entry.eventRef.timestamp).toBe('string');
     }
 
-    // AND: latestHandoff carries the same single-key pair when present.
     expect(state.latestHandoff).toBeDefined();
     expect(Object.keys(state.latestHandoff!.eventRef).sort()).toEqual([
       'sequence',
@@ -1440,22 +1201,12 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
     ]);
   });
 
+  /**
+   * The upgrade of a v:1 snapshot drops a handoff entry whose `eventRef` has no usable `sequence`.
+   * A fresh replay of the events gives the full `recentHandoffs` list, because each event has a sequence.
+   * The event at sequence 22 stands for the dropped entry.
+   */
   it('applyWorkflowCheckpoint_FreshReplayRecoversSnapshotDroppedEntries', () => {
-    // C1 audit (snapshot-vs-replay asymmetry, #1246): a hypothetical legacy
-    // v:1 snapshot would have been forced to drop a handoff entry whose
-    // pre-#1230 eventRef carried only an `id` and no usable `sequence`. Fresh
-    // replay-from-events of the SAME `workflow.checkpoint` events recovers
-    // that entry's content under v:2 because the underlying event has a valid
-    // post-#1230 sequence.
-    //
-    // This test does not depend on T3 (the read-back / migration path); it
-    // simply asserts that the reducer's fresh replay produces a complete
-    // recentHandoffs window even for entries a hypothetical legacy snapshot
-    // would have lacked.
-    //
-    // Setup: synthesise three checkpoint events with valid sequences. The
-    // middle event (sequence 22) is the one we model as "would have been
-    // dropped from a v:1 snapshot" — it's identical in shape to its siblings.
     const evtA = makeCheckpoint(21, {
       context: 'phase A done',
       nextSteps: ['next-A'],
@@ -1469,22 +1220,15 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
       nextSteps: ['next-C'],
     });
 
-    // WHEN: we fold all three events from a fresh initial document (the
-    // canonical replay-from-events path).
     let replayed = rehydrationReducer.initial;
     for (const evt of [evtA, evtB, evtC]) {
       replayed = rehydrationReducer.apply(replayed, evt);
     }
 
-    // THEN: the fresh-replay recentHandoffs contains all three entries —
-    // including the middle "would-have-been-dropped" entry — with correct
-    // eventRef.sequence keys derived from the events themselves (NOT from any
-    // v:1 `id` that a snapshot may have lost).
     expect(replayed.recentHandoffs).toHaveLength(3);
     const sequences = replayed.recentHandoffs.map((e) => e.eventRef.sequence);
-    expect(sequences).toEqual([23, 22, 21]); // most-recent-first
+    expect(sequences).toEqual([23, 22, 21]);
 
-    // AND: the recovered "dropped" entry carries its full content under v:2.
     const recovered = replayed.recentHandoffs.find(
       (e) => e.eventRef.sequence === 22,
     );
@@ -1493,20 +1237,15 @@ describe('rehydration reducer — workflow.checkpoint handoff fold (T2 / #1240 /
       'phase B done — entry the legacy snapshot dropped',
     );
     expect(recovered?.nextSteps).toEqual(['next-B']);
-    // AND: its eventRef has no v:1 `id` key (audit invariant).
     expect(Object.keys(recovered!.eventRef).sort()).toEqual([
       'sequence',
       'timestamp',
     ]);
 
-    // AND: the resulting document parses cleanly under the v:2 envelope
-    // (the read-side migration is T3's concern; this test asserts the
-    // reducer's write-side replay is complete on its own).
     expect(RehydrationDocumentSchema.safeParse(replayed).success).toBe(true);
   });
 });
 
-// ─── #1242 — workflow.handoff_summarized fold (operator-precedence) ──────────
 describe('rehydration reducer — workflow.handoff_summarized fold (#1242)', () => {
   function makeSummarized(
     sequence: number,
@@ -1559,17 +1298,14 @@ describe('rehydration reducer — workflow.handoff_summarized fold (#1242)', () 
   });
 
   it('Summarized_DoesNotOverwriteOperatorHandoff_OperatorPrecedence', () => {
-    // GIVEN: an operator checkpoint holds the slot.
     const afterOperator = rehydrationReducer.apply(
       rehydrationReducer.initial,
       makeCheckpoint(3, { context: 'operator: hand-written handoff' }),
     );
     expect(afterOperator.latestHandoff?.source).toBe('operator');
 
-    // WHEN: a summarized fallback fires afterward.
     const afterSummary = rehydrationReducer.apply(afterOperator, makeSummarized(4, { context: 'auto: should be suppressed' }));
 
-    // THEN: operator content is preserved; the summary is a no-op (identity).
     expect(afterSummary).toBe(afterOperator);
     expect(afterSummary.latestHandoff?.context).toBe('operator: hand-written handoff');
     expect(afterSummary.latestHandoff?.source).toBe('operator');
@@ -1578,14 +1314,11 @@ describe('rehydration reducer — workflow.handoff_summarized fold (#1242)', () 
   });
 
   it('OperatorCheckpoint_OverwritesPriorSummary_OperatorAlwaysWins', () => {
-    // GIVEN: a summary holds the slot.
     const afterSummary = rehydrationReducer.apply(rehydrationReducer.initial, makeSummarized(1, { context: 'auto: placeholder' }));
     expect(afterSummary.latestHandoff?.source).toBe('auto');
 
-    // WHEN: an operator checkpoint fires.
     const afterOperator = rehydrationReducer.apply(afterSummary, makeCheckpoint(2, { context: 'operator: real handoff' }));
 
-    // THEN: the operator handoff replaces the summary.
     expect(afterOperator.latestHandoff?.context).toBe('operator: real handoff');
     expect(afterOperator.latestHandoff?.source).toBe('operator');
     expect(afterOperator.recentHandoffs[0]?.source).toBe('operator');
@@ -1606,10 +1339,11 @@ describe('rehydration reducer — workflow.handoff_summarized fold (#1242)', () 
     expect(rehydrationReducer.apply(initial, makeSummarized(3, { nextSteps: [], suggestions: [] }))).toBe(initial);
   });
 
+  /**
+   * The stored summary is the source of truth, so a replay gives the same projection and does not call the summarizer.
+   * The operator handoff at sequence 2 wins, and the reducer ignores the later summary.
+   */
   it('Summarized_ReplayDeterminism_FoldingTwiceYieldsEqualProjection', () => {
-    // INV-1: the stored summary string is the source of truth — replaying the
-    // same event sequence reproduces an identical projection (the summarizer is
-    // never re-invoked on replay).
     const events = [
       makeSummarized(1, { context: 'auto: phase A summary' }),
       makeCheckpoint(2, { context: 'operator: phase B handoff' }),
@@ -1618,14 +1352,12 @@ describe('rehydration reducer — workflow.handoff_summarized fold (#1242)', () 
     const foldOnce = events.reduce((s, e) => rehydrationReducer.apply(s, e), rehydrationReducer.initial);
     const foldTwice = events.reduce((s, e) => rehydrationReducer.apply(s, e), rehydrationReducer.initial);
     expect(foldOnce).toEqual(foldTwice);
-    // Operator (seq 2) wins the slot; the later summary (seq 3) is suppressed.
     expect(foldOnce.latestHandoff?.context).toBe('operator: phase B handoff');
     expect(foldOnce.latestHandoff?.source).toBe('operator');
   });
 
+  /** A `latestHandoff` with no `source` counts as an operator entry, so the summary must not replace it. */
   it('Summarized_LegacyEntryWithoutSource_TreatedAsOperator', () => {
-    // A pre-#1242 latestHandoff carries no `source`. The summary must NOT
-    // overwrite it (the only pre-#1242 writer was the operator checkpoint path).
     const legacyState = {
       ...rehydrationReducer.initial,
       latestHandoff: {

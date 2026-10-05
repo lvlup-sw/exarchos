@@ -1,22 +1,14 @@
-// ─── T039: Envelope Conformance for exarchos_view Tool ─────────────────────
-//
-// Verifies that every action dispatched through `handleView` (the
-// composite `exarchos_view` MCP tool surface) returns a response
-// conforming to the HATEOAS `Envelope<T>` shape introduced in T014:
-//
-//   { success: boolean, data: unknown, next_actions: [], _meta: {}, _perf: { ms: number, ... } }
-//
-// Handler internals are mocked so this suite only asserts the wrapping
-// contract at the tool boundary. `next_actions` defaults to an empty array
-// until T040/T041 populate it from HSM transitions.
+/**
+ * Envelope conformance for the `exarchos_view` tool. For each tested action,
+ * `handleView` must return the HATEOAS envelope: `success`, `data`, `next_actions`,
+ * `_meta` and `_perf`. Mocks replace the handlers of those actions, so the suite
+ * asserts only the wrap at the tool boundary.
+ */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../../../src/events/store.js';
 
-// Mock every handler invoked by `handleView` so we exercise only the
-// envelope-wrapping behavior at the composite boundary, not the handler
-// internals (which have their own dedicated tests).
 vi.mock('../../../../src/projections/views/tools.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/projections/views/tools.js')>();
   return {
@@ -59,26 +51,25 @@ function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
 }
 
+/**
+ * Asserts the envelope shape. `data` must be an own key. `next_actions` must be
+ * empty, because the mocked payloads carry no workflow context and no handler action.
+ */
 function assertEnvelopeShape(result: unknown): void {
   expect(result).toBeTypeOf('object');
   expect(result).not.toBeNull();
   const env = result as Record<string, unknown>;
 
-  // success: boolean
   expect(typeof env.success).toBe('boolean');
 
-  // data: any (must be present as own key, not undefined)
   expect(Object.hasOwn(env, 'data')).toBe(true);
 
-  // next_actions: [] (empty array by default — populated in T040/T041)
   expect(Array.isArray(env.next_actions)).toBe(true);
   expect((env.next_actions as unknown[]).length).toBe(0);
 
-  // _meta: object
   expect(env._meta).toBeTypeOf('object');
   expect(env._meta).not.toBeNull();
 
-  // _perf: { ms: number, ... }
   expect(env._perf).toBeTypeOf('object');
   expect(env._perf).not.toBeNull();
   const perf = env._perf as Record<string, unknown>;

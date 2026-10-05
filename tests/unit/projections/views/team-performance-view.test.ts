@@ -107,7 +107,6 @@ describe('TeamPerformanceView', () => {
     it('apply_TeamTaskCompleted_CalculatesPassRate', () => {
       let state = teamPerformanceProjection.init();
 
-      // 3 completed
       for (let i = 1; i <= 3; i++) {
         state = teamPerformanceProjection.apply(state, makeEvent('team.task.completed', {
           taskId: `task-${i}`,
@@ -119,7 +118,6 @@ describe('TeamPerformanceView', () => {
         }, i));
       }
 
-      // 1 failed
       state = teamPerformanceProjection.apply(state, makeEvent('team.task.failed', {
         taskId: 'task-4',
         teammateName: 'worker-1',
@@ -132,6 +130,7 @@ describe('TeamPerformanceView', () => {
   });
 
   describe('apply - module metrics', () => {
+    /** Two files in one directory count the `auth` module one time. */
     it('apply_TeamTaskCompleted_DeduplicatesModulesFromSameDirectory', () => {
       const state = teamPerformanceProjection.init();
       const event = makeEvent('team.task.completed', {
@@ -144,7 +143,6 @@ describe('TeamPerformanceView', () => {
       });
 
       const next = teamPerformanceProjection.apply(state, event);
-      // Module 'auth' should only be counted once despite two files in the same directory
       expect(next.modules['auth'].totalTasks).toBe(1);
     });
 
@@ -173,10 +171,10 @@ describe('TeamPerformanceView', () => {
       expect(state.modules['auth'].totalTasks).toBe(2);
     });
 
+    /** The completed task comes first, so the module has a `totalTasks` above zero. */
     it('apply_WorkflowFixCycle_IncrementsModuleFixCycleRate', () => {
       let state = teamPerformanceProjection.init();
 
-      // First add a completed task so the module has totalTasks > 0
       state = teamPerformanceProjection.apply(state, makeEvent('team.task.completed', {
         taskId: 'task-1',
         teammateName: 'worker-1',
@@ -214,7 +212,6 @@ describe('TeamPerformanceView', () => {
     it('apply_TeamDisbanded_CalculatesAvgTasksPerTeammate', () => {
       let state = teamPerformanceProjection.init();
 
-      // Spawned with 3 teammates, 6 tasks
       state = teamPerformanceProjection.apply(state, makeEvent('team.spawned', {
         teamSize: 3,
         teammateNames: ['w1', 'w2', 'w3'],
@@ -222,7 +219,6 @@ describe('TeamPerformanceView', () => {
         dispatchMode: 'parallel',
       }, 1));
 
-      // Disbanded
       state = teamPerformanceProjection.apply(state, makeEvent('team.disbanded', {
         totalDurationMs: 10000,
         tasksCompleted: 5,
@@ -232,8 +228,6 @@ describe('TeamPerformanceView', () => {
       expect(state.teamSizing.avgTasksPerTeammate).toBe(2);
     });
   });
-
-  // ─── H1-D (#1525): subagent.tokens_used fold ───────────────────────────────
 
   describe('apply - subagent.tokens_used', () => {
     it('TeamPerformance_FoldsTokenAtom_AttributesTokensToTeammate', () => {
@@ -252,9 +246,8 @@ describe('TeamPerformanceView', () => {
       expect(alice.avgOutputTokensPerRun).toBe(2000);
     });
 
+    /** `team.task.completed` rebuilds the teammate object, and must carry the token fields forward. */
     it('TeamPerformance_TokenAtom_SurvivesSubsequentTaskCompleted', () => {
-      // The team.task.completed handler rebuilds the teammate object explicitly;
-      // token fields must be carried forward, not dropped.
       let state = teamPerformanceProjection.init();
       state = teamPerformanceProjection.apply(state, makeEvent('subagent.tokens_used', {
         agentId: 'a1', teammateName: 'bob', outputTokens: 500,
@@ -268,15 +261,17 @@ describe('TeamPerformanceView', () => {
       expect(state.teammates['bob'].tasksCompleted).toBe(1);
     });
 
+    /**
+     * An event with no `teammateName` leaves the view unchanged. An event with no numeric
+     * `outputTokens` creates no teammate.
+     */
     it('TeamPerformance_TokenAtom_IgnoresMissingTeammateOrTokens', () => {
       let state = teamPerformanceProjection.init();
       const before = state;
-      // No teammateName → unattributable → view unchanged.
       state = teamPerformanceProjection.apply(state, makeEvent('subagent.tokens_used', {
         agentId: 'a1', outputTokens: 100,
       }, 1));
       expect(state).toBe(before);
-      // No numeric outputTokens → ignored, no teammate created.
       state = teamPerformanceProjection.apply(state, makeEvent('subagent.tokens_used', {
         agentId: 'a1', teammateName: 'x',
       }, 2));

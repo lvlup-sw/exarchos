@@ -1,20 +1,7 @@
-// ─── T1 (#1446 residue) — Describe coverage parity ──────────────────────────
-//
-// Pins the registry-vs-dispatch parity contract for `exarchos_view`. Every
-// action dispatched through `projections/views/composite.ts` MUST be registered in
-// `TOOL_REGISTRY.viewActions`. Without this parity:
-//   1. Per-action Zod validation at `dispatch/core/dispatch.ts:801` is silently
-//      skipped for the unregistered action (DR-5 hole).
-//   2. `exarchos_view describe` cannot surface the action's schema — the
-//      handler reads schemas from the registry, so unregistered actions
-//      are invisible to introspection.
-//
-// The test parses `composite.ts` to collect the dispatched action names from
-// the switch statement (the dispatched-surface source of truth), then calls
-// `exarchos_view { action: 'describe', actions: [<all>] }` and asserts each
-// dispatched name resolves to a describe entry. The dynamic discovery means
-// adding a new view action to composite.ts without registering it surfaces
-// here immediately.
+// Tests that the `exarchos_view` registry and the action switch in `projections/views/composite.ts` hold the same actions.
+// The dispatch core refuses a routed action that has no registration, and `describe` cannot return its schema.
+// A registered action with no `case` arm returns `UNKNOWN_ACTION` at runtime.
+// The tests parse `composite.ts` for the `case` arms, so a new arm with no registration fails here.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, readFileSync } from 'node:fs';
@@ -30,25 +17,12 @@ import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 /**
- * Parse `projections/views/composite.ts` and return every action name handled by a
- * `case 'xxx':` arm inside the `handleView` switch (NOT case arms anywhere
- * else in the file — `composite.ts` includes other helper switches whose
- * cases must not pollute the action surface). Excludes `describe` (the
- * introspection action itself).
- *
- * The regex first isolates the `handleView` body up to its closing brace,
- * then locates the `switch (action) {...}` block within it, then collects
- * `case '...':` literals from that block only. Tightened in response to a
- * CodeRabbit nit on #1450 — the previous loose `[a-z_]+` regex against the
- * full file could have picked up unrelated case arms.
+ * Returns the sorted action names of the `case` arms in the view action switch of `composite.ts`, without `describe`.
+ * The regex starts at the `handleView` declaration, takes the first `switch (action)` block after it, and stops at the `default:` arm.
+ * `default:` is a stable end marker, because a closing brace also ends each inner block.
  */
 function collectDispatchedActionNames(): string[] {
   const source = readFileSync(resolve(__dirname, '../../../../src/projections/views/composite.ts'), 'utf-8');
-  // Anchor on `switch (action) {` opening through the switch's `default:`
-  // arm — `default:` inside a switch is a deterministic terminator that
-  // doesn't collide with inner block close braces. Falling back to a body-
-  // wide regex would risk picking up case arms from helper switches
-  // declared elsewhere in the same file.
   const switchMatch = source.match(
     /export\s+async\s+function\s+handleView[\s\S]*?switch\s*\(\s*action\s*\)\s*\{([\s\S]*?)default\s*:/,
   );
@@ -69,17 +43,9 @@ function collectDispatchedActionNames(): string[] {
 }
 
 /**
- * Registered view-action names on `exarchos_view`, EXCLUDING `describe`.
- *
- * `describe` is the introspection action itself: it is BOTH registered (via
- * `makeDescribeAction` in TOOL_REGISTRY.viewActions) AND routed (a
- * `case 'describe':` arm in `handleView`), but `collectDispatchedActionNames`
- * deliberately omits it because it is not a materialized-view action. To put
- * the routed surface and the registered surface on equal footing for the
- * equality guard, we drop `describe` from BOTH sides. This is the view-side
- * analogue of the orchestrate guard's documented `SPECIAL_ACTIONS` skip-set
- * (`registry.test.ts` → `OrchestrateActions_MatchCompositeHandlers_InSync`) —
- * the one intentional exception to set equality.
+ * Returns the sorted action names registered on `exarchos_view`, without `describe`.
+ * `describe` is registered and routed, but it is the introspection action, not a view.
+ * Both collectors drop it, so the two sets compare on equal terms.
  */
 function collectRegisteredViewActionNames(): string[] {
   const view = TOOL_REGISTRY.find((t) => t.name === 'exarchos_view');
@@ -94,33 +60,20 @@ function collectRegisteredViewActionNames(): string[] {
     .sort();
 }
 
-// ─── View-side EQUALITY guard (DR-4 / DR-7 — close the view DOA hole) ────────
-//
-// The pre-existing `describe.coverage` test above is a SUPERSET guard:
-// "registry COVERS the dispatched surface" (registered ⊇ routed). That shape
-// lets a view action be registered-but-UNROUTED — registered in
-// TOOL_REGISTRY.viewActions with NO `case` arm in `handleView` — ship Dead On
-// Arrival: every call falls through to `default` → UNKNOWN_ACTION at runtime,
-// while the action's own unit tests (which call the underlying handler
-// directly) stay green. This is exactly the class of bug the orchestrate twin
-// (`OrchestrateActions_MatchCompositeHandlers_InSync`) was added to fence after
-// `onboard` shipped registered-but-unrouted.
-//
-// This guard upgrades the contract to EQUALITY: the set of view actions routed
-// by the `handleView` switch (source-parsed via the same tightened regex the
-// coverage test uses) MUST equal the set registered on `exarchos_view`, modulo
-// the single documented `describe` exception. It turns red in BOTH directions —
-// a registered-but-unrouted action AND a routed-but-unregistered action.
+/**
+ * The routed set must equal the registered set, apart from `describe`.
+ * A registered action with no `case` arm can pass its unit tests, which call the handler directly.
+ * At runtime, that action returns `UNKNOWN_ACTION`.
+ */
 describe('ExarchosView — registry↔dispatch EQUALITY guard (DR-4/DR-7, view DOA fence)', () => {
+  /**
+   * Both sets must be non-empty and must hold `ps`, `wait` and `worktrees`, because two empty sets are equal.
+   * The test then checks each direction separately, so the failure message names the action and the missing side.
+   */
   it('ViewActions_MatchCompositeHandlers_InSync', () => {
-    const routed = collectDispatchedActionNames(); // case arms (minus describe)
-    const registered = collectRegisteredViewActionNames(); // registry (minus describe)
+    const routed = collectDispatchedActionNames();
+    const registered = collectRegisteredViewActionNames();
 
-    // Sanity: both surfaces must be non-empty, and must include the WLM
-    // operational-core liveness reads (`ps` / `wait`, Task 004) plus the
-    // foundation read (`worktrees`, Task 008). If a future regex/registry edit
-    // collapses either set to zero this fails loudly rather than passing
-    // vacuously (two empty sets are trivially equal).
     expect(routed.length).toBeGreaterThan(0);
     expect(registered.length).toBeGreaterThan(0);
     for (const name of ['ps', 'wait', 'worktrees']) {
@@ -131,9 +84,6 @@ describe('ExarchosView — registry↔dispatch EQUALITY guard (DR-4/DR-7, view D
       ).toContain(name);
     }
 
-    // Direction 1 — registered-but-UNROUTED (the DOA hole the superset test
-    // cannot see). A view action in the registry with no `case` arm in
-    // handleView would dispatch to UNKNOWN_ACTION at runtime.
     const registeredNotRouted = registered.filter((n) => !routed.includes(n));
     expect(
       registeredNotRouted,
@@ -142,10 +92,6 @@ describe('ExarchosView — registry↔dispatch EQUALITY guard (DR-4/DR-7, view D
         `Add a matching 'case' arm in views/composite.ts.`,
     ).toEqual([]);
 
-    // Direction 2 — routed-but-UNREGISTERED. Per-action Zod validation in the
-    // dispatch core is silently skipped and the action is invisible to
-    // `describe`. (The superset test already covers this direction; the
-    // equality guard re-pins it so one test owns the full contract.)
     const routedNotRegistered = routed.filter((n) => !registered.includes(n));
     expect(
       routedNotRegistered,
@@ -155,7 +101,6 @@ describe('ExarchosView — registry↔dispatch EQUALITY guard (DR-4/DR-7, view D
         `Add it to TOOL_REGISTRY.viewActions in src/registry.ts.`,
     ).toEqual([]);
 
-    // Belt-and-suspenders: the two surfaces are identical sets.
     expect(routed).toEqual(registered);
   });
 });
@@ -171,12 +116,14 @@ describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residu
     rmrf(tempStateDir);
   });
 
+  /**
+   * The dispatched set must hold `session_provenance` and `provenance`, so an empty parse cannot pass.
+   * `describe` returns `UNKNOWN_ACTION` for the first unregistered name, so one missing registration fails the call.
+   * The key check is a superset check: the registry must cover each dispatched name.
+   */
   it('ExarchosViewDescribe_ListsAllSeventeenDispatchedActions', async () => {
     const dispatched = collectDispatchedActionNames();
 
-    // Sanity: composite.ts must dispatch at least the three actions T1 is
-    // closing residue on, plus the broader Wave 5 set. If this collapses to
-    // zero, the regex needs an update — fail loudly rather than silently.
     expect(dispatched.length).toBeGreaterThan(0);
     expect(dispatched).toContain('session_provenance');
     expect(dispatched).toContain('provenance');
@@ -187,10 +134,6 @@ describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residu
       enableTelemetry: false,
     };
 
-    // Drive the public introspection surface end-to-end. `handleDescribe`
-    // returns UNKNOWN_ACTION on the first unregistered name in `args.actions`,
-    // so a single missing entry fails this assertion with a clear message
-    // naming the offending action.
     const result = await handleView(
       { action: 'describe', actions: dispatched },
       ctx,
@@ -205,10 +148,6 @@ describe('ExarchosViewDescribe — registry-vs-dispatch parity (T1, #1446 residu
     const data = result.data as Record<string, unknown>;
     const describedNames = Object.keys(data);
 
-    // Every dispatched name MUST appear as a key in describe's response.
-    // Superset assertion (rather than equality) so additions to the
-    // registry don't break this test — the contract is "registry covers
-    // dispatched surface", not "they are identical sets".
     for (const name of dispatched) {
       expect(
         describedNames,

@@ -1,11 +1,7 @@
-// ─── `wait` — generic event-driven gate (DR-5 / DR-8) ────────────────────────
-//
-// Boundary discipline: every test drives the REAL event store + REAL DR-1
-// subscription primitive + REAL DR-2 liveness registry — no hand-mocks of those
-// seams. Determinism comes from INJECTED clocks/timers only (INV-16): a
-// `ManualClock` on the subscription registry drives the Tier-2 floor tick-by-
-// tick, and a captured `scheduleTimeout` fires the bounded deadline directly.
-// ─────────────────────────────────────────────────────────────────────────────
+// Tests for the `wait` lifecycle verb. Each test uses a real event store, the
+// real subscription primitive and the real liveness registry. A manual clock
+// drives the poll floor, and a captured `scheduleTimeout` fires the deadline,
+// so no test sleeps.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import fc from 'fast-check';
@@ -26,13 +22,11 @@ import {
 } from '../../../../../src/projections/views/lifecycle/wait.js';
 import { LIVENESS_REGISTRY } from '../../../../../src/events/liveness-registry.js';
 
-// ─── Manually-driven subscription clock (INV-16) ──────────────────────────────
-//
-// Mirrors the `ManualClock` in `subscriptions.test.ts`: a real, deterministic
-// SubscriptionClock whose Tier-2 floor loop fires only when the test calls
-// `fireAll()` — no wall-clock sleep. Injected via `WaitDeps.subscriptionOptions`
-// so the wait's own DR-1 subscription runs on it (the FIRST subscribe on a fresh
-// store, so the lazily-created registry adopts this clock).
+/**
+ * A {@link SubscriptionClock} whose poll-floor loop runs only when a test calls `fireAll()`. It
+ * goes in through `WaitDeps.subscriptionOptions`. The first subscribe on a new store creates the
+ * registry, and the registry adopts this clock.
+ */
 class ManualSubscriptionClock implements SubscriptionClock {
   time = 0;
   private readonly loops: Array<{ tick: () => void }> = [];
@@ -51,8 +45,6 @@ class ManualSubscriptionClock implements SubscriptionClock {
     for (const { tick } of [...this.loops]) tick();
   }
 }
-
-// ─── Arm / fixtures ──────────────────────────────────────────────────────────
 
 interface Arm {
   readonly stateDir: string;
@@ -164,9 +156,11 @@ function deterministicDeps(clock?: SubscriptionClock): {
   };
 }
 
-// ─── Precheck (immediate resolution, no subscription) ────────────────────────
-
 describe('wait — phase predicate', () => {
+  /**
+   * The test injects no deadline. A wait that subscribes blocks past the test timeout, so only
+   * the precheck lets the test pass.
+   */
   it('Wait_PhaseAlreadyPassed_ReturnsImmediatelyWithoutSubscribing', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-passed';
@@ -175,9 +169,6 @@ describe('wait — phase predicate', () => {
     await appendTransition(store, featureId, 'plan-review', 'delegate');
 
     const before = await totalEvents(store);
-    // No injected deadline is fired: if this SUBSCRIBED, it would hang → the
-    // test would time out. Immediate precheck resolution is the only way it
-    // returns without us firing a deadline.
     const result = await handleViewWait({ featureId, phase: 'plan-review' }, ctx);
 
     expect(result.success).toBe(true);
@@ -187,31 +178,34 @@ describe('wait — phase predicate', () => {
     expect(await totalEvents(store)).toBe(before);
   });
 
+  /**
+   * Node `setTimeout` does not clamp a delay above 2^31-1 ms. The delay becomes 1 ms, so a very
+   * large `timeoutMs` gives a `WAIT_TIMEOUT` almost at once. The handler must clamp the budget.
+   */
   it('Wait_TimeoutMsAboveNodeTimerCeiling_ClampedNotWrappedToNearImmediate', async () => {
-    // Node's setTimeout does NOT clamp: a delay above 2^31-1 ms silently
-    // becomes 1ms and fires almost immediately, flipping a deliberately-huge
-    // timeoutMs into a near-instant WAIT_TIMEOUT — the exact opposite of the
-    // caller's "wait longer" intent. The resolved budget must be clamped.
     const { store, ctx } = await makeArm();
     const featureId = 'feat-clamp';
     await seedWorkflow(store, featureId);
 
     const { deps, fireDeadline, scheduledMs } = deterministicDeps();
-    // Well past the ceiling (~24.85 days).
     const waitP = handleViewWait(
       { featureId, phase: 'plan-review', timeoutMs: 9_999_999_999 },
       ctx,
       deps,
     );
-    await flush(); // let the precheck complete and the deadline get scheduled
+    await flush();
 
     expect(scheduledMs()).toBe(2_147_483_647);
 
-    fireDeadline(); // resolve the pending wait so the test doesn't hang
+    fireDeadline();
     const result = await waitP;
     expect(result.success).toBe(false);
   });
 
+  /**
+   * The post-commit hook delivers an event of this process. The test fires no floor tick, and
+   * `perf` shows zero floor ticks and zero floor drains.
+   */
   it('Wait_InProcessTransition_ResolvesOnTier1Wake', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-tier1';
@@ -222,29 +216,28 @@ describe('wait — phase predicate', () => {
     const before = await totalEvents(store);
 
     const waitP = handleViewWait({ featureId, phase: 'plan-review', timeoutMs: 60_000 }, ctx, deps);
-    await flush(); // let the precheck complete and the subscription register
+    await flush();
 
-    // In-process append → Tier-1 post-commit hook delivers synchronously; NO
-    // floor tick is fired (clock.fireAll never called).
     await appendTransition(store, featureId, 'plan', 'plan-review');
     const result = await waitP;
 
     expect(result.success).toBe(true);
     expect((result.data as { phase?: string }).phase).toBe('plan-review');
     const perf = (result.data as { perf?: { floorTicks: number; floorDrains: number } }).perf;
-    expect(perf?.floorTicks).toBe(0); // resolved on Tier-1 wake — no floor tick consumed
+    expect(perf?.floorTicks).toBe(0);
     expect(perf?.floorDrains).toBe(0);
-    // The transition is the ONLY new event; wait appended nothing.
     expect(await totalEvents(store)).toBe(before + 1);
   });
 
+  /**
+   * A second connection commits the transition. Its commit does not wake the post-commit hook of
+   * `store`, so only the poll floor can read it. One floor tick resolves the wait.
+   */
   it('Wait_ForeignConnectionEvent_ResolvesWithinOneFloorTick_PerfSurfaced', async () => {
     const { store, ctx, stateDir } = await makeArm();
     const featureId = 'feat-foreign';
     await seedWorkflow(store, featureId);
 
-    // A second connection on the same DB: its commit does NOT wake `store`'s
-    // Tier-1 hook, so only the Tier-2 poll floor can pull it.
     const foreign = new EventStore(stateDir);
     await foreign.initialize();
     try {
@@ -252,11 +245,10 @@ describe('wait — phase predicate', () => {
       const { deps } = deterministicDeps(clock);
 
       const waitP = handleViewWait({ featureId, phase: 'plan-review', timeoutMs: 60_000 }, ctx, deps);
-      await flush(); // wait subscribes on `store` with the ManualClock floor
-
-      await appendTransition(foreign, featureId, 'plan', 'plan-review'); // foreign — no Tier-1 wake
       await flush();
-      // Exactly one floor tick drains the foreign commit and resolves the wait.
+
+      await appendTransition(foreign, featureId, 'plan', 'plan-review');
+      await flush();
       clock.fireAll();
       const result = await waitP;
 
@@ -264,24 +256,25 @@ describe('wait — phase predicate', () => {
       expect((result.data as { phase?: string }).phase).toBe('plan-review');
       const perf = (result.data as { perf?: { floorMs: number; floorDrains: number } }).perf;
       expect(perf).toBeDefined();
-      expect(perf?.floorMs).toBeGreaterThan(0); // the floor interval is surfaced
-      expect(perf?.floorDrains).toBe(1); // resolved within ONE floor drain
+      expect(perf?.floorMs).toBeGreaterThan(0);
+      expect(perf?.floorDrains).toBe(1);
     } finally {
       foreign.close();
     }
   });
 
+  /** The workflow stays in `plan`, so the wait on `delegate` is pending when the test fires the deadline. */
   it('Wait_Timeout_StructuredWaitTimeout', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-timeout';
-    await seedWorkflow(store, featureId); // stays in 'plan'
+    await seedWorkflow(store, featureId);
 
     const { deps, fireDeadline } = deterministicDeps(new ManualSubscriptionClock());
     const before = await totalEvents(store);
 
     const waitP = handleViewWait({ featureId, phase: 'delegate', timeoutMs: 5000 }, ctx, deps);
     await flush();
-    fireDeadline(); // fire the bounded deadline
+    fireDeadline();
     const result = await waitP;
 
     expect(result.success).toBe(false);
@@ -291,6 +284,7 @@ describe('wait — phase predicate', () => {
     expect(await totalEvents(store)).toBe(before);
   });
 
+  /** The workflow moves to `cancelled` during the wait, so `review` becomes unreachable. */
   it('Wait_WorkflowCancelledMidWait_WaitFailed', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-cancel';
@@ -301,18 +295,15 @@ describe('wait — phase predicate', () => {
 
     const waitP = handleViewWait({ featureId, phase: 'review', timeoutMs: 60_000 }, ctx, deps);
     await flush();
-    // The workflow is cancelled while we wait on `review` → review unreachable.
     await appendTransition(store, featureId, 'plan', 'cancelled');
     const result = await waitP;
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('WAIT_FAILED');
     expect((result.data as { terminalStatus: string }).terminalStatus).toBe('cancelled');
-    expect(await totalEvents(store)).toBe(before + 1); // only the transition
+    expect(await totalEvents(store)).toBe(before + 1);
   });
 });
-
-// ─── Status predicate ─────────────────────────────────────────────────────────
 
 describe('wait — status predicate', () => {
   it('Wait_StatusPredicate_ResolvesOnRequestedTerminal', async () => {
@@ -345,6 +336,7 @@ describe('wait — status predicate', () => {
     expect(await totalEvents(store)).toBe(before);
   });
 
+  /** The wait requests `completed`, and `cancelled` arrives first. */
   it('Wait_StatusPredicate_DifferentTerminalArrives_WaitFailed', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-status-diff';
@@ -353,7 +345,6 @@ describe('wait — status predicate', () => {
     const { deps } = deterministicDeps(new ManualSubscriptionClock());
     const waitP = handleViewWait({ featureId, status: 'completed', timeoutMs: 60_000 }, ctx, deps);
     await flush();
-    // Requested `completed`, but `cancelled` arrives first → WAIT_FAILED.
     await appendTransition(store, featureId, 'plan', 'cancelled');
     const result = await waitP;
 
@@ -362,17 +353,15 @@ describe('wait — status predicate', () => {
     expect((result.data as { terminalStatus: string }).terminalStatus).toBe('cancelled');
   });
 
+  /**
+   * The workflow is in `delegate`. With that seed phase, `statusPredicate` resolves a `delegate`
+   * request at once, because it compares only the latest phase. The handler must therefore reject
+   * a status that is not terminal before it builds the predicate.
+   */
   it('Wait_StatusPredicate_NonTerminalStatus_InvalidInputWithTerminalTargets', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-status-nonterminal';
     await seedWorkflow(store, featureId);
-    // Drive the workflow INTO the `delegate` phase. Pre-fix, `--status delegate`
-    // built a statusPredicate whose seedPhase already equals `delegate`, so the
-    // precheck resolved IMMEDIATELY on phase-equality — conflating status with
-    // phase. The guard must reject `delegate` (a non-terminal phase, not a
-    // terminal status) with INVALID_INPUT BEFORE that conflation can occur,
-    // symmetric with the `--phase` topology guard and the `--operation` surface
-    // guard.
     await appendTransition(store, featureId, 'plan', 'delegate');
 
     const before = await totalEvents(store);
@@ -380,44 +369,40 @@ describe('wait — status predicate', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    // validTargets = exactly the terminal statuses; `delegate` is not among them.
     expect(result.error?.validTargets).toEqual(['completed', 'failed', 'cancelled']);
     expect(result.error?.validTargets).not.toContain('delegate');
     expect(result.error?.expectedShape).toHaveProperty('status');
-    // It must NOT have resolved immediately (the pre-fix phase-equality bug).
     expect((result.data as { resolved?: boolean } | undefined)?.resolved).not.toBe(true);
-    expect(await totalEvents(store)).toBe(before); // side-effect free
+    expect(await totalEvents(store)).toBe(before);
   });
 });
 
-// ─── Operation predicate (S-6) ────────────────────────────────────────────────
-
 describe('wait — operation predicate (S-6)', () => {
+  /** The terminal has the instance key of the in-flight start, so it clears the in-flight set. */
   it('Wait_OperationPredicate_ResolvesOnRegistryTerminalByInstanceKey', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-op';
     await seedWorkflow(store, featureId);
-    await appendMergeStart(store, featureId, 'merge-1'); // in flight
+    await appendMergeStart(store, featureId, 'merge-1');
 
     const { deps } = deterministicDeps(new ManualSubscriptionClock());
     const before = await totalEvents(store);
 
     const waitP = handleViewWait({ featureId, operation: 'merge', timeoutMs: 60_000 }, ctx, deps);
     await flush();
-    // The registry terminal for the SAME instance key clears the in-flight set.
     await appendMergeTerminal(store, featureId, 'merge-1');
     const result = await waitP;
 
     expect(result.success).toBe(true);
     expect((result.data as { operation?: string }).operation).toBe('merge');
-    expect(await totalEvents(store)).toBe(before + 1); // only the terminal event
+    expect(await totalEvents(store)).toBe(before + 1);
   });
 
+  /** The merge has its terminal before the call, so no instance is in flight. */
   it('Wait_OperationPredicate_NoInFlight_ReturnsImmediately', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-op-idle';
     await seedWorkflow(store, featureId);
-    // A merge that already completed → nothing in flight.
     await appendMergeStart(store, featureId, 'merge-done');
     await appendMergeTerminal(store, featureId, 'merge-done');
 
@@ -429,55 +414,55 @@ describe('wait — operation predicate (S-6)', () => {
     expect(await totalEvents(store)).toBe(before);
   });
 
+  /**
+   * `launch` is a `worktrees`-scope surface. `wait` is an action of `exarchos_view`, so the
+   * suggested fix must name that tool and hold `action`. Without them, a client cannot replay it.
+   */
   it('Wait_OperationPredicate_NonFeatureScopedSurface_InvalidInputWithSuggestedFix', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 'feat-op-launch';
     await seedWorkflow(store, featureId);
 
     const before = await totalEvents(store);
-    // `launch` is worktrees-scoped (not feature-observable).
     const result = await handleViewWait({ featureId, operation: 'launch' }, ctx);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    // validTargets = the feature-scoped surfaces; suggestedFix points at `until`.
     expect(result.error?.validTargets).toEqual(expect.arrayContaining(['merge', 'mutation']));
     expect(result.error?.validTargets).not.toContain('launch');
-    // `wait` is an exarchos_view ACTION, not a tool of its own — the fix must
-    // name the tool and carry `action`, or a client cannot replay it (INV-5b).
     expect(result.error?.suggestedFix?.tool).toBe('exarchos_view');
     expect(result.error?.suggestedFix?.params).toMatchObject({ action: 'wait' });
     expect(result.error?.suggestedFix?.params).toHaveProperty('until');
-    expect(await totalEvents(store)).toBe(before); // side-effect free
+    expect(await totalEvents(store)).toBe(before);
   });
 });
 
-// ─── Worktree scope preservation (WLM-6 kernel absorbed) ─────────────────────
-
 describe('wait — worktree scope (WLM-6 absorbed)', () => {
+  /** `until: 'idle'` goes to the worktree kernel. A store with no in-flight prune resolves at once. */
   it('Wait_WorktreeScope_PreservesWlm6Capabilities', async () => {
     const { store, ctx } = await makeArm();
     const before = await totalEvents(store);
 
-    // `until: 'idle'` on a store with no in-flight prune resolves immediately —
-    // the exact WLM-6 kernel behavior, now reached through the generic verb.
     const result = await handleViewWait({ until: 'idle', timeoutMs: 1000 }, ctx);
 
     expect(result.success).toBe(true);
     expect((result.data as { until?: string; resolved: boolean }).until).toBe('idle');
     expect((result.data as { resolved: boolean }).resolved).toBe(true);
-    expect(await totalEvents(store)).toBe(before); // pure read
+    expect(await totalEvents(store)).toBe(before);
   });
 });
 
-// ─── Event-count invariance across EVERY path (load-bearing) ──────────────────
-
 describe('wait — appends zero events on every path', () => {
+  /**
+   * Four calls settle in the precheck: one resolves on each axis, and one fails on `status`. Three
+   * calls return `INVALID_INPUT`. One call takes the worktree `idle` path, and one ends at a fired
+   * deadline. `{ featureId }` alone has no predicate, so it goes to the worktree kernel, which
+   * requires `integrationRef`.
+   */
   it('Wait_AllPaths_AppendZeroEvents', async () => {
     const { store, ctx } = await makeArm();
 
-    // Seed several workflows in distinct states so each path is reachable.
-    await seedWorkflow(store, 'wf-plan'); // stays in plan
+    await seedWorkflow(store, 'wf-plan');
     await seedWorkflow(store, 'wf-passed');
     await appendTransition(store, 'wf-passed', 'plan', 'plan-review');
     await seedWorkflow(store, 'wf-done');
@@ -486,25 +471,15 @@ describe('wait — appends zero events on every path', () => {
     await appendMergeStart(store, 'wf-op', 'm-1');
     await appendMergeTerminal(store, 'wf-op', 'm-1');
 
-    // Every terminal-outcome invocation (some via a fired deadline).
     const invocations: Array<() => Promise<unknown>> = [
-      // precheck-resolved (phase already visited)
       () => handleViewWait({ featureId: 'wf-passed', phase: 'plan-review' }, ctx),
-      // precheck-resolved (status already terminal)
       () => handleViewWait({ featureId: 'wf-done', status: 'completed' }, ctx),
-      // precheck-failed (status different terminal already)
       () => handleViewWait({ featureId: 'wf-done', status: 'cancelled' }, ctx),
-      // precheck-resolved (operation none in flight)
       () => handleViewWait({ featureId: 'wf-op', operation: 'merge' }, ctx),
-      // no feature predicate → worktree kernel (INVALID_INPUT: missing integrationRef)
       () => handleViewWait({ featureId: 'wf-plan' }, ctx),
-      // invalid input (non-feature-scoped operation)
       () => handleViewWait({ featureId: 'wf-plan', operation: 'prune' }, ctx),
-      // cold probe (unknown featureId)
       () => handleViewWait({ featureId: 'no-such-feature', phase: 'plan' }, ctx),
-      // worktree scope (idle, no prunes)
       () => handleViewWait({ until: 'idle', timeoutMs: 1000 }, ctx),
-      // subscription → timeout (deadline fired)
       async () => {
         const { deps, fireDeadline } = deterministicDeps(new ManualSubscriptionClock());
         const p = handleViewWait({ featureId: 'wf-plan', phase: 'delegate', timeoutMs: 5000 }, ctx, deps);
@@ -522,18 +497,19 @@ describe('wait — appends zero events on every path', () => {
   });
 });
 
-// ─── Property test (state-machine): resolves iff the predicate is satisfied ───
-
 describe('wait — predicate state-machine property', () => {
   const PHASES = ['plan', 'plan-review', 'delegate', 'review', 'synthesize', 'completed', 'cancelled'] as const;
   const TERMINALS = new Set(['completed', 'failed', 'cancelled']);
 
-  // Build a random ordered transition-event list from an arbitrary phase walk.
   const transitionsArb = fc.array(
     fc.record({ from: fc.constantFrom(...PHASES), to: fc.constantFrom(...PHASES) }),
     { maxLength: 12 },
   );
 
+  /**
+   * The model resolves when the target is the seed phase or a `from` or `to` of the walk. It fails
+   * when the target is not visited and the latest phase is a terminal status.
+   */
   it('PhasePredicate_ResolvesIffTargetVisited_ElseFailedIffTerminal', () => {
     fc.assert(
       fc.property(
@@ -551,7 +527,6 @@ describe('wait — predicate state-machine property', () => {
 
           const verdict = phasePredicate('f', target, seed).evaluate(events);
 
-          // Model: resolved iff target ∈ {seed} ∪ {from,to across the walk}.
           const visited = new Set<string>([seed]);
           let latest = seed;
           for (const t of walk) {
@@ -598,6 +573,7 @@ describe('wait — predicate state-machine property', () => {
     );
   });
 
+  /** The model is a set of keys: a start adds a key, and a terminal removes it. The verdict is never `failed`. */
   it('OperationPredicate_ResolvesIffNoUnpairedStart', () => {
     const descriptor = LIVENESS_REGISTRY.merge;
     fc.assert(
@@ -620,14 +596,13 @@ describe('wait — predicate state-machine property', () => {
 
           const verdict = operationPredicate('f', descriptor).evaluate(events);
 
-          // Model the in-flight fold: last write per key wins.
           const inFlight = new Set<string>();
           for (const o of ops) {
             if (o.kind === 'start') inFlight.add(o.key);
             else inFlight.delete(o.key);
           }
           expect(verdict.kind === 'resolved').toBe(inFlight.size === 0);
-          expect(verdict.kind).not.toBe('failed'); // operation never fails
+          expect(verdict.kind).not.toBe('failed');
         },
       ),
     );

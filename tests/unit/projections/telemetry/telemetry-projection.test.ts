@@ -47,13 +47,11 @@ describe('TelemetryProjection', () => {
     });
   });
 
-  // ─── Token-budget breaches ───────────────────────────────────────────────
-  //
-  // A breach is a per-tool runtime measurement, and this is the view that holds
-  // those. It is deliberately not a gate row on the feature stream: the
-  // convergence view keys gate results by name and nothing re-runs this one, so
-  // a breach folded there would pin the Context Economy dimension false for the
-  // rest of that workflow's life (#1898).
+  /**
+   * A breach is a per-tool runtime measurement, so this view holds it. It is not a
+   * gate row on the feature stream. The convergence view keys gate results by name
+   * and nothing runs this gate again, so a breach there keeps Context Economy false.
+   */
   describe('apply - tool.budget_exceeded', () => {
     const breach = (tool: string, seq: number): WorkflowEvent =>
       ({
@@ -81,28 +79,30 @@ describe('TelemetryProjection', () => {
         telemetryProjection.init(),
       );
 
+    /** A breach is not an invocation, so it must not change the invocation and token counters. */
     it('TelemetryProjection_BudgetExceeded_CountsPerTool', () => {
       const state = fold([breach('exarchos_view', 1), breach('exarchos_view', 2), breach('exarchos_event', 3)]);
       expect(state.tools['exarchos_view']?.budgetExceeded).toBe(2);
       expect(state.tools['exarchos_event']?.budgetExceeded).toBe(1);
-      // A breach is not an invocation: the counters it must not move.
       expect(state.totalInvocations).toBe(0);
       expect(state.totalTokens).toBe(0);
       expect(state.tools['exarchos_view']?.invocations).toBe(0);
     });
 
-    // The `tool.completed` arm builds its ToolMetrics literal exhaustively
-    // rather than spreading `existing`, so a counter it forgets to carry is
-    // silently reset by the next completion of the same tool.
+    /**
+     * The `tool.completed` arm lists each `ToolMetrics` field and does not spread
+     * `existing`. If the arm omits a counter, the next completion of the tool resets it.
+     */
     it('TelemetryProjection_BudgetExceeded_SurvivesTheNextCompletion', () => {
       const state = fold([breach('exarchos_view', 1), completed('exarchos_view', 2)]);
       expect(state.tools['exarchos_view']?.budgetExceeded).toBe(1);
       expect(state.tools['exarchos_view']?.invocations).toBe(1);
     });
 
-    // `toBe`, not `toEqual`: the arm returns the CALLER'S object, and a later
-    // edit that rebuilt an equivalent one would pass `toEqual` while losing the
-    // structural sharing every other identity arm in this projection relies on.
+    /**
+     * `toBe`, not `toEqual`. The arm returns the object of the caller. A rebuilt
+     * equal object passes `toEqual`, but loses the structural sharing of the identity arms.
+     */
     it('TelemetryProjection_BudgetExceededWithoutATool_IsIdentity', () => {
       const before = telemetryProjection.init();
       const after = telemetryProjection.apply(before, {
@@ -112,8 +112,7 @@ describe('TelemetryProjection', () => {
       expect(after).toBe(before);
     });
 
-    // The guard has two arms and only one was covered. This is the other: no
-    // payload at all, rather than a payload missing its `tool`.
+    /** The second arm of the guard: no payload at all, not a payload without `tool`. */
     it('TelemetryProjection_BudgetExceededWithoutData_IsIdentity', () => {
       const before = telemetryProjection.init();
       const after = telemetryProjection.apply(before, {
@@ -153,7 +152,6 @@ describe('TelemetryProjection', () => {
       expect(state.tools['t'].invocations).toBe(3);
       expect(state.tools['t'].totalDurationMs).toBe(60);
       expect(state.tools['t'].totalTokens).toBe(300);
-      // p50 of [10, 20, 30] = 20
       expect(state.tools['t'].p50DurationMs).toBe(20);
     });
 
@@ -235,6 +233,7 @@ describe('TelemetryProjection', () => {
   });
 
   describe('rolling window', () => {
+    /** The window keeps the newest entries, so 1005 events drop the values 0 to 4. */
     it('should cap arrays at windowSize (1000)', () => {
       let state = telemetryProjection.init();
       for (let i = 0; i < 1005; i++) {
@@ -249,8 +248,7 @@ describe('TelemetryProjection', () => {
       expect(state.tools['flood'].durations).toHaveLength(1000);
       expect(state.tools['flood'].sizes).toHaveLength(1000);
       expect(state.tools['flood'].tokenEstimates).toHaveLength(1000);
-      // Newest entries retained (oldest dropped)
-      expect(state.tools['flood'].durations[0]).toBe(5); // dropped 0-4
+      expect(state.tools['flood'].durations[0]).toBe(5);
     });
 
     it('should still compute correct totals beyond window cap', () => {
@@ -264,7 +262,6 @@ describe('TelemetryProjection', () => {
         }));
       }
 
-      // Totals accumulate beyond window
       expect(state.tools['flood'].invocations).toBe(1005);
       expect(state.tools['flood'].totalDurationMs).toBe(1005);
       expect(state.tools['flood'].totalBytes).toBe(10050);
@@ -273,8 +270,6 @@ describe('TelemetryProjection', () => {
       expect(state.totalTokens).toBe(2010);
     });
   });
-
-  // ─── T12: Zod removal from tool.completed handler ──────────────────────
 
   describe('apply - tool.completed guard (T12)', () => {
     it('Apply_ToolCompleted_ValidData_UpdatesMetrics', () => {
@@ -299,7 +294,6 @@ describe('TelemetryProjection', () => {
     it('Apply_ToolCompleted_MissingFields_ReturnsViewUnchanged', () => {
       const state = telemetryProjection.init();
 
-      // Missing 'tool' field
       const noTool = telemetryProjection.apply(state, makeEvent('tool.completed', {
         durationMs: 15,
         responseBytes: 400,
@@ -307,7 +301,6 @@ describe('TelemetryProjection', () => {
       }));
       expect(noTool).toBe(state);
 
-      // Missing 'durationMs' field
       const noDuration = telemetryProjection.apply(state, makeEvent('tool.completed', {
         tool: 'workflow_get',
         responseBytes: 400,
@@ -315,7 +308,6 @@ describe('TelemetryProjection', () => {
       }));
       expect(noDuration).toBe(state);
 
-      // durationMs is not a number
       const badDuration = telemetryProjection.apply(state, makeEvent('tool.completed', {
         tool: 'workflow_get',
         durationMs: 'not-a-number',
@@ -324,7 +316,6 @@ describe('TelemetryProjection', () => {
       }));
       expect(badDuration).toBe(state);
 
-      // No data at all
       const noData = telemetryProjection.apply(state, {
         streamId: 'telemetry',
         sequence: 1,
@@ -359,8 +350,6 @@ describe('TelemetryProjection', () => {
     });
   });
 
-  // ─── T13: Zod removal from tool.errored handler ───────────────────────
-
   describe('apply - tool.errored guard (T13)', () => {
     it('Apply_ToolErrored_ValidData_UpdatesMetrics', () => {
       let state = telemetryProjection.init();
@@ -379,14 +368,12 @@ describe('TelemetryProjection', () => {
     it('Apply_ToolErrored_MissingFields_ReturnsViewUnchanged', () => {
       const state = telemetryProjection.init();
 
-      // Missing 'tool' field
       const noTool = telemetryProjection.apply(state, makeEvent('tool.errored', {
         durationMs: 5,
         errorMessage: 'TIMEOUT',
       }));
       expect(noTool).toBe(state);
 
-      // No data at all
       const noData = telemetryProjection.apply(state, {
         streamId: 'telemetry',
         sequence: 1,
@@ -409,7 +396,7 @@ describe('TelemetryProjection', () => {
   });
 });
 
-// Helper to create a minimal WorkflowEvent
+/** Builds a minimal `WorkflowEvent` on the `telemetry` stream. */
 function makeEvent(type: string, data: Record<string, unknown>): WorkflowEvent {
   return {
     streamId: 'telemetry',
@@ -421,12 +408,15 @@ function makeEvent(type: string, data: Record<string, unknown>): WorkflowEvent {
   };
 }
 
-// ─── PR3/T9 (#1364): tool.action_errored projection ─────────────────────────
 describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
+  /**
+   * `invocations` counts `tool.completed` only. `errors` counts `tool.errored`, the
+   * transport failures. `actionErrors` counts `tool.action_errored`, and the
+   * breakdown splits that count by `errorCode`.
+   */
   it('folds action-errored events into per-tool actionErrors + breakdown', () => {
     let state = telemetryProjection.init();
 
-    // 5× tool.completed for exarchos_orchestrate
     for (let i = 0; i < 5; i++) {
       state = telemetryProjection.apply(state, makeEvent('tool.completed', {
         tool: 'exarchos_orchestrate',
@@ -436,7 +426,6 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
       }));
     }
 
-    // 2× tool.action_errored MERGE_ROLLED_BACK
     for (let i = 0; i < 2; i++) {
       state = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
         tool: 'exarchos_orchestrate',
@@ -447,7 +436,6 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
       }));
     }
 
-    // 1× tool.action_errored PREFLIGHT_FAILED
     state = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
       tool: 'exarchos_orchestrate',
       durationMs: 10,
@@ -456,7 +444,6 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
       tokenEstimate: 25,
     }));
 
-    // 1× tool.errored (transport)
     state = telemetryProjection.apply(state, makeEvent('tool.errored', {
       tool: 'exarchos_orchestrate',
       durationMs: 5,
@@ -465,13 +452,9 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
 
     const entry = state.tools['exarchos_orchestrate'];
     expect(entry).toBeDefined();
-    // invocations counts tool.completed only (existing rule retained).
     expect(entry.invocations).toBe(5);
-    // errors counts transport (tool.errored) only.
     expect(entry.errors).toBe(1);
-    // actionErrors = sum of action-errored events for this tool.
     expect(entry.actionErrors).toBe(3);
-    // Breakdown by errorCode.
     expect(entry.actionErrorBreakdown).toEqual({
       MERGE_ROLLED_BACK: 2,
       PREFLIGHT_FAILED: 1,
@@ -487,7 +470,6 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
   it('Apply_ActionErrored_MissingFields_ReturnsViewUnchanged', () => {
     const state = telemetryProjection.init();
 
-    // No data at all
     const noData = telemetryProjection.apply(state, {
       streamId: 'telemetry',
       sequence: 1,
@@ -497,7 +479,6 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
     } as WorkflowEvent);
     expect(noData).toBe(state);
 
-    // Non-string tool
     const numericTool = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
       tool: 42,
       durationMs: 10,
@@ -507,7 +488,6 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
     }));
     expect(numericTool).toBe(state);
 
-    // Missing errorCode
     const noCode = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
       tool: 'exarchos_orchestrate',
       durationMs: 10,
@@ -517,6 +497,7 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
     expect(noCode).toBe(state);
   });
 
+  /** With no `tool.completed` event, `invocations` stays 0. */
   it('Apply_ActionErrored_NewTool_CreatesEntry', () => {
     let state = telemetryProjection.init();
     state = telemetryProjection.apply(state, makeEvent('tool.action_errored', {
@@ -530,30 +511,22 @@ describe('TelemetryProjection_ActionErrored_AggregatesByTool', () => {
     expect(state.tools['fresh_tool']).toBeDefined();
     expect(state.tools['fresh_tool'].actionErrors).toBe(1);
     expect(state.tools['fresh_tool'].actionErrorBreakdown).toEqual({ INVALID_INPUT: 1 });
-    // No completed events folded — invocations stays 0.
     expect(state.tools['fresh_tool'].invocations).toBe(0);
     expect(state.tools['fresh_tool'].errors).toBe(0);
   });
 });
 
-// ─── #1262 — per-turn output-token tracking + hint emission ────────────────
-
 describe('TelemetryProjection_OutputTokenHint', () => {
   it('TelemetryProjection_ThresholdCrossed_EmitsHint', () => {
-    // Synthetic telemetry: a single `turn.completed` event carrying a
-    // per-turn output-token sum above the threshold.
     let state = telemetryProjection.init();
     state = telemetryProjection.apply(
       state,
       makeEvent('turn.completed', { turnId: 't1', outputTokens: 30000 }),
     );
 
-    // The projection records each turn's output tokens.
     expect(state.turns).toHaveLength(1);
     expect(state.turns[0]).toEqual({ turnId: 't1', outputTokens: 30000 });
 
-    // computeOutputTokenHints surfaces a NextAction-shaped checkpoint hint
-    // when a turn crosses the threshold (passed in tokens).
     const hints = computeOutputTokenHints(state, 25600);
     expect(hints).toHaveLength(1);
     expect(hints[0].verb).toBe('checkpoint');
@@ -581,13 +554,11 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     expect(result).toBe(state);
   });
 
+  /**
+   * Only the latest turn decides the hint. A streak above the threshold that
+   * includes the latest turn gives one hint, not one hint for each crossing.
+   */
   it('TelemetryProjection_MultipleTurns_LatestAboveThreshold_EmitsOneHint', () => {
-    // Sentry MEDIUM #1422 fix changed the emission semantics: hints are
-    // emitted ONLY when the LATEST turn is above threshold, not on every
-    // historical crossing in the buffer (which previously flooded
-    // next_actions). The test asserts the new contract — a streak that
-    // ends before the latest turn yields no hint, but a streak that
-    // includes the latest turn does.
     let state = telemetryProjection.init();
     state = telemetryProjection.apply(
       state,
@@ -607,9 +578,8 @@ describe('TelemetryProjection_OutputTokenHint', () => {
     expect(hints[0].verb).toBe('checkpoint');
   });
 
+  /** A crossing that ends before the latest turn gives no hint. */
   it('TelemetryProjection_MultipleTurns_LatestBelowThreshold_EmitsNoHint', () => {
-    // Companion to the test above — a historical crossing that does NOT
-    // persist into the latest turn produces no hint (post-#1422 fix).
     let state = telemetryProjection.init();
     state = telemetryProjection.apply(
       state,

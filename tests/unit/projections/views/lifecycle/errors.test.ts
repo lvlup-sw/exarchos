@@ -1,14 +1,7 @@
-// ─── Verb error-envelope edge cases across the surface (DR-8) ─────────────────
-//
-// A consolidated adversarial suite for the STRUCTURED-ERROR contract shared by
-// the worktree-lifecycle verbs (`wait` / `inspect` / `export` / `ps`). Boundary
-// discipline mirrors `wait.test.ts`: every test drives the REAL event store, the
-// REAL HSM topology (`getHSMDefinition`) and the REAL DR-2 liveness registry
-// (`featureScopedSurfaces`) — no hand-mocks of those seams. Determinism on the
-// one path that would otherwise subscribe comes from an INJECTED, immediately-
-// firing deadline (INV-16), so a regression that DROPS the fast-fail validation
-// surfaces as a `WAIT_TIMEOUT` rather than a hang.
-// ─────────────────────────────────────────────────────────────────────────────
+// Tests for the structured error envelope of the worktree-lifecycle verbs: `wait`, `inspect`, `export` and `ps`.
+// Each test uses the real event store, the real HSM topology and the real liveness registry, with no mock of those seams.
+// The `wait` phase test injects a deadline that fires at once.
+// If the fast-fail validation goes away, that test gets `WAIT_TIMEOUT` and does not hang.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -25,12 +18,10 @@ import { handleViewInspect } from '../../../../../src/projections/views/lifecycl
 import { handleViewExport } from '../../../../../src/projections/views/lifecycle/export.js';
 import { handleViewPs } from '../../../../../src/projections/views/lifecycle/ps.js';
 
-// ─── Manually-driven subscription clock (INV-16) ──────────────────────────────
-//
-// A deterministic SubscriptionClock whose Tier-2 floor loop never fires on its
-// own (the tests here never subscribe on the happy path). Injected only so a
-// KILL-PROBE run — one that reverts the phase-topology validation and falls
-// through to subscribe — spins NO real timer.
+/**
+ * A `SubscriptionClock` whose interval never fires.
+ * A passing test never subscribes. If a broken validation lets `wait` subscribe, this clock starts no real timer.
+ */
 class ManualSubscriptionClock implements SubscriptionClock {
   time = 0;
   now(): number {
@@ -42,11 +33,9 @@ class ManualSubscriptionClock implements SubscriptionClock {
 }
 
 /**
- * Deps whose bounded deadline fires SYNCHRONOUSLY. With the phase validation in
- * place, `wait` returns `INVALID_INPUT` BEFORE it would ever subscribe, so this
- * deadline is never armed. With the validation reverted (kill-probe), `wait`
- * subscribes and this deadline fires at once → a deterministic `WAIT_TIMEOUT`
- * (not a hang), so the `INVALID_INPUT` assertion goes red fast.
+ * Deps whose deadline fires synchronously.
+ * With the phase validation in place, `wait` returns `INVALID_INPUT` before it subscribes, so nothing arms the deadline.
+ * Without the validation, `wait` subscribes and the deadline fires at once, which gives `WAIT_TIMEOUT` and not a hang.
  */
 function immediateTimeoutDeps(): WaitDeps {
   return {
@@ -58,8 +47,6 @@ function immediateTimeoutDeps(): WaitDeps {
     subscriptionOptions: { clock: new ManualSubscriptionClock() },
   };
 }
-
-// ─── Arm / fixtures (mirrors wait.test.ts) ────────────────────────────────────
 
 interface Arm {
   readonly stateDir: string;
@@ -101,10 +88,8 @@ async function totalEvents(store: EventStore): Promise<number> {
 }
 
 /**
- * The WAITABLE phases of a workflow type, derived INDEPENDENTLY from the REAL
- * HSM registry (atomic + final states; compound containers excluded). The
- * handler must produce exactly this set for a type — if it hardcoded a list,
- * this registry-derived expectation would drift on any topology edit.
+ * The waitable phases of a workflow type, read from the real HSM registry: each state that is not compound.
+ * The handler must return this set. A hardcoded list in the handler fails this check after a topology edit.
  */
 function waitablePhases(workflowType: string): string[] {
   return Object.values(getHSMDefinition(workflowType).states)
@@ -113,13 +98,15 @@ function waitablePhases(workflowType: string): string[] {
     .sort();
 }
 
-// ─── wait — invalid phase → topology-derived validTargets ─────────────────────
-
 describe('verb error envelopes (DR-8)', () => {
+  /**
+   * `explore` is a refactor-only phase and `delegate` is a feature-only phase, so each is invalid for the other type.
+   * `validTargets` comes from the HSM of the workflow type and holds no compound state.
+   * The rejection appends no event.
+   */
   it('Wait_InvalidPhase_ValidTargetsFromTopologyForWorkflowType', async () => {
     const { store, ctx } = await makeArm();
 
-    // ── feature workflow: `--phase explore` is a refactor-only phase ──────────
     await seedWorkflow(store, 'feat-a', 'feature');
     const beforeFeature = await totalEvents(store);
     const featureResult = await handleViewWait(
@@ -131,18 +118,13 @@ describe('verb error envelopes (DR-8)', () => {
     expect(featureResult.success).toBe(false);
     expect(featureResult.error?.code).toBe('INVALID_INPUT');
     const featureTargets = featureResult.error?.validTargets;
-    // Derived from the REAL feature HSM topology — not a hardcoded list.
     expect(featureTargets).toEqual(waitablePhases('feature'));
     expect(featureTargets).toEqual(expect.arrayContaining(['plan', 'delegate', 'review', 'synthesize']));
-    // Compound containers are NOT waitable phases (a workflow is never IN one).
     expect(featureTargets).not.toContain('implementation');
-    // A refactor-only phase is not a feature target.
     expect(featureTargets).not.toContain('explore');
     expect(featureTargets).not.toContain('brief');
-    // Side-effect-free: the invalid-phase envelope appends nothing.
     expect(await totalEvents(store)).toBe(beforeFeature);
 
-    // ── refactor workflow: `--phase delegate` is a feature-only phase ─────────
     await seedWorkflow(store, 'feat-b', 'refactor');
     const beforeRefactor = await totalEvents(store);
     const refactorResult = await handleViewWait(
@@ -157,85 +139,74 @@ describe('verb error envelopes (DR-8)', () => {
     expect(refactorTargets).toEqual(waitablePhases('refactor'));
     expect(refactorTargets).toEqual(expect.arrayContaining(['explore', 'brief']));
     expect(refactorTargets).not.toContain('delegate');
-    // The two type topologies are DISTINCT — validTargets are per-workflow-type.
     expect(refactorTargets).not.toEqual(featureTargets);
     expect(await totalEvents(store)).toBe(beforeRefactor);
   });
 
-  // ─── wait — unknown --operation surface → feature-scoped registry surfaces ───
-
+  /**
+   * `frobnicate` is not a registered liveness surface.
+   * `validTargets` lists the feature-scoped surfaces only, so it omits `launch` and `prune`.
+   * `suggestedFix` must name the `exarchos_view` tool and carry `action: 'wait'`, because `wait` is an action, not a tool.
+   * A client can then replay the call as it is. The rejection appends no event.
+   */
   it('Wait_UnknownOperationSurface_ValidTargetsListsFeatureScopedSurfaces', async () => {
     const { store, ctx } = await makeArm();
     await seedWorkflow(store, 'feat-op', 'feature');
     const before = await totalEvents(store);
 
-    // `frobnicate` is not a registered DR-2 liveness surface at all.
     const result = await handleViewWait({ featureId: 'feat-op', operation: 'frobnicate' }, ctx);
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('INVALID_INPUT');
-    // validTargets = the feature-scoped surfaces straight off the REAL registry.
     expect(result.error?.validTargets).toEqual(featureScopedSurfaces());
     expect(result.error?.validTargets).toEqual(expect.arrayContaining(['merge', 'mutation']));
-    // The worktrees-scoped surfaces are NOT feature-observable → excluded.
     expect(result.error?.validTargets).not.toContain('launch');
     expect(result.error?.validTargets).not.toContain('prune');
-    // suggestedFix steers the caller to the worktree `until` scope — as a
-    // REAL action-call: `wait` is an exarchos_view action, not a tool of its
-    // own, so the shape must name the tool and carry `action` in params or a
-    // client cannot replay it verbatim (INV-5b).
     expect(result.error?.suggestedFix?.tool).toBe('exarchos_view');
     expect(result.error?.suggestedFix?.params).toMatchObject({ action: 'wait' });
     expect(result.error?.suggestedFix?.params).toHaveProperty('until');
-    // Side-effect-free.
     expect(await totalEvents(store)).toBe(before);
   });
 
-  // ─── inspect / wait / export on an unknown featureId → side-effect-free ──────
-
+  /**
+   * A cold probe of an unknown featureId appends no event.
+   * An unrelated workflow gives the event count a baseline that is not zero.
+   * `inspect` and `export` succeed with `workflowExists: false`. `wait` returns `INVALID_INPUT` with an `expectedShape`.
+   */
   it('Verbs_UnknownFeatureId_SideEffectFreeExpectedShape', async () => {
     const { store, ctx } = await makeArm();
-    // An UNRELATED workflow so the invariance witness is a non-zero baseline: a
-    // cold probe of a different id must not mutate it (no phantom stream).
     await seedWorkflow(store, 'feat-real', 'feature');
     const unknown = 'no-such-feature';
 
-    // ── inspect: expected shape is a `workflowExists: false` success ──────────
     let before = await totalEvents(store);
     const inspectResult = await handleViewInspect({ featureId: unknown }, ctx);
     expect(inspectResult.success).toBe(true);
     expect((inspectResult.data as { workflowExists?: boolean }).workflowExists).toBe(false);
     expect((inspectResult.data as { eventCount?: number }).eventCount).toBe(0);
     expect(inspectResult._meta?.workflowExists).toBe(false);
-    expect(await totalEvents(store)).toBe(before); // event-count invariance
+    expect(await totalEvents(store)).toBe(before);
 
-    // ── wait: expected shape is a structured INVALID_INPUT cold-probe ─────────
     before = await totalEvents(store);
     const waitResult = await handleViewWait({ featureId: unknown, phase: 'plan' }, ctx);
     expect(waitResult.success).toBe(false);
     expect(waitResult.error?.code).toBe('INVALID_INPUT');
     expect(waitResult.error?.expectedShape).toBeDefined();
-    expect(await totalEvents(store)).toBe(before); // event-count invariance
+    expect(await totalEvents(store)).toBe(before);
 
-    // ── export: expected shape is a `workflowExists: false` / not-exported ─────
     before = await totalEvents(store);
     const exportResult = await handleViewExport({ featureId: unknown }, ctx);
     expect(exportResult.success).toBe(true);
     expect((exportResult.data as { workflowExists?: boolean }).workflowExists).toBe(false);
     expect((exportResult.data as { exported?: boolean }).exported).toBe(false);
     expect(exportResult._meta?.workflowExists).toBe(false);
-    expect(await totalEvents(store)).toBe(before); // event-count invariance
+    expect(await totalEvents(store)).toBe(before);
   });
 
-  // ─── ps — a pipeline-only scope → INVALID_INPUT + suggestedFix ──────────────
-  //
-  // This slot used to hold the `probe` rejection. `probe` left `ps` with the
-  // write path, so that case could no longer be reached — and an error-envelope
-  // suite needs a REACHABLE rejection to describe. The `repo` scope is the same
-  // shape on the same verb: a value the shared `scopeField` admits but this
-  // action does not, answered with the target list and the action that does
-  // accept it rather than silently defaulting.
-
+  /**
+   * The shared `scopeField` admits `repo`, but `ps` does not accept it.
+   * The error gives the valid scopes and a `suggestedFix` that calls `pipeline` with `scope: 'repo'`.
+   * An unknown scope gets the same target list. The rejection appends no event.
+   */
   it('Ps_PipelineOnlyScope_InvalidInputWithSuggestedFix', async () => {
     const { store, ctx } = await makeArm();
     const before = await totalEvents(store);
@@ -243,20 +214,16 @@ describe('verb error envelopes (DR-8)', () => {
     const repoScoped = await handleViewPs({ scope: 'repo' }, ctx);
     expect(repoScoped.success).toBe(false);
     expect(repoScoped.error?.code).toBe('INVALID_INPUT');
-    // The envelope names where the caller CAN go, both as a target list...
     expect(repoScoped.error?.validTargets).toContain('worktree');
     expect(repoScoped.error?.validTargets).not.toContain('repo');
-    // ...and as a runnable call, which is the half that makes it self-correcting.
     expect(repoScoped.error?.suggestedFix?.tool).toBe('exarchos_view');
     expect(repoScoped.error?.suggestedFix?.params).toMatchObject({ action: 'pipeline', scope: 'repo' });
 
-    // An unknown scope is rejected too, and carries the same target list.
     const bogus = await handleViewPs({ scope: 'nonsense' }, ctx);
     expect(bogus.success).toBe(false);
     expect(bogus.error?.code).toBe('INVALID_INPUT');
     expect(bogus.error?.validTargets).toContain('all');
 
-    // Pure read: rejecting a scope appends nothing.
     expect(await totalEvents(store)).toBe(before);
   });
 });

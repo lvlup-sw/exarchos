@@ -1,25 +1,9 @@
 /**
- * TaskStore projection ↔ TaskDetailView shape parity (#1284).
+ * Shape parity between `TaskDetailView` and the task-store reducer.
  *
- * The view's `apply` delegates to `taskStoreReducer.apply`, so the view
- * materializer and a direct reducer fold over the SAME stream must produce
- * identical per-task shapes. This integration test seeds a real event store
- * with `task.assigned` + `task.completed` events, then compares the view's
- * task entry to the canonical reducer's entry.
- *
- * Both sides fold **per stream**. The comparison side uses
- * `rebuildProjection(taskStoreReducer, ...)` — the surviving per-stream
- * cold-fold primitive — rather than the retired cross-stream
- * `readProjection('task-store@v1')`. For why `task-store@v1` is
- * `scope: 'stream'`, see `TaskStoreState`'s key space in
- * `projections/taskstore/types.ts`. The round-trip this guards
- * (`task-detail-view.ts` view → `viewTasksToProjectionTasks` →
- * `TaskStoreState` → `taskStoreReducer.apply` → back) is unaffected by that
- * retirement, and this file is its only guard.
- *
- * Co-located with the view module per repository convention; an
- * older test file lives at `__tests__/views/task-detail-view.test.ts`
- * and is preserved unchanged for the view's existing single-fold behaviour.
+ * The view `apply` calls `taskStoreReducer.apply`. The view materializer and a direct reducer fold
+ * over the same stream must give the same task shape. Both sides fold one stream, because the
+ * reducer scope is `stream`.
  */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
@@ -53,8 +37,6 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
   });
 
   it('TaskDetailView_PerStreamFold_MatchesReducerShapeParity', async () => {
-    // GIVEN: a real event store with task.assigned + task.completed events
-    //   on one workflow stream.
     const streamId = 'wf-parity';
     await eventStore.append(streamId, {
       type: 'task.assigned',
@@ -75,8 +57,6 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
       },
     });
 
-    // WHEN: we materialize the per-stream task-detail view AND fold the
-    //   canonical reducer over the SAME stream.
     const events = await eventStore.query(streamId);
     const materializer = new ViewMaterializer();
     materializer.register(TASK_DETAIL_VIEW, taskDetailProjection);
@@ -91,19 +71,14 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
       streamId,
     );
 
-    // THEN: both surface the same task with identical fields. The view's
-    //   `tasks[taskId]` shape MUST be the canonical projection record's
-    //   shape — anything that diverges signals an out-of-fold drift.
     const viewTask = view.tasks['task-id-1'];
     const projectionTask = projection.tasks['task-id-1'];
     expect(projectionTask).toBeDefined();
     expect(viewTask).toBeDefined();
 
-    // Status is the canonical reducer's authority for both surfaces.
     expect(viewTask.status).toBe('completed');
     expect(projectionTask?.status).toBe('completed');
 
-    // Passthrough fields preserved across the fold path.
     expect(viewTask.title).toBe(projectionTask?.title);
     expect(viewTask.branch).toBe(projectionTask?.branch);
     expect(viewTask.worktree).toBe(projectionTask?.worktree);
@@ -112,13 +87,8 @@ describe('TaskDetailView_ReflectsTaskStoreProjection (Wave 2A.7, #1284)', () => 
     expect(viewTask.duration).toBe(projectionTask?.duration);
   });
 
+  /** The reducer is the authority for `status`, so both fold paths must agree on it. */
   it('TaskDetailView_ReflectsTaskStoreProjection_StatusAcrossLifecycle', async () => {
-    // Both fold paths MUST agree on the canonical status surface — that is
-    // the load-bearing semantic shared across CLI / MCP / per-stream view
-    // consumers. The view's empty-string title default is a stable BC
-    // contract preserved by the view layer; the canonical reducer's title
-    // remains undefined-when-absent. Status, however, is single-truth across
-    // both — the reducer is the authority.
     const streamId = 'wf-lifecycle';
     await eventStore.append(streamId, {
       type: 'task.assigned',

@@ -1,43 +1,12 @@
-// ─── Every projection-derived consumer answers from a tail-covering fold ────
-//
-// ## What this file used to assert, and why it moved
-//
-// A dogfood run caught workflow views serving a silently stale fold: a cancelled
-// workflow reported at `plan-review`, 7 of 10 completed tasks visible, lag past
-// 500s. The answer shipped for it made the verdict durable
-// (`projection.degraded` on `meta/projection-health`) and had every
-// readiness / workflow / reliability consumer REFUSE on it. This file was the
-// enumeration of those consumers, and every case asserted the refusal.
-//
-// The refusal was the wrong remedy for the right harm (#1855). It was published
-// durably from a point-in-time observation of one process's cache and never
-// revalidated, only the refused surface could clear it, and the freshness
-// predicate quantified over every cached fold of a stream while a read advances
-// exactly one — so on a live stream it could not be cleared at all. `workflow
-// get` stayed unreadable on a lag of ONE event, and a fabricated marker wedged
-// workflows that were never unhealthy.
-//
-// ## What it asserts now
-//
-// The same enumeration, against the claim that replaced the refusal: each
-// consumer folds its own view to the stream's durable tail before answering
-// (`projections/fold-at-tail.ts`), so it ANSWERS, it answers from the tail, and
-// no durable marker can wedge it. The enumeration is worth keeping — it is the
-// list of surfaces that can serve a projection-derived answer, and that list is
-// what a future change to the seam has to keep covered.
-//
-// The guarantee is stronger here than it was under the refusal, because the
-// assertion is about the ANSWER rather than about the presence of an error:
-// `Consumer_RewoundFold_AnswersFromTheTail` reads the phase back and requires
-// it to be the phase at the tail, which a stale fold cannot produce.
-//
-// ## Fault injection (no mocked readers anywhere in this file)
-//
-// Every test drives a REAL stale cursor on a REAL `EventStore`: warm a REAL
-// fold through the REAL view chokepoint, then rewind that fold's high-water
-// mark via `materializer.loadState(...)`. Durable rows are produced by
-// `publishProjectionFreshness` fed from the REAL live cursor/tail comparison,
-// never by stubbing `readProjectionDegradedState`.
+/**
+ * Every consumer that answers from a projection folds its own view to the durable tail first.
+ * So each consumer answers from the tail, and a durable `projection.degraded` row cannot block it.
+ * `CONSUMERS` lists the surfaces that a change to `src/projections/fold-at-tail.ts` must keep covered.
+ *
+ * No test mocks a reader. Each test warms a fold through the view handler on a real `EventStore`.
+ * Then it rewinds the high-water mark of that fold with `materializer.loadState`.
+ * `publishProjectionFreshness` writes the durable row from the comparison of the live cursor with the tail.
+ */
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -99,9 +68,8 @@ async function seedWorkflow(): Promise<void> {
 }
 
 /**
- * The stale-fold fault, injected for real: warm a genuine fold through the genuine
- * view chokepoint, then rewind ONE named fold's high-water mark so the
- * materialized cursor provably stops short of the durable tail.
+ * Injects a stale fold. It warms a fold through the view handler.
+ * Then it sets the high-water mark of the `workflow-state` fold to `cursor`, short of the durable tail.
  */
 async function injectStaleFold(cursor: number): Promise<void> {
   await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
@@ -129,15 +97,12 @@ function errorCode(result: ToolResult): string | undefined {
   return result.error?.code;
 }
 
-// ─── Every consumer, one claim ──────────────────────────────────────────────
-
+/**
+ * `CONSUMERS` lists the composite actions whose answer comes from a cached fold.
+ * Each action runs against a stale cursor and a durable degraded row.
+ * A readiness verdict can be negative, but the action must not withhold it with `PROJECTION_DEGRADED`.
+ */
 describe('#1855 — every readiness/workflow/reliability consumer answers', () => {
-  /**
-   * The full enumeration, derived mechanically rather than assumed: these are
-   * the composite actions whose answer flows through a cached fold. Each is
-   * driven here against a REAL stale cursor AND a REAL durable degraded row —
-   * the exact state that used to refuse all ten.
-   */
   const CONSUMERS: ReadonlyArray<{
     readonly label: string;
     readonly run: () => Promise<ToolResult>;
@@ -193,10 +158,6 @@ describe('#1855 — every readiness/workflow/reliability consumer answers', () =
 
       const result = await run();
 
-      // Each of these ten returned `PROJECTION_DEGRADED` before, and stayed
-      // returning it: the marker could only be cleared by a surface the same
-      // marker disabled. A readiness verdict may still legitimately be
-      // negative — what it may not be is withheld because a cache lagged.
       expect(
         errorCode(result),
         `${label} refused a read it could have folded: ${JSON.stringify(result.error)}`,
@@ -205,12 +166,11 @@ describe('#1855 — every readiness/workflow/reliability consumer answers', () =
     });
   }
 
+  /**
+   * A fold rewound to sequence 1 did not see the transition to `plan-review`.
+   * So an answer with that phase came from the durable tail and not from the stale fold.
+   */
   it('Consumer_RewoundFold_AnswersFromTheTail', async () => {
-    // The guarantee itself — a read never answers from a fold that has not seen
-    // events already durable when it was asked — stated as a claim about the
-    // ANSWER rather than about the presence of an error. A fold rewound to sequence 1 has not seen
-    // the transition; if the answer still carries the tip phase, it was not
-    // served from the stale fold.
     await seedWorkflow();
     const stamped = await handleWorkflow(
       {
@@ -239,25 +199,20 @@ describe('#1855 — every readiness/workflow/reliability consumer answers', () =
   });
 });
 
-// ─── Causality: undecidable ≠ no data ≠ genuine failure ─────────────────────
-
 describe('#1855 — the reserved code still separates its neighbours', () => {
+  /** A stream with no events gives a true answer about the tail, not a failure to read it. */
   it('DegradedResult_IsNotConfusableWithNoData', async () => {
-    // "No data": a stream that was never written. The store WAS asked and
-    // answered truthfully — a fact about the tail, not a failure to read it.
     const empty = await handleWorkflow({ action: 'get', featureId: 'never-written' }, ctx);
     expect(errorCode(empty)).not.toBe(PROJECTION_DEGRADED_ERROR_CODE);
     expect(isProjectionDegradedResult(empty)).toBe(false);
   });
 
+  /** An unknown action on a stream with a degraded row still reports `UNKNOWN_ACTION`, not a projection error. */
   it('DegradedResult_IsNotConfusableWithGenuineFailure', async () => {
     await seedWorkflow();
     await injectStaleFold(1);
     await publishLiveDegradation();
 
-    // An input fault on a stream carrying a degraded marker still reports the
-    // input fault. An unknown action is not a projection problem and must not
-    // be laundered into one, nor the reverse.
     const bogus = await handleWorkflow({ action: 'no_such_action', featureId: STREAM }, ctx);
     expect(bogus.success).toBe(false);
     expect(errorCode(bogus)).toBe('UNKNOWN_ACTION');
@@ -265,11 +220,8 @@ describe('#1855 — the reserved code still separates its neighbours', () => {
     expect(bogus.error?.projectionDegraded).toBeUndefined();
   });
 
+  /** A remedy that names the failed call makes the caller repeat the same read. `isSameCall` detects that circular remedy. */
   it('SuggestedFix_NeverNamesTheCallThatFailed', () => {
-    // The loop #1855 reported: the remedy was a constant naming
-    // `exarchos_view workflow_status`, so when that was the refusing surface
-    // the caller retried the identical read, failed identically, and each
-    // attempt left a window for more events to land.
     expect(
       isSameCall(
         { tool: 'exarchos_event', params: { action: 'query', stream: STREAM } },
@@ -286,28 +238,21 @@ describe('#1855 — the reserved code still separates its neighbours', () => {
   });
 });
 
-// ─── The journal records live conditions, it does not latch ─────────────────
-
 describe('#1855 — a spent observation clears', () => {
+  /** A read that answers proves that the stream is servable, so the view handler clears the durable row. */
   it('DegradedRow_SurvivingRead_IsClearedByTheViewChokepoint', async () => {
     await seedWorkflow();
     await injectStaleFold(1);
     await publishLiveDegradation();
     expect(await readProjectionDegradedState(store, STREAM)).toBeDefined();
 
-    // A read that answers is proof the stream is servable, so the row it still
-    // carries is a spent observation. Before #1855 this was the ONLY way to
-    // clear the row and it was unreachable on a live stream; now it is a
-    // bookkeeping step on a read that was never blocked.
     const reread = await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
     expect(reread.success).toBe(true);
     expect(await readProjectionDegradedState(store, STREAM)).toBeUndefined();
   });
 
+  /** Writes go to the authoritative log, and `reconcile` repairs the projection. A degraded row must not block either action. */
   it('WorkflowMutationsAndRecoveryActions_StayUnguarded', async () => {
-    // Causality, unchanged: writes land on the authoritative log and
-    // `reconcile` REPAIRS the projection. Neither may be refused because a
-    // derived read lagged.
     await seedWorkflow();
     await injectStaleFold(1);
     await publishLiveDegradation();

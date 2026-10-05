@@ -11,10 +11,10 @@ import {
   type SchemaOracle,
 } from '../../../../src/projections/quality/skill-example-validator.js';
 
-// A hand-built oracle keeps the unit tests deterministic and independent of the
-// live registry's evolving action set. The `exarchos_workflow.run` action exercises
-// every constrained property class: plain string, bounded integer, closed enum,
-// and a 0..1 ratio (the DOC-3 "threshold documented as 80" shape).
+/**
+ * A hand-built oracle, so these tests do not depend on the live action set.
+ * The `run` action has one property of each constrained class: string, bounded integer, closed enum and a ratio from 0 to 1.
+ */
 const fakeOracle: SchemaOracle = {
   tools: {
     exarchos_workflow: {
@@ -116,9 +116,8 @@ describe('validateExample against a fake oracle — well-formed examples PASS', 
     expect(validateMarkdown(md, 'example.md', fakeOracle)).toEqual([]);
   });
 
+  /** Documents write a placeholder such as `"<n>"` for a field of any type. A type or range check of it gives false positives. */
   it('treats a <placeholder> string as a type/range wildcard', () => {
-    // Docs use "<n>" for every field regardless of the real type; this must not
-    // be type- or range-checked, or the drift guard would flood false positives.
     const md = fence('exarchos_workflow({ action: "run", count: "<n>", ratio: "<ratio>" })');
     expect(validateMarkdown(md, 'example.md', fakeOracle)).toEqual([]);
   });
@@ -161,11 +160,7 @@ describe('validateExample against the LIVE registry — seeded drift FAILS', () 
   });
 });
 
-// ─── Exit-proof (b): every real documented example agrees with live schemas ──
-// This is the WFQ-011 drift guard. Reverting any of the content corrections
-// made in P02-07 re-introduces a documented example that this walk rejects.
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-// Task 012 moved this file one level deeper (quality/ -> projections/quality/).
 const REPO_ROOT = path.resolve(HERE, '../../../..');
 
 function walkMarkdown(dir: string): string[] {
@@ -178,10 +173,12 @@ function walkMarkdown(dir: string): string[] {
   return out;
 }
 
+/** The drift guard: each documented example under `content/` must agree with the live schemas. */
 describe('live documentation ↔ registered schema agreement (WFQ-011 drift guard)', () => {
   const oracle = buildOracleFromRegistry(TOOL_REGISTRY);
   const docRoots = ['content'].map((r) => path.join(REPO_ROOT, r));
 
+  /** The example count must be positive. An extractor that matches nothing makes the clean result vacuous. */
   it('every exarchos_* example in content/ and commands/ validates clean', () => {
     const failures: string[] = [];
     let exampleCount = 0;
@@ -195,14 +192,12 @@ describe('live documentation ↔ registered schema agreement (WFQ-011 drift guar
         }
       }
     }
-    // Guard against the extractor silently matching nothing (which would make
-    // the "clean" assertion vacuously true).
     expect(exampleCount).toBeGreaterThan(0);
     expect(failures, `documented examples drifted from live schemas:\n${failures.join('\n')}`).toEqual([]);
   });
 });
 
-// validateExample is also exercised directly to pin its ToolExample contract.
+/** A direct call pins the `ToolExample` contract of `validateExample`. */
 describe('validateExample direct contract', () => {
   it('returns no issues for a valid hand-built example', () => {
     const [example] = extractToolExamples(

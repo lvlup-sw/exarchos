@@ -11,22 +11,10 @@ import { InMemoryBackend } from '../../../src/storage/memory-backend.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Pre-#1343 these read/write/prune describe blocks tested the JSONL-sidecar
- * substrate that lived under `<stateDir>/<streamId>.projections.jsonl`.
- * Wave A's substrate cut deletes that file format outright; the equivalent
- * coverage now lives in the StorageBackend-delegation tests below
- * (`StorageBackend delegation (A3.1)`, `appendSnapshot backend delegation
- * (A3.2)`) and in `storage/__tests__/backend-contract.test.ts`. The
- * legacy describe blocks were removed in A3.3 as part of the dead-JSONL
- * cleanup.
+ * The stream id is a primary-key column of `projection_snapshots`, so it must be an opaque token.
+ * Each read and each append rejects an id that is empty or holds `..`, a slash, a backslash or a NUL character.
  */
 describe('projection snapshot store — streamId path-traversal guard', () => {
-  // The streamId guard remains load-bearing post-substrate-cut: it's a
-  // primary-key column on `projection_snapshots` that must be a stable,
-  // opaque token (no path separators, no NULs, no relative-path escape
-  // sequences). The check now lives in `assertStreamIdSafe` inside store.ts
-  // rather than `getSnapshotSidecarPath` which was deleted with the JSONL
-  // machinery.
   const validRecord: SnapshotRecord = {
     projectionId: 'rehydration',
     projectionVersion: 'v1',
@@ -59,18 +47,7 @@ describe('projection snapshot store — streamId path-traversal guard', () => {
   }
 });
 
-// ─── A3.1 — readLatestSnapshot delegates to StorageBackend, no fs.readFileSync ──
-
-/**
- * ProjectionsStore_ReadLatestSnapshot_ReturnsHighestSequenceMatching
- *
- * Verifies that readLatestSnapshot reads through the injected StorageBackend.
- * The "no filesystem read" assertion is a structural property of the new
- * impl: the wrapper only knows about the backend handle — it has no
- * filesystem code path to take. Coverage of the sidecar absence end-to-end
- * lives in the A3.2 size-cap test below, which scans the temp stateDir for
- * any `.projections.jsonl` artefact post-write.
- */
+/** `readLatestSnapshot` reads through the injected `StorageBackend`, not from the filesystem. */
 describe('projection snapshot store — StorageBackend delegation (A3.1)', () => {
   it('ProjectionsStore_ReadLatestSnapshot_ReturnsHighestSequenceMatching', () => {
     const backend = new InMemoryBackend();
@@ -90,7 +67,6 @@ describe('projection snapshot store — StorageBackend delegation (A3.1)', () =>
       timestamp: '2026-04-24T12:00:00.000Z',
     };
 
-    // Seed directly into the backend (not the filesystem).
     backend.appendProjectionSnapshot(streamId, older);
     backend.appendProjectionSnapshot(streamId, newer);
 
@@ -137,14 +113,7 @@ describe('projection snapshot store — StorageBackend delegation (A3.1)', () =>
   });
 });
 
-// ─── A3.2 — appendSnapshot delegates to StorageBackend, no .projections.jsonl file ──
-
-/**
- * ProjectionsStore_AppendSnapshot_AppendsRecordAndEnforcesSizeCap
- *
- * Verifies that appendSnapshot writes through the injected StorageBackend
- * rather than creating .projections.jsonl files on disk.
- */
+/** `appendSnapshot` writes through the injected `StorageBackend`, and logs a warning when the backend prunes. */
 describe('projection snapshot store — appendSnapshot backend delegation (A3.2)', () => {
   let stateDir: string;
 
@@ -173,17 +142,14 @@ describe('projection snapshot store — appendSnapshot backend delegation (A3.2)
         }, { maxRecords: cap });
       }
 
-      // The backend should have the record with the highest sequence.
       const latest = backend.readLatestProjectionSnapshot(streamId, 'rehydration', 'v1');
       expect(latest).toBeDefined();
       expect(latest?.sequence).toBe(cap + 2);
 
-      // Assert: no .projections.jsonl file created in stateDir.
       const files = fs.readdirSync(stateDir);
       const sidecarFiles = files.filter((f) => f.endsWith('.projections.jsonl'));
       expect(sidecarFiles).toHaveLength(0);
 
-      // WARN on prune must have been emitted at least once.
       const pruneCalls = warnSpy.mock.calls.filter((call) => {
         const first = call[0];
         return (
@@ -211,30 +177,18 @@ describe('projection snapshot store — appendSnapshot backend delegation (A3.2)
   });
 });
 
-// ─── Retirement boundary: what survived the `readProjection` removal ────────
-
 /**
- * `readProjection` + `ReadProjectionOptions` + `InvalidReducerScopeError` were
- * removed from this module when `ProjectionScope` collapsed to `'stream'`. The
- * snapshot primitives are a SEPARATE, live surface — `appendSnapshot` has a
- * production caller at `workflow/tools.ts` (the per-stream rehydration
- * checkpoint), read back by `workflow/rehydrate.ts` and `projections/rebuild.ts`.
- *
- * This pins the boundary in both directions: the snapshot pair must still be
- * exported AND still round-trip, and the retired symbols must be gone. A
- * removal that over-reached (taking the snapshot pair with it) fails here
- * rather than in a distant rehydration test.
+ * Pins the module surface in both directions. `appendSnapshot` and `readLatestSnapshot` have
+ * production callers, so the module must export them and they must round-trip a record. The
+ * module must not export `readProjection` or `InvalidReducerScopeError`.
  */
 describe('projection snapshot store — surface after readProjection removal', () => {
   it('ProjectionsStore_AfterRemoval_StillExposesSnapshotPrimitives', () => {
-    // The surviving primitives are exported...
     expect(typeof projectionsStore.appendSnapshot).toBe('function');
     expect(typeof projectionsStore.readLatestSnapshot).toBe('function');
-    // ...along with the retention re-exports consumers resolve from here.
     expect(typeof projectionsStore.resolveMaxRecords).toBe('function');
     expect(projectionsStore.DEFAULT_SNAPSHOT_MAX_RECORDS).toBeGreaterThan(0);
 
-    // ...and they still round-trip a record through a backend.
     const backend = new InMemoryBackend();
     const streamId = 'wf-surface-check';
     const record: SnapshotRecord = {
@@ -250,7 +204,6 @@ describe('projection snapshot store — surface after readProjection removal', (
     expect(read?.sequence).toBe(7);
     expect(read?.state).toEqual({ hello: 'world' });
 
-    // The retired cross-stream surface is gone.
     expect('readProjection' in projectionsStore).toBe(false);
     expect('InvalidReducerScopeError' in projectionsStore).toBe(false);
   });

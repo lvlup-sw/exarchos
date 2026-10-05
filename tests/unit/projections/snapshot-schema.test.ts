@@ -4,7 +4,6 @@ import type { SnapshotRecord as SnapshotRecordType } from '../../../src/projecti
 
 describe('snapshot-schema', () => {
   it('SnapshotRecord_RoundTripJsonl_Preserves', () => {
-    // A representative, valid snapshot record.
     const record: SnapshotRecordType = {
       projectionId: 'rehydration',
       projectionVersion: 'v1',
@@ -19,16 +18,13 @@ describe('snapshot-schema', () => {
       timestamp: '2026-04-24T12:34:56.000Z',
     };
 
-    // Validate first (input is a well-formed record per the schema).
     const validated = SnapshotRecord.parse(record);
 
-    // Encode to a single JSONL line and decode back.
     const line = JSON.stringify(validated);
     expect(line.includes('\n')).toBe(false);
 
     const parsed = SnapshotRecord.parse(JSON.parse(line));
 
-    // Round-trip preserves every field deeply.
     expect(parsed).toEqual(record);
   });
 });

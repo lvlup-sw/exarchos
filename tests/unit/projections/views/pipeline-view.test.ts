@@ -1,26 +1,14 @@
 /**
- * Pipeline view projection — #1359 / PR4 T13 tests.
+ * Pipeline view projection tests for the `state.patched` task fold and the `repoRoot` fold.
  *
- * Bug A of the #1359 projection-drift RCA: pre-#1359 the pipeline view only
- * folded `task.assigned` / `task.completed` / `task.failed` and ignored
- * `state.patched`. Callers that mutated tasks via `workflow.update({tasks})`
- * without paired `task.*` events were invisible to `taskCount` /
- * `completedCount` / `failedCount`. One observed session: 53 vs 67
- * taskCount, 20 vs 56 completedCount.
- *
- * Fix: a `tasksById` map keyed by task id, monotonically promoted by both
- * `state.patched` plan-task folds and dedicated `task.*` events using the
- * shared `STATUS_RANK` ladder. Counters are derived from the map so all
- * paths share a single source of truth.
+ * The view keeps a `tasksById` map. `state.patched` plan tasks and `task.*` events both promote a
+ * status in it, and never move it down. The three counters derive from the map.
  */
 import { describe, it, expect } from 'vitest';
 import { pipelineProjection, type PipelineViewState } from '../../../../src/projections/views/pipeline-view.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 
-/**
- * Helper — build a minimal WorkflowEvent. Only `type` and `data` are
- * load-bearing for the projection; the rest satisfy WorkflowEventBase.
- */
+/** Builds a minimal `WorkflowEvent`. The projection reads only `type` and `data`. */
 function makeEvent<T extends Record<string, unknown>>(
   type: string,
   data: T,
@@ -37,13 +25,8 @@ function makeEvent<T extends Record<string, unknown>>(
 }
 
 describe('pipelineProjection — state.patched fold (#1359 / PR4 T13)', () => {
+  /** Plan tasks from `state.patched` set the counters when the stream holds no `task.*` event. */
   it('PipelineProjection_StatePatchedCompleteTask_IncrementsCompletedCount', () => {
-    // GIVEN: a workflow.started event setting context, followed by a
-    // state.patched whose patch.tasks declares two tasks — one complete,
-    // one pending — with no paired task.* events. Pre-fix this scenario
-    // left taskCount === 0; post-fix the view folds state.patched.tasks
-    // through the monotonic STATUS_RANK helper and surfaces the canonical
-    // counters.
     const initial = pipelineProjection.init();
     const started = makeEvent(
       'workflow.started',
@@ -68,16 +51,13 @@ describe('pipelineProjection — state.patched fold (#1359 / PR4 T13)', () => {
     let view: PipelineViewState = pipelineProjection.apply(initial, started);
     view = pipelineProjection.apply(view, patched);
 
-    // THEN: the counters reflect canonical state.
     expect(view.taskCount).toBe(2);
     expect(view.completedCount).toBe(1);
     expect(view.failedCount).toBe(0);
   });
 
+  /** A `state.patched` and a `task.completed` that complete the same task count it one time. */
   it('PipelineProjection_StatePatchedThenTaskCompleted_DoesNotDoubleCount', () => {
-    // Monotonic-promotion invariant: a state.patched marking T001 as
-    // 'complete' followed by a redundant task.completed event for T001
-    // must produce completedCount === 1, NOT 2.
     const initial = pipelineProjection.init();
     const started = makeEvent(
       'workflow.started',
@@ -103,11 +83,11 @@ describe('pipelineProjection — state.patched fold (#1359 / PR4 T13)', () => {
     expect(view.completedCount).toBe(1);
   });
 
+  /**
+   * A later `state.patched` with status `pending` must not move a failed task down.
+   * The plan sends the full task list, and events carry the execution result.
+   */
   it('PipelineProjection_TaskFailedThenStatePatchedPending_DoesNotRegress', () => {
-    // task.failed promotes T001 to 'failed' (rank 2). A later
-    // state.patched re-asserting the plan with status='pending' must NOT
-    // regress the entry — plan-state stamps the full task list, events
-    // carry execution truth.
     const initial = pipelineProjection.init();
     const started = makeEvent(
       'workflow.started',
@@ -134,9 +114,8 @@ describe('pipelineProjection — state.patched fold (#1359 / PR4 T13)', () => {
   });
 });
 
-// ─── DR-5: repoRoot carried by the projection fold ───────────────────────────
-
 describe('pipelineProjection — repoRoot fold (DR-5)', () => {
+  /** The fold copies `repoRoot` from the event data with no lookup. */
   it('PipelineProjection_StartedWithRepoRoot_StateCarriesIt', () => {
     const initial = pipelineProjection.init();
     const started = makeEvent(
@@ -147,11 +126,11 @@ describe('pipelineProjection — repoRoot fold (DR-5)', () => {
 
     const view = pipelineProjection.apply(initial, started);
 
-    // Pure fold: the identity is copied from the event data verbatim.
     expect(view.repoRoot).toBe('/home/dev/exarchos');
     expect(view.featureId).toBe('feat-repo');
   });
 
+  /** When the event has no `repoRoot`, the fold does no lookup and the state stays unscoped. */
   it('PipelineProjection_StartedWithoutRepoRoot_StateUndefined', () => {
     const initial = pipelineProjection.init();
     const started = makeEvent(
@@ -162,7 +141,6 @@ describe('pipelineProjection — repoRoot fold (DR-5)', () => {
 
     const view = pipelineProjection.apply(initial, started);
 
-    // Legacy stream (no repoRoot on the event) stays unscoped — never looked up.
     expect(view.repoRoot).toBeUndefined();
     expect(view.featureId).toBe('feat-legacy');
   });

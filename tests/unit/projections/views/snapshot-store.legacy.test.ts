@@ -7,8 +7,6 @@ import type { SnapshotData } from '../../../../src/projections/views/snapshot-st
 import { EVENT_SCHEMA_VERSION } from '../../../../src/events/event-migration.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
-// ─── Snapshot Store Tests ──────────────────────────────────────────────────
-
 describe('SnapshotStore', () => {
   let tempDir: string;
   let store: SnapshotStore;
@@ -21,8 +19,6 @@ describe('SnapshotStore', () => {
   afterEach(async () => {
     await rmrfAsync(tempDir);
   });
-
-  // ─── 1. save_ValidData_WritesJsonFile ──────────────────────────────────
 
   describe('save_ValidData_WritesJsonFile', () => {
     it('should save a snapshot and write a valid JSON file to disk', async () => {
@@ -41,8 +37,6 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 2. load_ExistingSnapshot_ReturnsData ──────────────────────────────
-
   describe('load_ExistingSnapshot_ReturnsData', () => {
     it('should load a previously saved snapshot with correct roundtrip data integrity', async () => {
       const viewData = { phase: 'delegate', tasks: ['a', 'b', 'c'] };
@@ -58,8 +52,6 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 3. load_MissingFile_ReturnsUndefined ──────────────────────────────
-
   describe('load_MissingFile_ReturnsUndefined', () => {
     it('should return undefined when loading a snapshot that does not exist', async () => {
       const result = await store.load('nonexistent-stream', 'noview');
@@ -67,8 +59,6 @@ describe('SnapshotStore', () => {
       expect(result).toBeUndefined();
     });
   });
-
-  // ─── 4. load_CorruptJson_ReturnsUndefined ──────────────────────────────
 
   describe('load_CorruptJson_ReturnsUndefined', () => {
     it('should return undefined when the snapshot file contains invalid JSON', async () => {
@@ -81,15 +71,12 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 5. load_MissingHighWaterMark_ReturnsUndefined ─────────────────────
-
   describe('load_MissingHighWaterMark_ReturnsUndefined', () => {
     it('should return undefined when the snapshot file is missing the highWaterMark field', async () => {
       const filePath = path.join(tempDir, 'incomplete-stream.partial.snapshot.json');
       const incompleteData = {
         view: { some: 'data' },
         savedAt: new Date().toISOString(),
-        // highWaterMark intentionally omitted
       };
       await writeFile(filePath, JSON.stringify(incompleteData), 'utf-8');
 
@@ -98,8 +85,6 @@ describe('SnapshotStore', () => {
       expect(result).toBeUndefined();
     });
   });
-
-  // ─── 6. getSnapshotPath_InvalidStreamId_ThrowsError ────────────────────
 
   describe('getSnapshotPath_InvalidStreamId_ThrowsError', () => {
     it('should throw an error when streamId contains unsafe characters', async () => {
@@ -121,8 +106,6 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 7. getSnapshotPath_InvalidViewName_ThrowsError ────────────────────
-
   describe('getSnapshotPath_InvalidViewName_ThrowsError', () => {
     it('should throw an error when viewName contains unsafe characters', async () => {
       await expect(
@@ -136,8 +119,6 @@ describe('SnapshotStore', () => {
       ).rejects.toThrow(/Invalid viewName/);
     });
   });
-
-  // ─── 8. getSnapshotPath_PathTraversal_ThrowsError ──────────────────────
 
   describe('getSnapshotPath_PathTraversal_ThrowsError', () => {
     it('should throw when streamId contains path traversal sequence', async () => {
@@ -165,8 +146,6 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 9. save_CreatesDirectory_IfMissing ────────────────────────────────
-
   describe('save_CreatesDirectory_IfMissing', () => {
     it('should create the directory recursively when it does not exist', async () => {
       const nestedDir = path.join(tempDir, 'nested', 'deep', 'dir');
@@ -180,8 +159,6 @@ describe('SnapshotStore', () => {
       expect(loaded!.highWaterMark).toBe(3);
     });
   });
-
-  // ─── 10. load_HighWaterMarkPreserved_AcrossRoundtrip ───────────────────
 
   describe('load_HighWaterMarkPreserved_AcrossRoundtrip', () => {
     it('should preserve the exact highWaterMark value through save and load', async () => {
@@ -199,8 +176,6 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 11. save_OverwritesExistingSnapshot ───────────────────────────────
-
   describe('save_OverwritesExistingSnapshot', () => {
     it('should overwrite a previous snapshot when saving to the same stream and view', async () => {
       await store.save('overwrite-stream', 'myview', { version: 1 }, 5);
@@ -214,15 +189,12 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 12. load_ValidJson_MissingViewField_ReturnsUndefined ──────────────
-
   describe('load_ValidJson_MissingViewField_ReturnsUndefined', () => {
     it('should return undefined when the snapshot has a valid highWaterMark but view is undefined', async () => {
       const filePath = path.join(tempDir, 'noview-stream.noview.snapshot.json');
       const dataWithoutView = {
         highWaterMark: 5,
         savedAt: new Date().toISOString(),
-        // view intentionally omitted
       };
       await writeFile(filePath, JSON.stringify(dataWithoutView), 'utf-8');
 
@@ -231,8 +203,6 @@ describe('SnapshotStore', () => {
       expect(result).toBeUndefined();
     });
   });
-
-  // ─── 13. save_savedAt_IsISOString ──────────────────────────────────────
 
   describe('save_savedAt_IsISOString', () => {
     it('should write a valid ISO 8601 timestamp in the savedAt field', async () => {
@@ -246,8 +216,6 @@ describe('SnapshotStore', () => {
       );
     });
   });
-
-  // ─── 14. load_NonNumberHighWaterMark_ReturnsUndefined ──────────────────
 
   describe('load_NonNumberHighWaterMark_ReturnsUndefined', () => {
     it('should return undefined when highWaterMark is a string instead of a number', async () => {
@@ -265,37 +233,27 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 15. delete_ExistingSnapshot_RemovesFile ──────────────────────────────
-
   describe('delete_ExistingSnapshot_RemovesFile', () => {
     it('should remove an existing snapshot file so load returns undefined', async () => {
       await store.save('del-stream', 'myview', { x: 1 }, 5);
 
-      // Confirm it exists
       const before = await store.load('del-stream', 'myview');
       expect(before).toBeDefined();
 
-      // Delete it
       await store.delete('del-stream', 'myview');
 
-      // Confirm it's gone
       const after = await store.load('del-stream', 'myview');
       expect(after).toBeUndefined();
     });
   });
 
-  // ─── 16. delete_NonExistentSnapshot_NoError ───────────────────────────────
-
   describe('delete_NonExistentSnapshot_NoError', () => {
     it('should not throw when deleting a snapshot that does not exist', async () => {
-      // Should be idempotent — no error
       await expect(
         store.delete('nonexistent-stream', 'noview'),
       ).resolves.toBeUndefined();
     });
   });
-
-  // ─── 17. deleteAllForStream_MultipleSnapshots_RemovesAll ──────────────────
 
   describe('deleteAllForStream_MultipleSnapshots_RemovesAll', () => {
     it('should remove all snapshots for a given stream across different views', async () => {
@@ -311,8 +269,6 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 18. deleteAllForStream_DoesNotTouchOtherStreams ───────────────────────
-
   describe('deleteAllForStream_DoesNotTouchOtherStreams', () => {
     it('should not delete snapshots belonging to other streams', async () => {
       await store.save('stream-a', 'myview', { a: 1 }, 1);
@@ -324,8 +280,6 @@ describe('SnapshotStore', () => {
       expect(await store.load('stream-b', 'myview')).toBeDefined();
     });
   });
-
-  // ─── 19. deleteAllForStream_ReturnsDeletedFileNames ───────────────────────
 
   describe('deleteAllForStream_ReturnsDeletedFileNames', () => {
     it('should return the array of deleted file names', async () => {
@@ -342,8 +296,6 @@ describe('SnapshotStore', () => {
     });
   });
 
-  // ─── 20. deleteAllForStream_ExactPrefixMatch_NoFalsePositives ─────────────
-
   describe('deleteAllForStream_ExactPrefixMatch_NoFalsePositives', () => {
     it('should not delete snapshots for streams with a matching prefix but different id', async () => {
       await store.save('my-feature', 'myview', { a: 1 }, 1);
@@ -355,8 +307,6 @@ describe('SnapshotStore', () => {
       expect(await store.load('my-feature-2', 'myview')).toBeDefined();
     });
   });
-
-  // ─── Schema Version Invalidation ─────────────────────────────────────────
 
   describe('save_IncludesSchemaVersion', () => {
     it('should include schemaVersion field matching EVENT_SCHEMA_VERSION in saved snapshot', async () => {
@@ -389,7 +339,7 @@ describe('SnapshotStore', () => {
         view: { stale: true },
         highWaterMark: 5,
         savedAt: new Date().toISOString(),
-        schemaVersion: '0.9', // Intentionally stale
+        schemaVersion: '0.9',
       };
       await writeFile(filePath, JSON.stringify(staleSnapshot), 'utf-8');
 
@@ -406,7 +356,6 @@ describe('SnapshotStore', () => {
         view: { legacy: true },
         highWaterMark: 3,
         savedAt: new Date().toISOString(),
-        // No schemaVersion field — legacy snapshot
       };
       await writeFile(filePath, JSON.stringify(legacySnapshot), 'utf-8');
 

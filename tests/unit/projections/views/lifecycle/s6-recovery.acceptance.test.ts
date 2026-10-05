@@ -1,33 +1,7 @@
-// ─── S-6 north-star: stuck-executing merge recovery acceptance (DR-3/DR-5/DR-8) ─
-//
-// The feature's ACCEPTANCE walkthrough. ONE test drives the REAL SQLite event
-// store + the REAL lifecycle handlers (`ps`, `inspect`, `wait`) + the REAL DR-2
-// liveness registry — NO mocks of the store, the folds, or the registry — end
-// to end through the corrected S-6 story:
-//
-//   1. A merge crashes mid-flight: a `merge.executing_started` with NO terminal
-//      is committed to a real store (the simulated crash).
-//   2. `ps --scope all` lists the stuck merge in its OPERATIONS section
-//      (`{surface:'merge', instanceKey:…}`) — the DR-3 north-star assertion.
-//   3. `inspect` projects the workflow with the unpaired start still in flight
-//      (the `merge.executing_started` is in `recentEvents`; no merge terminal).
-//   4. `wait --operation merge` with a short timeout returns a STRUCTURED
-//      `WAIT_TIMEOUT` (DR-5/DR-8 — the CLI would map this to exit 17) while no
-//      terminal exists to clear the in-flight instance.
-//   5. Appending `merge.recovered` (a registry terminal for merge, matched by
-//      INSTANCE KEY) clears the in-flight set; a fresh `wait --operation merge`
-//      now RESOLVES immediately, and `ps` no longer lists the merge.
-//
-// Determinism comes from INJECTED clocks/timers only (INV-16): a `ManualClock`
-// on the subscription registry and a captured `scheduleTimeout` that fires the
-// bounded deadline directly — never a wall-clock sleep. The behavioral steps
-// ARE the adequacy: a broken `ps` / `inspect` / `wait` would fail this test.
-//
-// The final `it` is a FENCE, not the proof: a grep guard that neither generic
-// verb (`wait.ts` / `operations-fold.ts`) branches on the `merge` surface
-// literal — the DR-3 genericity that lets the behavioral steps above hold for
-// every liveness surface, not just merge.
-// ─────────────────────────────────────────────────────────────────────────────
+// Acceptance test for the recovery of a merge that stops mid-flight. It uses a
+// real SQLite event store, the real `ps`, `inspect` and `wait` handlers, and the
+// real liveness registry. The subscription clock and the wait deadline are
+// injected, so the test has no sleep.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { fileURLToPath } from 'node:url';
@@ -45,18 +19,13 @@ import { handleViewInspect } from '../../../../../src/projections/views/lifecycl
 import { handleViewWait, type WaitDeps } from '../../../../../src/projections/views/lifecycle/wait.js';
 import type { InFlightOperation } from '../../../../../src/projections/views/lifecycle/operations-fold.js';
 
-// ─── Deterministic clock (INV-16) ─────────────────────────────────────────────
-
-/** Fixed fold-time clock → deterministic `ageMs` on the `ps` operations section. */
+/** Fixed fold-time clock for the `ps` calls. */
 const NOW_MS = Date.parse('2026-07-13T00:00:10.000Z');
 
 /**
- * A real, deterministic {@link SubscriptionClock} whose Tier-2 floor loop fires
- * only when the test calls `fireAll()` — mirrors `wait.test.ts`. Injected via
- * `WaitDeps.subscriptionOptions` so the wait's own DR-1 subscription runs on it
- * (the FIRST subscribe on the fresh store adopts this clock). This walkthrough
- * never fires the floor: step 4 resolves via the fired deadline, so no foreign
- * event ever needs draining.
+ * A {@link SubscriptionClock} whose poll-floor loop runs only when a test calls `fireAll()`. It
+ * goes in through `WaitDeps.subscriptionOptions`, and the first subscribe on a new store adopts it.
+ * This test never fires the floor, because the fired deadline ends the wait.
  */
 class ManualSubscriptionClock implements SubscriptionClock {
   time = 0;
@@ -77,8 +46,6 @@ class ManualSubscriptionClock implements SubscriptionClock {
   }
 }
 
-// ─── Real-store arm ────────────────────────────────────────────────────────────
-
 interface Arm {
   readonly stateDir: string;
   readonly store: EventStore;
@@ -96,12 +63,8 @@ afterEach(async () => {
 });
 
 /**
- * A plain, REAL SQLite `EventStore` (no injected backend) — the same wiring
- * `wait.test.ts` uses, so the DR-1 subscription primitive, the Tier-1 commit
- * hook, and the cross-stream `ps` reads all run against real substrate. The
- * operations section of `ps --scope all` reads purely from the event store, so
- * `ctx.storage` is deliberately unset (the workflows section degrades to empty;
- * the S-6 north-star is the OPERATIONS section).
+ * A real SQLite `EventStore` with no injected backend. `ctx.storage` is unset on purpose: the
+ * operations section of `ps` reads only the event store, and the workflows section stays empty.
  */
 async function makeArm(): Promise<Arm> {
   const stateDir = await mkdtemp(path.join(tmpdir(), 's6-acceptance-'));
@@ -137,8 +100,6 @@ function deterministicDeps(clock: SubscriptionClock): {
   return { deps, fireDeadline: () => deadlineCb?.() };
 }
 
-// ─── Seed helpers (via the REAL store's append path) ───────────────────────────
-
 async function seedWorkflow(store: EventStore, featureId: string): Promise<void> {
   await store.append(featureId, {
     type: 'workflow.started',
@@ -160,7 +121,7 @@ async function seedCrashedMerge(store: EventStore, featureId: string, instanceId
   });
 }
 
-/** Append the DR-2 registry terminal `merge.recovered`, matched by instance key. */
+/** Appends `merge.recovered`, a registry terminal for `merge`, with the same instance key. */
 async function appendMergeRecovered(store: EventStore, featureId: string, instanceId: string): Promise<void> {
   await store.append(featureId, {
     type: 'merge.recovered',
@@ -173,20 +134,20 @@ async function appendMergeRecovered(store: EventStore, featureId: string, instan
   });
 }
 
-// ─── The acceptance walkthrough ───────────────────────────────────────────────
-
 describe('S-6 stuck-executing merge recovery (acceptance — real store, real handlers)', () => {
+  /**
+   * `ps --scope all` lists the merge that has a start and no terminal, and `inspect` shows the
+   * start event. `wait --operation merge` returns `WAIT_TIMEOUT` when the test fires the deadline.
+   * After `merge.recovered`, a new wait resolves in the precheck, and `ps` does not list the merge.
+   */
   it('S6_StuckMerge_PsInspectWaitTimeout_ThenRecoveredWaitResolves', async () => {
     const { store, ctx } = await makeArm();
     const featureId = 's6-feat';
     const instanceId = 'merge-crash-1';
 
-    // ── Step 1: seed the crash — a merge start with no terminal on a real store.
     await seedWorkflow(store, featureId);
     await seedCrashedMerge(store, featureId, instanceId);
 
-    // ── Step 2 (DR-3 north-star): `ps --scope all` lists the stuck merge in its
-    //    OPERATIONS section, shaped {surface:'merge', instanceKey:…}. ───────────
     const psResult = await handleViewPs({ scope: 'all' }, ctx, { now: () => NOW_MS });
     expect(psResult.success).toBe(true);
     const psData = psResult.data as {
@@ -200,11 +161,8 @@ describe('S-6 stuck-executing merge recovery (acceptance — real store, real ha
     expect(stuckMerge?.instanceKey).toBe(instanceId);
     expect(stuckMerge?.streamScope).toBe('feature');
     expect(stuckMerge?.startType).toBe('merge.executing_started');
-    // Deterministic age off the injected clock (started at T+…, now T+10) → > 0.
     expect(stuckMerge?.ageMs).toBeGreaterThanOrEqual(0);
 
-    // ── Step 3: `inspect` shows the unpaired start still in flight — the
-    //    `merge.executing_started` is in `recentEvents`, with NO merge terminal. ─
     const inspectResult = await handleViewInspect({ featureId }, ctx);
     expect(inspectResult.success).toBe(true);
     const inspectData = inspectResult.data as {
@@ -217,13 +175,11 @@ describe('S-6 stuck-executing merge recovery (acceptance — real store, real ha
     expect(inspectedTypes).not.toContain('merge.executed');
     expect(inspectedTypes).not.toContain('merge.recovered');
 
-    // ── Step 4 (DR-5/DR-8): `wait --operation merge` with a short timeout returns
-    //    a STRUCTURED WAIT_TIMEOUT (CLI → exit 17) while no terminal exists. ─────
     const { deps, fireDeadline } = deterministicDeps(new ManualSubscriptionClock());
     const timeoutMs = 250;
     const waitP = handleViewWait({ featureId, operation: 'merge', timeoutMs }, ctx, deps);
-    await flush(); // let the precheck fold + subscription register + deadline capture
-    fireDeadline(); // fire the bounded deadline directly (no wall-clock sleep)
+    await flush();
+    fireDeadline();
     const timeoutResult = await waitP;
 
     expect(timeoutResult.success).toBe(false);
@@ -232,34 +188,28 @@ describe('S-6 stuck-executing merge recovery (acceptance — real store, real ha
     expect((timeoutResult.data as { operation?: string }).operation).toBe('merge');
     expect((timeoutResult.data as { timeoutMs: number }).timeoutMs).toBe(timeoutMs);
 
-    // ── Step 5: append `merge.recovered` (registry terminal, matched by instance
-    //    key) → a FRESH `wait --operation merge` now resolves immediately. ───────
     await appendMergeRecovered(store, featureId, instanceId);
 
     const resolveResult = await handleViewWait({ featureId, operation: 'merge' }, ctx);
     expect(resolveResult.success).toBe(true);
     expect((resolveResult.data as { resolved: boolean }).resolved).toBe(true);
-    expect((resolveResult.data as { waitedMs: number }).waitedMs).toBe(0); // precheck — never subscribed
+    expect((resolveResult.data as { waitedMs: number }).waitedMs).toBe(0);
     expect((resolveResult.data as { operation?: string }).operation).toBe('merge');
 
-    // And `ps` corroborates: the merge is no longer in flight (recovery cleared it).
     const psAfter = await handleViewPs({ scope: 'all' }, ctx, { now: () => NOW_MS });
     const opsAfter = (psAfter.data as { operations: InFlightOperation[] }).operations;
     expect(opsAfter.some((o) => o.surface === 'merge')).toBe(false);
   });
 
-  // ── Step 6 — FENCE (a guard, not the proof): the DR-3 genericity that makes the
-  //    behavioral walkthrough above hold for every liveness surface is that the
-  //    generic verbs never BRANCH on the `merge` surface literal. The registry is
-  //    the only place a surface is named; the operation predicate + operations
-  //    fold iterate it. This grep fails loudly if a future edit re-introduces
-  //    merge-specific control flow (`surface === 'merge'` / `case 'merge'`). ─────
+  /**
+   * This test is a guard, not the proof. `wait.ts` and `operations-fold.ts` take each surface from
+   * the registry, so they must not branch on the `merge` literal. The patterns do not match the
+   * `until: 'merge'` payload of the suggested fix, because that payload is not a branch.
+   */
   it('S6_Fence_GenericVerbsDoNotBranchOnMergeLiteral', () => {
     const waitSrc = readFileSync(fileURLToPath(new URL('../../../../../src/projections/views/lifecycle/wait.ts', import.meta.url)), 'utf-8');
     const foldSrc = readFileSync(fileURLToPath(new URL('../../../../../src/projections/views/lifecycle/operations-fold.ts', import.meta.url)), 'utf-8');
 
-    // Merge-specific BRANCHING patterns (comments and the worktree-scope
-    // `until: 'merge'` suggestedFix payload are NOT branching and do not match).
     const MERGE_BRANCH_PATTERNS: readonly RegExp[] = [
       /===\s*['"]merge['"]/,
       /['"]merge['"]\s*===/,

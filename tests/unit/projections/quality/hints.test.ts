@@ -7,8 +7,6 @@ import type { RefinementSignal } from '../../../../src/projections/quality/refin
 import type { TelemetryViewState } from '../../../../src/projections/telemetry/telemetry-projection.js';
 import { initToolMetrics } from '../../../../src/projections/telemetry/telemetry-projection.js';
 
-// ─── Test Helper ────────────────────────────────────────────────────────────
-
 function makeState(overrides: Partial<CodeQualityViewState> = {}): CodeQualityViewState {
   return {
     skills: {},
@@ -18,8 +16,6 @@ function makeState(overrides: Partial<CodeQualityViewState> = {}): CodeQualityVi
     ...overrides,
   };
 }
-
-// ─── T1: QualityHint interface, types, and low gate pass rate rule ──────────
 
 describe('generateQualityHints', () => {
   describe('empty and missing state', () => {
@@ -161,8 +157,6 @@ describe('generateQualityHints', () => {
       expect(hints).toHaveLength(0);
     });
   });
-
-  // ─── T2: Consecutive failures and benchmark regression rules ────────────
 
   describe('consecutive failures rule', () => {
     it('should return warning hint when consecutive failures >= 3', () => {
@@ -339,8 +333,6 @@ describe('generateQualityHints', () => {
     });
   });
 
-  // ─── T3: Self-correction rate and PBT failure rules ─────────────────────
-
   describe('self-correction rate rule', () => {
     it('should return info hint when self-correction rate is high', () => {
       const state = makeState({
@@ -466,11 +458,9 @@ describe('generateQualityHints', () => {
     });
   });
 
-  // ─── T4: Hint cap, severity prioritization, and targetSkill filter ──────
-
   describe('hint cap and prioritization', () => {
+    /** The three skills each trigger two rules, so the uncapped list holds more than 5 hints. */
     it('should return at most 5 hints when more are generated', () => {
-      // Create 3 skills that each trigger multiple rules to exceed 5 hints
       const state = makeState({
         skills: {
           'skill-a': {
@@ -521,8 +511,8 @@ describe('generateQualityHints', () => {
       expect(hints.length).toBeLessThanOrEqual(5);
     });
 
+    /** The skill triggers a warning for a low gate pass rate and an info hint for a high self-correction rate. */
     it('should prioritize warnings over info hints', () => {
-      // Skill that triggers both a warning (low gate pass rate) and info (high self-correction)
       const state = makeState({
         skills: {
           'my-skill': {
@@ -540,7 +530,6 @@ describe('generateQualityHints', () => {
       const warningIdx = hints.findIndex(h => h.severity === 'warning');
       const infoIdx = hints.findIndex(h => h.severity === 'info');
 
-      // Both should exist given the state configuration
       expect(warningIdx).not.toBe(-1);
       expect(infoIdx).not.toBe(-1);
       expect(warningIdx).toBeLessThan(infoIdx);
@@ -619,8 +608,6 @@ describe('generateQualityHints', () => {
       expect(skillsInHints.has('skill-b')).toBe(true);
     });
   });
-
-  // ─── Event Emission Tests ─────────────────────────────────────────────────
 
   describe('event emission', () => {
     let mockEventStore: { append: ReturnType<typeof vi.fn> };
@@ -717,11 +704,11 @@ describe('generateQualityHints', () => {
         },
       });
 
-      // Should not throw even without event store
       const hints = generateQualityHints(state, 'my-skill', undefined, undefined, null);
       expect(hints.length).toBeGreaterThan(0);
     });
 
+    /** The function does not wait for the append and ignores its failure. */
     it('GenerateQualityHints_EventStoreAppendFails_DoesNotThrow', () => {
       mockEventStore.append.mockRejectedValue(new Error('append failed'));
 
@@ -738,7 +725,6 @@ describe('generateQualityHints', () => {
         },
       });
 
-      // Should not throw even when event store fails (fire-and-forget)
       const hints = generateQualityHints(state, 'my-skill', undefined, undefined, mockEventStore as unknown as EventStore);
       expect(hints.length).toBeGreaterThan(0);
       expect(mockEventStore.append).toHaveBeenCalledTimes(1);
@@ -770,15 +756,11 @@ describe('generateQualityHints', () => {
 
       const [, event] = mockEventStore.append.mock.calls[0];
       const categories = event.data.categories as string[];
-      // Categories should be unique (no duplicates)
       expect(categories.length).toBe(new Set(categories).size);
-      // Should include both gate and benchmark categories
       expect(categories).toContain('gate');
       expect(categories).toContain('benchmark');
     });
   });
-
-  // ─── Telemetry Hint Integration ────────────────────────────────────────────
 
   describe('telemetry hint integration', () => {
     function makeTelemetryState(tools: Record<string, Partial<ReturnType<typeof initToolMetrics>>>): TelemetryViewState {
@@ -796,16 +778,13 @@ describe('generateQualityHints', () => {
     }
 
     it('GenerateQualityHints_WithTelemetryHints_IncludesTelemetryCategory', () => {
-      // Arrange: quality state + telemetry state where a tool exceeds threshold
       const qualityState = makeState();
       const telemetryState = makeTelemetryState({
         view_tasks: { p95Bytes: 1500 },
       });
 
-      // Act
       const hints = generateQualityHints(qualityState, undefined, undefined, telemetryState);
 
-      // Assert
       const telemetryHints = hints.filter(h => h.category === 'telemetry');
       expect(telemetryHints.length).toBeGreaterThan(0);
       expect(telemetryHints[0].skill).toBe('global');
@@ -813,19 +792,15 @@ describe('generateQualityHints', () => {
     });
 
     it('GenerateQualityHints_WithoutTelemetryState_OmitsTelemetryHints', () => {
-      // Arrange: quality state, no telemetry state
       const qualityState = makeState();
 
-      // Act
       const hints = generateQualityHints(qualityState);
 
-      // Assert
       const telemetryHints = hints.filter(h => h.category === 'telemetry');
       expect(telemetryHints).toHaveLength(0);
     });
 
     it('GenerateQualityHints_TelemetryHintsSortedWithOthers', () => {
-      // Arrange: states that produce both quality warnings and telemetry info hints
       const qualityState = makeState({
         skills: {
           'my-skill': {
@@ -842,10 +817,8 @@ describe('generateQualityHints', () => {
         view_tasks: { p95Bytes: 1500 },
       });
 
-      // Act
       const hints = generateQualityHints(qualityState, undefined, undefined, telemetryState);
 
-      // Assert: warnings sort before telemetry info hints
       const warningIdx = hints.findIndex(h => h.severity === 'warning');
       const telemetryIdx = hints.findIndex(h => h.category === 'telemetry');
 
@@ -855,23 +828,19 @@ describe('generateQualityHints', () => {
     });
 
     it('GenerateQualityHints_TelemetryNoThresholdsExceeded_NoTelemetryHints', () => {
-      // Arrange: telemetry state where no tools exceed thresholds
       const qualityState = makeState();
       const telemetryState = makeTelemetryState({
         view_tasks: { p95Bytes: 100 },
         workflow_get: { p95Bytes: 50 },
       });
 
-      // Act
       const hints = generateQualityHints(qualityState, undefined, undefined, telemetryState);
 
-      // Assert
       const telemetryHints = hints.filter(h => h.category === 'telemetry');
       expect(telemetryHints).toHaveLength(0);
     });
 
     it('GenerateQualityHints_TelemetryHintsCountTowardsCap', () => {
-      // Arrange: many quality warnings + telemetry hints to test cap at 5
       const qualityState = makeState({
         skills: {
           'skill-a': {
@@ -906,15 +875,11 @@ describe('generateQualityHints', () => {
         event_query: { p95Bytes: 2500 },
       });
 
-      // Act
       const hints = generateQualityHints(qualityState, undefined, undefined, telemetryState);
 
-      // Assert: total capped at 5
       expect(hints.length).toBeLessThanOrEqual(5);
     });
   });
-
-  // ─── T21: Calibration confidence and refinement data ─────────────────────
 
   describe('calibration context enrichment', () => {
     const baseSkillState = {
@@ -1009,16 +974,14 @@ describe('generateQualityHints', () => {
       expect(refinementHint!.affectedPromptPaths).toEqual(signal.affectedPromptPaths);
     });
 
+    /** With no calibration context, a hint has no `confidenceLevel`. The test also accepts `advisory`. */
     it('GenerateQualityHints_NoCalibrationData_DefaultsToLowConfidence', () => {
       const state = makeState(baseSkillState);
 
-      // No calibration context provided (undefined)
       const hints = generateQualityHints(state, 'my-skill');
 
       expect(hints.length).toBeGreaterThan(0);
       for (const hint of hints) {
-        // Without calibration context, confidenceLevel should be undefined (backward compatible)
-        // OR default to 'advisory' — either is acceptable
         expect([undefined, 'advisory']).toContain(hint.confidenceLevel);
       }
     });

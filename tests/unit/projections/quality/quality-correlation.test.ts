@@ -6,7 +6,6 @@ import type { EvalResultsViewState, SkillEvalMetrics } from '../../../../src/pro
 
 describe('correlateQualityAndEvals', () => {
   it('CorrelateQualityAndEvals_MatchingSkills_ReturnsJoinedMetrics', () => {
-    // Arrange
     const codeQualityState: CodeQualityViewState = {
       skills: {
         delegation: {
@@ -42,10 +41,8 @@ describe('correlateQualityAndEvals', () => {
       calibrations: [],
     };
 
-    // Act
     const result = correlateQualityAndEvals(codeQualityState, evalResultsState);
 
-    // Assert
     expect(result.skills).toBeDefined();
     expect(result.skills['delegation']).toBeDefined();
     expect(result.skills['delegation'].gatePassRate).toBe(0.9);
@@ -55,7 +52,6 @@ describe('correlateQualityAndEvals', () => {
   });
 
   it('CorrelateQualityAndEvals_NoOverlappingSkills_ReturnsEmptySkills', () => {
-    // Arrange: codeQuality has 'delegation', evalResults has 'brainstorming'
     const codeQualityState: CodeQualityViewState = {
       skills: {
         delegation: {
@@ -91,15 +87,12 @@ describe('correlateQualityAndEvals', () => {
       calibrations: [],
     };
 
-    // Act
     const result = correlateQualityAndEvals(codeQualityState, evalResultsState);
 
-    // Assert
     expect(result.skills).toEqual({});
   });
 
   it('CorrelateQualityAndEvals_EmptyViews_ReturnsEmptySkills', () => {
-    // Arrange: both views have empty skills
     const codeQualityState: CodeQualityViewState = {
       skills: {},
       models: {},
@@ -115,15 +108,12 @@ describe('correlateQualityAndEvals', () => {
       calibrations: [],
     };
 
-    // Act
     const result = correlateQualityAndEvals(codeQualityState, evalResultsState);
 
-    // Assert
     expect(result.skills).toEqual({});
   });
 
   it('CorrelateQualityAndEvals_OneViewEmpty_ReturnsEmptySkills', () => {
-    // Arrange: one view has skills, other is empty
     const codeQualityState: CodeQualityViewState = {
       skills: {
         delegation: {
@@ -148,15 +138,12 @@ describe('correlateQualityAndEvals', () => {
       calibrations: [],
     };
 
-    // Act
     const result = correlateQualityAndEvals(codeQualityState, evalResultsState);
 
-    // Assert
     expect(result.skills).toEqual({});
   });
 
   it('CorrelateQualityAndEvals_MultipleSkills_OnlySomeOverlap_ReturnsIntersection', () => {
-    // Arrange: codeQuality has delegation + synthesis, evalResults has delegation + planning
     const codeQualityState: CodeQualityViewState = {
       skills: {
         delegation: {
@@ -210,17 +197,13 @@ describe('correlateQualityAndEvals', () => {
       calibrations: [],
     };
 
-    // Act
     const result = correlateQualityAndEvals(codeQualityState, evalResultsState);
 
-    // Assert: only 'delegation' is in both
     expect(Object.keys(result.skills)).toEqual(['delegation']);
     expect(result.skills['delegation'].gatePassRate).toBe(0.9);
     expect(result.skills['delegation'].evalScore).toBe(0.85);
   });
 });
-
-// ─── Property Tests ───────────────────────────────────────────────────────────
 
 const skillNameArb = fc.string({ minLength: 1, maxLength: 20 });
 

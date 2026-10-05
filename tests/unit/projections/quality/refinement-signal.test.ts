@@ -4,8 +4,6 @@ import type { CalibratedSkillCorrelation } from '../../../../src/projections/qua
 import type { AttributionResult } from '../../../../src/projections/quality/attribution.js';
 import type { RefinementSignalInput } from '../../../../src/projections/quality/refinement-signal.js';
 
-// ─── Test Helpers ───────────────────────────────────────────────────────────
-
 function makeRegression(overrides: Partial<QualityRegression> = {}): QualityRegression {
   return {
     skill: 'delegation',
@@ -55,8 +53,6 @@ function makeInput(overrides: Partial<RefinementSignalInput> = {}): RefinementSi
   };
 }
 
-// ─── evaluateRefinementSignals Tests ────────────────────────────────────────
-
 describe('evaluateRefinementSignals', () => {
   it('EvaluateRefinementSignals_RegressionWithHighConfidence_EmitsSignal', async () => {
     const { evaluateRefinementSignals } = await import('../../../../src/projections/quality/refinement-signal.js');
@@ -90,6 +86,7 @@ describe('evaluateRefinementSignals', () => {
     expect(signals).toHaveLength(0);
   });
 
+  /** A gate pass rate of 0.45 is below the degradation threshold of the module. */
   it('EvaluateRefinementSignals_TrendDegradation_EmitsSignal', async () => {
     const { evaluateRefinementSignals } = await import('../../../../src/projections/quality/refinement-signal.js');
 
@@ -97,7 +94,7 @@ describe('evaluateRefinementSignals', () => {
       signalConfidence: 'medium',
       calibratedCorrelation: makeCalibrated({
         signalConfidence: 'medium',
-        gatePassRate: 0.45, // significantly below average
+        gatePassRate: 0.45,
         qualityTrend: 'degrading',
       }),
     });
@@ -181,8 +178,6 @@ describe('evaluateRefinementSignals', () => {
     expect(typeof signal.evidence.recentRegressions).toBe('number');
   });
 });
-
-// ─── buildSuggestedAction Tests ──────────────────────────────────────────────
 
 describe('buildSuggestedAction', () => {
   it('BuildSuggestedAction_Regression_DescribesGateCategory', async () => {

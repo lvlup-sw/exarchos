@@ -21,7 +21,6 @@ describe('Session Provenance Projection', () => {
     await rmrfAsync(tmpDir);
   });
 
-  /** Write events to a session JSONL file */
   async function writeEventsFile(
     sessionId: string,
     events: Array<SessionToolEvent | SessionTurnEvent | SessionSummaryEvent>,
@@ -31,7 +30,6 @@ describe('Session Provenance Projection', () => {
     await fs.writeFile(eventsPath, content, 'utf-8');
   }
 
-  /** Write a manifest JSONL with entries */
   async function writeManifest(
     entries: Array<{ sessionId: string; workflowId?: string; transcriptPath: string; startedAt: string; cwd: string }>,
   ): Promise<void> {
@@ -42,7 +40,6 @@ describe('Session Provenance Projection', () => {
 
   describe('materializeSession — Tool Events', () => {
     it('materializeSession_ToolEvents_ReturnsToolBreakdownByCategory', async () => {
-      // Arrange
       const events: SessionToolEvent[] = [
         { t: 'tool', ts: '2026-01-01T00:00:00Z', tool: 'Read', cat: 'native', inB: 100, outB: 200, sid: 'sess-1' },
         { t: 'tool', ts: '2026-01-01T00:01:00Z', tool: 'Write', cat: 'native', inB: 150, outB: 250, sid: 'sess-1' },
@@ -52,11 +49,9 @@ describe('Session Provenance Projection', () => {
       ];
       await writeEventsFile('sess-1', events);
 
-      // Act
       const { materializeSessionProvenance } = await import('../../../../src/projections/session/session-provenance-projection.js');
       const result = await materializeSessionProvenance(tmpDir, { sessionId: 'sess-1' });
 
-      // Assert
       expect(result.toolsByCategory).toEqual({
         native: 2,
         mcp_exarchos: 1,
@@ -74,7 +69,6 @@ describe('Session Provenance Projection', () => {
 
   describe('materializeSession — Turn Events', () => {
     it('materializeSession_TurnEvents_ReturnsTokenTotals', async () => {
-      // Arrange
       const events: SessionTurnEvent[] = [
         { t: 'turn', ts: '2026-01-01T00:00:00Z', model: 'opus-4', tokIn: 1000, tokOut: 500, tokCacheR: 200, tokCacheW: 100, sid: 'sess-2' },
         { t: 'turn', ts: '2026-01-01T00:01:00Z', model: 'opus-4', tokIn: 800, tokOut: 300, tokCacheR: 150, tokCacheW: 80, sid: 'sess-2' },
@@ -82,11 +76,9 @@ describe('Session Provenance Projection', () => {
       ];
       await writeEventsFile('sess-2', events);
 
-      // Act
       const { materializeSessionProvenance } = await import('../../../../src/projections/session/session-provenance-projection.js');
       const result = await materializeSessionProvenance(tmpDir, { sessionId: 'sess-2' });
 
-      // Assert
       expect(result.tokens).toEqual({
         in: 3000,
         out: 1400,
@@ -98,7 +90,6 @@ describe('Session Provenance Projection', () => {
 
   describe('materializeSession — Summary Event', () => {
     it('materializeSession_SummaryEvent_ReturnsSessionOverview', async () => {
-      // Arrange
       const events: SessionSummaryEvent[] = [
         {
           t: 'summary',
@@ -113,11 +104,9 @@ describe('Session Provenance Projection', () => {
       ];
       await writeEventsFile('sess-3', events);
 
-      // Act
       const { materializeSessionProvenance } = await import('../../../../src/projections/session/session-provenance-projection.js');
       const result = await materializeSessionProvenance(tmpDir, { sessionId: 'sess-3' });
 
-      // Assert
       expect(result.duration).toBe(3600);
       expect(result.turns).toBe(15);
       expect(result.files).toEqual(['src/auth.ts', 'src/login.ts']);
@@ -126,8 +115,8 @@ describe('Session Provenance Projection', () => {
   });
 
   describe('materializeWorkflow — Multiple Sessions', () => {
+    /** The manifest links two sessions to `wf-abc` and one to another workflow. The result counts only the two. */
     it('materializeWorkflow_MultipleSessions_AggregatesAcrossSessions', async () => {
-      // Arrange: two sessions linked to the same workflow
       await writeManifest([
         { sessionId: 'wf-sess-1', workflowId: 'wf-abc', transcriptPath: '/tmp/t1', startedAt: '2026-01-01T00:00:00Z', cwd: '/tmp' },
         { sessionId: 'wf-sess-2', workflowId: 'wf-abc', transcriptPath: '/tmp/t2', startedAt: '2026-01-01T01:00:00Z', cwd: '/tmp' },
@@ -154,11 +143,9 @@ describe('Session Provenance Projection', () => {
       await writeEventsFile('wf-sess-1', sess1Events);
       await writeEventsFile('wf-sess-2', sess2Events);
 
-      // Act
       const { materializeSessionProvenance } = await import('../../../../src/projections/session/session-provenance-projection.js');
       const result = await materializeSessionProvenance(tmpDir, { workflowId: 'wf-abc' });
 
-      // Assert
       expect(result.workflowId).toBe('wf-abc');
       expect(result.sessions).toBe(2);
       expect(result.tokens).toEqual({
@@ -167,8 +154,8 @@ describe('Session Provenance Projection', () => {
         cacheR: 800,
         cacheW: 300,
       });
-      expect(result.duration).toBe(3000); // 1800 + 1200
-      expect(result.turns).toBe(8); // 5 + 3
+      expect(result.duration).toBe(3000);
+      expect(result.turns).toBe(8);
       expect(result.files).toEqual(expect.arrayContaining(['src/a.ts', 'src/b.ts']));
       expect(result.tools).toEqual({ Read: 3, Write: 2 });
     });
@@ -176,7 +163,6 @@ describe('Session Provenance Projection', () => {
 
   describe('materializeMetric — Cost', () => {
     it('materializeMetric_Cost_ReturnsTokenTotalsBySession', async () => {
-      // Arrange
       await writeManifest([
         { sessionId: 'cost-sess-1', workflowId: 'wf-cost', transcriptPath: '/tmp/t1', startedAt: '2026-01-01T00:00:00Z', cwd: '/tmp' },
         { sessionId: 'cost-sess-2', workflowId: 'wf-cost', transcriptPath: '/tmp/t2', startedAt: '2026-01-01T01:00:00Z', cwd: '/tmp' },
@@ -191,11 +177,9 @@ describe('Session Provenance Projection', () => {
         { t: 'turn', ts: '2026-01-01T01:00:00Z', model: 'opus-4', tokIn: 2000, tokOut: 1000, tokCacheR: 500, tokCacheW: 250, sid: 'cost-sess-2', wid: 'wf-cost' },
       ]);
 
-      // Act
       const { materializeSessionProvenance } = await import('../../../../src/projections/session/session-provenance-projection.js');
       const result = await materializeSessionProvenance(tmpDir, { workflowId: 'wf-cost', metric: 'cost' });
 
-      // Assert
       expect(result.costBySession).toHaveLength(2);
       const sess1 = result.costBySession!.find((s) => s.sid === 'cost-sess-1');
       expect(sess1).toBeDefined();
@@ -208,20 +192,17 @@ describe('Session Provenance Projection', () => {
 
   describe('materializeMetric — Attribution', () => {
     it('materializeMetric_Attribution_ReturnsFileToToolMapping', async () => {
-      // Arrange
       const events: SessionToolEvent[] = [
         { t: 'tool', ts: '2026-01-01T00:00:00Z', tool: 'Read', cat: 'native', inB: 100, outB: 200, files: ['src/auth.ts', 'src/login.ts'], sid: 'attr-sess' },
         { t: 'tool', ts: '2026-01-01T00:01:00Z', tool: 'Write', cat: 'native', inB: 50, outB: 150, files: ['src/auth.ts'], sid: 'attr-sess' },
         { t: 'tool', ts: '2026-01-01T00:02:00Z', tool: 'Edit', cat: 'native', inB: 80, outB: 120, files: ['src/login.ts', 'src/config.ts'], sid: 'attr-sess' },
-        { t: 'tool', ts: '2026-01-01T00:03:00Z', tool: 'Bash', cat: 'native', inB: 30, outB: 40, sid: 'attr-sess' }, // no files
+        { t: 'tool', ts: '2026-01-01T00:03:00Z', tool: 'Bash', cat: 'native', inB: 30, outB: 40, sid: 'attr-sess' },
       ];
       await writeEventsFile('attr-sess', events);
 
-      // Act
       const { materializeSessionProvenance } = await import('../../../../src/projections/session/session-provenance-projection.js');
       const result = await materializeSessionProvenance(tmpDir, { sessionId: 'attr-sess', metric: 'attribution' });
 
-      // Assert
       expect(result.fileAttribution).toBeDefined();
       const authEntry = result.fileAttribution!.find((f) => f.file === 'src/auth.ts');
       expect(authEntry).toBeDefined();
@@ -240,15 +221,12 @@ describe('Session Provenance Projection', () => {
 
   describe('Edge cases', () => {
     it('materializeSession_EmptyEventsFile_ReturnsEmptyResult', async () => {
-      // Arrange: empty events file
       const eventsPath = path.join(tmpDir, 'sessions', 'empty-sess.events.jsonl');
       await fs.writeFile(eventsPath, '', 'utf-8');
 
-      // Act
       const { materializeSessionProvenance } = await import('../../../../src/projections/session/session-provenance-projection.js');
       const result = await materializeSessionProvenance(tmpDir, { sessionId: 'empty-sess' });
 
-      // Assert
       expect(result.sessionId).toBe('empty-sess');
       expect(result.tools).toEqual({});
       expect(result.toolsByCategory).toEqual({ native: 0, mcp_exarchos: 0, mcp_other: 0 });
@@ -256,11 +234,9 @@ describe('Session Provenance Projection', () => {
     });
 
     it('materializeSession_MissingEventsFile_ReturnsEmptyResult', async () => {
-      // Act: no events file exists
       const { materializeSessionProvenance } = await import('../../../../src/projections/session/session-provenance-projection.js');
       const result = await materializeSessionProvenance(tmpDir, { sessionId: 'nonexistent' });
 
-      // Assert
       expect(result.sessionId).toBe('nonexistent');
       expect(result.tools).toEqual({});
     });

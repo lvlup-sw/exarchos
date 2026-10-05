@@ -8,11 +8,9 @@ import { loadExarchosConfig } from '../../../../src/config/load-exarchos-config.
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Build a repo fixture with a committed `.exarchos.yml` (a registered user
- * catalog +
- * a user catalog + an override), a dev invariants catalog, and a user
- * catalog. The view facade reads the config from disk exactly as production
- * would, so the test drives both facades from the same on-disk state.
+ * Builds a repo fixture with a user catalog and an `.exarchos.yml` that registers it and disables one entry.
+ * The fixture also writes `docs/architecture/invariants.md`, but the config does not register that file.
+ * The view handler reads the config from disk, so the handler and the core function see the same state.
  */
 function makeRepoFixture(): { repoRoot: string; cleanup: () => void } {
   const repoRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'view-eff-cat-'));
@@ -101,6 +99,7 @@ describe('handleViewInvariantsEffective', () => {
     fixture.cleanup();
   });
 
+  /** The view must return the same payload as the core function for the same context. */
   it('ViewInvariants_Export_ReturnsSamePayloadAsCoreFn', async () => {
     const args = {
       repoRoot: fixture.repoRoot,
@@ -108,12 +107,9 @@ describe('handleViewInvariantsEffective', () => {
       workflowType: 'feature',
     };
 
-    // Facade payload (the CLI `--json` form routes the same handler).
     const result = await handleViewInvariantsEffective(args);
     expect(result.success).toBe(true);
 
-    // Core-fn payload for the same ctx — the view must NOT recompute, it must
-    // surface byte-identical output (INV-2).
     const loaded = loadExarchosConfig(fixture.repoRoot, {
       findRepoRoot: () => fixture.repoRoot,
     });
@@ -127,10 +123,8 @@ describe('handleViewInvariantsEffective', () => {
     expect(result.data).toEqual(core);
   });
 
+  /** The default SDLC baseline must reach the view through the one core function, with the same entries. */
   it('ViewInvariants_ReviewPhase_SurfacesSdlcBaselineIdenticalToCoreFn', async () => {
-    // #1467: the default-on SDLC-* baseline must reach the view facade (and the
-    // CLI `--json` form) identically to the gate's resolved catalog — proving
-    // the now-non-empty sdlc layer flows through the single core fn (INV-2).
     const args = {
       repoRoot: fixture.repoRoot,
       phase: 'review',

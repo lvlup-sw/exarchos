@@ -10,8 +10,6 @@ import type { WorkflowStateView } from '../../../../src/projections/views/workfl
 import { InMemoryBackend } from '../../../../src/storage/memory-backend.js';
 import { viewLogger } from '../../../../src/logger.js';
 
-// ─── Test Helpers ──────────────────────────────────────────────────────────
-
 /** Simple counter projection for testing. */
 const counterProjection: ViewProjection<number> = {
   init: () => 0,
@@ -30,26 +28,22 @@ function makeEvent(sequence: number, streamId = 'stream-1'): WorkflowEvent {
   } as WorkflowEvent;
 }
 
-// ─── LRU Eviction Tests ───────────────────────────────────────────────────
-
 describe('ViewMaterializer LRU Eviction', () => {
   const VIEW_NAME = 'counter';
 
   describe('materialize_ExceedsMaxCacheSize_EvictsLeastRecentlyUsed', () => {
+    /** `stream-a` is the first entry and gets no later access, so it is the least recently used. */
     it('should evict the least recently used entry when cache exceeds maxCacheEntries', () => {
       const materializer = new ViewMaterializer({ maxCacheEntries: 3 });
       materializer.register(VIEW_NAME, counterProjection);
 
-      // Materialize 4 different streams — cache limit is 3
       materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
       materializer.materialize('stream-b', VIEW_NAME, [makeEvent(1, 'stream-b')]);
       materializer.materialize('stream-c', VIEW_NAME, [makeEvent(1, 'stream-c')]);
       materializer.materialize('stream-d', VIEW_NAME, [makeEvent(1, 'stream-d')]);
 
-      // stream-a should have been evicted (LRU — first inserted, never re-accessed)
       expect(materializer.getState('stream-a', VIEW_NAME)).toBeUndefined();
 
-      // stream-b, stream-c, stream-d should still be present
       expect(materializer.getState('stream-b', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-c', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-d', VIEW_NAME)).toBeDefined();
@@ -65,7 +59,6 @@ describe('ViewMaterializer LRU Eviction', () => {
       materializer.materialize('stream-b', VIEW_NAME, [makeEvent(1, 'stream-b')]);
       materializer.materialize('stream-c', VIEW_NAME, [makeEvent(1, 'stream-c')]);
 
-      // All 3 should be present (cache limit is 5)
       expect(materializer.getState('stream-a', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-b', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-c', VIEW_NAME)).toBeDefined();
@@ -73,58 +66,50 @@ describe('ViewMaterializer LRU Eviction', () => {
   });
 
   describe('materialize_AfterEviction_ReinitializesFromProjection', () => {
+    /** After the eviction, the fold of `stream-a` starts again from `init()`, so the two events give a count of 2. */
     it('should rebuild view from scratch when re-materializing an evicted entry', () => {
       const materializer = new ViewMaterializer({ maxCacheEntries: 2 });
       materializer.register(VIEW_NAME, counterProjection);
 
-      // Materialize stream-a with 2 events (counter = 2)
       materializer.materialize('stream-a', VIEW_NAME, [
         makeEvent(1, 'stream-a'),
         makeEvent(2, 'stream-a'),
       ]);
 
-      // Fill cache to evict stream-a
       materializer.materialize('stream-b', VIEW_NAME, [makeEvent(1, 'stream-b')]);
       materializer.materialize('stream-c', VIEW_NAME, [makeEvent(1, 'stream-c')]);
 
-      // stream-a should be evicted
       expect(materializer.getState('stream-a', VIEW_NAME)).toBeUndefined();
 
-      // Re-materialize stream-a with same events — should rebuild from init()
       const result = materializer.materialize<number>('stream-a', VIEW_NAME, [
         makeEvent(1, 'stream-a'),
         makeEvent(2, 'stream-a'),
       ]);
 
-      // Counter should be 2 (rebuilt from scratch: init=0, +1, +1)
       expect(result).toBe(2);
       expect(materializer.getState<number>('stream-a', VIEW_NAME)?.view).toBe(2);
     });
   });
 
   describe('materialize_AccessRefreshesLRUOrder', () => {
+    /** A second `materialize` of `stream-a` moves it to the most recent position, so `stream-d` evicts `stream-b`. */
     it('should evict the correct entry based on LRU order after access refresh', () => {
       const materializer = new ViewMaterializer({ maxCacheEntries: 3 });
       materializer.register(VIEW_NAME, counterProjection);
 
-      // Materialize A, B, C (in that insertion order)
       materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
       materializer.materialize('stream-b', VIEW_NAME, [makeEvent(1, 'stream-b')]);
       materializer.materialize('stream-c', VIEW_NAME, [makeEvent(1, 'stream-c')]);
 
-      // Re-access A by materializing with a new event — this should move A to most-recent
       materializer.materialize('stream-a', VIEW_NAME, [
         makeEvent(1, 'stream-a'),
         makeEvent(2, 'stream-a'),
       ]);
 
-      // Now add D — should evict B (the actual LRU), not A
       materializer.materialize('stream-d', VIEW_NAME, [makeEvent(1, 'stream-d')]);
 
-      // B should be evicted (LRU after A was refreshed)
       expect(materializer.getState('stream-b', VIEW_NAME)).toBeUndefined();
 
-      // A, C, D should still be present
       expect(materializer.getState('stream-a', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-c', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-d', VIEW_NAME)).toBeDefined();
@@ -132,19 +117,17 @@ describe('ViewMaterializer LRU Eviction', () => {
   });
 
   describe('getState_AccessRefreshesLRUOrder', () => {
+    /** A `getState` read of `stream-a` moves it to the most recent position, so `stream-d` evicts `stream-b`. */
     it('should refresh LRU order when getState is called', () => {
       const materializer = new ViewMaterializer({ maxCacheEntries: 3 });
       materializer.register(VIEW_NAME, counterProjection);
 
-      // Materialize A, B, C
       materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
       materializer.materialize('stream-b', VIEW_NAME, [makeEvent(1, 'stream-b')]);
       materializer.materialize('stream-c', VIEW_NAME, [makeEvent(1, 'stream-c')]);
 
-      // Read A via getState — should refresh its LRU position
       materializer.getState('stream-a', VIEW_NAME);
 
-      // Add D — should evict B (not A, since A was just accessed)
       materializer.materialize('stream-d', VIEW_NAME, [makeEvent(1, 'stream-d')]);
 
       expect(materializer.getState('stream-b', VIEW_NAME)).toBeUndefined();
@@ -159,13 +142,11 @@ describe('ViewMaterializer LRU Eviction', () => {
       const materializer = new ViewMaterializer({ maxCacheEntries: 2 });
       materializer.register(VIEW_NAME, counterProjection);
 
-      // Load 4 states via loadState — cache limit is 2
       materializer.loadState('stream-a', VIEW_NAME, 1, 1);
       materializer.loadState('stream-b', VIEW_NAME, 2, 1);
       materializer.loadState('stream-c', VIEW_NAME, 3, 1);
       materializer.loadState('stream-d', VIEW_NAME, 4, 1);
 
-      // Only 2 entries should remain (the most recently loaded)
       expect(materializer.getState('stream-a', VIEW_NAME)).toBeUndefined();
       expect(materializer.getState('stream-b', VIEW_NAME)).toBeUndefined();
       expect(materializer.getState('stream-c', VIEW_NAME)).toBeDefined();
@@ -189,12 +170,10 @@ describe('ViewMaterializer LRU Eviction', () => {
       });
       materializer.register(VIEW_NAME, counterProjection);
 
-      // Load 3 snapshots — cache limit is 2
       await materializer.loadFromSnapshot('stream-a', VIEW_NAME);
       await materializer.loadFromSnapshot('stream-b', VIEW_NAME);
       await materializer.loadFromSnapshot('stream-c', VIEW_NAME);
 
-      // Only 2 entries should remain
       expect(materializer.getState('stream-a', VIEW_NAME)).toBeUndefined();
       expect(materializer.getState('stream-b', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-c', VIEW_NAME)).toBeDefined();
@@ -202,23 +181,21 @@ describe('ViewMaterializer LRU Eviction', () => {
   });
 
   describe('evictIfNeeded_DrainsMultipleExcessEntries', () => {
+    /**
+     * `loadState` evicts on each call, so the cache holds only `stream-c` and `stream-d` before the
+     * `materialize` call. That call evicts `stream-c`.
+     */
     it('should drain all excess entries with while loop, not just one', () => {
       const materializer = new ViewMaterializer({ maxCacheEntries: 2 });
       materializer.register(VIEW_NAME, counterProjection);
 
-      // Pre-load 4 entries via loadState (bypasses eviction in current code)
       materializer.loadState('stream-a', VIEW_NAME, 1, 1);
       materializer.loadState('stream-b', VIEW_NAME, 2, 1);
       materializer.loadState('stream-c', VIEW_NAME, 3, 1);
       materializer.loadState('stream-d', VIEW_NAME, 4, 1);
 
-      // Now materialize a 5th — this triggers evictIfNeeded via materialize
-      // With an `if` (single eviction), cache would still be 4 after removing 1 = 4
-      // With a `while` loop, it should drain down to maxCacheEntries = 2
       materializer.materialize('stream-e', VIEW_NAME, [makeEvent(1, 'stream-e')]);
 
-      // Only the 2 most recent should remain: stream-d (LRU refreshed last via loadState)
-      // and stream-e (just materialized). All others should be evicted.
       expect(materializer.getState('stream-a', VIEW_NAME)).toBeUndefined();
       expect(materializer.getState('stream-b', VIEW_NAME)).toBeUndefined();
       expect(materializer.getState('stream-c', VIEW_NAME)).toBeUndefined();
@@ -232,24 +209,19 @@ describe('ViewMaterializer LRU Eviction', () => {
       const materializer = new ViewMaterializer();
       materializer.register(VIEW_NAME, counterProjection);
 
-      // Materialize 101 streams — cache limit should be 100
       for (let i = 1; i <= 101; i++) {
         materializer.materialize(`stream-${i}`, VIEW_NAME, [
           makeEvent(1, `stream-${i}`),
         ]);
       }
 
-      // stream-1 should have been evicted (LRU) when stream-101 was added
       expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
 
-      // stream-2 through stream-101 should still be present
       expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
       expect(materializer.getState('stream-101', VIEW_NAME)).toBeDefined();
     });
   });
 });
-
-// ─── T29-T30: Configurable LRU Cache via Env Var ────────────────────────────
 
 describe('ViewMaterializer Configurable Cache', () => {
   const VIEW_NAME = 'counter';
@@ -268,17 +240,14 @@ describe('ViewMaterializer Configurable Cache', () => {
     const materializer = new ViewMaterializer();
     materializer.register(VIEW_NAME, counterProjection);
 
-    // Materialize 6 streams — cache limit should be 5
     for (let i = 1; i <= 6; i++) {
       materializer.materialize(`stream-${i}`, VIEW_NAME, [
         makeEvent(1, `stream-${i}`),
       ]);
     }
 
-    // stream-1 should have been evicted
     expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
 
-    // stream-2 through stream-6 should still be present
     expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
     expect(materializer.getState('stream-6', VIEW_NAME)).toBeDefined();
   });
@@ -288,14 +257,12 @@ describe('ViewMaterializer Configurable Cache', () => {
     const materializer = new ViewMaterializer();
     materializer.register(VIEW_NAME, counterProjection);
 
-    // Materialize 101 streams — cache limit should be 100 (default)
     for (let i = 1; i <= 101; i++) {
       materializer.materialize(`stream-${i}`, VIEW_NAME, [
         makeEvent(1, `stream-${i}`),
       ]);
     }
 
-    // stream-1 should be evicted at 100 limit
     expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
     expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
     expect(materializer.getState('stream-101', VIEW_NAME)).toBeDefined();
@@ -306,14 +273,12 @@ describe('ViewMaterializer Configurable Cache', () => {
     const materializer = new ViewMaterializer();
     materializer.register(VIEW_NAME, counterProjection);
 
-    // Materialize 101 streams — should use default 100
     for (let i = 1; i <= 101; i++) {
       materializer.materialize(`stream-${i}`, VIEW_NAME, [
         makeEvent(1, `stream-${i}`),
       ]);
     }
 
-    // stream-1 evicted at default 100 limit
     expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
     expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
   });
@@ -323,20 +288,16 @@ describe('ViewMaterializer Configurable Cache', () => {
     const materializer = new ViewMaterializer();
     materializer.register(VIEW_NAME, counterProjection);
 
-    // Materialize 101 streams — should use default 100
     for (let i = 1; i <= 101; i++) {
       materializer.materialize(`stream-${i}`, VIEW_NAME, [
         makeEvent(1, `stream-${i}`),
       ]);
     }
 
-    // stream-1 evicted at default 100 limit
     expect(materializer.getState('stream-1', VIEW_NAME)).toBeUndefined();
     expect(materializer.getState('stream-2', VIEW_NAME)).toBeDefined();
   });
 });
-
-// ─── WorkflowStateProjection Registration ─────────────────────────────────
 
 describe('ViewMaterializer WorkflowStateProjection Registration', () => {
   it('ViewMaterializer_WorkflowStateView_MaterializesFromEvents', () => {
@@ -384,8 +345,6 @@ describe('ViewMaterializer WorkflowStateProjection Registration', () => {
     expect(view.artifacts.design).toBe('docs/design.md');
   });
 });
-
-// ─── Configurable Snapshot Interval via Env Var ──────────────────────────────
 
 describe('ViewMaterializer Configurable Snapshot Interval', () => {
   const VIEW_NAME = 'counter';
@@ -491,14 +450,11 @@ describe('ViewMaterializer Configurable Snapshot Interval', () => {
   });
 });
 
-// ─── Task 11: ViewMaterializer StorageBackend Integration ────────────────────
-
 describe('ViewMaterializer StorageBackend Integration', () => {
   const VIEW_NAME = 'counter';
 
   it('ViewMaterializer_loadFromSnapshot_WithBackend_ReadsFromViewCache', async () => {
     const backend = new InMemoryBackend();
-    // Pre-populate the backend view cache
     backend.setViewCache('stream-1', VIEW_NAME, 42, 10);
 
     const materializer = new ViewMaterializer({ backend });
@@ -519,11 +475,9 @@ describe('ViewMaterializer StorageBackend Integration', () => {
     const backend = new InMemoryBackend();
     const setCacheSpy = vi.spyOn(backend, 'setViewCache');
 
-    // Set snapshot interval to 5 so we hit it quickly
     const materializer = new ViewMaterializer({ backend, snapshotInterval: 5 });
     materializer.register(VIEW_NAME, counterProjection);
 
-    // Materialize 5 events — should trigger cache save at interval=5
     const events = Array.from({ length: 5 }, (_, i) =>
       makeEvent(i + 1, 'stream-1'),
     );
@@ -532,6 +486,7 @@ describe('ViewMaterializer StorageBackend Integration', () => {
     expect(setCacheSpy).toHaveBeenCalledWith('stream-1', VIEW_NAME, 5, 5);
   });
 
+  /** The materializer has a backend and a snapshot store. It saves only to the backend. */
   it('ViewMaterializer_materialize_WithBackend_SkipsSnapshotStore', () => {
     const backend = new InMemoryBackend();
     const snapshotStore = {
@@ -540,7 +495,6 @@ describe('ViewMaterializer StorageBackend Integration', () => {
       delete: vi.fn().mockResolvedValue(undefined),
     };
 
-    // Both backend and snapshotStore provided — backend should be preferred
     const materializer = new ViewMaterializer({
       backend,
       snapshotStore,
@@ -553,7 +507,6 @@ describe('ViewMaterializer StorageBackend Integration', () => {
     );
     materializer.materialize('stream-1', VIEW_NAME, events);
 
-    // SnapshotStore.save should NOT be called when backend is available
     expect(snapshotStore.save).not.toHaveBeenCalled();
   });
 
@@ -562,7 +515,6 @@ describe('ViewMaterializer StorageBackend Integration', () => {
     const materializer = new ViewMaterializer({ backend });
     materializer.register(VIEW_NAME, counterProjection);
 
-    // No cache exists for this stream
     const loaded = await materializer.loadFromSnapshot('nonexistent', VIEW_NAME);
     expect(loaded).toBe(false);
   });
@@ -574,7 +526,6 @@ describe('ViewMaterializer StorageBackend Integration', () => {
       delete: vi.fn().mockResolvedValue(undefined),
     };
 
-    // No backend — should use snapshotStore
     const materializer = new ViewMaterializer({ snapshotStore });
     materializer.register(VIEW_NAME, counterProjection);
 
@@ -583,8 +534,6 @@ describe('ViewMaterializer StorageBackend Integration', () => {
     expect(snapshotStore.load).toHaveBeenCalledWith('stream-1', VIEW_NAME);
   });
 });
-
-// ─── Cache Stats Tracking ────────────────────────────────────────────────────
 
 describe('ViewMaterializer Cache Stats', () => {
   const VIEW_NAME = 'counter';
@@ -597,15 +546,13 @@ describe('ViewMaterializer Cache Stats', () => {
     expect(stats).toEqual({ hits: 0, misses: 0, size: 0, missRate: 0, bypasses: 0 });
   });
 
+  /** The calls are a miss, a hit, and a miss, in that order. */
   it('getCacheStats_AfterHitsAndMisses_TracksCorrectly', () => {
     const materializer = new ViewMaterializer({ maxCacheEntries: 10 });
     materializer.register(VIEW_NAME, counterProjection);
 
-    // Miss: first time materializing stream-a
     materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
-    // Hit: stream-a is already cached
     materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
-    // Miss: first time materializing stream-b
     materializer.materialize('stream-b', VIEW_NAME, [makeEvent(1, 'stream-b')]);
 
     const stats = materializer.getCacheStats();
@@ -616,19 +563,19 @@ describe('ViewMaterializer Cache Stats', () => {
     expect(stats.missRate).toBeCloseTo(2 / 3);
   });
 
+  /**
+   * With `maxCacheEntries: 1`, each new stream is a miss. Ten misses fill the window of 10, and
+   * the miss rate is above 50%.
+   */
   it('materialize_HighMissRate_LogsWarning', () => {
     const warnSpy = vi.spyOn(viewLogger, 'warn').mockImplementation(() => undefined as never);
 
-    // Use thrashingWindowSize of 10 so we only need 10 calls to trigger the check
     const materializer = new ViewMaterializer({
       maxCacheEntries: 1,
       thrashingWindowSize: 10,
     });
     materializer.register(VIEW_NAME, counterProjection);
 
-    // With maxCacheEntries=1, each new stream evicts the previous one.
-    // Every call to a different stream is a miss. We need 10 calls (the window size)
-    // with >50% miss rate to trigger the warning.
     for (let i = 1; i <= 10; i++) {
       materializer.materialize(`stream-${i}`, VIEW_NAME, [
         makeEvent(1, `stream-${i}`),
@@ -643,6 +590,7 @@ describe('ViewMaterializer Cache Stats', () => {
     warnSpy.mockRestore();
   });
 
+  /** One miss and nine hits give a miss rate of 10%, which is below the 50% threshold. */
   it('materialize_LowMissRate_DoesNotLogWarning', () => {
     const warnSpy = vi.spyOn(viewLogger, 'warn').mockImplementation(() => undefined as never);
 
@@ -652,8 +600,6 @@ describe('ViewMaterializer Cache Stats', () => {
     });
     materializer.register(VIEW_NAME, counterProjection);
 
-    // Materialize one stream, then re-materialize it 9 more times (all hits after first)
-    // Miss rate = 1/10 = 10% — below 50% threshold
     materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
     for (let i = 2; i <= 10; i++) {
       materializer.materialize('stream-a', VIEW_NAME, [makeEvent(1, 'stream-a')]);
@@ -664,6 +610,7 @@ describe('ViewMaterializer Cache Stats', () => {
     warnSpy.mockRestore();
   });
 
+  /** The window counters reset after each window, so 20 misses log two warnings. */
   it('materialize_ThrashingWindowResets_AfterWarning', () => {
     const warnSpy = vi.spyOn(viewLogger, 'warn').mockImplementation(() => undefined as never);
 
@@ -673,7 +620,6 @@ describe('ViewMaterializer Cache Stats', () => {
     });
     materializer.register(VIEW_NAME, counterProjection);
 
-    // First window: 10 misses → triggers warning
     for (let i = 1; i <= 10; i++) {
       materializer.materialize(`stream-${i}`, VIEW_NAME, [
         makeEvent(1, `stream-${i}`),
@@ -681,7 +627,6 @@ describe('ViewMaterializer Cache Stats', () => {
     }
     expect(warnSpy).toHaveBeenCalledTimes(1);
 
-    // Second window: 10 more misses → triggers warning again
     for (let i = 11; i <= 20; i++) {
       materializer.materialize(`stream-${i}`, VIEW_NAME, [
         makeEvent(1, `stream-${i}`),
@@ -692,8 +637,6 @@ describe('ViewMaterializer Cache Stats', () => {
     warnSpy.mockRestore();
   });
 });
-
-// ─── Cache Bypass Counter (#1448 item 5) ──────────────────────────────────
 
 describe('ViewMaterializer Cache Bypass Counter', () => {
   const VIEW_NAME = 'counter';
@@ -707,21 +650,19 @@ describe('ViewMaterializer Cache Bypass Counter', () => {
 
     const stats = materializer.getCacheStats();
     expect(stats.bypasses).toBe(3);
-    // No leak into hit/miss counters.
     expect(stats.hits).toBe(0);
     expect(stats.misses).toBe(0);
   });
 
+  /** A call with no events still counts as a bypass. */
   it('materializeFiltered_OnEachCall_IncrementsBypassesCounter', () => {
     const materializer = new ViewMaterializer();
     materializer.register(VIEW_NAME, counterProjection);
 
-    // Single call with no events — bypasses counter should still tick.
     materializeFiltered<number>(materializer, VIEW_NAME, []);
 
     expect(materializer.getCacheStats().bypasses).toBe(1);
 
-    // A second call increments by one again; hits/misses untouched.
     materializeFiltered<number>(materializer, VIEW_NAME, [
       makeEvent(1, 'stream-a'),
     ]);

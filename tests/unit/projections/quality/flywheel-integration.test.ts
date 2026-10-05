@@ -1,12 +1,10 @@
 import { describe, it, expect } from 'vitest';
 
-// Views
 import { codeQualityProjection } from '../../../../src/projections/views/code-quality-view.js';
 import type { CodeQualityViewState } from '../../../../src/projections/views/code-quality-view.js';
 import { evalResultsProjection } from '../../../../src/projections/views/eval-results-view.js';
 import type { EvalResultsViewState } from '../../../../src/projections/views/eval-results-view.js';
 
-// Quality modules
 import { correlateWithCalibration, deriveSignalConfidence } from '../../../../src/projections/quality/calibrated-correlation.js';
 import type { JudgeCalibration, SignalConfidenceInput } from '../../../../src/projections/quality/calibrated-correlation.js';
 import { evaluateRefinementSignals } from '../../../../src/projections/quality/refinement-signal.js';
@@ -14,10 +12,7 @@ import type { RefinementSignalInput } from '../../../../src/projections/quality/
 import { generateQualityHints } from '../../../../src/projections/quality/hints.js';
 import type { CalibrationContext } from '../../../../src/projections/quality/hints.js';
 
-// Event types
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
-
-// ─── Test Helpers ──────────────────────────────────────────────────────────
 
 function makeEvent(
   type: string,
@@ -135,13 +130,8 @@ function materializeEvalResults(events: WorkflowEvent[]): EvalResultsViewState {
   return state;
 }
 
-// ─── Integration Tests ────────────────────────────────────────────────────
-
 describe('Flywheel Integration', () => {
-  // ─── Test 1 ──────────────────────────────────────────────────────────────
-
   it('FlywheelLoop_GateFailures_ProducesRefinementSignal', () => {
-    // Arrange: Emit 4 gate.executed events with passed: false for the same skill/gate
     const events: WorkflowEvent[] = [
       makeGateEvent(1, { gateName: 'typecheck', skill: 'delegation', passed: false }),
       makeGateEvent(2, { gateName: 'typecheck', skill: 'delegation', passed: false }),
@@ -149,10 +139,8 @@ describe('Flywheel Integration', () => {
       makeGateEvent(4, { gateName: 'typecheck', skill: 'delegation', passed: false }),
     ];
 
-    // Act: Materialize CodeQualityView
     const cqState = materializeCodeQuality(events);
 
-    // Assert: regression is detected
     expect(cqState.regressions.length).toBeGreaterThanOrEqual(1);
     const regression = cqState.regressions.find(
       r => r.skill === 'delegation' && r.gate === 'typecheck',
@@ -160,7 +148,6 @@ describe('Flywheel Integration', () => {
     expect(regression).toBeDefined();
     expect(regression!.consecutiveFailures).toBeGreaterThanOrEqual(3);
 
-    // Act: Feed into evaluateRefinementSignals with high confidence
     const signalInput: RefinementSignalInput = {
       skill: 'delegation',
       signalConfidence: 'high',
@@ -172,48 +159,44 @@ describe('Flywheel Integration', () => {
 
     const signals = evaluateRefinementSignals(signalInput);
 
-    // Assert: at least one refinement signal with trigger: 'regression'
     expect(signals.length).toBeGreaterThanOrEqual(1);
     const regressionSignal = signals.find(s => s.trigger === 'regression');
     expect(regressionSignal).toBeDefined();
     expect(regressionSignal!.skill).toBe('delegation');
   });
 
-  // ─── Test 2 ──────────────────────────────────────────────────────────────
-
+  /**
+   * The 12 eval runs and 24 gate executions meet the volume thresholds for `high` confidence.
+   * The first 20 gate events pass and the last 4 fail, which makes a regression.
+   */
   it('FlywheelLoop_CalibratedJudge_HighConfidenceSignal', () => {
-    // Arrange: Emit an eval.judge.calibrated event with high TPR/TNR
     const calibrationEvent = makeCalibrationEvent(1, {
       skill: 'delegation',
       tpr: 0.90,
       tnr: 0.85,
     });
 
-    // Also emit eval runs so the delegation skill exists in eval results
     const evalRunEvents: WorkflowEvent[] = [];
     for (let i = 0; i < 12; i++) {
       evalRunEvents.push(makeEvalRunEvent(100 + i, { suiteId: 'delegation', avgScore: 0.85 }));
     }
 
-    // Act: Materialize EvalResultsView — verify calibration is recorded
     const evalState = materializeEvalResults([calibrationEvent, ...evalRunEvents]);
     expect(evalState.calibrations.length).toBe(1);
     expect(evalState.calibrations[0].skill).toBe('delegation');
     expect(evalState.calibrations[0].tpr).toBe(0.90);
     expect(evalState.calibrations[0].tnr).toBe(0.85);
 
-    // Arrange: Sufficient gate events to trigger high data volume
     const gateEvents: WorkflowEvent[] = [];
     for (let i = 2; i <= 25; i++) {
       gateEvents.push(makeGateEvent(i, {
         gateName: 'typecheck',
         skill: 'delegation',
-        passed: i < 22, // first 20 pass, last 4 fail → regression
+        passed: i < 22,
       }));
     }
     const cqState = materializeCodeQuality(gateEvents);
 
-    // Act: correlateWithCalibration
     const calibrations: JudgeCalibration[] = [{
       skill: 'delegation',
       tpr: 0.90,
@@ -228,12 +211,10 @@ describe('Flywheel Integration', () => {
     };
     const correlations = correlateWithCalibration(cqState, enrichedEvalState);
 
-    // Find delegation correlation
     const delegationCorrelation = correlations.find(c => c.skill === 'delegation');
     expect(delegationCorrelation).toBeDefined();
     expect(delegationCorrelation!.signalConfidence).toBe('high');
 
-    // Act: evaluateRefinementSignals with the correlation + regression
     const signals = evaluateRefinementSignals({
       skill: 'delegation',
       signalConfidence: delegationCorrelation!.signalConfidence,
@@ -243,15 +224,11 @@ describe('Flywheel Integration', () => {
       promptPaths: ['skills/delegation/SKILL.md'],
     });
 
-    // Assert: signal has signalConfidence: 'high'
     expect(signals.length).toBeGreaterThanOrEqual(1);
     expect(signals[0].signalConfidence).toBe('high');
   });
 
-  // ─── Test 3 ──────────────────────────────────────────────────────────────
-
   it('FlywheelLoop_UncalibratedJudge_NoSignalEmitted', () => {
-    // Arrange: No calibration event — judge uncalibrated
     const gateEvents: WorkflowEvent[] = [
       makeGateEvent(1, { gateName: 'typecheck', skill: 'delegation', passed: false }),
       makeGateEvent(2, { gateName: 'typecheck', skill: 'delegation', passed: false }),
@@ -259,10 +236,8 @@ describe('Flywheel Integration', () => {
     ];
     const cqState = materializeCodeQuality(gateEvents);
 
-    // Assert: regression exists
     expect(cqState.regressions.length).toBeGreaterThanOrEqual(1);
 
-    // Act: deriveSignalConfidence returns 'low' when no calibration
     const confidenceInput: SignalConfidenceInput = {
       judgeCalibrated: false,
       judgeTPR: 0,
@@ -273,7 +248,6 @@ describe('Flywheel Integration', () => {
     const confidence = deriveSignalConfidence(confidenceInput);
     expect(confidence).toBe('low');
 
-    // Act: evaluateRefinementSignals returns empty array for low confidence
     const signals = evaluateRefinementSignals({
       skill: 'delegation',
       signalConfidence: 'low',
@@ -283,14 +257,10 @@ describe('Flywheel Integration', () => {
       promptPaths: ['skills/delegation/SKILL.md'],
     });
 
-    // Assert: no signals emitted because confidence is too low
     expect(signals).toEqual([]);
   });
 
-  // ─── Test 4 ──────────────────────────────────────────────────────────────
-
   it('FlywheelLoop_AttributionOutlier_SuggestsModelChange', () => {
-    // Arrange: Attribution data with strong negative correlation in prompt-version dimension
     const attribution = {
       dimension: 'prompt-version' as const,
       entries: [],
@@ -302,7 +272,6 @@ describe('Flywheel Integration', () => {
       }],
     };
 
-    // Act: evaluateRefinementSignals with high confidence + attribution
     const signals = evaluateRefinementSignals({
       skill: 'delegation',
       signalConfidence: 'high',
@@ -312,50 +281,38 @@ describe('Flywheel Integration', () => {
       promptPaths: ['skills/delegation/SKILL.md'],
     });
 
-    // Assert: signal has trigger: 'attribution-outlier'
     const outlierSignal = signals.find(s => s.trigger === 'attribution-outlier');
     expect(outlierSignal).toBeDefined();
     expect(outlierSignal!.skill).toBe('delegation');
     expect(outlierSignal!.suggestedAction).toBeDefined();
   });
 
-  // ─── Test 5 ──────────────────────────────────────────────────────────────
-
+  /** The eval runs put `delegation` in the eval view, because `correlateWithCalibration` needs the skill in both views. */
   it('FlywheelLoop_EndToEnd_EventsFlowThroughAllComponents', () => {
-    // Step 1: Create events
     const events: WorkflowEvent[] = [
-      // Some passing gate events
       makeGateEvent(1, { gateName: 'typecheck', skill: 'delegation', passed: true }),
       makeGateEvent(2, { gateName: 'lint', skill: 'delegation', passed: true }),
-      // Failing gate events (to create regression)
       makeGateEvent(3, { gateName: 'typecheck', skill: 'delegation', passed: false }),
       makeGateEvent(4, { gateName: 'typecheck', skill: 'delegation', passed: false }),
       makeGateEvent(5, { gateName: 'typecheck', skill: 'delegation', passed: false }),
       makeGateEvent(6, { gateName: 'typecheck', skill: 'delegation', passed: false }),
-      // Remediation events
       makeRemediationEvent(7, { skill: 'delegation', gateName: 'typecheck' }),
       makeRemediationEvent(8, { skill: 'delegation', gateName: 'typecheck', totalAttempts: 3 }),
-      // Calibration event
       makeCalibrationEvent(9, { skill: 'delegation', tpr: 0.90, tnr: 0.85 }),
     ];
 
-    // Eval run events — needed to populate evalResults.skills['delegation']
-    // (correlateWithCalibration requires skills in both views)
     const evalRunEvents: WorkflowEvent[] = [];
     for (let i = 0; i < 12; i++) {
       evalRunEvents.push(makeEvalRunEvent(100 + i, { suiteId: 'delegation', avgScore: 0.82 }));
     }
 
-    // Step 2: Materialize both views
     const cqState = materializeCodeQuality(events);
     const evalState = materializeEvalResults([...events, ...evalRunEvents]);
 
-    // Verify views materialized correctly
     expect(cqState.regressions.length).toBeGreaterThanOrEqual(1);
     expect(evalState.calibrations.length).toBe(1);
     expect(evalState.skills['delegation']).toBeDefined();
 
-    // Step 3: Build calibration-enriched eval state
     const calibrations: JudgeCalibration[] = evalState.calibrations.map(c => ({
       skill: c.skill,
       tpr: c.tpr,
@@ -370,10 +327,8 @@ describe('Flywheel Integration', () => {
     };
     const correlationResults = correlateWithCalibration(cqState, enrichedEvalState);
 
-    // Find delegation correlation
     const delegationCorrelation = correlationResults.find(c => c.skill === 'delegation');
 
-    // Step 4: evaluateRefinementSignals
     const signalConfidence = delegationCorrelation?.signalConfidence ?? 'low';
     const signals = evaluateRefinementSignals({
       skill: 'delegation',
@@ -384,7 +339,6 @@ describe('Flywheel Integration', () => {
       promptPaths: ['skills/delegation/SKILL.md'],
     });
 
-    // Step 5: generateQualityHints with calibration context
     const calibrationContext: CalibrationContext = {
       signalConfidence,
       refinementSignals: signals,
@@ -392,18 +346,15 @@ describe('Flywheel Integration', () => {
 
     const hints = generateQualityHints(cqState, undefined, calibrationContext);
 
-    // Assert: hints include gate-related hints (from regression/low pass rate)
     expect(hints.length).toBeGreaterThan(0);
     const gateHint = hints.find(h => h.category === 'gate');
     expect(gateHint).toBeDefined();
 
-    // Should have refinement hints from signals (if signals were generated)
     if (signals.length > 0) {
       const refinementHint = hints.find(h => h.category === 'refinement');
       expect(refinementHint).toBeDefined();
     }
 
-    // Verify the full chain produced actionable output
     expect(delegationCorrelation).toBeDefined();
   });
 });

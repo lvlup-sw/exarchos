@@ -20,8 +20,6 @@ describe('ConvergenceView', () => {
     expect(CONVERGENCE_VIEW).toBe('convergence');
   });
 
-  // ─── T1: Init ───────────────────────────────────────────────────────────────
-
   describe('init', () => {
     it('ConvergenceView_Init_ReturnsDefaultState', () => {
       const state = convergenceProjection.init();
@@ -33,20 +31,17 @@ describe('ConvergenceView', () => {
     });
   });
 
-  // ─── The `gate.executed` split, from the reader's side (#1898 item 8) ─────
-  //
-  // The telemetry middleware used to append a `gate.executed` naming
-  // `details.dimension: 'D3'` — the Context Economy dimension — with
-  // `gateName: 'token-budget'` and `passed: false`. Both halves of the damage
-  // are pinned here, because the fix is at the producer and a reader-side pin
-  // is what notices if a second producer ever makes the same mistake.
-
+  /**
+   * Pins the cost of a `gate.executed` row that names a dimension, from the side
+   * of the reader. Each producer of such a row must know this cost.
+   */
   describe('the unrecoverable-dimension hazard', () => {
-    // CHARACTERIZATION, not a defect: `isDimensionConverged` keeps the latest
-    // result PER GATE NAME and requires every name to be green. That is right
-    // for gates that re-run. It means a failing row under a name nothing ever
-    // re-runs pins its dimension forever — which is what made the telemetry row
-    // so damaging, and what any future D3-dimensioned producer must know.
+    /**
+     * Characterization, not a defect. `isDimensionConverged` keeps the latest result
+     * for each gate name, and each name must pass. That is correct for a gate that
+     * runs again. A failing row under a name that never runs again blocks its
+     * dimension permanently.
+     */
     it('ConvergenceView_FailedGateNameThatNeverReRuns_PinsTheDimensionForever', () => {
       const pass = (seq: number) =>
         makeEvent(
@@ -66,21 +61,22 @@ describe('ConvergenceView', () => {
           convergenceProjection.init(),
         );
 
-      // The real gate alone converges the dimension.
       expect(fold([pass(1)]).dimensions['D3']?.converged).toBe(true);
 
-      // One stray failure under a second name un-converges it...
       expect(fold([pass(1), strayFailure]).dimensions['D3']?.converged).toBe(false);
 
-      // ...and re-running the real gate does NOT recover it, however often.
       const afterRetries = fold([pass(1), strayFailure, pass(3), pass(4), pass(5)]);
       expect(afterRetries.dimensions['D3']?.converged).toBe(false);
       expect(afterRetries.overallConverged).toBe(false);
     });
 
+    /**
+     * `tool.budget_exceeded` is not a gate row and carries no `dimension`, so the
+     * fold ignores it. The assertions use concrete values. A `toEqual(converged)`
+     * compares two folds of one projection, and proves only that the fold agrees
+     * with itself.
+     */
     it('ConvergenceView_BudgetExceededRecord_IsIdentity', () => {
-      // The replacement type carries no `dimension` and is not a gate row, so
-      // the convergence fold cannot see it even if one reached this stream.
       const converged = convergenceProjection.apply(
         convergenceProjection.init(),
         makeEvent(
@@ -99,9 +95,6 @@ describe('ConvergenceView', () => {
           2,
         ),
       );
-      // Stated as concrete values rather than as parity with the prior state.
-      // A `toEqual(converged)` here would compare two folds of the same
-      // projection, which proves the fold agrees with itself.
       expect(after.dimensions['D3']?.converged).toBe(true);
       expect(after.dimensions['D3']?.gateResults.map((r) => r.gateName)).toEqual([
         'context-economy',
@@ -109,8 +102,6 @@ describe('ConvergenceView', () => {
       expect(after.uncheckedDimensions).toEqual(['D1', 'D2', 'D4', 'D5']);
     });
   });
-
-  // ─── T2: gate.executed with dimension ─────────────────────────────────────
 
   describe('apply - gate.executed with dimension', () => {
     it('ConvergenceView_GateEventWithDimension_AddsToDimension', () => {
@@ -137,8 +128,6 @@ describe('ConvergenceView', () => {
     });
   });
 
-  // ─── T3: All gates pass — dimension converges ──────────────────────────────
-
   describe('apply - dimension convergence', () => {
     it('ConvergenceView_AllGatesPass_DimensionConverges', () => {
       let state = convergenceProjection.init();
@@ -155,13 +144,10 @@ describe('ConvergenceView', () => {
     });
   });
 
-  // ─── T4: Mixed results — dimension not converged ──────────────────────────
-
   describe('apply - mixed results', () => {
     it('ConvergenceView_MixedResults_DimensionNotConverged', () => {
       let state = convergenceProjection.init();
 
-      // First gate passes
       state = convergenceProjection.apply(state, makeEvent('gate.executed', {
         gateName: 'design-completeness',
         layer: 'validation',
@@ -170,7 +156,6 @@ describe('ConvergenceView', () => {
         details: { dimension: 'D1' },
       }, 1));
 
-      // Second gate fails
       state = convergenceProjection.apply(state, makeEvent('gate.executed', {
         gateName: 'design-consistency',
         layer: 'validation',
@@ -185,8 +170,6 @@ describe('ConvergenceView', () => {
       expect(state.dimensions['D1'].gateResults[1].passed).toBe(false);
     });
   });
-
-  // ─── T5: gate.executed without dimension — backward compat ────────────────
 
   describe('apply - gate.executed without dimension', () => {
     it('ConvergenceView_GateEventWithoutDimension_Ignored', () => {
@@ -204,8 +187,6 @@ describe('ConvergenceView', () => {
       expect(next).toBe(state);
     });
   });
-
-  // ─── T6: All dimensions converge — overall converged ──────────────────────
 
   describe('apply - overall convergence', () => {
     it('ConvergenceView_AllDimensionsConverge_OverallConverged', () => {
@@ -225,15 +206,12 @@ describe('ConvergenceView', () => {
       expect(state.overallConverged).toBe(true);
       expect(state.uncheckedDimensions).toEqual([]);
 
-      // Verify each dimension is converged
       dimensions.forEach((dim) => {
         expect(state.dimensions[dim].converged).toBe(true);
         expect(state.dimensions[dim].gateResults).toHaveLength(1);
       });
     });
   });
-
-  // ─── T8: gate.executed with phase — stores phase on gate result ───────────
 
   describe('apply - gate.executed with phase', () => {
     it('handleGateExecuted_WithPhaseInDetails_StoresPhaseOnGateResult', () => {
@@ -263,8 +241,6 @@ describe('ConvergenceView', () => {
     });
   });
 
-  // ─── T7: Non-gate event — ignored ─────────────────────────────────────────
-
   describe('apply - non-gate events', () => {
     it('ConvergenceView_NonGateEvent_Ignored', () => {
       const state = convergenceProjection.init();
@@ -281,15 +257,14 @@ describe('ConvergenceView', () => {
     });
   });
 
-  // ─── T-10: Skipped gates render as SKIP, not PASS ──────────────────────
-
   describe('apply - skipped gate (T-10)', () => {
+    /**
+     * The event models static analysis in a repository with no toolchain:
+     * `passed: false` with `details.skipped: true`. A skip is inconclusive, so D2
+     * must not converge. The gate result carries `skipped`, so a reader can tell
+     * a skip from a fail.
+     */
     it('convergenceView_D2GateSkipped_RendersAsSkipNotPass', () => {
-      // A static-analysis gate that ran in a no-toolchain repo emits
-      // gate.executed with passed=false, details.skipped=true,
-      // details.skipReason='no-toolchain'. The convergence view must
-      // expose this as a skipped/inconclusive result, NOT mark D2 as
-      // converged (passed). See DR-4 in the v2.9 dogfood plan.
       const state = convergenceProjection.init();
       const event = makeEvent('gate.executed', {
         gateName: 'static-analysis',
@@ -307,13 +282,9 @@ describe('ConvergenceView', () => {
 
       const next = convergenceProjection.apply(state, event);
 
-      // D2 must be present (the event was applied) but NOT converged —
-      // skip is inconclusive, not green.
       expect(next.dimensions['D2']).toBeDefined();
       expect(next.dimensions['D2'].converged).toBe(false);
 
-      // The single gate result must surface the skipped flag so
-      // downstream rendering can distinguish skip from fail.
       expect(next.dimensions['D2'].gateResults).toHaveLength(1);
       const gateResult = next.dimensions['D2'].gateResults[0];
       expect(gateResult.gateName).toBe('static-analysis');
@@ -321,7 +292,6 @@ describe('ConvergenceView', () => {
       expect(gateResult.skipped).toBe(true);
       expect(gateResult.skipReason).toBe('no-toolchain');
 
-      // Overall convergence cannot be true when D2 is skipped.
       expect(next.overallConverged).toBe(false);
     });
   });

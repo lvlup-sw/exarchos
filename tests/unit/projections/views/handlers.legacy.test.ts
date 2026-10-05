@@ -27,8 +27,6 @@ afterEach(async () => {
   await rmrfAsync(tempDir);
 });
 
-// ─── Helper: populate a workflow stream ────────────────────────────────────
-
 async function populateWorkflow(streamId: string) {
   await store.append(streamId, {
     type: 'workflow.started',
@@ -59,8 +57,6 @@ async function populateWorkflow(streamId: string) {
     data: { position: 1, taskId: 't1', branch: 'feat/login' },
   });
 }
-
-// ─── A11: View MCP Tool Tests ──────────────────────────────────────────────
 
 describe('handleViewWorkflowStatus', () => {
   it('should return workflow status view data', async () => {
@@ -200,11 +196,8 @@ describe('handleViewTasks', () => {
   });
 });
 
-// ─── Task 7: handleViewTasks limit ──────────────────────────────────────────
-
 describe('handleViewTasks limit', () => {
   it('handleViewTasks_WithLimit_ReturnsLimitedResults', async () => {
-    // Arrange: create 3 tasks
     await store.append('wf-limit', {
       type: 'task.assigned',
       data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
@@ -218,21 +211,18 @@ describe('handleViewTasks limit', () => {
       data: { taskId: 't3', title: 'Task 3', branch: 'feat/t3' },
     });
 
-    // Act
     const result = await handleViewTasks(
       { workflowId: 'wf-limit', limit: 2 },
       tempDir,
       store,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(2);
   });
 
   it('handleViewTasks_WithFilter_ReturnsOnlyMatching', async () => {
-    // Arrange: create tasks with different statuses
     await store.append('wf-filter-verify', {
       type: 'task.assigned',
       data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
@@ -246,22 +236,20 @@ describe('handleViewTasks limit', () => {
       data: { taskId: 't1', artifacts: ['a.ts'], duration: 30 },
     });
 
-    // Act
     const result = await handleViewTasks(
       { workflowId: 'wf-filter-verify', filter: { status: 'completed' } },
       tempDir,
       store,
     );
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(1);
     expect(data[0].taskId).toBe('t1');
   });
 
+  /** The filter runs before the limit: three tasks match, and the limit keeps two. */
   it('handleViewTasks_FilterAndLimit_AppliesBoth', async () => {
-    // Arrange: create 4 tasks, complete 3 of them
     await store.append('wf-both', {
       type: 'task.assigned',
       data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
@@ -291,29 +279,23 @@ describe('handleViewTasks limit', () => {
       data: { taskId: 't3', artifacts: [], duration: 30 },
     });
 
-    // Act: filter for completed (3 tasks) then limit to 2
     const result = await handleViewTasks(
       { workflowId: 'wf-both', filter: { status: 'completed' }, limit: 2 },
       tempDir,
       store,
     );
 
-    // Assert: filter applied first (3 completed), then limit caps at 2
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(2);
-    // All returned should be completed
     for (const task of data) {
       expect(task.status).toBe('completed');
     }
   });
 });
 
-// ─── Task 002: handleViewTasks offset and fields projection ────────────────
-
 describe('handleViewTasks offset and fields', () => {
   it('handleViewTasks_WithOffset_SkipsTasks', async () => {
-    // Arrange: create 3 tasks
     await store.append('wf-offset', {
       type: 'task.assigned',
       data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
@@ -327,34 +309,29 @@ describe('handleViewTasks offset and fields', () => {
       data: { taskId: 't3', title: 'Task 3', branch: 'feat/t3' },
     });
 
-    // Act: query with offset=1
     const result = await handleViewTasks(
       { workflowId: 'wf-offset', offset: 1 },
       tempDir,
       store,
     );
 
-    // Assert: should skip first, return 2
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(2);
   });
 
   it('handleViewTasks_WithFields_ReturnsOnlyRequestedFields', async () => {
-    // Arrange: create a task with multiple fields
     await store.append('wf-fields', {
       type: 'task.assigned',
       data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1', worktree: '/tmp/wt1' },
     });
 
-    // Act: query with fields=["taskId", "status"]
     const result = await handleViewTasks(
       { workflowId: 'wf-fields', fields: ['taskId', 'status'] },
       tempDir,
       store,
     );
 
-    // Assert: each result should only have taskId and status keys
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(1);
@@ -366,7 +343,6 @@ describe('handleViewTasks offset and fields', () => {
   });
 
   it('handleViewTasks_WithFieldsAndFilter_AppliesBoth', async () => {
-    // Arrange: create tasks with different statuses
     await store.append('wf-ff', {
       type: 'task.assigned',
       data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
@@ -380,14 +356,12 @@ describe('handleViewTasks offset and fields', () => {
       data: { taskId: 't1', artifacts: ['a.ts'], duration: 30 },
     });
 
-    // Act: filter for completed, project to taskId + status
     const result = await handleViewTasks(
       { workflowId: 'wf-ff', filter: { status: 'completed' }, fields: ['taskId', 'status'] },
       tempDir,
       store,
     );
 
-    // Assert: only 1 completed task, only requested fields
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(1);
@@ -398,7 +372,6 @@ describe('handleViewTasks offset and fields', () => {
   });
 
   it('handleViewTasks_WithOffsetAndLimit_PaginatesCorrectly', async () => {
-    // Arrange: create 3 tasks
     await store.append('wf-ol', {
       type: 'task.assigned',
       data: { taskId: 't1', title: 'Task 1', branch: 'feat/t1' },
@@ -412,14 +385,12 @@ describe('handleViewTasks offset and fields', () => {
       data: { taskId: 't3', title: 'Task 3', branch: 'feat/t3' },
     });
 
-    // Act: offset=1, limit=1 — should return exactly the second task
     const result = await handleViewTasks(
       { workflowId: 'wf-ol', offset: 1, limit: 1 },
       tempDir,
       store,
     );
 
-    // Assert: exactly 1 task
     expect(result.success).toBe(true);
     const data = result.data as Array<Record<string, unknown>>;
     expect(data).toHaveLength(1);
@@ -430,7 +401,6 @@ describe('handleViewPipeline', () => {
   it('should aggregate pipeline data across workflows', async () => {
     await populateWorkflow('wf-001');
 
-    // Add a second workflow
     await store.append('wf-002', {
       type: 'workflow.started',
       data: { featureId: 'billing-feature', workflowType: 'feature' },
@@ -465,7 +435,6 @@ describe('handleViewPipeline', () => {
   });
 
   it('handleViewPipeline_WithLimit_ReturnsLimitedWorkflows', async () => {
-    // Arrange: create 3 event streams
     await store.append('wf-p1', {
       type: 'workflow.started',
       data: { featureId: 'feat-1', workflowType: 'feature' },
@@ -479,10 +448,8 @@ describe('handleViewPipeline', () => {
       data: { featureId: 'feat-3', workflowType: 'debug' },
     });
 
-    // Act: query with limit=2
     const result = await handleViewPipeline({ limit: 2 }, tempDir, store);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     const workflows = data.workflows as Array<Record<string, unknown>>;
@@ -490,7 +457,6 @@ describe('handleViewPipeline', () => {
   });
 
   it('handleViewPipeline_WithOffset_SkipsWorkflows', async () => {
-    // Arrange: create 3 event streams
     await store.append('wf-p1', {
       type: 'workflow.started',
       data: { featureId: 'feat-1', workflowType: 'feature' },
@@ -504,10 +470,8 @@ describe('handleViewPipeline', () => {
       data: { featureId: 'feat-3', workflowType: 'debug' },
     });
 
-    // Act: query with offset=1
     const result = await handleViewPipeline({ offset: 1 }, tempDir, store);
 
-    // Assert: should skip first, return 2
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     const workflows = data.workflows as Array<Record<string, unknown>>;
@@ -515,7 +479,6 @@ describe('handleViewPipeline', () => {
   });
 
   it('handleViewPipeline_WithLimitAndOffset_ReturnsSlice', async () => {
-    // Arrange: create 3 event streams
     await store.append('wf-p1', {
       type: 'workflow.started',
       data: { featureId: 'feat-1', workflowType: 'feature' },
@@ -529,10 +492,8 @@ describe('handleViewPipeline', () => {
       data: { featureId: 'feat-3', workflowType: 'debug' },
     });
 
-    // Act: query with limit=1, offset=1
     const result = await handleViewPipeline({ limit: 1, offset: 1 }, tempDir, store);
 
-    // Assert: should return exactly 1 (the second workflow)
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     const workflows = data.workflows as Array<Record<string, unknown>>;
@@ -540,7 +501,6 @@ describe('handleViewPipeline', () => {
   });
 
   it('handleViewPipeline_NoParams_ReturnsAll', async () => {
-    // Arrange: create 3 event streams
     await store.append('wf-p1', {
       type: 'workflow.started',
       data: { featureId: 'feat-1', workflowType: 'feature' },
@@ -554,10 +514,8 @@ describe('handleViewPipeline', () => {
       data: { featureId: 'feat-3', workflowType: 'debug' },
     });
 
-    // Act: query with no params (existing behavior)
     const result = await handleViewPipeline({}, tempDir, store);
 
-    // Assert: all 3 returned
     expect(result.success).toBe(true);
     const data = result.data as Record<string, unknown>;
     const workflows = data.workflows as Array<Record<string, unknown>>;
@@ -565,7 +523,6 @@ describe('handleViewPipeline', () => {
   });
 
   it('handleViewPipeline_WithLimit_OnlyMaterializesSubset', async () => {
-    // Arrange: create 5 event streams
     for (let i = 1; i <= 5; i++) {
       await store.append(`wf-lazy-${i}`, {
         type: 'workflow.started',
@@ -573,10 +530,8 @@ describe('handleViewPipeline', () => {
       });
     }
 
-    // Act: request only 2
     const result = await handleViewPipeline({ limit: 2 }, tempDir, store);
 
-    // Assert: exactly 2 workflows returned, total is 5
     expect(result.success).toBe(true);
     const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
     expect(data.workflows).toHaveLength(2);
@@ -584,7 +539,6 @@ describe('handleViewPipeline', () => {
   });
 
   it('handleViewPipeline_WithOffsetAndLimit_ReturnsCorrectSlice', async () => {
-    // Arrange: create 5 event streams
     for (let i = 1; i <= 5; i++) {
       await store.append(`wf-slice-${i}`, {
         type: 'workflow.started',
@@ -592,10 +546,8 @@ describe('handleViewPipeline', () => {
       });
     }
 
-    // Act: request offset=2, limit=2 (should return streams 3 and 4)
     const result = await handleViewPipeline({ offset: 2, limit: 2 }, tempDir, store);
 
-    // Assert: exactly 2 workflows returned from the middle, total is 5
     expect(result.success).toBe(true);
     const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
     expect(data.workflows).toHaveLength(2);
@@ -603,7 +555,6 @@ describe('handleViewPipeline', () => {
   });
 
   it('handleViewPipeline_ReturnsTotal', async () => {
-    // Arrange: create 3 event streams
     for (let i = 1; i <= 3; i++) {
       await store.append(`wf-total-${i}`, {
         type: 'workflow.started',
@@ -611,36 +562,21 @@ describe('handleViewPipeline', () => {
       });
     }
 
-    // Act: no pagination params — should return all with total
     const result = await handleViewPipeline({}, tempDir, store);
 
-    // Assert: total field is present and equals stream count
     expect(result.success).toBe(true);
     const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
     expect(data.total).toBe(3);
     expect(data.workflows).toHaveLength(3);
   });
 
-  // v2.11 Phase 3 (substrate-cut): the unreachable JSONL-discovery path
-  // this test exercised is gone. Pre-collapse, `discoverStreams` would
-  // fall through to a `fs.readdir` of `*.events.jsonl` files when the
-  // store had no backend; planting `INVALID_STREAM.events.jsonl` would
-  // then make `assertSafeId` throw inside `SnapshotStore`. After the
-  // collapse, stream discovery flows exclusively through the SQLite
-  // backend's `listStreams()`, which only knows about IDs that already
-  // passed `validateStreamId` on write — the malformed-filename code
-  // path is unreachable from the public API.
+  /**
+   * The event store accepts stream ids that the projection path cannot snapshot: `__`-prefixed sentinels and two-segment slash ids.
+   * The pipeline handler skips those streams, because `materialize` throws on them.
+   * The view then succeeds and omits them.
+   */
   it('excludes discovered streams with non-snapshot-safe IDs instead of crashing', async () => {
-    // RCA 2026-05-30-state-source-integrity (supersedes the old "should return
-    // VIEW_ERROR" expectation, which was intentionally skipped at the Phase 3
-    // collapse). The event store legitimately contains streams the write-side
-    // `validateStreamId` accepts but the projection path cannot snapshot:
-    // `__`-prefixed sentinels and two-segment slash ids (MCP elicitation flows,
-    // path-derived featureIds). #1434 only skipped the `__` case at the
-    // materializer; the slash classes still crashed the pipeline with
-    // `VIEW_ERROR: Invalid streamId`. The fix filters them at discovery, so the
-    // view returns success and simply omits the unprojectable streams.
-    await populateWorkflow('wf-001'); // a normal, projectable workflow
+    await populateWorkflow('wf-001');
 
     for (const streamId of [
       'elicitation/0e24a37e-0043-46cc-9ae7-bdfa5bd8d2be',
@@ -662,19 +598,16 @@ describe('handleViewPipeline', () => {
     );
 
     expect(result.success).toBe(true);
-    // Pin the absence of the historical crash signature explicitly.
     if (!result.success) {
       expect(result.error?.message).not.toContain('Invalid streamId');
     }
     const data = result.data as Record<string, unknown>;
     const workflows = data.workflows as Array<Record<string, unknown>>;
-    // Only the snapshot-safe stream is materialized; the rest are excluded.
     expect(workflows).toHaveLength(1);
     expect(workflows[0]!.featureId).toBe('auth-feature');
   });
 
   it('handleViewPipeline_ExcludesTerminalPhases_ByDefault', async () => {
-    // Arrange: 3 workflows — one active, one completed, one cancelled
     await store.append('wf-active', {
       type: 'workflow.started',
       data: { featureId: 'active-feat', workflowType: 'feature' },
@@ -696,10 +629,8 @@ describe('handleViewPipeline', () => {
       data: { from: 'investigate', to: 'cancelled' },
     });
 
-    // Act: default (no includeCompleted)
     const result = await handleViewPipeline({}, tempDir, store);
 
-    // Assert: only the active workflow is returned
     expect(result.success).toBe(true);
     const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
     expect(data.total).toBe(1);
@@ -708,7 +639,6 @@ describe('handleViewPipeline', () => {
   });
 
   it('handleViewPipeline_IncludesTerminalPhases_WhenRequested', async () => {
-    // Arrange: 2 workflows — one active, one completed
     await store.append('wf-inc-active', {
       type: 'workflow.started',
       data: { featureId: 'inc-active', workflowType: 'feature' },
@@ -722,10 +652,8 @@ describe('handleViewPipeline', () => {
       data: { from: 'ideate', to: 'completed' },
     });
 
-    // Act: includeCompleted=true
     const result = await handleViewPipeline({ includeCompleted: true }, tempDir, store);
 
-    // Assert: both workflows returned
     expect(result.success).toBe(true);
     const data = result.data as { workflows: Array<Record<string, unknown>>; total: number };
     expect(data.total).toBe(2);
@@ -733,19 +661,15 @@ describe('handleViewPipeline', () => {
   });
 });
 
-// ─── B2: Singleton ViewMaterializer Cache ──────────────────────────────────
-
 describe('ViewMaterializer Singleton Cache', () => {
   it('ViewMaterializer_Singleton_ReusedAcrossQueries: second call sees updated data via high-water mark', async () => {
     await populateWorkflow('wf-singleton');
 
-    // First query
     const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir, store);
     expect(result1.success).toBe(true);
     const data1 = result1.data as Record<string, unknown>;
     expect(data1.tasksCompleted).toBe(1);
 
-    // Append more events to the same stream (second task completed)
     await store.append('wf-singleton', {
       type: 'task.claimed',
       data: { taskId: 't2', agentId: 'agent-2', claimedAt: '2025-06-15T11:00:00Z' },
@@ -755,34 +679,26 @@ describe('ViewMaterializer Singleton Cache', () => {
       data: { taskId: 't2', artifacts: ['signup.ts'], duration: 45 },
     });
 
-    // Second query — uses cached materializer, but high-water mark should process new events
     const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-singleton' }, tempDir, store);
     expect(result2.success).toBe(true);
     const data2 = result2.data as Record<string, unknown>;
-    // Should see updated data: 2 tasks completed now
     expect(data2.tasksCompleted).toBe(2);
   });
 
   it('resetMaterializerCache_CreatesNewInstance: after reset, fresh state is used', async () => {
     await populateWorkflow('wf-reset');
 
-    // First query to populate cache
     const result1 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir, store);
     expect(result1.success).toBe(true);
 
-    // Reset the cache
     resetMaterializerCache();
 
-    // Query again — should still work with fresh instances
     const result2 = await handleViewWorkflowStatus({ workflowId: 'wf-reset' }, tempDir, store);
     expect(result2.success).toBe(true);
     const data2 = result2.data as Record<string, unknown>;
     expect(data2.featureId).toBe('auth-feature');
   });
 
-  // Tests covering `getOrCreateEventStore` cache behavior were removed
-  // when the constructor-injection refactor (#1182) deleted the
-  // EventStore registry. Only the materializer cache survives.
   it('should invalidate materializer cache when stateDir changes', () => {
     const materializer1 = getOrCreateMaterializer(tempDir);
     const otherDir = tempDir + '-other';

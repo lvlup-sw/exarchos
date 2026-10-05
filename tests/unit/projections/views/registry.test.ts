@@ -3,8 +3,6 @@ import { ViewRegistry, BUILTIN_VIEW_NAMES } from '../../../../src/projections/vi
 import type { ViewProjection } from '../../../../src/projections/views/materializer.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 
-// ─── Test Projection ────────────────────────────────────────────────────────
-
 interface CounterView {
   count: number;
 }
@@ -13,8 +11,6 @@ const counterProjection: ViewProjection<CounterView> = {
   init: () => ({ count: 0 }),
   apply: (view, _event) => ({ count: view.count + 1 }),
 };
-
-// ─── Test Event Factory ──────────────────────────────────────────────────────
 
 function makeEvent(sequence: number): WorkflowEvent {
   return {
@@ -35,21 +31,17 @@ describe('ViewRegistry', () => {
   });
 
   it('ViewRegistry_RegisterCustomView_MaterializesEvents', () => {
-    // Register a custom view
     registry.registerCustomView('my-counter', counterProjection);
 
-    // Get the materializer and verify the projection is registered
     const materializer = registry.getMaterializer();
     expect(materializer.hasProjection('my-counter')).toBe(true);
 
-    // Materialize some events
     const events = [makeEvent(1), makeEvent(2), makeEvent(3)];
     const result = materializer.materialize<CounterView>('stream-1', 'my-counter', events);
     expect(result.count).toBe(3);
   });
 
   it('ViewRegistry_BuiltInViewName_Throws', () => {
-    // All built-in view names from BUILTIN_VIEW_NAMES should be protected
     for (const name of BUILTIN_VIEW_NAMES) {
       expect(
         () => registry.registerCustomView(name, counterProjection),
@@ -59,11 +51,9 @@ describe('ViewRegistry', () => {
   });
 
   it('UnregisterCustomView_RemovesView', () => {
-    // Register and verify
     registry.registerCustomView('temp-view', counterProjection);
     expect(registry.isCustomView('temp-view')).toBe(true);
 
-    // Unregister and verify it's gone
     registry.unregisterCustomView('temp-view');
     expect(registry.isCustomView('temp-view')).toBe(false);
   });
@@ -98,20 +88,16 @@ describe('ViewRegistry', () => {
   });
 
   it('UnregisterCustomView_RemovesProjectionFromMaterializer', () => {
-    // Register a custom view and verify its projection exists
     registry.registerCustomView('ephemeral-view', counterProjection);
     const materializer = registry.getMaterializer();
     expect(materializer.hasProjection('ephemeral-view')).toBe(true);
 
-    // Materialize some events to populate cache
     const events = [makeEvent(1), makeEvent(2)];
     materializer.materialize('stream-1', 'ephemeral-view', events);
 
-    // Unregister and verify the projection is removed from the materializer
     registry.unregisterCustomView('ephemeral-view');
     expect(materializer.hasProjection('ephemeral-view')).toBe(false);
 
-    // Trying to materialize should now throw (no projection)
     expect(
       () => materializer.materialize('stream-1', 'ephemeral-view', [makeEvent(3)]),
     ).toThrow(/no projection/i);

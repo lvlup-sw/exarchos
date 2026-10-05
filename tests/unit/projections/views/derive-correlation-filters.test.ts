@@ -1,11 +1,5 @@
-// Wave 2 (#1448, item 2) — deriveCorrelationFilters helper.
-//
-// Pins the explicit-args-win + AsyncLocalStorage-default contract for the
-// telemetry view handlers. The helper centralises the inline filter spread
-// block that currently appears in 6 handlers (Task 5 will refactor each
-// handler to call this helper). The default branch (no args + active
-// dispatch context) lets agents get auto-scoped telemetry without manually
-// threading the correlation tuple back into every view call.
+// Tests for `deriveCorrelationFilters`, the filter default that the view handlers share.
+// Explicit filter args win. With no args, the helper takes the `correlationId` of the active dispatch context.
 
 import { describe, it, expect, vi } from 'vitest';
 import { deriveCorrelationFilters } from '../../../../src/projections/views/tools.js';
@@ -69,8 +63,6 @@ describe('deriveCorrelationFilters', () => {
         expect.stringContaining('deriveCorrelationFilters'),
       );
     } finally {
-      // Always restore — a failing assertion above must not leak the
-      // logger.debug spy into sibling tests.
       debugSpy.mockRestore();
     }
   });

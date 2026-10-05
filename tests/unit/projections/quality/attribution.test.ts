@@ -5,8 +5,6 @@ import type { AttributionQuery, AttributionResult } from '../../../../src/projec
 import type { CodeQualityViewState } from '../../../../src/projections/views/code-quality-view.js';
 import type { EvalResultsViewState } from '../../../../src/projections/views/eval-results-view.js';
 
-// ─── Test Fixtures ──────────────────────────────────────────────────────────
-
 function makeCodeQuality(overrides?: Partial<CodeQualityViewState>): CodeQualityViewState {
   return {
     skills: {},
@@ -28,11 +26,9 @@ function makeEvalResults(overrides?: Partial<EvalResultsViewState>): EvalResults
   };
 }
 
-// ─── Unit Tests ─────────────────────────────────────────────────────────────
-
 describe('computeAttribution', () => {
+  /** `regressionCount` counts the code-quality regressions of the skill. The `regressionCount` of the eval results has no effect. */
   it('ComputeAttribution_BySkill_ReturnsPerSkillMetrics', () => {
-    // Arrange
     const codeQuality = makeCodeQuality({
       skills: {
         delegation: {
@@ -91,10 +87,8 @@ describe('computeAttribution', () => {
 
     const query: AttributionQuery = { dimension: 'skill' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert
     expect(result.dimension).toBe('skill');
     expect(result.entries).toHaveLength(2);
 
@@ -116,7 +110,6 @@ describe('computeAttribution', () => {
   });
 
   it('ComputeAttribution_ByModel_ReturnsPerModelMetrics', () => {
-    // Arrange
     const codeQuality = makeCodeQuality({
       models: {
         'claude-opus-4': {
@@ -135,10 +128,8 @@ describe('computeAttribution', () => {
     const evalResults = makeEvalResults();
     const query: AttributionQuery = { dimension: 'model' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert
     expect(result.dimension).toBe('model');
     expect(result.entries).toHaveLength(2);
 
@@ -154,7 +145,6 @@ describe('computeAttribution', () => {
   });
 
   it('ComputeAttribution_ByGate_ReturnsPerGateMetrics', () => {
-    // Arrange
     const codeQuality = makeCodeQuality({
       gates: {
         typecheck: {
@@ -187,10 +177,8 @@ describe('computeAttribution', () => {
     const evalResults = makeEvalResults();
     const query: AttributionQuery = { dimension: 'gate' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert
     expect(result.dimension).toBe('gate');
     expect(result.entries).toHaveLength(2);
 
@@ -207,8 +195,8 @@ describe('computeAttribution', () => {
     expect(lintEntry!.regressionCount).toBe(0);
   });
 
+  /** The `suiteId` of an eval run stands for the prompt version. The score of a version is the mean of its runs, here 0.7 and 0.8. */
   it('ComputeAttribution_ByPromptVersion_ReturnsPerVersionMetrics', () => {
-    // Arrange: eval runs with different suiteIds representing prompt versions
     const evalResults = makeEvalResults({
       runs: [
         {
@@ -250,10 +238,8 @@ describe('computeAttribution', () => {
     const codeQuality = makeCodeQuality();
     const query: AttributionQuery = { dimension: 'prompt-version' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert
     expect(result.dimension).toBe('prompt-version');
     expect(result.entries).toHaveLength(2);
 
@@ -264,13 +250,12 @@ describe('computeAttribution', () => {
 
     const v2Entry = result.entries.find(e => e.key === 'delegation-v2');
     expect(v2Entry).toBeDefined();
-    // Average of 0.7 and 0.8
     expect(v2Entry!.evalScore).toBeCloseTo(0.75, 5);
     expect(v2Entry!.sampleSize).toBe(2);
   });
 
+  /** The reference time is 2026-02-25, so `P7D` keeps the run of 2026-02-24 and drops the run of 2026-01-01. */
   it('ComputeAttribution_WithTimeRange_FiltersEvents', () => {
-    // Arrange: runs spanning a wide time range, query for last 7 days
     const evalResults = makeEvalResults({
       runs: [
         {
@@ -282,7 +267,7 @@ describe('computeAttribution', () => {
           failed: 5,
           avgScore: 0.5,
           duration: 100,
-          timestamp: '2026-01-01T00:00:00Z', // old — should be excluded
+          timestamp: '2026-01-01T00:00:00Z',
         },
         {
           runId: 'run-recent',
@@ -293,7 +278,7 @@ describe('computeAttribution', () => {
           failed: 1,
           avgScore: 0.9,
           duration: 110,
-          timestamp: '2026-02-24T00:00:00Z', // recent — within P7D of reference
+          timestamp: '2026-02-24T00:00:00Z',
         },
       ],
     });
@@ -304,10 +289,8 @@ describe('computeAttribution', () => {
       timeRange: 'P7D',
     };
 
-    // Act — using a reference time of 2026-02-25
     const result = computeAttribution(query, codeQuality, evalResults, new Date('2026-02-25T00:00:00Z'));
 
-    // Assert: only the recent run should be included
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0].key).toBe('delegation');
     expect(result.entries[0].evalScore).toBe(0.9);
@@ -315,21 +298,18 @@ describe('computeAttribution', () => {
   });
 
   it('ComputeAttribution_EmptyData_ReturnsEmptyEntries', () => {
-    // Arrange
     const codeQuality = makeCodeQuality();
     const evalResults = makeEvalResults();
 
-    // Act
     const result = computeAttribution({ dimension: 'skill' }, codeQuality, evalResults);
 
-    // Assert
     expect(result.dimension).toBe('skill');
     expect(result.entries).toEqual([]);
     expect(result.correlations).toEqual([]);
   });
 
+  /** `sampleSize` is `totalExecutions` from the code-quality view, not `totalRuns` from the eval results. */
   it('ComputeAttribution_IncludesSampleSize', () => {
-    // Arrange: verify sampleSize reflects the appropriate count
     const codeQuality = makeCodeQuality({
       skills: {
         review: {
@@ -360,16 +340,13 @@ describe('computeAttribution', () => {
 
     const query: AttributionQuery = { dimension: 'skill' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0].sampleSize).toBe(42);
   });
 
   it('ComputeAttribution_BySkill_FiltersBySkillName', () => {
-    // Arrange
     const codeQuality = makeCodeQuality({
       skills: {
         delegation: {
@@ -418,16 +395,14 @@ describe('computeAttribution', () => {
 
     const query: AttributionQuery = { dimension: 'skill', skill: 'delegation' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert: only delegation returned
     expect(result.entries).toHaveLength(1);
     expect(result.entries[0].key).toBe('delegation');
   });
 
+  /** A skill with a high gate pass rate also has a high eval score here, so the correlation is positive. */
   it('ComputeCorrelations_TwoFactors_ReturnsStrength', () => {
-    // Arrange: multiple skills with varying metrics to compute correlations
     const codeQuality = makeCodeQuality({
       skills: {
         delegation: {
@@ -494,10 +469,8 @@ describe('computeAttribution', () => {
 
     const query: AttributionQuery = { dimension: 'skill' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert: correlations should exist between factors
     expect(result.correlations.length).toBeGreaterThan(0);
 
     const gateEvalCorrelation = result.correlations.find(
@@ -506,13 +479,11 @@ describe('computeAttribution', () => {
     expect(gateEvalCorrelation).toBeDefined();
     expect(gateEvalCorrelation!.strength).toBeGreaterThanOrEqual(0);
     expect(gateEvalCorrelation!.strength).toBeLessThanOrEqual(1);
-    // Gate pass rate and eval score should be positively correlated here
-    // (high pass rate <-> high eval score)
     expect(gateEvalCorrelation!.direction).toBe('positive');
   });
 
+  /** The trend of an entry comes from the trend of the eval results. */
   it('ComputeAttribution_BySkill_TrendDetection', () => {
-    // Arrange: skill with eval trend improving
     const codeQuality = makeCodeQuality({
       skills: {
         delegation: {
@@ -543,17 +514,15 @@ describe('computeAttribution', () => {
 
     const query: AttributionQuery = { dimension: 'skill' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert: trend should be derived from eval trend
     const entry = result.entries.find(e => e.key === 'delegation');
     expect(entry).toBeDefined();
     expect(entry!.trend).toBe('improving');
   });
 
+  /** A skill with no eval data still gets an entry, with an `evalScore` of 0. */
   it('ComputeAttribution_BySkill_NoEvalData_UsesCodeQualityOnly', () => {
-    // Arrange: skill exists in code quality but not in eval results
     const codeQuality = makeCodeQuality({
       skills: {
         delegation: {
@@ -570,20 +539,16 @@ describe('computeAttribution', () => {
     const evalResults = makeEvalResults();
     const query: AttributionQuery = { dimension: 'skill' };
 
-    // Act
     const result = computeAttribution(query, codeQuality, evalResults);
 
-    // Assert: still returns the skill with default eval values
     expect(result.entries).toHaveLength(1);
     const entry = result.entries[0];
     expect(entry.key).toBe('delegation');
     expect(entry.gatePassRate).toBe(0.85);
-    expect(entry.evalScore).toBe(0); // no eval data
+    expect(entry.evalScore).toBe(0);
     expect(entry.sampleSize).toBe(20);
   });
 });
-
-// ─── Property Tests ───────────────────────────────────────────────────────────
 
 const dimensionArb = fc.constantFrom(
   'skill' as const,

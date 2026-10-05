@@ -13,11 +13,10 @@ import { GATE_RELIABILITY_VIEW } from '../../../../src/projections/views/gate-re
 import { BUILTIN_VIEW_NAMES } from '../../../../src/projections/views/registry.js';
 import { getOrCreateMaterializer } from '../../../../src/projections/views/tools.js';
 
-// BASE-002 acceptance proof (structural-closure Wave 0): the gate-reliability
-// read model must be reachable through production composition, not just its own
-// unit test. These assertions are the containment proof the module-intent gate
-// (DR-7) relies on — remove the wiring and they fail before the gate does.
-
+/**
+ * The gate-reliability read model must be reachable through the production composition, not only through its unit test.
+ * If the wiring goes away, these tests fail.
+ */
 describe('gate-reliability view production wiring (BASE-002)', () => {
   let stateDir: string;
 
@@ -43,6 +42,10 @@ describe('gate-reliability view production wiring (BASE-002)', () => {
     expect(BUILTIN_VIEW_NAMES.has(GATE_RELIABILITY_VIEW)).toBe(true);
   });
 
+  /**
+   * A gate from the registry with no measurement reports `null`, not a healthy value.
+   * The compact payload omits the raw fold inputs.
+   */
   it('GateReliability_HandleView_ReturnsDiagnosticOnlyPayload', async () => {
     const ctx: DispatchContext = {
       stateDir,
@@ -58,12 +61,9 @@ describe('gate-reliability view production wiring (BASE-002)', () => {
     expect(result.success).toBe(true);
     const data = (result.data as { data?: unknown })?.data ?? result.data;
     expect(data).toMatchObject({ diagnosticOnly: true });
-    // Registry-seeded gates report `null` rather than pretending an unmeasured
-    // gate is healthy.
     const gates = (data as { gates: readonly { value: number | null }[] }).gates;
     expect(gates.length).toBeGreaterThan(0);
     expect(gates.every((gate) => gate.value === null)).toBe(true);
-    // Compact-by-default: the raw fold inputs stay internal.
     expect(data).not.toHaveProperty('_foldEvents');
   });
 

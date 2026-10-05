@@ -18,9 +18,8 @@ import {
 import { WorkflowCheckpointData } from '../../../../src/events/schemas.js';
 
 describe('rehydration document stable-sections schema (T011, DR-3)', () => {
+  /** The stable sections hold only `workflowState`. */
   it('RehydrationDoc_MinimalStableSections_Parses', () => {
-    // Updated for v:3 (T-01): stable sections contain only workflowState.
-    // behavioralGuidance is dropped (vestigial in v:2, removed in v:3).
     const minimalInput = {
       workflowState: {
         featureId: 'rehydrate-foundation',
@@ -36,8 +35,8 @@ describe('rehydration document stable-sections schema (T011, DR-3)', () => {
 });
 
 describe('rehydration document volatile-sections schema (T012, DR-3)', () => {
+  /** `phasePlaybook` is required and nullable, so the input sets it to `null`. */
   it('RehydrationDoc_FullVolatileSections_Parses', () => {
-    // Updated for v:3 (T-01): phasePlaybook is now a required field (nullable).
     const fullInput = {
       taskProgress: [
         { id: 'T011', status: 'complete' },
@@ -79,7 +78,6 @@ describe('rehydration document volatile-sections schema (T012, DR-3)', () => {
 });
 
 describe('rehydration document top-level schema (T013, DR-3)', () => {
-  // Updated for v:3 (T-01): stable sections no longer include behavioralGuidance.
   const minimalStable = {
     workflowState: {
       featureId: 'rehydrate-foundation',
@@ -96,12 +94,8 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
     phasePlaybook: null,
   };
 
+  /** The main schema requires the literal `v: 4`. The `V1`, `V2` and `V3` schemas read older documents. */
   it('RehydrationDoc_VersionedSchema_RequiresV4', () => {
-    // Updated for v:4 envelope bump (#1359 / PR4 T12). The main schema now
-    // requires v: literal(4); legacy v:3 docs route through
-    // RehydrationDocumentSchemaV3, v:2 docs through
-    // RehydrationDocumentSchemaV2, and v:1 docs through
-    // RehydrationDocumentSchemaV1.
     const validDoc = {
       v: 4,
       projectionSequence: 0,
@@ -151,7 +145,6 @@ describe('rehydration document top-level schema (T013, DR-3)', () => {
 });
 
 describe('rehydration document serializer — stable-before-volatile order (T050, DR-14)', () => {
-  // Updated for v:3 (T-01): stable section no longer contains behavioralGuidance.
   const stable = {
     workflowState: {
       featureId: 'rehydrate-foundation',
@@ -169,8 +162,12 @@ describe('rehydration document serializer — stable-before-volatile order (T050
     phasePlaybook: null,
   };
 
+  /**
+   * `reverseDoc` holds the same values as `forwardDoc`, with the keys declared in reverse order.
+   * The serializer omits an optional key with an `undefined` value, so the expected order holds only the populated keys.
+   * The bytes up to the first volatile key must be the same for both documents, because the prompt cache needs a stable prefix.
+   */
   it('DocumentSerialization_StableSectionsFirst_Always', () => {
-    // Forward-declared doc: keys in canonical order.
     const forwardDoc: RehydrationDocument = {
       v: 4,
       projectionSequence: 7,
@@ -184,9 +181,6 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       phasePlaybook: null,
     };
 
-    // Reverse-declared doc: same field values, but object-literal key order
-    // is deliberately inverted (volatile keys declared before stable keys, and
-    // sibling keys flipped end-to-start).
     const reverseDoc = {
       phasePlaybook: null,
       recentHandoffs: [],
@@ -203,10 +197,6 @@ describe('rehydration document serializer — stable-before-volatile order (T050
     const forwardJson = serializeRehydrationDocument(forwardDoc);
     const reverseJson = serializeRehydrationDocument(reverseDoc);
 
-    // Canonical key order at top level. Optional keys whose value is
-    // undefined (e.g. `latestHandoff` when no handoff has landed yet) are
-    // omitted by the serializer — preserving the optional-field contract —
-    // so we filter the expectation to keys actually populated on the doc.
     const populatedKey = (key: string): boolean =>
       Object.prototype.hasOwnProperty.call(forwardDoc, key) &&
       (forwardDoc as Record<string, unknown>)[key] !== undefined;
@@ -214,14 +204,11 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       populatedKey,
     );
 
-    // Both variants must surface the canonical key order.
     for (const json of [forwardJson, reverseJson]) {
       const parsed = JSON.parse(json) as Record<string, unknown>;
       expect(Object.keys(parsed)).toEqual(expectedKeyOrder);
     }
 
-    // STABLE_KEYS must appear before any VOLATILE_KEYS byte-position in the
-    // serialized string — i.e., the stable prefix is contiguous at the head.
     const stableLastKey = STABLE_KEYS[STABLE_KEYS.length - 1];
     const volatileFirstKey = VOLATILE_KEYS[0];
     const stableLastIdx = forwardJson.indexOf(`"${stableLastKey}"`);
@@ -229,13 +216,12 @@ describe('rehydration document serializer — stable-before-volatile order (T050
     expect(stableLastIdx).toBeGreaterThan(-1);
     expect(volatileFirstIdx).toBeGreaterThan(stableLastIdx);
 
-    // Prefix up through the end of the last stable section must be
-    // byte-identical across both variants (prompt-cache guarantee).
     const prefixEnd = forwardJson.indexOf(`,"${volatileFirstKey}"`);
     expect(prefixEnd).toBeGreaterThan(0);
     expect(reverseJson.slice(0, prefixEnd)).toBe(forwardJson.slice(0, prefixEnd));
   });
 
+  /** `docB` holds the same values as `docA`, with the keys declared in reverse order. */
   it('DocumentSerialization_ReorderedInput_ProducesIdenticalBytes', () => {
     const docA: RehydrationDocument = {
       v: 4,
@@ -250,7 +236,6 @@ describe('rehydration document serializer — stable-before-volatile order (T050
       phasePlaybook: null,
     };
 
-    // Same values, intentionally reversed JS key-declaration order.
     const docB = {
       phasePlaybook: null,
       recentHandoffs: [],
@@ -268,11 +253,9 @@ describe('rehydration document serializer — stable-before-volatile order (T050
   });
 });
 
-// ─── T1: v:2 envelope schema additions (#1240 + #1246) ──────────────────────
-
 describe('WorkflowCheckpointData handoff field (T1, #1240)', () => {
+  /** The test also rejects a `context` of 2049 characters and a `nextSteps` list of 11 entries, which exceed the caps. */
   it('WorkflowCheckpointData_HandoffField_AcceptsValidPayload', () => {
-    // Full handoff with all three optional fields populated parses cleanly.
     const validInput = {
       counter: 5,
       phase: 'delegate',
@@ -290,7 +273,6 @@ describe('WorkflowCheckpointData handoff field (T1, #1240)', () => {
     const result = WorkflowCheckpointData.safeParse(validInput);
     expect(result.success).toBe(true);
 
-    // Per-field byte caps enforced (DIM-7): context >2048 chars rejected.
     const oversizedContext = {
       counter: 5,
       phase: 'delegate',
@@ -301,7 +283,6 @@ describe('WorkflowCheckpointData handoff field (T1, #1240)', () => {
     };
     expect(WorkflowCheckpointData.safeParse(oversizedContext).success).toBe(false);
 
-    // Bounded list size: nextSteps array of 11 entries rejected.
     const oversizedNextSteps = {
       counter: 5,
       phase: 'delegate',
@@ -313,10 +294,8 @@ describe('WorkflowCheckpointData handoff field (T1, #1240)', () => {
     expect(WorkflowCheckpointData.safeParse(oversizedNextSteps).success).toBe(false);
   });
 
+  /** Older checkpoint events have no `handoff` field. They must still parse, so a replay of an old stream does not fail. */
   it('WorkflowCheckpointData_NoHandoff_BackwardCompatible', () => {
-    // Historical events emitted before #1240 had no handoff field; they MUST
-    // continue to parse cleanly under z.optional() so replay over old streams
-    // is unaffected by the schema additions.
     const legacyEvent = {
       counter: 5,
       phase: 'delegate',
@@ -332,8 +311,11 @@ describe('WorkflowCheckpointData handoff field (T1, #1240)', () => {
 });
 
 describe('HandoffEntrySchemaV2 (T1, #1246)', () => {
+  /**
+   * `eventRef.sequence` is the key and must be a non-negative integer.
+   * The strict `eventRef` rejects an `id`, so a v:1 entry cannot enter a later envelope.
+   */
   it('HandoffEntrySchemaV2_RequiresSequence_RejectsId', () => {
-    // v:2 contract: eventRef.sequence is the primary key; eventRef.id is gone.
     const validV2Entry = {
       context: 'phase exit',
       eventRef: {
@@ -343,7 +325,6 @@ describe('HandoffEntrySchemaV2 (T1, #1246)', () => {
     };
     expect(HandoffEntrySchemaV2.safeParse(validV2Entry).success).toBe(true);
 
-    // Missing sequence is rejected (was advisory in v:1, primary in v:2).
     const missingSequence = {
       eventRef: {
         timestamp: '2026-05-08T00:00:00.000Z',
@@ -351,7 +332,6 @@ describe('HandoffEntrySchemaV2 (T1, #1246)', () => {
     };
     expect(HandoffEntrySchemaV2.safeParse(missingSequence).success).toBe(false);
 
-    // Negative sequence is rejected (nonnegative integer required).
     const negativeSequence = {
       eventRef: {
         sequence: -1,
@@ -360,8 +340,6 @@ describe('HandoffEntrySchemaV2 (T1, #1246)', () => {
     };
     expect(HandoffEntrySchemaV2.safeParse(negativeSequence).success).toBe(false);
 
-    // Strict mode at the eventRef level rejects payloads carrying `id` —
-    // prevents v:1 entries silently leaking into v:2 output.
     const strayIdInEventRef = {
       eventRef: {
         sequence: 42,
@@ -374,9 +352,8 @@ describe('HandoffEntrySchemaV2 (T1, #1246)', () => {
 });
 
 describe('HandoffEntrySchemaV1 (T1, #1246 read-back)', () => {
+  /** In a v:1 entry, `eventRef.id` is the required key and `eventRef.sequence` is optional. */
   it('HandoffEntrySchemaV1_AllowsId_SequenceOptional', () => {
-    // v:1 advisory contract (pre-#1230): eventRef.id is the primary key,
-    // eventRef.sequence is advisory and may be absent on legacy entries.
     const idOnlyEntry = {
       context: 'legacy phase exit',
       eventRef: {
@@ -386,8 +363,6 @@ describe('HandoffEntrySchemaV1 (T1, #1246 read-back)', () => {
     };
     expect(HandoffEntrySchemaV1.safeParse(idOnlyEntry).success).toBe(true);
 
-    // v:1 with both id and sequence present (post-#1230 era, still v:1 doc)
-    // is also accepted — sequence is advisory but allowed when populated.
     const idAndSequence = {
       eventRef: {
         id: 'evt_legacy_002',
@@ -397,7 +372,6 @@ describe('HandoffEntrySchemaV1 (T1, #1246 read-back)', () => {
     };
     expect(HandoffEntrySchemaV1.safeParse(idAndSequence).success).toBe(true);
 
-    // Missing id (the v:1 primary key) IS rejected by the v:1 schema.
     const missingId = {
       eventRef: {
         timestamp: '2026-05-04T00:00:00.000Z',
@@ -429,10 +403,8 @@ describe('RehydrationDocumentSchema version routing (T1, #1246 + T-01)', () => {
     recentHandoffs: [],
   };
 
+  /** The main schema rejects v:1 and v:2 documents. The `V1` and `V2` schemas accept them for the upgrade path. */
   it('RehydrationDocumentSchema_V3Literal_RejectsV1AndV2Documents', () => {
-    // Updated for v:3 envelope bump (T-01). The main schema now requires
-    // v: literal(3); v:2 docs route through RehydrationDocumentSchemaV2 and
-    // v:1 docs route through RehydrationDocumentSchemaV1.
     const v2Doc = {
       v: 2,
       projectionSequence: 0,
@@ -440,15 +412,10 @@ describe('RehydrationDocumentSchema version routing (T1, #1246 + T-01)', () => {
       ...minimalVolatileV2,
     };
 
-    // Main schema (v:3) rejects v:2 docs.
     expect(RehydrationDocumentSchema.safeParse(v2Doc).success).toBe(false);
 
-    // RehydrationDocumentSchemaV2 (renamed from the previous RehydrationDocumentSchema)
-    // accepts v:2 for the read-back/migration path that T-03 will consume.
     expect(RehydrationDocumentSchemaV2.safeParse(v2Doc).success).toBe(true);
 
-    // Main schema rejects v:1 docs — the read-side migration path
-    // (loadRehydrationDocument) routes through RehydrationDocumentSchemaV1.
     const v1Doc = {
       v: 1,
       projectionSequence: 0,
@@ -460,13 +427,9 @@ describe('RehydrationDocumentSchema version routing (T1, #1246 + T-01)', () => {
     };
     expect(RehydrationDocumentSchema.safeParse(v1Doc).success).toBe(false);
 
-    // The companion RehydrationDocumentSchemaV1 export accepts v:1 for the
-    // read-back/migration path that T3 will consume.
     expect(RehydrationDocumentSchemaV1.safeParse(v1Doc).success).toBe(true);
   });
 });
-
-// ─── T-01: PhasePlaybookSchema and v:3 envelope ─────────────────────────────
 
 describe('PhasePlaybookSchema (T-01, rehydration-machinery-refactor)', () => {
   const minimalPlaybook = {
@@ -502,8 +465,8 @@ describe('PhasePlaybookSchema (T-01, rehydration-machinery-refactor)', () => {
     expect(result.success).toBe(true);
   });
 
+  /** `null` is the value for a phase with no playbook. */
   it('PhasePlaybookSchema_NullValue_Parses', () => {
-    // phasePlaybook is nullable — null is the degraded/terminal-phase value
     const result = PhasePlaybookSchema.safeParse(null);
     expect(result.success).toBe(true);
   });
@@ -526,7 +489,6 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
   };
 
   it('RehydrationDocumentSchema_V3NullPlaybook_Parses', () => {
-    // Minimum valid v:3 doc with phasePlaybook: null
     const v3Doc = {
       v: 4,
       projectionSequence: 0,
@@ -539,7 +501,6 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
   });
 
   it('RehydrationDocumentSchema_V3FullPlaybook_Parses', () => {
-    // v:3 doc with a fully populated phasePlaybook
     const v3Doc = {
       v: 4,
       projectionSequence: 5,
@@ -574,9 +535,8 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
     expect(result.success).toBe(true);
   });
 
+  /** The main schema rejects a v:2 document, and `RehydrationDocumentSchemaV2` accepts it. */
   it('RehydrationDocumentSchema_V2Doc_Fails', () => {
-    // v:2 docs must NOT parse against the new RehydrationDocumentSchema (v:3 only)
-    // They route through RehydrationDocumentSchemaV2 instead (T-03).
     const v2Doc = {
       v: 2,
       projectionSequence: 0,
@@ -592,18 +552,15 @@ describe('RehydrationDocumentSchema v:3 envelope (T-01)', () => {
       recentHandoffs: [],
     };
 
-    // New schema requires v:3 — rejects v:2
     const newSchemaResult = RehydrationDocumentSchema.safeParse(v2Doc);
     expect(newSchemaResult.success).toBe(false);
 
-    // RehydrationDocumentSchemaV2 (the renamed old schema) accepts v:2
     const v2SchemaResult = RehydrationDocumentSchemaV2.safeParse(v2Doc);
     expect(v2SchemaResult.success).toBe(true);
   });
 });
 
 describe('VolatileSectionsSchema handoff fields (T1, #1240 + #1246)', () => {
-  // Updated for v:3 (T-01): phasePlaybook is now a required (nullable) field.
   const baseVolatile = {
     taskProgress: [],
     decisions: [],
@@ -612,9 +569,12 @@ describe('VolatileSectionsSchema handoff fields (T1, #1240 + #1246)', () => {
     phasePlaybook: null,
   };
 
+  /**
+   * `latestHandoff` is optional. `recentHandoffs` defaults to `[]` and holds at most 3 entries.
+   * The strict object rejects an unknown sibling key.
+   * A `latestHandoff` with `eventRef.id` fails, because the strict `HandoffEntrySchemaV2` applies inside it.
+   */
   it('VolatileSectionsSchema_HandoffFields_StrictBoundary', () => {
-    // latestHandoff is optional, recentHandoffs defaults to [].
-    // phasePlaybook: null is required for v:3 volatile sections.
     const minimal = { ...baseVolatile };
     const result = VolatileSectionsSchema.safeParse(minimal);
     expect(result.success).toBe(true);
@@ -623,7 +583,6 @@ describe('VolatileSectionsSchema handoff fields (T1, #1240 + #1246)', () => {
       expect(result.data.recentHandoffs).toEqual([]);
     }
 
-    // recentHandoffs accepts up to 3 v:2 entries.
     const threeEntries = Array.from({ length: 3 }, (_, i) => ({
       context: `entry ${i}`,
       eventRef: {
@@ -638,7 +597,6 @@ describe('VolatileSectionsSchema handoff fields (T1, #1240 + #1246)', () => {
       }).success,
     ).toBe(true);
 
-    // recentHandoffs rejects 4 entries (max(3) bound enforced).
     const fourEntries = Array.from({ length: 4 }, (_, i) => ({
       context: `entry ${i}`,
       eventRef: {
@@ -653,9 +611,6 @@ describe('VolatileSectionsSchema handoff fields (T1, #1240 + #1246)', () => {
       }).success,
     ).toBe(false);
 
-    // Strict mode at the volatile-section boundary rejects unknown sibling keys —
-    // prevents accidental v:1-shaped fields (e.g. an `eventRefId` typo) from
-    // surviving into a v:3 envelope.
     expect(
       VolatileSectionsSchema.safeParse({
         ...baseVolatile,
@@ -663,8 +618,6 @@ describe('VolatileSectionsSchema handoff fields (T1, #1240 + #1246)', () => {
       }).success,
     ).toBe(false);
 
-    // latestHandoff that contains eventRef.id is rejected (HandoffEntrySchemaV2
-    // strict mode propagates upward).
     expect(
       VolatileSectionsSchema.safeParse({
         ...baseVolatile,

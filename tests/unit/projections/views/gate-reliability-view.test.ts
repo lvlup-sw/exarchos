@@ -234,6 +234,7 @@ describe('gate reliability diagnostic projection', () => {
     );
   });
 
+  /** A second contradiction over the same pass does not count that pass twice. */
   it('GateReliability_ContradictionEffects_CountEachAttributedPassOnce', () => {
     fc.assert(
       fc.property(fc.integer({ min: 2, max: 20 }), (passCount) => {
@@ -246,7 +247,6 @@ describe('gate reliability diagnostic projection', () => {
           passCount + 1,
           ['evidence.pass.1', 'evidence.pass.2'],
         );
-        // A second fact over the same pass cannot double count that execution.
         const overlap = contradictionEvent(
           passCount + 2,
           ['evidence.pass.1', `evidence.pass.${passCount}`],

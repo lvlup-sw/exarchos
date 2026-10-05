@@ -1,3 +1,9 @@
+// Tests for `foldInFlightOperations`, the generic `ps` operations fold. Each
+// test uses the real `LIVENESS_DESCRIPTORS` registry. The fifth-surface test
+// alone passes a registry override, to show that the fold has no code for one
+// specific surface. The last statement is a type-level use of
+// `getLivenessDescriptor`, and it never runs.
+
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { fc } from '@fast-check/vitest';
 import * as fs from 'node:fs/promises';
@@ -17,17 +23,6 @@ import type { EventType } from '../../../../../src/events/schemas.js';
 import { EventStore } from '../../../../../src/events/store.js';
 import { rmrfAsync } from '../../../../../tools/test-helpers/temp-dir.js';
 import { WORKTREES_STREAM } from '../../../../../src/verbs/worktree/manager.js';
-
-// ─── DR-3 (task 006): generic `ps` operations fold ──────────────────────────
-//
-// `foldInFlightOperations` is driven ENTIRELY by the REAL liveness-registry
-// (`LIVENESS_DESCRIPTORS`, imported — never hand-rolled) — every test below
-// exercises the real registry's real descriptors, real `startType`/
-// `terminalTypes`, and real `instanceKeyOf` derivations. The only exception is
-// the conformance test at the bottom, which passes a caller-supplied registry
-// override to prove the fold itself carries zero surface-specific code — the
-// DR-3 acceptance criterion ("adding a surface to the registry must add it to
-// `ps` with no fold change").
 
 describe('OperationsFold — generic in-flight operations (DR-3)', () => {
   it('OperationsFold_StartedWithoutTerminal_ListedInFlight', () => {
@@ -71,11 +66,8 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(rows).toHaveLength(0);
   });
 
+  /** Both starts use one stream scope and one surface, so only the instance key separates them. */
   it('OperationsFold_ConcurrentSameStreamOps_PairsByInstanceKey', () => {
-    // start A, start B, terminal B → exactly A listed. Both events ride the
-    // SAME stream scope (`worktrees`) and the SAME surface (`launch`) — the
-    // pairing must discriminate purely by instance key, not by ordinal
-    // position or event count.
     const events: OperationEventLike[] = [
       { type: 'launch.executing_started', data: { instanceId: 'A' }, timestamp: '2026-07-13T00:00:00.000Z' },
       { type: 'launch.executing_started', data: { instanceId: 'B' }, timestamp: '2026-07-13T00:00:01.000Z' },
@@ -89,13 +81,8 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(rows[0]?.surface).toBe('launch');
   });
 
+  /** `mutation` is a `feature`-scope surface. It goes through the same loop as a `worktrees`-scope surface. */
   it('OperationsFold_MutationSurface_ListedGenerically', () => {
-    // Proves the fold carries no mutation-specific code: the mutation surface
-    // (a `'feature'`-scope surface, unlike the two `'worktrees'`-scope
-    // surfaces exercised above) flows through the exact same generic
-    // registry-driven loop with no special-casing anywhere in
-    // `operations-fold.ts` — grep the module: there is no `'mutation'`
-    // string literal branch to have hit.
     const events: OperationEventLike[] = [
       {
         type: 'mutation.executing_started',
@@ -128,11 +115,11 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(rows[0]?.startedAt).toBe('2026-07-13T00:00:02.000Z');
   });
 
+  /**
+   * The row has no `instanceId` and no `worktreeId`. `launch` has no singleton fallback, so the
+   * key is `undefined` and the fold skips the row.
+   */
   it('OperationsFold_UnresolvableKey_SkippedNeverThrows', () => {
-    // A `launch` row carrying neither instanceId nor worktreeId — `instanceKeyOf`
-    // returns undefined (launch has no singleton fallback) and the fold must not
-    // throw or list a phantom entry for it. (Mutation now resolves keyless rows
-    // to the DR-2 singleton, so `launch` is the surface that stays unresolvable.)
     const events: OperationEventLike[] = [
       {
         type: 'launch.executing_started',
@@ -145,10 +132,8 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(foldInFlightOperations(events)).toHaveLength(0);
   });
 
+  /** The four surfaces each have one start in one event list. One fold must list all four. */
   it('OperationsFold_EveryRegisteredSurface_ObservableInOneFold', () => {
-    // All four INV-10 surfaces, interleaved in one event list, each with one
-    // in-flight start — the fold's per-descriptor loop must surface every
-    // one of them in a single pass, independently of stream/surface identity.
     const events: OperationEventLike[] = [
       { type: 'merge.executing_started', data: { instanceId: 'M1' }, timestamp: '2026-07-13T00:00:00.000Z' },
       { type: 'launch.executing_started', data: { instanceId: 'L1' }, timestamp: '2026-07-13T00:00:01.000Z' },
@@ -166,41 +151,32 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(rows).toHaveLength(4);
   });
 
-  // ── S-6 regression: cross-stream mis-pairing (finding 1) ───────────────────
-  //
-  // Two feature workflows whose merge `instanceKey` COLLIDES (a recurring taskId
-  // `T11`, or a shared branch pair) must pair PER STREAM. A terminal on
-  // workflow-B's stream may only clear B's in-flight merge — it must NOT clear
-  // workflow-A's genuinely-stuck merge, which would make A vanish from `ps
-  // operations`. This is the exact S-6 failure the feature exists to prevent; a
-  // mutation that drops stream-scoping (pairing by `(surface, instanceKey)`
-  // alone) fails this test.
+  /**
+   * Two feature workflows use the same merge `instanceKey`, and only the merge of `feat-b` ends.
+   * A terminal on one stream must not clear the start on the other stream. The row names the
+   * workflow that is stuck.
+   */
   it('OperationsFold_SameMergeKeyDifferentFeatureStreams_TerminalDoesNotCrossClear', () => {
     const events: OperationEventLike[] = [
-      // feat-a starts a merge with key T11.
       { type: 'merge.executing_started', data: { instanceId: 'T11' }, streamId: 'feat-a', timestamp: '2026-07-13T00:00:00.000Z' },
-      // feat-b starts a merge with the SAME key T11.
       { type: 'merge.executing_started', data: { instanceId: 'T11' }, streamId: 'feat-b', timestamp: '2026-07-13T00:00:01.000Z' },
-      // Only feat-b's merge terminates.
       { type: 'merge.executed', data: { instanceId: 'T11' }, streamId: 'feat-b', timestamp: '2026-07-13T00:00:02.000Z' },
     ];
 
     const rows = foldInFlightOperations(events);
     const merges = rows.filter((r) => r.surface === 'merge');
 
-    // feat-a's T11 merge is STILL in flight; feat-b's was cleared.
     expect(merges).toHaveLength(1);
     expect(merges[0]?.instanceKey).toBe('T11');
     expect(merges[0]?.streamId).toBe('feat-a');
-    // The row names the stuck workflow so a consumer can answer "which is stuck?".
     expect(merges[0]?.featureId).toBe('feat-a');
   });
 
+  /**
+   * `launch` uses the shared `worktrees` stream, so two instances on that stream pair by key alone.
+   * A `worktrees`-scope row has no `featureId`.
+   */
   it('OperationsFold_WorktreesScope_SameKeyOneStream_PairsByKeyAcrossInstances', () => {
-    // The dual of the S-6 case: launch is `worktrees`-scoped (one shared
-    // singleton stream), so cross-instance concurrency on that one stream is
-    // NORMAL and pairs by key alone. A `featureId` is never attributed to a
-    // worktrees-scoped op (it names no workflow).
     const events: OperationEventLike[] = [
       { type: 'launch.executing_started', data: { instanceId: 'wt-A' }, streamId: 'worktrees', timestamp: '2026-07-13T00:00:00.000Z' },
       { type: 'launch.executing_started', data: { instanceId: 'wt-B' }, streamId: 'worktrees', timestamp: '2026-07-13T00:00:01.000Z' },
@@ -215,22 +191,11 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(launches[0]?.featureId).toBeUndefined();
   });
 
-  // ── Property test (state-machine): pairing correctness over arbitrary
-  //    start/terminal/surface/STREAM interleavings (finding 2) ─────────────
-  //
-  // An independent reference model — a plain `Set<string>` of compound keys,
-  // mutated by the same start-adds/terminal-removes rule the registry documents
-  // — is compared against `foldInFlightOperations` over hundreds of randomly
-  // generated event sequences spanning ALL FOUR surfaces, a small key alphabet,
-  // AND a stream dimension. It proves three isolations at once:
-  //   • cross-surface: a `launch` START for `'A'` is never cleared by a `merge`
-  //     TERMINAL for the same literal `'A'`;
-  //   • cross-stream (the S-6 property): a `feature`-scoped START for `'A'` on
-  //     stream `s1` is never cleared by a TERMINAL for `'A'` on stream `s2`;
-  //   • singleton-stream collapse: a `worktrees`-scoped surface pairs by key
-  //     alone, so the stream dimension is IGNORED for it (concurrent ops on the
-  //     one shared stream is the normal case).
-  // The reference model's compound key mirrors that scope-dependent rule exactly.
+  /**
+   * The reference model is a set of compound keys. A start adds a key and a terminal removes it.
+   * A `feature`-scope surface keys on the stream and the instance key. A `worktrees`-scope surface
+   * keys on the instance key alone. The model reads only `surface` and `streamScope` from the registry.
+   */
   it('OperationsFold_InFlightListing_MatchesReferenceModelOverArbitraryStreamInterleavings', () => {
     const keyAlphabet = ['A', 'B', 'C'] as const;
     const streamAlphabet = ['s1', 's2'] as const;
@@ -241,8 +206,6 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
       stream: fc.constantFrom(...streamAlphabet),
     });
 
-    // The reference model's identity for an instance: feature-scoped surfaces
-    // are per-(stream,key); worktrees-scoped surfaces are per-key (stream elided).
     const refId = (surfaceIndex: number, stream: string, key: string): string => {
       const descriptor = LIVENESS_DESCRIPTORS[surfaceIndex];
       return descriptor.streamScope === 'feature'
@@ -270,7 +233,6 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
           }),
         );
 
-        // Reference model: independent from the implementation under test.
         const expected = new Set<string>();
         for (const { surfaceIndex, op, key, stream } of ops) {
           const id = refId(surfaceIndex, stream, key);
@@ -284,11 +246,8 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     );
   });
 
+  /** A fixed case of the property test: two `mutation` starts share one key on two feature streams, and one ends. */
   it('OperationsFold_FeatureSurface_SameKeyDistinctStreams_PairIndependently', () => {
-    // A focused witness of the cross-stream property the generator explores:
-    // two mutation starts for key `'K'` on different feature streams, one
-    // terminated, leaves exactly the other in flight (same-key/different-stream
-    // feature ops pair independently — finding 2).
     const events: OperationEventLike[] = [
       { type: 'mutation.executing_started', data: { instanceId: 'K' }, streamId: 'feat-a', timestamp: '2026-07-13T00:00:00.000Z' },
       { type: 'mutation.executing_started', data: { instanceId: 'K' }, streamId: 'feat-b', timestamp: '2026-07-13T00:00:01.000Z' },
@@ -300,17 +259,10 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(rows[0]?.instanceKey).toBe('K');
   });
 
-  // ── DR-3 acceptance criterion: a hypothetical fifth surface requires ZERO
-  //    fold change ──────────────────────────────────────────────────────
-  //
-  // `foldInFlightOperations` accepts an optional `registry` override
-  // precisely so this conformance test can prove genericity: a descriptor
-  // for a surface that does NOT exist in the real registry (a synthetic
-  // `'deploy'` surface, standing in for "whatever task 004+N adds next") is
-  // paired and surfaced correctly with no code change to
-  // `operations-fold.ts` — only the caller-supplied descriptor list grew.
-  // Production callers never pass this option; it defaults to the real
-  // `LIVENESS_DESCRIPTORS`.
+  /**
+   * The `registry` option adds a `deploy` descriptor that the real registry does not hold. The fold
+   * lists its start with no change to the fold. A real `merge` pair in the same list still pairs.
+   */
   it('OperationsFold_HypotheticalFifthSurface_RequiresNoFoldChange', () => {
     const syntheticDescriptor: LivenessDescriptor = {
       surface: 'deploy' as unknown as LivenessDescriptor['surface'],
@@ -329,8 +281,6 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
         data: { instanceId: 'D1' },
         timestamp: '2026-07-13T00:00:00.000Z',
       },
-      // A real, registered surface stays correctly paired alongside the
-      // synthetic one — proves the fold treats every descriptor uniformly.
       { type: 'merge.executing_started', data: { instanceId: 'M1' }, timestamp: '2026-07-13T00:00:00.000Z' },
       { type: 'merge.executed', data: { instanceId: 'M1' }, timestamp: '2026-07-13T00:00:01.000Z' },
     ];
@@ -341,14 +291,7 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     expect(rows[0]).toMatchObject({ surface: 'deploy', instanceKey: 'D1' });
   });
 
-  // ── Boundary: real registry + a REAL event store (not hand-mocked) ──────
-  //
-  // Every test above hand-builds `OperationEventLike` literals (matching the
-  // sibling `liveness-registry.test.ts` convention) but always against the
-  // REAL imported registry. This test additionally routes events through a
-  // REAL `EventStore` (append → query → fold) so the fold is proven against
-  // genuine store-backed `WorkflowEvent` rows, not just literals shaped by
-  // hand.
+  /** The events go through a real `EventStore` (append, query, fold), so the fold reads stored `WorkflowEvent` rows. */
   describe('real EventStore boundary', () => {
     let tmpDir: string;
     let store: EventStore;
@@ -367,7 +310,6 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
     it('OperationsFold_RealEventStoreEvents_MatchesGenericFold', async () => {
       const featureStream = 'feat-ops-fold-boundary';
 
-      // `merge` and `mutation` ride the feature stream.
       await store.append(featureStream, {
         type: 'merge.executing_started',
         data: {
@@ -394,7 +336,6 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
         },
       });
 
-      // `launch` and `prune` ride the singleton worktrees stream.
       await store.append(WORKTREES_STREAM, {
         type: 'launch.executing_started',
         data: { worktreeId: '/wt/a', holderPid: 4242, holderStartedAt: null, instanceId: '/wt/a' },
@@ -415,9 +356,6 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
       const rows = foldInFlightOperations(merged);
       const bySurface = new Map(rows.map((r) => [r.surface, r.instanceKey]));
 
-      // merge (in flight — no terminal) and launch (in flight — no terminal)
-      // are listed; mutation and prune both reached a terminal and are
-      // excluded.
       expect(bySurface.get('merge')).toBe('T1');
       expect(bySurface.get('launch')).toBe('/wt/a');
       expect(bySurface.has('mutation')).toBe(false);
@@ -427,7 +365,6 @@ describe('OperationsFold — generic in-flight operations (DR-3)', () => {
   });
 });
 
-// ── Type-level guard: LIVENESS_DESCRIPTORS export shape stays stable ───────
 void ((): void => {
   const _ = getLivenessDescriptor('merge');
   void _;

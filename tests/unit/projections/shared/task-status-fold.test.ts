@@ -1,15 +1,9 @@
 /**
- * Co-located tests for the shared monotonic task-status fold helper.
+ * Tests for the shared monotonic task-status fold.
  *
- * Sentry follow-up on PR #1394 (`task-status-fold.ts:58`): the workflow-side
- * `TaskStatusSchema` carries a `z.preprocess` mapping the legacy
- * `'completed'` literal to the canonical `'complete'`, but
- * `state.patched` events emitted by `handleSet` do NOT route their
- * `input.updates` through that schema. Historical events with
- * `status: 'completed'` therefore arrive at the projections unchanged.
- * Without the same legacy-mapping inside `normalizeTaskStatus`, those
- * tasks would silently downgrade to `pending`, breaking
- * taskCount/completedCount and risking re-dispatch of finished work.
+ * `state.patched` events from `handleSet` skip the `TaskStatusSchema` preprocess, so old events
+ * keep the legacy status words. `normalizeTaskStatus` must map those words. If it does not, the
+ * tasks fall back to `pending` and the task counts go wrong.
  */
 
 import { describe, it, expect } from 'vitest';
@@ -29,20 +23,13 @@ describe('normalizeTaskStatus', () => {
     expect(normalizeTaskStatus('failed')).toBe('failed');
   });
 
+  /** The legacy `'completed'` maps to `complete`, the same as the `TaskStatusSchema` preprocess. */
   it('NormalizeTaskStatus_LegacyCompleted_MapsToComplete', () => {
-    // Pre-#1359 corpus emits `state.patched { patch: { tasks: [{status: "completed"}] } }`.
-    // The legacy literal must promote to the canonical `complete`, not
-    // silently downgrade to `pending` (which would re-dispatch finished
-    // work). Mirrors the `TaskStatusSchema` `z.preprocess` mapping.
     expect(normalizeTaskStatus('completed')).toBe('complete');
   });
 
+  /** The legacy `'assigned'` maps to `in_progress`, the same as `upgradeRehydrationDocumentV3toV4`. */
   it('NormalizeTaskStatus_LegacyAssigned_MapsToInProgress', () => {
-    // Pre-#1359 corpus emits `state.patched { patch: { tasks: [{status: "assigned"}] } }`.
-    // The legacy `'assigned'` literal must promote to `'in_progress'`,
-    // not silently downgrade to `'pending'` (which would re-dispatch
-    // work already in flight). Mirrors `upgradeRehydrationDocumentV3toV4`'s
-    // `'assigned' → 'in_progress'` rename (#1359 / PR4 T12).
     expect(normalizeTaskStatus('assigned')).toBe('in_progress');
   });
 
@@ -56,10 +43,6 @@ describe('normalizeTaskStatus', () => {
 
 describe('extractPlanTasksFromPatch (legacy status carrier)', () => {
   it('ExtractPlanTasks_LegacyCompletedStatus_MapsToCanonicalComplete', () => {
-    // Simulates a pre-#1359 `state.patched` payload containing the
-    // legacy literal. The extracted task must surface the canonical
-    // `complete` so downstream rankOf/promoteStatus treats it as
-    // terminal.
     const extracted = extractPlanTasksFromPatch({
       patch: {
         tasks: [
@@ -79,11 +62,8 @@ describe('extractPlanTasksFromPatch (legacy status carrier)', () => {
 });
 
 describe('promoteStatus + rankOf (monotonic ladder)', () => {
+  /** The legacy `'completed'` normalizes to `complete`, which has a higher rank than `in_progress`. */
   it('PromoteStatus_LegacyCompletedFold_MonotonicallyPromotesFromInProgress', () => {
-    // The historical projection scenario: an in_progress task is
-    // re-asserted via state.patched with the legacy `'completed'`.
-    // After normalization, promoteStatus must advance the entry to
-    // `complete` (rank 2 > rank 1).
     const initial: Record<string, string> = { 'T-001': 'in_progress' };
     const next = promoteStatus(initial, 'T-001', normalizeTaskStatus('completed'));
     expect(next['T-001']).toBe('complete');
@@ -91,8 +71,6 @@ describe('promoteStatus + rankOf (monotonic ladder)', () => {
   });
 
   it('PromoteStatus_TerminalNeverRegresses', () => {
-    // Once `complete`, a subsequent `pending` assertion must not
-    // regress the entry — the precedence ladder is monotonic.
     const initial: Record<string, string> = { 'T-001': 'complete' };
     const next = promoteStatus(initial, 'T-001', 'pending');
     expect(next['T-001']).toBe('complete');

@@ -145,12 +145,10 @@ describe('DelegationTimelineView', () => {
       expect(state.totalDurationMs).toBe(600000);
     });
 
-    // ─── T18: Cap delegation timeline tasks array ──────────────────────
-
+    /** 210 assignments exceed `MAX_TIMELINE_TASKS` (200), so the projection evicts the 10 oldest tasks. */
     it('Apply_TeamTaskAssigned_ExceedsMaxTasks_EvictsOldest', () => {
       let state = delegationTimelineProjection.init();
 
-      // Assign 210 tasks (exceeds MAX_TIMELINE_TASKS = 200)
       for (let i = 0; i < 210; i++) {
         state = delegationTimelineProjection.apply(
           state,
@@ -163,19 +161,15 @@ describe('DelegationTimelineView', () => {
         );
       }
 
-      // Should be capped at 200
       expect(state.tasks).toHaveLength(200);
-      // Oldest (task-0 through task-9) should be evicted
       expect(state.tasks[0].taskId).toBe('task-10');
       expect(state.tasks[199].taskId).toBe('task-209');
     });
 
-    // ─── T20: hasMore indicator for delegation timeline ──────────────
-
+    /** `hasMore` stays false at exactly 200 tasks. The next assignment evicts one task and sets it. */
     it('ViewState_HasEvicted_HasMoreIsTrue', () => {
       let state = delegationTimelineProjection.init();
 
-      // Under the limit — no eviction
       for (let i = 0; i < 200; i++) {
         state = delegationTimelineProjection.apply(
           state,
@@ -189,7 +183,6 @@ describe('DelegationTimelineView', () => {
       }
       expect(state.hasMore).toBe(false);
 
-      // One more pushes over the limit
       state = delegationTimelineProjection.apply(
         state,
         makeEvent('team.task.assigned', {
@@ -206,7 +199,6 @@ describe('DelegationTimelineView', () => {
     it('apply_MultipleCompleted_IdentifiesBottleneck', () => {
       let state = delegationTimelineProjection.init();
 
-      // Assign 3 tasks
       const tasks = [
         { taskId: 'task-1', duration: 1000 },
         { taskId: 'task-2', duration: 5000 },
@@ -224,7 +216,6 @@ describe('DelegationTimelineView', () => {
         seq++;
       }
 
-      // Complete all 3 tasks with varying durations
       for (const t of tasks) {
         state = delegationTimelineProjection.apply(state, makeEvent('team.task.completed', {
           taskId: t.taskId,
@@ -243,16 +234,15 @@ describe('DelegationTimelineView', () => {
       expect(state.bottleneck!.reason).toBe('longest_task');
     });
 
+    /** The event has no `worktreePath` and no `modules`, so the schema parse rejects it. */
     it('Apply_TeamTaskAssigned_InvalidSchema_ReturnsViewUnchanged', () => {
       const state = delegationTimelineProjection.init();
-      // Missing worktreePath and modules — should fail schema validation
       const event = makeEvent('team.task.assigned', {
         taskId: 'task-1',
         teammateName: 'worker-1',
       }, 1);
 
       const next = delegationTimelineProjection.apply(state, event);
-      // With safeParse, incomplete data should be rejected
       expect(next.tasks).toHaveLength(0);
       expect(next).toEqual(state);
     });
@@ -275,10 +265,13 @@ describe('DelegationTimelineView', () => {
       expect(next.tasks[0].assignedAt).toBe(ts);
     });
 
+    /**
+     * The first task completes with a long duration and becomes the bottleneck.
+     * 209 more assignments pass the cap of 200 and evict that task, so the bottleneck must become null.
+     */
     it('Apply_TaskEviction_BottleneckEvicted_BottleneckResetToNull', () => {
       let state = delegationTimelineProjection.init();
 
-      // Assign and complete task-0 so it becomes the bottleneck (long duration)
       state = delegationTimelineProjection.apply(
         state,
         makeEvent('team.task.assigned', {
@@ -300,11 +293,8 @@ describe('DelegationTimelineView', () => {
         }, 2),
       );
 
-      // task-0 should now be the bottleneck
       expect(state.bottleneck?.taskId).toBe('task-0');
 
-      // Assign tasks 1 through 209 — once we exceed MAX_TIMELINE_TASKS (200),
-      // task-0 (the current bottleneck) will be evicted from the bounded array
       for (let i = 1; i <= 209; i++) {
         state = delegationTimelineProjection.apply(
           state,
@@ -317,17 +307,13 @@ describe('DelegationTimelineView', () => {
         );
       }
 
-      // 210 total tasks assigned → capped at 200, task-0 through task-9 evicted
       expect(state.tasks).toHaveLength(200);
       expect(state.tasks[0].taskId).toBe('task-10');
       expect(state.hasMore).toBe(true);
 
-      // bottleneck referenced task-0 which was evicted — must be reset to null
       expect(state.bottleneck).toBeNull();
     });
   });
-
-  // ─── H1-D (#1525): subagent.tokens_used per-task fold ──────────────────────
 
   describe('apply - subagent.tokens_used', () => {
     it('DelegationTimeline_PerTask_CarriesTokenTotals', () => {

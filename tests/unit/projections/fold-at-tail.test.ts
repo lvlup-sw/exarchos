@@ -1,30 +1,11 @@
-// ─── #1855: a read establishes its own tail coverage ────────────────────────
-//
-// ## The defect these tests pin
-//
-// `assessStreamFreshness` required EVERY cached fold of a stream to sit exactly
-// on the durable tail. A read advances exactly ONE. The two are incompatible
-// the moment a stream has more than one cached fold, and `workflow-state` made
-// it terminal: orchestrate verbs and gates fold it into the shared view
-// materializer, and no `exarchos_view` action folds it, so no view read could
-// restore agreement — while the view surface was the only publisher of
-// `projection.recovered`. `workflow get` and four orchestrate actions stayed
-// refused across processes and restarts on a lag of ONE event, and the
-// `suggestedFix` named the call that had just failed.
-//
-// ## What replaced it
-//
-// Every projection-derived read folds its own view to the stream's durable tail
-// before answering (`projections/fold-at-tail.ts`). Behind is folded forward;
-// ahead is discarded and replayed from the log. `PROJECTION_DEGRADED` now means
-// undecidable — a fold that finished short of the tail it was pinned against —
-// and nothing else.
-//
-// ## No mocked readers
-//
-// Every case drives a REAL `EventStore` on a real temp dir, through the REAL
-// composite handlers. Faults are injected by rewinding an actual materialized
-// cursor (`loadState`), never by stubbing a freshness reader.
+/**
+ * Each read that answers from a projection folds its own view to the durable tail first.
+ * A fold behind the tail folds forward. A fold ahead of the tail is discarded and replayed from the log.
+ * `PROJECTION_DEGRADED` means only that a fold ended short of its pinned tail.
+ *
+ * No test mocks a reader. Each test uses a real `EventStore` in a temporary directory and the composite handlers.
+ * A test injects a fault with `loadState`, which rewinds a materialized cursor.
+ */
 
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -55,14 +36,8 @@ import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 type WorkflowStatusLike = Record<string, unknown>;
 
 /**
- * A store that lets one event land in the window between the tail pin and the
- * fold's query — the window a concurrent writer actually occupies.
- *
- * Without it these guarantees cannot be tested at all: a single-threaded fold
- * queries microseconds after it pins, so the bound never has anything to
- * exclude and the assertions hold for the wrong reason. Removing the bound from
- * the seam leaves such a test green, which is the definition of a test that
- * cannot fail.
+ * A store that appends one event between the tail pin and a query of the fold, as a concurrent writer does.
+ * Without that event the bound has nothing to exclude, and a test stays green when the bound is removed.
  */
 class RacingEventStore extends EventStore {
   private queries = 0;
@@ -127,11 +102,7 @@ async function seedWorkflow(): Promise<void> {
   expect(init.success, `seed init failed: ${JSON.stringify(init.error)}`).toBe(true);
 }
 
-/**
- * The exact shape of #1855: a verb folds `workflow-state` into the SHARED view
- * materializer, then the stream keeps appending. Before the fix this made every
- * subsequent read of the stream refuse, on any view, forever.
- */
+/** Folds `workflow-state` into the shared view materializer, then appends events so that fold lags the tail. */
 async function foldWorkflowStateThenAppend(appends: number): Promise<void> {
   const materializer = getOrCreateMaterializer(stateDir);
   await foldToTail<WorkflowStateView>(store, materializer, STREAM, WORKFLOW_STATE_VIEW);
@@ -141,26 +112,22 @@ async function foldWorkflowStateThenAppend(appends: number): Promise<void> {
 }
 
 describe('#1855 — the wedge', () => {
+  /** The `workflow-state` fold is one event behind, and the `workflow_status` read does not use that fold. */
   it('FoldAtTail_StaleSiblingFold_DoesNotRefuseAnUnrelatedViewRead', async () => {
     await seedWorkflow();
     await foldWorkflowStateThenAppend(1);
 
-    // A single event behind a fold NOTHING in this read touches. This is the
-    // reported case verbatim: `convergence` refused with
-    // `staleViews: ["workflow-state"]` at lag 1.
     const result = await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
 
     expect(result.error?.code, JSON.stringify(result.error)).not.toBe('PROJECTION_DEGRADED');
     expect(result.success).toBe(true);
   });
 
+  /** An append lands before each attempt, so the lag never drains. Each read must still answer. */
   it('FoldAtTail_RepeatedReadsOnAnAppendingStream_AllSucceed', async () => {
     await seedWorkflow();
     await foldWorkflowStateThenAppend(1);
 
-    // The reported loop: each refusal window was long enough for more events to
-    // land, so retrying the refusing read never drained the lag. Append between
-    // every attempt and every attempt must still answer.
     for (let attempt = 0; attempt < 3; attempt++) {
       await store.append(STREAM, { type: 'task.progressed', data: { attempt } });
       const result = await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
@@ -178,13 +145,13 @@ describe('#1855 — the wedge', () => {
     expect(result.success).toBe(true);
   });
 
+  /**
+   * The durable marker holds numbers that do not match this store. It is an observation at one time.
+   * A read that proves its own coverage must not defer to the marker, and a view read clears it.
+   */
   it('FoldAtTail_FabricatedDegradedMarker_DoesNotWedgeAHealthyStream', async () => {
     await seedWorkflow();
 
-    // A durable marker whose numbers bear no relation to this store — the
-    // sticky-latch shape. It is a point-in-time observation, not a current fact
-    // about the stream, and a read that can prove its own coverage must not
-    // defer to it.
     await store.append(PROJECTION_HEALTH_STREAM_ID, {
       type: PROJECTION_DEGRADED_EVENT_TYPE,
       data: {
@@ -201,8 +168,6 @@ describe('#1855 — the wedge', () => {
     const get = await handleWorkflow({ action: 'get', featureId: STREAM }, ctx);
     expect(get.success, JSON.stringify(get.error)).toBe(true);
 
-    // …and a view read clears the spent observation, so the journal records live
-    // conditions rather than latching.
     const view = await handleView({ action: 'workflow_status', workflowId: STREAM }, ctx);
     expect(view.success).toBe(true);
     expect(await readProjectionDegradedState(store, STREAM)).toBeUndefined();
@@ -210,14 +175,14 @@ describe('#1855 — the wedge', () => {
 });
 
 describe('#1855 — a read never answers from a fold behind the tail', () => {
+  /**
+   * The test warms a fold, rewinds its cursor to 1, then moves the stream.
+   * The assertion is on the answer: the phase at the tail.
+   */
   it('FoldAtTail_RewoundFold_AnswersFromTheTailNotFromTheStaleFold', async () => {
     await seedWorkflow();
     const materializer = getOrCreateMaterializer(stateDir);
 
-    // Warm a real fold, then rewind its cursor and let the stream move — a
-    // genuinely stale fold, injected for real. The old contract detected this
-    // and refused.
-    // The stronger claim is that the ANSWER is right, so assert the answer.
     const warm = await foldToTail<WorkflowStateView>(store, materializer, STREAM, WORKFLOW_STATE_VIEW);
     const rewound = materializer.getState<WorkflowStateView>(STREAM, WORKFLOW_STATE_VIEW);
     expect(rewound, 'the fault needs a real materialized fold').toBeDefined();
@@ -246,6 +211,10 @@ describe('#1855 — a read never answers from a fold behind the tail', () => {
     );
   });
 
+  /**
+   * The cursor is past the tail and the payload is corrupt (`projection-ahead`).
+   * A re-fold filtered by the high-water mark applies no event, so the fold must be discarded and replayed.
+   */
   it('FoldAtTail_ContradictoryFold_IsDiscardedAndReplayedFromTheLog', async () => {
     await seedWorkflow();
     const materializer = getOrCreateMaterializer(stateDir);
@@ -253,9 +222,6 @@ describe('#1855 — a read never answers from a fold behind the tail', () => {
     const warm = await foldToTail<WorkflowStateView>(store, materializer, STREAM, WORKFLOW_STATE_VIEW);
     const tail = await store.tailSequence(STREAM);
 
-    // `projection-ahead`: a cursor past the tail, with a corrupted payload. A
-    // hwm-filtered re-fold cannot heal this — every event sits below the cursor
-    // — so the fold must be DISCARDED and replayed from the log.
     materializer.loadState(
       STREAM,
       WORKFLOW_STATE_VIEW,
@@ -285,11 +251,13 @@ describe('#1855 — a read never answers from a fold behind the tail', () => {
     expect(folded.repaired).toBeUndefined();
   });
 
+  /**
+   * A caller bounds its own evidence to the reported sequence.
+   * The emissions gate reads the phase from the fold, then filters the raw events to that sequence.
+   * A fold past its pin makes the two parts describe different states of the stream.
+   * The raced event moves the tail, and the fold still answers for the pinned sequence.
+   */
   it('FoldAtTail_AppendLandsMidFold_SequenceStaysOnThePinnedTail', async () => {
-    // The reported sequence is what callers bound their own evidence to — the
-    // emissions gate reads the phase from the fold and then filters raw events
-    // to that sequence. A fold that ran past its own pin would make those two
-    // halves describe different states of the stream.
     await seedWorkflow();
     const racing = new RacingEventStore(stateDir, 1, STREAM);
     await racing.initialize();
@@ -304,25 +272,22 @@ describe('#1855 — a read never answers from a fold behind the tail', () => {
         WORKFLOW_STATE_VIEW,
       );
 
-      // The raced event is real and the tail really did move…
       expect(await racing.tailSequence(STREAM)).toBeGreaterThan(pinned);
-      // …and the fold still answers for the sequence it pinned.
       expect(folded.sequence).toBe(pinned);
     } finally {
       racing.close();
     }
   });
 
+  /**
+   * Two separate folds pin two tails, so a combined read can describe a state that the stream never had.
+   * The attribution and correlation views combine two folds in this way.
+   * The store appends an event between the two folds, and both views must stay at the one pinned sequence.
+   */
   it('FoldPairToTail_TwoViews_ShareOneSequence', async () => {
-    // Two independent folds pin two tails, so a read that COMBINES them can
-    // describe a state the stream was never in: one view holding an event the
-    // other has not seen. The attribution and correlation views do exactly that
-    // combining.
     await seedWorkflow();
     const materializer = getOrCreateMaterializer(stateDir);
 
-    // Race an append into the window BETWEEN the two folds. Two independent
-    // pins would put the second view a sequence ahead of the first.
     const racing = new RacingEventStore(stateDir, 2, STREAM);
     await racing.initialize();
     try {
@@ -355,18 +320,11 @@ describe('#1855 — a read never answers from a fold behind the tail', () => {
 });
 
 describe('#1855 — a committed mutation is never reported as a failure', () => {
+  /**
+   * `update` must report a committed write as a success when the store claims a tail that the log cannot produce.
+   * A healthy read then sees the write.
+   */
   it('WorkflowUpdate_CoverageUnprovable_StillReportsTheCommittedWrite', async () => {
-    // `handleSet` refreshes `<featureId>.state.json` AFTER its events are
-    // durable. A coverage failure in that refresh used to reject the whole
-    // call, so a caller saw `INTERNAL_ERROR` for a write that had landed — and
-    // would reasonably retry it.
-    //
-    // The snapshot path is gated on a CONFIGURED workflow materializer, and
-    // nothing in `src/` calls `configureWorkflowMaterializer`, so the path is
-    // dark in the shipped composition today. Without this wiring the test
-    // passes whether or not the fix is present — it never reaches the fold.
-    // Configuring it here is what makes the assertion mean something, and the
-    // reachability gap itself is a separate finding.
     const materializer = new ViewMaterializer();
     materializer.register(WORKFLOW_STATE_VIEW, workflowStateProjection);
 
@@ -386,18 +344,14 @@ describe('#1855 — a committed mutation is never reported as a failure', () => 
       lying.close();
     }
 
-    // …and the write really did land: a healthy read sees it.
     const get = await handleWorkflow({ action: 'get', featureId: STREAM }, ctx);
     expect(get.success, JSON.stringify(get.error)).toBe(true);
     const data = get.data as { riskTier?: string; data?: { riskTier?: string } } | undefined;
     expect(data?.riskTier ?? data?.data?.riskTier).toBe('low');
   });
 
+  /** A read against the same store must throw and not answer. `PROJECTION_DEGRADED` reports exactly this condition. */
   it('FoldAtTail_UnprovableCoverage_ThrowsRatherThanAnswering', async () => {
-    // The negative twin. A READ in the same condition must not answer at all —
-    // that is the one meaning `PROJECTION_DEGRADED` still carries, and it is
-    // what makes the tolerance above a deliberate write-side rule rather than a
-    // blanket swallow.
     await seedWorkflow();
 
     const lying = new UnprovableTailEventStore(stateDir);

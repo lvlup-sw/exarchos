@@ -16,8 +16,6 @@ const makeEvent = (type: string, data: Record<string, unknown>, seq = 1): Workfl
   schemaVersion: '1.0',
 });
 
-// ─── T12: Init ────────────────────────────────────────────────────────────────
-
 describe('CodeQualityView', () => {
   describe('init', () => {
     it('codeQualityProjection_Init_ReturnsEmptyState', () => {
@@ -31,8 +29,6 @@ describe('CodeQualityView', () => {
       });
     });
   });
-
-  // ─── T13: gate.executed handling ──────────────────────────────────────────
 
   describe('apply - gate.executed', () => {
     it('Apply_GateExecuted_Passed_UpdatesGateMetrics', () => {
@@ -108,32 +104,28 @@ describe('CodeQualityView', () => {
     });
   });
 
-  // ─── T14: benchmark.completed handling ────────────────────────────────────
-
-  // ─── The `gate.executed` split (#1898 item 8) ────────────────────────────
-  //
-  // These rows arrived as `gate.executed` keyed by the CI check's name, so every
-  // GitHub check landed in `state.gates` beside the gates this repository runs
-  // itself. The discriminant between the two populations was `layer: 'ci'`, a
-  // string nothing validated and nothing read.
+  /**
+   * A CI check is its own event type, not a `gate.executed` row. A check name can
+   * match the name of a repository gate, so the fold must keep checks out of
+   * `state.gates`.
+   */
   describe('apply - ci.check_observed', () => {
     const observed = (check: string, passed: boolean, seq = 1): WorkflowEvent =>
       makeEvent('ci.check_observed', { pr: 42, check, passed, skill: 'shepherd' }, seq);
 
+    /** The check name is one of the gate names of this repository, so a fold into `state.gates` is visible. */
     it('CodeQuality_CiCheckObserved_NeverEntersTheGateNamespace', () => {
       const state = codeQualityProjection.apply(
         codeQualityProjection.init(),
         observed('static-analysis', false),
       );
 
-      // The check name here is deliberately one of OUR gate names. Before the
-      // split this fold would have written `gates['static-analysis']` with a 0%
-      // pass rate from a GitHub job, and nothing would have reported it.
       expect(state.gates).toEqual({});
       expect(state.models).toEqual({});
       expect(state.regressions).toEqual([]);
     });
 
+    /** The record has no `reason`, so a failed check is a failure category under its own name. */
     it('CodeQuality_CiCheckObserved_KeepsThePerSkillOutcome', () => {
       const fold = (events: readonly WorkflowEvent[]): CodeQualityViewState =>
         events.reduce(
@@ -150,8 +142,6 @@ describe('CodeQualityView', () => {
       const shepherd = state.skills['shepherd'];
       expect(shepherd?.totalExecutions).toBe(3);
       expect(shepherd?.gatePassRate).toBeCloseTo(2 / 3);
-      // A failing check is categorized by its own name — there is no `reason`
-      // on this record and inventing one would be worse than naming the check.
       expect(shepherd?.topFailureCategories).toEqual([{ category: 'ci/test', count: 1 }]);
     });
 
@@ -187,10 +177,10 @@ describe('CodeQualityView', () => {
       expect(next.benchmarks[0].values[0].value).toBe(42);
     });
 
+    /** Lower latency is better, so three falling values give `improving`. */
     it('Apply_BenchmarkCompleted_UpdatesTrendDirection', () => {
       let state = codeQualityProjection.init();
 
-      // Three improving values (decreasing latency)
       for (let i = 1; i <= 3; i++) {
         state = codeQualityProjection.apply(state, makeEvent('benchmark.completed', {
           taskId: `task-${i}`,
@@ -212,8 +202,6 @@ describe('CodeQualityView', () => {
       expect(trend!.trend).toBe('improving');
     });
   });
-
-  // ─── T15: Regression detection ────────────────────────────────────────────
 
   describe('apply - regression detection', () => {
     it('Apply_ThreeConsecutiveGateFailures_CreatesRegression', () => {
@@ -237,10 +225,10 @@ describe('CodeQualityView', () => {
       expect(state.regressions[0].lastFailureCommit).toBe('commit-3');
     });
 
+    /** Two failures, one pass, then two failures. No run of three failures occurs, so there is no regression. */
     it('Apply_GatePass_ResetsFailureCounter', () => {
       let state = codeQualityProjection.init();
 
-      // Two failures
       for (let i = 1; i <= 2; i++) {
         state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
           gateName: 'typecheck',
@@ -251,7 +239,6 @@ describe('CodeQualityView', () => {
         }, i));
       }
 
-      // One pass resets
       state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
         gateName: 'typecheck',
         layer: 'build',
@@ -260,7 +247,6 @@ describe('CodeQualityView', () => {
         details: { skill: 'delegation' },
       }, 3));
 
-      // Two more failures should NOT trigger regression (only 2, not 3)
       for (let i = 4; i <= 5; i++) {
         state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
           gateName: 'typecheck',
@@ -274,8 +260,6 @@ describe('CodeQualityView', () => {
       expect(state.regressions).toHaveLength(0);
     });
   });
-
-  // ─── Per-model attribution ──────────────────────────────────────────────
 
   describe('apply - per-model attribution', () => {
     it('Apply_GateExecuted_WithModel_UpdatesModelMetrics', () => {
@@ -339,8 +323,6 @@ describe('CodeQualityView', () => {
     });
   });
 
-  // ─── topFailureCategories population ────────────────────────────────────
-
   describe('apply - topFailureCategories', () => {
     it('CodeQualityView_GateFailedWithReason_PopulatesTopFailureCategories', () => {
       const state = codeQualityProjection.init();
@@ -361,7 +343,6 @@ describe('CodeQualityView', () => {
     it('CodeQualityView_MultipleFailureReasons_SortedByCount', () => {
       let state = codeQualityProjection.init();
 
-      // Add 'TS2345' twice
       for (let i = 1; i <= 2; i++) {
         state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
           gateName: 'typecheck',
@@ -372,7 +353,6 @@ describe('CodeQualityView', () => {
         }, i));
       }
 
-      // Add 'TS1234' three times
       for (let i = 3; i <= 5; i++) {
         state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
           gateName: 'typecheck',
@@ -392,7 +372,6 @@ describe('CodeQualityView', () => {
       let state = codeQualityProjection.init();
       let seq = 1;
 
-      // Add 12 distinct categories, each with count = 1
       for (let i = 1; i <= 12; i++) {
         state = codeQualityProjection.apply(state, makeEvent('gate.executed', {
           gateName: 'typecheck',
@@ -455,8 +434,6 @@ describe('CodeQualityView', () => {
       ]);
     });
   });
-
-  // ─── remediation.succeeded handling ───────────────────────────────────────
 
   describe('apply - remediation.succeeded', () => {
     it('CodeQualityView_RemediationSucceeded_UpdatesSelfCorrectionRate', () => {
@@ -570,8 +547,6 @@ describe('CodeQualityView', () => {
     });
   });
 
-  // ─── Property-based tests for remediation.succeeded ─────────────────────
-
   describe('apply - remediation.succeeded (property-based)', () => {
     fcTest.prop([
       fc.integer({ min: 1, max: 50 }),
@@ -613,8 +588,6 @@ describe('CodeQualityView', () => {
     });
   });
 
-  // ─── T16: Unrelated events ────────────────────────────────────────────────
-
   describe('apply - unrelated events', () => {
     it('Apply_UnrelatedEvent_ReturnsViewUnchanged', () => {
       const state = codeQualityProjection.init();
@@ -644,8 +617,6 @@ describe('CodeQualityView', () => {
   });
 });
 
-// ─── W2-6 (#1525): per-skill mutation-score trend ───────────────────────────
-
 describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
   const mutationGate = (
     skill: string,
@@ -664,6 +635,7 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
       seq,
     );
 
+  /** A higher mutation score is better, so a rising series gives `improving`. This is the inverse of the latency trend. */
   it('CodeQuality_FoldsMutationScore_ExposesPerSkillTrend', () => {
     let state: CodeQualityViewState = codeQualityProjection.init();
     const scores = [0.5, 0.6, 0.72];
@@ -673,10 +645,8 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
 
     const skill = state.skills['delegation'];
     expect(skill).toBeDefined();
-    // Ordered samples folded as a left-fold trend (mirrors BenchmarkTrend; INV-1, no side table).
     expect(skill.mutationScoreTrend).toBeDefined();
     expect(skill.mutationScoreTrend!.values.map((v) => v.value)).toEqual([0.5, 0.6, 0.72]);
-    // Rising mutation score = improving (higher-is-better — inverse of the latency trend).
     expect(skill.mutationScoreTrend!.trend).toBe('improving');
   });
 
@@ -691,7 +661,6 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
 
   it('CodeQuality_GateWithoutMutationScore_LeavesTrendUntouched', () => {
     let state: CodeQualityViewState = codeQualityProjection.init();
-    // A non-mutation gate for the same skill must not create or append a mutation trend.
     state = codeQualityProjection.apply(
       state,
       makeEvent('gate.executed', {
@@ -706,11 +675,11 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
     expect(state.skills['delegation'].mutationScoreTrend).toBeUndefined();
   });
 
+  /**
+   * Only the `mutation-adequacy` gate feeds the trend. The fold checks `gateName`,
+   * so a numeric `mutationScore` from another gate has no effect.
+   */
   it('CodeQuality_NonMutationGateWithNumericMutationScore_IsIgnored', () => {
-    // Defensive (#1560): only the mutation-adequacy gate may feed the trend.
-    // Even if another gate ever carries a numeric `mutationScore` in details,
-    // the fold is gated on gateName — not the mere presence of a numeric field —
-    // so it must not contaminate the per-skill trend.
     let state: CodeQualityViewState = codeQualityProjection.init();
     state = codeQualityProjection.apply(
       state,
@@ -727,18 +696,12 @@ describe('CodeQualityView - mutation-score trend (W2-6, #1525)', () => {
   });
 });
 
-// ─── The internal trackers must survive every fold step ──────────────────────
-//
-// `_failureTrackers` and `_remediationCounts` are stored NON-ENUMERABLE, so they
-// stay out of `toEqual` and `JSON.stringify` while still riding the apply()
-// chain. That also puts them out of reach of the ordinary spread a handler
-// reaches for first, and losing them is silent: the counters restart mid-stream,
-// the public shape does not change, and every later verdict is computed from a
-// history that was truncated without saying so.
-//
-// These cover the property directly. Finding it by symptom costs a regression
-// that is never reported.
-
+/**
+ * `_failureTrackers` and `_remediationCounts` are non-enumerable, so `toEqual` and
+ * `JSON.stringify` do not see them. An object spread in a handler also drops them,
+ * with no error: the counters restart and the public shape stays the same. These
+ * tests cover that property directly.
+ */
 describe('CodeQualityView - internal trackers survive the fold', () => {
   const fold = (events: readonly WorkflowEvent[]): CodeQualityViewState =>
     events.reduce(
@@ -768,10 +731,11 @@ describe('CodeQualityView - internal trackers survive the fold', () => {
   const hidden = (view: CodeQualityViewState, key: string): unknown =>
     Object.getOwnPropertyDescriptor(view, key)?.value;
 
-  // Regression detection fires on the THIRD consecutive failure of one
-  // gate+skill. An observation folded between the second and the third reset the
-  // counter, so the third failure counted as the first and the regression was
-  // never raised at all.
+  /**
+   * Regression detection needs three consecutive failures of one gate and skill
+   * pair. An observation between the second and the third failure must not reset
+   * the count.
+   */
   it('CodeQuality_ObservationBetweenFailures_StillDetectsTheRegression', () => {
     const uninterrupted = fold([failure(1), failure(2), failure(3)]);
     const interleaved = fold([failure(1), failure(2), observation(3), failure(4)]);
@@ -781,17 +745,16 @@ describe('CodeQualityView - internal trackers survive the fold', () => {
     expect(interleaved.regressions[0]?.consecutiveFailures).toBe(3);
   });
 
-  // The same mechanism on the other tracker. This counter is the denominator of
-  // `selfCorrectionRate` and the weight of the running average behind
-  // `avgRemediationAttempts`, so resetting it inflates both.
+  /**
+   * The same property for `_remediationCounts`. The count is the numerator of
+   * `selfCorrectionRate` and the weight of the `avgRemediationAttempts` average, so
+   * a reset makes both wrong.
+   */
   it('CodeQuality_ObservationBetweenRemediations_KeepsTheCounter', () => {
     const interleaved = fold([remediation(1), remediation(2), observation(3), remediation(4)]);
     expect(hidden(interleaved, '_remediationCounts')).toEqual({ shepherd: 3 });
   });
 
-  // One payload per handled type that actually reaches the handler's BODY. A
-  // payload the handler rejects only exercises its early return, which is the
-  // cheap half of the path and not where a spread lives.
   const VALID_PAYLOAD: Readonly<Record<string, Record<string, unknown>>> = {
     'gate.executed': {
       gateName: 'review',
@@ -808,11 +771,12 @@ describe('CodeQualityView - internal trackers survive the fold', () => {
     'remediation.succeeded': { skill: 'shepherd', totalAttempts: 4 },
   };
 
-  // The property itself, over a MEASURED denominator. An event type this view
-  // ignores comes back as the same object reference, so the handled set is
-  // discovered rather than transcribed. The pin then makes a new handler a
-  // visible edit, and the payload table makes it an edit that cannot be made
-  // without saying what the new event carries.
+  /**
+   * The test finds the handled event types by measurement: the view returns the
+   * same object for a type that it ignores. The pinned list makes a new handler a
+   * visible edit. `VALID_PAYLOAD` holds one payload for each type that reaches the
+   * handler body, because a rejected payload exercises only the early return.
+   */
   it('CodeQuality_EveryHandledEventType_KeepsBothTrackers', () => {
     const seeded = fold([failure(1), remediation(2)]);
     const handled = EventTypes.filter(

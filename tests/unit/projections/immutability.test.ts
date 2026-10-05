@@ -3,11 +3,8 @@ import { assertReducerImmutable } from '../../../src/projections/testing.js';
 import type { ProjectionReducer } from '../../../src/projections/types.js';
 
 /**
- * DR-1 reducer purity contract — property harness.
- *
- * `assertReducerImmutable` deep-freezes the reducer's initial state, folds a
- * sequence of events through `apply`, and surfaces any in-place mutation
- * attempt as a thrown error (via strict-mode frozen-object semantics).
+ * `assertReducerImmutable` deep-freezes the initial state of the reducer and each result of `apply`.
+ * A reducer that mutates its state in place throws, and a pure reducer passes.
  */
 describe('assertReducerImmutable', () => {
   interface State {

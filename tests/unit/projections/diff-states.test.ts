@@ -108,10 +108,11 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
     });
   });
 
+  /**
+   * An empty object or array on one side only must appear as a leaf.
+   * Without that leaf the delta drops the container, and the delta is not lossless.
+   */
   describe('diffStates_emptyContainers_survivesInDelta (#1555 review)', () => {
-    // Regression: a zero-key container ({}/[] ) on only one side must surface as
-    // a leaf, not silently vanish. Without the collectLeaves empty-container
-    // branch the delta drops it and the round-trip is no longer lossless.
     it('records an added empty object as a leaf at its path', () => {
       const delta = diffStates({}, { x: {} });
       expect(delta.added).toEqual({ x: {} });
@@ -134,9 +135,13 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
     });
   });
 
+  /**
+   * `applyDelta` applies the delta to `a`, and the result must equal `b`. Thus the delta is lossless.
+   * `applyDelta` is a test oracle only, and it removes paths leaf by leaf.
+   * A removed object element of an array stays as an empty object, and two removals from one array shift the indexes.
+   * No fixture here removes an array element.
+   */
   describe('diffStates_roundTrip_applyingDeltaToAReconcilesToB', () => {
-    // Applies the structural delta back onto `a` and asserts the result deep-equals `b`.
-    // This is the load-bearing property: the delta must be lossless.
     function applyDelta(
       a: unknown,
       delta: ReturnType<typeof diffStates>,
@@ -147,7 +152,6 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
         const segments = path.split('.');
         let cursor: Record<string, unknown> | unknown[];
         if (typeof target !== 'object' || target === null) {
-          // The first segment dictates whether the container is an array or object.
           cursor = /^\d+$/.test(segments[0]) ? [] : {};
         } else {
           cursor = target as Record<string, unknown> | unknown[];
@@ -172,14 +176,6 @@ describe('diffStates (T4) — pure structural delta of two projected States', ()
         return head;
       };
 
-      // Oracle limitation (documented, not exercised): this applies `removed`
-      // paths leaf-by-leaf. Removing a *multi-leaf array object element* (e.g.
-      // both `tasks.1.id` and `tasks.1.status`) deletes the leaves but leaves a
-      // hollow `{}` at that index rather than splicing the element out, and two
-      // sibling primitive-array removals would splice shifting indices. The
-      // fixtures below never remove a multi-leaf/array element, so the round-trip
-      // holds. Production `diffStates` is unaffected — it only emits leaf deltas
-      // and makes no apply/reconcile claim; this helper is a test oracle only.
       const deletePath = (target: unknown, path: string): void => {
         const segments = path.split('.');
         let cursor = target as Record<string, unknown> | unknown[];
