@@ -1,15 +1,11 @@
-// ─── DR-2: the five-tier EventRegistration union ────────────────────────────
+// Runtime tests for the `EventRegistration` union.
 //
-// WHERE THE THIRD TEST LIVES. `EventRegistration_ReportCoupledVariant_HasNoConstructibleForm`
-// is NOT in this file, and that is deliberate: `tsconfig.json` excludes `**/*.test.ts`, so a
-// type-level assertion (or a `@ts-expect-error`) written here is never seen by `tsc` and would
-// be decorative. It lives as an exported type alias at the bottom of `event-registration.ts`,
-// where `npm run typecheck` — the static-analysis gate — verifies it, alongside
-// `_EventRegistration_CapabilityWithNoConsumers_HasNoConstructibleForm`,
-// `_EventRegistration_EveryTierArm_CarriesAWeldField` and the axis proofs.
+// `tsconfig.json` excludes test files, so `tsc` does not see a type-level assertion here.
+// `_EventRegistration_ReportCoupledVariant_HasNoConstructibleForm` and the other type proofs are
+// exported aliases at the end of `event-registration.ts`, where `npm run typecheck` checks them.
 //
-// What this file covers is the RUNTIME half: that the union's exhaustiveness is carried by a
-// real function, and that the two axes stay separated when they are actually resolved.
+// This file covers the runtime half. A real function carries the exhaustiveness of the union,
+// and the two axes stay separate when the code resolves them.
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -23,11 +19,7 @@ import {
   type EventTier,
 } from '../../../src/events/event-registration.js';
 
-/**
- * One live registration per tier. Typed as `Record<EventTier, EventRegistration>` so a tier
- * added to the union without a fixture is a compile error at the next `tsc` run rather than a
- * silently unexercised arm — the enumeration below can never range over less than the union.
- */
+/** One live registration for each tier, keyed by `EventTier`. */
 const FIXTURE_BY_TIER: Readonly<Record<EventTier, EventRegistration>> = {
   substrate: {
     lifecycle: 'active',
@@ -65,7 +57,7 @@ const FIXTURE_BY_TIER: Readonly<Record<EventTier, EventRegistration>> = {
   },
 };
 
-/** The weld reference each fixture should yield — hand-written, so it is a second authority. */
+/** The weld reference that each fixture must give. A person writes it, so it is a second authority. */
 const EXPECTED_WELD_REF: Readonly<Record<EventTier, string>> = {
   substrate: 'transition-record',
   capability: 'exarchos_orchestrate',
@@ -76,22 +68,21 @@ const EXPECTED_WELD_REF: Readonly<Record<EventTier, string>> = {
 };
 
 describe('EventRegistration', () => {
+  /**
+   * The `default` arm of `weldReferenceOf` returns the registration, whose `ref` is undefined.
+   * Thus the `ref` assertion fails at runtime for a tier with no case.
+   * The expected tier list is a literal and not `EVENT_TIERS`, so the test compares two authorities.
+   */
   it('EventRegistration_EveryTier_IsExhaustivelyHandled', () => {
     const handled: string[] = [];
 
     for (const tier of EVENT_TIERS) {
       const weld = weldReferenceOf(FIXTURE_BY_TIER[tier]);
-      // The switch in `weldReferenceOf` has no `default` arm that invents a value: an unhandled
-      // tier falls through to the `never` binding and returns the registration itself, whose
-      // `ref` is undefined. So this assertion is what turns a dropped case red at runtime, and
-      // `tsc` turns it red at build time.
       expect(weld.tier).toBe(tier);
       expect(weld.ref).toBe(EXPECTED_WELD_REF[tier]);
       handled.push(weld.tier);
     }
 
-    // Pinned against a hand-written list rather than against `EVENT_TIERS` itself, so this is a
-    // comparison of two authorities and not one value read twice.
     expect(handled).toEqual([
       'substrate',
       'capability',
@@ -102,9 +93,12 @@ describe('EventRegistration', () => {
     ]);
   });
 
+  /**
+   * A retired event keeps the tier of its live weld. The lifecycle gives its source, so `retired`
+   * is not a disagreement although the tier derives `auto`. `planned` works the same way: the
+   * `judgment` tier derives `model` when active.
+   */
   it('EventRegistration_RetiredLifecycle_IsNotATierSourceDisagreement', () => {
-    // A retired event still declares the tier it was welded to when it was live. Its tier would
-    // derive 'auto' were it active — but it is not, and `retired` is what the registry holds.
     const retired: EventRegistration = {
       lifecycle: 'retired',
       tier: 'capability',
@@ -116,8 +110,6 @@ describe('EventRegistration', () => {
     expect(resolveEmissionSource(retired)).toBe('retired');
     expect(findTierSourceDisagreement(retired, 'retired')).toBeUndefined();
 
-    // Same for the mirror lifecycle state: `planned` comes from the lifecycle axis, never from
-    // the tier, even though this tier derives 'model' when active.
     const planned: EventRegistration = {
       lifecycle: 'planned',
       tier: 'judgment',
@@ -129,9 +121,14 @@ describe('EventRegistration', () => {
     expect(findTierSourceDisagreement(planned, 'planned')).toBeUndefined();
   });
 
+  /**
+   * Each active tier gives exactly one of `auto`, `model` and `hook`, and never a lifecycle value.
+   * The expected list is in `EVENT_TIERS` order.
+   * `workflow-local` is `model`: a step of a workflow definition composes the emission.
+   * `harness` is `auto`: the harness code computes the payload, and `model` requires a
+   * `.describe()` on each schema field for a model.
+   */
   it('ResolveEmissionSource_ActiveRegistration_DerivesFromTierAloneAcrossAllTiers', () => {
-    // Derivation is total over the emission axis: every ACTIVE tier produces exactly one of
-    // 'auto' | 'model' | 'hook', and never a lifecycle value.
     const derived: string[] = [];
     for (const tier of EVENT_TIERS) {
       const source = resolveEmissionSource(FIXTURE_BY_TIER[tier]);
@@ -139,28 +136,14 @@ describe('EventRegistration', () => {
       expect(source).not.toBe('retired');
       derived.push(source);
     }
-    // In `EVENT_TIERS` order: substrate, capability, observation, judgment, workflow-local,
-    // harness.
-    //
-    // `workflow-local` was `'auto'` when task 009 wrote this and is `'model'` since task 010
-    // MEASURED the record against the 170 live registrations. `'auto'` had zero members and so
-    // was never validated; the 18 report-coupled events emitted from a model-walked runbook step
-    // are `workflow-local`, and a workflow definition's step composing the emission is exactly
-    // what `source: 'model'` records. See `EMISSION_SOURCE_BY_TIER`'s doc block and
-    // `event-annotations.ts`.
-    //
-    // `harness` is `'auto'`, and that was measured too rather than chosen. It was authored
-    // `'model'` on the reasoning that a harness composes its own payload; the catalog refused,
-    // because `'model'` obliges every schema field to carry a `.describe()` for the model filling
-    // it in, and a calibration payload is COUNTED in code with no model anywhere near it. `'auto'`
-    // claims only that the code performing the operation owns the append, which is what a harness
-    // does.
     expect(derived).toEqual(['auto', 'auto', 'hook', 'model', 'model', 'auto']);
   });
 
+  /**
+   * The seeded disagreement: a substrate event that the registry declares as `model`.
+   * The agreeing case gives no finding, so the check is not vacuously positive.
+   */
   it('FindTierSourceDisagreement_SeededTierSourceMismatch_IsReported', () => {
-    // The seeded disagreement DR-2 requires to fail: a substrate event — welded to the store's
-    // own machinery — that the registry nonetheless declares as model-authored.
     const seeded = findTierSourceDisagreement(FIXTURE_BY_TIER.substrate, 'model');
 
     expect(seeded?.code).toBe('TIER_SOURCE_DISAGREEMENT');
@@ -169,14 +152,14 @@ describe('EventRegistration', () => {
     expect(seeded?.declared).toBe('model');
     expect(seeded?.derived).toBe('auto');
 
-    // …and the agreeing case is silent, so the check is not vacuously positive.
     expect(findTierSourceDisagreement(FIXTURE_BY_TIER.substrate, 'auto')).toBeUndefined();
   });
 
+  /**
+   * The lifecycle rule is not a blanket exemption. A retired entry that the registry declares as
+   * `auto` is a disagreement, because the lifecycle says that nothing emits the event.
+   */
   it('FindTierSourceDisagreement_RetiredEntryDeclaredWithItsTierSource_IsReported', () => {
-    // The other half of the lifecycle rule, and the one that keeps it from being a blanket
-    // exemption: a retired entry the registry still declares as 'auto' IS a disagreement —
-    // something is emitting an event whose lifecycle says nothing does.
     const retired: EventRegistration = {
       lifecycle: 'retired',
       tier: 'substrate',

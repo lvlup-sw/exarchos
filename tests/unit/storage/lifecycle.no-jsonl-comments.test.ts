@@ -5,8 +5,6 @@ import { dirname, resolve } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// #1476: `subagent-context.ts` was deleted with the enforcement-hook excision,
-// so the stale-comment audit now covers `lifecycle.ts` alone.
 describe('Storage lifecycle: stale JSONL comment audit', () => {
   it('StorageLifecycle_NoStaleJsonlReferences_GrepReturnsZeroMatches', async () => {
     const lifecyclePath = resolve(__dirname, '../../../src/storage/lifecycle.ts');

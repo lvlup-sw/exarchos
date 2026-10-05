@@ -1,51 +1,20 @@
-// ─── The governance/telemetry partition, and the fold it has to survive ──────
+// The governance and telemetry partition of the event catalog, and the canonical fold.
 //
 // @oracle-sources: ../../../src/events/partition/witnesses.ts, ../../../src/events/partition/demotions.ts, ../../../src/projections/views/workflow-state-projection.ts
 //
-// Two claims, and neither is checkable without the other.
+// Claim 1: the partition is derived. A rebuild from the catalog, the annotations, the witnesses
+// and the charter demotions gives exactly the shipped map. A population that the derivation
+// cannot partition fails by name.
+// Claim 2: telemetry is droppable. The canonical fold gives the same state with no telemetry
+// events.
 //
-// The first is that the partition is DERIVED: rebuild it from the catalog, the
-// annotations and the two override tables — witnesses and charter demotions —
-// and you get exactly the shipped map, and a population it cannot partition
-// fails by name rather than defaulting.
+// Each corpus event carries a payload generated from its data schema, because a reducer arm that
+// reads a field cannot fire on an empty payload. A type with no schema carries an explicit payload.
 //
-// The second is what the partition MEANS. "Telemetry" is only a real claim if
-// dropping every telemetry event leaves the canonical fold's answer unchanged.
-//
-// ## Why the corpus payloads are generated, not empty
-//
-// The corpus once carried `data: {}` for every type, and that made the second
-// claim nearly unfalsifiable: a reducer arm that reads a field before it mutates
-// cannot fire on an empty bag, so 168 of 178 catalog types folded to a no-op for
-// a reason that had nothing to do with their classification. A mutating arm
-// added for a telemetry-classified type would have been invisible.
-//
-// So each corpus event carries the richest payload its own data schema admits,
-// generated from that schema rather than transcribed. The handful of types that
-// declare no schema carry an explicit payload here, and the coverage is asserted
-// BOTH ways: a type with neither is named, and a hand-written payload for a type
-// whose schema already produces one is named as dead cover.
-//
-// ## What the differential actually asserts
-//
-//   • per telemetry type, that its arm is IDENTITY — applied to a fresh state
-//     and to a realistic folded state, it changes nothing. This is the claim,
-//     stated one type at a time so a failure names the type;
-//   • that the whole governance-filtered corpus folds to the full corpus's state;
-//   • that misclassifying ANY type the corpus can discriminate makes the two
-//     folds diverge — the discriminating set is measured, not a pair of
-//     hand-picked witnesses, and its size is asserted so a corpus that went inert
-//     again cannot pass.
-//
-// The fold is `workflowStateProjection.init()`/`.apply()` directly, never
-// through the materializer, whose cache would skip the fold. It is deliberately
-// this ONE fold: view projections such as the telemetry view exist precisely to
-// consume telemetry, so a differential over every view would be red by design
-// and would say nothing about governance. That scoping has a KNOWN limit worth
-// stating: a secondary view can derive a verdict from a telemetry event without
-// the canonical fold noticing — the synthesis-readiness view computes its
-// blockers from test and typecheck results — so this differential bounds what a
-// retention policy may drop from the canonical state, not from every view.
+// The fold is `workflowStateProjection.init()` and `.apply()` directly, because the materializer
+// cache skips the fold. The differential covers only this fold. A secondary view can derive a
+// verdict from a telemetry event, so the suite bounds only what a retention policy drops from
+// the canonical state.
 
 import { describe, it, expect } from 'vitest';
 import {
@@ -76,10 +45,8 @@ import {
 } from '../../../tools/test-helpers/authority-corpus.js';
 
 /**
- * The shared corpus, under this oracle's own stream id. Built by the helper so
- * this differential and the secondary-view one measure the same population —
- * two corpora that had to agree, with nothing checking that they did, is the
- * drift this import removes.
+ * The shared corpus under the stream id of this suite. The helper builds it, so this differential
+ * and the secondary-view differential measure the same population.
  */
 const CORPUS = buildAuthorityCorpus('feat-authority-corpus');
 
@@ -99,16 +66,14 @@ function foldExcluding(excluded: ReadonlySet<string>): FoldedState {
 const FULL_FOLD = JSON.stringify(fold(CORPUS));
 
 /**
- * The types this corpus can actually SEE: dropping one changes the folded
- * state. Measured, never listed — it is the honest denominator of every claim
- * the differential makes, and asserting its size is what stops a corpus that
- * quietly went inert from passing.
+ * The types that this corpus can see: the folded state changes when one is dropped.
+ * The list is measured, and it is the denominator of each claim that the differential makes.
  */
 const DISCRIMINATING: readonly string[] = EventTypes.filter(
   (type) => JSON.stringify(foldExcluding(new Set([type]))) !== FULL_FOLD,
 );
 
-/** The state a realistic stream reaches, for folding one more event onto. */
+/** The state that a realistic stream reaches. The tests fold one more event onto it. */
 const GOVERNANCE_STATE = foldExcluding(TELEMETRY_EVENTS);
 
 const A_GOVERNANCE_WITNESS: AuthorityWitness = {
@@ -124,16 +89,12 @@ const A_CHARTER_DEMOTION: CharterDemotion = {
 };
 
 /**
- * The bucket the ratified charter names as telemetry EXAMPLES, enumerated as
- * the catalog stood when the first act was made — the per-tool and turn
- * records, the team family's seven members, and four named types. A demotion
- * outside this bucket would be a new decision wearing a flip's clothes, and a
- * member of it still classified governance is the backlog the charter
- * schedules.
+ * The types that the ratified charter names as telemetry examples. They are the tool and turn
+ * records, the seven members of the team family, and four named types.
+ * A demotion outside this set is a new decision. A member that is still governance is backlog.
  *
- * A LITERAL set, not a family predicate: a member added to the tool or team
- * family later was not named by the record, so its flip is a new decision too,
- * and a `startsWith` would have admitted it as if the act had covered it.
+ * The set is a literal and not a family predicate. The charter did not name a member that joins
+ * a family later, so the flip of that member is also a new decision.
  */
 const CHARTER_TELEMETRY_EXAMPLES: ReadonlySet<string> = new Set([
   'tool.invoked',
@@ -155,6 +116,7 @@ const CHARTER_TELEMETRY_EXAMPLES: ReadonlySet<string> = new Set([
 ]);
 
 describe('EventAuthority — the partition is derived, and telemetry means droppable', () => {
+  /** The denominator comes first: an empty rebuild makes each comparison vacuously true. */
   it('EventAuthority_LiveMap_IsTheDerivationOfEveryAnnotationWitnessAndDemotion', () => {
     const rebuilt = deriveEventAuthority(
       EventTypes,
@@ -163,8 +125,6 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
       CHARTER_DEMOTIONS,
     );
 
-    // The denominator first: an empty rebuild would make every comparison below
-    // vacuously true.
     expect(Object.keys(rebuilt).length).toBe(EventTypes.length);
     expect(Object.keys(rebuilt).length).toBeGreaterThan(0);
 
@@ -202,10 +162,11 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     ).toThrow(/already\.governance/);
   });
 
+  /**
+   * A demotion row is the only way for an `auto` type to leave governance. The sibling with no
+   * row stays governance, so the row does the work and not the tier.
+   */
   it('EventAuthority_DemotionOfAnAutoTierType_ClassifiesItTelemetryAndOnlyIt', () => {
-    // The one way an `auto` type leaves governance. The sibling with no row
-    // stays where the tier put it, so the row is doing the work and not the
-    // tier.
     const derived = deriveEventAuthority(
       ['flipped.record', 'kept.record'],
       () => 'auto',
@@ -231,11 +192,12 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     ).toThrow(/whose tier already derives telemetry: already\.telemetry/);
   });
 
+  /**
+   * A flip has this shape when a new reader overtakes it: a witness arrives for a type that the
+   * demotion table already holds. Neither table can win silently. The message must name the type
+   * on both tiers, because a dead-cover arm otherwise claims it.
+   */
   it('EventAuthority_WitnessAndDemotionOnOneType_IsNamedAsAContradictionNotResolved', () => {
-    // This is the shape a flip takes when a new reader overtakes it: someone
-    // adds a raw-reader witness for a type the demotion table already holds.
-    // Neither table may win silently, and the message must say which type —
-    // on BOTH tiers, because the dead-cover arms would otherwise claim it.
     for (const tier of ['auto', 'model'] as const) {
       expect(() =>
         deriveEventAuthority(
@@ -248,10 +210,14 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     }
   });
 
+  /**
+   * The table must not be empty, because an empty table makes each filter vacuous.
+   * The citation types reject a literal that is not an issue comment, but a cast gets past a type.
+   * `assertCharterCitations` is the load-time check. It runs here on the live table and on two
+   * seeded rows: one holds the placeholder, and one cites the issue and not the comment.
+   */
   it('CharterDemotions_EveryLiveRow_IsACharterNamedTypeNowClassifiedTelemetryWithBothCitations', () => {
     const demoted = Object.keys(CHARTER_DEMOTIONS).sort();
-    // The denominator: an empty table makes every filter below vacuous, and
-    // this slice is the one that put the first rows in.
     expect(demoted.length).toBeGreaterThan(0);
 
     const outsideTheCharter = demoted.filter((type) => !CHARTER_TELEMETRY_EXAMPLES.has(type));
@@ -265,12 +231,6 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     const notTelemetry = demoted.filter((type) => classifyEventAuthority(type) !== 'telemetry');
     expect(notTelemetry).toEqual([]);
 
-    // The act on the roadmap made the flip land; the decision record is what
-    // it executes. Both citations are TYPED, so a literal that is not a comment
-    // on #1599 or #1876 does not compile (the self-tests in demotions.ts pin the
-    // placeholder shape the first draft carried). The load-time check is what a
-    // cast cannot get past; it is exercised here on the live table and, through
-    // the same function, on a seeded row that still carries the placeholder.
     expect(() => assertCharterCitations(CHARTER_DEMOTIONS)).not.toThrow();
     expect(() =>
       assertCharterCitations({
@@ -292,12 +252,14 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     ).toThrow(/seeded\.record/);
   });
 
+  /**
+   * A demotion row for a type that the canonical fold consumes must reach an oracle. Without one,
+   * the table can drop governance events while each check is green.
+   * The candidate is a discriminating `auto` type with no witness, so the row is admissible at load.
+   * Control: the live telemetry set folds to the full state, and the seeded set adds only the
+   * candidate. The divergence thus belongs to the seeded row.
+   */
   it('CharterDemotions_SeededDemotionOfAFoldDiscriminatingType_IsCaughtByTheDifferentialFold', () => {
-    // A wrong demotion — a row for a type the canonical fold consumes — must
-    // reach an oracle, or the demotion table is a way to drop governance
-    // events with every check green. Take a discriminating type whose tier is
-    // `auto` and that carries no witness (so the row is admissible at load),
-    // derive with it demoted, and show the governance-filtered fold diverges.
     const candidate = DISCRIMINATING.find(
       (type) => tierEmissionSourceOf(type) === 'auto' && GOVERNANCE_WITNESSES[type] === undefined,
     );
@@ -310,9 +272,6 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     });
     expect(seeded[candidate]).toBe('telemetry');
 
-    // Control: the LIVE telemetry set folds back to the full state, and the
-    // seeded set is that set plus exactly the candidate — so the divergence
-    // below is the seeded row's, not some already-telemetry type's.
     const liveTelemetry: ReadonlySet<string> = TELEMETRY_EVENTS;
     expect(JSON.stringify(foldExcluding(liveTelemetry))).toBe(FULL_FOLD);
     const seededTelemetry = new Set<string>(
@@ -337,6 +296,10 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     expect(misfiledGovernance).toEqual([]);
   });
 
+  /**
+   * The corpus must hold each catalog type, and the telemetry filter must remove exactly the
+   * telemetry types.
+   */
   it('DifferentialFold_Corpus_CarriesARealisticPayloadForEveryCatalogType', () => {
     expect(CORPUS.length).toBe(EventTypes.length);
 
@@ -357,25 +320,21 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
         'so is checked by nothing — delete it.',
     ).toEqual([]);
 
-    // The corpus is total over the catalog, telemetry side included.
     const missing = [...TELEMETRY_EVENTS].filter(
       (type) => !CORPUS.some((event) => event.type === type),
     );
     expect(missing).toEqual([]);
 
     const filtered = CORPUS.filter((event) => !TELEMETRY_EVENTS.has(event.type));
-    // The filter must actually remove something, and exactly the telemetry side.
     expect(CORPUS.length - filtered.length).toBe(TELEMETRY_EVENTS.size);
   });
 
+  /**
+   * An arm can guard on the constraint that an invalid sample breaks. The corpus then reports the
+   * arm as inert when the sampler is at fault. Each schema-sourced payload must thus pass its own
+   * schema, and a failure names the types.
+   */
   it('DifferentialFold_CorpusPayloads_ValidateUnderTheirOwnSchemas', () => {
-    // The fold is fed schema-generated payloads so that every arm has a real
-    // event to run on. A payload the type's own schema rejects — one item
-    // where two are required, a bare string where a timestamp is — is not
-    // that: the arm it was meant to exercise may guard on exactly the
-    // constraint the sample broke, and the corpus would then report the arm
-    // inert while the sampler was the thing at fault. Validity is asserted
-    // here for the whole catalog, so a sampler regression names its types.
     const rejected: string[] = [];
     let validated = 0;
     for (const [type, payload] of PAYLOADS) {
@@ -396,11 +355,12 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     expect(rejected, 'schema-generated payloads the schema itself rejects').toEqual([]);
   });
 
+  /**
+   * The folded state changes when one of these types is dropped, so an equality over this corpus
+   * is a real claim. The assertion is a floor and not an exact count, because an exact count
+   * fails for each new folded event type.
+   */
   it('DifferentialFold_CorpusDiscriminatingPower_IsAssertedNotAssumed', () => {
-    // Dropping any one of these changes the folded state, so an equality over
-    // this corpus is a claim about something. The floor is a floor, never the
-    // number: pinning the count would make every new folded event type a failure
-    // of this oracle rather than a check by it.
     expect(
       DISCRIMINATING.length,
       'The corpus can no longer tell any event from a no-op, so every fold comparison below is ' +
@@ -477,35 +437,17 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     expect(notGovernance).toEqual([]);
   });
 
+  /**
+   * The charter names these types as telemetry examples, and the derivation still classifies nine
+   * of them as governance. Some have a live reader outside the fold. Most derive `auto` from a
+   * substrate tier, and only a charter demotion row moves such a type to telemetry.
+   * The pinned set is the backlog. Each flip deletes its row here, so the list only shrinks and a
+   * new disagreement cannot arrive silently.
+   *
+   * A demotion is a judgment against the tree and not against the charter text. The tree reads
+   * `launch.executing_started` as the start claim of the launch liveness pair.
+   */
   it('CharterTension_TelemetryExamplesStillClassifiedGovernance_AreThePinnedBacklog', () => {
-    // The ratified charter names a bucket of types as telemetry EXAMPLES. The
-    // derivation disagrees with it for most of them, and for two different
-    // reasons: some carry a live fold-external reader (a demotion would be
-    // false), and most derive `auto` from a substrate tier, which the
-    // promotion-only rule refuses to override with an instrument that cannot
-    // prove a universal absence.
-    //
-    // Neither reason is an argument for leaving the disagreement in a comment.
-    // The charter schedules those flips as later, independently-landable work,
-    // and each one has to delete its expectation row in the same commit — so the
-    // gap is a BACKLOG, and a backlog is a thing you count. Pinning the exact
-    // set makes every flip a visible shrink and makes a new disagreement
-    // impossible to add silently.
-    //
-    // The first flips landed with the 2026-09-05 charter act: the per-tool and
-    // turn records and the token self-report are demoted by charter row, and
-    // `stack.submitted` left the expectation table that was its only reader.
-    // Nine remain, each for a measured reason — the team family carries the
-    // canonical fold (spawned/disbanded), the stop hook's teammate resolution
-    // (assigned/dispatched), the saga verifier (planned/completed/failed) and
-    // the agent-event validator; `shepherd.iteration` is the escalation bound's
-    // event-sourced count; and `launch.executing_started`, which the decision
-    // record filed beside the hook-tier self-reports, is on the tree the START
-    // claim of the launch liveness pair — read raw by the `worktrees@v1`
-    // reducer that `ps` and the phantom-launch heal fold, so the reader census
-    // names it, and paired by the descriptor the declaration conjunct's
-    // liveness arm names. That last one is why a demotion is a judgment made
-    // against the tree and never against the charter's text.
     const catalog = new Set<string>(EventTypes);
     const renamedAway = [...CHARTER_TELEMETRY_EXAMPLES].filter((type) => !catalog.has(type));
     expect(
@@ -539,12 +481,12 @@ describe('EventAuthority — the partition is derived, and telemetry means dropp
     ]);
   });
 
+  /**
+   * A charter pin claims that no fold and no reader names the type. This test measures the fold
+   * half of that negative claim. The raw-reader census measures the reader half over the same
+   * table.
+   */
   it('GovernanceWitnesses_CharterPinArm_ClaimsNoEvidenceItActuallyHas', () => {
-    // A charter pin says: no fold names this, and no reader does. That is a
-    // NEGATIVE claim, and an unchecked negative claim is how a promotion with
-    // real evidence ends up filed under the one arm no oracle re-measures. The
-    // fold half is measurable right here; the reader half is measured by the
-    // raw-reader census, which checks the same table.
     const pinned = Object.entries(GOVERNANCE_WITNESSES)
       .filter(([, witness]) => witness.arm === 'charter-pin')
       .map(([type]) => type);

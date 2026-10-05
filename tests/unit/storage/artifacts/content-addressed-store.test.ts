@@ -15,7 +15,7 @@ function sha256Hex(bytes: Buffer): string {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
-/** Recursively list every regular file under `root` (temp files included). */
+/** Lists every file under `root`, temp files included. */
 async function listFiles(root: string): Promise<string[]> {
   const entries = await readdir(root, { withFileTypes: true });
   const files: string[] = [];
@@ -30,7 +30,7 @@ async function listFiles(root: string): Promise<string[]> {
   return files;
 }
 
-/** Real filesystem IO, but the publish rename fails once wired in per test. */
+/** Real filesystem IO, except that the rename inside `publish` always throws. */
 function ioWithFailingPublish(): ContentAddressedStoreIo {
   return {
     mkdir: (directory, options) => mkdir(directory, options),
@@ -76,8 +76,6 @@ describe('ContentAddressedStore', () => {
     await expect(store.resolve(digest)).resolves.toEqual(bytes);
   });
 
-  // ── Digest validation (write side) ─────────────────────────────────────────
-
   it('ContentAddressedStore_WriteWithMatchingDeclaredDigest_Succeeds', async () => {
     const bytes = Buffer.from('declared-and-correct', 'utf8');
     const declared = { algorithm: 'sha256', value: sha256Hex(bytes) };
@@ -86,6 +84,7 @@ describe('ContentAddressedStore', () => {
     await expect(store.resolve(declared)).resolves.toEqual(bytes);
   });
 
+  /** The store must reject a wrong declared digest before it stages a file. */
   it('ContentAddressedStore_WriteWithWrongDeclaredDigest_IsRejectedAndWritesNothing', async () => {
     const bytes = Buffer.from('bytes-do-not-match-claim', 'utf8');
     const correct = sha256Hex(bytes);
@@ -100,7 +99,6 @@ describe('ContentAddressedStore', () => {
       }),
     );
 
-    // A mismatching declared digest must be rejected before anything is staged.
     expect(await listFiles(root)).toEqual([]);
   });
 
@@ -113,8 +111,6 @@ describe('ContentAddressedStore', () => {
     );
     expect(await listFiles(root)).toEqual([]);
   });
-
-  // ── Digest validation (read side) ──────────────────────────────────────────
 
   it('ContentAddressedStore_ReadDetectsCorruption_WithoutReturningBytes', async () => {
     const bytes = Buffer.from('will-be-tampered', 'utf8');
@@ -134,8 +130,7 @@ describe('ContentAddressedStore', () => {
     );
   });
 
-  // ── Path containment ───────────────────────────────────────────────────────
-
+  /** The spy on `readFile` proves that no hostile digest reaches the filesystem. */
   it('ContentAddressedStore_TraversalDigests_AreRejectedAndNeverTouchDisk', async () => {
     const readFileSpy = vi.fn(readFile);
     const guarded = new ContentAddressedStore(root, {
@@ -165,12 +160,10 @@ describe('ContentAddressedStore', () => {
         ContentAddressedStoreError,
       );
     }
-    // "Never resolved": no hostile key ever reached the filesystem.
     expect(readFileSpy).not.toHaveBeenCalled();
   });
 
-  // ── Atomic publish (partial-publish fixture) ───────────────────────────────
-
+  /** After the failed publish, the target must not resolve and no temp file must stay. */
   it('ContentAddressedStore_PartialPublishFailure_LeavesNoReadableArtifact', async () => {
     const failing = new ContentAddressedStore(root, ioWithFailingPublish());
     const bytes = Buffer.from('never-fully-published', 'utf8');
@@ -178,7 +171,6 @@ describe('ContentAddressedStore', () => {
 
     await expect(failing.put(bytes)).rejects.toThrow('injected publish failure');
 
-    // The target must not be readable, and no `.tmp` may be left behind.
     await expect(store.resolve(digest)).rejects.toEqual(
       expect.objectContaining({ code: 'CONTENT_NOT_FOUND' }),
     );
@@ -194,13 +186,11 @@ describe('ContentAddressedStore', () => {
     const failing = new ContentAddressedStore(root, ioWithFailingPublish());
     await expect(failing.put(bytes)).rejects.toThrow('injected publish failure');
 
-    // The prior complete artifact is untouched and still resolves.
     await expect(store.resolve(digest)).resolves.toEqual(bytes);
     expect(await listFiles(root)).toEqual(before);
   });
 
-  // ── Concurrent writes (collision fixture) ──────────────────────────────────
-
+  /** Sixteen writers of the same bytes must leave one complete blob and no temp file. */
   it('ContentAddressedStore_ConcurrentWritesSameContent_ResolveToOneCanonicalArtifact', async () => {
     const bytes = Buffer.from('shared-content-many-writers', 'utf8');
     const expected = sha256Hex(bytes);
@@ -209,11 +199,9 @@ describe('ContentAddressedStore', () => {
       Array.from({ length: 16 }, () => store.put(Buffer.from(bytes))),
     );
 
-    // Every writer agrees on the one canonical digest.
     for (const digest of digests) {
       expect(digest).toEqual({ algorithm: 'sha256', value: expected });
     }
-    // Exactly one complete blob, no torn temp files, and it verifies on read.
     const files = await listFiles(root);
     expect(files).toHaveLength(1);
     expect(files[0]!.endsWith('.tmp')).toBe(false);
@@ -236,8 +224,8 @@ describe('ContentAddressedStore', () => {
     expect(files.some((f) => f.endsWith('.tmp'))).toBe(false);
   });
 
+  /** The published bytes are at the digest path, and no `.tmp` sibling exists. */
   it('ContentAddressedStore_PublishedBlobReplacesTempAtomically', async () => {
-    // The published bytes live at the digest path, never at a `.tmp` sibling.
     const bytes = Buffer.from('atomic-publish-target', 'utf8');
     const digest = await store.put(bytes);
     const files = await listFiles(root);

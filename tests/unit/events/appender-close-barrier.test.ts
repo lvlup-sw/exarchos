@@ -1,8 +1,8 @@
-// Closing an event store must release `exarchos.db` for good. Before #2026, an
-// append that was still in flight when the store closed reached the lazy open
-// after the close and opened a new handle that no owner held. On Windows that
-// handle kept the file locked, and the temp-dir removal failed with EBUSY.
-// These tests run on any platform: they count open handles, not file locks.
+// A `close()` on an event store must release each handle on `exarchos.db`. Without the close
+// barrier, an in-flight append reaches the lazy open after the close and opens a handle with no
+// owner. On Windows that handle keeps the file locked, and the removal of the temp directory
+// fails with EBUSY. These tests run on each platform because they count open handles and not
+// file locks.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';

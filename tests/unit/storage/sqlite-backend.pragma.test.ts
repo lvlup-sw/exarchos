@@ -1,17 +1,10 @@
-// ─── Wave 1 (Task 1.8): PRAGMA busy_timeout C-layer safety net ───────────
+// `PRAGMA busy_timeout = 5000` gives the C layer of SQLite 5 seconds to resolve
+// write contention between processes. After that, the bounded retry policy
+// (`SQLITE_BUSY_RETRY_POLICY`) takes over.
 //
-// Audit finding §F2.2 (docs/research/2026-05-10-v2-10-pre2-implementation-
-// audit-findings.md) calls for setting `PRAGMA busy_timeout = 5000` so
-// SQLite's C layer has a 5-second window to silently resolve cross-process
-// write contention before the JS-layer's bounded retry policy
-// (SQLITE_BUSY_RETRY_POLICY in sqlite-backend.ts) escalates.
-//
-// The two layers are NOT redundant. The C layer is the silent absorption
-// path — it observes intra-millisecond lock contention that the JS layer
-// would otherwise surface as SQLITE_BUSY exceptions. The JS layer is the
-// observability path — it counts retries and emits structured failures
-// after the budget runs out. Removing either layer breaks one of those
-// guarantees.
+// The two layers do different work. The C layer absorbs short lock contention
+// silently. The JavaScript layer counts retries and reports a structured
+// failure when the budget ends.
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { Database } from 'bun:sqlite';
@@ -30,7 +23,6 @@ describe('SqliteBackend connection PRAGMAs', () => {
       try {
         b.close();
       } catch {
-        // already closed
       }
     }
     backends.length = 0;
@@ -40,6 +32,11 @@ describe('SqliteBackend connection PRAGMAs', () => {
     }
   });
 
+  /**
+   * `busy_timeout` is a connection-level pragma, so the test reads it through the
+   * handle that `SqliteBackend` uses. The column name differs between drivers
+   * (`timeout`, `busy_timeout`, or unnamed), so the test accepts all three.
+   */
   it('SqliteBackend_AppliesBusyTimeoutPragmaOnInitialize', () => {
     tempDir = mkdtempSync(join(tmpdir(), 'exarchos-pragma-'));
     const dbPath = join(tempDir, 'test.db');
@@ -48,21 +45,12 @@ describe('SqliteBackend connection PRAGMAs', () => {
     backends.push(backend);
     backend.initialize();
 
-    // Reach into the backend to read its own PRAGMA value. We could also
-    // open a sibling Database handle pointed at the same file, but
-    // busy_timeout is a connection-level pragma (per-handle, not on-disk),
-    // so the only correct way to verify it is to query through the same
-    // handle SqliteBackend uses for writes.
     const db = (backend as unknown as { db: Database }).db;
     const rows = db.query('PRAGMA busy_timeout').all() as Array<
       Record<string, number>
     >;
     expect(rows).toHaveLength(1);
 
-    // PRAGMA busy_timeout returns the value in a single column. Column
-    // name varies across drivers: better-sqlite3 uses `timeout`,
-    // bun:sqlite has historically returned the value under `busy_timeout`
-    // or unnamed. Tolerate all three shapes so the assertion is portable.
     const firstRow = rows[0];
     const value =
       firstRow.timeout ??

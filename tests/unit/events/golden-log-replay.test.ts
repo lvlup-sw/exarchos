@@ -1,28 +1,22 @@
 /**
- * Golden-log replay corpus across a schema version bump (#1556, task 1556-4).
+ * Golden-log replay corpus across a schema version bump.
  *
- * Pins a historical-version (`0.9`) event log and proves that, once a
- * `0.9 → current` migration is registered, replaying that log through the
- * read-time upcasting seam (`migrateEvents`) folds to the SAME golden view a
- * native current-version log would. This is the regression corpus that must
- * keep replaying green across every future `EVENT_SCHEMA_VERSION` bump.
+ * The corpus is a pinned event log at version `0.9`. With a migration from `0.9` to the current
+ * version, a replay through `migrateEvents` folds to the same view as a current-version log.
+ * `diffStates` pins the inverse: with no migration, the fold sees the old shape. The delta
+ * between the two folds is exactly the fields that the migration rewrites.
  *
- * `diffStates` (#1555) pins the inverse property: WITHOUT the migration the
- * fold observes the un-upcast shape, and the delta between the two folds is
- * EXACTLY the field(s) the migration rewrites — nothing more leaks.
- *
- * The corpus is folded through `migrateEvents(corpus, fixtureMigrations)`
- * directly (rather than a live `EventStore.query`, whose module-const
- * `eventMigrations` is empty today) so the behavioural upcasting property is
- * provable now, before the first real migration registers.
+ * The tests call `migrateEvents(corpus, fixtureMigrations)` directly, because the module registry
+ * `eventMigrations` is empty. A live `EventStore.query` thus has no migration to apply.
  */
 import { describe, it, expect } from 'vitest';
 import { migrateEvents, EVENT_SCHEMA_VERSION, type EventMigration } from '../../../src/events/event-migration.js';
 import { diffStates } from '../../../src/projections/diff-states.js';
 
-// ─── Pinned historical corpus (schemaVersion '0.9') ─────────────────────────
-// A '0.9'-era log: task rows carry their human label under `data.name`. The
-// `0.9 → current` rename moves it to `data.title`.
+/**
+ * A log at version `0.9`: a task row holds its label in `data.name`. The migration moves the
+ * label to `data.title`.
+ */
 const GOLDEN_LOG_V09: ReadonlyArray<Record<string, unknown>> = [
   {
     streamId: 'feat-golden',
@@ -50,8 +44,10 @@ const GOLDEN_LOG_V09: ReadonlyArray<Record<string, unknown>> = [
   },
 ];
 
-// The `0.9 → current` migration: rename `data.name` → `data.title`, stamp the
-// current schemaVersion.
+/**
+ * The migration from `0.9` to the current version. It renames `data.name` to `data.title` and
+ * stamps the current `schemaVersion`.
+ */
 const RENAME_NAME_TO_TITLE: EventMigration = {
   from: '0.9',
   to: EVENT_SCHEMA_VERSION,
@@ -66,11 +62,11 @@ const RENAME_NAME_TO_TITLE: EventMigration = {
   },
 };
 
-// ─── A tiny reducer that reads the CURRENT (`data.title`) shape ─────────────
 interface ReplayView {
   count: number;
   titles: Array<string | undefined>;
 }
+/** A small reducer that reads the current shape, `data.title`. */
 function foldTaskTitles(events: ReadonlyArray<Record<string, unknown>>): ReplayView {
   return events.reduce<ReplayView>(
     (view, e) => {
@@ -82,44 +78,43 @@ function foldTaskTitles(events: ReadonlyArray<Record<string, unknown>>): ReplayV
   );
 }
 
-// The golden view a native current-version log folds to.
+/** The view that a current-version log folds to. */
 const GOLDEN_VIEW: ReplayView = { count: 2, titles: ['first task', 'second task'] };
 
 describe('Golden-log replay across a version bump (#1556)', () => {
+  /** Each replayed row must also hold the current schema version. */
   it('GoldenLogV09_ReplayedWithMigration_FoldsToGoldenView', () => {
     const migrated = migrateEvents(GOLDEN_LOG_V09, [RENAME_NAME_TO_TITLE]);
     const view = foldTaskTitles(migrated);
 
     expect(view).toEqual(GOLDEN_VIEW);
-    // Every replayed row now carries the current schema version — a snapshot
-    // taken over this fold would pass schemaVersion validation, whereas a
-    // snapshot over the raw '0.9' log invalidates (snapshot-store.ts), forcing
-    // a clean rebuild THROUGH the upcaster.
     for (const e of migrated) {
       expect(e.schemaVersion).toBe(EVENT_SCHEMA_VERSION);
     }
   });
 
+  /**
+   * The `0.9` shape holds `data.name` and not `data.title`, so a reducer for the current shape
+   * sees undefined titles. The test pins this failure, so a change that drops the upcast fails.
+   */
   it('GoldenLogV09_WithoutMigration_FoldsToEmptyTitles', () => {
-    // The un-upcast '0.9' shape carries `data.name`, not `data.title`, so a
-    // current-shape reducer observes undefined titles. This is the failure the
-    // migration repairs — pinned so a regression that silently drops upcasting
-    // is caught.
-    const raw = migrateEvents(GOLDEN_LOG_V09, []); // identity (no migrations)
+    const raw = migrateEvents(GOLDEN_LOG_V09, []);
     const view = foldTaskTitles(raw);
 
     expect(view.count).toBe(2);
     expect(view.titles).toEqual([undefined, undefined]);
   });
 
+  /**
+   * The only changes are the two title leaves, from `undefined` to a value. `count` does not
+   * change.
+   */
   it('GoldenLog_PreVsPostMigration_DiffStatesIsolatesExactlyTheTitles', () => {
     const before = foldTaskTitles(migrateEvents(GOLDEN_LOG_V09, []));
     const after = foldTaskTitles(migrateEvents(GOLDEN_LOG_V09, [RENAME_NAME_TO_TITLE]));
 
     const delta = diffStates(before, after);
 
-    // The ONLY changes are the two title leaves moving from undefined → value.
-    // count is unchanged; nothing else leaks.
     expect(delta.changed).toEqual({
       'titles.0': { from: undefined, to: 'first task' },
       'titles.1': { from: undefined, to: 'second task' },

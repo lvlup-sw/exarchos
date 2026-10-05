@@ -19,7 +19,6 @@ describe('handleSyncNow', () => {
   });
 
   it('should drain pending outbox entries for discovered streams when sender provided', async () => {
-    // Arrange: create outbox files with pending entries for two streams
     const outbox1 = [
       {
         id: 'entry-1',
@@ -64,15 +63,12 @@ describe('handleSyncNow', () => {
       'utf-8',
     );
 
-    // Arrange: mock sender that succeeds
     const mockSender: EventSender = {
       appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
     };
 
-    // Act: pass sender to trigger actual drain
     const result = await handleSyncNow(tempDir, undefined, mockSender);
 
-    // Assert: result should indicate success and report drained streams
     expect(result.success).toBe(true);
     const data = result.data as { streams: number; results: Array<Record<string, unknown>>; message: string };
     expect(data.streams).toBe(2);
@@ -80,17 +76,14 @@ describe('handleSyncNow', () => {
   });
 
   it('should return success with 0 streams when no outbox files exist', async () => {
-    // Act
     const result = await handleSyncNow(tempDir);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { streams: number; message: string };
     expect(data.streams).toBe(0);
   });
 
   it('should use ctx.outbox when provided instead of creating a new instance', async () => {
-    // Arrange: create an outbox file with a pending entry
     const outboxEntries = [
       {
         id: 'entry-shared',
@@ -113,26 +106,21 @@ describe('handleSyncNow', () => {
       'utf-8',
     );
 
-    // Create a shared Outbox instance and spy on its drain method
     const sharedOutbox = new Outbox(tempDir);
     const drainSpy = vi.spyOn(sharedOutbox, 'drain');
 
-    // Arrange: mock sender so drain actually happens
     const mockSender: EventSender = {
       appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
     };
 
-    // Act: pass the shared outbox and sender to handleSyncNow
     const result = await handleSyncNow(tempDir, sharedOutbox, mockSender);
 
-    // Assert: the shared outbox's drain was called (not a new instance's)
     expect(result.success).toBe(true);
     expect(drainSpy).toHaveBeenCalledTimes(1);
     expect(drainSpy).toHaveBeenCalledWith(mockSender, 'shared-stream');
   });
 
   it('should include local-mode message when no sender is provided', async () => {
-    // Arrange: create an outbox file
     const outbox = [
       {
         id: 'entry-1',
@@ -155,10 +143,8 @@ describe('handleSyncNow', () => {
       'utf-8',
     );
 
-    // Act: no sender passed (local mode)
     const result = await handleSyncNow(tempDir);
 
-    // Assert
     expect(result.success).toBe(true);
     const data = result.data as { message: string };
     expect(data.message).toContain('Local mode');
@@ -166,7 +152,6 @@ describe('handleSyncNow', () => {
   });
 
   it('should skip outbox drain in local mode and leave entries pending', async () => {
-    // Arrange: create outbox file with pending entries
     const outboxEntries = [
       {
         id: 'entry-local-1',
@@ -203,13 +188,10 @@ describe('handleSyncNow', () => {
       'utf-8',
     );
 
-    // Act: call without sender (local mode)
     const result = await handleSyncNow(tempDir);
 
-    // Assert: result indicates local mode
     expect(result.success).toBe(true);
 
-    // Assert: entries remain pending (not confirmed)
     const raw = await readFile(
       path.join(tempDir, 'local-stream.outbox.json'),
       'utf-8',
@@ -221,7 +203,6 @@ describe('handleSyncNow', () => {
   });
 
   it('should drain outbox when a sender is provided', async () => {
-    // Arrange: create outbox file with pending entries
     const outboxEntries = [
       {
         id: 'entry-remote-1',
@@ -244,25 +225,20 @@ describe('handleSyncNow', () => {
       'utf-8',
     );
 
-    // Create a mock sender that succeeds
     const mockSender: EventSender = {
       appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
     };
 
-    // Act: pass a sender to trigger drain
     const result = await handleSyncNow(tempDir, undefined, mockSender);
 
-    // Assert: result indicates drain happened
     expect(result.success).toBe(true);
     const data = result.data as { streams: number; results: Array<{ sent: number; failed: number }> };
     expect(data.streams).toBe(1);
     expect(data.results[0].sent).toBe(1);
     expect(data.results[0].failed).toBe(0);
 
-    // Assert: sender was actually called
     expect(mockSender.appendEvents).toHaveBeenCalledTimes(1);
 
-    // Assert: entry is now confirmed
     const raw = await readFile(
       path.join(tempDir, 'remote-stream.outbox.json'),
       'utf-8',

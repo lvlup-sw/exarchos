@@ -219,20 +219,15 @@ const validEvents = {
 } as const;
 
 describe('internal transition admission event schemas', () => {
+  /**
+   * Each type in `autoEmitted` has an automatic producer, so the registry must
+   * mark it `auto`. The registry must mark every other admission event `planned`.
+   */
   it('AdmissionEvents_AllPayloads_RoundTripThroughRealRegistry', () => {
     expect(Object.keys(validEvents)).toEqual(INTERNAL_ADMISSION_EVENT_TYPES);
 
     for (const [type, payload] of Object.entries(validEvents)) {
       expect(EventTypes).toContain(type);
-      // Admission events with a REAL automatic producer today. Everything else
-      // is still 'planned' (schema landed, producer not yet wired).
-      //   - admission.evidence-recorded: canonical gate runner (v2.12).
-      //   - admission.shadow-attempt / admission.disagreement-disposition:
-      //     the live shadow observer, on every guarded transition (DR-23/T-31).
-      //   - admission.rollout-decision / admission.enforcement-enabled: the
-      //     `cutover_decide` typed handler (#1739 — verbs/gates/cutover-readiness.ts).
-      //   - admission.cutover-ready: the observer's durable-append auto-export
-      //     hook (#1739 — workflow/admission/cutover-auto-export.ts).
       const autoEmitted = new Set([
         'admission.evidence-recorded',
         'admission.shadow-attempt',

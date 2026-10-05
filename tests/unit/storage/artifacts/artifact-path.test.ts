@@ -62,9 +62,8 @@ describe('artifact path containment', () => {
     expect(path.relative(ROOT, resolved).startsWith('..')).toBe(false);
   });
 
+  /** The resolver does not percent-decode, so `%2e%2e` is an ordinary name under the root. */
   it('ArtifactPath_EncodedTraversal_IsTreatedAsLiteralNotDecoded', () => {
-    // We never percent-decode, so `%2e%2e` is an ordinary contained name and
-    // must NOT be resolved to the parent directory.
     const resolved = resolveContainedArtifactPath(ROOT, ['%2e%2e', 'blob']);
     expect(resolved).toBe(path.join(ROOT, '%2e%2e', 'blob'));
     expect(path.relative(ROOT, resolved).startsWith('..')).toBe(false);

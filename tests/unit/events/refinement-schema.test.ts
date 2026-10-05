@@ -6,8 +6,6 @@ import {
   WorkflowEventBase,
 } from '../../../src/events/schemas.js';
 
-// ─── Valid fixture ──────────────────────────────────────────────────────────
-
 const validRefinementData = {
   skill: 'delegation',
   signalConfidence: 'high' as const,
@@ -28,8 +26,6 @@ const validRefinementData = {
     'skills/delegation/references/dispatch.md',
   ],
 };
-
-// ─── Schema Parsing Tests ───────────────────────────────────────────────────
 
 describe('RefinementSuggestedDataSchema', () => {
   it('RefinementSuggestedSchema_ValidData_ParsesSuccessfully', () => {
@@ -108,8 +104,6 @@ describe('RefinementSuggestedDataSchema', () => {
   });
 });
 
-// ─── EventType Union Tests ──────────────────────────────────────────────────
-
 describe('EventTypes — quality.refinement.suggested', () => {
   it('EventTypes_IncludesQualityRefinementSuggested', () => {
     expect(EventTypes).toContain('quality.refinement.suggested');
@@ -125,8 +119,6 @@ describe('EventTypes — quality.refinement.suggested', () => {
     expect(event.success).toBe(true);
   });
 });
-
-// ─── Property-Based Tests ───────────────────────────────────────────────────
 
 describe('RefinementSuggestedDataSchema — property-based', () => {
   it('should reject low confidence', () => {

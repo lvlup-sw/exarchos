@@ -22,11 +22,11 @@ describe('sqlite-backend bun:sqlite import contract', () => {
     backend.close();
   });
 
+  /**
+   * `PRAGMA synchronous` reports 2 for FULL. This read-back fails if
+   * `applyConnectionPragmas` ignores `'full'` and always sets NORMAL.
+   */
   it('SqliteBackend_AfterInitializeWithFull_AppliesSynchronousFullPragma', () => {
-    // DR-4 read-back proof for the opt-in FULL posture. `PRAGMA synchronous`
-    // reports 2 (FULL); the symmetric NORMAL=1 case is proven above. Without
-    // this, a regression where `applyConnectionPragmas` ignored 'full' and
-    // always emitted NORMAL would still pass the construct-and-append tests.
     const backend = new SqliteBackend(':memory:', { synchronous: 'full' });
     backend.initialize();
     const db = (backend as unknown as {

@@ -16,18 +16,14 @@ import {
 } from '../../../src/dispatch/core/onboarding/types.js';
 
 /**
- * DR-7 (task 008) — the two-event onboard contract. `onboard.requested` records
- * the durable INTENT (the reconcile plan) BEFORE the non-idempotent reconcile
- * fires; `onboard.executed` records the RESULT after it succeeds (INV-1 event
- * sourcing integrity, INV-13 two-event split for non-idempotent side effects).
+ * The two-event contract for onboarding. `onboard.requested` records the reconcile plan before
+ * the non-idempotent reconcile runs. `onboard.executed` records the result after the reconcile
+ * succeeds.
  *
- * This test widens the event-store contract atomically with the schema, and
- * (since DR-5 / task 018) guards that `init.executed` is GONE — the init
- * verb/handler were retired and `onboard.*` is the audit trail.
+ * The two fixtures parse through `ReconcilePlanSchema` and `ReconcileResultSchema`, so the event
+ * schemas must accept the canonical shapes.
  */
 describe('EventSchema_OnboardRequestedExecuted_RoundTrips', () => {
-  // A real ReconcilePlan from the types module (task 004) — proves the event
-  // schema reuses the canonical shape rather than redefining it.
   const plan: ReconcilePlan = ReconcilePlanSchema.parse({
     steps: [
       {
@@ -46,7 +42,6 @@ describe('EventSchema_OnboardRequestedExecuted_RoundTrips', () => {
     ],
   });
 
-  // A real ReconcileResult from the types module.
   const result: ReconcileResult = ReconcileResultSchema.parse({
     applied: [plan.steps[0]],
     skipped: [],
@@ -177,11 +172,10 @@ describe('EventSchema_OnboardRequestedExecuted_RoundTrips', () => {
     expect(EVENT_DATA_SCHEMAS['onboard.executed']).toBe(OnboardExecutedDataSchema);
   });
 
-  // RETIREMENT GUARD (DR-5 / task 018): the `init` verb + handler + its
-  // `init.executed` event are removed in this task. `onboard.requested` /
-  // `onboard.executed` are the audit trail now; bare `doctor` keeps the single
-  // read-only `diagnostic.executed`. This assertion fails loudly if a future
-  // edit re-introduces `init.executed`.
+  /**
+   * `onboard.requested` and `onboard.executed` are the audit trail of onboarding, so no
+   * `init.executed` event exists. The `doctor` composite keeps `diagnostic.executed`.
+   */
   it('removes init.executed entirely (DR-5 / task 018)', () => {
     expect(EventTypes as readonly string[]).not.toContain('init.executed');
     expect(
@@ -190,7 +184,6 @@ describe('EventSchema_OnboardRequestedExecuted_RoundTrips', () => {
     expect(
       (EVENT_DATA_SCHEMAS as Record<string, unknown>)['init.executed'],
     ).toBeUndefined();
-    // diagnostic.executed is retained for the doctor composite.
     expect(EventTypes).toContain('diagnostic.executed');
   });
 });

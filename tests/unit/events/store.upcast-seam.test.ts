@@ -1,14 +1,14 @@
+/**
+ * Proves that `EventStore.query` and `EventStore.queryByType` route their backend rows through
+ * `migrateEvents`. The mock of `migrateEvents` stamps each event, so the stamp must appear on read.
+ * `event-migration.test.ts` proves the upcast logic itself.
+ */
+
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-// #1556 wiring proof. Mock the read-time upcasting seam so it stamps every
-// event it folds. If EventStore.query / queryByType route their backend rows
-// through migrateEvents (the single choke point the no-bypass gate enforces),
-// the stamp MUST appear on read. The behavioural upcasting logic itself is
-// proven in event-migration.test.ts with fixture migrations; this file proves
-// only that the store readers are wired to the seam.
 vi.mock('../../../src/events/event-migration.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/events/event-migration.js')>();
   return {

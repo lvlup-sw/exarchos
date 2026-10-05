@@ -1,3 +1,16 @@
+// @oracle-sources: ../../../src/events/schemas.ts, the ASCII lowercase alphabet as fixed outside this repo together
+// with the RETIRED EVENT_NAME_PATTERN regex literal recovered from git history and restated in
+// docs/migrations/2026-08-10-event-name-grammar.md
+//
+// The two authorities are the live event catalog (`EventTypes`) and the rule that measures it.
+// The collapse suite keeps the retired regex as a subject, so the change is provable in both
+// directions.
+//
+// The compile-time proofs are the `_EventName_*` aliases in `event-name.ts`, because
+// `tsconfig.json` excludes test files. This file is the runtime mirror: the census reads
+// `classifyEventName`, and it must decide exactly what the type decides. Both read the same
+// fixture tables, so a divergence fails one of them.
+
 import { describe, it, expect } from 'vitest';
 import { EventTypes } from '../../../src/events/schemas.js';
 import {
@@ -18,66 +31,56 @@ import {
   WELL_FORMED_EVENT_NAME_SAMPLES,
 } from '../../../src/events/event-name.js';
 
-// @oracle-sources: ../../../src/events/schemas.ts, the ASCII lowercase alphabet as fixed outside this repo together
-// with the RETIRED EVENT_NAME_PATTERN regex literal recovered from git history and restated in
-// docs/migrations/2026-08-10-event-name-grammar.md
-//
-// The two authorities are the live event CATALOG (`EventTypes`, which nothing in this file can
-// edit) and the RULE it is measured against. Until task 075 they disagreed on 25 names and this
-// file recorded the contradiction rather than reconciling it; the collapse suite below is the
-// repair, and it keeps the retired regex as a live SUBJECT so the change is provable in both
-// directions instead of merely described.
-//
-// The compile-time half of DR-3 lives in `event-name.ts` itself (`_EventName_*` proof aliases),
-// because `tsconfig.json` excludes `*.test.ts` — a type-level assertion in this file would not be
-// checked by the build's `tsc` and would be decoration. What this file adds is the RUNTIME mirror:
-// `classifyEventName` is the seam the census consumes, and it has to decide exactly what the type
-// decides. Both rungs read the SAME fixture tables, so a divergence fails one of them.
-
 describe('EventName_MalformedFixtures_AreRejectedAtRuntime', () => {
+  /**
+   * `it.each` over an empty table reports zero tests and a green suite, so the table size has its
+   * own assertion. It mirrors `_EventName_KillFixtures_AreNonEmpty`.
+   */
   it('has a non-empty kill fixture table', () => {
-    // The non-empty-denominator rule, at runtime. `it.each` over an empty table reports zero
-    // tests and a green suite, so the denominator gets its own assertion rather than being
-    // implied by the loop below. Mirrors `_EventName_KillFixtures_AreNonEmpty`.
     expect(MALFORMED_EVENT_NAMES.length).toBeGreaterThan(0);
   });
 
+  /**
+   * The defect must be the clause that the table names. A checker with one code for each failure
+   * passes a bare `ok === false` assertion and gives the census nothing to ratchet on.
+   */
   it.each(MALFORMED_EVENT_NAMES)('rejects $name with $defect', ({ name, defect }) => {
     const verdict = classifyEventName(name);
     expect(verdict.ok).toBe(false);
-    // Not just "rejected" — rejected for the clause the table says it violates. A checker that
-    // returned one blanket code for everything would pass a bare `ok === false` assertion while
-    // giving the census nothing to ratchet on.
     if (!verdict.ok) expect(verdict.defect).toBe(defect);
     expect(isWellFormedEventName(name)).toBe(false);
   });
 
+  /** A defect code that no fixture produces is declared and unreachable, so each code needs a fixture. */
   it('every declared defect code is exercised by at least one fixture', () => {
-    // Guards against a code being added to the vocabulary that nothing can produce — a defect
-    // class declared but unreachable is the vacuity pattern this program exists to close.
     const exercised = new Set(MALFORMED_EVENT_NAMES.map((fixture) => fixture.defect));
     expect([...exercised].sort()).toEqual([...EVENT_NAME_DEFECTS].sort());
   });
 });
 
 describe('EventName_RegisteredCatalog_IsWellFormedAtRuntime', () => {
+  /**
+   * An empty `EventTypes`, from a moved module or a broken re-export, makes the next loop pass.
+   * It must fail here.
+   */
   it('enumerates a non-empty catalog', () => {
-    // If `EventTypes` ever resolves empty (a moved module, a broken re-export), the loop below
-    // would pass clean. It must fail instead.
     expect(EventTypes.length).toBeGreaterThan(0);
   });
 
+  /**
+   * The runtime twin of `_EventName_EveryRegisteredType_IsWellFormed`. It catches a divergence
+   * between `classifyEventName` and the type.
+   */
   it('accepts every registered event type', () => {
-    // The runtime twin of `_EventName_EveryRegisteredType_IsWellFormed`. The compile-time proof
-    // is the stronger one; this catches the case where `classifyEventName` and the type diverge,
-    // which is the only way the census could report a name the grammar actually accepts.
     const rejected = [...EventTypes].filter((name) => !isWellFormedEventName(name));
     expect(rejected).toEqual([]);
   });
 
+  /**
+   * Pins the shape facts of the catalog that the grammar cites as evidence. A later event type
+   * that breaks one makes that evidence stale.
+   */
   it('agrees with the shape measurements the grammar was derived from', () => {
-    // Pins the corpus facts the header's derivation table cites. If a future event type breaks
-    // one of these, the grammar's stated evidence is stale and this says so by name.
     const names = [...EventTypes];
     const arities = new Set(names.map((name) => name.split('.').length));
     expect([...arities].sort()).toEqual([MIN_NAME_SEGMENTS, MAX_NAME_SEGMENTS]);
@@ -93,9 +96,11 @@ describe('EventName_WellFormedSamples_AreAcceptedAtRuntime', () => {
     expect(verdict).toEqual({ ok: true, name });
   });
 
+  /**
+   * The samples must span the shapes of the catalog. A table of plain two-segment names accepts a
+   * grammar that rejects each hyphen and underscore name.
+   */
   it('covers both live word-separator styles', () => {
-    // The samples are only useful if they span the shapes the catalog exhibits; a table of six
-    // two-segment plain names would accept a grammar that rejected all 54 hyphen/underscore names.
     expect(WELL_FORMED_EVENT_NAME_SAMPLES.some((name) => name.includes('-'))).toBe(true);
     expect(WELL_FORMED_EVENT_NAME_SAMPLES.some((name) => name.includes('_'))).toBe(true);
     expect(
@@ -105,10 +110,11 @@ describe('EventName_WellFormedSamples_AreAcceptedAtRuntime', () => {
 });
 
 describe('EventName_DataForms_AreCompleteVocabularies', () => {
+  /**
+   * A person writes both `LOWER_ALPHA` and the `LowerAlpha` union. A letter dropped from both
+   * passes the type-level proof and narrows the grammar, so this check is independent.
+   */
   it('LOWER_ALPHA is the 26 letters, in order, with no gaps', () => {
-    // The type-level proof pins LOWER_ALPHA to the `LowerAlpha` union, but both halves are written
-    // by hand — a letter dropped from BOTH would satisfy mutual assignability and silently narrow
-    // the grammar. This is the independent check that catches that.
     expect(LOWER_ALPHA.length).toBe(26);
     expect(LOWER_ALPHA.join('')).toBe('abcdefghijklmnopqrstuvwxyz');
   });
@@ -123,9 +129,11 @@ describe('EventName_DataForms_AreCompleteVocabularies', () => {
 });
 
 describe('EventName_Classifier_ReportsTheOffendingSegment', () => {
+  /**
+   * The census reports a finding for each name. Without the segment, the report does not say
+   * where the defect is.
+   */
   it('names the segment for a segment-scoped defect', () => {
-    // The census reports per-name findings; without the segment the report says a name is bad but
-    // not where, which is not actionable.
     const verdict = classifyEventName('workflow.plan-review_dispatched');
     expect(verdict.ok).toBe(false);
     if (!verdict.ok) {
@@ -144,19 +152,19 @@ describe('EventName_Classifier_ReportsTheOffendingSegment', () => {
     }
   });
 
+  /**
+   * The census maps over each key in the registry. A corrupt key must give a verdict and not an
+   * exception, because an exception stops the enumeration and reads as no findings.
+   */
   it('rejects the empty string without throwing', () => {
-    // The census maps over whatever the registry holds; a hostile or corrupt key must produce a
-    // verdict, not an exception that aborts the enumeration and reads as "no findings".
     expect(classifyEventName('').ok).toBe(false);
   });
 });
 
-// ─── The collapse (DR-5, task 075) ──────────────────────────────────────────
-//
-// `RETIRED_PATTERN` is the regex `schemas.ts` shipped until task 075, transcribed from git history
-// and restated in the migration note. It is kept here as a SUBJECT, not as a rule: it is what makes
-// "this name used to register and no longer does" a measurement rather than an assertion. Nothing
-// in the production tree reads it.
+/**
+ * The retired event-name regex of `schemas.ts`, as the migration note states it. The tests use it
+ * as a subject and not as a rule. Production code does not read it.
+ */
 const RETIRED_PATTERN = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+$/;
 
 /** Names the retired regex ADMITTED that the surviving grammar refuses — one per broken clause. */
@@ -175,10 +183,11 @@ const NEWLY_ACCEPTED: readonly string[] = [
 ];
 
 describe('EventName_RetiredPattern_IsSupersededInBothDirections', () => {
+  /**
+   * `it.each` over an empty table reports zero tests, so the test asserts both table sizes first.
+   * The tables must also be disjoint, which catches one table pasted into both.
+   */
   it('has a non-empty subject in each direction', () => {
-    // The non-empty-denominator rule for the two kill tables. `it.each` over an empty table reports
-    // zero tests and a green suite, so both denominators are asserted before either is quantified
-    // over — and the tables must be DISJOINT, which is what stops one table being pasted into both.
     expect(NEWLY_REFUSED.length).toBeGreaterThan(0);
     expect(NEWLY_ACCEPTED.length).toBeGreaterThan(0);
     const overlap = NEWLY_ACCEPTED.filter((name) =>
@@ -187,11 +196,13 @@ describe('EventName_RetiredPattern_IsSupersededInBothDirections', () => {
     expect(overlap).toEqual([]);
   });
 
+  /**
+   * The test runs both halves. The second half alone also passes for a name that the retired
+   * regex never admitted, and that proves nothing about the change.
+   */
   it.each(NEWLY_REFUSED)(
     'the retired pattern admitted $name; the grammar refuses it with $defect',
     ({ name, defect }) => {
-      // BOTH halves are executed. Asserting only the second half would pass against a name the old
-      // regex never admitted either, which proves nothing about the change.
       expect(RETIRED_PATTERN.test(name)).toBe(true);
       const verdict = classifyEventName(name);
       expect(verdict.ok).toBe(false);
@@ -204,20 +215,25 @@ describe('EventName_RetiredPattern_IsSupersededInBothDirections', () => {
     expect(classifyEventName(name)).toEqual({ ok: true, name });
   });
 
+  /**
+   * The finding over the real corpus and not over the fixture table. The test reads the count
+   * from the retired regex, because a later built-in changes it. The derived pattern must also
+   * admit each name.
+   */
   it('the 25 snake_case built-ins the retired pattern rejected are all accepted now', () => {
-    // The finding this task closes, stated over the REAL corpus rather than over the fixture table.
-    // The count is read back from the retired regex, not written down: a future built-in changes
-    // it, and a hard-coded 25 would then be a false claim about a corpus that had moved.
     const wasRejected = [...EventTypes].filter((name) => !RETIRED_PATTERN.test(name));
     expect(wasRejected.length).toBeGreaterThan(0);
     expect(wasRejected.filter((name) => !name.includes('_'))).toEqual([]);
     expect(wasRejected.filter((name) => !isWellFormedEventName(name))).toEqual([]);
-    // And the surviving authority admits ALL of them, which is the property the retired one lacked.
     expect(wasRejected.filter((name) => !EVENT_NAME_PATTERN.test(name))).toEqual([]);
   });
 });
 
 describe('EventName_AssertWellFormed_ThrowsAndNamesTheMigration', () => {
+  /**
+   * The message must name the migration note. The name was legal before the migration, so an
+   * error that says only "invalid" does not tell the user what changed.
+   */
   it.each(NEWLY_REFUSED)('$name throws a MalformedEventNameError carrying $defect', ({ name, defect }) => {
     expect(() => {
       assertWellFormedEventName(name);
@@ -233,9 +249,6 @@ describe('EventName_AssertWellFormed_ThrowsAndNamesTheMigration', () => {
     if (caught instanceof MalformedEventNameError) {
       expect(caught.eventName).toBe(name);
       expect(caught.defect).toBe(defect);
-      // The message must NAME the migration. A user hitting this on upgrade is not making a typo —
-      // the name was legal yesterday — so an error that only says "invalid" sends them to read a
-      // regex that no longer exists.
       expect(caught.message).toContain(EVENT_NAME_MIGRATION_NOTE);
       expect(caught.message).toContain(name);
     }
@@ -247,17 +260,18 @@ describe('EventName_AssertWellFormed_ThrowsAndNamesTheMigration', () => {
     }).not.toThrow();
   });
 
+  /** A pointer that nobody can follow reads as an answer, so the note must have a real path shape. */
   it('the migration note it points at is a real path shape', () => {
-    // A pointer nobody can follow is worse than no pointer: it reads as an answer.
     expect(EVENT_NAME_MIGRATION_NOTE).toMatch(/^docs\/migrations\/[\w.-]+\.md$/);
   });
 });
 
 describe('EventName_DerivedPattern_IsAFormNotASecondAuthority', () => {
+  /**
+   * The regex is derived and not written a second time, so it must agree with the classifier.
+   * The subjects are the live catalog, the samples, the malformed fixtures and both kill tables.
+   */
   it('agrees with the classifier on every live name and every fixture', () => {
-    // The whole point of deriving the regex instead of re-authoring it. The subject spans the live
-    // catalog, both kill tables and the malformed fixtures, so a divergence anywhere in the grammar
-    // surfaces here rather than at a registration site in someone else's repo.
     const subjects = [
       ...EventTypes,
       ...WELL_FORMED_EVENT_NAME_SAMPLES,
@@ -275,17 +289,21 @@ describe('EventName_DerivedPattern_IsAFormNotASecondAuthority', () => {
     expect(disagreements).toEqual([]);
   });
 
+  /**
+   * A plain character class cannot express this clause, so the derived pattern is an alternation
+   * for each separator.
+   */
   it('rejects a segment that mixes the two word separators, like the type does', () => {
-    // The one clause a naive character class cannot express, and the reason the derived pattern is
-    // an alternation per separator rather than `[a-z_-]+`.
     expect(EVENT_NAME_PATTERN.test('workflow.plan-review_dispatched')).toBe(false);
     expect(EVENT_NAME_PATTERN.test('workflow.plan-review-dispatched')).toBe(true);
     expect(EVENT_NAME_PATTERN.test('workflow.plan_review_dispatched')).toBe(true);
   });
 
+  /**
+   * A smaller separator set must give a narrower pattern. A hand-written regex does not move with
+   * the grammar data.
+   */
   it('is rebuilt from the grammar data, not pinned to a literal', () => {
-    // Narrow the separator set and the pattern narrows with it. A hand-written regex would not
-    // move, which is exactly how the two authorities drifted apart the first time.
     const kebabOnly = buildEventNamePattern(LOWER_ALPHA, ['-']);
     expect(kebabOnly.test('workflow.plan-review-dispatched')).toBe(true);
     expect(kebabOnly.test('workflow.checkpoint_requested')).toBe(false);
@@ -301,10 +319,11 @@ describe('EventName_DerivedPattern_IsAFormNotASecondAuthority', () => {
 });
 
 describe('EventName_EmptyVocabulary_FailsRatherThanValidatingNothing', () => {
+  /**
+   * `[]+` matches no string. A grammar from an empty alphabet refuses each name, which looks like
+   * a strict validator and is a dead one.
+   */
   it('an emptied alphabet throws instead of building a validator that matches nothing', () => {
-    // The non-empty-denominator rule at the CONSTRUCTION site. `[]+` matches no string, so a
-    // grammar built from an emptied alphabet would refuse every name — which looks exactly like a
-    // strict validator and is actually a dead one.
     expect(() => buildEventNamePattern([], WORD_SEPARATORS)).toThrow(EmptyGrammarVocabularyError);
   });
 
@@ -317,11 +336,11 @@ describe('EventName_EmptyVocabulary_FailsRatherThanValidatingNothing', () => {
     expect(() => buildEventNamePattern(LOWER_ALPHA, WORD_SEPARATORS, 3, 2)).toThrow(RangeError);
   });
 
+  /**
+   * JavaScript does not read `{1.5,2}` or `{1,Infinity}` as a quantifier. The braces become
+   * literal characters, and the pattern stops enforcing a segment count.
+   */
   it('a non-integer segment bound throws rather than degrading the quantifier to literal braces', () => {
-    // JavaScript does not read `{1.5,2}` or `{1,Infinity}` as a quantifier — the
-    // braces become LITERAL characters, so the pattern stops enforcing a segment
-    // count and starts demanding that text. A bound that silently disables the
-    // bound is the failure this guard exists for.
     for (const [min, max] of [
       [2.5, 3],
       [2, 3.5],
@@ -334,11 +353,12 @@ describe('EventName_EmptyVocabulary_FailsRatherThanValidatingNothing', () => {
     }
   });
 
+  /**
+   * The builder concatenates its inputs into a regex source. A separator that is a metacharacter
+   * must be a literal, or a narrowed vocabulary widens the pattern. The separator under test is
+   * `+`.
+   */
   it('escapes vocabulary characters instead of letting them mean something in the pattern', () => {
-    // The builder concatenates its inputs into a regex source. A separator that is a metacharacter
-    // must be a literal, or a narrowed vocabulary would silently WIDEN the pattern.
-    // Named for the separator actually under test — it is `+`, and this is the one
-    // test whose whole subject is WHICH character gets escaped.
     const plusSeparated = buildEventNamePattern(LOWER_ALPHA, ['+']);
     expect(plusSeparated.test('workflow.plan+review')).toBe(true);
     expect(plusSeparated.test('workflow.planreview')).toBe(true);

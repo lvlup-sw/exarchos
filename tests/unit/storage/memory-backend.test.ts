@@ -5,8 +5,6 @@ import type { WorkflowState } from '../../../src/workflow/types.js';
 import type { EventSender } from '../../../src/storage/backend.js';
 import { InMemoryBackend } from '../../../src/storage/memory-backend.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
   return {
     streamId: 'test-stream',
@@ -53,8 +51,6 @@ function makeState(overrides: Partial<WorkflowState> = {}): WorkflowState {
   } as WorkflowState;
 }
 
-// ─── Event Operations ───────────────────────────────────────────────────────
-
 describe('InMemoryBackend Event Operations', () => {
   it('InMemoryBackend_listStreams_ReturnsEmpty_WhenNoEvents', () => {
     const backend = new InMemoryBackend();
@@ -78,8 +74,6 @@ describe('InMemoryBackend Event Operations', () => {
   });
 });
 
-// ─── State Operations ───────────────────────────────────────────────────────
-
 describe('InMemoryBackend State Operations', () => {
   it('InMemoryBackend_setState_GetState_Roundtrip', () => {
     const backend = new InMemoryBackend();
@@ -92,6 +86,7 @@ describe('InMemoryBackend State Operations', () => {
     expect(retrieved).toEqual(state);
   });
 
+  /** The first `setState` gives version 1, so an expected version of 0 is stale. */
   it('InMemoryBackend_setState_CASConflict_Throws', () => {
     const backend = new InMemoryBackend();
     backend.initialize();
@@ -99,8 +94,6 @@ describe('InMemoryBackend State Operations', () => {
     const state = makeState({ featureId: 'my-feature' });
     backend.setState('my-feature', state);
 
-    // The current version after first set is 1.
-    // Attempting to set with expectedVersion 0 (stale) should throw.
     const updatedState = makeState({ featureId: 'my-feature', phase: 'plan' });
     expect(() => backend.setState('my-feature', updatedState, 0)).toThrow();
   });
@@ -112,7 +105,6 @@ describe('InMemoryBackend State Operations', () => {
     const state = makeState({ featureId: 'my-feature' });
     backend.setState('my-feature', state);
 
-    // Version after first set is 1; CAS with expectedVersion=1 should succeed
     const updatedState = makeState({ featureId: 'my-feature', phase: 'plan' });
     expect(() => backend.setState('my-feature', updatedState, 1)).not.toThrow();
 
@@ -138,24 +130,22 @@ describe('InMemoryBackend State Operations', () => {
     expect(featureIds).toContain('feature-b');
   });
 
-  // ─── Version Sync from state._version (Issue #948) ─────────────────────
-
+  /**
+   * A first write with no `expectedVersion` takes its version from
+   * `state._version`, as for a state loaded from disk. Here the version is 3.
+   */
   it('InMemoryBackend_setState_Seed_SyncsVersionFromState', () => {
-    // Simulate MCP restart: state loaded from disk has _version: 3
     const backend = new InMemoryBackend();
     backend.initialize();
 
     const state = makeState({ featureId: 'my-feature', _version: 3 } as Partial<WorkflowState>);
-    // Seed without expectedVersion (initial-write semantics)
     backend.setState('my-feature', state);
 
-    // CAS write with expectedVersion matching state._version should succeed
     const updatedState = makeState({ featureId: 'my-feature', phase: 'plan', _version: 3 } as Partial<WorkflowState>);
     expect(() => backend.setState('my-feature', updatedState, 3)).not.toThrow();
   });
 
   it('InMemoryBackend_setState_Seed_CASFailsWithWrongVersion', () => {
-    // After seeding with _version: 3, CAS with expectedVersion: 1 should fail
     const backend = new InMemoryBackend();
     backend.initialize();
 
@@ -166,38 +156,34 @@ describe('InMemoryBackend State Operations', () => {
     expect(() => backend.setState('my-feature', updatedState, 1)).toThrow();
   });
 
+  /** A seeded state with no `_version` gets version 1. */
   it('InMemoryBackend_setState_Seed_FallsBackToIncrementWhenNoVersion', () => {
-    // State without _version should still work (fallback to currentVersion + 1)
     const backend = new InMemoryBackend();
     backend.initialize();
 
     const state = makeState({ featureId: 'my-feature' });
-    // Remove _version to simulate legacy state
     delete (state as Record<string, unknown>)._version;
     backend.setState('my-feature', state);
 
-    // Backend version should be 1 (0 + 1 fallback)
     const updatedState = makeState({ featureId: 'my-feature', phase: 'plan' });
     expect(() => backend.setState('my-feature', updatedState, 1)).not.toThrow();
   });
 
+  /**
+   * A write with `expectedVersion: 0` is an exclusive create. Its version is the
+   * current version plus 1, not `state._version`.
+   */
   it('InMemoryBackend_setState_CASCreate_IgnoresStateVersion', () => {
-    // initStateFile passes expectedVersion: 0 for exclusive-create semantics.
-    // This should use currentVersion + 1, NOT state._version,
-    // because CAS-create is intentional version control.
     const backend = new InMemoryBackend();
     backend.initialize();
 
     const state = makeState({ featureId: 'my-feature', _version: 1 } as Partial<WorkflowState>);
     backend.setState('my-feature', state, 0);
 
-    // Backend version should be 1 (0 + 1), matching state._version: 1
     const updatedState = makeState({ featureId: 'my-feature', phase: 'plan' });
     expect(() => backend.setState('my-feature', updatedState, 1)).not.toThrow();
   });
 });
-
-// ─── Outbox Operations ──────────────────────────────────────────────────────
 
 describe('InMemoryBackend Outbox Operations', () => {
   it('InMemoryBackend_addOutboxEntry_DrainOutbox_SendsAndRemoves', async () => {
@@ -209,7 +195,6 @@ describe('InMemoryBackend Outbox Operations', () => {
     expect(typeof entryId).toBe('string');
     expect(entryId.length).toBeGreaterThan(0);
 
-    // Create a mock sender
     const sentEvents: WorkflowEvent[] = [];
     const mockSender: EventSender = {
       appendEvents: async (_streamId, events) => {
@@ -225,13 +210,10 @@ describe('InMemoryBackend Outbox Operations', () => {
     expect(result.failed).toBe(0);
     expect(sentEvents).toHaveLength(1);
 
-    // Draining again should find nothing
     const result2 = await backend.drainOutbox('test-stream', mockSender);
     expect(result2.sent).toBe(0);
   });
 });
-
-// ─── View Cache Operations ──────────────────────────────────────────────────
 
 describe('InMemoryBackend View Cache Operations', () => {
   it('InMemoryBackend_getViewCache_ReturnsNullWhenEmpty', () => {
@@ -256,31 +238,23 @@ describe('InMemoryBackend View Cache Operations', () => {
   });
 });
 
-// ─── Lifecycle Operations ───────────────────────────────────────────────────
-
 describe('InMemoryBackend Lifecycle', () => {
   it('InMemoryBackend_initialize_Close_NoOpSafely', () => {
     const backend = new InMemoryBackend();
 
-    // Should not throw
     expect(() => backend.initialize()).not.toThrow();
     expect(() => backend.close()).not.toThrow();
 
-    // Calling twice should also be safe
     expect(() => backend.initialize()).not.toThrow();
     expect(() => backend.close()).not.toThrow();
   });
 });
 
-// ─── Property-Based Tests ───────────────────────────────────────────────────
-
 describe('InMemoryBackend Property Tests', () => {
-  // Arbitrary for a valid featureId (lowercase alphanumeric + hyphens, min length 1)
   const arbFeatureId = fc
     .stringMatching(/^[a-z][a-z0-9-]{0,19}$/)
     .filter((s) => s.length >= 1);
 
-  // Arbitrary for a valid WorkflowState - use a realistic structure
   const arbWorkflowState = arbFeatureId.map((featureId): WorkflowState =>
     makeState({ featureId }),
   );
@@ -300,6 +274,7 @@ describe('InMemoryBackend Property Tests', () => {
     );
   });
 
+  /** The two writes run in sequence. The first one moves the version to 2, so the second one always fails. */
   it('CAS: concurrent setState with same expectedVersion - exactly one succeeds', () => {
     fc.assert(
       fc.property(arbFeatureId, (featureId) => {
@@ -309,7 +284,6 @@ describe('InMemoryBackend Property Tests', () => {
         const state1 = makeState({ featureId });
         backend.setState(featureId, state1);
 
-        // Both try to set with expectedVersion 1
         const update1 = makeState({ featureId, phase: 'plan' });
         const update2 = makeState({ featureId, phase: 'delegate' });
 
@@ -320,18 +294,14 @@ describe('InMemoryBackend Property Tests', () => {
           backend.setState(featureId, update1, 1);
           success1 = true;
         } catch {
-          // CAS conflict
         }
 
         try {
           backend.setState(featureId, update2, 1);
           success2 = true;
         } catch {
-          // CAS conflict
         }
 
-        // Exactly one should succeed (first always succeeds, second always fails
-        // because version was bumped)
         expect(success1).toBe(true);
         expect(success2).toBe(false);
       }),
@@ -339,13 +309,12 @@ describe('InMemoryBackend Property Tests', () => {
   });
 });
 
-// ─── Wave 4 (#1437) — Correlation-tuple filters on queryEvents ──────────────
-
+/**
+ * The fixture holds three `cor-X` events and three `cor-Y` events. The
+ * `operationId` and `causationId` values split the same way.
+ */
 describe('InMemoryBackend queryEvents correlation filters (Wave 4 / #1437)', () => {
   function seedSplitByCorrelation(backend: InMemoryBackend): void {
-    // Mirror the SqliteBackend Wave-4 fixture: three events tagged 'cor-X',
-    // three tagged 'cor-Y', with operationId / causationId mirroring the
-    // split so the same fixture exercises all three filter fields.
     for (let i = 1; i <= 3; i++) {
       backend.appendEvent('test-stream', makeEvent({
         streamId: 'test-stream',
@@ -376,10 +345,6 @@ describe('InMemoryBackend queryEvents correlation filters (Wave 4 / #1437)', () 
     const results = backend.queryEvents('test-stream', { correlationId: 'cor-X' });
 
     expect(results).toHaveLength(3);
-    // InMemoryBackend stores WorkflowEvent objects directly, so the
-    // top-level field on the returned object is the source of truth here
-    // (no rehydration step). The assertion shape stays identical to the
-    // SqliteBackend test for backend-contract parity.
     for (const event of results) {
       expect(event.correlationId).toBe('cor-X');
     }

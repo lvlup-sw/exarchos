@@ -1,32 +1,18 @@
-// Co-located tests for the DR-2 boot-time weld resolution gate (task 012).
+// Tests for the boot-time weld resolution gate in `src/events/registration-validate.ts`.
 //
-// @oracle-sources: ../../../src/contract/reachability/providers.ts, the DR-2 tier and provider annotation task 010 measured from the emission sites
-//
-// The two authorities, and why they are two. The RESOLUTION SET is
-// `contract/reachability/providers.ts` — the effect-provider map, authored for P05-05's
-// reachability closure and reconciled against the effect ledger, with no knowledge that events
-// exist. The SUBJECTS are the DR-2 tier/provider assignments, which task 010 derived from a
-// different pair of populations entirely: which code APPENDS each event, and which reducer or view
-// FOLDS it. Neither was read off the other, so this file is a reconciliation of two independent
-// measurements rather than a restatement of one. Nothing here writes down a provider id as policy:
-// every expectation is computed from the live modules, so a renamed provider changes the assertion
-// instead of leaving a stale literal passing.
-//
-// The second authority is declared as a LABEL rather than as `./event-annotations.ts`, for the
-// reason `event-annotations.test.ts` already records: DR-30's derivation check is a static
-// MODULE-REACHABILITY walk (`suite-invariants/LIMITATIONS.md` — an over-approximation of
-// dependency, an under-approximation of value derivation). `event-annotations.ts` imports
-// `event-registration.ts`, which type-imports `contract/reachability/providers.ts`, so naming both
-// as paths would report a derivation that does not exist at the value level — the annotations are
-// hand-authored from emission evidence, not computed from the provider map. Naming
-// `architecture/effect-ledger.ts` as the second path would have been worse still and the gate said
-// so: `providers.ts` imports it outright, making them one authority wearing two names.
-//
-// The COMPILE-time half is not here. `tsconfig.json` excludes `**/*.test.ts`, so type-level
-// assertions in this file would be decorative; they live as exported `_RegistrationValidate_*`
-// aliases in the source module, where `tsc` actually checks them. Both were kill-probed:
-// transcribing `EffectProviderId` into a literal union and giving a second union arm its own
-// `provider` field each redden `npx tsc --noEmit`.
+// @oracle-sources: ../../../src/contract/reachability/providers.ts, the tier and provider annotation measured from the emission sites
+/**
+ * The two oracles are independent. `providers.ts` holds the effect-provider map and knows nothing
+ * about events. The annotations come from which code appends each event and which fold consumes it.
+ * The expectations about the live catalog come from the live modules, so a renamed provider
+ * changes the assertion.
+ *
+ * The second oracle is a label, not the path of `event-annotations.ts`. That module reaches
+ * `providers.ts` through a type import, so the derivation check reads the two as one authority.
+ *
+ * The compile-time proofs are the `_RegistrationValidate_*` aliases in the source module.
+ * `tsconfig.json` excludes test files, so a type assertion in this file proves nothing.
+ */
 
 import { describe, it, expect } from 'vitest';
 import { MODULE_EMISSIONS, type ModuleEmission } from '../../../src/events/module-emissions.js';
@@ -82,18 +68,14 @@ import {
 } from '../../../src/events/registration-validate.js';
 
 /**
- * The pinned stale-cover eligible count, authored and committed rather than computed. Resolved with
- * `fs`/`fileURLToPath`, never `import … from '…json'`: `resolveJsonModule` is off in this project,
- * and inside the compiled single-file binary a sibling JSON file is not on disk next to the module
- * that would try to import it — an import would either fail to compile or fail at runtime in the
- * shipped artifact, where this file's `readFileSync` call is exercised only by the test, never by
- * production code.
+ * The path of the pinned stale-cover eligible count. A person writes the file, and no code computes
+ * it. The test reads the file with `fs` and does not import it as a module.
  */
 const EMISSION_ELIGIBLE_BASELINE_PATH = fileURLToPath(
   new URL('../../support/emission-eligible-baseline.json', import.meta.url),
 );
 
-/** The shape a baseline file must have — narrowed with a type guard rather than an `as` cast. */
+/** A type guard for the shape of the baseline file. */
 function isEligibleBaseline(value: unknown): value is { eligibleCount: number } {
   return (
     typeof value === 'object' &&
@@ -104,10 +86,8 @@ function isEligibleBaseline(value: unknown): value is { eligibleCount: number } 
 }
 
 /**
- * Read the pinned baseline off disk. This function has exactly one caller-visible effect — read —
- * and nothing anywhere in this file writes {@link EMISSION_ELIGIBLE_BASELINE_PATH}. A guarded run
- * that regenerated its own baseline before comparing against it would always agree with itself; the
- * artifact is only evidence of anything because this is a one-way read.
+ * Read the pinned baseline from disk. No code in this file writes the baseline file.
+ * A run that writes its own baseline before the comparison always agrees with itself.
  */
 function readEligibleBaseline(): { eligibleCount: number } {
   const raw = fs.readFileSync(EMISSION_ELIGIBLE_BASELINE_PATH, 'utf8');
@@ -118,7 +98,7 @@ function readEligibleBaseline(): { eligibleCount: number } {
   return parsed;
 }
 
-/** The live catalog with extra entries merged in — the seeding seam for the falsifiers below. */
+/** The live catalog with extra entries merged in. The seeded tests use it. */
 function catalogWith(
   overrides: Readonly<Record<string, EventRegistration>>,
 ): Readonly<Record<string, EventRegistration>> {
@@ -126,8 +106,8 @@ function catalogWith(
 }
 
 /**
- * A `capability` registration naming `provider`. Everything else is fixed and valid, so the ONLY
- * variable under test is whether the provider id resolves.
+ * A `capability` registration that names `provider`. Each other field is fixed and valid, so the
+ * only variable is whether the provider id resolves.
  */
 function capabilityNaming(provider: string): EventRegistration {
   return {
@@ -138,7 +118,7 @@ function capabilityNaming(provider: string): EventRegistration {
   };
 }
 
-/** The live capability registrations, read off the catalog rather than listed. */
+/** The event types of the live capability registrations, sorted. */
 function liveCapabilityTypes(): string[] {
   return Object.entries(EVENT_ANNOTATIONS)
     .filter(([, registration]) => registration.tier === 'capability')
@@ -147,12 +127,8 @@ function liveCapabilityTypes(): string[] {
 }
 
 /**
- * Every capability registration in a catalog as `(eventType, declaredProvider, lifecycle)`, read
- * off the table rather than listed.
- *
- * Takes the catalog as an argument so a SEEDED one can be walked with the same function the live
- * one is. Without that, a fixture built from the live table would silently disagree with a seeded
- * catalog about which events exist — which is a difference that reads as a finding.
+ * Each capability registration in a catalog as `(eventType, provider, lifecycle)`, sorted by event
+ * type. The catalog is a parameter, so the same function reads a seeded catalog and the live one.
  */
 function capabilityRegistrationsIn(
   annotations: Readonly<Record<string, EventRegistration>>,
@@ -165,23 +141,18 @@ function capabilityRegistrationsIn(
   return rows.sort((a, b) => (a.eventType < b.eventType ? -1 : a.eventType > b.eventType ? 1 : 0));
 }
 
-/** Every live capability registration as `(eventType, declaredProvider)`, read off the catalog. */
+/** Each live capability registration, read from the catalog. */
 function liveCapabilityRegistrations(): { eventType: string; provider: string }[] {
   return capabilityRegistrationsIn(EVENT_ANNOTATIONS);
 }
 
 /**
- * An emission population that AGREES with a catalog everywhere: one edge per capability
- * registration in it, declared on the very tool that registration names.
+ * An emission population that agrees with a catalog: one primary edge for each capability
+ * registration, declared on the tool that the registration names.
  *
- * DERIVED from the annotation table rather than written down, so it stays conforming as the catalog
- * moves and cannot rot into a fixture that disagrees for a reason nobody meant. The seeds below hold
- * it fixed so each one varies exactly ONE population — without it, the live registry's real
- * disagreements would ride along in every seeded verdict and no seed would isolate anything.
- *
- * Parameterised by the catalog, and that is load-bearing rather than tidy: an edge set built from
- * the LIVE table against a SEEDED catalog leaves the seeded event named by nothing, which is a
- * second finding (stale cover) riding along in a verdict that is supposed to isolate one.
+ * The edges come from the annotation table, so they stay conforming when the catalog changes.
+ * The catalog is a parameter. An edge set from the live table leaves a seeded event with no edge.
+ * That adds a stale-cover finding to a verdict that must isolate one fault.
  */
 function conformingEmissionEdgesFor(
   annotations: Readonly<Record<string, EventRegistration>>,
@@ -198,14 +169,10 @@ function conformingEmissionEdgesFor(
 const CONFORMING_EMISSIONS = conformingEmissionEdgesFor(EVENT_ANNOTATIONS);
 
 /**
- * One emission edge that DISAGREES: a live capability event whose declaring tool is a real
- * composite tool OTHER than the provider its registration names.
- *
- * Both ends come off live modules — the event and its declared provider from the annotation table,
- * the declaring tool from the effect-provider map — so this is a genuine two-authority
- * disagreement, not a string nobody would ever write. It throws rather than returning a placeholder
- * when the catalog cannot supply one, because a seed that silently degrades into "no disagreement"
- * would make every test built on it pass by looking at nothing.
+ * One emission edge that disagrees: a live capability event, declared on a composite tool that is
+ * not the provider of its registration. The event and the provider come from the annotation table,
+ * and the tool comes from the effect-provider map. The function throws when the catalog can supply
+ * no such edge, so a seed cannot become empty silently.
  */
 function disagreeingEmissionEdge(): EmissionEdge {
   for (const { eventType, provider } of liveCapabilityRegistrations()) {
@@ -216,10 +183,7 @@ function disagreeingEmissionEdge(): EmissionEdge {
   throw new Error('no live capability registration can seed a provider disagreement');
 }
 
-/**
- * A provider entry the ledger does not back — the STALE case `providers.ts` names. Used below as
- * the seed that makes the drift diagnostic fire without touching any weld.
- */
+/** A provider entry that no ledger rule backs. It makes the drift diagnostic fire. */
 const GHOST_PROVIDER: EffectProvider = {
   tool: 'exarchos_ghost',
   area: 'ghost/',
@@ -228,10 +192,8 @@ const GHOST_PROVIDER: EffectProvider = {
 };
 
 /**
- * One input that makes exactly one named diagnostic fire, holding every other population live. The
- * severity axis has to be demonstrated over EVERY code the gate can emit, not over a favourite one
- * — a severity that only worked for unresolvable providers would leave three faults with an
- * undecided disposition.
+ * One input that makes one named diagnostic fire, with each other population live or conforming.
+ * The seeds cover each code that the gate can emit, so the severity tests range over all codes.
  */
 interface DiagnosticSeed {
   readonly code: WeldDiagnosticCode;
@@ -243,21 +205,17 @@ interface DiagnosticSeed {
 }
 
 /**
- * The catalog the unresolvable-provider seed uses, named so its CONFORMING emission population can
- * be derived from it rather than from the live table. Built from the live table plus one event, so
- * every other population stays exactly what the shipped tree holds.
+ * The catalog of the unresolvable-provider seed: the live table plus one event.
+ * It has a name so that its conforming emission population can come from it.
  */
 const UNRESOLVABLE_SEED_CATALOG = catalogWith({
   'seeded.severity-unresolvable': capabilityNaming('exarchos_no_such_provider'),
 });
 
 /**
- * A catalog in which every capability registration is `retired` — the input that empties the
- * stale-cover population WITHOUT emptying the weld population, which is the only way to reach that
- * vacuity guard rather than the capability one.
- *
- * Derived by rewriting one field of every live capability row, so the welds, their providers and
- * their consumers are all still the shipped values and the lifecycle axis is the single variable.
+ * A catalog where each capability registration is `retired`, and only the lifecycle field changes.
+ * The welds remain and the stale-cover population is empty. The catalog thus reaches the
+ * stale-cover vacuity guard and not the capability guard.
  */
 function everyCapabilityRetired(): Readonly<Record<string, EventRegistration>> {
   const retired: Record<string, EventRegistration> = {};
@@ -269,13 +227,9 @@ function everyCapabilityRetired(): Readonly<Record<string, EventRegistration>> {
 }
 
 /**
- * A conforming emission population with the edge for ONE active capability event removed — the
- * input that makes that event stale cover and changes nothing else.
- *
- * The event is CHOSEN from the live table (the first active capability registration in event order)
- * rather than named here, so a re-tiering or a retirement moves the subject instead of leaving a
- * literal that no longer selects anything. Throws rather than degrading into "removed nothing",
- * because a seed that quietly stops seeding is how a falsifier ships green forever.
+ * The first active capability event of the live table, in event order. The stale-cover seeds
+ * remove its edge. The function reads the table, so a re-tiering or a retirement moves the subject.
+ * It throws when no active registration exists, so the seed cannot become empty silently.
  */
 function firstActiveCapabilityEvent(): string {
   const active = capabilityRegistrationsIn(EVENT_ANNOTATIONS).find(
@@ -286,15 +240,15 @@ function firstActiveCapabilityEvent(): string {
 }
 
 const STALE_COVER_SEED_EVENT = firstActiveCapabilityEvent();
+
+/** The conforming population without the edge of {@link STALE_COVER_SEED_EVENT}. */
 const CONFORMING_EMISSIONS_MINUS_ONE = CONFORMING_EMISSIONS.filter(
   (edge) => edge.event !== STALE_COVER_SEED_EVENT,
 );
 
 /**
- * A seed per diagnostic code. Each varies ONE population and holds the other three at a value that
- * reports nothing — which is why every seed carries an explicit emission population rather than
- * falling through to the live registry, whose real disagreements would otherwise appear in every
- * verdict and make "exactly one fault fired" untestable.
+ * One seed for each diagnostic code. Each seed changes one population and holds the others at a
+ * value that reports nothing. Each seed carries an explicit emission population for that reason.
  */
 const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
   {
@@ -302,8 +256,7 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
     annotations: UNRESOLVABLE_SEED_CATALOG,
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
-    // Derived from the SEEDED catalog, so the added event is named by an edge and the only fault in
-    // this verdict is the unresolvable provider.
+    /** From the seeded catalog, so an edge names the added event. Only the provider is at fault. */
     emissions: conformingEmissionEdgesFor(UNRESOLVABLE_SEED_CATALOG),
   },
   {
@@ -334,40 +287,40 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
     rules: EFFECT_OWNERSHIP,
     emissions: [...CONFORMING_EMISSIONS, disagreeingEmissionEdge()],
   },
+  /**
+   * Boot-resolvable events exist, and no edge names one of them.
+   * `EMPTY_CAPABILITY_DENOMINATOR` is the case where the events are absent.
+   */
   {
-    // Boot-resolvable events exist and NOTHING claims to emit any of them, so the comparison
-    // ranged over an empty set. Distinct from EMPTY_CAPABILITY_DENOMINATOR, which is the case
-    // where the subject side is what went missing.
     code: 'EMPTY_EMISSION_DENOMINATOR',
     annotations: EVENT_ANNOTATIONS,
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
     emissions: [],
   },
+  /**
+   * One conforming edge: not empty, no disagreement, and below the floor. Only the size is wrong.
+   */
   {
-    // Non-empty and still too small: one conforming edge, so nothing disagrees and no vacuity
-    // guard has anything to say. The only thing wrong with this population is its SIZE.
     code: 'NARROWED_EMISSION_DENOMINATOR',
     annotations: EVENT_ANNOTATIONS,
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
     emissions: CONFORMING_EMISSIONS.slice(0, 1),
   },
+  /**
+   * One active capability event loses its edge. The weld resolves and the other edges agree, so
+   * the only fault is that no edge names the event.
+   */
   {
-    // One active capability event loses the edge that named it and nothing else moves: the weld
-    // still resolves, the remaining edges still agree, and the compared set is one short of the
-    // whole capability arm — so the only thing left to notice is that this event is emitted by
-    // nothing.
     code: STALE_CAPABILITY_COVER_CODE,
     annotations: EVENT_ANNOTATIONS,
     providers: EFFECT_PROVIDERS,
     rules: EFFECT_OWNERSHIP,
     emissions: CONFORMING_EMISSIONS_MINUS_ONE,
   },
+  /** Each weld is present and `retired`, so only the stale-cover population is empty. */
   {
-    // The welds are all still there and every one of them is `retired`, so the stale-cover
-    // population is empty while the capability population is not. Distinct from
-    // EMPTY_CAPABILITY_DENOMINATOR, which is the case where the welds themselves went missing.
     code: 'EMPTY_STALE_COVER_DENOMINATOR',
     annotations: everyCapabilityRetired(),
     providers: EFFECT_PROVIDERS,
@@ -433,22 +386,14 @@ const DIAGNOSTIC_SEEDS: readonly DiagnosticSeed[] = [
   },
 ];
 
-/**
- * Narrow a raw object key back onto the diagnostic axis. The shipped table is the membership test,
- * so this cannot admit a code the gate does not know about.
- */
+/** A type guard that narrows an object key to a diagnostic code of the shipped table. */
 function isWeldDiagnosticCode(value: string): value is WeldDiagnosticCode {
   return Object.prototype.hasOwnProperty.call(DIAGNOSTIC_SEVERITY_POLICY, value);
 }
 
 /**
- * The live severity table with every row rewritten to `severity` — DERIVED from the shipped table's
- * keys rather than transcribed, so it stays total as codes are added and cannot quietly leave a
- * code on its default.
- *
- * Starting from a spread of the shipped table rather than from `{}` is what keeps the result TOTAL
- * by type: a `Record<string, …>` accumulator would satisfy no caller's parameter type and would
- * silently drop a code the loop happened to miss.
+ * The live severity table with each row set to `severity`. The table starts as a spread of the
+ * shipped table, so its type stays total over the diagnostic codes when a code is added.
  */
 function everyDiagnosticAt(
   severity: WeldDiagnosticSeverity,
@@ -463,33 +408,23 @@ function everyDiagnosticAt(
 }
 
 describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () => {
+  /**
+   * The shipped catalog is `ok`, which is stronger than `bootable`. The seeded tests show the
+   * difference between the two flags.
+   * Each count is above zero and equals a count that the test derives from the live modules.
+   * A gate over zero welds, zero providers or zero edges gives the same verdict shape.
+   * The compared set is a strict subset of the declared edges, because most edges name events of
+   * a tier that this gate does not resolve. The report reads as clean and carries each count.
+   */
   it('RegistrationWelds_LiveCatalog_ResolvesAgainstNonEmptyPopulations', () => {
     const verdict = validateRegistrationWelds();
 
-    // THE SHIPPED CATALOG IS CLEAN — `ok`, not merely `bootable`.
-    //
-    // This assertion has moved twice, and both moves were measurements. It first said `ok` is
-    // FALSE while `bootable` is TRUE, because reference integrity was perfect but the
-    // emission-coupling comparison reported real disagreements at `observe`. Then the provider
-    // comparison went quiet as its disagreements were repaired, leaving only stale cover. Now
-    // stale cover is empty too: the last of it was `eval.judge.calibrated`, re-tiered onto
-    // `harness` because no `exarchos_view` action could ever have emitted it.
-    //
-    // The `ok` / `bootable` DISTINCTION is not lost by asserting both true here — it is exactly
-    // what a clean tree looks like, and the distinction itself is proven on seeded input by
-    // `Verdict_ObserveOnlyFindings_StillBoots`, where a finding can be made to appear on demand.
-    // Asserting `observeCount > 0` on the live tree would now require leaving a real defect
-    // unrepaired to keep a test green.
     expect(verdict.bootable).toBe(true);
     expect(verdict.blockingCount).toBe(0);
     expect(verdict.observeCount).toBe(0);
     expect(verdict.diagnostics).toEqual([]);
     expect(verdict.ok).toBe(true);
 
-    // NON-VACUOUS DENOMINATORS, all three, and all derived. A gate that resolved zero welds (or
-    // resolved them against zero providers, or compared zero emission edges) would report exactly
-    // the same verdict shape, which is the failure mode the three EMPTY_* diagnostics exist to
-    // make impossible.
     const capabilityTypes = liveCapabilityTypes();
     expect(capabilityTypes.length).toBeGreaterThan(0);
     expect(verdict.bootResolvedCount).toBe(capabilityTypes.length);
@@ -497,31 +432,16 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     expect(verdict.resolvableProviderCount).toBe(resolvableProviderIds().length);
     expect(verdict.emissionEdgeCount).toBe(declaredEmissionEdges().length);
     expect(verdict.comparedEmissionEdgeCount).toBeGreaterThan(0);
-    // The compared set is a STRICT subset of the declared one — most emission edges name events
-    // registered at a tier this gate does not resolve — so a comparison that had quietly widened
-    // past the capability arm would show up as these two numbers converging.
     expect(verdict.comparedEmissionEdgeCount).toBeLessThan(verdict.emissionEdgeCount);
 
-    // The subject set IS the capability tier — the policy table's `resolvedAt: 'boot'` row and the
-    // catalog agree on which registrations are in scope, computed from both ends.
     expect(bootResolvedWelds().map((w) => w.eventType)).toEqual(capabilityTypes);
 
-    // AUTHORITY 2, independently: every id the welds name is a live `EFFECT_PROVIDERS` tool. Read
-    // off the provider map here, not off the annotations, so this is a reconciliation of two
-    // populations rather than a restatement of one.
     const liveTools = new Set(EFFECT_PROVIDERS.map((p) => p.tool));
     const namedTools = new Set(bootResolvedWelds().map((w) => w.ref));
     expect([...namedTools].filter((tool) => !liveTools.has(tool))).toEqual([]);
     expect(namedTools.size).toBeGreaterThan(0);
 
-    // The report reads as CLEAN, and it still carries every denominator so no count in it can be
-    // read without the population it was measured over. It said BOOTABLE — survived-with-findings
-    // — for as long as there were findings to survive; the word moved when the last of them was
-    // repaired, and asserting the old one now would require keeping a defect to keep a string.
     expect(verdict.report).toContain('event registration welds OK');
-    // The blocking-count phrase belongs to the survived-with-findings report; a clean one has no
-    // findings to count. `blockingCount` is asserted directly above, so nothing is lost by not
-    // demanding a sentence the clean branch never writes.
     expect(verdict.report).not.toContain('observe-only');
     expect(verdict.report).not.toContain('FAILED');
     expect(verdict.report).toContain(`${verdict.bootResolvedCount} boot-resolved weld(s)`);
@@ -531,12 +451,13 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     );
   });
 
+  /**
+   * The seed is a valid `capability` registration whose provider names nothing. The union cannot
+   * reject it, because `EffectProviderId` is `string`, so reference integrity must fail at boot.
+   * The message names the id and the resolvable set. Both counts stay correct, so the fault is the
+   * weld and not a population. The gate throws, and the error carries the verdict.
+   */
   it('RegistrationWelds_SeededUnresolvableProvider_FailsTheGate', () => {
-    // THE KILL FIXTURE. A structurally perfect `capability` registration — active lifecycle, a real
-    // consumer, a non-empty provider string — whose provider names nothing. The union cannot reject
-    // it (`EffectProviderId` is deliberately `string`, so that transcribing `EFFECT_PROVIDERS` into
-    // the type does not create a second authority), which is precisely why reference integrity has
-    // to be a BOOT failure.
     const seededType = 'seeded.unresolvable-provider';
     const seededProvider = 'exarchos_no_such_provider';
     const seeded = catalogWith({ [seededType]: capabilityNaming(seededProvider) });
@@ -549,19 +470,14 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     );
     expect(unresolvable.map((d) => d.eventType)).toEqual([seededType]);
     expect(unresolvable[0]?.provider).toBe(seededProvider);
-    // The message names the id AND the resolvable set, so an operator can fix it without reading
-    // this source.
     expect(unresolvable[0]?.message).toContain(seededProvider);
     for (const id of resolvableProviderIds()) {
       expect(unresolvable[0]?.message).toContain(id);
     }
 
-    // The denominators are still healthy — the fault is the weld, not the populations. Asserting
-    // BOTH numbers is what stops "unresolvable" from being reported for the wrong reason.
     expect(verdict.bootResolvedCount).toBe(liveCapabilityTypes().length + 1);
     expect(verdict.resolvableProviderCount).toBe(resolvableProviderIds().length);
 
-    // And the gate THROWS, carrying the verdict — this is the call `initializeContext` makes.
     expect(() => assertRegistrationWeldsAtStartup(seeded)).toThrow(RegistrationWeldError);
     try {
       assertRegistrationWeldsAtStartup(seeded);
@@ -575,15 +491,13 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     }
   });
 
+  /**
+   * The property is "names a live effect provider". Membership in the `EFFECT_PROVIDERS` array is
+   * only a proxy for it. `exarchos_ghost` is in the array, and no `EFFECT_OWNERSHIP` rule backs it.
+   * The gate reads the property, so the id does not resolve and the gate reports the drift as the
+   * cause. The other providers still resolve.
+   */
   it('RegistrationWelds_ProviderThatOnlyLooksLive_StillFails', () => {
-    // The PROPERTY is "names a live effect provider", and the PROXY is "appears in the
-    // EFFECT_PROVIDERS array". They come apart exactly when the provider map has drifted from the
-    // effect ledger, which `providers.ts` calls a STALE provider. Here the two disagree by
-    // construction: the array contains `exarchos_ghost`, but no EFFECT_OWNERSHIP rule backs it.
-    //
-    // BOTH numbers are asserted. A gate measuring the proxy would resolve the weld and report
-    // clean over 1 provider; the gate measures the property, so the id is unresolvable AND the
-    // drift is named as its own cause.
     const ghost: EffectProvider = {
       tool: 'exarchos_ghost',
       area: 'ghost/',
@@ -592,11 +506,8 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     };
     const providers = [...EFFECT_PROVIDERS, ghost];
 
-    // PROXY: membership in the raw array — 1 match.
     expect(providers.filter((p) => p.tool === ghost.tool).length).toBe(1);
-    // PROPERTY: ledger-backed resolution — 0 matches.
     expect(resolvableProviderIds(providers).filter((id) => id === ghost.tool)).toEqual([]);
-    // ...and the honest providers are untouched, so this is not "everything broke".
     expect(resolvableProviderIds(providers)).toEqual(resolvableProviderIds());
 
     const seeded = catalogWith({ 'seeded.ghost-weld': capabilityNaming(ghost.tool) });
@@ -605,17 +516,18 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
 
     const codes = verdict.diagnostics.map((d) => d.code);
     expect(codes).toContain(UNRESOLVABLE_PROVIDER_CODE);
-    // The CAUSE is reported too, delegated to `validateEffectProviders` rather than re-derived.
     expect(codes).toContain(PROVIDER_REGISTRY_DRIFT_CODE);
     const drift = verdict.diagnostics.filter((d) => d.code === PROVIDER_REGISTRY_DRIFT_CODE);
     expect(drift.map((d) => d.provider)).toEqual([ghost.tool]);
   });
 
+  /**
+   * The catalog keeps each registration that is not `capability`, so it has zero boot-resolvable
+   * welds. A check over an empty subject set cannot fail, so the gate must not report clean.
+   * The provider registry is intact, and `EMPTY_PROVIDER_REGISTRY` does not fire. An empty catalog
+   * fails in the same way.
+   */
   it('RegistrationWelds_EmptyCapabilityPopulation_FailsInsteadOfPassingClean', () => {
-    // NON-EMPTY DENOMINATOR, subject side. Every substrate/judgment/etc. registration is retained,
-    // so this is not "an empty table" — it is a table with zero BOOT-RESOLVABLE welds, which is
-    // what a rename of the capability tier, or a moved annotation module, would look like. A
-    // resolution check over an empty subject set cannot fail, so reporting clean would be a lie.
     const withoutCapabilities: Record<string, EventRegistration> = {};
     for (const [eventType, registration] of Object.entries(EVENT_ANNOTATIONS)) {
       if (registration.tier === 'capability') continue;
@@ -627,38 +539,38 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     expect(verdict.ok).toBe(false);
     expect(verdict.bootResolvedCount).toBe(0);
     expect(verdict.diagnostics.map((d) => d.code)).toContain('EMPTY_CAPABILITY_DENOMINATOR');
-    // The registry side is still fine — the two vacuity guards are independent.
     expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
     expect(verdict.diagnostics.map((d) => d.code)).not.toContain('EMPTY_PROVIDER_REGISTRY');
 
-    // The all-empty case (the annotation module renamed to nothing) fails too.
     expect(validateRegistrationWelds({}).diagnostics.map((d) => d.code)).toContain(
       'EMPTY_CAPABILITY_DENOMINATOR',
     );
   });
 
+  /**
+   * An empty `EFFECT_PROVIDERS` gives the `EMPTY_PROVIDER_REGISTRY` fault, which names the registry
+   * as the cause. The subject count does not change.
+   * A ledger with no rules gives the same fault: the array is full and no id resolves.
+   */
   it('RegistrationWelds_EmptyProviderRegistry_FailsInsteadOfPassingClean', () => {
-    // NON-EMPTY DENOMINATOR, registry side. `EFFECT_PROVIDERS` emptied (module moved, export
-    // renamed) is reported as ONE fault about the registry, not as N unresolvable welds that point
-    // the operator at the annotations.
     const verdict = validateRegistrationWelds(EVENT_ANNOTATIONS, []);
     expect(verdict.ok).toBe(false);
     expect(verdict.resolvableProviderCount).toBe(0);
     expect(verdict.diagnostics.map((d) => d.code)).toContain('EMPTY_PROVIDER_REGISTRY');
-    // The subject population is untouched, so the fault is unambiguously the registry's.
     expect(verdict.bootResolvedCount).toBe(liveCapabilityTypes().length);
 
-    // Same for a ledger that no longer backs anything: the array is full, the resolution set is
-    // empty. This is the case a raw-membership check would MISS entirely.
     const unbacked = validateRegistrationWelds(EVENT_ANNOTATIONS, EFFECT_PROVIDERS, []);
     expect(unbacked.resolvableProviderCount).toBe(0);
     expect(unbacked.diagnostics.map((d) => d.code)).toContain('EMPTY_PROVIDER_REGISTRY');
   });
 
+  /**
+   * The gate reads the policy as data. Each tier of `EVENT_TIERS` has a resolution decision, and
+   * only `capability` resolves at boot. Each tier carries a note that states the reason.
+   * The ref that the gate resolves is the one from `weldReferenceOf`. No type proves that the
+   * capability arm returns `provider`, so the test checks each live capability registration.
+   */
   it('RegistrationWelds_PolicyTable_IsTotalAndNamesOneBootAuthority', () => {
-    // POLICY IS DATA THE GATE READS. Every tier in the shipped vocabulary has a resolution
-    // decision, and the decision set is derived from `EVENT_TIERS` — so a sixth tier arrives with
-    // an explicit decision or not at all.
     expect(Object.keys(WELD_RESOLUTION_POLICY).sort()).toEqual([...EVENT_TIERS].sort());
 
     const bootTiers = EVENT_TIERS.filter(
@@ -671,15 +583,10 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
       expect(capabilityPolicy.authority).toBe('effect-provider-registry');
     }
 
-    // Every non-boot tier states WHY, so a future reader can tell "already unforgeable at compile
-    // time" apart from "nobody got round to it".
     for (const tier of EVENT_TIERS) {
       expect(WELD_RESOLUTION_POLICY[tier].note.length).toBeGreaterThan(0);
     }
 
-    // The ref the gate resolves is the one `weldReferenceOf` extracts — pinned at runtime, because
-    // no type can prove the switch's capability arm returns `provider` rather than, say, the first
-    // `consumedBy` entry. Every live capability registration is checked, not a sample.
     const capabilityTypes = liveCapabilityTypes();
     expect(capabilityTypes.length).toBeGreaterThan(0);
     for (const eventType of capabilityTypes) {
@@ -690,10 +597,12 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     }
   });
 
+  /**
+   * An id resolves only when one backed entry claims it. Two entries for the same tool make the
+   * id ambiguous, so it does not resolve, and each other id is unchanged.
+   * The resolution set comes from the two live modules.
+   */
   it('RegistrationWelds_ResolvableIds_RequireExactlyOneBackedProviderEntry', () => {
-    // "Resolves" means the id names ONE thing. Two entries claiming the same tool is an ambiguous
-    // provider — `providers.ts` says exactly one is required — so the id stops resolving even
-    // though both entries are individually ledger-backed.
     const first = EFFECT_PROVIDERS[0];
     expect(first).toBeDefined();
     if (first === undefined) return;
@@ -701,10 +610,8 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
     expect(resolvableProviderIds()).toContain(first.tool);
     const duplicated = resolvableProviderIds([...EFFECT_PROVIDERS, first]);
     expect(duplicated).not.toContain(first.tool);
-    // ...and only that id is affected.
     expect(duplicated).toEqual(resolvableProviderIds().filter((id) => id !== first.tool));
 
-    // The resolution set is derived from BOTH live modules, never listed here.
     expect(resolvableProviderIds()).toEqual(
       [...new Set(EFFECT_PROVIDERS.map((p) => p.tool))].sort(),
     );
@@ -713,19 +620,14 @@ describe('RegistrationValidate — the DR-2 boot-time weld resolution gate', () 
 });
 
 describe('StartupAssertion — the severity axis on the boot refusal', () => {
+  /**
+   * Pins the severity of each code as two exact sets. The catalog faults block. The codes in the
+   * `observe` set report a collapse in the reach of the gate, so the tree still boots.
+   * The seeds cover each shipped code. For each blocking seed, the diagnostic is `blocking`, the
+   * verdict is not bootable, and the gate throws without a report.
+   * The module emissions are empty, so a shipped row cannot cover the stale-cover seed.
+   */
   it('StartupAssertion_BlockingSeverity_ThrowsOnAnyViolation', () => {
-    // THE GRADUATION, PINNED — and this is the line the two halves of the gate now sit on.
-    //
-    // The pin said reference-integrity codes block and emission-coupling codes observe, and the
-    // comment said the eventual graduation had to be a deliberate act that reddened here. This is
-    // that act: both emission-coupling FINDINGS now block, because both break sets are closed and
-    // an `observe` with nothing to report buys only the option to regress silently.
-    //
-    // What did NOT move is the more interesting half. The three EMPTY_*/NARROWED_* denominator
-    // codes stay `observe` because they report a collapse in the gate's OWN reach — a measurement
-    // problem, not a catalog one — and a tree whose census stopped resolving must still boot so
-    // somebody can run the tooling that diagnoses it. Both sides stay pinned by an exact set, so
-    // the next move across this line is as deliberate as this one was.
     const shipped = Object.entries(DIAGNOSTIC_SEVERITY_POLICY);
     const shippedCodes = shipped.map(([code]) => code);
     const codesAt = (severity: WeldDiagnosticSeverity): string[] =>
@@ -753,8 +655,6 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
       ].sort(),
     );
 
-    // NON-VACUOUS SEED SET: one input per code, and the codes come from the same table asserted
-    // above — so a code that no seed exercises is a hole this loop reports rather than skips.
     expect(DIAGNOSTIC_SEEDS.map((s) => s.code).sort()).toEqual([...shippedCodes].sort());
 
     const blockingSeeds = DIAGNOSTIC_SEEDS.filter(
@@ -763,8 +663,6 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
     expect(blockingSeeds.map((s) => s.code).sort()).toEqual(codesAt('blocking'));
 
     for (const seed of blockingSeeds) {
-      // The pure verdict first: the diagnostic fires, it is stamped `blocking`, and the boot
-      // decision follows from the stamp rather than from "the list is non-empty".
       const verdict = validateRegistrationWelds(
         seed.annotations,
         seed.providers,
@@ -773,9 +671,6 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         DIAGNOSTIC_SEVERITY_POLICY,
         seed.emissions,
         STALE_COVER_LIFECYCLE_POLICY,
-        // Seeded world: no non-action emitters, matching the observe arm below. Inheriting the
-        // shipped table would let an unrelated `MODULE_EMISSIONS` row cover the stale-cover seed,
-        // which is exactly how this loop would silently stop exercising the code it names.
         [],
         seed.primaryOwnerEmissions ?? declaredEmissionEdges(),
       );
@@ -786,13 +681,10 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
       expect(verdict.bootable).toBe(false);
       expect(verdict.blockingCount).toBe(verdict.diagnostics.length);
       expect(verdict.observeCount).toBe(0);
-      // The report still reads as a refusal, and the fault count is the blocking count.
       expect(verdict.report).toContain('event registration weld resolution FAILED');
       expect(verdict.report).toContain(`${verdict.blockingCount} fault(s)`);
       expect(verdict.report).not.toContain('observe-only');
 
-      // ...and the gate ACTUALLY REFUSES. A sink is supplied so a gate that reported instead of
-      // throwing would be caught here rather than passing as "it did something".
       const reported: string[] = [];
       expect(() =>
         assertRegistrationWeldsAtStartup(
@@ -844,13 +736,13 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
     expect(verdict.diagnostics.filter((d) => d.code === MULTI_PRIMARY_OWNER_CODE)).toEqual([]);
   });
 
+  /**
+   * The same seeds with each code at `observe`. The gate returns and reports one time, and the
+   * report holds the code and the counts. `ok` stays false, because an observation is a finding.
+   * Together with the blocking test, this shows that only the severity table decides the refusal.
+   * The module emissions are empty, so a shipped row cannot cover a seed.
+   */
   it('StartupAssertion_ObserveSeverity_ReportsWithoutThrowing', () => {
-    // THE OTHER ARM, over the same six inputs — including the two whose shipped severity is
-    // already `observe`, so this loop covers every code the gate can emit rather than only the
-    // refusable ones. Identical populations, one row-set flipped: the gate must now RETURN and
-    // report rather than refuse. Running it over the same seeds as the blocking test is what makes
-    // the pair evidence — each input is shown to be refusable AND survivable purely as a function
-    // of the severity table.
     const observeEverything = everyDiagnosticAt('observe');
 
     for (const seed of DIAGNOSTIC_SEEDS) {
@@ -864,13 +756,10 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
         (message) => reported.push(message),
         seed.emissions,
         STALE_COVER_LIFECYCLE_POLICY,
-        // Seeded world: no non-action emitters. Inheriting the shipped table
-        // would let an unrelated row cover a seed and silently empty this arm.
         [],
         seed.primaryOwnerEmissions ?? declaredEmissionEdges(),
       );
 
-      // Found something, and said so — but did not stop the process.
       const matching = verdict.diagnostics.filter((d) => d.code === seed.code);
       expect(matching.length).toBeGreaterThan(0);
       for (const diagnostic of matching) expect(diagnostic.severity).toBe('observe');
@@ -878,12 +767,8 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
       expect(verdict.blockingCount).toBe(0);
       expect(verdict.observeCount).toBe(verdict.diagnostics.length);
 
-      // `ok` is NOT weakened by the flip. An observation is still a finding, so the clean-tree
-      // signal stays false — only the boot decision moved.
       expect(verdict.ok).toBe(false);
 
-      // REPORTED, exactly once, with the fault in it. An observation nobody is told about is
-      // indistinguishable from a check that never ran.
       expect(reported).toHaveLength(1);
       const message = reported[0] ?? '';
       expect(message).toBe(verdict.report);
@@ -891,22 +776,17 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
       expect(message).toContain(`${verdict.observeCount} finding(s)`);
       expect(message).toContain(seed.code);
       expect(message).not.toContain('FAILED');
-      // The denominators still ride the report, so an observation cannot be read without the
-      // population it was measured over.
       expect(message).toContain(`${verdict.bootResolvedCount} boot-resolved weld(s)`);
       expect(message).toContain(`${verdict.resolvableProviderCount} live provider(s)`);
     }
   });
 
+  /**
+   * The control for the test above. With each code at `observe`, a gate that always reports also
+   * does not throw, so a clean tree must give no report.
+   * The input is the live catalog with a conforming emission population. The counts are above zero.
+   */
   it('StartupAssertion_ObserveSeverity_StaysSilentOnACleanTree', () => {
-    // THE ANTI-TAUTOLOGY for the test above. With everything set to `observe`, a gate that
-    // reported unconditionally would still satisfy "does not throw" — so a clean tree must produce
-    // NO report at all.
-    //
-    // "Clean" now means the live catalog against a CONFORMING emission population, because the
-    // shipped registry genuinely disagrees with the annotations in places. Substituting only that
-    // one population is what keeps this a control rather than a second measurement: every other
-    // input is the live module, and the finding it removes is the one under test elsewhere.
     const reported: string[] = [];
     const verdict = assertRegistrationWeldsAtStartup(
       EVENT_ANNOTATIONS,
@@ -923,17 +803,16 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
     expect(verdict.diagnostics).toEqual([]);
     expect(verdict.observeCount).toBe(0);
     expect(reported).toEqual([]);
-    // ...over a non-empty population, so "nothing to report" is not "nothing to look at".
     expect(verdict.bootResolvedCount).toBeGreaterThan(0);
     expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
     expect(verdict.comparedEmissionEdgeCount).toBeGreaterThan(0);
   });
 
+  /**
+   * One verdict with a fault of each severity. `bootable` follows the blocking fault, and the
+   * report still names the observation.
+   */
   it('StartupAssertion_MixedSeverities_RefusesOnTheBlockingOneAndStillNamesTheObservation', () => {
-    // The case the flip to blocking will actually walk through: one fault of each severity in the
-    // same verdict. `bootable` must follow the BLOCKING one — a severity axis that let an
-    // observation dilute a refusal would be worse than no axis at all — while the observation is
-    // still carried, so the operator is not shown half the picture.
     const seeded = catalogWith({
       'seeded.severity-mixed': capabilityNaming('exarchos_no_such_provider'),
     });
@@ -954,8 +833,6 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
     expect(verdict.observeCount).toBeGreaterThan(0);
     expect(verdict.bootable).toBe(false);
     expect(verdict.report).toContain('event registration weld resolution FAILED');
-    // Both halves are in the one report: the refusal names the blocking fault, and the trailing
-    // block names the observation rather than dropping it.
     expect(verdict.report).toContain(UNRESOLVABLE_PROVIDER_CODE);
     expect(verdict.report).toContain('observe-only');
     expect(verdict.report).toContain(PROVIDER_REGISTRY_DRIFT_CODE);
@@ -973,11 +850,14 @@ describe('StartupAssertion — the severity axis on the boot refusal', () => {
 });
 
 describe('ProviderComparison — the declaring tool against the declared provider', () => {
+  /**
+   * The first half uses the live registry. The test computes the agreeing edges from the
+   * annotation table and the declared edges, not from the diagnostics of the gate. The agreeing set
+   * is not empty, and no agreeing edge has a mismatch diagnostic.
+   * The second half is the control: a conforming emission population gives no diagnostic, over a
+   * compared set of the same size as the capability tier.
+   */
   it('ProviderComparison_DeclaringToolMatchesProvider_IsConforming', () => {
-    // HALF ONE, on the LIVE registry. Partition the shipped emission edges into the ones that agree
-    // with the annotation table and the ones that do not, computing the partition here from the two
-    // authorities directly rather than from the gate's own output — otherwise this would be the
-    // gate agreeing with itself.
     const declaredProviderByEvent = new Map(
       liveCapabilityRegistrations().map((row) => [row.eventType, row.provider]),
     );
@@ -987,8 +867,6 @@ describe('ProviderComparison — the declaring tool against the declared provide
     const agreeing = comparedEdges.filter(
       (edge) => declaredProviderByEvent.get(edge.event) === edge.declaringTool,
     );
-    // NON-VACUOUS: if the shipped tree agreed nowhere, "no diagnostic for an agreeing edge" would
-    // be true because there are none, which is the failure mode this number rules out.
     expect(comparedEdges.length).toBeGreaterThan(0);
     expect(agreeing.length).toBeGreaterThan(0);
 
@@ -1002,9 +880,6 @@ describe('ProviderComparison — the declaring tool against the declared provide
       expect(faulted.has(`${edge.event}|${edge.action}`)).toBe(false);
     }
 
-    // HALF TWO, the clean control. Hold every other population live and substitute an emission set
-    // that agrees EVERYWHERE, and the comparison reports nothing at all — so the findings above are
-    // caused by disagreement and not by the comparison firing on every edge it sees.
     const conforming = validateRegistrationWelds(
       EVENT_ANNOTATIONS,
       EFFECT_PROVIDERS,
@@ -1016,17 +891,17 @@ describe('ProviderComparison — the declaring tool against the declared provide
     expect(conforming.diagnostics).toEqual([]);
     expect(conforming.ok).toBe(true);
     expect(conforming.bootable).toBe(true);
-    // ...over a compared set the same size as the capability tier, so the clean verdict is a
-    // measurement over every weld rather than over an empty set.
     expect(conforming.comparedEmissionEdgeCount).toBe(CONFORMING_EMISSIONS.length);
     expect(conforming.comparedEmissionEdgeCount).toBe(liveCapabilityTypes().length);
   });
 
+  /**
+   * One seeded disagreement over a conforming population, so the one mismatch belongs to that edge.
+   * The record and the message both carry the event, the declared provider, the declaring tool and
+   * the action. The severity comes from the shipped table and is `blocking`.
+   * The startup assertion throws, and the report sink stays empty.
+   */
   it('ProviderComparison_Disagreement_NamesBothSides', () => {
-    // ONE seeded disagreement over an otherwise conforming population, so the diagnostic under
-    // inspection is unambiguously this edge's. Both ends of the seed are read off live modules: the
-    // event and its DECLARED provider from the annotation table, the DECLARING tool from the
-    // effect-provider map.
     const edge = disagreeingEmissionEdge();
     const declaredProvider = new Map(
       liveCapabilityRegistrations().map((row) => [row.eventType, row.provider]),
@@ -1051,36 +926,23 @@ describe('ProviderComparison — the declaring tool against the declared provide
     expect(mismatch).toBeDefined();
     if (mismatch === undefined || mismatch.code !== EMISSION_PROVIDER_MISMATCH_CODE) return;
 
-    // BOTH SIDES, STRUCTURALLY. A diagnostic that only proved a disagreement was detected would
-    // leave an operator to run the gate again to find out which two things disagreed, so all four
-    // — the event, the declared provider, the declaring tool and the action — ride the record.
     expect(mismatch.eventType).toBe(edge.event);
     expect(mismatch.provider).toBe(declaredProvider);
     expect(mismatch.declaringTool).toBe(edge.declaringTool);
     expect(mismatch.action).toBe(edge.action);
     expect(mismatch.declaringTool).not.toBe(mismatch.provider);
 
-    // BOTH SIDES, IN THE PROSE. The structured fields are what a tool reads; the message is what a
-    // human reads out of a boot log, and it has to carry the same four.
     expect(mismatch.message).toContain(edge.event);
     expect(mismatch.message).toContain(edge.action);
     expect(mismatch.message).toContain(edge.declaringTool);
     expect(mismatch.message).toContain(declaredProvider ?? '<undeclared>');
 
-    // BLOCKING, and it refuses the tree. This asserted `observe` for as long as the shipped tree
-    // carried real disagreements — a check that refuses startup for a defect nobody has fixed
-    // makes every entry point unbootable at once, which is the whole reason the severity axis is
-    // a second table. The break set is closed now, so the diagnostic has teeth: severity still
-    // comes from the shipped table rather than from anything decided at the emission site.
     expect(mismatch.severity).toBe('blocking');
     expect(DIAGNOSTIC_SEVERITY_POLICY[EMISSION_PROVIDER_MISMATCH_CODE]).toBe('blocking');
     expect(verdict.bootable).toBe(false);
     expect(verdict.blockingCount).toBe(1);
     expect(verdict.ok).toBe(false);
 
-    // ...and it reaches an operator through the EXISTING startup assertion — no second entry
-    // point. A blocking fault THROWS rather than reporting, so the evidence is the error's
-    // verdict, not a line on stderr.
     const reported: string[] = [];
     let caught: unknown;
     try {
@@ -1104,15 +966,18 @@ describe('ProviderComparison — the declaring tool against the declared provide
     expect(message).toContain(edge.action);
     expect(message).toContain(edge.declaringTool);
     expect(message).toContain(declaredProvider ?? '<undeclared>');
-    // Nothing was reported to the operator channel, because nothing survived to report.
     expect(reported).toEqual([]);
   });
 
+  /**
+   * The welds and the provider map are intact, and no declared edge names a boot-resolvable event.
+   * The comparison ranges over nothing, so the gate must not report clean. The module emissions and
+   * the primary-owner edges are also empty, so "nothing emits these events" is true. Each eligible
+   * weld then has no edge, so the verdict also holds one stale-cover finding for each. A population
+   * that names only events outside the catalog fails in the same way. With no subjects, the gate
+   * reports only `EMPTY_CAPABILITY_DENOMINATOR`.
+   */
   it('ProviderComparison_NothingEmitsABootResolvableEvent_FailsInsteadOfPassingClean', () => {
-    // NON-EMPTY DENOMINATOR, emission side. The welds are all there and the provider map is
-    // healthy; what is missing is any declared edge naming one of those events, so the comparison
-    // ranged over nothing and cannot have found anything. Reporting clean would be a lie of exactly
-    // the shape the other two EMPTY_* codes already refuse to tell.
     const verdict = validateRegistrationWelds(
       EVENT_ANNOTATIONS,
       EFFECT_PROVIDERS,
@@ -1121,22 +986,14 @@ describe('ProviderComparison — the declaring tool against the declared provide
       DIAGNOSTIC_SEVERITY_POLICY,
       [],
       STALE_COVER_LIFECYCLE_POLICY,
-      // "Nothing emits these" has to be literally true, so the non-action
-      // surface is emptied too — otherwise the premise the assertion rests on
-      // is false and the counts below measure a different scenario.
       [],
       [],
     );
     expect(verdict.comparedEmissionEdgeCount).toBe(0);
     expect(verdict.ok).toBe(false);
-    // The other two populations are untouched, so the fault is unambiguously the emission set's.
     expect(verdict.bootResolvedCount).toBe(liveCapabilityTypes().length);
     expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
 
-    // EXACTLY ONE vacuity code fires, and it is the emission side's. Pinned as a filtered list
-    // rather than as the whole diagnostic list because withdrawing every edge also leaves every
-    // eligible weld named by nothing — which is a TRUE second reading of this population, not
-    // noise, and it is asserted by count immediately below rather than swept under a containment.
     const emptyCodes = verdict.diagnostics
       .map((d) => d.code)
       .filter((code) => code.startsWith('EMPTY_') || code === 'NARROWED_EMISSION_DENOMINATOR');
@@ -1153,8 +1010,6 @@ describe('ProviderComparison — the declaring tool against the declared provide
     ).toHaveLength(verdict.staleCoverEligibleCount);
     expect(verdict.staleCoverEligibleCount).toBeGreaterThan(0);
 
-    // An emission population that is non-empty but names only events this gate does not resolve is
-    // the SAME vacuity wearing a different face, and is caught the same way.
     const offTier = validateRegistrationWelds(
       EVENT_ANNOTATIONS,
       EFFECT_PROVIDERS,
@@ -1171,8 +1026,6 @@ describe('ProviderComparison — the declaring tool against the declared provide
         .filter((code) => code.startsWith('EMPTY_') || code === 'NARROWED_EMISSION_DENOMINATOR'),
     ).toEqual(['EMPTY_EMISSION_DENOMINATOR']);
 
-    // ...and it does NOT restate EMPTY_CAPABILITY_DENOMINATOR: with the subject side emptied, the
-    // gate names the subject side as the cause and stays quiet about the emission set.
     const noSubjects = validateRegistrationWelds(
       {},
       EFFECT_PROVIDERS,
@@ -1184,10 +1037,13 @@ describe('ProviderComparison — the declaring tool against the declared provide
     expect(noSubjects.diagnostics.map((d) => d.code)).toEqual(['EMPTY_CAPABILITY_DENOMINATOR']);
   });
 
+  /**
+   * The edge population comes from the tool registry. The test walks the registry a second time
+   * with `Reflect.get`, and does not trust the function under test. Each edge names an action that
+   * its tool registers, and each declaring tool is a live composite tool name.
+   * The registry is a parameter, so an empty registry gives no edges.
+   */
   it('ProviderComparison_EmissionEdges_AreReadOffTheLiveToolRegistry', () => {
-    // The population is DERIVED, never transcribed. Every edge names an action that really is
-    // registered under the tool it claims, computed here by walking the registry a second time
-    // rather than by trusting the function under test.
     const edges = declaredEmissionEdges();
     expect(edges.length).toBeGreaterThan(0);
 
@@ -1210,26 +1066,22 @@ describe('ProviderComparison — the declaring tool against the declared provide
       expect(toolByAction.get(`${edge.declaringTool}|${edge.action}`)).toBe(edge.declaringTool);
     }
 
-    // Every declaring tool is a live composite tool name — the SAME id space `EffectProviderId`
-    // draws from, which is the only reason the two sides are comparable at all.
     const toolNames = new Set(TOOL_REGISTRY.map((tool) => tool.name));
     expect([...new Set(edges.map((e) => e.declaringTool))].filter((t) => !toolNames.has(t))).toEqual(
       [],
     );
 
-    // Injectable, so the comparison can be exercised on a population that is not the live one.
     expect(declaredEmissionEdges([])).toEqual([]);
   });
 });
 
+/**
+ * `liveIntersectionSize` counts the declared emissions whose event has a boot-resolvable weld.
+ * It walks the annotation table and the tool registry with `Reflect.get`, and does not call
+ * `declaredEmissionEdges`, which is part of the subject. `offTierEmissionEdges` returns the
+ * declared edges that the gate does not compare.
+ */
 describe('ComparisonDenominator — the size of the set the provider comparison ranges over', () => {
-  /**
-   * The intersection, walked from the two LIVE authorities directly: the annotation table says
-   * which events carry a boot-resolvable weld, the tool registry says which actions declare an
-   * emission. Deliberately not routed through `declaredEmissionEdges`, which is part of the
-   * subject — a denominator read back out of the thing under test agrees with it by construction
-   * and could not report a narrowing in either of them.
-   */
   function liveIntersectionSize(): number {
     const welded = new Set(liveCapabilityTypes());
     let size = 0;
@@ -1258,50 +1110,46 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
     return size;
   }
 
-  /** Declared edges naming events this gate does not resolve — real, and never compared. */
   function offTierEmissionEdges(): readonly EmissionEdge[] {
     const welded = new Set(liveCapabilityTypes());
     return declaredEmissionEdges().filter((edge) => !welded.has(edge.event));
   }
 
+  /**
+   * The count in the verdict equals the intersection that the test measures. The intersection and
+   * the floor are both above zero, because a floor of zero accepts each population.
+   * The comparison with the floor is `>=`, because growth is the usual direction and shrinkage is
+   * the defect. The floor is not above the live tree, so the narrowing code does not fire.
+   * The intersection is a strict subset of the declared edges.
+   */
   it('ComparisonDenominator_LiveIntersection_IsNonEmptyAtMeasuredSize', () => {
     const intersection = liveIntersectionSize();
     const verdict = validateRegistrationWelds();
 
-    // OBSERVABLE, NOT INFERRED. The verdict's own number is the measured one, so the denominator
-    // can be read off a boot rather than reconstructed by whoever is suspicious of it. Without
-    // this equality the count could be anything the gate cared to publish.
     expect(verdict.comparedEmissionEdgeCount).toBe(intersection);
 
-    // NON-EMPTY — and so is the floor, which matters more than it looks: a floor of zero is a
-    // ratchet that ratchets nothing, satisfied by every population including the empty one.
     expect(intersection).toBeGreaterThan(0);
     expect(EMISSION_DENOMINATOR_FLOOR).toBeGreaterThan(0);
 
-    // AT ITS MEASURED SIZE, one-directionally, and the direction is the whole design. `>=` rather
-    // than `===` because widening this set is the ordinary direction of travel — every capability
-    // event something declares it emits adds to it — and a check that reddened on growth would
-    // punish exactly the work it exists to protect. Shrinkage is the defect; the seeded-shrink
-    // test below runs this same expectation against a smaller population and shows it throw.
     expect(intersection).toBeGreaterThanOrEqual(EMISSION_DENOMINATOR_FLOOR);
 
-    // ...and the floor is not set ABOVE the live tree. A ratchet that is always tripped reports a
-    // narrowing that is not happening, and would be tuned out within a week.
     expect(verdict.diagnostics.map((d) => d.code)).not.toContain('NARROWED_EMISSION_DENOMINATOR');
 
-    // The intersection is a STRICT subset of the declared population: most emission edges name
-    // events registered at a tier this gate does not resolve. Two numbers that had converged would
-    // mean the comparison had quietly widened past the capability arm — the opposite drift, hidden
-    // by the same unpinned denominator.
     expect(verdict.emissionEdgeCount).toBeGreaterThan(0);
     expect(intersection).toBeLessThan(verdict.emissionEdgeCount);
   });
 
+  /**
+   * The emission set holds each off-tier edge and only three conforming edges, so only the size of
+   * the compared set changes. The empty guards and the mismatch check do not fire.
+   * The gate reports one `NARROWED_EMISSION_DENOMINATOR` finding with the compared count and the
+   * floor. The finding is `observe`: a blocking floor makes a valid re-tiering unbootable.
+   *
+   * The verdict is still not bootable, because each weld without an edge is stale cover, which
+   * blocks. The control uses the full conforming population and is clean. With zero compared edges,
+   * only the empty code fires.
+   */
   it('ComparisonDenominator_SeededShrink_FailsRatherThanPassingClean', () => {
-    // THE KILL FIXTURE FOR THE FLOOR. Every population except the emission set is the live module.
-    // The emission set keeps every declared edge whose event this gate does NOT resolve, and keeps
-    // only a handful of the ones it does — so nothing is empty, nothing disagrees, and the single
-    // variable is the SIZE of the set the comparison ranges over.
     const offTier = offTierEmissionEdges();
     expect(offTier.length).toBeGreaterThan(0);
     const kept = CONFORMING_EMISSIONS.slice(0, 3);
@@ -1316,32 +1164,21 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
       [...kept, ...offTier],
     );
 
-    // Non-empty on every axis a vacuity guard can see...
     expect(verdict.bootResolvedCount).toBeGreaterThan(0);
     expect(verdict.resolvableProviderCount).toBeGreaterThan(0);
     expect(verdict.emissionEdgeCount).toBeGreaterThan(0);
     expect(verdict.comparedEmissionEdgeCount).toBe(kept.length);
     expect(verdict.comparedEmissionEdgeCount).toBeGreaterThan(0);
 
-    // ...so the existing guards are SATISFIED, which is the entire reason this case needs its own.
-    // The zero case belongs to EMPTY_EMISSION_DENOMINATOR and cannot see a set of three; the
-    // subject side is intact, so the capability guard has nothing to say; and every kept edge
-    // agrees with its annotation, so a gate that only reported mismatches would call this clean.
     const codes = verdict.diagnostics.map((d) => d.code);
     expect(codes).not.toContain('EMPTY_EMISSION_DENOMINATOR');
     expect(codes).not.toContain('EMPTY_CAPABILITY_DENOMINATOR');
     expect(codes).not.toContain(EMISSION_PROVIDER_MISMATCH_CODE);
 
-    // THE ASSERTION REDDENS — not "a diagnostic appeared", but the very expectation the live test
-    // makes, run against this population and shown to throw. An assertion whose operator can never
-    // fail is the failure mode a floor is most likely to ship with.
     expect(() =>
       expect(verdict.comparedEmissionEdgeCount).toBeGreaterThanOrEqual(EMISSION_DENOMINATOR_FLOOR),
     ).toThrow();
 
-    // ...and the GATE says so too, so the property does not live only in this file. The finding
-    // sizes the shortfall — how far it reached and how far it should have — rather than making an
-    // operator import a constant to work out how bad it is.
     expect(verdict.ok).toBe(false);
     const narrowing = verdict.diagnostics.filter(
       (d) => d.code === 'NARROWED_EMISSION_DENOMINATOR',
@@ -1355,24 +1192,14 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
     expect(finding.message).toContain(`${EMISSION_DENOMINATOR_FLOOR}`);
     expect(finding.message).toContain(`${kept.length}`);
 
-    // OBSERVE, not blocking. A floor that refused startup would turn any legitimate re-tiering of
-    // a capability event into an unbootable tree for every entry point at once — worse than the
-    // narrowing it watches for. That reasoning survived the emission-coupling graduation, which is
-    // why this code did not move with the other two.
     expect(finding.severity).toBe('observe');
 
-    // The VERDICT is unbootable, and NOT because of this finding. Deleting emission edges to
-    // shrink the compared set necessarily leaves welds nothing declares, and stale cover blocks
-    // now — so the refusal belongs to that, and asserting the finding's own severity rather than
-    // the verdict's is what keeps the two from being read as one.
     const blockingCodes = new Set(
       verdict.diagnostics.filter((d) => d.severity === 'blocking').map((d) => d.code),
     );
     expect(blockingCodes.has('NARROWED_EMISSION_DENOMINATOR')).toBe(false);
     expect(blockingCodes.has(STALE_CAPABILITY_COVER_CODE)).toBe(true);
 
-    // THE CONTROL, and the reason any of the above is evidence: put the removed edges back and the
-    // identical call is clean. The finding is caused by the shrink, not by the fixture.
     const restored = validateRegistrationWelds(
       EVENT_ANNOTATIONS,
       EFFECT_PROVIDERS,
@@ -1385,9 +1212,6 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
     expect(restored.diagnostics).toEqual([]);
     expect(restored.ok).toBe(true);
 
-    // ...and the two denominator faults stay DISJOINT. Drop the compared edges entirely and the
-    // empty case fires ALONE — the floor does not ride along to report the same thing twice, which
-    // is what it would do if it were a restatement of the vacuity guard rather than its complement.
     const emptied = validateRegistrationWelds(
       EVENT_ANNOTATIONS,
       EFFECT_PROVIDERS,
@@ -1397,9 +1221,6 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
       offTier,
     );
     expect(emptied.comparedEmissionEdgeCount).toBe(0);
-    // Filtered to the two DENOMINATOR codes, which is what this arm is about: the stale-cover
-    // findings that also appear are a true reading of a population nothing names, and pinning the
-    // whole list here would make this assertion about them instead of about the disjointness.
     expect(
       emptied.diagnostics
         .map((d) => d.code)
@@ -1409,14 +1230,8 @@ describe('ComparisonDenominator — the size of the set the provider comparison 
 });
 
 /**
- * A constructed disagreement and the row that answers for it.
- *
- * The break set on the live tree is CLOSED, so the shipped ledger is empty and
- * can no longer supply a fixture. That is the healthy end state, and it must not
- * be allowed to quietly disarm the mechanism tests: an audit exercised through
- * whatever the tree happens to contain stops being exercised at all the moment
- * the tree is clean. These two are hand-built so the four-wide key, the
- * undispositioned arm and the stale arm keep biting no matter what ships.
+ * A constructed disagreement. The shipped ledger is empty and supplies no fixture, so this constant
+ * and {@link FIXTURE_DISPOSITION} keep the tests of the audit active.
  */
 const FIXTURE_DISAGREEMENT = Object.freeze({
   event: 'fixture.disagreed',
@@ -1425,6 +1240,7 @@ const FIXTURE_DISAGREEMENT = Object.freeze({
   declaringTool: 'exarchos_orchestrate',
 });
 
+/** The ledger row that answers for {@link FIXTURE_DISAGREEMENT}. */
 const FIXTURE_DISPOSITION = Object.freeze({
   ...FIXTURE_DISAGREEMENT,
   classification: 'genuine-mismatch' as const,
@@ -1433,17 +1249,12 @@ const FIXTURE_DISPOSITION = Object.freeze({
     'compare against, and it describes no registration in the shipped catalog by design.',
 });
 
+/**
+ * `unlistedDisagreement` returns a disagreeing edge that no ledger row covers, and throws when a
+ * row covers it. `liveProviderOf` returns the provider that the live catalog declares for an event.
+ * `liveVerdictPlus` runs the gate on the live inputs plus extra emission edges.
+ */
 describe('ProviderBreakSet — every reported disagreement is answered for', () => {
-  /**
-   * An emission edge that disagrees and that NO ledger row covers.
-   *
-   * Both ends come off live modules — a real capability event with the provider its own
-   * registration declares, and a real composite tool that is not that provider — so what is seeded
-   * is a genuine two-authority disagreement rather than a string nobody would write. Only the action
-   * name is fabricated, and that is the point: it is what makes the edge one the ledger has never
-   * seen. Throws rather than degrading into "no seed", because a falsifier that quietly stops
-   * falsifying is the way this kind of test ships green forever.
-   */
   function unlistedDisagreement(): EmissionEdge {
     const seed = disagreeingEmissionEdge();
     const covered = PROVIDER_DISAGREEMENT_DISPOSITIONS.some(
@@ -1453,7 +1264,6 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
     return seed;
   }
 
-  /** The provider the LIVE catalog declares for a capability event. Throws rather than guessing. */
   function liveProviderOf(eventType: string): string {
     const registration = EVENT_ANNOTATIONS[eventType];
     if (registration === undefined || registration.tier !== 'capability') {
@@ -1462,7 +1272,6 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
     return registration.provider;
   }
 
-  /** The live comparison with `extra` merged into the declared emission population. */
   function liveVerdictPlus(extra: readonly EmissionEdge[]): WeldResolutionVerdict {
     return validateRegistrationWelds(
       EVENT_ANNOTATIONS,
@@ -1474,47 +1283,33 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
     );
   }
 
+  /**
+   * The test first pins the compared set at its floor, because a ledger reconciled with an empty
+   * comparison is clean over nothing. The audit must be clean in both directions.
+   * The break set is closed: the comparison reports no disagreement and the ledger is empty.
+   * A new disagreement has no row, so the audit reports it and this test fails.
+   */
   it('ProviderBreakSet_EveryDisagreementIsDispositioned', () => {
     const live = validateRegistrationWelds();
 
-    // THE DENOMINATOR THIS RESTS ON, asserted before anything is read off it. A ledger reconciled
-    // against a comparison that has quietly stopped comparing would report a clean sweep of nothing
-    // — so the compared set is pinned at its measured floor first, and the reconciliation below is
-    // only evidence because this held.
     expect(live.comparedEmissionEdgeCount).toBeGreaterThanOrEqual(EMISSION_DENOMINATOR_FLOOR);
     expect(live.diagnostics.map((d) => d.code)).not.toContain('NARROWED_EMISSION_DENOMINATOR');
     expect(live.diagnostics.map((d) => d.code)).not.toContain('EMPTY_EMISSION_DENOMINATOR');
 
-    // DERIVED, not typed. The subject is what the gate reports over the shipped catalog; nothing in
-    // this test writes down an event name, so a disagreement that appears or disappears changes the
-    // subject rather than leaving a stale literal being checked against itself.
     const reported = reportedDisagreements(live);
     const audit = auditDisagreementDispositions(reported);
 
-    // BOTH DIRECTIONS CLEAN: no reported edge is unanswered, and no row answers for an edge the
-    // comparison no longer reports. `toEqual([])` rather than a length check so a failure prints
-    // the offending identity and its remedy instead of a number.
     expect(audit.diagnostics).toEqual([]);
     expect(audit.ok).toBe(true);
 
-    // The two populations are the same size, which is only true because the match is exact on all
-    // four sides in both directions — a ledger that over- or under-covered would trip an arm above
-    // and this equality would follow it.
     expect(audit.reportedCount).toBe(reported.length);
     expect(audit.dispositionedCount).toBe(PROVIDER_DISAGREEMENT_DISPOSITIONS.length);
     expect(audit.reportedCount).toBe(audit.dispositionedCount);
 
-    // Every row carries a REASON, not just a verdict. A classification with no rationale would let
-    // "somebody decided" stand in for "somebody worked it out", which is the state this ledger
-    // exists to end — and a blank string satisfies the type.
     for (const row of PROVIDER_DISAGREEMENT_DISPOSITIONS) {
       expect(['genuine-mismatch', 'annotation-error']).toContain(row.classification);
       expect(row.rationale.trim().length).toBeGreaterThan(0);
-      // The row is about a disagreement, so the two sides must actually differ. A row whose two
-      // tool ids matched would be answering for an edge the comparison could never report.
       expect(row.declaringTool).not.toBe(row.declaredProvider);
-      // ...and the provider it names is the one the LIVE catalog declares, so a row cannot drift
-      // into dispositioning a disagreement the annotation table has stopped making.
       const registration = EVENT_ANNOTATIONS[row.event];
       expect(registration).toBeDefined();
       expect(registration?.tier).toBe('capability');
@@ -1523,22 +1318,6 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
       }
     }
 
-    // THE TWO CLASSIFICATIONS ARE OPPOSITE CONCLUSIONS WITH OPPOSITE REMEDIES: "the vocabulary
-    // cannot name the truth" versus "the annotation is wrong". Keeping them separated is the
-    // substance of this ledger.
-    //
-    // What is NOT asserted here is that both are in use at once. An earlier version required
-    // exactly that, and it inverted into a trap: `annotation-error` names a fault with a known
-    // repair, so the correct life of such a row is to be recorded, applied, and DELETED. Requiring
-    // one to be present permanently made the assertion go red the moment the last annotation error
-    // was actually fixed — it punished the repair it exists to prompt, and the only way back to
-    // green would have been to leave a known-wrong annotation in the shipped catalog.
-    //
-    // A ledger holding only `genuine-mismatch` rows is therefore the HEALTHY end state, not a
-    // degenerate one: every repairable row has been repaired, and what remains is the set the
-    // current id space genuinely cannot express. Laziness is caught from the other side instead —
-    // the per-row checks above demand a rationale and a live-catalog match, and the
-    // STALE_DISPOSITION arm fails any row that outlives its subject.
     const classifications = new Set(
       PROVIDER_DISAGREEMENT_DISPOSITIONS.map((row) => row.classification),
     );
@@ -1546,37 +1325,26 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
       expect(['genuine-mismatch', 'annotation-error']).toContain(classification);
     }
 
-    // THE BREAK SET IS NOW CLOSED, and that is the assertion rather than a
-    // count of rows. Every annotation error was applied and every genuine
-    // mismatch was resolved by giving its append module a home inside the area
-    // its provider names, so nothing is left to disposition.
-    //
-    // This is a STRONGER live claim than "some rows exist and look well-formed",
-    // not a weaker one: a new disagreement appearing in the tree has no row to
-    // answer for it, so the audit reports UNDISPOSITIONED and this reddens. The
-    // mechanism that does the reporting is proven separately, on constructed
-    // fixtures, precisely so an empty shipped ledger cannot make it vacuous.
     expect(reportedDisagreements(), 'a provider disagreement is back').toEqual([]);
     expect(PROVIDER_DISAGREEMENT_DISPOSITIONS).toEqual([]);
     expect(auditDisagreementDispositions().ok).toBe(true);
   });
 
+  /**
+   * The control is first: the live inputs give a clean audit.
+   * Arm one seeds a new disagreement. The gate refuses to boot, and the audit reports one
+   * `UNDISPOSITIONED_DISAGREEMENT` that names the four sides and both classifications.
+   * Arm two drops the row of a constructed pair, and the audit reports the edge. The same edge
+   * with its row is clean. The pair is constructed because the shipped ledger is empty.
+   */
   it('ProviderBreakSet_UndispositionedEntry_Fails', () => {
-    // THE CONTROL FIRST, so everything below is attributable to the seed rather than to the fixture.
     const control = auditDisagreementDispositions(reportedDisagreements(liveVerdictPlus([])));
     expect(control.diagnostics).toEqual([]);
     expect(control.ok).toBe(true);
 
-    // ── ARM ONE: a NEW disagreement arrives and nobody has looked at it ─────────────────────────
     const seed = unlistedDisagreement();
     const seeded = liveVerdictPlus([seed]);
 
-    // The gate REFUSES it. This asserted the opposite — that the seed changed nothing about boot,
-    // so a tree carrying an unanswered disagreement was indistinguishable from a clean one — and
-    // named that as the hole the ledger existed to close. The ledger closed it, the break set
-    // emptied, and the diagnostic graduated to `blocking`, so the hole is closed twice over now:
-    // the ledger catches an unanswered disagreement at review time, and the boot gate refuses to
-    // start on one at run time.
     expect(seeded.bootable).toBe(false);
     expect(seeded.blockingCount).toBeGreaterThan(0);
 
@@ -1585,8 +1353,6 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
 
     const seededAudit = auditDisagreementDispositions(seededReport);
 
-    // ...and the reconciliation REDDENS. Not "a diagnostic exists somewhere" — exactly one, naming
-    // the seeded edge by all four sides, with every pre-existing entry still answered for.
     expect(seededAudit.ok).toBe(false);
     expect(seededAudit.diagnostics).toHaveLength(1);
     const finding = seededAudit.diagnostics[0];
@@ -1599,23 +1365,11 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
       declaredProvider: liveProviderOf(seed.event),
       declaringTool: seed.declaringTool,
     });
-    // The message tells the reader what to do, and names both classifications — a finding that only
-    // said "undispositioned" would send whoever hits it back to this file to work out what a
-    // disposition even is.
     expect(finding.message).toContain(seed.event);
     expect(finding.message).toContain(seed.action);
     expect(finding.message).toContain('genuine-mismatch');
     expect(finding.message).toContain('annotation-error');
 
-    // ── ARM TWO: the ledger stops covering an entry that is still reported ──────────────────────
-    // The complementary failure, and the one a ledger drifts into rather than arrives at: nothing
-    // about the tree changes, a row is simply dropped. Same denominator, same comparison, one fewer
-    // answer — and the audit must notice.
-    //
-    // Driven by a CONSTRUCTED pair rather than by slicing the shipped ledger.
-    // The shipped ledger is empty now that the break set is closed, so slicing
-    // it would drop nothing and this arm would pass by testing a no-op — the
-    // exact way a guard goes quiet without going red.
     const dropped = FIXTURE_DISAGREEMENT;
     const thinned = auditDisagreementDispositions([dropped], []);
     expect(thinned.ok).toBe(false);
@@ -1627,20 +1381,16 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
       declaringTool: dropped.declaringTool,
     });
 
-    // The control: the SAME reported edge with a row answering for it is clean,
-    // so the arm above is attributable to the missing row and not the fixture.
     const answered = auditDisagreementDispositions([dropped], [FIXTURE_DISPOSITION]);
     expect(answered.ok).toBe(true);
     expect(answered.diagnostics).toEqual([]);
   });
 
+  /**
+   * A row whose subject is gone has the same shape as a live row. Only the `STALE_DISPOSITION` arm
+   * can find it. The row count grows by one while the reported count stays the same.
+   */
   it('ProviderBreakSet_RowCoveringNothing_IsReportedStale', () => {
-    // THE OTHER HALF OF THE RATCHET. A row whose subject is gone reads exactly like a healthy one
-    // from inside the table — same shape, same reasoning, still counted in `dispositionedCount` —
-    // so nothing but this arm can tell the two apart. Without it the ledger could be repaired into
-    // permanent agreement by leaving rows behind after the disagreements they answered for were
-    // fixed, and the coverage check above would keep passing over a table that had stopped
-    // describing the tree.
     const ghost = {
       event: 'ghost.event',
       action: 'ghost_action',
@@ -1665,23 +1415,17 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
     });
     expect(audit.diagnostics[0]?.message).toContain('Delete the row');
 
-    // The count still says nine, which is the whole reason the arm is needed: a table can grow
-    // while covering less.
     expect(audit.dispositionedCount).toBe(PROVIDER_DISAGREEMENT_DISPOSITIONS.length + 1);
     expect(audit.reportedCount).toBe(PROVIDER_DISAGREEMENT_DISPOSITIONS.length);
   });
 
+  /**
+   * The key has four sides. With a key on the event alone, one row answers for a second edge on the
+   * same event. The fixture has two edges on one event and one row, and the audit reports the
+   * second edge. The audit also reports an edge with a changed action. That last call passes no
+   * ledger, so it compares with the shipped ledger, which is empty.
+   */
   it('ProviderBreakSet_MatchIsOnAllFourSides_NotTheEventAlone', () => {
-    // WHY THE KEY IS FOUR-WIDE. A ledger keyed on the event alone would answer for a SECOND edge
-    // on that event the moment it appeared — a newly wired action would arrive pre-approved by a
-    // row written before it existed.
-    //
-    // Proven by construction rather than by counting the live ledger. An earlier version asserted
-    // that some event in the shipped break set carried more than one row, which held only while
-    // five edges of `admission.evidence-recorded` were unrepaired. Repairing them left the three
-    // survivors on three distinct events and took the assertion red — for a property that had not
-    // changed at all. A structural claim tested through whatever the tree happens to look like is
-    // a claim that expires.
     const twoEdgesOneEvent = FIXTURE_DISPOSITION;
     const secondEdge = {
       event: twoEdgesOneEvent.event,
@@ -1698,15 +1442,11 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
       },
       secondEdge,
     ], [FIXTURE_DISPOSITION]);
-    // The dispositioned edge is covered; its same-event sibling is NOT. Were the key the event
-    // alone, both would read as answered for and this would be empty.
     expect(bothEdges.diagnostics.map((d) => d.code)).toContain('UNDISPOSITIONED_DISAGREEMENT');
     expect(
       bothEdges.diagnostics.filter((d) => d.code === 'UNDISPOSITIONED_DISAGREEMENT'),
     ).toHaveLength(1);
 
-    // Take a covered row, move ONE side, and the audit refuses to recognise it — proof that the
-    // other three sides did not carry the match on their own.
     const covered = FIXTURE_DISPOSITION;
     const movedAction = auditDisagreementDispositions([
       {
@@ -1720,38 +1460,30 @@ describe('ProviderBreakSet — every reported disagreement is answered for', () 
   });
 });
 
+/**
+ * `capabilityAt` builds a valid `capability` registration for a lifecycle and a provider, with
+ * each other field fixed. `aResolvableProvider` returns a provider id that resolves.
+ * `staleFindings` returns the stale-cover findings of a verdict.
+ * `verdictOver` runs the gate with substituted annotations and emissions. Its module emissions
+ * default to empty, so a shipped row cannot cover a seeded weld.
+ */
 describe('StaleCover — a capability weld that nothing declares it emits', () => {
-  /**
-   * A structurally valid `capability` registration at a chosen lifecycle, naming a provider that
-   * really resolves.
-   *
-   * Everything except `lifecycle` is fixed, which is the whole design of the exclusion test below:
-   * two registrations built by this function differ in exactly one field, so a difference in how
-   * the gate treats them cannot be attributed to anything else.
-   */
   function capabilityAt(lifecycle: EventLifecycle, provider: string): EventRegistration {
     return { lifecycle, tier: 'capability', provider, consumedBy: ['workflow-state@v1'] };
   }
 
-  /** A provider id that genuinely resolves, so a seeded weld cannot fail for the wrong reason. */
   function aResolvableProvider(): string {
     const provider = resolvableProviderIds()[0];
     if (provider === undefined) throw new Error('no resolvable provider to seed a weld with');
     return provider;
   }
 
-  /** The live verdict with one population substituted, every other input left at the live module. */
   function verdictOver(
     annotations: Readonly<Record<string, EventRegistration>>,
     emissions: readonly EmissionEdge[],
     lifecyclePolicy: Readonly<
       Record<EventLifecycle, StaleCoverEligibility>
     > = STALE_COVER_LIFECYCLE_POLICY,
-    // The NON-ACTION emitter surface, substituted like every other population
-    // here and defaulted to EMPTY rather than to the live table. A seeded weld
-    // is meant to describe a world the fixture controls; inheriting the shipped
-    // module emitters would let a scenario pass or fail because of an unrelated
-    // row somebody added, which is the opposite of what these fixtures are for.
     moduleEmissions: readonly ModuleEmission[] = [],
   ): WeldResolutionVerdict {
     return validateRegistrationWelds(
@@ -1766,7 +1498,6 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     );
   }
 
-  /** The stale-cover findings in a verdict, narrowed off the union so their fields are readable. */
   function staleFindings(
     verdict: WeldResolutionVerdict,
   ): { eventType: string; provider: string; lifecycle: EventLifecycle; message: string }[] {
@@ -1788,18 +1519,20 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     return found;
   }
 
+  /**
+   * The control is first: a population that names each capability registration reports nothing.
+   * The seed removes the one edge of an active capability event and leaves the registration as is.
+   * Each other check passes, and the gate reports one stale-cover finding with the event, the
+   * provider and the lifecycle. The severity comes from the shipped table and is `blocking`.
+   * The startup assertion throws, and the report sink stays empty. With the edge restored, the
+   * verdict is clean.
+   */
   it('StaleCover_ActiveWeldNamedByNoEdge_FailsAsStale', () => {
-    // THE CONTROL FIRST, so every finding below is attributable to the seed and not to the fixture.
-    // An emission population that names every capability registration reports nothing at all —
-    // which also pins that this check is not simply firing on whatever it is handed.
     const control = verdictOver(EVENT_ANNOTATIONS, CONFORMING_EMISSIONS);
     expect(control.diagnostics).toEqual([]);
     expect(control.ok).toBe(true);
     expect(control.staleCoverEligibleCount).toBeGreaterThan(0);
 
-    // THE SEED: withdraw the ONE edge that named an active capability event. The registration is
-    // untouched — same tier, same provider, same consumer, same lifecycle — so the single variable
-    // is whether anything in the tool registry claims to emit it.
     const registration = EVENT_ANNOTATIONS[STALE_COVER_SEED_EVENT];
     expect(registration).toBeDefined();
     expect(registration?.tier).toBe('capability');
@@ -1808,10 +1541,6 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
 
     const verdict = verdictOver(EVENT_ANNOTATIONS, CONFORMING_EMISSIONS_MINUS_ONE);
 
-    // EVERY OTHER CHECK IN THIS GATE IS SATISFIED, which is exactly why this one has to exist. The
-    // weld resolves, no edge disagrees, the compared set is one short of the whole capability arm
-    // and therefore still above its floor, and neither vacuity guard has anything to say. A tree
-    // carrying this fault is indistinguishable from a clean one to everything that shipped before.
     const codes = verdict.diagnostics.map((d) => d.code);
     expect(codes).not.toContain(UNRESOLVABLE_PROVIDER_CODE);
     expect(codes).not.toContain(EMISSION_PROVIDER_MISMATCH_CODE);
@@ -1820,16 +1549,12 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     expect(codes).not.toContain('EMPTY_STALE_COVER_DENOMINATOR');
     expect(verdict.comparedEmissionEdgeCount).toBeGreaterThanOrEqual(EMISSION_DENOMINATOR_FLOOR);
 
-    // ...and the gate REDDENS, naming exactly the one event whose edge was withdrawn.
     const stale = staleFindings(verdict);
     expect(stale.map((d) => d.eventType)).toEqual([STALE_COVER_SEED_EVENT]);
     const finding = stale[0];
     expect(finding).toBeDefined();
     if (finding === undefined) return;
 
-    // The finding names the cover it is reporting — the provider the registration declares — and
-    // the lifecycle that admitted it, so a reader can tell a genuine stale weld from an exclusion
-    // axis that has stopped working without going back to the catalog.
     if (registration !== undefined && registration.tier === 'capability') {
       expect(finding.provider).toBe(registration.provider);
     }
@@ -1838,19 +1563,12 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     expect(finding.message).toContain(finding.provider);
     expect(finding.message).toContain('autoEmits');
 
-    // BLOCKING, and it refuses the tree. This read `observe` while the shipped catalog carried a
-    // measured break set — refusing every entry point over a defect nobody had fixed would have
-    // been a worse gate than none. The break set is empty now, so the severity graduated and the
-    // check has teeth. It still comes from the table, not from anything decided here.
     expect(DIAGNOSTIC_SEVERITY_POLICY[STALE_CAPABILITY_COVER_CODE]).toBe('blocking');
     expect(verdict.ok).toBe(false);
     expect(verdict.bootable).toBe(false);
     expect(verdict.blockingCount).toBe(verdict.diagnostics.length);
     expect(verdict.observeCount).toBe(0);
 
-    // ...and it reaches an operator through the EXISTING startup assertion — no second entry
-    // point. A blocking fault THROWS, so the evidence is the error's verdict rather than a line on
-    // the report sink, and the sink staying empty is itself part of the claim.
     const reported: string[] = [];
     let caught: unknown;
     try {
@@ -1863,8 +1581,6 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
         (message) => reported.push(message),
         CONFORMING_EMISSIONS_MINUS_ONE,
         STALE_COVER_LIFECYCLE_POLICY,
-        // The conforming population is the fixture's whole world; the shipped
-        // non-action rows are not part of the single variable under test.
         [],
       );
     } catch (err) {
@@ -1877,17 +1593,18 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     expect(caught.verdict.report).toContain(STALE_COVER_SEED_EVENT);
     expect(reported).toEqual([]);
 
-    // THE RESTORING CONTROL: put the edge back and the identical call is clean again, so the
-    // finding is caused by the withdrawn emission and not by anything else in this fixture.
     expect(verdictOver(EVENT_ANNOTATIONS, CONFORMING_EMISSIONS).diagnostics).toEqual([]);
   });
 
+  /**
+   * Three seeded registrations differ only in lifecycle, and no edge names them. The gate reports
+   * only the active one, and the eligible count grows by one.
+   * The exclusion reads the policy table: with `retired` set to eligible, the gate also reports the
+   * retired seed, and `planned` stays excluded.
+   * The policy is total over `EVENT_LIFECYCLES`, only `active` is eligible, and each excluded row
+   * states a reason. `staleCoverEligibleWelds` shows the same exclusion.
+   */
   it('StaleCover_PlannedOrRetired_IsExcludedByLifecycle', () => {
-    // THREE REGISTRATIONS THAT DIFFER IN ONE FIELD. Same tier, same resolvable provider, same
-    // consumer tuple; only the lifecycle moves. None of the three is named by any edge in the
-    // conforming population, so a check that ignored lifecycle would report all three — which is
-    // what makes "only the active one is eligible" an attributable result rather than a coincidence
-    // of which events happen to be emitted.
     const provider = aResolvableProvider();
     const unseeded = verdictOver(EVENT_ANNOTATIONS, CONFORMING_EMISSIONS);
     const seeded = catalogWith({
@@ -1903,20 +1620,12 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
       .filter((eventType) => seededTypes.includes(eventType));
 
     expect(reportedSeeds).toEqual(['seeded.stale-active']);
-    // ...and the two that were spared were spared by the LIFECYCLE, not by resolving differently:
-    // all three welds are in the boot-resolved population and none of them is unresolvable.
     expect(bootResolvedWelds(seeded).map((w) => w.eventType)).toEqual(
       expect.arrayContaining(seededTypes),
     );
     expect(verdict.diagnostics.map((d) => d.code)).not.toContain(UNRESOLVABLE_PROVIDER_CODE);
-    // The eligible population grew by exactly the ONE active seed, so the exclusion is arithmetic
-    // rather than a filter that quietly dropped all three.
     expect(verdict.staleCoverEligibleCount).toBe(unseeded.staleCoverEligibleCount + 1);
 
-    // THE EXCLUSION IS READ OFF THE TABLE, not off a literal. Flip the `retired` row to eligible and
-    // the retired seed becomes stale cover on an otherwise identical call — which a gate comparing
-    // `lifecycle === 'active'` inline could not do. `planned` stays excluded, so the two rows are
-    // independently keyed and one flip does not open the axis.
     const retiredIsEligible: Readonly<Record<EventLifecycle, StaleCoverEligibility>> = {
       ...STALE_COVER_LIFECYCLE_POLICY,
       retired: { eligible: true, note: 'seeded: retirement admitted to the population' },
@@ -1927,32 +1636,22 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
       .filter((eventType) => seededTypes.includes(eventType));
     expect(flippedSeeds.sort()).toEqual(['seeded.stale-active', 'seeded.stale-retired']);
     expect(flippedSeeds).not.toContain('seeded.stale-planned');
-    // The flipped finding carries the lifecycle that admitted it, so a table edit is visible in the
-    // fault rather than only in the count.
     const retiredFinding = staleFindings(flipped).find(
       (d) => d.eventType === 'seeded.stale-retired',
     );
     expect(retiredFinding?.lifecycle).toBe('retired');
 
-    // THE POLICY IS TOTAL OVER THE AXIS, and the axis is the shipped vocabulary — so a fourth
-    // lifecycle state cannot arrive with no eligibility decision and be admitted (or skipped) by
-    // whatever the lookup happens to produce. This is the runtime half of the exclusion being
-    // STRUCTURAL rather than a list somebody keeps up to date.
     expect(Object.keys(STALE_COVER_LIFECYCLE_POLICY).sort()).toEqual([...EVENT_LIFECYCLES].sort());
     const eligibleStates = EVENT_LIFECYCLES.filter(
       (lifecycle) => STALE_COVER_LIFECYCLE_POLICY[lifecycle].eligible,
     );
     expect(eligibleStates).toEqual(['active']);
-    // Every excluded row says WHY, in both a machine-readable half and a prose half. A bare `false`
-    // would record the same decision with none of the reasoning a future reader needs to judge it.
     for (const lifecycle of EVENT_LIFECYCLES) {
       const row = STALE_COVER_LIFECYCLE_POLICY[lifecycle];
       expect(row.note.trim().length).toBeGreaterThan(0);
       if (!row.eligible) expect(['not-yet', 'not-any-more']).toContain(row.unemitted);
     }
 
-    // ...and the same exclusion is observable one level down, on the exported filter, so the
-    // property does not live only inside the gate's private wiring.
     const welds = bootResolvedWelds(seeded);
     const eligible = staleCoverEligibleWelds(welds).map((w) => w.eventType);
     expect(eligible).toContain('seeded.stale-active');
@@ -1963,14 +1662,14 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     );
   });
 
+  /**
+   * An empty eligible population must be a fault, because a check over nothing looks clean.
+   * The catalog retires each capability registration, so the welds remain and only the lifecycle
+   * empties the subject set. The finding carries the excluded count and is `observe`.
+   * `EMPTY_CAPABILITY_DENOMINATOR` does not fire. With no capability registrations, that code
+   * fires and the stale-cover guard does not. The live catalog reports neither.
+   */
   it('StaleCover_EmptyEligiblePopulation_FailsInsteadOfPassingClean', () => {
-    // THE VACUITY GUARD. A check that finds nothing because it is looking at nothing publishes
-    // exactly the shape of one that finds nothing because the tree is clean — same verdict fields,
-    // same absence of findings — so an empty eligible population must be a FAULT.
-    //
-    // Reached by retiring every capability registration rather than by deleting them: the weld
-    // population is untouched and healthy, and the lifecycle axis is the only thing that emptied
-    // the subject set. That is the case EMPTY_CAPABILITY_DENOMINATOR structurally cannot see.
     const retired = everyCapabilityRetired();
     const verdict = verdictOver(retired, CONFORMING_EMISSIONS);
 
@@ -1986,21 +1685,13 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     const finding = empties[0];
     expect(finding).toBeDefined();
     if (finding === undefined || finding.code !== 'EMPTY_STALE_COVER_DENOMINATOR') return;
-    // The finding SIZES what was excluded, so a reader can tell "everything was retired" from
-    // "there were no welds" without a second run.
     expect(finding.excludedByLifecycle).toBe(verdict.bootResolvedCount);
     expect(finding.message).toContain(`${verdict.bootResolvedCount}`);
     expect(finding.severity).toBe('observe');
 
-    // It does NOT restate the capability guard: the subject side is intact, so that code has
-    // nothing to say and the two faults stay disjoint by construction rather than by convention.
     expect(verdict.diagnostics.map((d) => d.code)).not.toContain('EMPTY_CAPABILITY_DENOMINATOR');
-    // ...and no per-event finding rides along, because there is no eligible event to report on.
     expect(staleFindings(verdict)).toEqual([]);
 
-    // THE OTHER ROUTE TO ZERO still fails too, through the code that owns it — so "the eligible
-    // population is zero" is a failing run either way, which is the property this test is really
-    // about. Here the welds themselves are gone, so the capability guard is the honest cause.
     const withoutCapabilities: Record<string, EventRegistration> = {};
     for (const [eventType, registration] of Object.entries(EVENT_ANNOTATIONS)) {
       if (registration.tier === 'capability') continue;
@@ -2014,47 +1705,35 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
       'EMPTY_STALE_COVER_DENOMINATOR',
     );
 
-    // THE ANTI-TAUTOLOGY: the same call over the live catalog has a non-empty eligible population
-    // and reports neither guard, so the two above are caused by their seeds.
     const live = verdictOver(EVENT_ANNOTATIONS, CONFORMING_EMISSIONS);
     expect(live.staleCoverEligibleCount).toBeGreaterThan(0);
     expect(live.diagnostics).toEqual([]);
   });
 
+  /**
+   * The test derives the eligible count from the annotation table and compares it with the verdict.
+   * The live tree excludes at least one registration, so the exclusion arm has a real subject.
+   * The live tree has no stale cover. The test computes the named events from the tool registry
+   * and the module emissions directly, and each eligible weld is in that set.
+   * The report carries the eligible count.
+   */
   it('StaleCover_LiveCatalog_ReportsTheEligibleCountBesideTheVerdict', () => {
     const verdict = validateRegistrationWelds();
 
-    // THE DENOMINATOR, RE-DERIVED. Walked straight out of the annotation table rather than read
-    // back off the gate, so this is a reconciliation of two counts and not the gate agreeing with
-    // itself about how wide it looked.
     const capability = capabilityRegistrationsIn(EVENT_ANNOTATIONS);
     const active = capability.filter((row) => row.lifecycle === 'active');
     expect(verdict.bootResolvedCount).toBe(capability.length);
     expect(verdict.staleCoverEligibleCount).toBe(active.length);
     expect(verdict.staleCoverEligibleCount).toBeGreaterThan(0);
 
-    // THE EXCLUSION IS NON-VACUOUS ON THE LIVE TREE. If the lifecycle axis excluded nothing, the
-    // whole exclusion arm would be untested against the shipped catalog — every test of it would
-    // rest on seeded rows alone, and a break in it would show up nowhere real.
     expect(verdict.staleCoverEligibleCount).toBeLessThan(verdict.bootResolvedCount);
     const excluded = capability.filter((row) => row.lifecycle !== 'active');
     expect(excluded.length).toBeGreaterThan(0);
     for (const row of excluded) expect(['planned', 'retired']).toContain(row.lifecycle);
 
-    // THE BREAK SET IS EMPTY — every eligible weld on the shipped tree is named.
-    //
-    // This assertion was `stale.length > 0` while the break set had members, and inverting it is
-    // the whole point of the work that emptied it. Keeping the old form would have required
-    // leaving one weld unrepaired to satisfy a test, which is the tail wagging the dog; the
-    // mechanism itself is proven on seeded rows in the block below, where it can be made to fire
-    // on demand and can never quietly stop discriminating.
     const stale = staleFindings(verdict);
     expect(stale).toEqual([]);
 
-    // ...and the reason it is empty is that every eligible weld IS named by a declared edge —
-    // computed here from the tool registry directly rather than through the gate's own
-    // flattening, so the two agree by measurement and not by construction. This is the strong
-    // form of what the old assertion could only say about its complement.
     const namedByAnEdge = new Set<string>();
     for (const tool of TOOL_REGISTRY) {
       for (const action of tool.actions) {
@@ -2071,28 +1750,19 @@ describe('StaleCover — a capability weld that nothing declares it emits', () =
     const unnamed = eligibleTypes.filter((eventType) => !namedByAnEdge.has(eventType));
     expect(unnamed, 'an eligible weld no declared edge names').toEqual([]);
 
-    // The exclusion still carries its own weight: excluded rows are not silently in the eligible
-    // set, which is what would make the emptiness above true for the wrong reason.
     const excludedTypes = new Set(excluded.map((row) => row.eventType));
     for (const eventType of eligibleTypes) expect(excludedTypes.has(eventType)).toBe(false);
 
-    // THE COUNT RIDES THE REPORT, so a boot log carries the population every absence in it was
-    // measured over — an absence with no denominator beside it is the thing this arm exists to
-    // stop reading as success.
     expect(verdict.report).toContain(`${verdict.staleCoverEligibleCount} stale-cover eligible`);
   });
 });
 
+/**
+ * `unlistedStaleCover` builds an active, resolvable `capability` registration that no edge and no
+ * ledger row names. It throws when the event type is already in use.
+ * `liveVerdictWithCatalog` runs the gate on the live inputs with extra annotations.
+ */
 describe('StaleCoverBreakSet — every active unnamed weld is answered for', () => {
-  /**
-   * A `capability` registration that is active, resolvable, and named by NOTHING — the shape of a
-   * brand-new stale cover arriving in the catalog.
-   *
-   * Both ends come off live modules: the provider is one the registry genuinely resolves and the
-   * consumer is a real fold, so what is seeded is a structurally valid registration rather than a
-   * malformed row the gate might reject for some other reason. Only the event type is fabricated,
-   * and that is the point — it is what makes the weld one the ledger has never seen.
-   */
   function unlistedStaleCover(): { readonly eventType: string; readonly registration: EventRegistration } {
     const provider = resolvableProviderIds()[0];
     if (provider === undefined) throw new Error('no resolvable provider to seed a stale weld with');
@@ -2117,7 +1787,6 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
     };
   }
 
-  /** The live verdict with `overrides` merged into the annotation table, every other input live. */
   function liveVerdictWithCatalog(
     overrides: Readonly<Record<string, EventRegistration>>,
   ): WeldResolutionVerdict {
@@ -2131,65 +1800,44 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
     );
   }
 
+  /**
+   * The test first pins an eligible population above zero, because a ledger reconciled with an
+   * empty check is clean over nothing. The audit must be clean in both directions.
+   * The ledger is empty. With no reported stale cover, only an empty ledger passes, so a new stale
+   * cover fails this test at once.
+   */
   it('StaleCoverBreakSet_EveryActiveUnnamedWeld_IsDispositioned', () => {
     const live = validateRegistrationWelds();
 
-    // THE DENOMINATOR THIS RESTS ON, asserted before anything is read off it. A ledger reconciled
-    // against a tooth whose eligible population had collapsed would report a clean sweep of
-    // nothing, so the population is pinned non-empty and its vacuity guard shown silent first. The
-    // reconciliation below is only evidence because this held.
     expect(live.staleCoverEligibleCount).toBeGreaterThan(0);
     expect(live.diagnostics.map((d) => d.code)).not.toContain('EMPTY_STALE_COVER_DENOMINATOR');
     expect(live.diagnostics.map((d) => d.code)).not.toContain('EMPTY_CAPABILITY_DENOMINATOR');
 
-    // DERIVED, not typed. The subject is what the gate reports over the shipped catalog and the
-    // shipped registry; nothing in this test writes down an event name, so a weld that becomes or
-    // stops being stale changes the subject rather than leaving a stale literal checked against
-    // itself.
     const reported = reportedStaleCover(live);
     const audit = auditStaleCoverDispositions(reported);
 
-    // BOTH DIRECTIONS CLEAN: no reported weld is unanswered, and no row answers for a weld the
-    // tooth no longer reports. `toEqual([])` rather than a length check so a failure prints the
-    // offending identity and its remedy instead of a number.
     expect(audit.diagnostics).toEqual([]);
     expect(audit.ok).toBe(true);
 
-    // The two populations are the same size, which is only true because the match is exact on all
-    // three sides in both directions — a ledger that over- or under-covered would trip an arm above
-    // and this equality would follow it.
     expect(audit.reportedCount).toBe(reported.length);
     expect(audit.dispositionedCount).toBe(STALE_COVER_DISPOSITIONS.length);
     expect(audit.reportedCount).toBe(audit.dispositionedCount);
 
-    // The eligible population read a SECOND way, off the exported building blocks rather than
-    // through the verdict — so every row below is checked against the population itself and not
-    // merely against a number the gate publishes alongside it.
     const eligible = staleCoverEligibleWelds(bootResolvedWelds());
     expect(eligible.length).toBe(live.staleCoverEligibleCount);
 
     for (const row of STALE_COVER_DISPOSITIONS) {
-      // A REASON and the EVIDENCE it rests on, not just a verdict. A classification with neither
-      // would let "somebody decided" stand in for "somebody followed the append", which is the
-      // state this ledger exists to end — and a blank string satisfies both types.
       expect(['unmodelled-emitter', 'undeclared-emission']).toContain(row.classification);
       expect(row.rationale.trim().length).toBeGreaterThan(0);
       expect(row.appendSite.trim().length).toBeGreaterThan(0);
 
-      // The row answers for a weld that is genuinely IN the eligible population, checked against
-      // the population directly. A row could otherwise agree with the verdict's finding list while
-      // describing a registration the annotation table has stopped making.
       const weld = eligible.find((candidate) => candidate.eventType === row.event);
       expect(weld).toBeDefined();
       expect(weld?.ref).toBe(row.declaredProvider);
       expect(weld?.lifecycle).toBe(row.lifecycle);
 
-      // ...and the lifecycle it names is one the policy admits. A row naming an excluded state
-      // would be answering for a weld the tooth can never report.
       expect(STALE_COVER_LIFECYCLE_POLICY[row.lifecycle].eligible).toBe(true);
 
-      // The registration is what the LIVE catalog holds, read a third way — off the annotation
-      // table rather than off the derived weld — so a re-tiering cannot leave the row behind.
       const registration = EVENT_ANNOTATIONS[row.event];
       expect(registration).toBeDefined();
       expect(registration?.tier).toBe('capability');
@@ -2198,65 +1846,41 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
         expect(registration.lifecycle).toBe(row.lifecycle);
       }
 
-      // ...and nothing in the registry declares it, which is the fact the row exists to answer for.
       expect(declaredEmissionEdges().some((edge) => edge.event === row.event)).toBe(false);
     }
 
-    // EVERY CLASSIFICATION IS DRAWN FROM THE VOCABULARY. The distinction between "no action
-    // performs this append" and "an action performs it and does not declare it" is the substance
-    // of this ledger — they are opposite conclusions with opposite remedies — so a row stamped
-    // with anything outside the two-member type would mean the separation was never made.
     const classifications = new Set(STALE_COVER_DISPOSITIONS.map((row) => row.classification));
     for (const classification of classifications) {
       expect(['undeclared-emission', 'unmodelled-emitter']).toContain(classification);
     }
 
-    // The `undeclared-emission` population is EMPTY, and it emptied by REPAIR. All three of its
-    // rows named the same obstacle — the append sat on an `exarchos_view` action while the
-    // registration named `exarchos_orchestrate` — and all three appends moved to the orchestrate
-    // surface, so each event is now declared by the action that performs it.
-    //
-    // This asserts the SHRINK, not a fixed shape: it would previously have demanded that some row
-    // stay unrepaired to keep both kinds represented, which punishes exactly the work the ledger
-    // exists to provoke. A NEW undeclared emission re-populating this set is a finding, and the
-    // reconciliation below already fails an undispositioned stale cover — that is where it should
-    // land, not here.
     const undeclared = STALE_COVER_DISPOSITIONS.filter(
       (row) => row.classification === 'undeclared-emission',
     );
     expect(undeclared).toEqual([]);
 
-    // ...and NOTHING remains. The last row was `eval.judge.calibrated`, classified
-    // `unmodelled-emitter`, whose rationale said closing it meant "either modelling the harness as
-    // a declaring surface or moving the append behind an action". The first was done: the
-    // `harness` tier names an emitter outside the governed source root, the registration moved
-    // onto it, and `auditHarnessWelds` checks that weld against the tree.
-    //
-    // An EMPTY ledger is the strongest state this table can be in, not a disabled one. The
-    // reconciliation fails in both directions, so with the tooth reporting nothing the only
-    // passing ledger is the empty one — a new stale cover reddens immediately instead of finding
-    // a table it can be written into.
     expect(STALE_COVER_DISPOSITIONS).toEqual([]);
   });
 
+  /**
+   * The control is first: the live inputs give a clean audit.
+   * Arm one seeds a new stale weld. The gate refuses to boot, the eligible count grows by one, and
+   * the audit reports one `UNDISPOSITIONED_STALE_COVER` with the three sides. The message names
+   * both classifications and the lifecycle.
+   *
+   * Arm two uses a constructed row, because the shipped ledger is empty. With the row, the audit is
+   * clean. Without the row, the audit reports the weld.
+   */
   it('StaleCoverBreakSet_UndispositionedEntry_Fails', () => {
-    // THE CONTROL FIRST, so everything below is attributable to the seed rather than to the fixture.
     const control = auditStaleCoverDispositions(reportedStaleCover());
     expect(control.diagnostics).toEqual([]);
     expect(control.ok).toBe(true);
 
-    // ── ARM ONE: a NEW stale weld arrives and nobody has looked at it ───────────────────────────
     const seed = unlistedStaleCover();
     const seeded = liveVerdictWithCatalog({ [seed.eventType]: seed.registration });
 
-    // The gate REFUSES it, and the assertion below inverted with the graduation. It read
-    // `bootable === true` while stale cover was `observe`, naming that as the hole this ledger
-    // existed to close; with the break set empty the diagnostic now blocks, so an unanswered stale
-    // weld is caught at review time by the ledger AND refused at run time by the gate.
     expect(seeded.bootable).toBe(false);
     expect(seeded.blockingCount).toBeGreaterThan(0);
-    // The seed widened the eligible population by exactly one, so the extra finding below is the
-    // seeded weld and not a second registration the fixture disturbed.
     expect(seeded.staleCoverEligibleCount).toBe(
       validateRegistrationWelds().staleCoverEligibleCount + 1,
     );
@@ -2266,8 +1890,6 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
 
     const seededAudit = auditStaleCoverDispositions(seededReport);
 
-    // ...and the reconciliation REDDENS. Not "a diagnostic exists somewhere" — exactly one, naming
-    // the seeded weld by all three sides, with every pre-existing entry still answered for.
     expect(seededAudit.ok).toBe(false);
     expect(seededAudit.diagnostics).toHaveLength(1);
     const finding = seededAudit.diagnostics[0];
@@ -2279,25 +1901,11 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
       declaredProvider: seed.registration.tier === 'capability' ? seed.registration.provider : '',
       lifecycle: seed.registration.lifecycle,
     });
-    // The message tells the reader what to do, names both classifications, and names the third
-    // outcome that is NOT a row here — a weld nothing appends is a wrong annotation, and a finding
-    // that omitted that would send the next reader to add a rationale for a claim the tree does not
-    // support.
     expect(finding.message).toContain(seed.eventType);
     expect(finding.message).toContain('undeclared-emission');
     expect(finding.message).toContain('unmodelled-emitter');
     expect(finding.message).toContain('lifecycle');
 
-    // ── ARM TWO: the ledger stops covering an entry that is still reported ──────────────────────
-    // The complementary failure, and the one a ledger drifts into rather than arrives at: nothing
-    // about the tree changes, a row is simply dropped. Same denominator, same tooth, one fewer
-    // answer — and the audit must notice.
-    //
-    // CONSTRUCTED END TO END, because the live ledger is now EMPTY. This arm used to drop
-    // `STALE_COVER_DISPOSITIONS[0]`, which stopped existing the moment the break set was closed —
-    // and a guard whose subject can vanish is one that quietly stops testing anything. The seeded
-    // weld above supplies the finding; the row below supplies the coverage; removing it is the
-    // drift. Nothing here can rot as the catalog moves.
     const answering: StaleCoverDisposition = {
       event: seed.eventType,
       declaredProvider:
@@ -2308,14 +1916,11 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
       rationale: 'Seeded so the coverage half has a subject the live ledger no longer provides.',
     };
 
-    // COVERED: the finding is answered, so the reconciliation is clean. Without this the assertion
-    // below could pass because the audit rejects everything.
     const covered = auditStaleCoverDispositions(seededReport, [answering]);
     expect(covered.ok).toBe(true);
     expect(covered.diagnostics).toEqual([]);
     expect(covered.dispositionedCount).toBe(1);
 
-    // ...and DROPPING that one row reddens, naming the weld by all three sides.
     const thinned = auditStaleCoverDispositions(seededReport, []);
     expect(thinned.ok).toBe(false);
     expect(thinned.diagnostics.map((d) => d.code)).toEqual(['UNDISPOSITIONED_STALE_COVER']);
@@ -2326,13 +1931,12 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
     });
   });
 
+  /**
+   * A row whose subject is gone has the same shape as a live row. Only the
+   * `OBSOLETE_STALE_COVER_DISPOSITION` arm can find it. The row count grows by one while the
+   * reported count stays the same.
+   */
   it('StaleCoverBreakSet_RowCoveringNothing_IsReportedObsolete', () => {
-    // THE OTHER HALF OF THE RATCHET. A row whose subject is gone reads exactly like a healthy one
-    // from inside the table — same shape, same reasoning, still counted in `dispositionedCount` —
-    // so nothing but this arm can tell the two apart. Without it the ledger could be repaired into
-    // permanent agreement by leaving rows behind after the welds they answered for were wired up or
-    // re-annotated, and the coverage check above would keep passing over a table that had stopped
-    // describing the tree.
     const ghost = {
       event: 'ghost.event',
       declaredProvider: 'exarchos_workflow',
@@ -2356,24 +1960,17 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
     });
     expect(audit.diagnostics[0]?.message).toContain('Delete the row');
 
-    // The count grew, which is the whole reason the arm is needed: a table can grow while covering
-    // less.
     expect(audit.dispositionedCount).toBe(STALE_COVER_DISPOSITIONS.length + 1);
     expect(audit.reportedCount).toBe(STALE_COVER_DISPOSITIONS.length);
   });
 
+  /**
+   * The key includes the lifecycle. A row for `active` does not answer for the same event and
+   * provider in a different lifecycle, so a wider eligibility policy brings new findings.
+   * The audit recognizes the same identity with the lifecycle unchanged. Both calls pass the ledger
+   * explicitly, because the default ledger is empty and leaves each finding without a row.
+   */
   it('StaleCoverBreakSet_MatchIncludesTheLifecycleSide', () => {
-    // WHY THE KEY CARRIES THE LIFECYCLE. Every row names `active` today, because the policy admits
-    // nothing else — which is exactly what makes the side easy to drop as redundant and wrong to.
-    // Take a covered row, move ONLY the lifecycle, and the audit must refuse to recognise it: proof
-    // that the event and the provider did not carry the match on their own, and therefore that a
-    // widening of the eligibility axis reaches this ledger as a new finding rather than as an
-    // answer inherited from reasoning about a different state.
-    // CONSTRUCTED, because the live ledger is EMPTY. Taking row zero worked only while the break
-    // set had members, and a guard that reads its own subject out of a table which is allowed to
-    // reach zero is one that silently stops running the moment the work it exists to provoke is
-    // finished. The identity below is the shape a real row has; nothing about the property being
-    // tested needs it to be a LIVE row.
     const covered = {
       event: 'seeded.lifecycle-keyed.event',
       declaredProvider: 'exarchos_workflow',
@@ -2401,11 +1998,6 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
     );
     expect(moved.diagnostics.map((d) => d.code)).toContain('UNDISPOSITIONED_STALE_COVER');
 
-    // ...and the same identity with the lifecycle left alone IS recognised, so the refusal above is
-    // caused by that one field and not by the single-element population.
-    // The ledger is passed EXPLICITLY here. It defaults to `STALE_COVER_DISPOSITIONS`, which is
-    // empty now that the break set is closed, so an implicit call would report the finding
-    // undispositioned for a reason that has nothing to do with the lifecycle side.
     const answering: StaleCoverDisposition = {
       ...covered,
       classification: 'unmodelled-emitter',
@@ -2426,45 +2018,32 @@ describe('StaleCoverBreakSet — every active unnamed weld is answered for', () 
   });
 });
 
+/**
+ * The eligible count is an exact pin, not a floor. Only an edit to `EVENT_ANNOTATIONS` changes it:
+ * a change in the set of capability registrations, or a move across the lifecycle axis.
+ * Growth and shrinkage both need a reviewed change of the baseline in the same commit.
+ * `EMISSION_DENOMINATOR_FLOOR` is a floor, because unrelated emission declarations widen that set.
+ */
 describe('EligibleBaseline — the pinned stale-cover eligible count', () => {
-  // Direction. The comparison denominator above (EMISSION_DENOMINATOR_FLOOR) is a floor compared
-  // with `>=`, and deliberately so: it is the size of an INTERSECTION of two populations that grow
-  // independently and incidentally — declaring one more `autoEmits` on an existing action widens it
-  // without anyone touching this gate, so a check that reddened on that growth would punish the
-  // ordinary work of wiring up coverage, and an equality would get "fixed" by whoever it next
-  // inconvenienced rather than looked at.
-  //
-  // The eligible population does not move that way. `staleCoverEligibleCount` is read straight off
-  // `EVENT_ANNOTATIONS` — every boot-resolved capability weld whose lifecycle is `active` — and the
-  // ONLY way it changes is a reviewed edit to that table: registering a new capability event, or
-  // moving one across the lifecycle axis. There is no second, unrelated population it rides on, so
-  // there is no routine PR that moves it as a side effect. That is what makes an EXACT pin the right
-  // choice here rather than a copy of the floor: growth and shrink both mean "somebody edited
-  // EVENT_ANNOTATIONS", and both deserve the same one-line, reviewable re-pin in the same commit —
-  // asymmetric tolerance would only hide the case where that edit happened and the baseline was
-  // never told.
+  /** The verdict count and the count from the exported functions both equal the baseline. */
   it('EligibleBaseline_PinnedCount_MatchesTheLiveCount', () => {
     const baseline = readEligibleBaseline();
     expect(baseline.eligibleCount).toBeGreaterThan(0);
 
-    // THE GATE'S OWN NUMBER.
     const verdict = validateRegistrationWelds();
     expect(verdict.staleCoverEligibleCount).toBe(baseline.eligibleCount);
 
-    // ...AND THE SAME COUNT READ A SECOND WAY, off the two exported building blocks rather than
-    // through the verdict, so the baseline is pinned against the population itself and not merely
-    // against a number the gate happens to publish alongside it.
     const eligible = staleCoverEligibleWelds(bootResolvedWelds());
     expect(eligible.length).toBe(baseline.eligibleCount);
   });
 
+  /**
+   * The seed retires one active capability registration, so the eligible population shrinks by one.
+   * The expectation of the live test then throws. The control is the live catalog, which matches.
+   */
   it('EligibleBaseline_ShrinkWithNoDisposition_Fails', () => {
     const baseline = readEligibleBaseline();
 
-    // THE KILL FIXTURE. One active capability registration — the same one every other stale-cover
-    // seed in this file uses — is retired. Nothing else about the catalog moves: same provider, same
-    // consumer, same every other row, so the eligible population shrinks by exactly one and there is
-    // no ledger row anywhere that answers for it.
     const registration = EVENT_ANNOTATIONS[STALE_COVER_SEED_EVENT];
     expect(registration).toBeDefined();
     if (registration === undefined || registration.tier !== 'capability') return;
@@ -2475,13 +2054,8 @@ describe('EligibleBaseline — the pinned stale-cover eligible count', () => {
     const eligible = staleCoverEligibleWelds(bootResolvedWelds(shrunk));
     expect(eligible.length).toBe(baseline.eligibleCount - 1);
 
-    // THE ASSERTION REDDENS — not "some diagnostic somewhere fired", but the exact expectation the
-    // live test makes above, run against the shrunk population and shown to throw. This is the half
-    // that carries the weight: a baseline nobody can fail against is decoration, not a guard.
     expect(() => expect(eligible.length).toBe(baseline.eligibleCount)).toThrow();
 
-    // THE CONTROL: the untouched catalog still matches, so the failure above is caused by the
-    // seeded retirement and by nothing else in this fixture.
     expect(staleCoverEligibleWelds(bootResolvedWelds(EVENT_ANNOTATIONS)).length).toBe(
       baseline.eligibleCount,
     );

@@ -1,36 +1,17 @@
-// ─── DR-2 / task 011: EventEmissionSource is DERIVED, never independently authored ──────────
-//
-// @oracle-sources: ../../../src/events/event-annotations.ts, the DR-2 derivation criterion ("source is derived from
+// @oracle-sources: ../../../src/events/event-annotations.ts, the derivation criterion ("source is derived from
 // tier and lifecycle, never independently authored; a seeded tier<->source disagreement fails")
 //
-// ONE module authority, not three, and that is the point of the task. Before task 011,
-// `schemas.ts`'s source column and `event-annotations.ts`'s tier assignment were two independent
-// authorities that could disagree — and did, on `benchmark.completed`. They are now one:
-// `EVENT_EMISSION_REGISTRY` is a projection of the annotations. Listing `./schemas.ts` or
-// `./event-registration.ts` as additional authorities would be listing the same authority under
-// three names. The second oracle is therefore the DR-2 criterion itself, applied to SEEDED inputs
-// this file constructs.
+// `EventEmissionSource` is derived, never authored. `EVENT_EMISSION_REGISTRY` is a projection of the
+// annotations, so the annotations are the one module authority. The second oracle is the derivation
+// criterion, applied to seeded inputs that this file builds.
 //
-// The claim under test is not "a disagreement is detected". It is that a built-in event type has
-// no site at which a source can be written, so a source that disagrees with the tier has no form
-// to take. `EVENT_EMISSION_REGISTRY` used to be 170 hand-written string literals; it is now
-// `deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf)`.
+// A built-in event type has no site where a source can be written. So the kill probe seeds the
+// contradiction on both sides and asserts two halves. First, the derivation follows the tier and
+// reads no authored value. Second, the census that takes a declared map reports the contradiction
+// by name. Without the second half, the claim has no way to be wrong.
 //
-// WHY THE KILL PROBE IS SHAPED THE WAY IT IS. "Seed a registration whose independently-authored
-// source contradicts its tier and prove it fails" is only meaningful against a mechanism that
-// CONSUMES an authored source. The derivation does not consume one — so the probe seeds the
-// contradiction on both sides at once and asserts the two halves of the property:
-//
-//   1. the derivation IGNORES the authored value entirely (it follows the tier), and
-//   2. the census that still takes a declared map as a parameter REPORTS the contradiction by
-//      name, so the claim retains a way to be wrong.
-//
-// Assert (1) without (2) and a derivation that always returned `'auto'` would pass. Assert (2)
-// without (1) and this is task 010's test again, measuring detection rather than derivation.
-//
-// The compile-time half is not here: `tsconfig.json` excludes `**/*.test.ts`, so the type-level
-// proofs live as exported `_EventRegistration_*` aliases in `event-registration.ts`, where
-// `npm run typecheck` verifies them.
+// The type-level proofs are the exported `_EventRegistration_*` aliases in `event-registration.ts`.
+// `tsconfig.json` excludes test files, so `npm run typecheck` verifies the aliases there.
 
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
@@ -44,19 +25,18 @@ import { ANNOTATED_EVENTS, tierSourceDisagreements } from '../../../src/events/e
 import { EVENT_EMISSION_REGISTRY, EventTypes, type EventEmissionSource } from '../../../src/events/schemas.js';
 
 /**
- * A seeded population: one `judgment` registration (which derives `'model'`) whose source someone
- * has independently authored as `'auto'`. This is the contradiction DR-2 says must fail.
+ * A seeded `judgment` registration. The tier derives `'model'`, and the kill probe authors `'auto'`
+ * against it. The derivation criterion requires that contradiction to fail.
  */
 const SEEDED_TIER: EventRegistration = {
   lifecycle: 'active',
   tier: 'judgment',
   gate: 'review-verdict',
-  // A judgment weld needs a content schema; its identity is irrelevant to the emission axis, so
-  // the cheapest real inhabitant of the field is used.
+  /** A judgment weld needs a content schema. Its identity does not affect the emission axis. */
   contentSchema: z.object({ verdict: z.string() }),
 };
 
-/** The same event, `retired` — the case the rev-3 correction says is NOT a disagreement. */
+/** A `retired` capability registration. A declared `'retired'` agrees with it, and a declared `'auto'` does not. */
 const SEEDED_RETIRED: EventRegistration = {
   lifecycle: 'retired',
   tier: 'capability',
@@ -70,11 +50,13 @@ const seededLookup =
     table[eventType];
 
 describe('EmissionDerivation — source follows the tier, and cannot be authored against it', () => {
+  /**
+   * Half 1: `seeded.verdict` has the `judgment` tier, which derives `'model'`. The authored `'auto'`
+   * sits in a map that the derivation never reads. Half 2: `findTierSourceDisagreement` reports the
+   * contradiction by name. The lifecycle exemption is not a blanket pass. A `retired` registration
+   * agrees with `'retired'` and not with `'auto'`, which its capability tier derives when active.
+   */
   it('EmissionDerivation_SeededSourceContradictingItsTier_HasNoEffectAndIsReported', () => {
-    // ── Half 1: the derivation ignores the authored value ────────────────────────────────────
-    //
-    // 'seeded.verdict' is annotated `judgment`, which derives 'model'. Whoever wrote 'auto' below
-    // wrote it into a map the derivation never reads.
     const authored: Readonly<Record<string, EventEmissionSource>> = { 'seeded.verdict': 'auto' };
     const derived = deriveEmissionRegistry(
       ['seeded.verdict'],
@@ -84,31 +66,27 @@ describe('EmissionDerivation — source follows the tier, and cannot be authored
     expect(derived['seeded.verdict']).toBe('model');
     expect(derived['seeded.verdict']).not.toBe(authored['seeded.verdict']);
 
-    // ── Half 2: the contradiction is reported by name, so the claim can be wrong ──────────────
     const disagreement = findTierSourceDisagreement(SEEDED_TIER, 'auto');
     expect(disagreement?.code).toBe('TIER_SOURCE_DISAGREEMENT');
     expect(disagreement?.declared).toBe('auto');
     expect(disagreement?.derived).toBe('model');
     expect(disagreement?.tier).toBe('judgment');
 
-    // ── The lifecycle exemption is a property of the axis, not a blanket pass ────────────────
-    //
-    // A `retired` registration declaring 'retired' AGREES even though its capability tier would
-    // derive 'auto' were it active; declaring it 'auto' does NOT agree.
     expect(resolveEmissionSource(SEEDED_RETIRED)).toBe('retired');
     expect(findTierSourceDisagreement(SEEDED_RETIRED, 'retired')).toBeUndefined();
     expect(findTierSourceDisagreement(SEEDED_RETIRED, 'auto')?.derived).toBe('retired');
   });
 
+  /**
+   * The case builds the registry again from the inputs that `schemas.ts` uses and compares each entry.
+   * A hand-written registry that drifts from the annotations fails here. The counts come first,
+   * because an empty catalog makes the comparison vacuous. The live catalog has no standing exception.
+   * `benchmark.completed` is `capability` and `planned`, so its lifecycle gives the source.
+   * With an `active` lifecycle, the tier gives `'auto'`, a claim that an effect provider appends the event.
+   */
   it('EmissionDerivation_LiveRegistry_IsTheDerivationOfEveryAnnotation', () => {
-    // The registry is rebuilt here from the same inputs `schemas.ts` uses and compared entry by
-    // entry. This is what goes red if the derivation is reverted to hand-written literals: a
-    // hand-written column is authored independently of the tier and lifecycle it is supposed to
-    // follow, so the two drift apart with nothing red anywhere.
     const rebuilt = deriveEmissionRegistry(EventTypes, ANNOTATED_EVENTS.registrationOf);
 
-    // NON-EMPTY DENOMINATOR, asserted before the comparison: an empty catalog would make every
-    // "no mismatch" claim below vacuously true.
     expect(EventTypes.length).toBeGreaterThan(0);
     expect(Object.keys(rebuilt).length).toBe(EventTypes.length);
     expect(Object.keys(EVENT_EMISSION_REGISTRY).length).toBe(EventTypes.length);
@@ -118,29 +96,22 @@ describe('EmissionDerivation — source follows the tier, and cannot be authored
     );
     expect(mismatched).toEqual([]);
 
-    // And nothing in the live catalog contradicts its own tier — there is no standing exception.
     expect(tierSourceDisagreements(EVENT_EMISSION_REGISTRY)).toEqual([]);
 
-    // The registration this suite has argued about longest, named explicitly so its source is a
-    // fact stated here rather than a silent consequence. `benchmark.completed` is annotated
-    // `capability` and `planned`: the `code-quality` fold reads it and no module in the tree
-    // appends it, so the LIFECYCLE is what the source resolves to and the capability tier only
-    // records the weld the append will have. Flip that annotation back to `active` on the strength
-    // of the tier alone and this reads 'auto' — a claim that an effect provider appends the event,
-    // which is the one claim the tree does not support.
     expect(EVENT_EMISSION_REGISTRY['benchmark.completed']).toBe('planned');
   });
 
+  /** A moved or renamed catalog resolves zero event types. An empty registry reads as "no event has a source". */
   it('EmissionDerivation_EmptyPopulation_FailsInsteadOfProducingACleanEmptyRegistry', () => {
-    // A moved, renamed or mis-imported catalog resolves zero event types. Returning `{}` would
-    // read to every consumer as "no event has a source" — the exact shape of a census that passes
-    // because it measured nothing.
     expect(() => deriveEmissionRegistry([], seededLookup({}))).toThrow(/empty event-type population/);
   });
 
+  /**
+   * A type with no registration has no derivable source, and the derivation gives it no default.
+   * The error names the type. The same call succeeds when the type has a registration.
+   * So the failure is about the missing registration, not about the size of the population.
+   */
   it('EmissionDerivation_RegisteredTypeWithNoTier_FailsClosedAndNamesIt', () => {
-    // No tier means no derivable source. Defaulting it is the guess that let the hand-written
-    // column drift in the first place, so this fails at load and names every offender.
     expect(() =>
       deriveEmissionRegistry(
         ['seeded.verdict', 'seeded.orphan'],
@@ -148,8 +119,6 @@ describe('EmissionDerivation — source follows the tier, and cannot be authored
       ),
     ).toThrow(/seeded\.orphan/);
 
-    // The failure is about the MISSING annotation, not about the population being small: the same
-    // call with the orphan annotated succeeds.
     const ok = deriveEmissionRegistry(
       ['seeded.verdict', 'seeded.orphan'],
       seededLookup({ 'seeded.verdict': SEEDED_TIER, 'seeded.orphan': SEEDED_RETIRED }),

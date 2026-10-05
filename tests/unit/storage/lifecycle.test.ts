@@ -1,3 +1,7 @@
+/**
+ * The atomic archive write tests are in `lifecycle-atomic.test.ts`, because they
+ * mock `node:fs/promises` for the whole module.
+ */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -11,8 +15,6 @@ import {
   type LifecyclePolicy,
 } from '../../../src/storage/lifecycle.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
 
 /** Create a temporary directory for each test. */
 async function makeTmpDir(): Promise<string> {
@@ -88,8 +90,6 @@ function daysAgo(n: number): string {
   return d.toISOString();
 }
 
-// ─── Task 17: Workflow Compaction ──────────────────────────────────────────
-
 describe('Workflow Compaction', () => {
   let stateDir: string;
 
@@ -102,14 +102,12 @@ describe('Workflow Compaction', () => {
   });
 
   it('compactWorkflow_CompletedAndOlderThanRetention_ArchivesAndDeletes', async () => {
-    // Arrange
     const featureId = 'old-feature';
     const updatedAt = daysAgo(60);
     await writeState(stateDir, featureId, 'completed', updatedAt);
     await writeEvents(stateDir, featureId, 5);
 
     const backend = new InMemoryBackend();
-    // Seed backend with events
     for (let i = 1; i <= 5; i++) {
       backend.appendEvent(featureId, {
         streamId: featureId,
@@ -138,29 +136,26 @@ describe('Workflow Compaction', () => {
 
     const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Act
     await compactWorkflow(backend, stateDir, featureId, policy);
 
-    // Assert — archive exists
     const archivePath = path.join(stateDir, 'archives', `${featureId}.archive.json`);
     const archiveExists = await fs.access(archivePath).then(() => true).catch(() => false);
     expect(archiveExists).toBe(true);
 
-    // Assert — state file deleted
     const statePath = path.join(stateDir, `${featureId}.state.json`);
     const stateExists = await fs.access(statePath).then(() => true).catch(() => false);
     expect(stateExists).toBe(false);
 
-    // Assert — backend rows cleaned
     expect(backend.queryEvents(featureId)).toHaveLength(0);
     expect(backend.getState(featureId)).toBeNull();
   });
 
+  /**
+   * The backend row has a completed phase and an old `updatedAt`, but it fails
+   * the schema. `compactWorkflow` must not archive or delete it, so the corrupt
+   * row stays visible.
+   */
   it('compactWorkflow_MalformedBackendState_SkipsCompaction', async () => {
-    // Regression: the backend path must validate the state row before any
-    // destructive archive/delete, exactly as the file path does. A malformed
-    // row whose `phase`/`updatedAt` look eligible must NOT be compacted away —
-    // skip and warn so the corruption stays observable (CodeRabbit #1563).
     const featureId = 'malformed-feature';
     const updatedAt = daysAgo(60);
 
@@ -172,7 +167,6 @@ describe('Workflow Compaction', () => {
       type: 'workflow.started',
       schemaVersion: '1.0',
     });
-    // Eligible-looking phase + age, but missing required schema fields.
     backend.setState(featureId, {
       featureId,
       phase: 'completed',
@@ -183,7 +177,6 @@ describe('Workflow Compaction', () => {
 
     await compactWorkflow(backend, stateDir, featureId, policy);
 
-    // Assert — nothing was archived or deleted; the corrupt row is left intact.
     const archivePath = path.join(stateDir, 'archives', `${featureId}.archive.json`);
     const archiveExists = await fs.access(archivePath).then(() => true).catch(() => false);
     expect(archiveExists).toBe(false);
@@ -192,7 +185,6 @@ describe('Workflow Compaction', () => {
   });
 
   it('compactWorkflow_ActiveWorkflow_NoOps', async () => {
-    // Arrange
     const featureId = 'active-feature';
     const updatedAt = daysAgo(60);
     await writeState(stateDir, featureId, 'delegate', updatedAt);
@@ -200,27 +192,22 @@ describe('Workflow Compaction', () => {
 
     const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Act
     await compactWorkflow(undefined, stateDir, featureId, policy);
 
-    // Assert — nothing archived
     const archivePath = path.join(stateDir, 'archives', `${featureId}.archive.json`);
     const archiveExists = await fs.access(archivePath).then(() => true).catch(() => false);
     expect(archiveExists).toBe(false);
 
-    // Assert — JSONL still exists
     const jsonlPath = path.join(stateDir, `${featureId}.events.jsonl`);
     const jsonlExists = await fs.access(jsonlPath).then(() => true).catch(() => false);
     expect(jsonlExists).toBe(true);
 
-    // Assert — state file still exists
     const statePath = path.join(stateDir, `${featureId}.state.json`);
     const stateExists = await fs.access(statePath).then(() => true).catch(() => false);
     expect(stateExists).toBe(true);
   });
 
   it('compactWorkflow_CompletedButTooRecent_NoOps', async () => {
-    // Arrange
     const featureId = 'recent-feature';
     const updatedAt = daysAgo(5);
     await writeState(stateDir, featureId, 'completed', updatedAt);
@@ -228,22 +215,19 @@ describe('Workflow Compaction', () => {
 
     const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Act
     await compactWorkflow(undefined, stateDir, featureId, policy);
 
-    // Assert — nothing archived
     const archivePath = path.join(stateDir, 'archives', `${featureId}.archive.json`);
     const archiveExists = await fs.access(archivePath).then(() => true).catch(() => false);
     expect(archiveExists).toBe(false);
 
-    // Assert — JSONL still exists
     const jsonlPath = path.join(stateDir, `${featureId}.events.jsonl`);
     const jsonlExists = await fs.access(jsonlPath).then(() => true).catch(() => false);
     expect(jsonlExists).toBe(true);
   });
 
+  /** With a backend, the state and the event count both come from the backend. */
   it('compactWorkflow_ArchiveContainsFinalStateAndEventCount', async () => {
-    // Arrange
     const featureId = 'archive-check';
     const updatedAt = daysAgo(45);
     await writeState(stateDir, featureId, 'completed', updatedAt);
@@ -258,7 +242,6 @@ describe('Workflow Compaction', () => {
         schemaVersion: '1.0',
       });
     }
-    // State is read from the backend (#1504): seed the eligible row.
     backend.setState(featureId, {
       version: '4.0',
       featureId,
@@ -278,10 +261,8 @@ describe('Workflow Compaction', () => {
 
     const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Act — eventCount is sourced from backend post-v2.11 (no JSONL substrate)
     await compactWorkflow(backend, stateDir, featureId, policy);
 
-    // Assert — archive has finalState + eventCount
     const archivePath = path.join(stateDir, 'archives', `${featureId}.archive.json`);
     const archiveRaw = await fs.readFile(archivePath, 'utf-8');
     const archive = JSON.parse(archiveRaw);
@@ -293,7 +274,6 @@ describe('Workflow Compaction', () => {
   });
 
   it('compactWorkflow_DeletesJSONLAndSQLiteRows', async () => {
-    // Arrange
     const featureId = 'cleanup-check';
     const updatedAt = daysAgo(40);
     await writeState(stateDir, featureId, 'completed', updatedAt);
@@ -328,16 +308,17 @@ describe('Workflow Compaction', () => {
 
     const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Act
     await compactWorkflow(backend, stateDir, featureId, policy);
 
-    // Assert — SQLite rows deleted
     expect(backend.queryEvents(featureId)).toHaveLength(0);
     expect(backend.getState(featureId)).toBeNull();
   });
 
+  /**
+   * Two old completed workflows and one active workflow. With no backend,
+   * `checkCompaction` finds them from the `.state.json` files.
+   */
   it('checkCompaction_OnStartup_CompactsEligibleWorkflows', async () => {
-    // Arrange — two completed (old), one active
     await writeState(stateDir, 'old-a', 'completed', daysAgo(60));
     await writeEvents(stateDir, 'old-a', 3);
 
@@ -349,10 +330,8 @@ describe('Workflow Compaction', () => {
 
     const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Act
     await checkCompaction(undefined, stateDir, policy);
 
-    // Assert — old-a and old-b archived
     const archiveA = await fs.access(
       path.join(stateDir, 'archives', 'old-a.archive.json'),
     ).then(() => true).catch(() => false);
@@ -362,25 +341,12 @@ describe('Workflow Compaction', () => {
     expect(archiveA).toBe(true);
     expect(archiveB).toBe(true);
 
-    // Assert — active-c untouched
     const activeState = await fs.access(
       path.join(stateDir, 'active-c.state.json'),
     ).then(() => true).catch(() => false);
     expect(activeState).toBe(true);
   });
-
-  // The pre-v2.11 `checkCompaction_TotalSizeExceedsLimit_EmitsWarning`
-  // test asserted a JSONL-byte-sum size warning. v2.11 deletes the
-  // JSONL substrate; the size check is gone (operators inspect SQLite
-  // file size with `du events.db*`). A SQLite-aware reimplementation is
-  // tracked as v2.12 follow-up.
 });
-
-// ─── Telemetry Rotation (v2.11: SQLite-only pruning) ─────────────────────
-//
-// Pre-v2.11 this suite covered JSONL rotation (.1/.2 sibling files) plus
-// SQLite-row pruning. v2.11 deletes the JSONL substrate; rotateTelemetry
-// is now a thin wrapper over `backend.pruneEvents`.
 
 describe('Telemetry Rotation', () => {
   let stateDir: string;
@@ -393,13 +359,16 @@ describe('Telemetry Rotation', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * Five events are 10 days old and five are 1 day old. The retention is 7 days,
+   * so only the five recent events stay.
+   */
   it('rotateTelemetry_PrunesOldSQLiteRows', async () => {
     const backend = new InMemoryBackend();
     const now = new Date();
-    const oldTimestamp = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString(); // 10 days ago
-    const newTimestamp = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString(); // 1 day ago
+    const oldTimestamp = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000).toISOString();
+    const newTimestamp = new Date(now.getTime() - 1 * 24 * 60 * 60 * 1000).toISOString();
 
-    // Add old events
     for (let i = 1; i <= 5; i++) {
       backend.appendEvent('telemetry', {
         streamId: 'telemetry',
@@ -411,7 +380,6 @@ describe('Telemetry Rotation', () => {
       });
     }
 
-    // Add new events
     for (let i = 6; i <= 10; i++) {
       backend.appendEvent('telemetry', {
         streamId: 'telemetry',
@@ -429,12 +397,10 @@ describe('Telemetry Rotation', () => {
       telemetryRetentionDays: 7,
     };
 
-    // Act
     await rotateTelemetry(backend, stateDir, policy);
 
-    // Assert — old events pruned, new events kept
     const remaining = backend.queryEvents('telemetry');
-    expect(remaining.length).toBe(5); // Only the 5 recent events remain
+    expect(remaining.length).toBe(5);
     for (const event of remaining) {
       expect(event.timestamp).toBe(newTimestamp);
     }
@@ -442,11 +408,9 @@ describe('Telemetry Rotation', () => {
 
 });
 
-// ─── Issue 1: StorageBackend Lifecycle Methods ──────────────────────────────
-
 describe('StorageBackend Lifecycle Methods', () => {
+  /** `other-stream` must keep its event. */
   it('deleteStream_RemovesAllEventsForStream', () => {
-    // Arrange
     const backend = new InMemoryBackend();
     backend.initialize();
     for (let i = 1; i <= 5; i++) {
@@ -458,7 +422,6 @@ describe('StorageBackend Lifecycle Methods', () => {
         schemaVersion: '1.0',
       } as never);
     }
-    // Also add events to another stream to verify isolation
     backend.appendEvent('other-stream', {
       streamId: 'other-stream',
       sequence: 1,
@@ -469,19 +432,16 @@ describe('StorageBackend Lifecycle Methods', () => {
 
     expect(backend.queryEvents('stream-to-delete')).toHaveLength(5);
 
-    // Act
     backend.deleteStream('stream-to-delete');
 
-    // Assert
     expect(backend.queryEvents('stream-to-delete')).toHaveLength(0);
     expect(backend.getSequence('stream-to-delete')).toBe(0);
     expect(backend.listStreams()).not.toContain('stream-to-delete');
-    // Other stream should be unaffected
     expect(backend.queryEvents('other-stream')).toHaveLength(1);
   });
 
+  /** `other-feature` must keep its state. */
   it('deleteState_RemovesStateForFeature', () => {
-    // Arrange
     const backend = new InMemoryBackend();
     backend.initialize();
     backend.setState('feature-to-delete', {
@@ -500,7 +460,6 @@ describe('StorageBackend Lifecycle Methods', () => {
       _history: {},
       _checkpoint: { timestamp: '2025-01-01T00:00:00Z', phase: 'completed', summary: 'test', operationsSince: 0, fixCycleCount: 0, lastActivityTimestamp: '2025-01-01T00:00:00Z', staleAfterMinutes: 120 },
     } as never);
-    // Also set state for another feature
     backend.setState('other-feature', {
       version: '4.0',
       featureId: 'other-feature',
@@ -520,23 +479,18 @@ describe('StorageBackend Lifecycle Methods', () => {
 
     expect(backend.getState('feature-to-delete')).not.toBeNull();
 
-    // Act
     backend.deleteState('feature-to-delete');
 
-    // Assert
     expect(backend.getState('feature-to-delete')).toBeNull();
-    // Other feature should be unaffected
     expect(backend.getState('other-feature')).not.toBeNull();
   });
 
   it('pruneEvents_RemovesEventsBeforeTimestamp', () => {
-    // Arrange
     const backend = new InMemoryBackend();
     backend.initialize();
     const oldTimestamp = '2024-01-01T00:00:00.000Z';
     const newTimestamp = '2025-06-15T00:00:00.000Z';
 
-    // Add old events
     for (let i = 1; i <= 3; i++) {
       backend.appendEvent('telemetry', {
         streamId: 'telemetry',
@@ -546,7 +500,6 @@ describe('StorageBackend Lifecycle Methods', () => {
         schemaVersion: '1.0',
       } as never);
     }
-    // Add new events
     for (let i = 4; i <= 6; i++) {
       backend.appendEvent('telemetry', {
         streamId: 'telemetry',
@@ -559,11 +512,9 @@ describe('StorageBackend Lifecycle Methods', () => {
 
     expect(backend.queryEvents('telemetry')).toHaveLength(6);
 
-    // Act — prune events before 2025-01-01
     const pruned = backend.pruneEvents('telemetry', '2025-01-01T00:00:00.000Z');
 
-    // Assert
-    expect(pruned).toBe(3); // 3 old events removed
+    expect(pruned).toBe(3);
     const remaining = backend.queryEvents('telemetry');
     expect(remaining).toHaveLength(3);
     for (const event of remaining) {
@@ -572,7 +523,6 @@ describe('StorageBackend Lifecycle Methods', () => {
   });
 
   it('pruneEvents_AllEventsOlderThanCutoff_DeletesStream', () => {
-    // Arrange
     const backend = new InMemoryBackend();
     backend.initialize();
     for (let i = 1; i <= 3; i++) {
@@ -585,28 +535,21 @@ describe('StorageBackend Lifecycle Methods', () => {
       } as never);
     }
 
-    // Act — prune all events (cutoff is in the future)
     const pruned = backend.pruneEvents('telemetry', '2026-01-01T00:00:00.000Z');
 
-    // Assert
     expect(pruned).toBe(3);
     expect(backend.queryEvents('telemetry')).toHaveLength(0);
   });
 
   it('pruneEvents_NoEventsForStream_ReturnsZero', () => {
-    // Arrange
     const backend = new InMemoryBackend();
     backend.initialize();
 
-    // Act
     const pruned = backend.pruneEvents('nonexistent', '2025-01-01T00:00:00.000Z');
 
-    // Assert
     expect(pruned).toBe(0);
   });
 });
-
-// ─── Issue 1: compactWorkflow Uses Interface Methods ────────────────────────
 
 describe('compactWorkflow Backend Interface', () => {
   let stateDir: string;
@@ -620,7 +563,6 @@ describe('compactWorkflow Backend Interface', () => {
   });
 
   it('compactWorkflow_WithBackend_CallsDeleteStreamAndDeleteState', async () => {
-    // Arrange
     const featureId = 'interface-check';
     const updatedAt = daysAgo(60);
     await writeState(stateDir, featureId, 'completed', updatedAt);
@@ -656,15 +598,10 @@ describe('compactWorkflow Backend Interface', () => {
 
     const policy: LifecyclePolicy = { ...DEFAULT_LIFECYCLE_POLICY, retentionDays: 30 };
 
-    // Act
     await compactWorkflow(backend, stateDir, featureId, policy);
 
-    // Assert — backend data cleaned via interface methods (not type hacks)
     expect(backend.queryEvents(featureId)).toHaveLength(0);
     expect(backend.getState(featureId)).toBeNull();
     expect(backend.listStreams()).not.toContain(featureId);
   });
 });
-
-// Note: Atomic archive write tests are in lifecycle-atomic.test.ts
-// (requires vi.mock of node:fs/promises at module level)

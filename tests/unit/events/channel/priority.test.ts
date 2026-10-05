@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import { classifyPriority, shouldPush, PRIORITY_ORDER, type NotificationPriority } from '../../../../src/events/channel/priority.js';
 
 describe('classifyPriority', () => {
-  // Info-level events (low noise)
   it('classifies task.progressed as info', () => {
     expect(classifyPriority('task.progressed')).toBe('info');
   });
@@ -10,7 +9,6 @@ describe('classifyPriority', () => {
     expect(classifyPriority('workflow.event')).toBe('info');
   });
 
-  // Success events
   it('classifies task.completed as success', () => {
     expect(classifyPriority('task.completed')).toBe('success');
   });
@@ -18,7 +16,6 @@ describe('classifyPriority', () => {
     expect(classifyPriority('workflow.completed')).toBe('success');
   });
 
-  // Warning events
   it('classifies task.failed as warning', () => {
     expect(classifyPriority('task.failed')).toBe('warning');
   });
@@ -26,7 +23,6 @@ describe('classifyPriority', () => {
     expect(classifyPriority('sync.conflict')).toBe('warning');
   });
 
-  // Action-required events
   it('classifies review.requested as action-required', () => {
     expect(classifyPriority('review.requested')).toBe('action-required');
   });
@@ -34,7 +30,6 @@ describe('classifyPriority', () => {
     expect(classifyPriority('review.changes_requested')).toBe('action-required');
   });
 
-  // Critical events
   it('classifies workflow.failed as critical', () => {
     expect(classifyPriority('workflow.failed')).toBe('critical');
   });
@@ -42,7 +37,6 @@ describe('classifyPriority', () => {
     expect(classifyPriority('circuit_breaker.tripped')).toBe('critical');
   });
 
-  // Unknown events default to info
   it('classifies unknown event types as info', () => {
     expect(classifyPriority('some.unknown.event')).toBe('info');
   });

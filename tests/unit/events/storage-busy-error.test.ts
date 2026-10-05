@@ -3,13 +3,8 @@ import { describe, it, expect } from 'vitest';
 import { StorageBusyError } from '../../../src/events/storage-busy-error.js';
 
 /**
- * Wave 3 Task 3.1a — Typed `StorageBusyError` class (audit §F2.1).
- *
- * Sibling to ConcurrencyError. Surfaces substrate-level write-lock
- * contention (SQLITE_BUSY beyond the substrate's retry budget) as a
- * distinct typed shape so middleware can apply a different retry policy
- * (longer cooldown for substrate contention vs. immediate re-fold for
- * OCC loss).
+ * `StorageBusyError` reports write-lock contention that outlasts the retry budget of the substrate.
+ * Its typed shape lets middleware give it a retry policy that differs from the policy for a `ConcurrencyError`.
  */
 describe('StorageBusyError (Wave 3 / Task 3.1a)', () => {
   it('StorageBusyError_CarriesStreamAttemptsAndCause', () => {

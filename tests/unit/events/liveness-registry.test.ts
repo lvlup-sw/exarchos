@@ -1,3 +1,13 @@
+// Conformance tests for the liveness descriptor registry.
+//
+// One registry entry for each liveness surface (merge, launch, mutation, prune) defines the whole
+// contract that `ps` and `wait --operation` read. The conformance test starts from the real
+// `EventTypes` catalog in `schemas.ts`. A new `<surface>.executing_started` type with no registry
+// entry thus fails here and not at a consumer.
+//
+// The `void` statement at the end of the file is a type-level check only: each `startType` must
+// be an `EventType`. It has no runtime effect.
+
 import { describe, it, expect } from 'vitest';
 import { fc } from '@fast-check/vitest';
 import { z } from 'zod';
@@ -15,71 +25,52 @@ import {
   type LivenessEventLike,
 } from '../../../src/events/liveness-registry.js';
 
-// ─── DR-2 (task 004): liveness descriptor registry conformance ─────────────
-//
-// One registry entry per INV-10 liveness surface (merge / launch / mutation /
-// prune) defines the whole contract `ps` / `wait --operation` (tasks 006/010)
-// will consume. The conformance test below drives its assertion off the REAL
-// `EventTypes` catalog in `schemas.ts` — not a hand-mocked list — so adding a
-// fifth `<surface>.executing_started` type without a matching registry entry
-// fails loudly here rather than silently at the `ps`/`wait` consumer.
-
 /**
- * Whether a `<surface>.executing_started` data schema REQUIRES a non-optional
- * `instanceId`. Tests the field in isolation: an optional field admits
- * `undefined`, a required one rejects it — independent of the schema's other
- * fields, so it works for any surface's shape (finding 4 / DR-2 new-surface rule).
+ * Reports whether a `<surface>.executing_started` data schema requires `instanceId`.
+ * It tests the field alone: an optional field admits `undefined`, and a required field rejects it.
+ * The other fields of the schema do not matter, so it works for the shape of each surface.
  */
 function startSchemaRequiresInstanceId(schema: z.ZodTypeAny): boolean {
   if (!(schema instanceof z.ZodObject)) return false;
   const field = (schema.shape as Record<string, z.ZodTypeAny | undefined>).instanceId;
   if (field === undefined) return false;
-  // Required iff the field itself rejects an omitted (`undefined`) value.
   return !field.safeParse(undefined).success;
 }
 
 describe('LivenessRegistry conformance', () => {
+  /**
+   * The test starts from the real catalog through `everyExecutingStartedType`, which must agree
+   * with a raw `EventTypes` filter. A catalog with no start types passes vacuously, so the count
+   * comes first.
+   * Each start type needs a descriptor with real terminal types, a known stream scope, and an
+   * `instanceKeyOf` that never throws. A descriptor with no legacy fallback has no old rows, so
+   * its start schema must require `instanceId`.
+   * In the other direction, each registered `startType` must be a real catalog type.
+   */
   it('LivenessRegistry_EveryExecutingStartedInCatalog_HasEntryWithTerminalScopeAndKey', () => {
-    // Drive off the REAL catalog via the exported helper (not a re-derived inline
-    // filter) — this is the whole point of the conformance test: a real
-    // unregistered surface (a new `<x>.executing_started` type added to
-    // `EventTypes` with no matching registry entry) must fail here.
     const startTypesInCatalog = everyExecutingStartedType();
 
-    // The helper agrees with the catalog it is derived from (guards a drift
-    // between `everyExecutingStartedType()` and a raw `EventTypes` filter).
     expect([...startTypesInCatalog].sort()).toEqual(
       EventTypes.filter((t) => t.endsWith('.executing_started')).sort(),
     );
 
-    // Sanity: the catalog actually has liveness-start types to check (a
-    // vacuous conformance test would silently pass on an empty catalog).
     expect(startTypesInCatalog.length).toBeGreaterThanOrEqual(4);
 
     for (const startType of startTypesInCatalog) {
       const descriptor = getLivenessDescriptorByStartType(startType);
       expect(descriptor, `expected a registry entry for real type ${startType}`).toBeDefined();
 
-      // Terminal: at least one terminal type, and every declared terminal is
-      // itself a real, registered `EventType` (catches a typo'd terminal).
       expect(descriptor!.terminalTypes.length).toBeGreaterThan(0);
       for (const terminal of descriptor!.terminalTypes) {
         expect(EventTypes as readonly string[]).toContain(terminal);
       }
 
-      // Scope: declared and one of the two known stream families.
       expect(['feature', 'worktrees']).toContain(descriptor!.streamScope);
 
-      // Key: instanceKeyOf is present and callable without throwing, even on
-      // an empty/undefined payload (the "never throws" contract).
       expect(typeof descriptor!.instanceKeyOf).toBe('function');
       expect(() => descriptor!.instanceKeyOf(undefined)).not.toThrow();
       expect(() => descriptor!.instanceKeyOf({})).not.toThrow();
 
-      // New-surface rule (DR-2 AC): a descriptor WITHOUT a legacy fallback has no
-      // pre-retrofit rows to accommodate, so its start schema MUST require a
-      // non-optional `instanceId` (`.min(1)`). A descriptor WITH a fallback may
-      // leave `instanceId` optional (legacy rows pair via the fallback).
       if (!descriptor!.hasLegacyFallback) {
         const startSchema = EVENT_DATA_SCHEMAS[startType as EventType];
         expect(startSchema, `start schema for new surface ${startType}`).toBeDefined();
@@ -90,44 +81,40 @@ describe('LivenessRegistry conformance', () => {
       }
     }
 
-    // Reverse direction: every registered descriptor's startType is itself a
-    // real catalog type (no stale/renamed entry lingering in the registry).
     for (const descriptor of LIVENESS_DESCRIPTORS) {
       expect(EventTypes as readonly string[]).toContain(descriptor.startType);
       expect(descriptor.startType.endsWith('.executing_started')).toBe(true);
     }
   });
 
-  // ── The new-surface rule's guard is not a no-op (finding 4) ────────────────
-  //
-  // Every SHIPPED surface has a legacy fallback, so the conformance loop's
-  // fallback-less branch is currently vacuous. These focused assertions prove
-  // the `startSchemaRequiresInstanceId` predicate the rule rests on actually
-  // discriminates — so a future fallback-less surface with an OPTIONAL
-  // `instanceId` really would be caught, not silently admitted.
+  /**
+   * Each shipped surface has a legacy fallback, so the branch for a surface with none is vacuous
+   * in the conformance loop. These assertions prove that `startSchemaRequiresInstanceId`
+   * discriminates. The shared shape leaves `instanceId` optional, a new-surface shape requires it,
+   * and a shape with no such field fails.
+   */
   it('LivenessRegistry_NewSurfaceRule_RequiresInstanceIdPredicate_Discriminates', () => {
-    // The current shared shape leaves `instanceId` optional (additive retrofit).
     const optionalShape = z.object({ command: z.string().min(1), ...livenessInstanceFields });
     expect(startSchemaRequiresInstanceId(optionalShape)).toBe(false);
 
-    // A new-surface shape requires it non-optional (`.min(1)`).
     const requiredShape = z.object({ command: z.string().min(1), instanceId: z.string().min(1) });
     expect(startSchemaRequiresInstanceId(requiredShape)).toBe(true);
 
-    // A shape with NO instanceId field at all does not satisfy the rule either.
     const noneShape = z.object({ command: z.string().min(1) });
     expect(startSchemaRequiresInstanceId(noneShape)).toBe(false);
   });
 
+  /**
+   * Each of the four surfaces accepts rows from before `instanceId`, so each has a legacy fallback.
+   * A new surface must set `hasLegacyFallback: false` and require `instanceId`.
+   */
   it('LivenessRegistry_AllShippedSurfaces_DeclareLegacyFallback', () => {
-    // All four INV-10 surfaces accommodate pre-retrofit rows, so each carries a
-    // legacy fallback. (When a genuinely new surface is added it must set
-    // `hasLegacyFallback: false` AND require `instanceId` — enforced above.)
     for (const descriptor of LIVENESS_DESCRIPTORS) {
       expect(descriptor.hasLegacyFallback, `${descriptor.surface} legacy fallback`).toBe(true);
     }
   });
 
+  /** `getLivenessDescriptorByStartType` is the reverse lookup and must agree. */
   it('LivenessRegistry_Lookup_ReturnsDescriptorForSurface', () => {
     const merge = getLivenessDescriptor('merge');
     expect(merge.startType).toBe('merge.executing_started');
@@ -149,28 +136,25 @@ describe('LivenessRegistry conformance', () => {
     expect(prune.terminalTypes).toEqual(['prune.executed']);
     expect(prune.streamScope).toBe('worktrees');
 
-    // getLivenessDescriptorByStartType is the reverse lookup and must agree.
     expect(getLivenessDescriptorByStartType('merge.executing_started')).toBe(
       LIVENESS_REGISTRY.merge,
     );
     expect(getLivenessDescriptorByStartType('unknown.executing_started')).toBeUndefined();
   });
 
-  // ── instanceKeyOf canonical-key derivations (mirrors task 003's emitters) ──
-
+  /**
+   * The order is `instanceId`, then `taskId`, then the `<source>→<target>` pair of a row with
+   * neither. A payload with no key gives `undefined` and does not throw.
+   */
   it('LivenessRegistry_MergeInstanceKey_PrefersInstanceIdThenTaskIdThenBranchPair', () => {
     const { instanceKeyOf } = getLivenessDescriptor('merge');
-    // instanceId present → wins over everything else.
     expect(
       instanceKeyOf({ instanceId: 'T11', taskId: 'T99', sourceBranch: 'a', targetBranch: 'b' }),
     ).toBe('T11');
-    // No instanceId, taskId present → taskId.
     expect(instanceKeyOf({ taskId: 'T11', sourceBranch: 'a', targetBranch: 'b' })).toBe('T11');
-    // Neither → `<source>→<target>` fallback (pre-retrofit shape, DR-2/INV-10).
     expect(instanceKeyOf({ sourceBranch: 'feat/y', targetBranch: 'integration' })).toBe(
       'feat/y→integration',
     );
-    // Nothing resolvable → undefined, never throws.
     expect(instanceKeyOf({})).toBeUndefined();
     expect(instanceKeyOf(undefined)).toBeUndefined();
   });
@@ -182,14 +166,14 @@ describe('LivenessRegistry conformance', () => {
     expect(instanceKeyOf({})).toBeUndefined();
   });
 
+  /**
+   * The order is `instanceId`, then the legacy `operationId`. A legacy row with neither field gets
+   * the singleton key, so a keyless start still pairs with its keyless terminal.
+   */
   it('LivenessRegistry_MutationInstanceKey_PrefersInstanceIdThenOperationIdThenSingleton', () => {
     const { instanceKeyOf } = getLivenessDescriptor('mutation');
     expect(instanceKeyOf({ instanceId: 'op-1', operationId: 'op-legacy' })).toBe('op-1');
-    // Legacy-mutation fallback: no instanceId, but an operationId is present.
     expect(instanceKeyOf({ operationId: 'op-legacy' })).toBe('op-legacy');
-    // DR-2 singleton fallback (finding 3): a truly keyless legacy row (neither
-    // field) resolves to the singleton key so a keyless START still pairs with
-    // its keyless TERMINAL, instead of being silently skipped.
     expect(instanceKeyOf({ command: 'npx stryker run', repoRoot: '/repo' })).toBe(
       MUTATION_LEGACY_SINGLETON_KEY,
     );
@@ -197,10 +181,11 @@ describe('LivenessRegistry conformance', () => {
     expect(instanceKeyOf(undefined)).toBe(MUTATION_LEGACY_SINGLETON_KEY);
   });
 
+  /**
+   * A keyless start and a keyless terminal on the same stream pair and clear.
+   * A keyless start with no terminal stays in flight with the singleton instance key.
+   */
   it('LivenessRegistry_MutationSingleton_KeylessStartPairsWithKeylessTerminal', () => {
-    // The DR-2 "keyless mutation → singleton instance" AC at the fold level:
-    // a keyless start followed by a keyless terminal on the SAME stream pairs
-    // and clears (was: silently skipped → forever "in flight" / never waitable).
     const descriptor = getLivenessDescriptor('mutation');
     const paired = computeInFlightInstances(descriptor, [
       { type: 'mutation.executing_started', data: { command: 'x', repoRoot: '/r' }, streamId: 'feat-a' },
@@ -208,8 +193,6 @@ describe('LivenessRegistry conformance', () => {
     ]);
     expect(paired.size).toBe(0);
 
-    // A keyless start with NO terminal stays in flight (visible), carrying the
-    // singleton instance key.
     const inFlight = computeInFlightInstances(descriptor, [
       { type: 'mutation.executing_started', data: { command: 'x', repoRoot: '/r' }, streamId: 'feat-a' },
     ]);
@@ -224,8 +207,6 @@ describe('LivenessRegistry conformance', () => {
     expect(instanceKeyOf({})).toBeUndefined();
   });
 
-  // ── envelope-derived startedAt ──────────────────────────────────────────
-
   it('LivenessRegistry_StartedAt_DerivesFromEnvelopeTimestamp', () => {
     expect(livenessStartedAt({ timestamp: '2026-07-13T00:00:00.000Z' })).toBe(
       '2026-07-13T00:00:00.000Z',
@@ -234,8 +215,10 @@ describe('LivenessRegistry conformance', () => {
     expect(livenessStartedAt({ timestamp: '' })).toBeUndefined();
   });
 
-  // ── pairing helper: concurrent-instance correlation ─────────────────────
-
+  /**
+   * B has a terminal and clears. A has none and stays in flight. `launch` has the `worktrees`
+   * scope, so the pairing key is the instance key.
+   */
   it('LivenessRegistry_InstanceKey_PairsConcurrentOpsCorrectly', () => {
     const descriptor = getLivenessDescriptor('launch');
     const events: LivenessEventLike[] = [
@@ -247,8 +230,6 @@ describe('LivenessRegistry conformance', () => {
     const inFlight = computeInFlightInstances(descriptor, events);
     const keys = new Set([...inFlight.values()].map((i) => i.instanceKey));
 
-    // B terminated → cleared. A has no terminal → still in flight. `launch` is a
-    // `worktrees`-scope surface, so the pairing key IS the instanceKey.
     expect(keys.has('A')).toBe(true);
     expect(keys.has('B')).toBe(false);
     expect([...inFlight.values()].find((i) => i.instanceKey === 'A')?.startEvent.data).toEqual({
@@ -256,22 +237,22 @@ describe('LivenessRegistry conformance', () => {
     });
   });
 
+  /**
+   * `merge` has the `feature` scope, so the pairing key is the stream id and the instance key.
+   * One merge key on two feature streams is two instances. A terminal on `feat-b` must not clear
+   * the instance on `feat-a`.
+   */
   it('LivenessRegistry_FeatureScope_SameKeyDifferentStreams_PairPerStream', () => {
-    // Finding 1 (S-6): the SAME merge instanceKey on two DIFFERENT feature
-    // streams is two DISTINCT in-flight instances. Terminating one must NOT
-    // clear the other. (`merge` is `feature`-scoped → keyed by (streamId, key).)
     const descriptor = getLivenessDescriptor('merge');
     const events: LivenessEventLike[] = [
       { type: 'merge.executing_started', data: { instanceId: 'T11' }, streamId: 'feat-a' },
       { type: 'merge.executing_started', data: { instanceId: 'T11' }, streamId: 'feat-b' },
-      // Terminal on feat-b ONLY.
       { type: 'merge.executed', data: { instanceId: 'T11' }, streamId: 'feat-b' },
     ];
 
     const inFlight = computeInFlightInstances(descriptor, events);
     const survivors = [...inFlight.values()];
 
-    // feat-a's T11 merge is still stuck; feat-b's was cleared.
     expect(survivors).toHaveLength(1);
     expect(survivors[0]?.instanceKey).toBe('T11');
     expect(survivors[0]?.streamId).toBe('feat-a');
@@ -286,6 +267,7 @@ describe('LivenessRegistry conformance', () => {
     expect(inFlight.size).toBe(0);
   });
 
+  /** A start after a terminal opens the instance again: exactly one instance is in flight. */
   it('LivenessRegistry_InstanceKey_RestartAfterTerminalReopensTheInstance', () => {
     const descriptor = getLivenessDescriptor('mutation');
     const events: LivenessEventLike[] = [
@@ -294,20 +276,16 @@ describe('LivenessRegistry conformance', () => {
       { type: 'mutation.executing_started', data: { operationId: 'op-1' }, streamId: 'feat-a' },
     ];
     const inFlight = computeInFlightInstances(descriptor, events);
-    // Reopened → exactly one in-flight instance for op-1 on feat-a.
     expect(inFlight.size).toBe(1);
     expect([...inFlight.values()][0]?.instanceKey).toBe('op-1');
   });
 
-  // ── property test (state-machine): pairing correctness over arbitrary
-  //    start/terminal key interleavings ──────────────────────────────────
-  //
-  // An independent reference model (a plain `Set<string>` mutated by the same
-  // start-adds / terminal-removes semantics) is compared against
-  // `computeInFlightInstances` over hundreds of randomly generated start/
-  // terminal event sequences drawn from a small key alphabet — exercising
-  // interleavings a hand-written example test would never enumerate (repeated
-  // starts, terminals-before-starts, restarts after termination, etc).
+  /**
+   * Property test. The reference model is a plain `Set<string>`: a start adds a key and a
+   * terminal removes it. The model shares no code with `computeInFlightInstances`.
+   * The test compares both over 200 random sequences from a small key alphabet. The sequences
+   * cover repeated starts, terminals before starts, and restarts after a terminal.
+   */
   it('LivenessRegistry_InstanceKey_PairingMatchesReferenceModelOverArbitraryInterleavings', () => {
     const keyAlphabet = ['A', 'B', 'C'] as const;
     const opArb = fc.record({
@@ -325,8 +303,6 @@ describe('LivenessRegistry conformance', () => {
 
         const actual = computeInFlightInstances(descriptor, events);
 
-        // Reference model: independent from the implementation under test —
-        // a bare Set mutated by the same start-adds/terminal-removes rule.
         const expected = new Set<string>();
         for (const { op, key } of ops) {
           if (op === 'start') expected.add(key);
@@ -340,9 +316,6 @@ describe('LivenessRegistry conformance', () => {
   });
 });
 
-// ── Type-level guard: registry stays keyed by every LivenessSurface ────────
-// (compile-time only — `LIVENESS_REGISTRY` is `Record<LivenessSurface, ...>`,
-// so a surface added to the union without a registry entry is a TS error.)
 void ((): void => {
   const _surfaces: readonly EventType[] = LIVENESS_DESCRIPTORS.map((d) => d.startType);
   void _surfaces;

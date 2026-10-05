@@ -1,22 +1,17 @@
-// ─── DR-2 (task 003): all four liveness emitters stamp a canonical instanceId ─
+// Characterization of the four liveness emitters at the emission boundary: merge, launch,
+// mutation and prune. Each one runs through its real emission path into a real `EventStore`.
+// The tests parse the start and terminal payloads with the exported Zod schemas, because
+// `EventStore.append` validates only the envelope. Each payload must carry the canonical
+// `instanceId`:
+//   - merge: `taskId`, or `${sourceBranch}→${targetBranch}` with no `taskId`
+//   - launch: `worktreeId`
+//   - mutation: `operationId`
+//   - prune: the `operationId` of the pass
 //
-// Characterization at the EMISSION boundary. Each of the four INV-10 liveness
-// surfaces — merge / launch / mutation / prune — is driven through its real
-// emission seam and the emitted START + TERMINAL payloads are validated against
-// the REAL exported Zod schemas (not hand-mocked validators), asserting each
-// carries the canonical, additive `instanceId`:
-//   • merge    → taskId ?? `${sourceBranch}→${targetBranch}`
-//   • launch   → worktreeId
-//   • mutation → operationId
-//   • prune    → the existing per-pass operationId
-//
-// All four surfaces append to a REAL EventStore (per-test tmp dir): merge / launch
-// / prune through their own emission seams, and mutation through the LIVE
-// `verbs/gates/mutation-adequacy.ts` handler, which brackets the injected run with
-// the INV-10 liveness pair and stamps the canonical `operationId` as `instanceId`.
-// `EventStore.append` validates only the envelope, so every emitted `data` is
-// re-parsed here with the surface's exported schema — that is the real validator
-// the boundary note asks for.
+// The mutation case calls the live handler in `verbs/gates/mutation-adequacy.ts`, which brackets
+// the injected run with the liveness pair.
+// The import of `projections/merge-orchestrator/index.js` registers `merge-orchestrator@v1`, so
+// the `decide` closure of the merge executor can resolve the reducer against a real `EventStore`.
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
@@ -40,8 +35,6 @@ import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { handleExecuteMerge } from '../../../src/verbs/merge/execute-merge.js';
-// Side-effect: register `merge-orchestrator@v1` so the executor's Phase A
-// `decide` closure can resolve the reducer against a real EventStore.
 import '../../../src/projections/merge-orchestrator/index.js';
 import {
   emitLaunchExecutingStarted,
@@ -120,8 +113,17 @@ function findByType(events: readonly WorkflowEvent[], type: string): WorkflowEve
 }
 
 describe('DR-2 liveness emitters', () => {
+  /**
+   * Merge: with a `taskId`, the `instanceId` is the `taskId`. With none, it is `<source>→<target>`.
+   * Mutation: each seam is injected, so no toolchain resolution, git diff or mutation subprocess
+   * runs. The handler result is advisory and always succeeds. The `{}` report gives only a warning
+   * after the terminal liveness emit, so both events are on the stream.
+   *
+   * Prune: a repository with no released or orphan worktree is a no-op pass, and the liveness pair
+   * still brackets it. The `catch` lets the test read the pair when the enumeration fails.
+   * Prune uses its `operationId` as the instance key, so start and terminal hold the same value.
+   */
   it('AllFourEmitters_EmitCanonicalInstanceIdAdditively', async () => {
-    // ── merge: instanceId = taskId (present) ──────────────────────────────────
     {
       const { store, stateDir } = await makeStore('dr2-merge-');
       const recoverySha = 'b'.repeat(40);
@@ -145,12 +147,10 @@ describe('DR-2 liveness emitters', () => {
         findByType(events, 'merge.executing_started').data,
       );
       const terminal = MergeExecutedData.parse(findByType(events, 'merge.executed').data);
-      // taskId present → instanceId IS the taskId, on both START and TERMINAL.
       expect(started.instanceId).toBe('T11');
       expect(terminal.instanceId).toBe('T11');
     }
 
-    // ── merge: instanceId = `${sourceBranch}→${targetBranch}` (no taskId) ──────
     {
       const { store, stateDir } = await makeStore('dr2-merge-notask-');
       const result = await handleExecuteMerge(
@@ -172,12 +172,10 @@ describe('DR-2 liveness emitters', () => {
         findByType(events, 'merge.executing_started').data,
       );
       const terminal = MergeExecutedData.parse(findByType(events, 'merge.executed').data);
-      // No taskId → the `<source>→<target>` fallback uniquely keys the merge.
       expect(started.instanceId).toBe('feat/y→integration');
       expect(terminal.instanceId).toBe('feat/y→integration');
     }
 
-    // ── launch: instanceId = worktreeId ───────────────────────────────────────
     {
       const { store } = await makeStore('dr2-launch-');
       const worktreeId = '/srv/wt/launch-a';
@@ -197,13 +195,6 @@ describe('DR-2 liveness emitters', () => {
       expect(terminal.instanceId).toBe(worktreeId);
     }
 
-    // ── mutation: instanceId = operationId (through the LIVE emission path) ────
-    // Drive the genuinely-live emitter — `verbs/gates/mutation-adequacy.ts`
-    // brackets the injected mutation run with the INV-10 liveness pair, stamping
-    // `args.operationId` as the canonical `instanceId` on BOTH events (mirroring the
-    // now-deleted run-mutation CLI shim, whose liveness surface this handler owns —
-    // see `events/liveness-registry.ts`). Every seam is injected so no real
-    // toolchain resolution, git diff, or mutation subprocess runs.
     {
       const { store, stateDir } = await makeStore('dr2-mutation-');
       const result = await handleMutationAdequacy(
@@ -219,9 +210,6 @@ describe('DR-2 liveness emitters', () => {
         stateDir,
         store,
       );
-      // Advisory carrier — always success:true. The `{}` report is intentionally
-      // unparseable, degrading to a warning AFTER the terminal liveness emit, so the
-      // START+TERMINAL pair lands on the stream regardless of the parse verdict.
       expect(result.success).toBe(true);
 
       const events = await store.query('feat-mutation');
@@ -231,24 +219,17 @@ describe('DR-2 liveness emitters', () => {
       const terminal = MutationExecutedData.parse(
         findByType(events, 'mutation.executed').data,
       );
-      // operationId is the canonical mutation instance key, on START and TERMINAL.
       expect(started.instanceId).toBe('op-mutation-run');
       expect(terminal.instanceId).toBe('op-mutation-run');
     }
 
-    // ── prune: instanceId = the existing per-pass operationId ──────────────────
     {
       const { store } = await makeStore('dr2-prune-store-');
       const repoRoot = await initRepo('dr2-prune-repo-');
       const manager = new WorktreeManager({ eventStore: store });
-      // A repo with no released/orphan worktrees is a clean no-op pass; the
-      // liveness pair still brackets it (started before the ladder, executed in
-      // the finally). Defensive try/catch so an enumeration hiccup still lets us
-      // read the bracketed pair.
       try {
         await manager.prune({ repoRoot });
       } catch {
-        /* liveness pair is emitted regardless — assert on the persisted events */
       }
 
       const events = await store.query(WORKTREES_STREAM);
@@ -256,8 +237,6 @@ describe('DR-2 liveness emitters', () => {
         findByType(events, 'prune.executing_started').data,
       );
       const terminal = PruneExecutedData.parse(findByType(events, 'prune.executed').data);
-      // The prune surface reuses its existing operationId as the instance key,
-      // so START and TERMINAL correlate by the same value.
       expect(started.instanceId).toBe(started.operationId);
       expect(terminal.instanceId).toBe(started.operationId);
       expect(terminal.instanceId).toBe(terminal.operationId);

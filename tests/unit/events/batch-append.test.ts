@@ -31,10 +31,9 @@ function storedEvents(result: ToolResult): Array<Record<string, unknown>> {
 }
 
 /**
- * The measured kill fixture (2026-08-07, `internal-mechanics-overhaul`
- * sequences 152-157): `task.completed` registers `evidence` as an object, and
- * six events carrying a STRING `evidence` reached the authoritative store
- * through `batch_append` while `append` rejected the identical payload.
+ * The measured kill fixture (2026-08-07, stream `internal-mechanics-overhaul`, sequences 152 to
+ * 157). `task.completed` registers `evidence` as an object. Six events with a string `evidence`
+ * reached the store through `batch_append`, and `append` rejected the same payload.
  */
 const STRING_EVIDENCE_EVENT = {
   type: 'task.completed',
@@ -53,6 +52,7 @@ const WELL_FORMED_EVENT = {
 } as const;
 
 describe('batch_append event-data validation (DR-1)', () => {
+  /** The store is authoritative and events are immutable, so no invalid event can land. */
   it('BatchAppend_EventWithSchemaViolatingData_IsRejected', async () => {
     const result = await handleBatchAppend(
       { stream: 'kill-fixture', events: [{ ...STRING_EVIDENCE_EVENT }] },
@@ -64,14 +64,15 @@ describe('batch_append event-data validation (DR-1)', () => {
     expect(result.error?.code).toBe('VALIDATION_ERROR');
     expect(result.error?.message).toContain('evidence');
 
-    // The store is authoritative and events are immutable: nothing may land.
     const query = await handleEventQuery({ stream: 'kill-fixture' }, tempDir, eventStore);
     expect(storedEvents(query)).toHaveLength(0);
   });
 
+  /**
+   * The declared atomicity is all-or-nothing. One invalid event rejects the batch, and the
+   * rejection names its position. The valid events before it and after it must not persist.
+   */
   it('BatchAppend_OneInvalidEventInBatch_RejectsPerDeclaredAtomicity', async () => {
-    // The declared atomicity is all-or-nothing: one invalid event rejects the
-    // whole batch. Neither the valid prefix nor the valid suffix may survive.
     expect(BATCH_VALIDATION_ATOMICITY).toBe('all-or-nothing');
 
     const result = await handleBatchAppend(
@@ -89,28 +90,24 @@ describe('batch_append event-data validation (DR-1)', () => {
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('VALIDATION_ERROR');
-    // The rejection names the offending position, not just "somewhere".
     expect(result.error?.message).toContain('events[1]');
 
     const query = await handleEventQuery({ stream: 'atomicity' }, tempDir, eventStore);
     expect(storedEvents(query)).toHaveLength(0);
   });
 
+  /**
+   * `resolveBatchEvents` keeps the first occurrence of an idempotency key. An event that is
+   * never appended cannot reject the append, so both validation classes read the survivors.
+   * A discarded duplicate with a misplaced field and one with invalid `data` both pass.
+   */
   it('BatchAppend_DiscardedDuplicate_IsNotValidated_InEitherClass', async () => {
-    // `resolveBatchEvents` defines FIRST OCCURRENCE WINS, and the two
-    // validation classes disagreed about what that means: structural checks
-    // (type / reserved / misplaced fields) ran over the raw input, so a
-    // discarded duplicate with a misplaced field rejected the batch — while the
-    // per-type data check ran over the survivors, so the same duplicate with an
-    // invalid `data` payload did not. An event that is never appended cannot
-    // reject the append; both classes now read the survivors.
     const key = 'dup-key-1';
     const misplacedDuplicate = await handleBatchAppend(
       {
         stream: 'dedup-misplaced',
         events: [
           { ...WELL_FORMED_EVENT, idempotencyKey: key },
-          // Same key ⇒ discarded. Its misplaced top-level field is irrelevant.
           { ...WELL_FORMED_EVENT, idempotencyKey: key, taskId: 'at-the-wrong-level' },
         ],
       },
@@ -119,8 +116,6 @@ describe('batch_append event-data validation (DR-1)', () => {
     );
     expect(misplacedDuplicate.success, JSON.stringify(misplacedDuplicate.error)).toBe(true);
 
-    // …and the data-invalid duplicate behaves the SAME way, which is the
-    // agreement that was missing.
     const dataInvalidDuplicate = await handleBatchAppend(
       {
         stream: 'dedup-data',
@@ -134,17 +129,17 @@ describe('batch_append event-data validation (DR-1)', () => {
     );
     expect(dataInvalidDuplicate.success, JSON.stringify(dataInvalidDuplicate.error)).toBe(true);
 
-    // Exactly one event landed on each stream — the first occurrence.
     for (const stream of ['dedup-misplaced', 'dedup-data']) {
       const query = await handleEventQuery({ stream }, tempDir, eventStore);
       expect(storedEvents(query)).toHaveLength(1);
     }
   });
 
+  /**
+   * A malformed element such as `null` must return the typed `INVALID_INPUT` envelope and must
+   * not throw in `resolveBatchEvents`. The error names the position of the element.
+   */
   it('BatchAppend_MalformedElement_ReturnsInvalidInputRatherThanThrowing', async () => {
-    // `events: [null]` reached `null.idempotencyKey` inside `resolveBatchEvents`
-    // and threw, so the handler could never return its own envelope — an MCP
-    // caller got a crash where the contract promises a typed error.
     for (const malformed of [null, 42, 'an event', []] as unknown[]) {
       const result = await handleBatchAppend(
         { stream: 'malformed', events: [malformed] as Record<string, unknown>[] },
@@ -156,7 +151,6 @@ describe('batch_append event-data validation (DR-1)', () => {
       expect(result.error?.message).toContain('events[0]');
     }
 
-    // A malformed element AFTER a valid one still names its own position.
     const mixed = await handleBatchAppend(
       { stream: 'malformed', events: [{ ...WELL_FORMED_EVENT }, null] as Record<string, unknown>[] },
       tempDir,
@@ -169,6 +163,7 @@ describe('batch_append event-data validation (DR-1)', () => {
     expect(storedEvents(query)).toHaveLength(0);
   });
 
+  /** The length check makes a run that compares zero payloads fail. */
   it('AppendAndBatchAppend_IdenticalPayload_AgreeOnValidity', async () => {
     const payloads: ReadonlyArray<{ label: string; event: Record<string, unknown> }> = [
       { label: 'string-evidence', event: { ...STRING_EVIDENCE_EVENT } },
@@ -197,7 +192,6 @@ describe('batch_append event-data validation (DR-1)', () => {
       },
     ];
 
-    // A vacuous parity test (zero payloads compared) must not read as agreement.
     expect(payloads.length).toBeGreaterThan(0);
 
     const disagreements: string[] = [];
@@ -226,9 +220,8 @@ describe('batch_append event-data validation (DR-1)', () => {
 });
 
 describe('non-empty denominator (DR-1)', () => {
+  /** A batch that resolves to no appendable events is a caller error, not a clean pass. */
   it('ResolveBatchEvents_ZeroResolvedEvents_Fails', async () => {
-    // A batch that resolves to no appendable events is a caller error, not a
-    // clean pass. Both the empty input and the post-dedup-empty case fail.
     expect(resolveBatchEvents([]).ok).toBe(false);
     expect(resolveBatchEvents([{ type: 'workflow.started' }]).ok).toBe(true);
 
@@ -241,16 +234,18 @@ describe('non-empty denominator (DR-1)', () => {
     expect(result.error?.code).toBe('INVALID_INPUT');
   });
 
+  /**
+   * If the registry resolves zero schemas, a validator accepts each payload. Thus
+   * `validateEventData` must throw.
+   */
   it('ValidateEventData_EmptySchemaRegistry_Fails', () => {
-    // A validator whose registry resolves zero schemas would wave every
-    // payload through. It must fail loudly instead of passing clean.
     expect(() =>
       validateEventData('task.completed', { taskId: 't' }, {}),
     ).toThrow(EmptySchemaRegistryError);
   });
 
+  /** `validateEventData` is the one authority that both write paths call. */
   it('ValidateEventData_SchemaViolation_ThrowsForBothCallPaths', () => {
-    // The one authority both write paths route through.
     expect(() =>
       validateEventData('task.completed', { taskId: 't', evidence: 'a string' }),
     ).toThrow();

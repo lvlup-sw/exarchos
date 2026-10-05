@@ -5,15 +5,15 @@ import * as path from 'node:path';
 import { SqliteBackend, SchemaVersionTooNewError, SCHEMA_VERSION } from '../../../src/storage/sqlite-backend.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── P05-04: schema-identity freshness at store open (ART-009) ──────────────
-//
-// An event store written under a schema identity NEWER than this binary
-// understands must not be silently opened — the older binary would re-stamp
-// its own lower version and operate against a schema whose invariants it does
-// not know. The directional policy mirrors the forward-only migration
-// machinery: older stores migrate, equal stores open, strictly-newer stores
-// are refused.
-
+/**
+ * A binary must not open a store with a schema version newer than its own.
+ * Without the guard, the binary stamps its lower version and runs against a
+ * schema that it does not know. The backend migrates an older store, opens an
+ * equal store, and refuses a newer store.
+ *
+ * `stampSchemaVersion` rewrites the ledger through the live driver handle, to
+ * give the store the version of a different binary.
+ */
 describe('SqliteBackend schema-identity freshness (P05-04)', () => {
   const dirs: string[] = [];
 
@@ -27,10 +27,6 @@ describe('SqliteBackend schema-identity freshness (P05-04)', () => {
     return path.join(dir, 'schema-freshness.db');
   }
 
-  /** Reach the live driver handle to seed the schema_version ledger the way a
-   * differently-versioned binary would have stamped it. Reflection is the
-   * repo's established pattern for driving backend internals in tests (see the
-   * DR-4 rollback test's `stmts` access). */
   function stampSchemaVersion(backend: SqliteBackend, version: number): void {
     const db = (backend as unknown as { db: { exec(sql: string): void } }).db;
     db.exec('DELETE FROM schema_version');
@@ -46,10 +42,11 @@ describe('SqliteBackend schema-identity freshness (P05-04)', () => {
     backend.close();
   });
 
+  /** The first `initialize()` stamps `SCHEMA_VERSION` in the ledger. */
   it('EqualSchemaStore_Reopens_WithoutError', async () => {
     const dbPath = await tempDbPath('schema-equal-');
     const first = new SqliteBackend(dbPath);
-    first.initialize(); // stamps schema_version = SCHEMA_VERSION
+    first.initialize();
     first.close();
 
     const reopened = new SqliteBackend(dbPath);
@@ -57,13 +54,14 @@ describe('SqliteBackend schema-identity freshness (P05-04)', () => {
     reopened.close();
   });
 
+  /**
+   * An older ledger version must pass. This proves that the guard compares with
+   * `>` and not with `!==`.
+   */
   it('OlderSchemaStore_Opens_ForwardMigratePolicy', async () => {
     const dbPath = await tempDbPath('schema-older-');
     const first = new SqliteBackend(dbPath);
     first.initialize();
-    // Rewrite the ledger to an OLDER identity — the guard must NOT refuse this
-    // (older stores are forward-migrated, proving the comparison is `>` not
-    // `!==`).
     stampSchemaVersion(first, SCHEMA_VERSION - 1);
     first.close();
 
@@ -72,6 +70,10 @@ describe('SqliteBackend schema-identity freshness (P05-04)', () => {
     reopened.close();
   });
 
+  /**
+   * The guard closes the refused handle, so the file stays unlocked. The backend
+   * refuses a second open in the same way.
+   */
   it('NewerSchemaStore_Refused_WithTypedError', async () => {
     const dbPath = await tempDbPath('schema-newer-');
     const first = new SqliteBackend(dbPath);
@@ -92,8 +94,6 @@ describe('SqliteBackend schema-identity freshness (P05-04)', () => {
     expect(typed.storeVersion).toBe(SCHEMA_VERSION + 1);
     expect(typed.binaryVersion).toBe(SCHEMA_VERSION);
     expect(typed.message).toContain('newer Exarchos release');
-    // The refused handle is closed so the file isn't left locked; a subsequent
-    // open attempt still refuses (idempotent, no state advanced).
     const retry = new SqliteBackend(dbPath);
     expect(() => retry.initialize()).toThrow(SchemaVersionTooNewError);
   });

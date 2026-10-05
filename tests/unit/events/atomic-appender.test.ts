@@ -13,24 +13,12 @@ import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * AtomicAppender — substrate primitive for v2.9 bug cluster (#1230, #1228, #1241).
+ * The semantic contract of `AtomicAppender`. An append either commits in one `BEGIN IMMEDIATE`
+ * transaction or leaves no observable effect. The idempotency claim is part of that transaction,
+ * so a failed append never claims a key that has no event.
  *
- * Tests verify the SQLite append (validate → ensure backend → idempotency
- * pre-check → optimistic-concurrency → BEGIN IMMEDIATE) is atomic from the
- * caller's perspective: either the transaction commits (success path) or
- * none of its effects are observable (failure path). The idempotency claim
- * lives in the same transaction so a partial failure never claims a key
- * that has no underlying event in the log (#1228 phantom claim).
- *
- * v2.11 substrate-cut (Phase 2): the JSONL primary body and `backend`
- * discriminator were removed. The SQLite body is now the only path; the
- * JSONL-parametric and JSONL-internals describe blocks that exercised the
- * legacy four-phase JSONL writer + WriteFn fault hook were deleted.
- *
- * SQLite-specific fault-injection (transaction rollback, BUSY retry budget)
- * lives in `atomic-appender-sqlite.test.ts`. Singleton + race fixtures
- * live in `atomic-appender.race.test.ts`. This file holds the
- * substrate-agnostic semantic contract.
+ * `atomic-appender-sqlite.test.ts` holds the fault-injection tests for the rollback and the busy
+ * retry. `atomic-appender.race.test.ts` holds the singleton and race tests.
  */
 describe('AtomicAppender', () => {
   let stateDir: string;
@@ -63,6 +51,10 @@ describe('AtomicAppender', () => {
     expect(new Set(allSequences).size).toBe(3);
   });
 
+  /**
+   * A retry with the same key is a cache-hit. It returns the first sequences and allocates no
+   * new one. The SQLite body writes a `.db` file and no JSONL file.
+   */
   it('AtomicAppender_successfulAppend_commitsAndIsCachedForIdempotencyRetry', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'test-stream-success';
@@ -83,8 +75,6 @@ describe('AtomicAppender', () => {
     expect(result.eventIds).toHaveLength(2);
     expect(result.timestamps).toHaveLength(2);
 
-    // Idempotency cache-hit on retry — no new sequences allocated, original
-    // sequences returned.
     const retry = await appender.append(
       streamId,
       [{ type: 'task.assigned', data: { n: 99 } }],
@@ -96,26 +86,20 @@ describe('AtomicAppender', () => {
       expect(retry.sequences).toEqual([1, 2]);
     }
 
-    // Substrate witness: the SQLite body writes a `.db` file and MUST NOT
-    // create any JSONL artifact. Guards against a misconfigured dispatch
-    // silently routing to a deleted JSONL writer.
     const entries = await readdir(stateDir);
     expect(entries.some(e => e.endsWith('.events.jsonl'))).toBe(false);
     expect(entries.some(e => e.endsWith('.db'))).toBe(true);
   });
 
-  // ─── expectedSequence (T1, #1293) ────────────────────────────────────────
-  //
-  // Optimistic-concurrency check: callers that observed a sequence before
-  // calling append want to fail the append if the stream advanced under
-  // them. The check runs inside the per-stream lock so concurrent
-  // appends can't slip a counter advance between the read and the write.
-
+  /**
+   * A caller passes the sequence that it observed as `expectedSequence`, and the append fails if
+   * the stream advanced. The check runs inside the write transaction. An empty stream has the
+   * high-water mark 0.
+   */
   it('AtomicAppender_appendWithMatchingExpectedSequence_succeeds', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'expected-seq-match';
 
-    // Stream is empty → high-water mark is 0.
     const result = await appender.append(
       streamId,
       [{ type: 'task.assigned', data: { n: 1 } }],
@@ -126,14 +110,13 @@ describe('AtomicAppender', () => {
     if (result.ok) expect(result.sequences).toEqual([1]);
   });
 
+  /** The caller observed sequence 0, and the counter is 1 after the first append. */
   it('AtomicAppender_appendWithStaleExpectedSequence_returnsSequenceConflict', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'expected-seq-stale';
 
-    // Advance counter to 1.
     await appender.append(streamId, [{ type: 'task.assigned', data: { n: 1 } }], 'k1');
 
-    // Caller observed sequence 0 but counter is now 1 — conflict.
     const result = await appender.append(
       streamId,
       [{ type: 'task.assigned', data: { n: 2 } }],
@@ -152,23 +135,19 @@ describe('AtomicAppender', () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'expected-seq-undef';
 
-    // Without expectedSequence, counter mismatches don't fail.
     await appender.append(streamId, [{ type: 'task.assigned' }], 'k1');
     const result = await appender.append(
       streamId,
       [{ type: 'task.assigned' }],
-      'k2', // no options — must succeed regardless of counter state
+      'k2',
     );
     expect(result.ok).toBe(true);
   });
 
-  // ─── appendUnkeyed (T2, #1293) ───────────────────────────────────────────
-  //
-  // Bypasses idempotency dedup for callers that don't have meaningful retry
-  // semantics (e.g. EventStore.append callers with no key). The persisted
-  // claim row is null so the caller cannot accidentally collide with a
-  // retry chain.
-
+  /**
+   * `appendUnkeyed` is for a caller that has no retry key, such as an `EventStore.append` with no
+   * key. It writes no claim row. The SQLite body writes no JSONL file.
+   */
   it('AtomicAppender_appendUnkeyed_writesEventsAndAdvancesSequence', async () => {
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'unkeyed-basic';
@@ -179,30 +158,25 @@ describe('AtomicAppender', () => {
     if (r1.ok) expect(r1.sequences).toEqual([1]);
     if (r2.ok) expect(r2.sequences).toEqual([2]);
 
-    // Substrate witness: SQLite body, no JSONL artifact.
     const entries = await readdir(stateDir);
     expect(entries.some(e => e.endsWith('.events.jsonl'))).toBe(false);
   });
 
+  /**
+   * The `idempotency_claims` table keeps each claim and evicts none. Unkeyed appends must not
+   * hide a keyed claim: each keyed retry still returns its first sequence.
+   */
   it('AtomicAppender_appendUnkeyed_doesNotPopulateIdempotencyCache', async () => {
-    // The SQLite body persists every claim in the `idempotency_claims`
-    // table with no FIFO eviction (the legacy in-memory cap was JSONL-only
-    // and was removed in v2.11). The semantic that holds: unkeyed appends
-    // don't make keyed entries un-retrievable.
     const appender = new AtomicAppender({ stateDir });
     const streamId = 'unkeyed-no-pollute';
 
-    // Seed two keyed entries.
     await appender.append(streamId, [{ type: 'task.assigned' }], 'keep-a');
     await appender.append(streamId, [{ type: 'task.assigned' }], 'keep-b');
 
-    // 5 unkeyed appends.
     for (let i = 0; i < 5; i++) {
       await appender.appendUnkeyed(streamId, [{ type: 'task.assigned' }]);
     }
 
-    // Retry both keyed entries; they should still be cache-hit (returns
-    // the original sequence, no new events appended).
     const retryA = await appender.append(streamId, [{ type: 'x' }], 'keep-a');
     const retryB = await appender.append(streamId, [{ type: 'x' }], 'keep-b');
     expect(retryA.ok && retryB.ok).toBe(true);
@@ -313,28 +287,10 @@ describe('AtomicAppender', () => {
   });
 });
 
-// ─── Wave 3 (#1437) — correlation columns populated on every write ──────────
-//
-// Tasks 7 + 8 wire the three V6 correlation columns into the writer path so
-// that new appends under an active dispatch context land with non-NULL
-// values in `operation_id` / `correlation_id` / `causation_id`. The payload
-// JSON remains source of truth (INV-1); these columns are the indexed
-// filter handle for the Wave-4 query path.
-//
-// Both tests open a SECOND `SqliteBackend` handle against the same on-disk
-// db file the EventStore is writing to so we can issue raw SQL against the
-// `events` table. `rowToEvent` is intentionally NOT used: the test asserts
-// the *column* values directly, since that's the new substrate behavior
-// under test (the payload-rehydration path was already wired pre-Wave-3).
-//
-// Bypassing the EventStore-owned appender for reads is safe here because
-// after `eventStore.append(...)` resolves the write transaction is fully
-// committed; the second backend handle just opens a SELECT-only connection
-// to the same file (WAL mode allows concurrent readers).
-// Structural typing for the private SqliteBackend.db handle. Tests reach
-// into the side-channel SQLite connection to verify the V6 column values
-// directly; using a structural shape keeps the test engine-agnostic and
-// removes the `bun:sqlite` runtime coupling.
+/**
+ * The structural shape of the private `SqliteBackend.db` handle. The tests below read the
+ * correlation columns with raw SQL, and this shape keeps them free of the `bun:sqlite` runtime.
+ */
 type SqliteDbHandle = {
   prepare(sql: string): {
     get(...args: unknown[]): unknown;
@@ -342,6 +298,15 @@ type SqliteDbHandle = {
   };
 };
 
+/**
+ * An append under an active dispatch context stores `operation_id`, `correlation_id` and
+ * `causation_id` as non-NULL columns. The payload JSON stays the record, and the columns are
+ * the indexed filter handle.
+ *
+ * Each test opens a second `SqliteBackend` on the same database file (`exarchos.db` by default)
+ * and reads the columns with raw SQL. The read is safe because the write transaction is complete
+ * when the append resolves, and WAL mode permits a concurrent reader.
+ */
 describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
   let stateDir: string;
 
@@ -364,9 +329,6 @@ describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
     );
     expect(appended.sequence).toBe(1);
 
-    // Open a side SqliteBackend handle against the same on-disk db the
-    // EventStore-owned appender writes to. The appender's default
-    // `sqliteDbFilename` is `exarchos.db` (atomic-appender.ts:358).
     const dbPath = path.join(stateDir, 'exarchos.db');
     const sideBackend = new SqliteBackend(dbPath);
     sideBackend.initialize();
@@ -388,13 +350,10 @@ describe('AtomicAppender correlation column persistence (#1437 Wave 3)', () => {
     }
   });
 
-  // Task 8 parity test (#1437). Both single and batch appends flow
-  // through `AtomicAppender.appendEvents` -> `SqliteBackend.atomicAppend`
-  // -> `insertEventStrict`, so the Task 7 wire-shape change
-  // (`AtomicAppendEvent` carries the three correlation fields) covered
-  // batch-append by construction. This test pins the shared contract so
-  // a future refactor that splits the batch and single paths can't
-  // regress one without the other.
+  /**
+   * Single and batch appends share `SqliteBackend.atomicAppend` and `insertEventStrict`. This
+   * test pins the shared contract, so a later split of the two paths cannot break one of them.
+   */
   it('AtomicAppender_BatchAppendUnderDispatchContext_PopulatesAllCorrelationColumns', async () => {
     const store = new EventStore(stateDir);
     await store.initialize();

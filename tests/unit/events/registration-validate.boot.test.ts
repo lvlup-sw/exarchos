@@ -1,36 +1,17 @@
-// The BOOT half of task 012 (DR-2): the gate is wired into a path that actually executes in
-// production, not only into a pure function a test can call.
+// Proves that the registration weld gate runs on `initializeContext`, the production boot path.
+// A seeded `capability` registration with an unresolvable provider must stop the boot.
 //
 // @oracle-sources: ../../../src/dispatch/core/context.ts, the shipped effect-provider registry the seeded id is deliberately absent from
 //
-// The two authorities. `dispatch/core/context.ts` owns the BOOT SEQUENCE — whether the process refuses to
-// start — and knows nothing about which provider ids exist. The effect-provider registry owns which
-// ids RESOLVE, and is what makes the seeded id bad; it was authored for P05-05's reachability
-// closure, long before any event named a provider. The test asserts the two agree: the id the
-// registry does not contain is the id the boot sequence refuses on.
+// The boot sequence decides whether the process starts. The effect-provider registry decides which
+// provider ids resolve. The tests assert that the two agree on the seeded id.
+// The second oracle is a label, not the path of `providers.ts`. `context.ts` imports that module
+// through `registration-validate.ts`, so the derivation check reads the two paths as one authority.
 //
-// The second authority is a LABEL rather than the path `../contract/reachability/providers.ts`,
-// because DR-30's derivation check is a static module-reachability walk and — precisely BECAUSE
-// this task wired the gate — `dispatch/core/context.ts` now reaches `providers.ts` through
-// `registration-validate.ts`. That is an import edge, not a derivation: the boot sequence does not
-// author the provider map, and reporting them as one authority would be the over-approximation
-// `suite-invariants/LIMITATIONS.md` names. Same call, same reason, as `event-annotations.test.ts`.
-//
-// The production entry point is `dispatch/core/context.ts::initializeContext`, whose sole production caller
-// is `index.ts` `main()` (`... await initializeContext(stateDir, { backend, projectRoot })`) — the
-// shared boot of BOTH facades: `exarchos mcp` and every stateful CLI verb route through it.
-// `createServer()` in `index.ts` is a library/test factory with no production caller, so wiring the
-// gate there would have shipped a check nothing runs — the R-11 shape this wave already recorded
-// once for `resolveDispatchShape`.
-//
-// The seeding here is the SUBJECT, not the gate. `contract/bindings/startup-gate.test.ts` proves
-// its wire by mocking the gate to throw, which shows the call exists but not that the check can
-// find anything. This file instead injects one bad `capability` registration into the annotation
-// table the gate reads and asserts the real, unmocked gate refuses to boot on it — so both halves
-// (the wire AND the detection) are demonstrated on a live subject.
-//
-// Remove the `assertRegistrationWeldsAtStartup()` call from `initializeContext` and the first test
-// goes green-when-it-should-be-red; the seeded catalog is otherwise perfectly bootable.
+// The gate is real, and the tests seed the annotation table that it reads. Without the
+// `assertRegistrationWeldsAtStartup()` call in `initializeContext`, the first test fails.
+// The import from `registration-validate.js` is type-only, so it pins no module instance across
+// the `vi.resetModules()` cycles.
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -38,7 +19,6 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import type { EventRegistration } from '../../../src/events/event-registration.js';
-// Type-only, so it does not pin a module instance the `vi.resetModules()` cycles below re-import.
 import type {
   WeldDiagnosticCode,
   WeldDiagnosticSeverity,
@@ -48,9 +28,8 @@ const SEEDED_EVENT = 'seeded.boot-unresolvable-provider';
 const SEEDED_PROVIDER = 'exarchos_provider_that_does_not_exist';
 
 /**
- * Structurally valid in every respect the TYPE can see — active, welded to a provider, consumed by
- * a real reducer. The one thing wrong with it is reference integrity, which is exactly the class
- * DR-2 assigns to boot rather than to `tsc`.
+ * A registration that the types accept: active, with a provider and a real reducer as its consumer.
+ * Its only fault is a provider id that does not resolve, which the boot gate must find.
  */
 const SEEDED_REGISTRATION: EventRegistration = {
   lifecycle: 'active',
@@ -72,10 +51,14 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     await rmrfAsync(tmpDir);
   });
 
+  /**
+   * The mock seeds the catalog, and the gate is real. `registration-validate.ts` reads
+   * `EVENT_ANNOTATIONS` as a default parameter at call time, so the gate sees the seeded table.
+   * The error names the event and the provider id. The state directory stays empty, so the
+   * refusal comes before the event store exists.
+   */
   it('InitializeContext_SeededUnresolvableProviderWeld_RefusesToBoot', async () => {
     vi.resetModules();
-    // Seed the CATALOG, not the gate. `registration-validate.ts` reads `EVENT_ANNOTATIONS` as a
-    // call-time default parameter, so the injected entry is the table the production gate sees.
     vi.doMock('../../../src/events/event-annotations.js', async (importOriginal) => {
       const actual = await importOriginal<typeof import('../../../src/events/event-annotations.js')>();
       return {
@@ -91,20 +74,17 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     const { RegistrationWeldError } = await import('../../../src/events/registration-validate.js');
 
     await expect(initializeContext(tmpDir)).rejects.toBeInstanceOf(RegistrationWeldError);
-    // The failure names the offending registration and the id that did not resolve, so the boot
-    // log is actionable rather than "startup failed".
     await expect(initializeContext(tmpDir)).rejects.toThrow(SEEDED_EVENT);
     await expect(initializeContext(tmpDir)).rejects.toThrow(SEEDED_PROVIDER);
 
-    // It fails BEFORE the event store exists: nothing was written into the state dir, so the
-    // refusal is a startup gate and not a first-append surprise.
     await expect(fs.readdir(tmpDir)).resolves.toEqual([]);
   });
 
+  /**
+   * The positive control: the same call succeeds with the real catalog.
+   * Without it, a gate that always throws passes the test of the seeded catalog.
+   */
   it('InitializeContext_LiveCatalog_BootsClean', async () => {
-    // The positive control, and the reason the test above is evidence of anything: with the real
-    // catalog the very same call succeeds. Without this, a gate that threw unconditionally would
-    // pass the kill probe.
     vi.resetModules();
     vi.doUnmock('../../../src/events/event-annotations.js');
 
@@ -115,10 +95,12 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     ctx.eventStore.close();
   });
 
+  /**
+   * On the real boot path, the gate refuses because a diagnostic is `blocking`, not because the
+   * list is non-empty. `blockingCount` counts only the `blocking` diagnostics. The `observe`
+   * diagnostics are in the same verdict and do not cause the throw.
+   */
   it('StartupAssertion_BlockingSeverity_ThrowsOnAnyViolation', async () => {
-    // THE REFUSAL IS SEVERITY-DRIVEN, asserted on the real boot path rather than on a pure call.
-    // The gate no longer refuses because "the diagnostic list is non-empty" — it refuses because a
-    // diagnostic is stamped `blocking`, and the verdict riding the thrown error is where that shows.
     vi.resetModules();
     vi.doMock('../../../src/events/event-annotations.js', async (importOriginal) => {
       const actual = await importOriginal<typeof import('../../../src/events/event-annotations.js')>();
@@ -143,15 +125,9 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     expect(caught).toBeInstanceOf(RegistrationWeldError);
     if (!(caught instanceof RegistrationWeldError)) return;
 
-    // Not bootable, and every fault that made it so is blocking — the boot decision follows the
-    // stamp. A verdict that refused with zero blocking diagnostics would be the axis being ignored.
     expect(caught.verdict.bootable).toBe(false);
     expect(caught.verdict.blockingCount).toBeGreaterThan(0);
 
-    // The refusal is the BLOCKING half's alone. The live tree also carries observe-severity
-    // emission-coupling findings, and this is where that separation is worth asserting rather than
-    // assuming: `blockingCount` counts only stamped-blocking diagnostics, and the observations
-    // ride the same verdict without contributing to the decision that threw.
     const blocking = caught.verdict.diagnostics.filter((d) => d.severity === 'blocking');
     const observed = caught.verdict.diagnostics.filter((d) => d.severity === 'observe');
     expect(caught.verdict.blockingCount).toBe(blocking.length);
@@ -160,13 +136,16 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     expect(blocking.map((d) => d.eventType)).toContain(SEEDED_EVENT);
   });
 
+  /**
+   * `initializeContext` takes no severity table, so the test calls the gate directly with the
+   * populations of the boot path. Only the severity table changes: each code is `observe`.
+   * The seeded catalog that stops the boot is then reported, and the call returns.
+   * The table is a spread of the shipped table, so its type stays total over the diagnostic codes.
+   *
+   * The second call is the control. It uses the real catalog and one conforming emission edge for
+   * each capability registration. It reports nothing, so the seeded fault causes the first report.
+   */
   it('StartupAssertion_ObserveSeverity_ReportsWithoutThrowing', async () => {
-    // THE OTHER ARM, over the very catalog the boot path just refused. The severity table the
-    // production gate reads is all-blocking by construction in this change, so an observe-severity
-    // finding cannot be produced through `initializeContext` itself yet — arming a real one is a
-    // later, deliberate flip. What IS shown here is the property that flip depends on: hold the
-    // populations fixed at the ones the boot path uses, move ONLY the severity table, and the same
-    // input that refused startup above is reported and survived instead.
     vi.resetModules();
     vi.doUnmock('../../../src/events/event-annotations.js');
 
@@ -180,9 +159,6 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     } = await import('../../../src/events/registration-validate.js');
 
     const seeded = Object.freeze({ ...EVENT_ANNOTATIONS, [SEEDED_EVENT]: SEEDED_REGISTRATION });
-    // Spread the shipped table and overwrite in place, so the result stays TOTAL over the
-    // diagnostic axis by type — a fresh `Record<string, …>` is not the parameter type the gate
-    // takes, and would let a code the loop missed fall back to whatever the lookup produced.
     const observeEverything: Record<WeldDiagnosticCode, WeldDiagnosticSeverity> = {
       ...DIAGNOSTIC_SEVERITY_POLICY,
     };
@@ -202,7 +178,6 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
       (message) => reported.push(message),
     );
 
-    // Returned rather than thrown, and the finding is still the one the boot path refused on.
     expect(verdict.bootable).toBe(true);
     expect(verdict.blockingCount).toBe(0);
     expect(verdict.observeCount).toBeGreaterThan(0);
@@ -211,15 +186,6 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     expect(reported[0]).toContain(SEEDED_EVENT);
     expect(reported[0]).toContain(SEEDED_PROVIDER);
 
-    // ...and the boot path with the UNSEEDED catalog reports nothing at all under the same
-    // all-observe table, so the report above is caused by the fault and not by every call.
-    //
-    // The emission population is substituted for one that agrees with the annotation table
-    // everywhere, because the SHIPPED registry does not: the live tree carries real disagreements
-    // between an event's declared provider and the tool whose action declares the emission, and
-    // those are reported at observe severity on every boot. Holding that one population conforming
-    // is what leaves a genuinely quiet tree to assert silence over — the disagreements themselves
-    // are measured in `registration-validate.test.ts`, not swept up here.
     const conformingEmissions: { event: string; action: string; declaringTool: string }[] = [];
     for (const [event, registration] of Object.entries(EVENT_ANNOTATIONS)) {
       if (registration.tier !== 'capability') continue;
@@ -247,21 +213,15 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
     expect(clean.comparedEmissionEdgeCount).toBeGreaterThan(0);
   });
 
+  /**
+   * A stale-cover fault stops the real boot path. The seed is an active `capability` weld with a
+   * live provider, so its only fault is that no action declares the emission.
+   * `InitializeContext_LiveCatalog_BootsClean` is the control: a conforming tree boots.
+   * `blockingCount` is 1, so the stale-cover diagnostic alone causes the refusal. The code comes
+   * from its exported constant, so a renamed code fails here.
+   * The gate writes nothing to stderr, because a refusal throws and reports nothing.
+   */
   it('EmissionTeeth_BlockingMode_HaltsBootOnAViolation', async () => {
-    // THE TEETH, on the real boot path. Stale cover and the provider comparison shipped at
-    // `observe` for as long as the shipped tree reported findings against them — a check that
-    // refuses startup for a defect nobody has fixed makes the tree unbootable for every entry
-    // point at once. Both break sets are now closed and both diagnostics are `blocking`, and this
-    // is the assertion that says the flip has consequences.
-    //
-    // SEEDED, and it has to be: a conforming tree produces no violation, so the only way to show
-    // that a violation halts boot is to introduce one. `EmissionTeeth_ConformingTree_BootsClean`
-    // (`InitializeContext_LiveCatalog_BootsClean` above) is the other half — without it this test
-    // would pass equally well against a gate that refused every tree.
-    //
-    // The seed is a `capability` weld naming a LIVE provider, so reference integrity resolves and
-    // the pre-existing blocking codes have nothing to say; the ONLY thing wrong with it is that no
-    // action declares the emission. That isolates the refusal to the newly-flipped diagnostic.
     vi.resetModules();
     vi.doMock('../../../src/events/event-annotations.js', async (importOriginal) => {
       const actual = await importOriginal<typeof import('../../../src/events/event-annotations.js')>();
@@ -293,7 +253,6 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
       });
 
     try {
-      // BOOT IS REFUSED. Not "a diagnostic was printed somewhere" — the process does not start.
       let caught: unknown;
       try {
         const ctx = await initializeContext(tmpDir);
@@ -305,21 +264,13 @@ describe('DR-2 boot gate — initializeContext refuses to start on an unresolvab
       expect(caught).toBeInstanceOf(RegistrationWeldError);
       if (!(caught instanceof RegistrationWeldError)) return;
 
-      // ...and it is refused BY THE FLIPPED DIAGNOSTIC, stamped blocking, naming the seeded weld.
-      // The code comes from its own exported constant so a rename reddens here instead of leaving
-      // this quietly matching a stale label.
       expect(caught.verdict.bootable).toBe(false);
       const blocking = caught.verdict.diagnostics.filter((d) => d.severity === 'blocking');
       expect(blocking.map((d) => d.code)).toContain(STALE_CAPABILITY_COVER_CODE);
       expect(blocking.map((d) => d.eventType)).toContain('seeded.stale.cover');
 
-      // The seed is the ONLY fault: reference integrity still resolves, so this is attributable to
-      // the emission check and not to a tree that was broken some other way.
       expect(caught.verdict.blockingCount).toBe(1);
 
-      // Nothing was written to stderr, because nothing SURVIVED to be reported. An observe-only
-      // report and a refusal are different outcomes, and conflating them is how a blocking gate
-      // gets mistaken for a noisy one.
       expect(stderrSpy).not.toHaveBeenCalled();
       expect(written.join('')).toBe('');
     } finally {

@@ -10,8 +10,6 @@ import { InMemoryBackend, VersionConflictError } from '../../../src/storage/memo
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function makeEvent(overrides: Partial<WorkflowEvent> = {}): WorkflowEvent {
   return {
     streamId: 'test-stream',
@@ -70,16 +68,12 @@ function makeFailingSender(): EventSender {
   };
 }
 
-// ─── Parameterized Contract Tests ───────────────────────────────────────────
-
 interface BackendFactoryResult {
   backend: StorageBackend;
   cleanup: () => void;
   /**
-   * Advance the backend's clock by `ms` milliseconds. For InMemoryBackend
-   * this is a no-op (it has no retry-backoff bookkeeping). For
-   * SqliteBackend it shifts the injected clock so entries whose
-   * `nextRetryAt` is now in the past become eligible again.
+   * Moves the injected clock of SqliteBackend forward by `ms`, so a row past its
+   * `nextRetryAt` is due again. It does nothing for InMemoryBackend, which has no backoff.
    */
   advanceClock: (ms: number) => void;
 }
@@ -91,7 +85,7 @@ describe.each([
     return {
       backend,
       cleanup: () => { backend.close(); },
-      advanceClock: () => { /* no clock to advance */ },
+      advanceClock: () => {},
     };
   }],
   ['SqliteBackend', (): BackendFactoryResult => {
@@ -121,8 +115,6 @@ describe.each([
     advanceClock = result.advanceClock;
     return backend;
   }
-
-  // ─── Event Operations ───────────────────────────────────────────────────
 
   it('appendEvent_SingleEvent_IncreasesSequence', () => {
     const b = setup();
@@ -187,18 +179,12 @@ describe.each([
     expect(results[1].sequence).toBe(3);
   });
 
-  // ─── Wave 4 (#1437) — Correlation-tuple filter contract parity ───────────
-
+  /**
+   * Both backends must return the same events for the same correlation filters.
+   * SqliteBackend filters in SQL and InMemoryBackend filters in memory, so this
+   * test catches a drift between them in shape, order or content.
+   */
   it('BackendContract_QueryEventsCorrelationFilter_IdenticalAcrossBackends', () => {
-    // Parity gate for Tasks 10 + 11. The parameterized describe.each above
-    // runs this body once per backend; seeding the same events with the
-    // same correlation tags and running the same queryEvents calls must
-    // produce the same WorkflowEvent sequences on either backend.
-    //
-    // Drift between the two backends is the failure mode we're guarding
-    // against — if SqliteBackend's indexed-WHERE and InMemoryBackend's
-    // post-fetch filter ever diverge on shape, sequence ordering, or
-    // payload content, this test fails before any view-layer test does.
     const b = setup();
 
     const seedEvents = [
@@ -221,7 +207,6 @@ describe.each([
       }));
     }
 
-    // correlationId filter: three cor-X events at sequences 1, 2, 4.
     const byCorr = b.queryEvents('stream-a', { correlationId: 'cor-X' });
     expect(byCorr.map((e) => e.sequence)).toEqual([1, 2, 4]);
     expect(byCorr.map((e) => e.type)).toEqual([
@@ -231,41 +216,32 @@ describe.each([
     ]);
     expect(byCorr.every((e) => e.correlationId === 'cor-X')).toBe(true);
 
-    // operationId filter: same shape as correlationId in this fixture.
     const byOp = b.queryEvents('stream-a', { operationId: 'op-Y' });
     expect(byOp.map((e) => e.sequence)).toEqual([3, 5, 6]);
     expect(byOp.every((e) => e.operationId === 'op-Y')).toBe(true);
 
-    // causationId filter.
     const byCause = b.queryEvents('stream-a', { causationId: 'cause-X' });
     expect(byCause.map((e) => e.sequence)).toEqual([1, 2, 4]);
     expect(byCause.every((e) => e.causationId === 'cause-X')).toBe(true);
 
-    // Composition with existing sinceSequence filter — exercises the
-    // multi-clause WHERE / multi-filter chain path on both backends.
     const byCorrSince = b.queryEvents('stream-a', {
       correlationId: 'cor-X',
       sinceSequence: 1,
     });
     expect(byCorrSince.map((e) => e.sequence)).toEqual([2, 4]);
 
-    // Negative case: a filter that matches nothing returns an empty
-    // array on both backends (no surprise undefineds, no nulls).
     const byNone = b.queryEvents('stream-a', { correlationId: 'does-not-exist' });
     expect(byNone).toEqual([]);
   });
 
+  /**
+   * `queryEventsByType` must apply the same correlation filters as `queryEvents`,
+   * and both backends must implement it. The streams `parent/a` and `parent/b`
+   * are descendants of the prefix `parent`, so the query reads both.
+   */
   it('BackendContract_QueryEventsByType_HonorsCorrelationFilter', () => {
-    // Wave 4 follow-up: the cross-stream typed query surface must honor
-    // the same correlation filters as queryEvents — otherwise a caller
-    // who passes correlation filters down the type-scoped path gets
-    // silently un-filtered results, which would surface as a real bug
-    // the moment a telemetry view delegates to queryEventsByType for
-    // a cross-stream rollup.
     const b = setup();
 
-    // Spread two stream prefixes that both fall under the same parent
-    // prefix so queryEventsByType matches both via the descendant rule.
     b.appendEvent('parent/a', makeEvent({
       streamId: 'parent/a',
       sequence: 1,
@@ -291,13 +267,7 @@ describe.each([
       causationId: 'cause-X',
     }));
 
-    // Both production backends MUST implement `queryEventsByType` — the
-    // EventStore.queryByType runtime feature-detect exists only for legacy
-    // in-memory test mocks. The contract-parity suite is parameterised
-    // over the two production backends, so any missing implementation is
-    // a real regression.
     expect(typeof b.queryEventsByType).toBe('function');
-    // Narrow for TypeScript — the assertion above guarantees presence.
     if (typeof b.queryEventsByType !== 'function') {
       throw new Error('queryEventsByType missing on backend under test');
     }
@@ -334,8 +304,6 @@ describe.each([
     expect(b.getSequence('stream-a')).toBe(3);
   });
 
-  // ─── State Operations ──────────────────────────────────────────────────
-
   it('setState_NewState_CreatesEntry', () => {
     const b = setup();
     const state = makeState({ featureId: 'feat-1' });
@@ -347,14 +315,13 @@ describe.each([
     expect(retrieved!.featureId).toBe('feat-1');
   });
 
+  /** The first `setState` creates version 1, so an expected version of 1 matches. */
   it('setState_CASMatch_Updates', () => {
     const b = setup();
     const state1 = makeState({ featureId: 'feat-1', phase: 'ideate' });
     const state2 = makeState({ featureId: 'feat-1', phase: 'plan' });
 
-    // First set creates version 1
     b.setState('feat-1', state1);
-    // CAS update with expectedVersion=1 should succeed (version becomes 2)
     b.setState('feat-1', state2, 1);
 
     const retrieved = b.getState('feat-1');
@@ -367,10 +334,8 @@ describe.each([
     const state1 = makeState({ featureId: 'feat-1' });
     const state2 = makeState({ featureId: 'feat-1', phase: 'plan' });
 
-    // First set creates version 1
     b.setState('feat-1', state1);
 
-    // CAS with wrong expected version should throw
     expect(() => b.setState('feat-1', state2, 99)).toThrow(VersionConflictError);
   });
 
@@ -393,8 +358,6 @@ describe.each([
     const ids = states.map(s => s.featureId).sort();
     expect(ids).toEqual(['feat-1', 'feat-2', 'feat-3']);
   });
-
-  // ─── Outbox Operations ─────────────────────────────────────────────────
 
   it('addOutboxEntry_ReturnsEntryId', () => {
     const b = setup();
@@ -428,9 +391,13 @@ describe.each([
     expect(result.failed).toBe(0);
   });
 
+  /**
+   * The send of entry 2 fails, so the drain stops and entry 3 stays queued behind
+   * entry 2. SqliteBackend sets a `nextRetryAt` backoff on the failed row, so the
+   * test moves the clock forward 60 s before the second drain.
+   */
   it('drainOutbox_FailedMidBatch_StopsAndPreservesFifoOrder', async () => {
     const b = setup();
-    // Three pending entries; the second one will trip the sender.
     for (const seq of [1, 2, 3]) {
       b.addOutboxEntry('stream-a', makeEvent({ sequence: seq, streamId: 'stream-a' }));
     }
@@ -446,17 +413,9 @@ describe.each([
 
     const result = await b.drainOutbox('stream-a', failOnSecond);
 
-    // Only the first entry sent successfully; the second failed and the
-    // third must remain queued so FIFO order is preserved on the next
-    // drain — entry 3 must not be delivered before entry 2 is recovered.
     expect(result.sent).toBe(1);
     expect(result.failed).toBe(1);
 
-    // SqliteBackend now writes a `nextRetryAt` 2-32s in the future on
-    // failure (exponential backoff) and `selectPendingOutbox` filters it
-    // out until the clock catches up. Advance past the first-retry window
-    // so the next drain sees entry 2 as eligible again. InMemoryBackend
-    // has no backoff bookkeeping; `advanceClock` is a no-op there.
     advanceClock(60_000);
 
     const accepted: Array<{ sequence: number }> = [];
@@ -471,8 +430,6 @@ describe.each([
     expect(result2.sent).toBeGreaterThanOrEqual(1);
     if (accepted.length > 0) expect(accepted[0]?.sequence).toBe(2);
   });
-
-  // ─── Stream Operations ─────────────────────────────────────────────────
 
   it('listStreams_MultipleStreams_ReturnsAllStreamIds', () => {
     const b = setup();
@@ -499,8 +456,6 @@ describe.each([
     expect(events).toHaveLength(0);
   });
 
-  // ─── State Cleanup ─────────────────────────────────────────────────────
-
   it('deleteState_ExistingState_RemovesEntry', () => {
     const b = setup();
 
@@ -511,8 +466,6 @@ describe.each([
 
     expect(b.getState('feat-1')).toBeNull();
   });
-
-  // ─── Prune Operations ──────────────────────────────────────────────────
 
   it('pruneEvents_BeforeTimestamp_DeletesOlderEvents', () => {
     const b = setup();
@@ -529,8 +482,6 @@ describe.each([
     expect(remaining).toHaveLength(1);
     expect(remaining[0].sequence).toBe(3);
   });
-
-  // ─── View Cache Operations ─────────────────────────────────────────────
 
   it('setViewCache_NewEntry_StoresCorrectly', () => {
     const b = setup();
@@ -567,8 +518,6 @@ describe.each([
   });
 });
 
-// ─── Backend-Specific Divergence Tests ──────────────────────────────────────
-
 describe('SqliteBackend outbox retry behavior', () => {
   let backend: SqliteBackend;
   let dir: string;
@@ -579,15 +528,9 @@ describe('SqliteBackend outbox retry behavior', () => {
   });
 
   /**
-   * Both backends keep failed outbox entries pending and retry on later
-   * drains — the keep-on-failure invariant is verified for both via the
-   * `drainOutbox_FailedSend_*` parameterized contract tests above.
-   *
-   * The SqliteBackend additionally tracks attempt counts and schedules
-   * exponential backoff; after exceeding MAX_OUTBOX_RETRIES (5) the row
-   * moves to 'dead-letter'. InMemoryBackend skips this bookkeeping (its
-   * only consumer is unit tests) but holds the same delivery contract.
-   * This focused test pins the sqlite-specific retry-with-backoff path.
+   * SqliteBackend sets an exponential backoff on a failed outbox row: 2 s after
+   * the first failure and 4 s after the second. A drain inside the backoff window
+   * skips the row. InMemoryBackend has no backoff.
    */
   it('drainOutbox_FailedSend_SqliteBackendRetriesWithBackoff', async () => {
     dir = mkdtempSync(join(tmpdir(), 'contract-sqlite-retry-'));
@@ -600,61 +543,38 @@ describe('SqliteBackend outbox retry behavior', () => {
 
     const failingSender = makeFailingSender();
 
-    // First drain: send fails. The entry's `nextRetryAt` is now ~2s
-    // (2^1 * 1000) in the future relative to the injected clock.
     const result1 = await backend.drainOutbox('stream-a', failingSender);
     expect(result1.sent).toBe(0);
     expect(result1.failed).toBe(1);
 
-    // Without advancing time, the entry is still queued but ineligible —
-    // the backoff filter excludes it. This verifies the Sentry/Seer fix
-    // (selectPendingOutbox honours nextRetryAt).
     const resultDuringBackoff = await backend.drainOutbox('stream-a', failingSender);
     expect(resultDuringBackoff.sent).toBe(0);
     expect(resultDuringBackoff.failed).toBe(0);
 
-    // Advance past the first backoff window — now the entry is eligible
-    // and a fresh failure should re-schedule it (attempts=2, ~4s out).
     nowMs += 5_000;
     const result2 = await backend.drainOutbox('stream-a', failingSender);
     expect(result2.sent).toBe(0);
     expect(result2.failed).toBe(1);
 
-    // Advance past the second backoff window. A successful sender now
-    // picks up the entry.
     nowMs += 10_000;
     const successSender = makeSender();
     const result3 = await backend.drainOutbox('stream-a', successSender);
     expect(result3.sent).toBe(1);
     expect(result3.failed).toBe(0);
 
-    // After successful send, outbox should be drained.
     const result4 = await backend.drainOutbox('stream-a', successSender);
     expect(result4.sent).toBe(0);
     expect(result4.failed).toBe(0);
   });
 });
 
-// ─── DR-2 AC3 Substitutability Witness (T13) ────────────────────────────────
-//
-// DR-2 AC3 (durable-event-store-substrate plan): "Test-doubles use
-// `MemoryBackend` injected through the same context shape." Phase 2
-// introduces `DispatchContext.storage: StorageBackend`; this witness pins
-// the contract that both production (`SqliteBackend`) and test-double
-// (`InMemoryBackend`) implementations are substitutable through the
-// `StorageBackend` interface alone, with no implementation-specific
-// downcasts. The parametric `describe.each` block above already exercises
-// the full method surface against both backends; this targeted test
-// names the substitutability invariant explicitly so a future refactor
-// cannot silently drop one branch of the abstraction.
+/**
+ * `SqliteBackend` and `InMemoryBackend` must both work through the
+ * `StorageBackend` interface alone, with no cast to an implementation.
+ */
 describe('StorageBackend DR-2 AC3 substitutability witness (T13)', () => {
+  /** Runs one sequence of event, state, outbox and view-cache calls on each backend through the interface. */
   it('StorageBackend_AcceptsBothImpls_AsParametricFixture', async () => {
-    // Both implementations must be assignable to the `StorageBackend`
-    // type without any cast. The TypeScript compiler enforces this at
-    // build time; the runtime assertions below additionally verify that
-    // a small multi-method sequence — the surface Phase 2's
-    // DispatchContext.storage will exercise — works uniformly through
-    // the interface.
     const memBackend: StorageBackend = new InMemoryBackend();
     memBackend.initialize();
 
@@ -664,20 +584,16 @@ describe('StorageBackend DR-2 AC3 substitutability witness (T13)', () => {
 
     try {
       for (const b of [memBackend, sqliteBackend]) {
-        // Event append + sequence read.
         b.appendEvent('witness-stream', makeEvent({ sequence: 1, streamId: 'witness-stream' }));
         expect(b.getSequence('witness-stream')).toBe(1);
 
-        // State CAS round-trip.
         b.setState('witness-feat', makeState({ featureId: 'witness-feat' }));
         expect(b.getState('witness-feat')).not.toBeNull();
 
-        // Outbox add + drain (returns DrainResult shape).
         b.addOutboxEntry('witness-stream', makeEvent({ sequence: 1, streamId: 'witness-stream' }));
         const drain = await b.drainOutbox('witness-stream', makeSender());
         expect(drain).toMatchObject({ sent: expect.any(Number), failed: expect.any(Number) });
 
-        // View cache round-trip.
         b.setViewCache('witness-stream', 'witness-view', { ok: true }, 1);
         expect(b.getViewCache('witness-stream', 'witness-view')).not.toBeNull();
       }
@@ -688,12 +604,11 @@ describe('StorageBackend DR-2 AC3 substitutability witness (T13)', () => {
     }
   });
 
+  /**
+   * `runIntegrityPragma` is optional on the interface, and only SqliteBackend
+   * implements it. A caller must check that it is present.
+   */
   it('StorageBackend_RuntimeIntegrityPragma_IsOptionalAndDivergent', () => {
-    // The interface marks `runIntegrityPragma` as optional; only
-    // SqliteBackend implements it. Phase 2 callers must guard with a
-    // presence check rather than assuming uniform availability. This
-    // test pins the divergence so Phase 2 cannot silently start
-    // depending on it for InMemoryBackend.
     const memBackend: StorageBackend = new InMemoryBackend();
     const sqliteBackend: StorageBackend = new SqliteBackend(':memory:');
     try {
@@ -708,20 +623,17 @@ describe('StorageBackend DR-2 AC3 substitutability witness (T13)', () => {
   });
 });
 
-// ─── Projection Snapshot Accessors (Wave A, #1343) ──────────────────────────
-//
-// Compile-time + runtime contract test that the StorageBackend interface
-// declares snapshot accessors. The compile-time half lives in the value of
-// `interfaceSurface` below — the object literal must structurally match the
-// interface, so any drop or rename on the interface side breaks the test
-// at typecheck time. The runtime half asserts that both implementations
-// expose the methods as callable functions.
+/**
+ * `StorageBackend` must declare the projection-snapshot accessors, and both
+ * backends must implement them.
+ */
 describe('StorageBackend projection-snapshot accessor contract', () => {
+  /**
+   * `interfaceSurface` has the type of a `Pick` of the two snapshot members. A
+   * type check of this file fails if the interface drops or renames one of them.
+   * The runtime half makes sure that both backends expose the two methods.
+   */
   it('BackendContract_DeclaresProjectionSnapshotAccessors', () => {
-    // Compile-time check: this object literal must be assignable to a
-    // Pick of the interface's snapshot members. If the interface drops
-    // either method (or renames it), tsc will reject the assignment
-    // and the next typecheck run fails loudly.
     const interfaceSurface: Pick<
       StorageBackend,
       'readLatestProjectionSnapshot' | 'appendProjectionSnapshot'
@@ -739,11 +651,9 @@ describe('StorageBackend projection-snapshot accessor contract', () => {
           onPrune?: (prunedCount: number) => void;
         },
       ): void => {
-        /* contract probe */
       },
     };
 
-    // Runtime presence checks on both implementations.
     const memBackend: StorageBackend = new InMemoryBackend();
     const sqliteBackend: StorageBackend = new SqliteBackend(':memory:');
     try {
@@ -759,11 +669,15 @@ describe('StorageBackend projection-snapshot accessor contract', () => {
       sqliteBackend.close();
     }
 
-    // Reference the object so it can't be eliminated as dead code.
     expect(typeof interfaceSurface.readLatestProjectionSnapshot).toBe('function');
     expect(typeof interfaceSurface.appendProjectionSnapshot).toBe('function');
   });
 
+  /**
+   * The appends are out of sequence order (1, 5, 3), and the read must return the
+   * highest sequence. A different stream, projection id or version reads nothing.
+   * The last append passes `maxRecords: 2`, and the read must then return 9.
+   */
   it('MemoryBackend_ProjectionSnapshot_RoundTrip', () => {
     const b: StorageBackend = new InMemoryBackend();
     b.initialize();
@@ -772,13 +686,10 @@ describe('StorageBackend projection-snapshot accessor contract', () => {
     const projectionId = 'task-store';
     const projectionVersion = 'v1';
 
-    // Empty: returns undefined.
     expect(
       b.readLatestProjectionSnapshot(streamId, projectionId, projectionVersion),
     ).toBeUndefined();
 
-    // Insert three records for the same (streamId, projectionId, projectionVersion)
-    // with sequences 1, 5, 3. Order of inserts is intentionally not monotonic.
     const recordAt = (sequence: number): SnapshotRecord => ({
       projectionId,
       projectionVersion,
@@ -791,7 +702,6 @@ describe('StorageBackend projection-snapshot accessor contract', () => {
     b.appendProjectionSnapshot(streamId, recordAt(5));
     b.appendProjectionSnapshot(streamId, recordAt(3));
 
-    // readLatest returns the highest-sequence record.
     const latest = b.readLatestProjectionSnapshot(
       streamId,
       projectionId,
@@ -801,7 +711,6 @@ describe('StorageBackend projection-snapshot accessor contract', () => {
     expect(latest!.sequence).toBe(5);
     expect(latest!.state).toEqual({ count: 5 });
 
-    // A different (projectionId, projectionVersion) coordinate is isolated.
     expect(
       b.readLatestProjectionSnapshot(streamId, 'other-projection', projectionVersion),
     ).toBeUndefined();
@@ -812,8 +721,6 @@ describe('StorageBackend projection-snapshot accessor contract', () => {
       b.readLatestProjectionSnapshot('other-stream', projectionId, projectionVersion),
     ).toBeUndefined();
 
-    // Size cap: with maxRecords=2 after appending two more records the
-    // oldest two by sequence are evicted, leaving the two highest.
     b.appendProjectionSnapshot(streamId, recordAt(7));
     b.appendProjectionSnapshot(streamId, recordAt(9), { maxRecords: 2 });
 
@@ -830,16 +737,9 @@ describe('StorageBackend projection-snapshot accessor contract', () => {
 
 describe('InMemoryBackend outbox retry behavior', () => {
   /**
-   * After the v2.9 outbox-drain fix, InMemoryBackend keeps failed entries
-   * in the queue (slice + remove-on-success) so a subsequent drain with a
-   * working sender can pick them up. This matches SqliteBackend's
-   * keep-on-failure semantics — fewer surprises when production code is
-   * exercised against the test double.
-   *
-   * SqliteBackend additionally tracks attempt counts and schedules
-   * exponential backoff before dead-lettering. InMemoryBackend skips
-   * those bookkeeping fields (its only consumer is unit tests), but the
-   * core invariant — "failed sends do not vanish" — now holds for both.
+   * InMemoryBackend keeps a failed outbox entry in the queue, as SqliteBackend
+   * does, so a later drain with a good sender delivers it. It has no attempt
+   * count and no backoff.
    */
   it('drainOutbox_FailedSend_InMemoryBackendKeepsItemForRetry', async () => {
     const backend = new InMemoryBackend();
@@ -850,12 +750,10 @@ describe('InMemoryBackend outbox retry behavior', () => {
 
     const failingSender = makeFailingSender();
 
-    // First drain: send fails, item must remain in the queue.
     const result1 = await backend.drainOutbox('stream-a', failingSender);
     expect(result1.sent).toBe(0);
     expect(result1.failed).toBe(1);
 
-    // A working sender on the next drain picks up the still-pending entry.
     const successSender = makeSender();
     const result2 = await backend.drainOutbox('stream-a', successSender);
     expect(result2.sent).toBe(1);

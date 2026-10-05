@@ -8,33 +8,12 @@ import { handleEventAppend } from '../../../src/events/tools.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * T27 — SubagentStreamRouter retirement: regression-pin tests.
+ * Pins the observable behaviors of the cross-stream query reducer, which replaces the `SubagentStreamRouter` primitive.
+ * A subagent stream has the name `<feature-id>/<subagent-id>`.
  *
- * The v2.9 `SubagentStreamRouter` primitive (`agents/subagent-stream-router.ts`)
- * fixed the #1224 off-by-N regression by routing both `task.completed` and
- * `team.disbanded` writes through the parent stream's appender and computing
- * `tasksCompleted` from a JSONL scan of the parent stream. DR-3 supersedes
- * that primitive: subagent streams are now namespaced as
- * `<feature-id>/<subagent-id>` and `team.disbanded.tasksCompleted` is computed
- * by reducing over the events table via `EventStore.queryByType` with
- * `streamPrefix: <feature-id>` (T26).
- *
- * The router module is removed (no remaining production callers after T26).
- * This file replaces the original `agents/subagent-stream-router.test.ts` —
- * the same observable behaviours are pinned here against the new path:
- *
- *   1. `task.completed` events on subagent streams cause-precede `team.disbanded`
- *      on the parent stream by global timestamp ordering.
- *   2. `team.disbanded.tasksCompleted` reflects the events-table count for
- *      the team, not any in-memory tally; events for unrelated teams don't bleed.
- *   3. Replayed `task.completed` events with the same idempotency key produce
- *      a single persisted event (delegated to AtomicAppender's idempotency
- *      cache via the standard append path).
- *
- * Co-located here (under `event-store/`) because the new owner of these
- * observables is the cross-stream query reducer, not a standalone router
- * primitive. The original `agents/subagent-stream-router.test.ts` is
- * removed in the same commit.
+ * 1. Each `task.completed` on a subagent stream has a timestamp at or before the `team.disbanded` on the parent stream.
+ * 2. `team.disbanded.tasksCompleted` is the events-table count for the team. Events of other teams do not count.
+ * 3. A replayed `task.completed` with the same idempotency key gives one persisted event.
  */
 describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
   let stateDir: string;
@@ -50,9 +29,6 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
   });
 
   it('SubagentRouterRetired_TaskCompletedPrecedesDisbandedByTimestamp', async () => {
-    // Was: SubagentStreamRouter_onTaskCompleted_emittedBeforeDisbanded.
-    // Reformulation: subagent task.completed events appear earlier in the
-    // global timestamp ordering than the parent's team.disbanded.
     const featureId = 'feat-retire-1';
     const subagentA = `${featureId}/subagent-a`;
     const teamId = 'team-alpha';
@@ -90,20 +66,17 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
     expect(disbandedEvents).toHaveLength(1);
     const disbanded = disbandedEvents[0];
 
-    // Every task.completed timestamp precedes (or equals) the team.disbanded
-    // timestamp — same observable the old test asserted via per-stream
-    // sequence ordering, generalized to the cross-stream namespace.
     for (const tc of taskCompleted) {
       expect(tc.timestamp.localeCompare(disbanded.timestamp)).toBeLessThanOrEqual(0);
     }
   });
 
+  /**
+   * The reducer counts across the `<featureId>` stream and its subagent streams.
+   * The payload sends `tasksCompleted: 999`, a wrong value on purpose, and the reducer replaces it.
+   * The `team-other` event must not count.
+   */
   it('SubagentRouterRetired_DisbandedTasksCount_ReflectsEventsTableNotInMemoryTally', async () => {
-    // Was: SubagentStreamRouter_disbandedTasksCount_reflectsParentStreamNotInMemoryTally.
-    // The replacement reducer queries across `<featureId>/*` AND `<featureId>`
-    // itself — the old router only saw the parent stream because it routed
-    // every task.completed onto the parent. Either way, the persisted
-    // `team.disbanded.tasksCompleted` must reflect the events table.
     const featureId = 'feat-retire-2';
     const subagentA = `${featureId}/subagent-a`;
     const subagentB = `${featureId}/subagent-b`;
@@ -121,7 +94,6 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
       type: 'task.completed',
       data: { taskId: 'task-3', teamId },
     });
-    // Unrelated team — must NOT bleed into the count.
     await eventStore.append(subagentB, {
       type: 'task.completed',
       data: { taskId: 'task-x', teamId: 'team-other' },
@@ -134,7 +106,7 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
           type: 'team.disbanded',
           data: {
             teamId,
-            tasksCompleted: 999, // wrong on purpose; reducer overrides
+            tasksCompleted: 999,
             tasksFailed: 0,
             totalDurationMs: 5000,
           },
@@ -155,12 +127,11 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
     expect(data.tasksCompleted).toBe(3);
   });
 
+  /**
+   * A retried append with the same idempotency key leaves one event on the stream that the caller targets.
+   * No code routes the event to the parent stream.
+   */
   it('SubagentRouterRetired_ReplayedTaskCompleted_SingleParentEvent', async () => {
-    // Was: SubagentStreamRouter_replayedTaskCompleted_singleParentEvent.
-    // Idempotency now lives in AtomicAppender's commit-on-success cache;
-    // a retried append with the same idempotency key produces a single
-    // persisted event on the SAME stream the caller targets (no parent
-    // re-routing — that was the router's responsibility).
     const featureId = 'feat-retire-3';
     const subagent = `${featureId}/subagent-c`;
     const teamId = 'team-gamma';
@@ -187,17 +158,10 @@ describe('SubagentStreamRouter retirement — observable parity (T27)', () => {
     expect(events).toHaveLength(1);
   });
 
+  /** The dynamic import of the router module must throw. The specifier resolves relative to this test file. */
   it('SubagentRouterRetired_ModuleDeleted_NoProductionImports', async () => {
-    // Pin: importing the deleted router module fails at module load.
-    // This catches accidental re-introduction of the primitive — any new
-    // production caller would surface here as a build/import-time error,
-    // not a silent regression.
     let importErr: unknown = null;
     try {
-      // The module was removed in T27 GREEN. Importing it must throw
-      // (ERR_MODULE_NOT_FOUND); if a future commit reintroduces the file,
-      // this assertion will flip and the author can decide whether the
-      // re-introduction is intentional.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       await import('../runtime/agents/subagent-stream-router.js' as any);
     } catch (err) {

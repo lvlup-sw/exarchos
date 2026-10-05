@@ -48,10 +48,8 @@ describe('buildValidatedEvent', () => {
     expect(event.schemaVersion).toBe('1.0');
   });
 
-  // ─── T3: Type-specific data validation ──────────────────────────────────────
-
+  /** `team.spawned` is a model event with a data schema. */
   it('BuildValidatedEvent_ModelEventWithValidData_Succeeds', () => {
-    // team.spawned is a model event with a known data schema
     const event = buildValidatedEvent('stream-1', 1, {
       type: 'team.spawned',
       data: {
@@ -66,7 +64,6 @@ describe('buildValidatedEvent', () => {
   });
 
   it('BuildValidatedEvent_ModelEventWithInvalidData_Throws', () => {
-    // team.spawned with garbage data should throw a ZodError
     expect(() =>
       buildValidatedEvent('stream-1', 1, {
         type: 'team.spawned',
@@ -75,8 +72,8 @@ describe('buildValidatedEvent', () => {
     ).toThrow(ZodError);
   });
 
+  /** `workflow.transition` is auto-emitted and has a data schema. */
   it('BuildValidatedEvent_AutoEventWithValidData_Succeeds', () => {
-    // workflow.transition is auto-emitted but has a mapped schema — use valid data
     const event = buildValidatedEvent('stream-1', 1, {
       type: 'workflow.transition',
       data: {
@@ -89,8 +86,8 @@ describe('buildValidatedEvent', () => {
     expect(event.type).toBe('workflow.transition');
   });
 
+  /** An event with no `data` passes, whatever the schema of its type is. */
   it('BuildValidatedEvent_EventWithNoData_Succeeds', () => {
-    // event with data: undefined passes regardless of schema
     const event = buildValidatedEvent('stream-1', 1, {
       type: 'team.spawned',
     });
@@ -110,8 +107,8 @@ describe('buildEvent', () => {
     expect(event.type).toBe('workflow.started');
   });
 
+  /** `buildEvent` does no validation, so an empty stream id and a zero sequence do not throw. */
   it('buildEvent_InvalidInput_DoesNotThrow', () => {
-    // buildEvent skips validation — invalid streamId/sequence won't throw
     expect(() => buildEvent('', 0, { type: 'workflow.started' })).not.toThrow();
   });
 

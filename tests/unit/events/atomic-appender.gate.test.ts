@@ -7,20 +7,12 @@ import { AtomicAppender } from '../../../src/events/atomic-appender.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Stream-version gate behavior (DR-1 / DR-6).
+ * The stream-version gate allocates the sequence and checks `expectedSequence` inside the
+ * `BEGIN IMMEDIATE` transaction (`SqliteBackend.allocateSequence`). Plain appends from separate
+ * connections to one stream serialize and never return `sequence-conflict`.
  *
- * The gate moves sequence allocation + the OCC check INSIDE the substrate's
- * BEGIN IMMEDIATE transaction (SqliteBackend.allocateSequence). These tests
- * exercise the property that motivated the change: cross-connection (i.e.
- * cross-process-equivalent) plain appends to one stream serialize
- * transparently — they never surface a `sequence-conflict` — while genuine
- * OCC mismatches still surface a clean `expected`/`actual`.
- *
- * Each distinct `AtomicAppender` instance owns its own `StreamLockManager`
- * AND its own `SqliteBackend` connection to the shared db file, so
- * concurrency between two instances bypasses the in-process Tier-1 mutex and
- * goes purely through the Tier-2 SQLite write lock + gate — exactly the path
- * a second OS process would take.
+ * Each `AtomicAppender` owns a `StreamLockManager` and a `SqliteBackend` connection. Thus two
+ * instances bypass the in-process mutex and contend on the SQLite write lock, as two processes do.
  */
 describe('AtomicAppender stream-version gate', () => {
   let stateDir: string;
@@ -31,20 +23,18 @@ describe('AtomicAppender stream-version gate', () => {
     trackedAppenders = [];
   });
 
+  /**
+   * Closes each SQLite handle, then removes the state directory. An open connection leaks a file
+   * descriptor and can block the removal on some platforms. Each test makes its appenders with
+   * `makeAppender`, which tracks them for this hook.
+   */
   afterEach(async () => {
-    // Release every SQLite handle opened during the test BEFORE removing the
-    // state dir — otherwise open connections leak file descriptors across the
-    // suite and can wedge the dir removal on some platforms. getSqliteBackend()
-    // is undefined for an appender that never opened a backend, so the optional
-    // chain is a no-op there.
     for (const appender of trackedAppenders) {
       appender.getSqliteBackend()?.close();
     }
     await rmrfAsync(stateDir);
   });
 
-  // Construct an appender that is auto-closed in afterEach. Every test builds
-  // its appenders through this helper so no handle escapes cleanup.
   const makeAppender = (
     options: { synchronous?: 'normal' | 'full' } = {},
   ): AtomicAppender => {
@@ -53,13 +43,13 @@ describe('AtomicAppender stream-version gate', () => {
     return appender;
   };
 
+  /**
+   * Eight appenders, each with its own connection, append to one stream with no key and no
+   * `expectedSequence`. A sequence read outside the transaction lets the losers collide on the
+   * `events` primary key. With the gate, a loser waits on `busy_timeout` and reads the tail under
+   * the write lock, so each append commits.
+   */
   it('HotStream_NConnectionConcurrentPlainAppend_ContiguousZeroConflict', async () => {
-    // N independent appenders (= N connections to one db file) all append to
-    // ONE stream with no idempotencyKey and no expectedSequence. Under the
-    // pre-gate design each read the high-water mark outside the txn and the
-    // losers collided on the events PRIMARY KEY → sequence-conflict. Under
-    // the gate the loser serializes behind busy_timeout and reads the fresh
-    // tail under the write lock, so every append commits.
     const N = 8;
     const streamId = 'hot-stream';
     const appenders = Array.from({ length: N }, () => makeAppender());
@@ -70,33 +60,29 @@ describe('AtomicAppender stream-version gate', () => {
       ),
     );
 
-    // Every append committed — NOT one sequence-conflict among them.
     for (const r of results) {
       expect(r.ok).toBe(true);
       if (r.ok) expect(r.kind).toBe('committed');
     }
 
-    // The N assigned sequences are exactly 1..N, contiguous and unique.
     const seqs = results.flatMap(r => (r.ok ? r.sequences : [])).sort((a, b) => a - b);
     expect(seqs).toEqual(Array.from({ length: N }, (_, i) => i + 1));
     expect(new Set(seqs).size).toBe(N);
 
-    // And the durable log holds exactly N events for the stream.
     const events = appenders[0].ensureSqliteBackendSync().queryEvents(streamId);
     expect(events).toHaveLength(N);
   });
 
+  /** A stale `expectedSequence` returns the conflict, and the correct value then commits. */
   it('Occ_StaleExpectedSequence_ReturnsConflictWithExpectedActual', async () => {
     const appender = makeAppender();
     const streamId = 'occ-stream';
 
-    // Advance the tail to 1.
     const first = await appender.append(streamId, [{ type: 'evt' }], 'k-first', {
       expectedSequence: 0,
     });
     expect(first.ok).toBe(true);
 
-    // Append against the STALE expected version 0 (actual is now 1).
     const conflict = await appender.append(streamId, [{ type: 'evt' }], 'k-stale', {
       expectedSequence: 0,
     });
@@ -107,7 +93,6 @@ describe('AtomicAppender stream-version gate', () => {
       expect(conflict.actual).toBe(1);
     }
 
-    // Appending against the CORRECT expected version 1 succeeds.
     const ok = await appender.append(streamId, [{ type: 'evt' }], 'k-fresh', {
       expectedSequence: 1,
     });
@@ -115,6 +100,10 @@ describe('AtomicAppender stream-version gate', () => {
     if (ok.ok) expect(ok.sequences).toEqual([2]);
   });
 
+  /**
+   * The claim lookup before the transaction returns the stored shape as a cache-hit. The gate
+   * does not run again, so the sequence does not advance and one event persists.
+   */
   it('KeyedRetry_SameIdempotencyKey_ReturnsCacheHit', async () => {
     const appender = makeAppender();
     const streamId = 'idem-stream';
@@ -123,9 +112,6 @@ describe('AtomicAppender stream-version gate', () => {
     expect(first.ok).toBe(true);
     const firstSeqs = first.ok ? first.sequences : [];
 
-    // Same key again — the pre-transaction claim short-circuit returns the
-    // ORIGINAL persisted shape as a cache-hit; the gate is never re-run, so
-    // the sequence is not advanced.
     const retry = await appender.append(streamId, [{ type: 'evt', data: { v: 999 } }], 'dup-key');
     expect(retry.ok).toBe(true);
     if (retry.ok) {
@@ -133,18 +119,16 @@ describe('AtomicAppender stream-version gate', () => {
       expect(retry.sequences).toEqual(firstSeqs);
     }
 
-    // Exactly one event persisted despite two append calls.
     const events = appender.ensureSqliteBackendSync().queryEvents(streamId);
     expect(events).toHaveLength(1);
   });
 
+  /**
+   * The gate always gives a free slot, so an `events` primary-key violation is an integrity
+   * anomaly. The translator must return `io-error` with the cause, and not `sequence-conflict`
+   * or a cache-hit.
+   */
   it('TranslateAtomicAppendError_PkViolation_SurfacesIoErrorAnomaly', async () => {
-    // DR-6: post-gate, an `events` PRIMARY KEY violation is a genuine integrity
-    // ANOMALY (the gate guarantees a free slot), so the backstop translator
-    // must surface it as `io-error` with the cause preserved — NOT re-map it to
-    // a `sequence-conflict` (which the gate now owns) or a cache-hit. This is
-    // the kill-probe for a regression that re-introduces the old conflict
-    // re-map on an events-PK collision.
     const appender = makeAppender();
     const backend = appender.ensureSqliteBackendSync();
     const pkError = new Error(
@@ -173,13 +157,12 @@ describe('AtomicAppender stream-version gate', () => {
     expect(result.cause).toBe(pkError);
   });
 
+  /**
+   * The lazy read path must apply the configured `synchronous` value. The write reuses the
+   * cached handle, so a read-first open without the value pins the handle to NORMAL. The test
+   * forces the read-first path and expects FULL (2).
+   */
   it('EnsureSqliteBackendSync_FullDurability_PropagatesToLazyReadBackend', () => {
-    // DR-4 regression (PR #1610 review, Sentry r3450561408 + CodeRabbit): the
-    // read-before-write lazy-init path must honour the configured `synchronous`
-    // posture. Previously ensureSqliteBackendSync() constructed the backend
-    // without it, pinning the cached singleton — and therefore the subsequent
-    // write that reuses the same handle — to NORMAL even when FULL was
-    // configured. Force the read-first path and assert the pragma is FULL (2).
     const appender = makeAppender({ synchronous: 'full' });
     const backend = appender.ensureSqliteBackendSync();
     const db = (

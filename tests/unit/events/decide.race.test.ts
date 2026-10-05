@@ -18,15 +18,11 @@ import {
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Wave 3 Task 3.5 — `decide` translates the substrate's `sequence-conflict`
- * AppendResult into a typed {@link ConcurrencyError} when the stream tail
- * advances between the read+fold phase and the commit phase.
+ * `decide` turns the `sequence-conflict` result of the appender into a {@link ConcurrencyError}
+ * when the stream tail advances between the fold and the commit.
  *
- * Pattern (mirrors `atomic-appender.race.test.ts`'s callback-driven
- * harness): two concurrent `decide` invocations target the same stream
- * via separate appenders sharing one SqliteBackend. Both read the tail,
- * fold, and then race for the commit. One commits at `tail+1`; the other
- * sees the now-advanced tail and throws `ConcurrencyError`.
+ * A `decide` call folds the stream and then waits in its closure. A second appender on the same
+ * `SqliteBackend` advances the tail. The `decide` call then commits against a stale tail and throws.
  */
 describe('decide<TState> — race / OCC (Task 3.5)', () => {
   let stateDir: string;
@@ -52,24 +48,22 @@ describe('decide<TState> — race / OCC (Task 3.5)', () => {
     await rmrfAsync(stateDir);
   });
 
+  /**
+   * The per-stream mutex belongs to one appender. So a second appender on the same backend can
+   * write while the `decide` closure waits on a gate. The closure runs after the fold and the
+   * tail read. The side write moves the tail from 2 to 3, and the commit still expects 2.
+   * The case runs the race again with an `operationId`, to read the fields of the error.
+   * A lost race has an `expectedVersion` less than the `actualVersion`.
+   */
   it('Decide_ThrowsConcurrencyError_WhenStreamTailAdvancedDuringDecide', async () => {
-    // Seed the stream so tail starts at 2.
     await seedStream(eventStore, streamId, 2);
 
-    // Build a SECOND appender sharing the same SqliteBackend so the
-    // per-stream Promise mutex is per-appender (not cross-process here,
-    // but per-appender), giving the deterministic race surface needed
-    // for the test. The shared backend means substrate-level OCC fires.
     const backend = appender.ensureSqliteBackendSync();
     const sideAppender = new AtomicAppender({
       stateDir,
       sqliteBackend: backend,
     });
 
-    // Gate that lets us deterministically interleave the two decides.
-    // decideA's closure waits on this; while it waits, we run a
-    // sideAppender.appendUnkeyed to bump the tail. Then we release the
-    // gate; decideA commits with a stale expectedSequence.
     let release!: () => void;
     const gate = new Promise<void>(resolve => {
       release = resolve;
@@ -79,38 +73,24 @@ describe('decide<TState> — race / OCC (Task 3.5)', () => {
       streamId,
       'fixture@v1',
       async () => {
-        // Pause inside the closure so the external write can land
-        // before decide's commit phase. The fold + tail capture already
-        // happened (the closure was called with state + ctx).
         await gate;
         return [{ type: 'task.completed', data: { taskId: 'A-decision' } }];
       },
       { registry },
     );
 
-    // Give decideA a microtask to enter its closure (start awaiting gate).
     await Promise.resolve();
 
-    // External advance: another writer commits to the stream.
     const sideResult = await sideAppender.appendUnkeyed(streamId, [
       { type: 'task.assigned', data: { taskId: 'T-external' } },
     ]);
     expect(sideResult.ok).toBe(true);
 
-    // Release decideA: now its commit fires with expectedSequence=2 but
-    // the tail is at 3 — sequence-conflict translates to ConcurrencyError.
     release();
 
     await expect(decideAPromise).rejects.toBeInstanceOf(ConcurrencyError);
 
-    // Re-run to inspect the error fields (rejects.toBeInstanceOf consumes
-    // the promise but the underlying decide call already settled — re-issue
-    // a fresh one against the now-advanced tail to confirm the canonical
-    // path still works.)
     try {
-      // Construct a NEW decide call that triggers a similar race so we
-      // can inspect the error fields. We seed via another sideAppender
-      // write to keep the structure parallel.
       let r2!: () => void;
       const g2 = new Promise<void>(resolve => {
         r2 = resolve;
@@ -137,7 +117,6 @@ describe('decide<TState> — race / OCC (Task 3.5)', () => {
       expect(ce.streamId).toBe(streamId);
       expect(ce.reducerId).toBe('fixture@v1');
       expect(ce.operationId).toBe('inspect-op');
-      // expectedVersion < actualVersion is the canonical signal.
       expect(ce.expectedVersion).toBeLessThan(ce.actualVersion);
     }
   });
