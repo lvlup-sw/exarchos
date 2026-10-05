@@ -1,23 +1,18 @@
-// ─── Extract Fix Tasks Handler ───────────────────────────────────────────────
-//
-// TypeScript port of scripts/extract-fix-tasks.sh.
-// Parses review findings from a workflow state file (or external review report)
-// into a structured array of fix tasks with zero-padded IDs.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Parses review findings from a workflow state, or from a review report, into
+ * fix tasks with zero-padded ids.
+ */
 
 import { existsSync, readFileSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
 interface ExtractFixTasksArgs {
   /**
-   * Explicit state-file path. OPTIONAL — when omitted (MCP-only workflows),
-   * findings (state.reviews[*].findings) and worktree info (state.tasks)
-   * resolve from the event-store projection via `featureId` + `eventStore`.
-   * INV-1: the event store is the sole source of truth.
+   * An optional state file path. With `featureId` and `eventStore`, the state
+   * comes from the event-store projection, and the handler only checks that an
+   * existing file parses. Without them, the handler reads the state from this file.
    */
   readonly stateFile?: string;
   readonly featureId?: string;
@@ -46,8 +41,6 @@ interface WorktreeInfo {
   readonly worktree: string;
   readonly branch: string;
 }
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function padId(n: number): string {
   return String(n).padStart(3, '0');
@@ -96,12 +89,16 @@ function extractFindings(obj: unknown): Finding[] {
   return findings;
 }
 
-// ─── Handler ─────────────────────────────────────────────────────────────────
-
+/**
+ * Builds one fix task for each review finding.
+ *
+ * Findings come from `reviewReport` when it is set, and from `state.reviews`
+ * when it is not. The handler parses an explicit `stateFile` itself, so the
+ * resolver cannot hide a FILE_NOT_FOUND or PARSE_ERROR. With an event-store
+ * fallback, a missing `stateFile` is not an error. When the tasks name more
+ * than one worktree and findings exist, the handler returns AMBIGUOUS_WORKTREE.
+ */
 export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<ToolResult> {
-  // 1. Resolve state via the canonical resolver (file → event-store fallback).
-  // INV-1: the event store is the sole source of truth; the `.state.json`
-  // file is a derived stamp that may be absent for MCP-only workflows.
   if (!args.stateFile && !(args.featureId && args.eventStore)) {
     return {
       success: false,
@@ -112,15 +109,6 @@ export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<
     };
   }
 
-  // Surface explicit-stateFile errors instead of letting resolveWorkflowState
-  // silently swallow them:
-  //   • File-based path (no event fallback): preserve the full FILE_NOT_FOUND /
-  //     PARSE_ERROR taxonomy the inline parseJsonFile reader produced.
-  //   • Both provided: an explicit stateFile that EXISTS but is unparseable is a
-  //     configuration error → surface PARSE_ERROR rather than silently falling
-  //     back to the event store (resolveWorkflowState catches the JSON error and
-  //     would otherwise mask it). A *missing* stateFile is NOT an error here — it
-  //     is an optional freshness hint and the event store resolves it (INV-1).
   const hasEventFallback = Boolean(args.featureId && args.eventStore);
   if (args.stateFile && (!hasEventFallback || existsSync(args.stateFile))) {
     const fileResult = parseJsonFile(args.stateFile, 'State file');
@@ -142,7 +130,6 @@ export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<
     };
   }
 
-  // 2. Extract findings
   let findings: Finding[];
 
   if (args.reviewReport) {
@@ -159,7 +146,6 @@ export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<
 
     findings = extractFindings(Array.isArray(report['findings']) ? report['findings'] : []);
   } else {
-    // Extract from state.reviews
     findings = [];
     const reviews = state['reviews'];
     if (isRecord(reviews)) {
@@ -171,7 +157,6 @@ export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<
     }
   }
 
-  // 3. Get worktree info from tasks
   const worktrees: WorktreeInfo[] = [];
   const seenWorktrees = new Set<string>();
   if (Array.isArray(state['tasks'])) {
@@ -189,7 +174,6 @@ export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<
     }
   }
 
-  // 4. Fail if multiple worktrees and findings exist
   if (worktrees.length > 1 && findings.length > 0) {
     return {
       success: false,
@@ -200,7 +184,6 @@ export async function handleExtractFixTasks(args: ExtractFixTasksArgs): Promise<
     };
   }
 
-  // 5. Transform findings to fix tasks
   const worktreeValue = worktrees.length === 1 ? (worktrees[0]?.worktree ?? null) : null;
   const tasks: FixTask[] = findings.map((finding, index) => ({
     id: `fix-${padId(index + 1)}`,

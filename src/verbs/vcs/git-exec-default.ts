@@ -3,12 +3,9 @@ import type { GitExecResult } from '../pure/merge-preflight.js';
 import { withIndexLockRetrySync } from '../worktree/git-retry.js';
 
 /**
- * Single, un-retried `git` shell-out — the raw executor body. Synchronous
- * shell-out from `repoRoot` with a 120s ceiling. NEVER throws on a non-zero
- * exit — failures surface via `exitCode`. git's stderr is captured *separately*
- * (so #1362 phase-1 diagnostics can distinguish git's error output from any
- * partial stdout) AND folded into `stdout` with a newline for backwards-compat
- * with callers that read `stdout` as the failure-message channel.
+ * Runs `git` once in `repoRoot` with a 120-second timeout and no retry. It does not throw on a
+ * non-zero exit. It returns git stderr separately and also appends it to `stdout`, because some
+ * callers read `stdout` as the failure message.
  */
 function runGitOnce(repoRoot: string, args: readonly string[]): GitExecResult {
   try {
@@ -37,22 +34,10 @@ function runGitOnce(repoRoot: string, args: readonly string[]): GitExecResult {
 }
 
 /**
- * Canonical default git executor for the merge orchestrator (#1311 dedupe).
- *
- * The DEFAULT production composition (not merely a DI seam): {@link runGitOnce}
- * wrapped in {@link withIndexLockRetrySync} so a transient `.git/index.lock`
- * contention under burst dispatch (DR-8 / DR-1) is retried with bounded backoff
- * (~200/400/800ms) instead of surfacing as a hard failure. The retry is
- * SYNCHRONOUS (a bounded blocking sleep, worst case ~1.5s) because `GitExec` is
- * synchronous — a naive async wrap would be both type-infeasible and inert
- * (`runGitOnce` never throws). Non-lock failures and successes short-circuit on
- * the first attempt, so read-only/non-contended calls incur zero extra latency.
- *
- * Extracted from the two byte-equivalent 120s copies previously inlined in
- * `merge-orchestrate.ts` and `execute-merge.ts`. NOTE: the per-task gate
- * handlers use a deliberately *separate* `defaultGitExec` in `gate-utils.ts`
- * with a 30s ceiling tuned for quick gate git ops — the two are different
- * workloads and must NOT be collapsed.
+ * Default git executor for the merge orchestrator. It wraps {@link runGitOnce} in
+ * {@link withIndexLockRetrySync}, so `.git/index.lock` contention gets a bounded backoff retry.
+ * The retry is synchronous because `GitExec` is synchronous. The gate handlers use a separate
+ * `defaultGitExec` in `gate-utils.ts` with a 30-second timeout. Keep the two separate.
  */
 export function defaultGitExec(repoRoot: string, args: readonly string[]): GitExecResult {
   return withIndexLockRetrySync(() => runGitOnce(repoRoot, args));

@@ -1,38 +1,16 @@
-// ─── handleMergeOrchestrate — top-level orchestrator handler (T11) ─────────
-//
-// DR-MO-1 (preflight) + DR-MO-2 (executor) — composes the merge preflight
-// composer (T06/T07) with the executor handler (T15) under one coherent
-// entry point.
-//
-// SCOPE — T11 covers the happy path; T12 adds the abort branch; T13 adds
-// the dry-run short-circuit:
-//   • run preflight via the injectable composer
-//   • emit `merge.preflight` to the stream (direct append, NOT wrapped in
-//     `gate.executed` — the dedicated schema (T03) is top-level so HSM
-//     guards / observability can match on it directly)
-//   • on preflight pass, delegate to `handleExecuteMerge` and surface its
-//     `phase: 'completed'` result with the preflight payload attached.
-//   • on preflight fail (T12), persist
-//     `mergeOrchestrator: { phase: 'aborted', preflight, abortReason:
-//     'preflight-failed' }` to workflow state and return a structured
-//     `PREFLIGHT_FAILED` ToolResult WITHOUT invoking the executor.
-//   • on `dryRun: true` (T13), short-circuit AFTER preflight emission but
-//     BEFORE persistence/executor. Returns
-//     `{ success: preflight.passed, data: { dryRun: true, preflight, phase } }`
-//     where `phase` is `'pending'` on pass and `'aborted'` on fail. Dry-run
-//     is observation-only: NEVER persists state (would leave a transient
-//     phase that never resolves) and NEVER invokes the executor.
-//
-// Out of scope (handled in subsequent tasks):
-//   • T14 — `args.resume` + concurrency retry.
-//   • T20 — composite registration.
-//
-// The composer + executor are exposed as injectable adapters so tests can
-// bypass the real `mergePreflight` (which shells out to git) and the real
-// `handleExecuteMerge` (which talks to the VCS provider). In production,
-// the composite dispatcher (T20) constructs the defaults from
-// `ctx.projectConfig` + `ctx.stateDir`.
-// ───────────────────────────────────────────────────────────────────────────
+/**
+ * `merge_orchestrate` handler. It composes the merge preflight with `handleExecuteMerge`:
+ *   1. A foreign live lease on the target branch in `worktrees@v1` fails with `MERGE_LEASE_HELD`.
+ *   2. A sibling worktree that has the target branch checked out aborts with `PREFLIGHT_FAILED`.
+ *      The executor merge fails there, and its rollback SHA comes from the wrong HEAD.
+ *   3. With `resume`, a terminal `mergeOrchestrator` phase returns the recorded result.
+ *   4. It runs the preflight and appends `merge.preflight`. A dry run stops here.
+ *   5. A failed preflight writes the aborted phase to the state file and returns.
+ *   6. It appends `merge.requested` through `decide`, then runs the executor outside that retry.
+ *      The executor appends `merge.executed` and `merge.completed`.
+ * Steps 1 and 2 run before any event append. The two side-effect imports register the
+ * `worktrees@v1` and `merge-orchestrator@v1` reducers, so `AtomicAppender` resolves them by id.
+ */
 
 import { defaultGitExec } from '../vcs/git-exec-default.js';
 import * as fs from 'node:fs';
@@ -71,13 +49,7 @@ import {
   StorageBusyError,
 } from '../../events/index.js';
 import type { MergeOrchestratorState } from '../../projections/merge-orchestrator/index.js';
-// DR-2 lease guard: fold the singleton `worktrees` stream to look up the
-// in-flight merge lease on the target integration ref. `WORKTREES_STREAM` /
-// `WORKTREES_REDUCER` are the SAME stream + reducer id `serialize_merge` writes
-// its lease through — importing them keeps the guard on the identical fold.
 import { WORKTREES_STREAM, WORKTREES_REDUCER } from '../worktree/manager.js';
-// Side-effect import — ensures the `worktrees@v1` reducer is registered with
-// `defaultRegistry` so `aggregateStream` can resolve it by id (DR-1).
 import '../worktree/projections/index.js';
 import type {
   WorktreesProjection,
@@ -89,72 +61,41 @@ import {
   type ProcessTableSource,
 } from '../worktree/pure/probe.js';
 import type { OwnerLiveness } from '../worktree/pure/process-identity.js';
-// Side-effect import — registers `merge-orchestrator@v1` with `defaultRegistry`
-// so the Wave 3 primitive (`AtomicAppender.decide`) can resolve the reducer
-// by id when Phase A commits `merge.requested` (audit §F1.2 two-event split).
-// Most production wiring already pulls in this barrel transitively via the
-// rebuild/rehydrate paths, but importing it here makes the dependency
-// explicit at the call site (mirrors the pattern in the migration test).
 import '../../projections/merge-orchestrator/index.js';
 
-// ─── Args schema ───────────────────────────────────────────────────────────
-//
-// Note: this handler validates inputs via Zod (`safeParse` below) rather than
-// the manual guard-clause pattern most other orchestrate handlers use. The
-// deviation is deliberate — the merge orchestrator surface is rich (six
-// fields, three of them booleans/enums with exact-value semantics, plus
-// optional repoRoot) and is reachable through DI overrides that bypass the
-// MCP registration boundary's Zod validation. Centralizing validation here
-// keeps the contract enforceable at every entry point, including in-process
-// test callers that wouldn't otherwise hit MCP. The schema is also
-// reused by `cli.ts` as the source of truth for `exarchos
-// merge-orchestrate` flag coercion (#1109 §2 user-visible parity), so a
-// manual guard-clause sweep here would have to be duplicated in three
-// places.
-
+/**
+ * Arguments of `merge_orchestrate`. The handler validates them with this schema, because DI callers
+ * bypass the Zod validation at the MCP registration boundary.
+ */
 export const HandleMergeOrchestrateArgsSchema = z.object({
   featureId: z.string().min(1),
   sourceBranch: z.string().min(1),
   targetBranch: z.string().min(1),
   taskId: z.string().optional(),
-  // Required, no default — aligns with `merge_pr.strategy` (registry.ts)
-  // per #1127, makes operator intent explicit in the event log (DIM-2),
-  // and gives CLI/MCP user-visible parity (#1109 §2). Defaults at the
-  // schema layer were dead code: every existing call site already passes
-  // strategy explicitly.
+  /** Required with no default, as for `merge_pr.strategy`, so the event log records the intent. */
   strategy: z.enum(['squash', 'rebase', 'merge']),
-  /** Reserved for T13. Not honored in T11. */
+  /**
+   * When true, the handler stops after it appends `merge.preflight`. It writes no state and runs no
+   * executor.
+   */
   dryRun: z.boolean().optional(),
   /**
-   * When true, the handler consults existing `mergeOrchestrator` state
-   * (via the `readState` adapter / default state-store reader) before
-   * dispatching. If the existing phase is terminal
-   * (see {@link EXCLUDED_MERGE_PHASES}), the handler short-circuits and
-   * returns the existing result with no new events / no executor call.
-   * Otherwise (e.g. `pending`), it falls through to preflight + executor
-   * as if it were a fresh dispatch.
+   * When true, the handler reads the `mergeOrchestrator` state before the preflight. A terminal
+   * phase from {@link EXCLUDED_MERGE_PHASES} returns the recorded result with no new events. Any
+   * other phase runs as a fresh dispatch.
    */
   resume: z.boolean().optional(),
   /** Optional override for the repository root used by the preflight gitExec. */
   repoRoot: z.string().optional(),
   /**
-   * DR-2 single-writer lease guard: the caller-presented merge-lease
-   * correlator. The preflight guard folds `worktrees@v1` and looks up the
-   * in-flight lease on the target integration ref. A holder whose
-   * `operationId` MATCHES this value is the caller's own lease and proceeds
-   * — that is how `serialize_merge` threads its lease `operationId` through
-   * its composed call, and how a crash-resumed caller (a NEW pid presenting
-   * the ORIGINAL claim's `operationId`) passes. A FOREIGN holder (different
-   * `operationId`) that is not provably dead fails the merge closed. Absent
-   * (undefined) ⇒ any live foreign lease blocks — the no-lease and
-   * dead-holder paths behave exactly as today (back-compat).
+   * The merge-lease `operationId` of the caller. When the lease holder has this id, the merge
+   * proceeds. This lets `serialize_merge` and a crash-resumed caller with the original id through.
+   * A foreign holder that is not provably dead fails the merge. When absent, any live lease blocks.
    */
   leaseOperationId: z.string().optional(),
 });
 
 export type HandleMergeOrchestrateArgs = z.infer<typeof HandleMergeOrchestrateArgsSchema>;
-
-// ─── DI override types (test-only; never crossed over the wire) ────────────
 
 type PreflightAdapter = (args: MergePreflightArgs) => Promise<MergePreflightResult>;
 
@@ -164,9 +105,8 @@ type ExecuteMergeAdapter = (
 ) => Promise<ToolResult>;
 
 /**
- * Persistence callback for the orchestrator's `mergeOrchestrator` state
- * field. T12 emits the `aborted` shape; further shapes (e.g. `pending`,
- * `executing`) may be added by future tasks.
+ * Writes the `mergeOrchestrator` field of the workflow state. The handler writes only the `aborted`
+ * shape.
  */
 type OrchestratorPersistState = (
   state: {
@@ -179,12 +119,7 @@ type OrchestratorPersistState = (
   },
 ) => Promise<void> | void;
 
-/**
- * Read callback for the orchestrator's resume path (T14). Returns the
- * subset of workflow state the resume logic cares about, or `undefined`
- * if no state exists yet. Default implementation reads the state file
- * via `readStateFile`. Tests inject a mock to bypass the file system.
- */
+/** Reads the workflow state for the resume path. It returns `undefined` when no state exists. */
 type OrchestratorReadState = () => Promise<
   | {
       readonly mergeOrchestrator?: Record<string, unknown>;
@@ -199,22 +134,15 @@ export interface HandleMergeOrchestrateInput extends HandleMergeOrchestrateArgs 
   readonly persistState?: OrchestratorPersistState;
   readonly readState?: OrchestratorReadState;
   /**
-   * DR-2 lease-guard process-table probe (test-only DI seam). The guard routes
-   * a foreign lease holder's `holderPid` / `holderStartedAt` through the DR-5
-   * {@link probeReservations} liveness lens over this table. Production omits
-   * it → the real OS-backed {@link defaultProcessTableSource}.
+   * Process table for the liveness probe of the lease guard. The default is
+   * {@link defaultProcessTableSource}.
    */
   readonly processTableSource?: ProcessTableSource;
 }
 
-// ─── Path normalization ────────────────────────────────────────────────────
-
 /**
- * Resolve a filesystem path to its canonical form. Prefers `realpathSync`
- * so symlink segments are followed (matching git's internal canonicalization
- * of worktree paths), falling back to `path.resolve` if the path does not
- * exist on disk (rare: covers a caller passing a stale repoRoot before any
- * disk operation has had the chance to fail with a clearer error).
+ * Returns the realpath of `p`, because git prints symlink-resolved worktree paths. It falls back to
+ * `path.resolve` when the path does not exist.
  */
 function normalizePath(p: string): string {
   try {
@@ -224,13 +152,11 @@ function normalizePath(p: string): string {
   }
 }
 
-// ─── Default gitExec ───────────────────────────────────────────────────────
-
 /**
- * Default `persistState` for the orchestrator. Reads the workflow state
- * file at `<stateDir>/<featureId>.state.json`, sets the
- * `mergeOrchestrator` field to the supplied shape, and writes back
- * atomically. Mirrors the convention from `handleExecuteMerge`.
+ * Default `persistState`. It reads `<stateDir>/<featureId>.state.json` and replaces the
+ * `mergeOrchestrator` block, so stale SHAs or failure data of an earlier attempt do not stay. The
+ * write passes the read `_version`, 1 when absent, so `withStateRetry` sees a concurrent writer. A
+ * missing file throws `STATE_NOT_FOUND`, and the handler returns a structured error.
  */
 function buildDefaultPersistState(
   featureId: string,
@@ -238,22 +164,8 @@ function buildDefaultPersistState(
 ): OrchestratorPersistState {
   return async (next) => {
     const stateFile = path.join(stateDir, `${featureId}.state.json`);
-    // Let `StateStoreError(STATE_NOT_FOUND)` propagate so the handler can
-    // surface a structured `STATE_READ_FAILED` ToolResult. Inventing a
-    // baseline state here would land an incomplete record on disk and
-    // trip write-time schema validation anyway.
     const state = await readStateFile(stateFile);
-    // Capture the CAS version BEFORE mutating so the write enforces
-    // optimistic concurrency. Without `expectedVersion`, `writeStateFile`
-    // skips the CAS check entirely, which makes the surrounding
-    // `withStateRetry` non-functional and leaves concurrent writers free
-    // to clobber each other. `_version` defaults to 1 for legacy files.
     const expectedVersion = (state as Record<string, unknown>)._version as number | undefined ?? 1;
-    // REPLACE the `mergeOrchestrator` block instead of shallow-merging onto
-    // any prior attempt. Spreading the previous object would carry stale
-    // `mergeSha`, `rollbackSha`, or old failure metadata into a fresh
-    // terminal write (e.g., `aborted` after a previous `executing`),
-    // leaving contradictory state for resume/status consumers.
     const updated = {
       ...state,
       mergeOrchestrator: { ...next },
@@ -263,9 +175,8 @@ function buildDefaultPersistState(
 }
 
 /**
- * Default `readState` adapter. Reads the workflow state file at
- * `<stateDir>/<featureId>.state.json` and returns it (or `undefined` if
- * the file does not yet exist). Used by the T14 resume path.
+ * Default `readState`. It returns `undefined` only when `readStateFile` reports `STATE_NOT_FOUND`.
+ * Any other error throws, so `resume` does not treat a corrupt file as absent and repeat the merge.
  */
 function buildDefaultReadState(
   featureId: string,
@@ -277,13 +188,6 @@ function buildDefaultReadState(
       const state = await readStateFile(stateFile);
       return state as unknown as { mergeOrchestrator?: Record<string, unknown> };
     } catch (err) {
-      // Only treat "state file does not exist" as resumable absence — a
-      // corrupt or unreadable file MUST surface so resume:true doesn't
-      // silently degrade into a fresh dispatch and emit a duplicate
-      // preflight/merge attempt.
-      // `readStateFile` translates ENOENT into a StateStoreError with
-      // ErrorCode.STATE_NOT_FOUND — match on that, not the underlying
-      // NodeJS errno (which never escapes the state-store boundary).
       if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
         return undefined;
       }
@@ -291,10 +195,6 @@ function buildDefaultReadState(
     }
   };
 }
-
-// State-write retry (T14 / DR-MO-2): optimistic-concurrency on
-// `VersionConflictError`. Extracted to a shared module in T29 — also used
-// by `handleExecuteMerge`. See `workflow/state-retry.ts` for the contract.
 
 /**
  * Derive a short, operator-facing reason string from a failed preflight
@@ -326,19 +226,10 @@ function describePreflightFailure(preflight: MergePreflightResult): string {
   return 'preflight failed';
 }
 
-// ─── DR-2 lease-guard liveness ───────────────────────────────────────────────
-
 /**
- * Classify a foreign merge-lease holder's liveness for the single-writer guard.
- *
- * Routes the holder's recorded `holderPid` / `holderStartedAt` through the DR-5
- * {@link probeReservations} lens — the SAME ground-truth liveness the serializer
- * uses for dead-holder reclamation (`merge-serializer.ts` `isHolderProvablyDead`).
- * A holder with no captured fingerprint cannot be proven dead → `'unknown'`
- * (held, fail closed). On an UNSUPPORTED process table every pid reads
- * `'unknown'` (off-Linux fail-closed), so the guard never steals what could be a
- * live holder's lease. Only `'dead'` (pid absent from a SUPPORTED table, or
- * present with a mismatched create-time) lets the merge proceed.
+ * Classifies the liveness of a foreign lease holder with {@link probeReservations}, the check that
+ * the serializer uses to reclaim a dead holder. A holder with no fingerprint, or any pid on an
+ * unsupported process table, is `'unknown'` and counts as held. Only `'dead'` lets the merge run.
  */
 function classifyMergeHolderLiveness(
   holder: InFlightMerge,
@@ -360,13 +251,21 @@ function classifyMergeHolderLiveness(
   return finding?.liveness ?? 'unknown';
 }
 
-// ─── Handler ───────────────────────────────────────────────────────────────
-
+/**
+ * Runs the steps in the file header. The lease lookup uses the bare `targetBranch`, because the
+ * serializer keys `inFlightMerges` by it, not by `refs/heads/...`. The sibling check compares
+ * realpaths, because git prints symlink-resolved paths. Without `repoRoot`, the root comes from
+ * `git rev-parse --show-toplevel`, because the cwd can be a subdirectory.
+ *
+ * The `merge.preflight` append carries an idempotency key and an `expectedSequence`. A replay then
+ * dedups, and a race gives `STATE_CONFLICT`. In the `requested`, `executed`, `recovering` and
+ * `completed` phases, the `decide` closure emits nothing. Its `alwaysEnforceConsistency: false`
+ * keeps a concurrent append from failing that no-op path.
+ */
 export async function handleMergeOrchestrate(
   input: HandleMergeOrchestrateInput,
   ctx: DispatchContext,
 ): Promise<ToolResult> {
-  // Validate the externally-supplied args (DI hooks bypass the schema).
   const parsed = HandleMergeOrchestrateArgsSchema.safeParse({
     featureId: input.featureId,
     sourceBranch: input.sourceBranch,
@@ -399,28 +298,6 @@ export async function handleMergeOrchestrate(
   const processTableSource = input.processTableSource ?? defaultProcessTableSource;
   const appender = ctx.eventStore.getAppender();
 
-  // ─── 0-lease. Single-writer lease guard (DR-2) ───────────────────────────
-  //
-  // Enforce single-writer integration merges at the handler chokepoint. Fold
-  // the singleton `worktrees` stream and look up the in-flight lease keyed by
-  // the target integration ref.
-  //
-  // LOOKUP KEY SHAPE (critical): the serializer writes BARE branch names as the
-  // `inFlightMerges` key (`merge-serializer.ts` — `integrationRef` === the
-  // caller's `targetBranch`), while THIS handler internally builds
-  // `refs/heads/${targetBranch}` for the section-0a worktree probe. The guard
-  // MUST look up the BARE `args.targetBranch` — the key the serializer WRITES —
-  // never the internal `refs/heads/...` form, or a real lease would be missed.
-  //
-  // A FOREIGN LIVE lease — holder `operationId` ≠ the caller-presented
-  // `leaseOperationId` AND holder liveness ∈ {alive, unknown} (unknown counts
-  // as held; a provably-dead holder proceeds) — fails the merge CLOSED with a
-  // structured error that NAMES `serialize_merge` as the path, and produces NO
-  // git side effect (the guard runs before section 0a's git reads and every
-  // event emission). Matched-by-`operationId` (the serializer's own composed
-  // call, or a crash-resumed caller from a NEW pid presenting the ORIGINAL
-  // claim's `operationId`), dead-holder, and no-lease callers all proceed —
-  // exactly as today (back-compat).
   const worktreesFold = await appender.aggregateStream<WorktreesProjection>(
     WORKTREES_STREAM,
     WORKTREES_REDUCER,
@@ -429,8 +306,6 @@ export async function handleMergeOrchestrate(
   if (leaseHolder !== undefined && leaseHolder.operationId !== args.leaseOperationId) {
     const liveness = classifyMergeHolderLiveness(leaseHolder, processTableSource);
     if (liveness !== 'dead') {
-      // Foreign live (or unknown) lease holds the target — fail closed. No git
-      // side effect has run; the serializer is the single-writer entry point.
       return {
         success: false,
         error: {
@@ -454,47 +329,6 @@ export async function handleMergeOrchestrate(
     }
   }
 
-  // ─── 0a. Target-worktree availability preflight (#1356) ──────────────────
-  //
-  // When the merge target branch is checked out in a SIBLING worktree of
-  // the same repository, the executor's local `git merge` against the
-  // target would fail with a confusing "fatal: '<branch>' is already
-  // checked out at '<other-worktree-path>'", and worse — the executor
-  // captures `rollbackSha` from the cwd's HEAD (which is on a different
-  // branch), so a rollback would `git reset --keep` to the wrong commit.
-  //
-  // Detect this topology BEFORE any event emission or executor delegation
-  // so the abort path:
-  //   • does NOT fire a `merge.requested` event (Phase A intent)
-  //   • does NOT fire a `merge.preflight` event
-  //   • does NOT capture a wrong rollback SHA
-  //   • does NOT touch workflow state on disk
-  //
-  // We parse `git worktree list --porcelain`, whose record shape is:
-  //     worktree <absolute-path>
-  //     HEAD <sha>
-  //     branch refs/heads/<branchname>      (omitted for detached HEAD)
-  //     <blank line separator>
-  // If any record's branch equals our target AND its path is NOT the
-  // repoRoot we're about to operate on, the topology is unsafe — abort.
-  // Normalize repoRoot so the string comparison against `git worktree list`
-  // output is robust on macOS / Windows. `git worktree list --porcelain`
-  // emits symlink-resolved absolute paths (git canonicalizes internally),
-  // so without realpath here the equality test below would false-negative
-  // when the caller's cwd traverses a symlinked segment (a common case on
-  // macOS where /var → /private/var, or developer-symlinked checkouts).
-  // realpathSync requires the path to exist; fall back to resolve() if not.
-  //
-  // When `repoRoot` is not supplied, derive it from `git rev-parse
-  // --show-toplevel` rather than `process.cwd()`. The cwd may be a subdir
-  // of the repo (test runners frequently invoke vitest from
-  // `servers/exarchos-mcp/` — a sub-package), in which case the
-  // `git worktree list --porcelain` output (which emits the canonical
-  // top-level path) would never equal cwd and the main worktree itself
-  // would be misidentified as a sibling holding the target branch.
-  // Falling back to cwd preserves the previous behavior when not inside
-  // any git repo (rare; surfaces as a clean preflight skip rather than a
-  // spurious abort).
   let derivedRoot = args.repoRoot;
   if (derivedRoot === undefined) {
     const topLevel = gitExec(process.cwd(), ['rev-parse', '--show-toplevel']);
@@ -513,8 +347,6 @@ export async function handleMergeOrchestrate(
     for (const rawLine of worktreeListResult.stdout.split('\n')) {
       const line = rawLine.trimEnd();
       if (line.startsWith('worktree ')) {
-        // Normalize the path emitted by git so the equality test below
-        // compares apples to apples regardless of separator normalization.
         currentPath = normalizePath(line.slice('worktree '.length));
       } else if (line.startsWith('branch ')) {
         const ref = line.slice('branch '.length);
@@ -542,25 +374,11 @@ export async function handleMergeOrchestrate(
     }
   }
 
-  // ─── 0. Resume short-circuit (T14) ───────────────────────────────────────
-  // When `resume: true`, consult existing `mergeOrchestrator` state. If the
-  // phase is terminal (per EXCLUDED_MERGE_PHASES — `completed`, `rolled-back`,
-  // `aborted`), return the prior result without re-emitting events or
-  // re-invoking the executor. Non-terminal phases (e.g. `pending`) fall
-  // through to a fresh preflight + executor run, which is safe because the
-  // executor handlers are idempotent on already-merged target branches.
-  //
-  // When `resume` is falsy we deliberately skip the state read — fresh
-  // dispatch semantics mean prior state must NOT influence the outcome.
   if (args.resume === true) {
     let existing: Awaited<ReturnType<OrchestratorReadState>>;
     try {
       existing = await readState();
     } catch (err) {
-      // `readState` returns undefined for ENOENT (no prior state — fall
-      // through to fresh dispatch). Anything else (corrupt file, IO error)
-      // must surface — silently swallowing would let resume:true emit a
-      // duplicate preflight/merge against an unreadable state file.
       return {
         success: false,
         error: {
@@ -572,10 +390,6 @@ export async function handleMergeOrchestrate(
     const merge = existing?.mergeOrchestrator;
     const phase = typeof merge?.phase === 'string' ? merge.phase : undefined;
     if (phase !== undefined && EXCLUDED_MERGE_PHASES.has(phase)) {
-      // Terminal-phase resume: surface the recorded result verbatim. We
-      // treat `completed` as success and any other terminal state
-      // (`rolled-back`, `aborted`) as a structured failure so callers can
-      // distinguish them.
       if (phase === 'completed') {
         return {
           success: true,
@@ -591,17 +405,8 @@ export async function handleMergeOrchestrate(
         data: { ...merge },
       };
     }
-    // Any non-terminal phase (`pending`, `executing`, or undefined) falls
-    // through to a fresh preflight + executor run. The mid-run `executing`
-    // case is the most subtle: a crash during a previous attempt left state
-    // at `executing` with a `rollbackSha` pinned, but the merge itself may
-    // or may not have applied. Re-running is safe because the underlying
-    // VCS handlers are idempotent on already-merged branches and a
-    // re-recorded rollback sha from the fresh `git rev-parse HEAD` will
-    // reflect post-merge HEAD if the prior run did succeed.
   }
 
-  // ─── 1. Run preflight ────────────────────────────────────────────────────
   let preflight: MergePreflightResult;
   try {
     preflight = await preflightFn({
@@ -620,33 +425,11 @@ export async function handleMergeOrchestrate(
     };
   }
 
-  // ─── 2. Emit merge.preflight (direct append — see header note) ───────────
-  // DR-MO-1 AC#1 / DR-MO-2: include the structured sub-results
-  // (ancestry / currentBranchProtection / worktree / drift) so the event
-  // log is self-sufficient for timeline reconstruction. Also surface
-  // `failureReasons` when the preflight failed so observability and
-  // operators see the same diagnostic returned in the ToolResult.
-  //
-  // #1303 (α-04): pass `idempotencyKey` (when `taskId` is present) and
-  // `expectedSequence` (CAS on the stream high-water mark) so the substrate
-  // guarantees from #1259 / #1323 reach this append site too. Same shape as
-  // the α-02 wiring at `execute-merge.ts:340-387` for `merge.executed`:
-  //   • idempotencyKey-dedup makes crash-replay safe — a retry after a
-  //     mid-handler crash returns the original cached event rather than
-  //     appending a duplicate `merge.preflight`.
-  //   • `expectedSequence` enforces optimistic concurrency at the append
-  //     boundary — two concurrent invocations against the same stream
-  //     cannot land overlapping sequences without a typed conflict.
   const tailEventsPreflight = await ctx.eventStore.query(args.featureId);
   const expectedSequencePreflight =
     tailEventsPreflight.length > 0
       ? Math.max(...tailEventsPreflight.map((e) => e.sequence))
       : 0;
-  // INV-8: always set an idempotency key (helper falls back to a
-  // featureId-only shape when taskId is absent) so concurrent invocations
-  // without a taskId still dedup at the substrate layer rather than racing
-  // to append. Symmetric with the executed/completed/rollback sites in
-  // execute-merge.ts.
   const appendOptionsPreflight: { idempotencyKey: string; expectedSequence: number } = {
     expectedSequence: expectedSequencePreflight,
     idempotencyKey: buildMergeOrchestrateIdempotencyKey(
@@ -672,15 +455,6 @@ export async function handleMergeOrchestrate(
           ...(preflight.passed
             ? {}
             : { failureReasons: [describePreflightFailure(preflight)] }),
-          // #1362 phase 1 — thread the optional debug payload from the helper
-          // through to the event so phase-2 analysis can read the persisted
-          // ancestry-mismatch diagnostic. The helper only attaches `debug`
-          // when `EXARCHOS_PREFLIGHT_DEBUG=1 && !ancestry.passed`; we double-
-          // gate here on `ancestry.passed === false` so a future code path
-          // (or a test fixture) that constructs a `PreflightResult` with
-          // `debug` set on a PASSING preflight cannot leak the diagnostic
-          // into a passing-preflight event. Defense-in-depth at the event-
-          // sourcing boundary (INV-1).
           ...(preflight.debug !== undefined && preflight.ancestry?.passed === false
             ? { debug: preflight.debug }
             : {}),
@@ -689,11 +463,6 @@ export async function handleMergeOrchestrate(
       appendOptionsPreflight,
     );
   } catch (err) {
-    // SequenceConflict means a concurrent invocation already advanced the
-    // stream past our observed tail. The other side will have appended the
-    // canonical `merge.preflight` (its own idempotency key dedups its own
-    // retry) — surface a structured STATE_CONFLICT rather than letting a
-    // raw substrate error escape past the handler boundary.
     if (err instanceof SequenceConflictError) {
       return {
         success: false,
@@ -703,11 +472,6 @@ export async function handleMergeOrchestrate(
         },
       };
     }
-    // Not a sequence race — return a coded envelope rather than letting this
-    // escape (#1706 DR-1): dispatch.ts's safety net would otherwise flatten
-    // it to a generic INTERNAL_ERROR, discarding the event-append failure
-    // classification (`ErrorCode.EVENT_APPEND_FAILED`) this module already
-    // imports for structured state errors.
     return {
       success: false,
       error: {
@@ -717,11 +481,6 @@ export async function handleMergeOrchestrate(
     };
   }
 
-  // ─── 3. Dry-run short-circuit (T13) ──────────────────────────────────────
-  // Dry-run is observation-only: preflight has already run and emitted, so
-  // operators get the same gate signal as a real run, but we MUST NOT
-  // persist `mergeOrchestrator` state (would leave a transient phase that
-  // never resolves) and MUST NOT invoke the executor (would actually merge).
   if (args.dryRun === true) {
     if (preflight.passed) {
       return {
@@ -747,17 +506,7 @@ export async function handleMergeOrchestrate(
     };
   }
 
-  // ─── 4. Preflight-fail abort branch (T12) ────────────────────────────────
   if (!preflight.passed) {
-    // Persist the abort to workflow state BEFORE returning so downstream
-    // observers (HSM guards, status views) see the aborted phase even if
-    // the caller drops the ToolResult on the floor. The executor must NOT
-    // run on this path.
-    //
-    // T14: wrap in `withStateRetry` so concurrent writers (e.g. another
-    // orchestrator process bumping the same workflow file) don't fail us
-    // permanently on a single CAS conflict. After MAX_STATE_RETRIES the
-    // VersionConflictError bubbles out and is mapped to STATE_CONFLICT.
     try {
       await withStateRetry(() =>
         Promise.resolve(
@@ -781,11 +530,6 @@ export async function handleMergeOrchestrate(
           },
         };
       }
-      // Surface other StateStoreErrors (notably STATE_NOT_FOUND if the
-      // workflow's state file is missing) as structured failures rather
-      // than letting them propagate as unhandled exceptions. The
-      // `merge.preflight` event was already emitted, so projection rebuild
-      // can still reconstruct the aborted phase from events alone.
       if (err instanceof StateStoreError) {
         return {
           success: false,
@@ -799,12 +543,6 @@ export async function handleMergeOrchestrate(
           },
         };
       }
-      // Neither a version conflict nor a StateStoreError — return a coded
-      // envelope rather than letting this escape (#1706 DR-1): dispatch.ts's
-      // safety net would otherwise flatten it to a generic INTERNAL_ERROR,
-      // discarding the state-write failure classification. `merge.preflight`
-      // was already appended, so projection rebuild can still reconstruct
-      // the aborted phase from events alone.
       return {
         success: false,
         error: {
@@ -830,50 +568,16 @@ export async function handleMergeOrchestrate(
     };
   }
 
-  // ─── 4b. Phase A — durable INTENT (Wave 4 / audit §F1.2) ────────────────
-  //
-  // The two-event split: commit `merge.requested` purely under
-  // `withStateRetry` BEFORE the executor's side effect fires. The decide
-  // closure short-circuits idempotently when the merge-orchestrator
-  // projection already shows `requested` / `executed` / `recovering` /
-  // `completed`, so concurrent invocations (and OCC retries within a
-  // single invocation) cannot land a duplicate `merge.requested`.
-  //
-  // The side effect (executor delegation in section 5 below) runs OUTSIDE
-  // this retry boundary, so an OCC loss inside `decide` never re-fires the
-  // executor's local git merge. The executor's `merge.executed` append is
-  // the Phase C outcome record — the orchestrator does not emit a
-  // separate terminal event. Emitting the terminal marker is the EXECUTOR's
-  // job: `merge.completed` is registered in `events/schemas.ts` and is
-  // appended by `handleExecuteMerge` (`execute-merge.ts`) immediately after
-  // its `merge.executed` append, under its own idempotency key. The
-  // `merge-orchestrator@v1` projection folds it as the transition into the
-  // terminal `completed` phase, so the split this comment describes is
-  // orchestrator-vs-executor — not a missing event type.
-  //
-  // Idempotency: derive `operationId` from `featureId` + `taskId` so two
-  // concurrent invocations targeting the same feature/task converge on
-  // one canonical event via the substrate's idempotency_claims row.
-  // Without `taskId`, fall back to `featureId` alone — still stable
-  // across retries of the same invocation, weaker against concurrent
-  // dispatch but the state-check-in-decide short-circuit provides the
-  // belt-and-suspenders layer.
   const operationId =
     args.taskId !== undefined
       ? `merge-requested:${args.featureId}:${args.taskId}`
       : `merge-requested:${args.featureId}`;
-  // `appender` hoisted to the top of the handler for the DR-2 lease guard.
   try {
     await withStateRetry(() =>
       appender.decide<MergeOrchestratorState>(
         args.featureId,
         'merge-orchestrator@v1',
         (state) => {
-          // Short-circuit on any phase past `preflight` (the projection's
-          // current phase after section 2's `merge.preflight` fold). Any
-          // forward-progress phase indicates a concurrent or replayed
-          // invocation already recorded the intent; emit nothing so the
-          // retry returns a `no-op` rather than a duplicate.
           if (
             state.phase === 'requested' ||
             state.phase === 'executed' ||
@@ -896,24 +600,10 @@ export async function handleMergeOrchestrate(
             },
           ];
         },
-        // alwaysEnforceConsistency=false: the no-op branches above (state
-        // already requested/executed/recovering/completed) intentionally
-        // emit zero events. With the default-on tail re-read, a concurrent
-        // merge.executed landing between the read and our empty return
-        // would throw spurious ConcurrencyError on a path whose only job
-        // was to confirm "already done". Disabling the empty-write check
-        // makes the idempotent-recovery path safe under contention; the
-        // event-emitting branch is unaffected because it actually appends.
-        // Sentry #14059252/1.
         { operationId, alwaysEnforceConsistency: false },
       ),
     );
   } catch (err) {
-    // Translate the Wave 3 typed errors to the orchestrator's existing
-    // ToolResult shape (mirrors how the abort branch handles
-    // VersionConflictError above). After `MAX_STATE_RETRIES` exhaustion
-    // we surface a structured failure rather than letting the typed
-    // error escape past the handler boundary.
     if (err instanceof ConcurrencyError) {
       return {
         success: false,
@@ -932,11 +622,6 @@ export async function handleMergeOrchestrate(
         },
       };
     }
-    // Neither known retry-class error — return a coded envelope rather than
-    // letting this escape (#1706 DR-1): dispatch.ts's safety net would
-    // otherwise flatten it to a generic INTERNAL_ERROR, discarding the
-    // event-append failure classification (`ErrorCode.EVENT_APPEND_FAILED`)
-    // this module already imports for structured state errors.
     return {
       success: false,
       error: {
@@ -946,13 +631,6 @@ export async function handleMergeOrchestrate(
     };
   }
 
-  // ─── 5. Delegate to executor ─────────────────────────────────────────────
-  //
-  // Phase B (audit §F1.2): the executor performs the local git merge — the
-  // non-idempotent side effect. It runs OUTSIDE the Phase A retry
-  // boundary above so OCC retries on `merge.requested` never re-fire the
-  // merge. The executor itself emits `merge.executed` (its own Phase C
-  // outcome record); the orchestrator does not duplicate that here.
   const execResult = await executeMergeFn(
     {
       featureId: args.featureId,
@@ -969,7 +647,6 @@ export async function handleMergeOrchestrate(
     return execResult;
   }
 
-  // ─── 6. Combine results ──────────────────────────────────────────────────
   const execData = execResult.data as {
     phase: 'completed';
     mergeSha: string;

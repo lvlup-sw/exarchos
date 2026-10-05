@@ -1,10 +1,7 @@
-// ─── What `prepare` refuses, and what it hands back ──────────────────────────
-//
-// Every refusal happens before any effect. A compilation that cannot produce a
-// sound capsule writes nothing: no bytes into custody, no prepared record, no
-// claim. The codes separate the questions a caller has to answer differently —
-// "there is no such workflow", "this workflow cannot be compiled yet", and "the
-// plan itself is unsound" are three different repairs.
+/**
+ * The refusal codes of `prepare` and the receipt it returns.
+ * Each refusal occurs before any effect, so a refused compilation writes nothing.
+ */
 
 import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
@@ -53,9 +50,8 @@ export interface PreparedCapsuleReceipt {
   readonly capsule: ExarchosCapsuleV1;
   readonly tailSequence: number;
   /**
-   * Optional for the reason the settlement receipt's is: a replay returns the
-   * receipt persisted in the claim, and a claim written by an older build must
-   * not become an adapter-level error.
+   * Optional because a replay returns the receipt stored in the claim.
+   * A claim that an older build wrote must not become an adapter error.
    */
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
 }

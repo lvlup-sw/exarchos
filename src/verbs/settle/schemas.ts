@@ -1,18 +1,8 @@
-// ─── Typed output schema for `settle` ────────────────────────────────────────
-//
-// `settle` returns the `SettlementReceipt` shape (`types.ts`) verbatim on every
-// outcome. This module mirrors it as a Zod schema so the registration carries a
-// SUBSTANTIVE `outputSchema` rather than a vacuity waiver — the verdict is the
-// whole point of the action, so a schema that could not describe it would be
-// describing nothing.
-//
-// Derivation discipline, following `execute/schemas.ts`: the MCP adapter
-// `safeParse`s the REAL handler output against this schema and, on a miss,
-// REPLACES the result with an INTERNAL_ERROR. Every object here is
-// `.passthrough()` rather than `.strict()`, so a field a later build adds does
-// not turn a working response into a production outage — and so a receipt
-// replayed from a claim written by that later build is still the caller's
-// receipt.
+/**
+ * The Zod output schema for `settle`. It mirrors the `SettlementReceipt` shape in `types.ts`.
+ * The MCP adapter parses the real handler output against this schema and replaces a miss with `INTERNAL_ERROR`.
+ * Each object is `.passthrough()`, so a field that a later build adds does not break a response or a replayed receipt.
+ */
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
@@ -50,8 +40,10 @@ const ReceiptCensusSchema = z
     fields: z.number().int().nonnegative(),
     evidence: z.number().int().nonnegative(),
     deviations: z.number().int().nonnegative(),
-    // Optional for the reason `bundleRefs` is: a receipt replayed from a claim
-    // written before settlement verified anything carries no count.
+    /**
+     * Optional, like `bundleRefs`. A receipt replayed from a claim written before settlement
+     * verified tasks carries no count.
+     */
     verification: z.number().int().nonnegative().optional(),
   })
   .passthrough();

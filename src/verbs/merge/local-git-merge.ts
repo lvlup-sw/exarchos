@@ -1,27 +1,11 @@
-// ─── Local Git Merge Adapter (#1194, DR-MO-2) ──────────────────────────────
-//
-// Production `vcsMerge` adapter for `handleExecuteMerge`. Performs a *local*
-// `git merge` of source into target — the right primitive for landing a
-// subagent worktree branch onto the integration branch under a recorded
-// rollback sha.
-//
-// Replaces the previous `buildDefaultVcsMerge` (which routed through
-// `provider.mergePr` over a remote VCS API). That wiring made the executor's
-// `git reset --keep <rollbackSha>` rollback a no-op in production: a remote
-// merge succeeds → local HEAD never moved → reset resets HEAD to itself.
-// See #1194 for the full inconsistency trace.
-//
-// Contract:
-//   • Caller must be on the target branch before invoking. The adapter
-//     checks out target defensively to make this explicit, so a wrong-branch
-//     state surfaces as a clear `git checkout` failure rather than silent
-//     misbehavior.
-//   • On success returns `{ mergeSha }` = HEAD of target after the merge.
-//   • On any git failure throws `Error` with command + exit code + stdout
-//     context. The pure executor's catch + `categorizeFailure` translates
-//     that into a `RollbackReason`.
-//   • 120s timeout on every git invocation (matches `post-merge.ts:48`).
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Production `vcsMerge` adapter for `handleExecuteMerge`. It runs a local `git merge` of the source branch into the target branch.
+ * A local merge moves HEAD, so the executor rollback with `git reset --keep <rollbackSha>` has an effect.
+ *
+ * The adapter checks out the target first, so a wrong-branch caller gets a clear `git checkout` failure.
+ * On success it returns the target HEAD as `mergeSha`.
+ * On a git failure it throws an `Error` with the command, the exit code and stdout. The executor maps that error to a `RecoveryReason`.
+ */
 
 import type { GitExec, MergeStrategy } from '../pure/execute-merge.js';
 import { deleteBranchForce } from '../../vcs/mutation-owner.js';
@@ -59,17 +43,19 @@ function squashCommitMessage(sourceBranch: string, targetBranch: string): string
 }
 
 /**
- * Build a local-git merge adapter conforming to the executor's `vcsMerge`
- * shape. The returned function is async to match the contract; the underlying
- * `gitExec` is synchronous.
+ * Builds a local-git merge adapter with the `vcsMerge` shape of the executor.
+ * The returned function is async to match the contract, but `gitExec` is synchronous.
+ *
+ * The `rebase` strategy rebases a temporary branch, so the source ref never changes.
+ * The executor rollback resets the checked-out branch. If the source branch is checked out at rollback, the reset moves the source to the target SHA.
+ * When a step of the rebase path fails, it aborts any rebase and checks out the target before it throws. The rollback then resets the correct ref.
+ * It always checks out the target before it deletes the temporary branch, because `git branch -D` on the current branch fails.
  */
 export function buildLocalGitMergeAdapter(
   gitExec: GitExec,
   repoRoot: string,
 ): LocalGitMergeAdapter {
   return async ({ sourceBranch, targetBranch, strategy }) => {
-    // Defensive checkout: makes the adapter's branch precondition explicit
-    // and surfaces wrong-state callers as a structured error.
     gitOrThrow(gitExec, repoRoot, ['checkout', targetBranch]);
 
     switch (strategy) {
@@ -87,12 +73,6 @@ export function buildLocalGitMergeAdapter(
         break;
 
       case 'rebase': {
-        // Rebase via an ephemeral branch so the source ref is never mutated.
-        // The executor's rollback path is `git reset --keep <rollbackSha>` on
-        // the currently-checked-out branch — if rebase mutated `sourceBranch`
-        // and rollback ran while it was checked out, sourceBranch would be
-        // reset to the *target* SHA, corrupting it. Keeping source untouched
-        // means the executor's reset-target rollback is sufficient.
         const tmpBranch = `__exarchos_merge_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
         try {
           gitOrThrow(gitExec, repoRoot, ['checkout', '-b', tmpBranch, sourceBranch]);
@@ -100,20 +80,10 @@ export function buildLocalGitMergeAdapter(
           gitOrThrow(gitExec, repoRoot, ['checkout', targetBranch]);
           gitOrThrow(gitExec, repoRoot, ['merge', '--ff-only', tmpBranch]);
         } catch (err) {
-          // Best-effort: abort any in-flight rebase so the worktree isn't
-          // left in REBASING state, then return to target before re-throwing
-          // so the executor's reset --keep <rollbackSha> targets the right ref.
           gitExec(repoRoot, ['rebase', '--abort']);
           gitExec(repoRoot, ['checkout', targetBranch]);
           throw err;
         } finally {
-          // Always leave HEAD on target before deleting the tmp branch —
-          // `git branch -D <current>` fails silently and would leak the
-          // ephemeral ref on disk. Idempotent: if checkout already landed
-          // on target during the happy path, the second checkout is a no-op.
-          // The forced-delete argv is owned by the VCS mutation owner
-          // (`vcs/mutation-owner.ts`); this saga supplies only the transport and
-          // keeps its own (ephemeral) idempotency, so no second ledger is opened.
           gitExec(repoRoot, ['checkout', targetBranch]);
           deleteBranchForce((argv) => gitExec(repoRoot, argv), tmpBranch);
         }

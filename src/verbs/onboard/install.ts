@@ -1,36 +1,11 @@
 /**
- * installStep — the DR-2/DR-6 skills + deps INSTALL hook (task 015).
+ * The skills and dependencies install hook behind {@link ApplyCtx.installStep}.
+ * The reconciler calls it only on the CLI surface, and converts the step to an {@link Advisory} elsewhere. So this hook has no surface guard.
  *
- * This is the real impl behind {@link ApplyCtx.installStep} (the reconciler's
- * `install`-step seam). The reconciler's `apply` install router (DR-6) invokes
- * it ONLY on the CLI surface — `ctx.surface === 'cli'` — and otherwise downgrades
- * the step to a cli-only {@link Advisory}. So this hook performs its side effects
- * UNCONDITIONALLY: the surface gate lives in the core, never here (and a
- * redundant guard here would be dead code that drifts from the core contract).
- *
- * Two side effects, both reusing existing single-source seams (no reimplemented
- * install logic — INV-2):
- *
- *   1. Skills bundle — `installSkills()` (from the workspace-root
- *      `src/install-skills.ts`, reached through the JS bridge to satisfy the MCP
- *      server's tsc `rootDir: "./src"`). It already encodes the #1355 contract:
- *      a local-copy FAST PATH (copy `skills/<runtime>/` → the runtime's skills
- *      dir) when a `skillsSource` is resolvable, falling back to the
- *      `npx skills add github:lvlup-sw/exarchos …` shell-out otherwise. We reuse
- *      that seam verbatim and only inject the source-dir + runtime resolution
- *      (the bridge's job).
- *
- *   2. Project deps — the install command is resolved through the Bundle B
- *      layered resolver (`resolveTestRuntime(repoRoot).install`: override →
- *      `.exarchos.yml` → user `toolchains:` → task-runner → the vendored
- *      `package-manager-detector` registry). INV-6: the command came from the
- *      resolver; nothing is string-rewritten in. An unresolved install command
- *      (`null`) means there is no Node/known toolchain to install for, so the
- *      deps step is a clean no-op.
- *
- * Every real I/O is injected (the bridge invocation, the deps command runner) so
- * the unit tests drive the fast-path / fallback contract without shelling out to
- * a network `npx`.
+ * It first removes stale skill directories from a skill rename, when provenance proves that Exarchos installed them.
+ * Then it installs the skills bundle through `installSkills`, with a local-copy fast path and an `npx skills add` fallback.
+ * Then it runs the project install command from `resolveTestRuntime(repoRoot).install`. A `null` command means no known toolchain, and the step does nothing.
+ * All I/O is injected, so tests need no network `npx`.
  */
 
 import { spawn as nodeSpawn } from 'node:child_process';
@@ -49,117 +24,64 @@ import {
   type ResolvedRuntime,
 } from '../../config/test-runtime-resolver.js';
 
-// ─── Injected dependency bundle (testable seam) ───────────────────────────────
-
 /**
- * The injected side-effect bundle for {@link makeInstallStep}. Production uses
- * {@link installStep} (all defaults: the real bridge → `installSkills` seam + a
- * real spawn for project-deps install). Tests inject spies / temp dirs so the
- * local-copy / `npx` contract is exercised without touching the network.
- *
- * The fields mirror {@link installSkills}'s own injection points so the reuse is
- * transparent — we forward them straight through the bridge's `installer` seam.
+ * The injected side effects for {@link makeInstallStep}. Production uses {@link installStep}, with all defaults.
+ * Most fields match the injection points of `installSkills`, and the bridge forwards them.
  */
 export interface InstallStepDeps {
   /**
-   * Resolve the per-runtime skills source tree (the repo's `skills/` dir, parent
-   * of `<runtime>/<skill>/SKILL.md`). A defined value selects the local-copy
-   * FAST PATH; `undefined` falls back to the `npx skills add` shell-out. Defaults
-   * to `findSkillsSourceDir()` from the bridge (cwd / binary-relative / src-dev).
+   * Resolves the skills source tree, the parent of `<runtime>/<skill>/SKILL.md`.
+   * A value selects the local-copy fast path, and `undefined` selects `npx skills add`. When absent, the bridge uses `findSkillsSourceDir()`.
    */
   readonly resolveSkillsSource?: () => string | undefined;
-  /**
-   * Resolve the per-runtime command-alias source tree (the repo's
-   * `command-aliases/` dir). Defaults to `findCommandAliasesSourceDir()`. Threaded
-   * through so opencode's canonical aliases install alongside skills (#1471/#1472).
-   */
+  /** Resolves the `command-aliases/` source tree, so opencode aliases install with the skills. When absent, the bridge uses `findCommandAliasesSourceDir()`. */
   readonly resolveAliasesSource?: () => string | undefined;
-  /**
-   * Explicit target runtime id (`claude`, `codex`, …). When set it is threaded
-   * to `installSkills` so detection is skipped; when omitted `installSkills`
-   * auto-detects the runtime (the `install-skills` CLI's default behavior).
-   */
+  /** Target runtime id, such as `claude` or `codex`. When absent, `installSkills` detects the runtime. */
   readonly agent?: string;
-  /**
-   * The known runtime maps the skills install targets. Defaults to the
-   * codegen-emitted `EMBEDDED_RUNTIMES` (the binary's zero-fs runtime table).
-   */
+  /** The runtime maps for the skills install. When absent, the bridge uses the generated `EMBEDDED_RUNTIMES`. */
   readonly runtimes?: readonly unknown[];
-  /** Resolve the user's home dir (skills install path expansion). Default `os.homedir`. */
+  /** Resolves the home directory of the user. Default `os.homedir`. */
   readonly homeDir?: () => string;
-  /** Recursive dir copy (the local-copy fast path). Default `fs.cpSync(recursive)`. */
+  /** Recursive directory copy for the fast path. Default `atomicCopyTreeSync`. */
   readonly copyDir?: (src: string, dest: string) => void;
   /** Single-file copy (command aliases). Default `fs.copyFileSync`. */
   readonly copyFile?: (src: string, dest: string) => void;
-  /**
-   * Spawn for the `npx skills add` fallback. Default wraps `child_process.spawn`.
-   * Tests inject a recorder so the fallback never hits the network.
-   */
+  /** Spawn for the `npx skills add` fallback. Tests inject a recorder, so the fallback never uses the network. */
   readonly spawn?: (
     cmd: string,
     args: string[],
     opts?: { env?: NodeJS.ProcessEnv },
   ) => Promise<{ code: number; stderr: string }>;
-  /** Register the Exarchos MCP server in `~/.claude.json` (claude runtime only). */
+  /** Registers the Exarchos MCP server in `~/.claude.json`. Default is a no-op. */
   readonly registerMcp?: (home: string) => void;
-  /** Informational logging sink. Default: silent (onboard owns the summary). */
+  /** Information log sink. */
   readonly log?: (msg: string) => void;
   /** Error logging sink. Default `console.error`. */
   readonly errLog?: (msg: string) => void;
   /**
-   * Install scope for the canonical `.agents/skills` convention path + the DR-4
-   * provenance manifest. Onboard operates on a project, so it defaults to
-   * `'project'` with `projectRoot` = the apply `ctx.repoRoot`, so a project-scoped
-   * manifest lands under `<repoRoot>/.agents/` and `doctor` can flag layout drift
-   * per project. The standalone `install-skills` CLI uses the user scope
-   * (`~/.agents/skills`). The per-harness native dirs are scope-independent.
+   * Install scope for the `.agents/skills` path and the provenance manifest. Default `'project'`.
+   * The manifest then goes under `<repoRoot>/.agents/`, so `doctor` can find layout drift per project.
    */
   readonly scope?: 'user' | 'project';
   /** Project root for `scope: 'project'`. Defaults to the apply `ctx.repoRoot`. */
   readonly projectRoot?: string;
-  /**
-   * Host platform threaded to the skills-install seam: `win32` ⇒ the canonical
-   * placement is a file copy, never a symlink (INV-16). Default `process.platform`.
-   */
+  /** Host platform. On `win32`, the canonical placement is a file copy, never a symlink. */
   readonly platform?: NodeJS.Platform;
-  /** Exarchos version recorded in the provenance manifest. Default: root package.json. */
+  /** Exarchos version for the provenance manifest. */
   readonly version?: string;
-  /**
-   * Resolve the project's install command for `repoRoot` (Bundle B / INV-6).
-   * Defaults to `resolveTestRuntime(repoRoot).install`. Returns `null` when no
-   * known toolchain is present (deps install is then a no-op).
-   */
+  /** Resolves the project install command. Default `resolveTestRuntime(repoRoot).install`. It returns `null` when no known toolchain is present. */
   readonly resolveInstallCommand?: (repoRoot: string) => string | null;
-  /**
-   * Run the resolved install command in `cwd`. Default spawns the command via a
-   * shell. Tests inject a recorder so the deps install never executes for real.
-   */
+  /** Runs the install command in `cwd`. Default spawns it through a shell. */
   readonly runCommand?: (command: string, cwd: string) => Promise<void>;
-  /**
-   * Override the bridge invocation (the cross-package `installSkills` reach).
-   * Defaults to a dynamic import of `lifecycle/install-skills-bridge.js`.
-   * Tests do NOT need to override this — they steer behavior via `copyDir` /
-   * `spawn` / `resolveSkillsSource` which thread through to the real seam.
-   */
+  /** Replaces the bridge call. Default is a dynamic import of `lifecycle/install-skills-bridge.js`. */
   readonly runSkillsInstall?: (opts: SkillsInstallOpts) => Promise<void>;
-  /**
-   * The DR-3/DR-8 onboard rename migration hook (Task 011), run BEFORE the skills
-   * install so a consumer never sees both the old-name residue and the new names
-   * mid-pass. Defaults to {@link defaultRunMigrate} (disk-loaded provenance →
-   * {@link onboardMigrate}). Tests inject a spy / no-op to isolate the install
-   * side effects, or drive {@link onboardMigrate} directly.
-   */
+  /** The rename migration. It runs before the skills install, so old and new names never exist together. Default {@link defaultRunMigrate}. */
   readonly runMigrate?: (ctx: ApplyCtx) => void;
 }
 
-/**
- * The opts forwarded to the reused `installSkills` seam. Mirrors the subset of
- * `InstallSkillsOpts` we steer: source trees, runtime table, home, and the
- * injectable copy/spawn/registration hooks. `agent` is omitted so `installSkills`
- * auto-detects the runtime (the same behavior the `install-skills` CLI gives).
- */
+/** The options forwarded to `installSkills` through the bridge, a subset of `InstallSkillsOpts`. */
 export interface SkillsInstallOpts {
-  /** Explicit target runtime id; omitted ⇒ `installSkills` auto-detects. */
+  /** Target runtime id. When absent, `installSkills` detects the runtime. */
   readonly agent?: string;
   readonly runtimes?: readonly unknown[];
   /** Override the skills source tree (only when {@link skillsSourceOverridden}). */
@@ -181,36 +103,25 @@ export interface SkillsInstallOpts {
   readonly registerMcp?: (home: string) => void;
   readonly log?: (msg: string) => void;
   readonly errLog?: (msg: string) => void;
-  /** Canonical-layout install scope (DR-4). See {@link InstallStepDeps.scope}. */
+  /** Install scope. See {@link InstallStepDeps.scope}. */
   readonly scope?: 'user' | 'project';
   /** Project root for `scope: 'project'` canonical/manifest paths. */
   readonly projectRoot?: string;
-  /** Host platform (win32 ⇒ canonical copy-mode, INV-16). */
+  /** Host platform. On `win32`, the canonical placement is a copy. */
   readonly platform?: NodeJS.Platform;
   /** Exarchos version recorded in the provenance manifest. */
   readonly version?: string;
 }
 
-// ─── Defaults ─────────────────────────────────────────────────────────────────
-
-/**
- * Default project-deps install command resolution — the Bundle B layered
- * resolver. Single-sourced (INV-6): the command is whatever
- * `resolveTestRuntime` derives (override → `.exarchos.yml` → toolchains →
- * task-runner → vendored `package-manager-detector` registry), never a
- * string-rewritten literal. `null` ⇒ no known toolchain ⇒ deps step no-ops.
- */
+/** Returns the install command from the layered resolver `resolveTestRuntime`, or `null` when no known toolchain is present. */
 function defaultResolveInstallCommand(repoRoot: string): string | null {
   const resolved: ResolvedRuntime = resolveTestRuntime(repoRoot);
   return resolved.install;
 }
 
 /**
- * Default command runner: spawn the install command in `cwd` with the shell so a
- * multi-token command (`npm ci`, `pnpm install --frozen-lockfile`, …) runs as
- * written. Inherits stdio so the operator sees install progress; resolves on a
- * zero exit and rejects on a non-zero exit or spawn error (the onboard pipeline
- * leaves the step residual on a throw — forward-only, DR-10).
+ * Spawns the install command in `cwd` through a shell, so a command with arguments runs as written. The operator sees the output.
+ * It rejects on a non-zero exit or a spawn error, and the onboard pipeline then leaves the step residual.
  */
 function defaultRunCommand(command: string, cwd: string): Promise<void> {
   return new Promise<void>((resolve, reject) => {
@@ -229,22 +140,9 @@ function defaultRunCommand(command: string, cwd: string): Promise<void> {
 }
 
 /**
- * Default skills-install invocation: reuse the bridge's `runInstallSkills`,
- * threading our injected copy/spawn/home/register hooks (and any source-tree
- * overrides) through the bridge's `installSkillsOpts` passthrough. The bridge's
- * DEFAULT installer merges those into the real `installSkills` call, so THIS
- * module never imports `installSkills` directly — which would trip the MCP
- * server's tsc `rootDir: "./src"` (TS6059), the exact reason the bridge is JS.
- * The bridge owns runtime + source-dir resolution (`findSkillsSourceDir` /
- * `findCommandAliasesSourceDir`); the `installSkillsOpts` source fields OVERRIDE
- * that resolution only when a source was injected (the tests' fast-path /
- * fallback lever).
- *
- * The bridge is dynamically imported (the same pattern `adapters/cli.ts` uses);
- * being JS, tsc (`allowJs: false`) never resolves into it while bun's
- * `--compile` bundler follows it at build time. The `../../lifecycle/`
- * specifier is TWO hops up from `verbs/onboard/` (onboard → orchestrate →
- * src, then into `lifecycle/`).
+ * Calls `runInstallSkills` of the bridge, and passes the injected hooks through its `installSkillsOpts`.
+ * The bridge resolves the runtime and the source trees. A source field goes in only when a `resolve*Source` seam was injected.
+ * The bridge is JavaScript and imported dynamically, so tsc (`allowJs: false`) does not resolve it, but the bun `--compile` bundler follows it.
  */
 async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
   const bridge = (await import('../../lifecycle/install-skills-bridge.js')) as {
@@ -257,9 +155,6 @@ async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
     ) => Promise<void>;
   };
 
-  // Injectable I/O hooks for the reused `installSkills` seam — forwarded through
-  // the bridge's `installSkillsOpts` passthrough, never a direct import. Source
-  // fields are present (override) ONLY when a `resolve*Source` seam was injected.
   const installSkillsOpts: Record<string, unknown> = {
     ...(opts.skillsSourceOverridden ? { skillsSource: opts.skillsSource } : {}),
     ...(opts.aliasesSourceOverridden ? { aliasesSource: opts.aliasesSource } : {}),
@@ -270,8 +165,6 @@ async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
     ...(opts.registerMcp ? { registerMcp: opts.registerMcp } : {}),
     ...(opts.log ? { log: opts.log } : {}),
     ...(opts.errLog ? { errLog: opts.errLog } : {}),
-    // DR-4 canonical-layout controls threaded through to the reused
-    // `installSkills` seam (the bridge spreads these into the real call).
     ...(opts.scope ? { scope: opts.scope } : {}),
     ...(opts.projectRoot ? { projectRoot: opts.projectRoot } : {}),
     ...(opts.platform ? { platform: opts.platform } : {}),
@@ -288,55 +181,35 @@ async function defaultRunSkillsInstall(opts: SkillsInstallOpts): Promise<void> {
 }
 
 /**
- * DR-5 (task 018): MCP registration is single-sourced to the reconciler's
- * GENERATE step (the init writers — `ClaudeCodeWriter` → `~/.claude.json`, the
- * `mcp-json-writer` → `.vscode`/`.cursor` `mcp.json`). The install step reuses
- * `installSkills`, whose DEFAULT `registerMcp` is `registerExarchosInClaudeJson`
- * — so without this no-op the claude path would register MCP a SECOND time. The
- * install step therefore defaults `registerMcp` to a no-op, so MCP registration
- * happens EXACTLY once (in GENERATE). A caller can still inject a real
- * `registerMcp` (the tests do) to exercise the seam in isolation.
+ * Default `registerMcp` for the install step. The GENERATE step of the reconciler owns MCP registration.
+ * The default `registerMcp` of `installSkills` writes `~/.claude.json`, so without this no-op the claude path registers twice.
  */
 const NOOP_REGISTER_MCP = (_home: string): void => {
-  /* MCP registration is owned by GENERATE — the install step never registers. */
 };
 
-// ─── Onboard rename migration (Task 011, DR-3/DR-8) ───────────────────────────
-//
-// The atomic rename wave (Task 004) renamed 9 skills (skill name == verb == dir).
-// Prior-release installs therefore carry STALE OLD-NAME skill dirs on disk. The
-// onboard reconciler removes those across BOTH install scopes (project + user)
-// AND every per-harness `skillsInstallPath` — but ONLY when provenance is
-// established via the Task 010 install manifest OR the Task 023 multi-release
-// legacy-render hash manifest. Modified / unmatched dirs are PRESERVED with a
-// warning + a `doctor` finding; symlinked installs have the LINK removed only
-// (never the target); the pass is idempotent (byte-stable after the first run).
-//
-// This module lives in the MCP server package (tsc `rootDir: "./src"`), so it
-// cannot import the root `src/install-skills.ts` provenance helpers directly. The
-// two hashers below MIRROR those (`hashSkillDirContent` / `hashSkillMdContent`)
-// and are drift-guarded against them by a co-located cross-package test — the
-// same "own-constants + cross-package equality guard" idiom DR-5 uses for the
-// managed-block fences.
-
 /**
- * The 9 skills the DR-3 atomic rename wave renamed away. A dir bearing one of
- * these names in a consumer install is a prior-release residue (the new names —
- * `ideate`, `plan`, `delegate`, `synthesize`, `discover`, `oneshot`, `prune`,
- * `invariants`, and the `rehydrate`/`checkpoint` split — are the live set and are
- * NEVER in this list, so the migration can only ever delete a genuinely-retired
- * directory).
+ * The retired names of nine renamed skills. A directory with one of these names is residue from an older release.
+ * No current skill name is in the list, so the migration can only delete a retired directory.
  */
 export const RENAMED_AWAY_SKILL_DIRS: readonly string[] = [
-  'brainstorming', // → ideate
-  'implementation-planning', // → plan
-  'delegation', // → delegate
-  'synthesis', // → synthesize
-  'discovery', // → discover
-  'oneshot-workflow', // → oneshot
-  'prune-workflows', // → prune
-  'authoring-invariants', // → invariants
-  'workflow-state', // → rehydrate + checkpoint
+  /** The new name is `ideate`. */
+  'brainstorming',
+  /** The new name is `plan`. */
+  'implementation-planning',
+  /** The new name is `delegate`. */
+  'delegation',
+  /** The new name is `synthesize`. */
+  'synthesis',
+  /** The new name is `discover`. */
+  'discovery',
+  /** The new name is `oneshot`. */
+  'oneshot-workflow',
+  /** The new name is `prune`. */
+  'prune-workflows',
+  /** The new name is `invariants`. */
+  'authoring-invariants',
+  /** The new names are `rehydrate` and `checkpoint`. */
+  'workflow-state',
 ];
 
 /** Install scope for the canonical `.agents/skills` convention path. */
@@ -348,13 +221,13 @@ export interface RuntimeSkillsTarget {
   readonly skillsInstallPath: string;
 }
 
-/** One placement record from a Task 010 install provenance manifest (real shape). */
+/** One placement record from an install provenance manifest. */
 export interface ProvenancePlacement {
   readonly path: string;
   readonly hashes: Record<string, string>;
 }
 
-/** A Task 010 install provenance manifest (the subset the migration reads). */
+/** The part of an install provenance manifest that the migration reads. */
 export interface ProvenanceManifest {
   readonly placements: readonly ProvenancePlacement[];
 }
@@ -387,40 +260,40 @@ export interface OnboardMigrateResult {
 
 /** Injected filesystem seam so the migration is unit-testable without real I/O. */
 export interface MigrateFsSeam {
-  /** List directory entries (name + isDirectory/isSymbolicLink) — non-throwing on absent. */
+  /** Lists directory entries. It returns no entries for an absent directory and does not throw. */
   readonly readdir: (dir: string) => Array<{ name: string; isDirectory: boolean; isSymbolicLink: boolean }>;
-  /** lstat a path (does NOT follow symlinks). */
+  /** Runs lstat on a path, so it does not follow symlinks. */
   readonly lstat: (p: string) => { isSymbolicLink: boolean };
-  /** Whole-dir content hash (follows symlinks) — install-manifest provenance. */
+  /** Content hash of the whole directory, through symlinks, for install-manifest provenance. */
   readonly hashDir: (dir: string) => string;
-  /** SKILL.md content hash (follows symlinks), or undefined — legacy provenance. */
+  /** Content hash of `SKILL.md`, through symlinks, or undefined. It serves legacy provenance. */
   readonly hashSkillMd: (dir: string) => string | undefined;
-  /** Remove a real directory recursively. */
+  /** Removes a real directory recursively. */
   readonly removeDir: (dir: string) => void;
-  /** Remove a symlink (the LINK only, never its target). */
+  /** Removes a symlink, never its target. */
   readonly removeLink: (link: string) => void;
 }
 
 export interface OnboardMigrateOptions {
   /** Per-harness native skills dirs to scan. */
   readonly runtimes?: readonly RuntimeSkillsTarget[];
-  /** Resolve the user's home (tilde/`$HOME` expansion + user-scope canonical dir). */
+  /** Resolves the home directory for `~` and `$HOME` expansion and for the user-scope directory. */
   readonly homeDir: () => string;
   /** Project root for the project-scope canonical `.agents/skills` dir. */
   readonly projectRoot: string;
-  /** Install manifests (Task 010) — one per scope — the migration reads for provenance (a). */
+  /** Install manifests, one for each scope, for the first provenance source. */
   readonly installManifests?: readonly ProvenanceManifest[];
-  /** Legacy-render hash index (Task 023) by skill name — provenance (b). */
+  /** Legacy-render hash index by skill name, for the second provenance source. */
   readonly legacyHashesBySkill?: ReadonlyMap<string, ReadonlySet<string>>;
   /** Fold skill-name keys case-insensitively (case-insensitive filesystems). */
   readonly caseInsensitive?: boolean;
-  /** Filesystem seam (defaults to real `node:fs`). */
+  /** Filesystem seam. Default is the real `node:fs`. */
   readonly fsSeam?: MigrateFsSeam;
-  /** Warning sink for preserved dirs (defaults to silent — onboard owns the summary). */
+  /** Warning sink for preserved directories. Default is silent. */
   readonly warn?: (msg: string) => void;
 }
 
-/** Expand a leading `~` / `$HOME` marker (mirrors install-skills' `expandTilde`). */
+/** Expands a leading `~` or `$HOME`, the same as `expandTilde` in `install-skills`. */
 function expandHome(p: string, home: string): string {
   if (p === '~') return home;
   if (p.startsWith('~/')) return path.join(home, p.slice(2));
@@ -429,17 +302,15 @@ function expandHome(p: string, home: string): string {
   return p;
 }
 
-/** POSIX-normalize a path for stable dedup keys (mirrors install-skills). */
+/** Converts a path to POSIX separators for stable deduplication keys. */
 function toPosix(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
 /**
- * Whole-dir content hash — MIRRORS `hashSkillDirContent` in
- * `src/install-skills.ts` byte-for-byte (sorted POSIX rel-paths, each
- * newline-normalized, `rel\0content\0`). Reads THROUGH symlinks (stat, not
- * lstat) so a symlinked install hashes to its target. Drift-guarded by the
- * cross-package test in `install.test.ts`.
+ * Content hash of a whole directory, the same as `hashSkillDirContent` in `src/install/install-skills.ts`.
+ * It hashes the sorted relative paths and the LF-normalized contents. It reads through symlinks, so a symlinked install hashes to its target.
+ * `install.test.ts` guards it against drift.
  */
 export function hashInstalledSkillDir(skillDir: string): string {
   const rels: string[] = [];
@@ -466,10 +337,8 @@ export function hashInstalledSkillDir(skillDir: string): string {
 }
 
 /**
- * SKILL.md-only content hash (CRLF→LF + sha256) — MIRRORS `hashSkillMdContent`
- * in `src/install-skills.ts` and the Task 023 generator's `normalizeAndHash`, so
- * a CRLF-checkout install still legacy-hash-matches. Reads through symlinks;
- * `undefined` when the dir carries no `SKILL.md`.
+ * SHA-256 hash of the LF-normalized `SKILL.md`, the same as `hashSkillMdContent` and the `normalizeAndHash` of the legacy-hash generator.
+ * A CRLF checkout thus still matches. It returns `undefined` when the directory has no `SKILL.md`.
  */
 export function hashInstalledSkillMd(
   skillDir: string,
@@ -509,18 +378,16 @@ function defaultMigrateFsSeam(): MigrateFsSeam {
 }
 
 /**
- * Resolve every directory the migration scans for stale old-name skill dirs: the
- * canonical `.agents/skills` convention dir for BOTH scopes plus each harness's
- * native `skillsInstallPath`. Deduped by POSIX-resolved path (the `generic`
- * runtime's native dir IS the user canonical dir, so it collapses to one).
+ * Returns the directories that the migration scans: the user and project `.agents/skills` directories, and each harness `skillsInstallPath`.
+ * It removes duplicates by resolved POSIX path, so a harness directory that is the user directory appears once.
  */
 export function resolveMigrationScanLocations(
   opts: Pick<OnboardMigrateOptions, 'runtimes' | 'homeDir' | 'projectRoot'>,
 ): string[] {
   const home = opts.homeDir();
   const raw: string[] = [
-    expandHome('~/.agents/skills', home), // user-scope canonical
-    path.join(opts.projectRoot, '.agents', 'skills'), // project-scope canonical
+    expandHome('~/.agents/skills', home),
+    path.join(opts.projectRoot, '.agents', 'skills'),
   ];
   for (const rt of opts.runtimes ?? []) {
     raw.push(expandHome(rt.skillsInstallPath, home));
@@ -537,20 +404,13 @@ export function resolveMigrationScanLocations(
 }
 
 /**
- * Reconcile stale OLD-NAME skill dirs across every install scope + per-harness
- * native dir (Task 011, DR-3/DR-8).
+ * Removes the stale skill directories with a {@link RENAMED_AWAY_SKILL_DIRS} name from every scan location, when provenance proves them.
+ * The first provenance source is a whole-directory hash that an install manifest records for the skill.
+ * The second is a `SKILL.md` hash that matches a legacy render of the skill from any release.
  *
- * For each scanned location, every top-level dir whose name is a
- * {@link RENAMED_AWAY_SKILL_DIRS} entry is evaluated:
- *   - provenance (a): the on-disk whole-dir hash matches a Task 010 install
- *     manifest placement's recorded hash for that skill; OR
- *   - provenance (b): the on-disk `SKILL.md` newline-normalized hash matches ANY
- *     release's Task 023 legacy-render hash for that skill.
- * A provenance-matched dir is REMOVED (symlink ⇒ the link only, never the target;
- * real dir ⇒ recursive delete). A dir matching neither manifest is PRESERVED,
- * a warning is emitted, and the read-only `doctor` `stale-skill-dirs` check
- * surfaces it for manual review. Idempotent: removed dirs are gone on the next
- * run, and preserved dirs re-preserve with no filesystem write (byte-stable).
+ * For a symlink it removes only the link. A real directory is deleted recursively.
+ * A directory with no provenance match stays, with a warning, and the `doctor` check `stale-skill-dirs` reports it.
+ * A second run writes nothing.
  */
 export function onboardMigrate(opts: OnboardMigrateOptions): OnboardMigrateResult {
   const seam = opts.fsSeam ?? defaultMigrateFsSeam();
@@ -582,7 +442,6 @@ export function onboardMigrate(opts: OnboardMigrateOptions): OnboardMigrateResul
         }
       })();
 
-      // Provenance (a): whole-dir hash vouched by an install manifest placement.
       let via: RemovedDirOutcome['via'] | undefined;
       let dirHash: string | undefined;
       try {
@@ -594,7 +453,6 @@ export function onboardMigrate(opts: OnboardMigrateOptions): OnboardMigrateResul
         via = 'install-manifest';
       }
 
-      // Provenance (b): SKILL.md hash matches any historical legacy render.
       if (via === undefined && legacy !== undefined) {
         const mdHash = seam.hashSkillMd(skillDir);
         const set = legacy.get(entry.name);
@@ -604,7 +462,6 @@ export function onboardMigrate(opts: OnboardMigrateOptions): OnboardMigrateResul
       }
 
       if (via !== undefined) {
-        // Symlinked install ⇒ unlink the LINK only (never follow to the target).
         if (symlink) seam.removeLink(skillDir);
         else seam.removeDir(skillDir);
         removed.push({ path: skillDir, location, symlink, via });
@@ -623,7 +480,7 @@ export function onboardMigrate(opts: OnboardMigrateOptions): OnboardMigrateResul
   return { removed, preserved, warnings };
 }
 
-/** Does any install manifest placement vouch for `skillName` at content `dirHash`? */
+/** Whether an install manifest placement records `dirHash` for `skillName`. */
 function manifestVouches(
   manifests: readonly ProvenanceManifest[],
   skillName: string,
@@ -642,20 +499,14 @@ function manifestVouches(
   return false;
 }
 
-// ─── Provenance loading (production defaults) ─────────────────────────────────
-//
-// The disk shapes these loaders parse are single-sourced in
-// `src/install-skills.ts` (Task 010 `.exarchos-skills.json`) and
-// `tools/release/generate-legacy-skill-hashes.mjs` / `tools/migrations/` (Task 023). The
-// server package cannot import those (tsc `rootDir: "./src"`), so the filename
-// literals and shape checks are mirrored here and pinned by `install.test.ts`.
-
-/** Task 010 per-scope provenance manifest filename (mirrors `SKILLS_MANIFEST_FILENAME`). */
+/**
+ * Filename of the install provenance manifest for each scope. It must match `SKILLS_MANIFEST_FILENAME` in `src/install/install-skills.ts`. No test compares the two.
+ */
 const SKILLS_MANIFEST_FILENAME = '.exarchos-skills.json';
-/** Task 023 committed legacy-render hash manifest filename. */
+/** Filename of the committed legacy-render hash manifest that `tools/release/generate-legacy-skill-hashes.mjs` writes. */
 const LEGACY_HASH_MANIFEST_FILENAME = 'legacy-skill-render-hashes.json';
 
-/** Read + shape-check one Task 010 install manifest; `undefined` when absent/malformed. */
+/** Reads one install manifest and checks its shape. It returns `undefined` when the file is absent or malformed. */
 export function loadInstallManifest(manifestPath: string): ProvenanceManifest | undefined {
   let parsed: unknown;
   try {
@@ -669,7 +520,7 @@ export function loadInstallManifest(manifestPath: string): ProvenanceManifest | 
   return parsed as ProvenanceManifest;
 }
 
-/** Both-scope install manifests for `home` (user) + `projectRoot` (project). */
+/** Loads the install manifests of the user scope under `home` and the project scope under `projectRoot`. */
 function loadInstallManifests(home: string, projectRoot: string): ProvenanceManifest[] {
   const candidates = [
     path.join(expandHome('~/.agents', home), SKILLS_MANIFEST_FILENAME),
@@ -683,7 +534,7 @@ function loadInstallManifests(home: string, projectRoot: string): ProvenanceMani
   return manifests;
 }
 
-/** Resolve the committed Task 023 legacy-render hash manifest on disk. */
+/** Finds the legacy-render hash manifest under the cwd `tools/migrations/`, or relative to the binary. */
 function findLegacyHashManifestPath(): string | undefined {
   const candidates = [path.join(process.cwd(), 'tools', 'migrations', LEGACY_HASH_MANIFEST_FILENAME)];
   if (typeof process.execPath === 'string' && process.execPath.length > 0) {
@@ -701,16 +552,14 @@ function findLegacyHashManifestPath(): string | undefined {
     try {
       if (fs.statSync(c).isFile()) return c;
     } catch {
-      // try next
     }
   }
   return undefined;
 }
 
 /**
- * Load + index the Task 023 legacy-render hash manifest by skill name.
- * `undefined` when the manifest is absent or unparseable — provenance (b) is then
- * simply unavailable (the conservative PRESERVE default, never a false delete).
+ * Loads the legacy-render hash manifest and indexes it by skill name.
+ * It returns `undefined` when the manifest is absent or does not parse. That source is then unavailable, so directories stay.
  */
 export function loadLegacyHashIndexFromDisk(
   manifestPath: string | undefined = findLegacyHashManifestPath(),
@@ -737,18 +586,14 @@ export function loadLegacyHashIndexFromDisk(
   return index;
 }
 
-/** Case-insensitive-filesystem heuristic (mirrors install-skills' `defaultCaseInsensitiveFs`). */
+/** Treats `win32` and `darwin` as case-insensitive, the same as `defaultCaseInsensitiveFs` in `install-skills`. */
 function migrateCaseInsensitiveFs(platform: NodeJS.Platform): boolean {
   return platform === 'win32' || platform === 'darwin';
 }
 
 /**
- * The production migration hook wired into {@link makeInstallStep}: loads both-
- * scope install manifests + the legacy-render hash index from disk and runs
- * {@link onboardMigrate} across the resolved scan locations. Defensive by design
- * — a missing manifest / absent dir simply contributes no removal (PRESERVE), and
- * the whole hook never throws (a migration fault must not block the skills
- * install that follows it, forward-only DR-10).
+ * The production migration hook. It loads the manifests and the legacy hash index from disk, then runs {@link onboardMigrate}.
+ * A missing manifest or directory removes nothing. The hook never throws, so a migration fault does not block the skills install.
  */
 function defaultRunMigrate(deps: InstallStepDeps): (ctx: ApplyCtx) => void {
   return (ctx: ApplyCtx): void => {
@@ -771,20 +616,16 @@ function defaultRunMigrate(deps: InstallStepDeps): (ctx: ApplyCtx) => void {
         warn: deps.errLog ?? ((msg: string) => orchestrateLogger.warn(msg)),
       });
     } catch {
-      // Forward-only: a migration fault never blocks the ensuing skills install.
     }
   };
 }
 
-// ─── Installer ────────────────────────────────────────────────────────────────
-
 /**
- * Build the {@link ApplyCtx.installStep} hook over an injected
- * {@link InstallStepDeps} bundle. Production calls {@link installStep} (all
- * defaults). The returned function conforms to the seam signature
- * `(step, ctx) => Promise<void>` and runs BOTH side effects (skills + deps); the
- * `step` is accepted for seam stability but unused today (a single install kind
- * covers the skills/deps bundle).
+ * Builds the {@link ApplyCtx.installStep} hook over the injected {@link InstallStepDeps}.
+ * The returned function runs the migration, the skills install and the project install. It does not read `step`.
+ * The skills copy defaults to `atomicCopyTreeSync`, which stages the tree and swaps it in with a rename.
+ * An interrupted copy then leaves no half-populated skill directory, and a second onboard run converges.
+ * The install scope defaults to `'project'` under `ctx.repoRoot`.
  */
 export function makeInstallStep(
   deps: InstallStepDeps = {},
@@ -795,19 +636,10 @@ export function makeInstallStep(
     const runCommand = deps.runCommand ?? defaultRunCommand;
     const homeDir = deps.homeDir ?? (() => homedir());
     const runMigrate = deps.runMigrate ?? defaultRunMigrate(deps);
-    // DR-5: default to a no-op so MCP registration happens ONCE (in GENERATE),
-    // never a second time here. Injected `registerMcp` overrides (tests only).
     const registerMcp = deps.registerMcp ?? NOOP_REGISTER_MCP;
 
-    // ── 0. Rename migration (Task 011, DR-3/DR-8) ──
-    // Remove provenance-matched stale OLD-NAME skill dirs across every scope +
-    // per-harness dir BEFORE installing the new names, so the two never coexist.
-    // Modified / unmatched dirs are preserved with a warning + a `doctor` finding.
     runMigrate(ctx);
 
-    // ── 1. Skills bundle (local-copy fast path + npx fallback) ──
-    // The bridge resolves source trees by default; we only OVERRIDE them when a
-    // `resolve*Source` seam was injected (the tests' fast-path / fallback lever).
     const skillsSourceOverridden = deps.resolveSkillsSource !== undefined;
     const aliasesSourceOverridden = deps.resolveAliasesSource !== undefined;
 
@@ -821,29 +653,18 @@ export function makeInstallStep(
         ? { aliasesSourceOverridden: true, aliasesSource: deps.resolveAliasesSource!() }
         : {}),
       homeDir,
-      // P04-04 (EFF-009): the skills tree copy defaults to an ATOMIC staged
-      // promotion, not a bare `fs.cpSync`. The stock installer `rmSync`s the
-      // destination then copies file-by-file, so a copy that fails partway
-      // leaves a half-populated skill dir (a torn state). `atomicCopyTreeSync`
-      // stages + verifies the tree out-of-band and swaps it in with an atomic
-      // rename, so an interrupted copy leaves the destination absent (not half),
-      // and a re-run of onboarding converges. An injected `copyDir` (tests) still
-      // wins.
       copyDir: deps.copyDir ?? atomicCopyTreeSync,
       ...(deps.copyFile ? { copyFile: deps.copyFile } : {}),
       ...(deps.spawn ? { spawn: deps.spawn } : {}),
       registerMcp,
       ...(deps.log ? { log: deps.log } : {}),
       ...(deps.errLog ? { errLog: deps.errLog } : {}),
-      // DR-4: onboard installs at PROJECT scope (canonical + manifest under
-      // `<repoRoot>/.agents/`) so `doctor` can detect layout drift per project.
       scope: deps.scope ?? 'project',
       projectRoot: deps.projectRoot ?? ctx.repoRoot,
       ...(deps.platform ? { platform: deps.platform } : {}),
       ...(deps.version ? { version: deps.version } : {}),
     });
 
-    // ── 2. Project deps (Bundle B resolved command — INV-6) ──
     const installCommand = resolveInstallCommand(ctx.repoRoot);
     if (installCommand !== null) {
       await runCommand(installCommand, ctx.repoRoot);
@@ -851,15 +672,6 @@ export function makeInstallStep(
   };
 }
 
-/**
- * The production {@link ApplyCtx.installStep}: the skills + deps install hook
- * with all I/O defaulted to the real seams (the bridge → `installSkills` for the
- * skills bundle, `resolveTestRuntime` + a real spawn for project deps). Wired
- * into `defaultOnboardDeps` (task 010's no-op seam replaced).
- *
- * DR-5 (task 018): `registerMcp` defaults to a no-op (see `NOOP_REGISTER_MCP`)
- * so MCP registration happens EXACTLY once — in the GENERATE step — and is NOT
- * duplicated here.
- */
+/** The production {@link ApplyCtx.installStep}, with all I/O on the real seams. `registerMcp` is a no-op, so only the GENERATE step registers MCP. */
 export const installStep: (step: PlanStep, ctx: ApplyCtx) => Promise<void> =
   makeInstallStep();

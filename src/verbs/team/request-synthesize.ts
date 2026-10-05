@@ -1,16 +1,9 @@
-// ─── Request Synthesize Orchestrate Handler (T11) ──────────────────────────
-//
-// Runtime opt-in path for oneshot workflows with `synthesisPolicy: 'on-request'`.
-// Appending a `synthesize.requested` event flips the `synthesisOptedIn` guard
-// and routes the choice-state toward the synthesize phase instead of direct
-// commit. For `synthesisPolicy: 'always'`, this event is redundant but not
-// harmful; for `synthesisPolicy: 'never'`, the guard still short-circuits to
-// opted-out, so this handler simply records the (ignored) intent.
-//
-// Append semantics are intentional: the downstream guard uses count >= 1
-// semantics, so calling the handler twice is safe — multiple events collapse
-// to a single "opted in" decision.
-// ────────────────────────────────────────────────────────────────────────────
+/**
+ * Handler for the `request_synthesize` action, the runtime opt-in for a oneshot workflow with `synthesisPolicy: 'on-request'`.
+ * A `synthesize.requested` event sets the `synthesisOptedIn` guard, so the choice state routes to synthesize and not to a direct commit.
+ * With `synthesisPolicy: 'never'`, the guard still resolves to opted-out, so the event only records the intent.
+ * The guard counts one or more events, so a second call is safe.
+ */
 
 import * as path from 'node:path';
 
@@ -18,17 +11,12 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { resolveOneshotState } from '../tasks/oneshot-state.js';
 
-// ─── Types ──────────────────────────────────────────────────────────────────
-
 export interface RequestSynthesizeArgs {
   readonly featureId: string;
   readonly reason?: string;
   /**
-   * Explicit state-file path. When omitted, the handler derives one from
-   * `stateDir` + `featureId` (the composite dispatcher injects `stateDir`
-   * from the DispatchContext). When `stateDir` is also omitted, the
-   * resolver falls back to event-store materialization using only
-   * `featureId` + `eventStore`.
+   * Explicit state-file path. Without it, the handler derives one from `stateDir` and `featureId`.
+   * Without both, the resolver reads the state from the event store.
    */
   readonly stateFile?: string;
   readonly stateDir?: string;
@@ -36,21 +24,15 @@ export interface RequestSynthesizeArgs {
 }
 
 /**
- * Phases from which `request_synthesize` may be invoked. Matches the phase
- * gating in `registry.ts:request_synthesize`: the event is idempotent and
- * sits in the stream until `finalize_oneshot` reads it, so emitting it
- * from `plan` (before implementing starts) is legal. Any terminal phase
- * — `synthesize`, `completed`, `cancelled`, or any non-oneshot phase
- * reachable via cancel — MUST be rejected at the handler boundary so a
- * direct handler call (bypassing the registry layer) cannot corrupt the
- * audit stream after the workflow has already been resolved.
+ * Phases that accept `request_synthesize`, the same set as the registry gate.
+ * The event stays in the stream until `finalize_oneshot` reads it, so a call from `plan` is legal.
+ * The handler rejects other phases, because a direct call skips the registry gate.
+ * A late event after `finalize_oneshot` resolves the choice state corrupts the audit stream.
  */
 const REQUEST_SYNTHESIZE_ALLOWED_PHASES: ReadonlySet<string> = new Set([
   'plan',
   'implementing',
 ]);
-
-// ─── Handler ────────────────────────────────────────────────────────────────
 
 export async function handleRequestSynthesize(
   args: RequestSynthesizeArgs,
@@ -74,24 +56,12 @@ export async function handleRequestSynthesize(
     };
   }
 
-  // Defer state-file path derivation to the caller (explicit `stateFile`)
-  // or the composite dispatcher (injected `stateDir`). When neither is
-  // provided, the resolver falls back to event-store materialization from
-  // `featureId` + `eventStore`, matching the `finalize_oneshot` pattern.
-  // Previously this used a hardcoded `.exarchos/state/...` fallback that
-  // didn't match the configured workflow-state location — callers running
-  // under a non-default `stateDir` saw bogus "state not found" errors.
   const stateFile =
     args.stateFile
     ?? (args.stateDir
       ? path.join(args.stateDir, `${featureId}.state.json`)
       : undefined);
 
-  // Shared oneshot-state resolution + validation (DR-10): resolver-error
-  // translation, the empty-projection "no workflow exists" sentinel, and the
-  // oneshot workflow-type check all live in `resolveOneshotState`, matching
-  // `finalize-oneshot.ts`. The runtime phase guard below stays here — it
-  // differs (this action allows `plan` OR `implementing`).
   const resolved = await resolveOneshotState({
     ...(stateFile !== undefined ? { stateFile } : {}),
     featureId,
@@ -105,14 +75,6 @@ export async function handleRequestSynthesize(
 
   const state = resolved.state;
 
-  // Runtime phase guard. The registry layer gates this action at the MCP
-  // tool boundary, but direct handler calls (e.g. from composite tests
-  // or sibling orchestrate handlers) bypass the registry. Without this
-  // check a terminal-phase workflow could receive a `synthesize.requested`
-  // event after `finalize_oneshot` already resolved the choice state —
-  // permanently corrupting the audit stream with a phantom opt-in signal
-  // that could be replayed on rematerialization. Explicit reject mirrors
-  // the registry's `phases: ['plan', 'implementing']` restriction.
   const currentPhase =
     typeof state.phase === 'string' ? state.phase : String(state.phase);
   if (!REQUEST_SYNTHESIZE_ALLOWED_PHASES.has(currentPhase)) {
@@ -125,8 +87,6 @@ export async function handleRequestSynthesize(
     };
   }
 
-  // Append the synthesize.requested event. Payload matches
-  // SynthesizeRequestedData in event-store/schemas.ts (T2).
   const timestamp = new Date().toISOString();
   try {
     await eventStore.append(featureId, {

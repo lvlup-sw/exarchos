@@ -1,9 +1,7 @@
-// ─── Debug Review Gate ───────────────────────────────────────────────────────
-//
-// Verifies that a debug fix has proper test coverage for the bug scenario.
-// Checks for new test files in the diff and optionally runs the test suite.
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * The debug review gate. It checks that the diff of a debug fix changes at least one test file. It runs
+ * `npm run test:run` when the diff is not empty and `skipRun` is not set.
+ */
 import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../../utils/process.js';
 import { existsSync } from 'node:fs';
@@ -12,8 +10,6 @@ import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
-
-// ─── Types ──────────────────────────────────────────────────────────────────
 
 export interface DebugReviewGateArgs {
   /** The stream the gate's durable evidence is recorded against. */
@@ -29,12 +25,12 @@ interface CheckCounts {
   skip: number;
 }
 
-// ─── Constants ──────────────────────────────────────────────────────────────
-
 const TEST_FILE_PATTERN = /\.(test|spec)\.(ts|js|sh)$/;
 
-// ─── Handler ────────────────────────────────────────────────────────────────
-
+/**
+ * Runs the gate through the shared phase-gate runner, which records durable gate evidence before a
+ * success carrier returns. The action declares no catalog emission, so the gate appends no `gate.executed` row.
+ */
 export async function handleDebugReviewGate(
   args: DebugReviewGateArgs,
   stateDir: string,
@@ -47,11 +43,6 @@ export async function handleDebugReviewGate(
     };
   }
 
-  // The gate declares durable gate evidence as a postcondition and appended
-  // nothing, so every postcondition-observing caller read a success carrier
-  // that had broken its own contract. Routing through the shared phase-gate
-  // runner records the evidence before any success carrier escapes; the action
-  // declares no catalog emission, so no `gate.executed` row is minted here.
   return runPhaseGateWithEvidence({
     streamId: args.featureId,
     gateClass: 'debug-review',
@@ -74,7 +65,6 @@ export async function handleDebugReviewGate(
 }
 
 function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
-  // Validate required args
   if (!args.repoRoot) {
     return {
       success: false,
@@ -101,8 +91,6 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
 
   const checks: CheckCounts = { pass: 0, fail: 0, skip: 0 };
   const results: string[] = [];
-
-  // ─── Check 1: New test files added ──────────────────────────────────────
 
   const changedFiles = getChangedFiles(args.repoRoot, args.baseBranch);
 
@@ -138,8 +126,6 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
     }
   }
 
-  // ─── Check 2: Tests pass ────────────────────────────────────────────────
-
   if (args.skipRun) {
     results.push('- **SKIP**: Tests pass (--skip-run)');
     checks.skip++;
@@ -157,8 +143,6 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
     checks.skip++;
   }
 
-  // ─── Build report ──────────────────────────────────────────────────────
-
   const passed = checks.fail === 0;
   const total = checks.pass + checks.fail;
   const report = buildReport(args.repoRoot, args.baseBranch, results, checks, passed, total);
@@ -169,8 +153,7 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
   };
 }
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
+/** Lists the files changed since `baseBranch` with a three-dot diff, then a two-dot diff. It returns `null` when both fail. */
 function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null {
   try {
     const output = execFileSync(
@@ -183,7 +166,6 @@ function getChangedFiles(repoRoot: string, baseBranch: string): string[] | null 
       .split('\n')
       .filter((line) => line.length > 0);
   } catch {
-    // Fallback: try two-dot diff
     try {
       const output = execFileSync(
         'git',

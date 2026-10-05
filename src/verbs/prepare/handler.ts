@@ -1,23 +1,16 @@
-// ─── `prepare` — compiling a workflow's outstanding work into a capsule ─────
-//
-// The first of the semantic plane's two calls. It reads the workflow, compiles
-// the batch of work still to be delegated into an immutable capsule, puts the
-// capsule in custody, and records `workflow.prepared` pinning its digest. The
-// harness then runs the batch with no governance calls, and `settle` judges
-// what comes back against exactly this capsule.
-//
-// Every refusal happens before any effect, and the order of the questions is
-// the order a caller has to fix them in: is there a workflow, is it one this
-// compiler can lower, is it at the point where its work can be batched, is the
-// plan itself sound, and does the workflow name the branch its tasks fork
-// from. Only a compilation that passes all of them reaches custody.
-//
-// A PREPARATION IS KEYED BY ITS INPUTS. The claim key is the digest of what
-// the capsule was compiled from — the definition, the batch, the bound
-// invariants, the design reference, the base — so a retry after a timeout
-// returns the capsule already recorded instead of compiling a second version
-// of the same terms. Changed inputs are a different preparation, and get the
-// next version.
+/**
+ * `prepare` compiles the outstanding work of a workflow into a capsule.
+ *
+ * It is the first of the two semantic plane calls. It compiles the batch that
+ * waits for delegation into an immutable capsule. Then it puts the capsule in
+ * custody and records `workflow.prepared` with the capsule digest. The harness
+ * runs the batch with no governance calls, and `settle` judges the results
+ * against this capsule.
+ *
+ * Every refusal occurs before any effect. The workflow must name the branch that its tasks fork from.
+ * The claim key is the digest of the compilation inputs, the base included, so a retry returns the
+ * recorded capsule. Changed inputs get the next capsule version.
+ */
 
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
@@ -47,15 +40,14 @@ import type { PreparedCapsuleReceipt, PrepareRefusal } from './types.js';
 /** The workflow type whose delegation batch this compiler knows how to compile. */
 const PREPARABLE_WORKFLOW_TYPE = 'feature';
 
-/** The runbook settlement composes per accepted task; its leaves' needs are the batch's. */
+/** The runbook that settlement composes for each accepted task. Its leaf needs are the batch needs. */
 const SETTLEMENT_SEGMENT_INTENT = 'task-completion';
 
 /**
- * The capabilities a runtime must hold to run a batch through the plane: what
- * `settle` itself declares it needs, and what every leaf of the segment it
- * composes declares. Read off the registry so the profile cannot drift from
- * the contracts it stands for; a runtime refused here is refused before it
- * fans out, rather than at settlement after the work is done.
+ * The capabilities a runtime must hold to run a batch through the plane.
+ * They are the needs that `settle` declares, plus the needs of each registry
+ * step in the settlement segment. The registry is the source, so the profile
+ * cannot drift. A runtime without them is refused before it fans out.
  */
 export function planeExecutionCapabilities(): readonly string[] {
   const needs = new Set<string>();
@@ -74,9 +66,8 @@ export function planeExecutionCapabilities(): readonly string[] {
 }
 
 /**
- * The capabilities the calling runtime is known to hold: the trusted caller
- * snapshot the dispatch minted, the same grant admission reads. No snapshot
- * is no grant — a caller nothing vouched for holds nothing here.
+ * The capabilities of the calling runtime, from the trusted caller snapshot of
+ * the dispatch. Admission reads the same grant. Without a snapshot, the set is empty.
  */
 function heldCapabilities(): ReadonlySet<string> {
   return new Set(getDispatchContext()?.authorization?.capabilities ?? []);
@@ -126,10 +117,9 @@ const SET_INTEGRATION_BRANCH =
   'updates: { "synthesis.integrationBranch": "<the branch the tasks fork from>" } })';
 
 /**
- * The branch every task of the batch forks from: the workflow's recorded
- * integration branch. Refused rather than guessed, because a guessed base
- * measures a task's diff against the wrong commit, and the kill probe then
- * proves or disproves work the task did not do.
+ * The branch that each task of the batch forks from: the recorded integration branch of the workflow.
+ * A missing branch is refused, not guessed. A guessed base measures the task diff against the wrong
+ * commit, and the kill probe then judges work that the task did not do.
  */
 function resolveBaseRef(
   streamId: string,
@@ -163,12 +153,11 @@ function resolveBaseRef(
 }
 
 /**
- * The repository's resolved invariants, by id and summary.
+ * The resolved invariants of the repository, by id and summary.
  *
- * A configuration that fails to load degrades to no configuration rather than
- * refusing the compilation: the built-in authority is already a settleable
- * floor, and the invariant gate treats an unreadable `.exarchos.yml` the same
- * way.
+ * A configuration that fails to load counts as no configuration, and the
+ * compilation continues. The built-in authority is already a settleable floor.
+ * The invariant gate treats an unreadable `.exarchos.yml` the same way.
  */
 function resolvedCatalogInvariants(
   workflowType: string,
@@ -185,6 +174,16 @@ function resolvedCatalogInvariants(
   return entries.map((entry) => ({ id: entry.id, summary: entry.summary }));
 }
 
+/**
+ * Compiles the delegation batch of a workflow into a capsule and records it.
+ *
+ * The handler reads the stream before it folds the state. The stream tail is
+ * the expected sequence of the commit, so the store refuses the commit after a
+ * concurrent append. The commit announces only the batch tasks that the stream
+ * has not seen, because a second `task.assigned` moves a task back to `assigned`.
+ * The runtime check occurs before compilation. The verification sequence is a
+ * compilation input, so a policy change compiles the next version.
+ */
 export async function handlePrepare(
   raw: Record<string, unknown>,
   _stateDir: string,
@@ -195,11 +194,6 @@ export async function handlePrepare(
   if (!subject.ok) return invalid(subject.message);
   const { streamId } = subject;
 
-  // The stream is read BEFORE the state is folded, and its tail becomes the
-  // commit's expected sequence. Anything appended in between — including a
-  // concurrent preparation claiming the same version — moves the tail, and the
-  // commit is refused rather than recording a capsule compiled from a state
-  // that was already stale.
   const events = await ctx.eventStore.query(streamId);
   if (events.length === 0) {
     return refused({ code: 'WORKFLOW_NOT_FOUND', message: `no workflow is recorded for '${streamId}'` });
@@ -240,20 +234,11 @@ export async function handlePrepare(
   if (!base.ok) return refused(base.refusal);
   const { baseRef } = base;
 
-  // Announced in the same commit as the record, and once: a task the stream
-  // has already heard of — from an earlier compilation, or by hand — is not
-  // announced again, because the projection reads a second announcement as
-  // the task returning to `assigned`. Not part of the replay key: rows are
-  // only ever added, so the same inputs under a stream that has since heard
-  // of a task have nothing left to announce.
   const heard = announcedTaskIds(events);
   const announce = batch.tasks
     .filter((task) => !heard.has(task.taskId))
     .map((task) => ({ taskId: task.taskId, title: task.title }));
 
-  // The runtime is measured against the profile BEFORE anything is compiled
-  // or recorded: a harness that cannot settle what it is about to dispatch
-  // should learn so before it dispatches.
   const capabilities = planeExecutionCapabilities();
   const held = heldCapabilities();
   const missing = capabilities.filter((capability) => !capabilityNeedSatisfied(held, capability));
@@ -270,20 +255,12 @@ export async function handlePrepare(
   const artifacts = isRecord(state.artifacts) ? state.artifacts : {};
   const designRef =
     typeof artifacts.design === 'string' && artifacts.design.length > 0 ? artifacts.design : undefined;
-  // Resolved from the workspace the call was dispatched for, which is not
-  // necessarily the directory the serving process started in.
   const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(
     workflowType,
     phase,
     ctx.cwd ?? process.cwd(),
   );
 
-  // Through the policy's one composer, with the dispatched project's
-  // overrides applied: the sequence the capsule states is the sequence the
-  // gates' own self-skip routing will honour at settlement. Resolved ahead
-  // of the digest, because the terms are inputs to the compilation: a
-  // policy that changes under an unchanged plan compiles the next version
-  // rather than replaying a capsule that states the old sequence.
   const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
     resolveVerificationPolicy(riskTier, boundaryTouching, ctx.projectConfig).sequence;
   const verificationTerms = verificationProfiles(batch).map((profile) => ({
@@ -307,8 +284,6 @@ export async function handlePrepare(
   const requestDigest = canonicalRequestDigest(inputs);
 
   return runExclusivePerOperation(operationId, async (): Promise<ToolResult> => {
-    // Replay pre-flight. The key IS the digest of the inputs, so a claim under
-    // it records a compilation of exactly these terms.
     const claim = ctx.eventStore
       .getAppender()
       .ensureSqliteBackendSync()
