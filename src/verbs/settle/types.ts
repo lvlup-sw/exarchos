@@ -77,8 +77,11 @@ export interface SettlementReceipt {
   readonly outcome: SettlementOutcome;
   /**
    * Under `settled`, `accepted-with-rationale` and `corrective-capsule`, the claimed tasks that
-   * are recorded complete. Under each other outcome nothing was verified, and the list holds the
-   * tasks whose claims the shape pass found no fault in.
+   * are recorded complete. Under each other outcome this build verifies nothing, and the list
+   * holds the tasks whose claims the shape pass found no fault in.
+   *
+   * A replay can return a `rejected` receipt that an earlier build stored after a failed
+   * verification. The list of that receipt holds the tasks that are recorded complete.
    */
   readonly acceptedTasks: readonly string[];
   readonly findings: readonly SettlementFinding[];

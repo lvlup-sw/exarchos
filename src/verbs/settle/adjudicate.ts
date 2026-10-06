@@ -122,7 +122,12 @@ function outcomeNames<const Names extends readonly [string, ...string[]]>(...nam
 
 /**
  * Every settlement outcome. Each closed enum of the outcome is built from this list.
- * The first three names are the ones that stored rows, bundles and replayed claims carry, and their meaning does not change.
+ *
+ * The first three names are the ones that stored rows, bundles and replayed claims carry.
+ * `settled` and `deviation-pending` keep their meaning. `rejected` is narrower than in an earlier build.
+ * A `rejected` row, bundle or claim of an earlier build can also record a superseded claim.
+ * It can also record a failed verification, and the tasks that passed are then recorded complete.
+ *
  * `recompile-required` is a batch on a capsule that a later revision replaced.
  * `corrective-capsule` is a batch with a task that is not complete, while the tasks that passed are complete.
  * `accepted-with-rationale` is a complete batch in which a claim records a delegated choice.
