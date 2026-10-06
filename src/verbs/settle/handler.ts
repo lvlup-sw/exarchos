@@ -706,15 +706,18 @@ async function verifyTask(
 }
 
 /**
- * The refusal of a submitted batch that carries no claim. A recorded completion satisfies a required
- * result, so a batch with no claim has nothing to adjudicate. The caller checks after the replay
- * lookup, so a batch with no claim that an earlier build recorded still returns its verdict.
+ * The refusal of a submitted batch that carries no claim. The message names the next call for each
+ * state. A batch claims each required task that is not complete. When every required task is
+ * complete, a claim for one of them comes back `already-complete`. A held batch gets its decisions
+ * with no claim. The handler checks after the replay lookup, so a batch with no claim that an
+ * earlier build recorded still returns its verdict.
  */
 function claimlessBatch(batchLabel: string): ToolResult {
   return invalid(
-    `${batchLabel} carries no claim, and a submitted batch carries at least one. A task that is ` +
-      'recorded complete needs no claim, so a batch with no claim has nothing to adjudicate. Claim ' +
-      'the tasks that are not complete, or decide a held batch with `decisions`.',
+    `${batchLabel} carries no claim, and a submitted batch carries at least one. Claim each ` +
+      'required task that is not complete. When every required task is complete, claim one of ' +
+      'them: settlement runs no gate again for a complete task and returns it as ' +
+      '`already-complete`. To decide a held batch, send `decisions` only.',
   );
 }
 

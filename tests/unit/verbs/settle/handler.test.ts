@@ -3146,9 +3146,13 @@ describe('settle — a required result that the stream shows complete', () => {
   });
 
   /**
-   * The stream shows both required tasks complete, so a batch with no claim has no finding to get.
-   * It is refused as invalid input in each spelling, and it leaves no row, no blob and no claim.
-   * The same batch id then carries a claim and settles, with both requirements already complete.
+   * The stream shows both required tasks complete, so the batch has no open task to claim.
+   * A batch with no claim is refused as invalid input in each spelling, also when it carries a
+   * deviation. The refusal leaves no row, no blob and no claim.
+   *
+   * The message names the call that works in this state, which is a claim for a complete task.
+   * It also names the call that decides a held batch. The same batch id then carries a claim for
+   * a complete task and settles, with both requirements already complete.
    */
   it('Settle_ASubmittedBatchWithNoClaim_IsRefusedAsInvalidInput', async () => {
     await recordCompletion('task-verify');
@@ -3162,6 +3166,9 @@ describe('settle — a required result that the stream shows complete', () => {
       expect(result.success, JSON.stringify(body)).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('carries no claim');
+      expect(result.error?.message).toContain('claim one of them');
+      expect(result.error?.message).toContain('`already-complete`');
+      expect(result.error?.message).toContain('send `decisions` only');
     }
     expect(await store.query(STREAM)).toHaveLength(tail);
     expect(await bundleBlobCount()).toBe(blobs);
