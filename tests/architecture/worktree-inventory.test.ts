@@ -42,20 +42,49 @@ async function liveWorktreeCount(): Promise<number> {
     .filter((line) => line.startsWith('worktree ')).length;
 }
 
-const worktreesAtCollection = await liveWorktreeCount();
+/**
+ * Describes the defect of an inventory whose record count differs from its total.
+ * Returns nothing for a consistent inventory.
+ */
+function recordCountDefect(candidate: Inventory): string | undefined {
+  const { records, total } = candidate.worktrees;
+
+  return records.length === total
+    ? undefined
+    : `the inventory holds ${records.length} records but its total is ${total}`;
+}
 
 describe('worktree inventory', () => {
-  /**
-   * The committed inventory is a snapshot of a machine with many worktrees. A CI checkout has
-   * one worktree, so this test skips there. A partial inventory is a hazard, because an
-   * omitted worktree looks like one that does not exist.
-   */
-  it.skipIf(worktreesAtCollection <= 1)('WorktreeInventory_EveryRegisteredWorktree_IsRecorded', async () => {
-    const registered = await liveWorktreeCount();
-
-    expect(inventory.worktrees.records).toHaveLength(inventory.worktrees.total);
-    expect(inventory.worktrees.total).toBe(registered);
+  /** A partial inventory is a hazard, because an omitted worktree looks like one that does not exist. */
+  it('WorktreeInventory_RecordCount_EqualsItsTotal', () => {
+    expect(recordCountDefect(inventory)).toBeUndefined();
   });
+
+  /** The seeded copy is one record short, which proves that the record count check can fail. */
+  it('WorktreeInventory_SeededShortInventory_IsRejected', () => {
+    const short = {
+      ...inventory,
+      worktrees: { ...inventory.worktrees, records: inventory.worktrees.records.slice(1) },
+    } satisfies Inventory;
+
+    expect(recordCountDefect(short)).toBeDefined();
+  });
+
+  /**
+   * The committed inventory is a dated snapshot of one machine, and each new worktree changes
+   * the live count. Thus the comparison runs only when `EXARCHOS_WORKTREE_AUDIT` is set.
+   */
+  it.skipIf(!process.env.EXARCHOS_WORKTREE_AUDIT)(
+    'WorktreeInventory_LiveAudit_ComparesTheSnapshotWithTheMachineWhenAsked',
+    async () => {
+      const registered = await liveWorktreeCount();
+
+      expect(
+        inventory.worktrees.total,
+        `the snapshot records ${inventory.worktrees.total} worktrees but this machine registers ${registered}`,
+      ).toBe(registered);
+    },
+  );
 
   /** The inventory must not get a destructive mode later. */
   it('WorktreeInventory_Disposition_IsInventoryOnly', () => {
