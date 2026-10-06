@@ -38,6 +38,24 @@ export interface PrepareRefusal {
   readonly message: string;
 }
 
+/**
+ * The recompile that a continuation prepare recorded, as its receipt names it. The versions and
+ * the two task lists are those of the `capsule.recompiled` row. The capsule that the receipt
+ * carries is the recompiled one.
+ */
+export interface PreparedRecompile {
+  /** The capsule version of the latest prepared record before this prepare. */
+  readonly priorCapsuleVersion: number;
+  /** The design version before the first revision that this prepare is the continuation of. */
+  readonly priorDesignVersion: number;
+  /** The design version after the last of those revisions. The capsule is compiled under it. */
+  readonly nextDesignVersion: number;
+  /** The tasks that those revisions name, each one once, sorted. */
+  readonly declaredTasks: readonly string[];
+  /** The unfinished tasks that the change reaches, in plan order. A later prepare compiles each one that is not ready. */
+  readonly invalidatedTasks: readonly string[];
+}
+
 /** What one `prepare` call returns: the capsule, and how to find it again. */
 export interface PreparedCapsuleReceipt {
   readonly operationId: string;
@@ -54,4 +72,9 @@ export interface PreparedCapsuleReceipt {
    * A claim that an older build wrote must not become an adapter error.
    */
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
+  /**
+   * On the first prepare after a design revision: the recompile that it recorded. It is present
+   * exactly when the commit of this capsule held a `capsule.recompiled` row. A replay repeats it.
+   */
+  readonly recompile?: PreparedRecompile;
 }

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1317,
-    "parsedFiles": 1271,
+    "testFiles": 1319,
+    "parsedFiles": 1273,
     "shellFiles": 46,
-    "cases": 14520,
+    "cases": 14538,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -60204,6 +60204,27 @@
         }
       ]
     },
+    "tests/unit/verbs/prepare/economy.test.ts": {
+      "file": "tests/unit/verbs/prepare/economy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_ACappedContinuationReceipt_KeepsTheRecompile",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_ASummaryOverTheBudget_LosesItsTaskPageBeforeAnyRecompileTask",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped prepare receipt",
+          "name": "PrepareEconomy_ARecompileOverTheBudget_KeepsItsVersionsAndTheFirstPageOfEachList",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/prepare/handler.test.ts": {
       "file": "tests/unit/verbs/prepare/handler.test.ts",
       "runner": "vitest:root",
@@ -60473,6 +60494,87 @@
         {
           "suite": "delegation batch partition",
           "name": "Partition_AMissingTitle_FallsBackToTheTaskId",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/recompiled-slice.test.ts": {
+      "file": "tests/unit/verbs/prepare/recompiled-slice.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_ADependentTwoEdgesFromASeed_IsInvalidated",
+          "dynamic": false
+        },
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_AnUnrelatedTask_IsNotInvalidated",
+          "dynamic": false
+        },
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_AFinishedTask_IsNeverInvalidated",
+          "dynamic": false
+        },
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_ATaskBehindAFinishedTask_IsNotInvalidated",
+          "dynamic": false
+        },
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_ASeedThePlanLacksOrThatHasFinished_IsDeclaredButNotInvalidated",
+          "dynamic": false
+        },
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_TasksThatWaitOnEachOther_TerminateAndAreBothInvalidated",
+          "dynamic": false
+        },
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_EveryInvalidatedTask_IsAnUnfinishedSeedOrDirectlyDependsOnOne",
+          "dynamic": false
+        },
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_EveryUnfinishedDirectDependentOfTheSlice_IsInTheSlice",
+          "dynamic": false
+        },
+        {
+          "suite": "the recompiled slice of a plan",
+          "name": "Slice_AnEntryThePlanReaderRefuses_IsNotATaskOfThePlan",
+          "dynamic": false
+        },
+        {
+          "suite": "the pending revision of a stream",
+          "name": "PendingRevision_ARevisionBeforeTheLatestPreparedRecord_IsNotPending",
+          "dynamic": false
+        },
+        {
+          "suite": "the pending revision of a stream",
+          "name": "PendingRevision_TwoRevisions_UniteTheirSeedsAndSpanBothVersions",
+          "dynamic": false
+        },
+        {
+          "suite": "the pending revision of a stream",
+          "name": "PendingRevision_AStreamWithNoRevision_HasNone",
+          "dynamic": false
+        },
+        {
+          "suite": "the pending revision of a stream",
+          "name": "PendingRevision_ARevisionThatNamesNoTask_IsPendingWithNoTask",
+          "dynamic": false
+        },
+        {
+          "suite": "the pending revision of a stream",
+          "name": "PendingRevision_ARevisionWithNoPreparedRecord_IsNotPending",
+          "dynamic": false
+        },
+        {
+          "suite": "the pending revision of a stream",
+          "name": "PendingRevision_APendingRowOrTheLatestRecordTheSchemaRefuses_ThrowsAndIsNotSkipped",
           "dynamic": false
         }
       ]

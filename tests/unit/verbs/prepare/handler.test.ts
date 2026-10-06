@@ -5,8 +5,8 @@
 // and those bytes read back as the capsule that the receipt returned. A retry gets its answer
 // from the durable claim. Each refusal leaves the store unchanged.
 //
-// One case needs a design revision on the stream. The row comes from a real decision round of
-// `settle`, because `settle` is the one writer of that row.
+// The continuation cases need a design revision on the stream. Each row comes from a real decision
+// round of `settle`, because `settle` is the one writer of that row.
 //
 // @oracle-sources: ../../../../src/verbs/prepare/handler.ts, the prepared bundle read back out of the content-addressed store and re-digested rather than compared with the in-process capsule
 
@@ -31,9 +31,16 @@ import {
   runWithDispatchContext,
 } from '../../../../src/dispatch/dispatch-context.js';
 import type { RunBundleStore } from '../../../../src/events/bundle/run-bundle-store.js';
-import { DesignRevisedData, WorkflowPreparedData, type DesignRevised } from '../../../../src/events/schemas.js';
+import {
+  CapsuleRecompiledData,
+  DesignRevisedData,
+  WorkflowPreparedData,
+  type CapsuleRecompiled,
+  type DesignRevised,
+} from '../../../../src/events/schemas.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
+import { findActionInRegistry } from '../../../../src/registry.js';
 import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { productionExecuteDeps } from '../../../../src/verbs/execute/executor.js';
 import type { CatalogInvariant } from '../../../../src/verbs/prepare/bind-authority.js';
@@ -108,6 +115,11 @@ const INTEGRATION_BRANCH = 'feature/prepare-unit';
 /** The artifacts that the seeded workflow records when a case names none. */
 const SEEDED_ARTIFACTS: Readonly<Record<string, unknown>> = { design: 'docs/specs/prepare-unit.md' };
 
+/** A plan in the form of the workflow state. */
+function planEntries(tasks: readonly SeedTask[]): Record<string, unknown>[] {
+  return tasks.map((t) => ({ id: t.id, title: `title of ${t.id}`, status: t.status, blockedBy: t.blockedBy ?? [] }));
+}
+
 /** A feature workflow standing in `delegate` with the given plan and, unless told otherwise, an integration branch. */
 async function seedDelegatingFeature(
   tasks: readonly SeedTask[],
@@ -123,10 +135,15 @@ async function seedDelegatingFeature(
       patch: {
         ...Object.fromEntries(Object.entries(artifacts).map(([key, value]) => [`artifacts.${key}`, value])),
         ...(integrationBranch !== null ? { 'synthesis.integrationBranch': integrationBranch } : {}),
-        tasks: tasks.map((t) => ({ id: t.id, title: `title of ${t.id}`, status: t.status, blockedBy: t.blockedBy ?? [] })),
+        tasks: planEntries(tasks),
       },
     },
   });
+}
+
+/** Puts another plan in place of the plan of a seeded stream, as a plan revision does. */
+async function replan(tasks: readonly SeedTask[], streamId = STREAM): Promise<void> {
+  await store.append(streamId, { type: 'state.patched', data: { patch: { tasks: planEntries(tasks) } } });
 }
 
 async function preparedRows(streamId = STREAM): Promise<Record<string, unknown>[]> {
@@ -255,6 +272,150 @@ async function settle(raw: Record<string, unknown>): Promise<SettlementReceipt> 
 async function revisionRows(): Promise<DesignRevised[]> {
   const events = await store.query(STREAM);
   return events.filter((e) => e.type === 'design.revised').map((e) => DesignRevisedData.parse(e.data));
+}
+
+/** The recompile rows of a stream, each parsed through the row schema. */
+async function recompileRows(streamId = STREAM): Promise<CapsuleRecompiled[]> {
+  const events = await store.query(streamId);
+  return events.filter((e) => e.type === 'capsule.recompiled').map((e) => CapsuleRecompiledData.parse(e.data));
+}
+
+/** The number of rows on a stream. A case reads it before a call, to find the rows that the call appended. */
+async function rowCount(streamId = STREAM): Promise<number> {
+  return (await store.query(streamId)).length;
+}
+
+/** The rows that a stream holds after its first `count` rows, in commit order. */
+async function rowsAfter(count: number, streamId = STREAM): Promise<Awaited<ReturnType<EventStore['query']>>> {
+  return (await store.query(streamId)).slice(count);
+}
+
+/** The ids of the tasks that a stream announced, in commit order. */
+async function announcedTasks(streamId = STREAM): Promise<string[]> {
+  const events = await store.query(streamId);
+  return events
+    .filter((e) => e.type === 'task.assigned')
+    .map((e) => String((e.data as { taskId?: unknown } | undefined)?.taskId));
+}
+
+/**
+ * A bundle store that moves the stream before each commit. The row lands after the handler reads
+ * the stream tail and before the record commits, which is where a concurrent append lands.
+ */
+function racingBundleStore(): RunBundleStore {
+  const real = store.bundleStore;
+  const racing: RunBundleStore = Object.create(real);
+  racing.putThenReference = async (artifactId, bytes, commit) => {
+    await store.append(STREAM, { type: 'state.patched', data: { patch: { 'artifacts.notes': 'moved' } } });
+    return real.putThenReference(artifactId, bytes, commit);
+  };
+  return racing;
+}
+
+/** One `prepare` call for the seeded stream whose commit loses the race for the stream tail. */
+async function prepareThroughARace(): Promise<ToolResult> {
+  return runWithDispatchContext(correlation(), () =>
+    handlePrepare({ featureId: STREAM }, stateDir, wiring(), {
+      bundleStore: racingBundleStore(),
+      catalogInvariants: () => [],
+      now: () => COMPILED_AT,
+    }),
+  );
+}
+
+/**
+ * The plan of the continuation cases. The first capsule holds the two ready tasks. A revision can
+ * name each of the last three tasks, because they are unfinished and outside that batch.
+ */
+const CONTINUATION_PLAN: readonly SeedTask[] = [
+  { id: 'task-done', status: 'complete' },
+  { id: 'task-ready', status: 'pending', blockedBy: ['task-done'] },
+  { id: 'task-open', status: 'pending' },
+  { id: 'task-named', status: 'pending', blockedBy: ['task-ready'] },
+  { id: 'task-after', status: 'pending', blockedBy: ['task-named'] },
+  { id: 'task-apart', status: 'pending', blockedBy: ['task-open'] },
+];
+
+/** A copy of a plan in which the named tasks are complete. */
+function completing(plan: readonly SeedTask[], ...taskIds: readonly string[]): SeedTask[] {
+  return plan.map((task) => (taskIds.includes(task.id) ? { ...task, status: 'complete' } : task));
+}
+
+/**
+ * Records one design revision through a real decision round of `settle` on a prepared capsule.
+ * The batch claims each task of the capsule and is held with two deviations. The decision accepts
+ * the material one, which names the affected tasks, and rejects the other.
+ * So the round records the revision, rejects the batch with nothing run, and leaves the plan as it was.
+ */
+async function revise(
+  prepared: PreparedCapsuleReceipt,
+  batchId: string,
+  affectedTasks: readonly string[],
+): Promise<DesignRevised> {
+  const batch = { capsuleVersion: prepared.capsuleVersion, batchId };
+  const held = await settle({
+    ...batch,
+    claims: prepared.capsule.graph.tasks.map((task) => ({
+      taskId: task.taskId,
+      fields: { worktreePath: '/nonexistent-prepare-worktree' },
+      evidence: [],
+    })),
+    deviations: [
+      {
+        deviationKind: 'invalidated-assumption',
+        statement: 'the store was not SQLite',
+        ...(affectedTasks.length > 0 ? { affectedTasks } : {}),
+      },
+      { deviationKind: 'missing-context', statement: 'the capsule did not name the port' },
+    ],
+  });
+  expect(held.outcome).toBe('deviation-pending');
+  const before = (await revisionRows()).length;
+
+  const decided = await settle({
+    ...batch,
+    decisions: (held.pendingDeviations ?? []).map((pending) => ({
+      deviationId: pending.deviationId,
+      decision: pending.deviationKind === 'invalidated-assumption' ? 'accepted' : 'rejected',
+      actor: 'human:reviewer',
+      rationale: 'the assumption was wrong, and the capsule did name the port',
+    })),
+  });
+  expect(decided.outcome).toBe('rejected');
+  expect(decided.verification).toEqual([]);
+
+  const rows = await revisionRows();
+  expect(rows).toHaveLength(before + 1);
+  const row = rows.at(-1);
+  if (row === undefined) throw new Error(`the decision of '${batchId}' committed no revision`);
+  expect(row.affectedTasks).toEqual([...new Set(affectedTasks)].sort());
+  expect(row.bundleRefs).toEqual(decided.bundleRefs);
+  return row;
+}
+
+interface Continuation {
+  /** The receipt of the prepare before the revisions. */
+  readonly first: PreparedCapsuleReceipt;
+  /** The receipt of the prepare after them. */
+  readonly next: PreparedCapsuleReceipt;
+  /** The rows that the prepare after the revisions appended, in commit order. */
+  readonly appended: Awaited<ReturnType<EventStore['query']>>;
+}
+
+/**
+ * Seeds the continuation plan and prepares it. Then it records one revision for each list of
+ * affected tasks, each on the first capsule, and prepares again.
+ */
+async function continuationAfter(...revisions: readonly (readonly string[])[]): Promise<Continuation> {
+  await seedDelegatingFeature(CONTINUATION_PLAN);
+  const first = receiptOf(await prepare({ featureId: STREAM }));
+  expect(first.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-ready', 'task-open']);
+  for (const [index, affectedTasks] of revisions.entries()) {
+    await revise(first, `batch-revising-${index}`, affectedTasks);
+  }
+  const before = await rowCount();
+  const next = receiptOf(await prepare({ featureId: STREAM }));
+  return { first, next, appended: await rowsAfter(before) };
 }
 
 describe('prepare — the compilation endpoint', () => {
@@ -669,20 +830,8 @@ describe('prepare — the compilation endpoint', () => {
    */
   it('Prepare_AStreamThatMovesBeforeTheCommit_LosesTheVersionAndLeavesNoClaim', async () => {
     await seedDelegatingFeature(PLAN);
-    const real = store.bundleStore;
-    const racing: RunBundleStore = Object.create(real);
-    racing.putThenReference = async (artifactId, bytes, commit) => {
-      await store.append(STREAM, { type: 'state.patched', data: { patch: { 'artifacts.notes': 'moved' } } });
-      return real.putThenReference(artifactId, bytes, commit);
-    };
 
-    const lost = await runWithDispatchContext(correlation(), () =>
-      handlePrepare({ featureId: STREAM }, stateDir, wiring(), {
-        bundleStore: racing,
-        catalogInvariants: () => [],
-        now: () => COMPILED_AT,
-      }),
-    );
+    const lost = await prepareThroughARace();
     expect(lost.success, JSON.stringify(lost)).toBe(false);
     if (!lost.success) expect(lost.error.code).toBe('CONCURRENCY_CONFLICT');
     expect(await preparedRows()).toEqual([]);
@@ -797,5 +946,330 @@ describe('prepare — the compilation endpoint', () => {
     it('Prepare_NoSubject_IsRefused', async () => {
       await expectRefused(await prepare({}), 'INVALID_INPUT');
     });
+  });
+});
+
+/** The recompile of a continuation after one revision that names the task that is not ready. */
+const NAMED_RECOMPILE = {
+  priorCapsuleVersion: 1,
+  priorDesignVersion: 1,
+  nextDesignVersion: 2,
+  declaredTasks: ['task-named'],
+  invalidatedTasks: ['task-named', 'task-after'],
+};
+
+/** A response in the form that a carrier parses against the declared output schema. */
+function wireEnvelopeOf(data: unknown): unknown {
+  return JSON.parse(
+    JSON.stringify({ success: true, data, next_actions: [], _meta: {}, _perf: { ms: 0, bytes: 0, tokens: 0 } }),
+  );
+}
+
+/** The error code of a refused call, or undefined for a call that succeeded. */
+function refusalCodeOf(result: ToolResult): string | undefined {
+  return result.success ? undefined : result.error?.code;
+}
+
+/**
+ * The first prepare after a design revision is a continuation. It compiles the ready frontier as
+ * an ordinary prepare does, and its commit also holds one `capsule.recompiled` row.
+ *
+ * In most cases the revision names the task that waits on a task of the first batch. Thus the
+ * named task is not ready at the continuation, and one more task waits on it.
+ */
+describe('prepare — the continuation after a design revision', () => {
+  /**
+   * The continuation appends two rows: the recompile row, and then the prepared record. Both tasks
+   * of the batch have announcements from the first prepare, so the commit announces nothing.
+   * The row names the capsule of its commit by version and digest, and it references the same
+   * bundle as the record. The test reads that bundle back from custody.
+   */
+  it('Prepare_AContinuation_RecordsTheSliceAheadOfThePreparedRecord', async () => {
+    const { next, appended } = await continuationAfter(['task-named']);
+    expect(next.capsuleVersion).toBe(2);
+    expect(next.capsule.identity.designVersion).toBe('design-v2');
+    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-ready', 'task-open']);
+
+    expect(appended.map((e) => e.type)).toEqual(['capsule.recompiled', 'workflow.prepared']);
+    const [row, record] = appended;
+    if (row === undefined || record === undefined) throw new Error('unreachable');
+    const recompiled = CapsuleRecompiledData.parse(row.data);
+    expect(recompiled).toStrictEqual({
+      operationId: next.operationId,
+      workflowId: STREAM,
+      capsuleVersion: 2,
+      capsuleDigest: next.capsuleDigest,
+      ...NAMED_RECOMPILE,
+      bundleRefs: next.bundleRefs,
+    });
+    expect(row.timestamp).toBe(COMPILED_AT);
+    expect(record.sequence).toBe(row.sequence + 1);
+    expect(next.tailSequence).toBe(record.sequence);
+
+    const prepared = WorkflowPreparedData.parse(record.data);
+    expect(prepared.capsuleVersion).toBe(2);
+    expect(prepared.capsuleDigest).toBe(recompiled.capsuleDigest);
+    expect(prepared.bundleRefs).toEqual(recompiled.bundleRefs);
+    const digest = recompiled.bundleRefs[0]?.digest;
+    if (digest === undefined) throw new Error('the recompile row references no bundle');
+    expect(await store.bundleStore.has(digest)).toBe('ok');
+    const found = await findPreparedCapsule(wiring(), STREAM, 2);
+    if (!found.found) throw new Error('the recompiled capsule was not found');
+    expect(capsuleDigest(found.capsule)).toBe(recompiled.capsuleDigest);
+  });
+
+  /**
+   * The receipt of the first prepare has no recompile. The receipt of the continuation has the
+   * versions and the two task lists of its row. The output schema that the registry declares
+   * accepts the receipt, and it refuses a recompile whose task list is not a list.
+   */
+  it('Prepare_AContinuationReceipt_CarriesTheRecompile', async () => {
+    const { first, next } = await continuationAfter(['task-named']);
+    expect(first).not.toHaveProperty('recompile');
+    expect(next.recompile).toStrictEqual(NAMED_RECOMPILE);
+    expect(await recompileRows()).toMatchObject([NAMED_RECOMPILE]);
+
+    const declared = findActionInRegistry('exarchos_orchestrate', 'prepare')?.outputSchema;
+    if (declared === undefined) throw new Error('the registry declares no output schema for prepare');
+    expect(declared.safeParse(wireEnvelopeOf(first)).success).toBe(true);
+    expect(declared.safeParse(wireEnvelopeOf(next)).success).toBe(true);
+    const malformed = { ...next, recompile: { ...NAMED_RECOMPILE, invalidatedTasks: 'task-named' } };
+    expect(declared.safeParse(wireEnvelopeOf(malformed)).success).toBe(false);
+  });
+
+  /**
+   * Both revisions come before the continuation, so one row records them. The row spans the
+   * design versions of both. One task is in both revisions, and the row declares it once.
+   */
+  it('Prepare_TwoRevisionsBeforeOneContinuation_AreOneRowSpanningBothVersions', async () => {
+    const { next, appended } = await continuationAfter(['task-named'], ['task-named', 'task-apart']);
+    expect((await revisionRows()).map((row) => [row.priorDesignVersion, row.nextDesignVersion])).toEqual([
+      [1, 2],
+      [2, 3],
+    ]);
+    expect(next.capsuleVersion).toBe(2);
+    expect(next.capsule.identity.designVersion).toBe('design-v3');
+
+    const spanning = {
+      priorCapsuleVersion: 1,
+      priorDesignVersion: 1,
+      nextDesignVersion: 3,
+      declaredTasks: ['task-apart', 'task-named'],
+      invalidatedTasks: ['task-named', 'task-after', 'task-apart'],
+    };
+    expect(appended.map((e) => e.type)).toEqual(['capsule.recompiled', 'workflow.prepared']);
+    expect(await recompileRows()).toMatchObject([spanning]);
+    expect(next.recompile).toStrictEqual(spanning);
+  });
+
+  /** The revision changes the design and names no task. The continuation still leaves its row. */
+  it('Prepare_ARevisionThatNamesNoTask_StillRecordsARowWithEmptyLists', async () => {
+    const { next, appended } = await continuationAfter([]);
+    expect((await revisionRows()).map((row) => row.affectedTasks)).toEqual([[]]);
+    expect(next.capsule.identity.designVersion).toBe('design-v2');
+
+    const empty = {
+      priorCapsuleVersion: 1,
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      declaredTasks: [],
+      invalidatedTasks: [],
+    };
+    expect(appended.map((e) => e.type)).toEqual(['capsule.recompiled', 'workflow.prepared']);
+    expect(await recompileRows()).toMatchObject([empty]);
+    expect(next.recompile).toStrictEqual(empty);
+  });
+
+  /**
+   * The named task waits on a task of the batch, so the continuation does not compile it or
+   * announce it. After that task completes, an ordinary prepare compiles the named task under the
+   * same design version.
+   */
+  it('Prepare_AnInvalidatedTaskThatIsNotReady_IsNamedOnTheRowAndCompiledByALaterPrepare', async () => {
+    const { next } = await continuationAfter(['task-named']);
+    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-ready', 'task-open']);
+    expect((await recompileRows()).map((row) => row.invalidatedTasks)).toEqual([['task-named', 'task-after']]);
+    expect(await announcedTasks()).toEqual(['task-ready', 'task-open']);
+
+    await replan(completing(CONTINUATION_PLAN, 'task-ready'));
+    const later = receiptOf(await prepare({ featureId: STREAM }));
+    expect(later.capsuleVersion).toBe(3);
+    expect(later.capsule.identity.designVersion).toBe('design-v2');
+    expect(later.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-open', 'task-named']);
+    expect(later).not.toHaveProperty('recompile');
+    expect(await recompileRows()).toHaveLength(1);
+    expect(await announcedTasks()).toEqual(['task-ready', 'task-open', 'task-named']);
+  });
+
+  /**
+   * The twin stream holds the same plan and the same plan change, and no revision. The plan
+   * change makes the named task ready before the continuation. Both prepares compile the same
+   * graph and announce that one task. The task that waits on it is on the row and has no
+   * announcement. The continuation writes no state document.
+   */
+  it('Prepare_AContinuation_AnnouncesOnlyWhatAnOrdinaryPrepareWould', async () => {
+    const twin = `${STREAM}-twin`;
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    await seedDelegatingFeature(CONTINUATION_PLAN, twin);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    receiptOf(await prepare({ featureId: twin }));
+    await revise(first, 'batch-revising', ['task-named']);
+    const moved = completing(CONTINUATION_PLAN, 'task-ready');
+    await replan(moved);
+    await replan(moved, twin);
+
+    const before = await rowCount();
+    const twinBefore = await rowCount(twin);
+    const continued = receiptOf(await prepare({ featureId: STREAM }));
+    const ordinary = receiptOf(await prepare({ featureId: twin }));
+
+    expect(continued.recompile?.invalidatedTasks).toEqual(['task-named', 'task-after']);
+    expect(ordinary).not.toHaveProperty('recompile');
+    expect(continued.capsule.graph).toEqual(ordinary.capsule.graph);
+    expect(continued.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-open', 'task-named']);
+
+    expect((await rowsAfter(before)).map((e) => e.type)).toEqual([
+      'task.assigned',
+      'capsule.recompiled',
+      'workflow.prepared',
+    ]);
+    expect((await rowsAfter(twinBefore, twin)).map((e) => e.type)).toEqual(['task.assigned', 'workflow.prepared']);
+    expect(await announcedTasks()).toEqual(['task-ready', 'task-open', 'task-named']);
+    expect(await announcedTasks(twin)).toEqual(await announcedTasks());
+    expect((await readdir(stateDir)).filter((name) => name.endsWith('.state.json'))).toEqual([]);
+  });
+
+  /** The retry gets its answer from the claim of the continuation. It appends no row and writes no blob. */
+  it('Prepare_ARetriedContinuation_ReturnsTheRecordedCapsuleAndAppendsNothing', async () => {
+    const { next } = await continuationAfter(['task-named']);
+    const rows = await rowCount();
+    const blobs = await bundleBlobCount();
+
+    const retried = receiptOf(await prepare({ featureId: STREAM }));
+    expect(retried).toEqual(next);
+    expect(retried.recompile).toStrictEqual(NAMED_RECOMPILE);
+    expect(await rowCount()).toBe(rows);
+    expect(await recompileRows()).toHaveLength(1);
+    expect(await preparedRows()).toHaveLength(2);
+    expect(await bundleBlobCount()).toBe(blobs);
+  });
+
+  /**
+   * The stream moves after the continuation reads its tail. The commit is refused, and the only
+   * new row is the one that moved the stream. The revision is still pending, so the retry records
+   * the recompile. A second retry replays that receipt.
+   */
+  it('Prepare_AContinuationThatLosesTheRace_AppendsNothingAndTheRetryRecordsOnce', async () => {
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    await revise(first, 'batch-revising', ['task-named']);
+    const before = await rowCount();
+
+    const lost = await prepareThroughARace();
+    expect(refusalCodeOf(lost), JSON.stringify(lost)).toBe('CONCURRENCY_CONFLICT');
+    expect((await rowsAfter(before)).map((e) => e.type)).toEqual(['state.patched']);
+    expect(await recompileRows()).toEqual([]);
+    expect(await preparedRows()).toHaveLength(1);
+
+    const retried = receiptOf(await prepare({ featureId: STREAM }));
+    expect(retried.capsuleVersion).toBe(2);
+    expect(retried.recompile).toStrictEqual(NAMED_RECOMPILE);
+    expect((await rowsAfter(before)).map((e) => e.type)).toEqual([
+      'state.patched',
+      'capsule.recompiled',
+      'workflow.prepared',
+    ]);
+
+    expect(receiptOf(await prepare({ featureId: STREAM }))).toEqual(retried);
+    expect(await recompileRows()).toHaveLength(1);
+    expect(await preparedRows()).toHaveLength(2);
+  });
+
+  /** The plan changes between two prepares, and no decision round revises the design. */
+  it('Prepare_WithNoRevision_EmitsNoRecompileRecord', async () => {
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    await replan(completing(CONTINUATION_PLAN, 'task-ready'));
+    const second = receiptOf(await prepare({ featureId: STREAM }));
+
+    expect(second.capsuleVersion).toBe(2);
+    expect(await revisionRows()).toEqual([]);
+    expect(first).not.toHaveProperty('recompile');
+    expect(second).not.toHaveProperty('recompile');
+    expect(await recompileRows()).toEqual([]);
+    expect((await store.query(STREAM)).map((e) => e.type)).not.toContain('capsule.recompiled');
+  });
+
+  /**
+   * The prepared record of the continuation comes after the revision, so the revision is not
+   * pending for the next prepare. That prepare compiles the changed plan under the same design
+   * version, and its commit holds one announcement and the record.
+   */
+  it('Prepare_AfterAContinuationAndAChangedPlan_TheNextPrepareIsOrdinary', async () => {
+    await continuationAfter(['task-named']);
+    await replan(completing(CONTINUATION_PLAN, 'task-open'));
+    const before = await rowCount();
+
+    const ordinary = receiptOf(await prepare({ featureId: STREAM }));
+    expect(ordinary.capsuleVersion).toBe(3);
+    expect(ordinary.capsule.identity.designVersion).toBe('design-v2');
+    expect(ordinary.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-ready', 'task-apart']);
+    expect(ordinary).not.toHaveProperty('recompile');
+    expect((await rowsAfter(before)).map((e) => e.type)).toEqual(['task.assigned', 'workflow.prepared']);
+    expect(await recompileRows()).toHaveLength(1);
+  });
+
+  /**
+   * Each task completes after the revision and before the next prepare. The refusal appends no
+   * row and writes no blob.
+   */
+  it('Prepare_APendingRevisionWithEveryTaskComplete_IsRefusedAndRecordsNothing', async () => {
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    await revise(first, 'batch-revising', ['task-named']);
+    await replan(completing(CONTINUATION_PLAN, ...CONTINUATION_PLAN.map((task) => task.id)));
+    const rows = await rowCount();
+    const blobs = await bundleBlobCount();
+
+    const refused = await prepare({ featureId: STREAM });
+    expect(refusalCodeOf(refused), JSON.stringify(refused)).toBe('NOTHING_TO_PREPARE');
+    expect(await rowCount()).toBe(rows);
+    expect(await recompileRows()).toEqual([]);
+    expect(await preparedRows()).toHaveLength(1);
+    expect(await bundleBlobCount()).toBe(blobs);
+  });
+
+  /**
+   * After the revision, the two tasks of the first batch wait on each other, so no task is ready.
+   * The refusal appends no row. When the plan is as it was, the next prepare is the continuation
+   * of the same revision.
+   */
+  it('Prepare_APendingRevisionWhoseTasksAreAllBlocked_IsRefusedAndStaysPending', async () => {
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    await revise(first, 'batch-revising', ['task-named']);
+    const waitsOn: Readonly<Record<string, string>> = { 'task-ready': 'task-open', 'task-open': 'task-ready' };
+    await replan(
+      CONTINUATION_PLAN.map((task) => {
+        const blocker = waitsOn[task.id];
+        return blocker === undefined ? task : { ...task, blockedBy: [blocker] };
+      }),
+    );
+    const rows = await rowCount();
+    const blobs = await bundleBlobCount();
+
+    const refused = await prepare({ featureId: STREAM });
+    expect(refusalCodeOf(refused), JSON.stringify(refused)).toBe('NO_READY_TASKS');
+    expect(await rowCount()).toBe(rows);
+    expect(await recompileRows()).toEqual([]);
+    expect(await bundleBlobCount()).toBe(blobs);
+
+    await replan(CONTINUATION_PLAN);
+    const before = await rowCount();
+    const continued = receiptOf(await prepare({ featureId: STREAM }));
+    expect(continued.capsuleVersion).toBe(2);
+    expect(continued.recompile).toStrictEqual(NAMED_RECOMPILE);
+    expect((await rowsAfter(before)).map((e) => e.type)).toEqual(['capsule.recompiled', 'workflow.prepared']);
+    expect(await recompileRows()).toMatchObject([NAMED_RECOMPILE]);
   });
 });

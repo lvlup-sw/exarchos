@@ -27,7 +27,7 @@ import { contentDigest } from '../../src/contract/capsule/capsule-digest.js';
 import { ExarchosCapsuleV1Schema } from '../../src/contract/capsule/exarchos-capsule.js';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
-import { DesignRevisedData, WorkflowPreparedData } from '../../src/events/schemas.js';
+import { CapsuleRecompiledData, DesignRevisedData, WorkflowPreparedData } from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
 import { lowerBuiltInDefinition } from '../../src/verbs/prepare/lower-definition.js';
@@ -175,6 +175,21 @@ interface PreparedReceipt {
     readonly graph: { readonly tasks: readonly { readonly taskId: string }[] };
     readonly contracts: Record<string, unknown>;
   };
+  /** Present on the receipt of the first prepare after a design revision. */
+  readonly recompile?: {
+    readonly priorCapsuleVersion: number;
+    readonly priorDesignVersion: number;
+    readonly nextDesignVersion: number;
+    readonly declaredTasks: readonly string[];
+    readonly invalidatedTasks: readonly string[];
+  };
+}
+
+/** The recompile rows of the stream, each parsed through the row schema. */
+async function recompileRows(): Promise<ReturnType<typeof CapsuleRecompiledData.parse>[]> {
+  return (await rowsOf('capsule.recompiled')).map((row) =>
+    CapsuleRecompiledData.parse((row as { data: unknown }).data),
+  );
 }
 
 /** The compiler name that the build before the design version counter stamped. */
@@ -223,6 +238,8 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(3);
     const gates = (await rowsOf('gate.executed')) as { data: { gateName: string; passed: boolean } }[];
     expect(gates.filter((g) => g.data.gateName === 'static-analysis' && g.data.passed)).toHaveLength(3);
+    expect(receipt).not.toHaveProperty('recompile');
+    expect(await rowsOf('capsule.recompiled')).toEqual([]);
   });
 
   /**
@@ -499,6 +516,10 @@ describe('prepare then settle, through the dispatcher', () => {
    * The kind is material in the compiled envelope. The accepted decision settles the batch and
    * records one design revision. The settled batch keeps the design version that it was compiled
    * under. The next `prepare` compiles the third task under the next design version.
+   *
+   * That `prepare` is the continuation of the revision. Its commit holds one recompile row for
+   * the third task, between the announcement of that task and the prepared record. Its receipt
+   * names the same recompile, and a retry appends nothing.
    */
   it('PrepareSettle_AnAcceptedMaterialDeviation_RevisesTheDesignAndTheNextCapsuleCompilesUnderIt', async () => {
     const [first, second, third] = TASKS;
@@ -577,6 +598,10 @@ describe('prepare then settle, through the dispatcher', () => {
       affectedTasks: [third.id],
     });
 
+    expect(compiled).not.toHaveProperty('recompile');
+    expect(await recompileRows()).toEqual([]);
+    const tailBeforeTheContinuation = (await eventStore.query(STREAM)).length;
+
     const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
     const next = recompiled.data as PreparedReceipt;
@@ -590,6 +615,35 @@ describe('prepare then settle, through the dispatcher', () => {
       [1, 'design-v1'],
       [2, 'design-v2'],
     ]);
+
+    const recompile = {
+      priorCapsuleVersion: 1,
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      declaredTasks: [third.id],
+      invalidatedTasks: [third.id],
+    };
+    expect(next.recompile).toStrictEqual(recompile);
+    const continuation = (await eventStore.query(STREAM)).slice(tailBeforeTheContinuation);
+    expect(continuation.map((event) => event.type)).toEqual([
+      'task.assigned',
+      'capsule.recompiled',
+      'workflow.prepared',
+    ]);
+    expect(await recompileRows()).toStrictEqual([
+      {
+        operationId: records[1]?.operationId,
+        workflowId: STREAM,
+        capsuleVersion: 2,
+        capsuleDigest: next.capsuleDigest,
+        ...recompile,
+        bundleRefs: records[1]?.bundleRefs,
+      },
+    ]);
+
+    const retried = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(retried.data).toEqual(recompiled.data);
+    expect(await eventStore.query(STREAM)).toHaveLength(tailBeforeTheContinuation + continuation.length);
   });
 
   /**
@@ -600,6 +654,10 @@ describe('prepare then settle, through the dispatcher', () => {
    * The accepted decision records the revision after the second capsule. A batch on that capsule is
    * rejected for the named task, and the unfinished sibling in it stays unfinished. The third
    * `prepare` compiles a new capsule under the next design version, and both tasks settle under it.
+   *
+   * The second `prepare` comes before the revision, so it records no recompile. The third is the
+   * continuation. Its recompile row names the second capsule as the prior one, and it invalidates
+   * the named task and not the sibling.
    */
   it('PrepareSettle_AClaimRefusedForALaterRevision_SettlesAfterTheNextPrepare', async () => {
     const [first, sibling, named] = TASKS;
@@ -643,6 +701,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(second.capsuleVersion).toBe(2);
     expect(second.capsule.identity.designVersion).toBe('design-v1');
     expect(second.capsule.graph.tasks.map((t) => t.taskId)).toEqual([first.id, sibling.id, named.id]);
+    expect(second).not.toHaveProperty('recompile');
 
     const decided = await call('exarchos_orchestrate', {
       ...firstBatch,
@@ -694,6 +753,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(1);
     const completedBefore = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
     expect(completedBefore.map((e) => e.data.taskId)).toEqual([first.id]);
+    expect(await recompileRows()).toEqual([]);
 
     const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
@@ -709,6 +769,17 @@ describe('prepare then settle, through the dispatcher', () => {
       [1, 'design-v1'],
       [2, 'design-v1'],
       [3, 'design-v2'],
+    ]);
+    const recompile = {
+      priorCapsuleVersion: 2,
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      declaredTasks: [named.id],
+      invalidatedTasks: [named.id],
+    };
+    expect(third.recompile).toStrictEqual(recompile);
+    expect(await recompileRows()).toMatchObject([
+      { capsuleVersion: 3, capsuleDigest: third.capsuleDigest, ...recompile },
     ]);
 
     const settled = await call('exarchos_orchestrate', {
@@ -732,6 +803,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
     expect(completions.map((e) => e.data.taskId).sort()).toEqual([first.id, sibling.id, named.id]);
     expect(await rowsOf('design.revised')).toHaveLength(1);
+    expect(await recompileRows()).toHaveLength(1);
   });
 
   /**
@@ -862,5 +934,40 @@ describe('prepare then settle, through the dispatcher', () => {
       error: { code: 'RESERVED_EVENT_TYPE', eventType: 'design.revised' },
     });
     expect(await rowsOf('design.revised')).toEqual([]);
+  });
+
+  /**
+   * A recompile row says that a prepare compiled a capsule again after a revision, and it names
+   * the tasks that the revision invalidated. If the generic surface can append it, a caller can
+   * record a recompile that no prepare made. The row is well formed, so the refusal is the
+   * reservation and not the shape of the row.
+   */
+  it('PrepareSettle_ARecompileRecord_CannotBeAppendedByAnyoneButPrepare', async () => {
+    const data = {
+      operationId: 'prepare:forged',
+      workflowId: STREAM,
+      capsuleVersion: 2,
+      capsuleDigest: 'f'.repeat(64),
+      priorCapsuleVersion: 1,
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      declaredTasks: ['task-c'],
+      invalidatedTasks: ['task-c'],
+      bundleRefs: [
+        { artifactId: 'run-bundle:prepared-capsule:forged:2', digest: { algorithm: 'sha256', value: 'f'.repeat(64) } },
+      ],
+    };
+    expect(CapsuleRecompiledData.safeParse(data).success).toBe(true);
+
+    const result = await dispatch(
+      'exarchos_event',
+      { action: 'append', stream: STREAM, event: { type: 'capsule.recompiled', data } },
+      callerContext(),
+    );
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'capsule.recompiled' },
+    });
+    expect(await rowsOf('capsule.recompiled')).toEqual([]);
   });
 });

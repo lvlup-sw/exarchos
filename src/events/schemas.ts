@@ -94,8 +94,10 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
  * - `workflow.prepared`: settlement adjudicates a capsule only when this record pins its digest.
  * - `deviation.proposed` and `deviation.decided`: the settle handler commits them for a held batch.
  * - `design.revised`: the settle handler commits it when a decision accepts a material deviation.
+ * - `capsule.recompiled`: the prepare handler commits it with the first capsule after a revision.
  *
- * A caller that can append these types can fake a settlement, pin any capsule, or move the design version.
+ * A caller that can append these types can fake a settlement, pin any capsule, move the design
+ * version, or fake a recompile.
  */
 export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'orchestrate.intent_executed',
@@ -104,6 +106,7 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'deviation.proposed',
   'deviation.decided',
   'design.revised',
+  'capsule.recompiled',
 ] = [
   'orchestrate.intent_executed',
   'execution.settled',
@@ -111,6 +114,7 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'deviation.proposed',
   'deviation.decided',
   'design.revised',
+  'capsule.recompiled',
 ];
 
 /** Server-owned facts of the cancellation process manager. */
@@ -501,6 +505,11 @@ export const EventTypes = [
    * The row links the prior design version to the next one, and it rewrites no earlier row.
    */
   'design.revised',
+  /**
+   * The recompile fact. The first prepare after a design revision leaves one row, in the commit of
+   * its capsule. The row names the unfinished tasks that the revision invalidated.
+   */
+  'capsule.recompiled',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -3291,6 +3300,61 @@ export const DesignRevisedData = z
   .strict();
 export type DesignRevised = z.infer<typeof DesignRevisedData>;
 
+/**
+ * The record of one recompile. The first prepare after one or more design revisions leaves one
+ * row, in the same commit as its prepared record. The declared tasks are the tasks that those
+ * revisions name. The invalidated tasks are the unfinished tasks that the change reaches in the
+ * plan, and a later prepare can compile some of them. The schema is structural: it does not
+ * compare the versions, and it does not check the order of the lists.
+ */
+export const CapsuleRecompiledData = z
+  .object({
+    operationId: z.string().min(1).describe('The prepare call that recorded the recompile'),
+    workflowId: z.string().min(1).describe('Workflow the capsule compiled for'),
+    capsuleVersion: z
+      .number()
+      .int()
+      .min(2)
+      .describe('The capsule version that this prepare compiled, under the next design version'),
+    capsuleDigest: z
+      .string()
+      .min(1)
+      .describe('Content address of that capsule, as on the prepared record of the same commit'),
+    priorCapsuleVersion: z
+      .number()
+      .int()
+      .min(1)
+      .describe('The capsule version of the latest prepared record before this one'),
+    priorDesignVersion: z
+      .number()
+      .int()
+      .min(1)
+      .describe('The design version of the stream before the first revision that this row records'),
+    nextDesignVersion: z
+      .number()
+      .int()
+      .min(2)
+      .describe('The design version of the stream after the last revision that this row records'),
+    declaredTasks: z
+      .array(z.string().min(1))
+      .describe('The tasks that those revisions name, as one sorted list; empty when they name none'),
+    invalidatedTasks: z
+      .array(z.string().min(1))
+      .describe(
+        'The unfinished tasks that the change reaches: each unfinished declared task, and each ' +
+          'unfinished task that waits on an invalidated task; in plan order',
+      ),
+    [BUNDLE_REF_FIELD]: z
+      .array(BundleRefV1Schema)
+      .min(1)
+      .describe(
+        'Content-addressed reference to the prepared bundle of the recompiled capsule; ' +
+          'the bytes are durable before this row exists',
+      ),
+  })
+  .strict();
+export type CapsuleRecompiled = z.infer<typeof CapsuleRecompiledData>;
+
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.started': WorkflowStartedData,
   'workflow.transition': WorkflowTransitionData,
@@ -3527,6 +3591,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'deviation.proposed': DeviationProposedData,
   'deviation.decided': DeviationDecidedData,
   'design.revised': DesignRevisedData,
+  'capsule.recompiled': CapsuleRecompiledData,
 };
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -3834,6 +3899,7 @@ export type EventDataMap = {
   'deviation.proposed': DeviationProposed;
   'deviation.decided': DeviationDecided;
   'design.revised': DesignRevised;
+  'capsule.recompiled': CapsuleRecompiled;
 };
 
 export interface EventCatalog {

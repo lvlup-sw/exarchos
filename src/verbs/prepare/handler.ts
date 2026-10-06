@@ -12,6 +12,10 @@
  * The claim key is the digest of the compilation inputs, so a retry returns the recorded capsule.
  * The inputs include the base, the design version of the stream and the name of the compiler.
  * Changed inputs get the next capsule version.
+ *
+ * The first prepare after a design revision is a continuation. Its commit also records
+ * `capsule.recompiled`, which names the unfinished tasks that the revision invalidated.
+ * A retry of a continuation returns the recorded receipt, with the recompile that it recorded.
  */
 
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
@@ -43,7 +47,8 @@ import { designVersionOf } from './design-version.js';
 import { lowerBuiltInDefinition } from './lower-definition.js';
 import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
 import { commitPreparedCapsule } from './prepared-record.js';
-import type { PreparedCapsuleReceipt, PrepareRefusal } from './types.js';
+import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
+import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
 
 /** The workflow type whose delegation batch this compiler knows how to compile. */
 const PREPARABLE_WORKFLOW_TYPE = 'feature';
@@ -122,6 +127,30 @@ function announcedTaskIds(events: readonly { readonly type: string; readonly dat
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * The recompile that a continuation records, or undefined for an ordinary prepare.
+ * A prepare is a continuation when the stream holds a design revision after its latest prepared record.
+ * The record of the continuation comes after that revision, so a revision is pending for one commit only.
+ *
+ * `events` is the read whose tail the commit expects, and `plan` is the task list that the partition reads.
+ * A stream that moves after that read refuses the commit. Thus a committed row and its capsule agree.
+ */
+function recompileOf(
+  events: readonly { readonly type: string; readonly data?: unknown }[],
+  plan: readonly unknown[],
+): PreparedRecompile | undefined {
+  const pending = pendingRevisionOf(events);
+  if (pending === undefined) return undefined;
+  const slice = recompiledSliceOf(pending.affectedTasks, plan);
+  return {
+    priorCapsuleVersion: pending.priorCapsuleVersion,
+    priorDesignVersion: pending.priorDesignVersion,
+    nextDesignVersion: pending.nextDesignVersion,
+    declaredTasks: slice.declared,
+    invalidatedTasks: slice.invalidated,
+  };
 }
 
 /** How a caller records the integration branch, quoted in the refusal that asks for it. */
@@ -225,7 +254,7 @@ function resolvedCatalogInvariants(
  *
  * The handler reads the stream before it folds the state. The stream tail is
  * the expected sequence of the commit, so the store refuses the commit after a
- * concurrent append. The handler folds the design version from the same read.
+ * concurrent append. The design version and the pending revision come from the same read.
  * The commit announces only the batch tasks that the stream has not seen,
  * because a second `task.assigned` moves a task back to `assigned`.
  * The runtime check occurs before compilation. The verification sequence is a
@@ -273,7 +302,8 @@ export async function handlePrepare(
     });
   }
 
-  const partition = partitionDelegationBatch(Array.isArray(state.tasks) ? state.tasks : []);
+  const plan: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
+  const partition = partitionDelegationBatch(plan);
   if (!partition.ok) return refused(partition.refusal);
   const { batch } = partition;
 
@@ -301,6 +331,7 @@ export async function handlePrepare(
 
   const designRef = resolveDesignRef(state);
   const designVersion = designVersionOf(events);
+  const recompile = recompileOf(events, plan);
   const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
   const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(
     workflowType,
@@ -367,6 +398,7 @@ export async function handlePrepare(
           definition: lowered.definition,
           expectedSequence: tail,
           announce,
+          ...(recompile !== undefined ? { recompile } : {}),
         },
         deps.bundleStore,
       );
