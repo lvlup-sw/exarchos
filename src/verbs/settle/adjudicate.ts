@@ -181,6 +181,28 @@ function outcomeOf(findings: readonly SettlementFinding[]): SettlementOutcome {
   return decided === undefined ? 'settled' : decided.outcome;
 }
 
+/** One task that a batch leaves unresolved. `cause` is the kind of the finding against the task. */
+export interface UnresolvedTask {
+  readonly taskId: string;
+  readonly cause: SettlementFindingKind;
+}
+
+/**
+ * The tasks that a list of findings leaves unresolved, sorted by task id.
+ * The subject of a finding of the `unresolved` class is the id of its task.
+ * A task is in the list once, with the kind of its first finding.
+ */
+function unresolvedTasksOf(findings: readonly SettlementFinding[]): UnresolvedTask[] {
+  const causes = new Map<string, SettlementFindingKind>();
+  for (const finding of findings) {
+    if (SETTLEMENT_FINDING_CLASSES[finding.kind] !== 'unresolved' || causes.has(finding.subject)) continue;
+    causes.set(finding.subject, finding.kind);
+  }
+  return [...causes.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([taskId, cause]) => ({ taskId, cause }));
+}
+
 /**
  * Whether verification runs after the shape pass that gave these findings.
  * It runs when no finding is stale, refuses the batch, or holds it. A finding that leaves a task unresolved does not stop it.
@@ -251,6 +273,11 @@ export interface SettlementVerdict {
   /** Task ids whose claims were adjudicated with no finding against them. */
   readonly acceptedTasks: readonly string[];
   readonly findings: readonly SettlementFinding[];
+  /**
+   * The tasks to correct, sorted by task id. The list has entries only when an unresolved task decides the outcome.
+   * Under each outcome that stops verification nothing was verified, so the findings of the batch are not the list of work to do.
+   */
+  readonly unresolved: readonly UnresolvedTask[];
   /**
    * The counts of what the pass read.
    * An empty pass and a full clean pass both report zero findings, and only these counts tell them apart.
@@ -602,11 +629,13 @@ export function adjudicateSettlement(
     });
   });
 
+  const outcome = outcomeOf(findings);
   return {
-    outcome: outcomeOf(findings),
+    outcome,
     capsuleVersion: capsule.identity.capsuleVersion,
     acceptedTasks: [...accepted].sort(),
     findings,
+    unresolved: outcome === FINDING_CLASS_EFFECTS.unresolved.outcome ? unresolvedTasksOf(findings) : [],
     adjudicated: census,
   };
 }

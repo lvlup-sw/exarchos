@@ -3363,6 +3363,38 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       }
       expect(settle.outputSchema.safeParse(baselineEnvelope({ ...baseline, outcome: 'mostly-fine' })).success).toBe(false);
     });
+
+    /**
+     * A receipt that needs a correction names its unresolved tasks. The schema admits an entry with
+     * the task and the cause, with or without the halted leaf and the operation id. A receipt with
+     * no list parses too, as a replayed claim of an earlier build carries none.
+     * The receipt object passes unknown fields through. Thus the refused lists prove that the
+     * schema declares the field.
+     */
+    it('the settle output schema admits a list of unresolved tasks and refuses a malformed one', () => {
+      const settle = findAction('exarchos_orchestrate', 'settle');
+      const baseline = baselineDataByAction['exarchos_orchestrate.settle'];
+      expect(baseline).toBeDefined();
+      expect(baseline).not.toHaveProperty('unresolved');
+      const withList = (unresolved: unknown): boolean =>
+        settle.outputSchema.safeParse(baselineEnvelope({ ...baseline, outcome: 'corrective-capsule', unresolved }))
+          .success;
+
+      expect(withList([{ taskId: 'task-a', cause: 'verification-failed' }])).toBe(true);
+      expect(
+        withList([
+          { taskId: 'task-a', cause: 'verification-failed', failedLeaf: 'task_complete', operationId: 'settle-task:1' },
+          { taskId: 'task-b', cause: 'a-cause-of-a-later-build' },
+        ]),
+      ).toBe(true);
+      expect(settle.outputSchema.safeParse(baselineEnvelope({ ...baseline, outcome: 'corrective-capsule' })).success).toBe(true);
+
+      expect(withList([{ taskId: 'task-a' }])).toBe(false);
+      expect(withList([{ cause: 'verification-failed' }])).toBe(false);
+      expect(withList([{ taskId: 'task-a', cause: 'verification-failed', failedLeaf: '' }])).toBe(false);
+      expect(withList(['task-a'])).toBe(false);
+      expect(withList('task-a')).toBe(false);
+    });
   });
 
   /**

@@ -70,6 +70,7 @@ import {
   type SettlementEvidence,
   type TaskStanding,
   type TaskVerificationOutcome,
+  type UnresolvedTask,
   verificationRuns,
 } from './adjudicate.js';
 import {
@@ -87,6 +88,7 @@ import {
   type SettlementDecision,
   type SettlementDesignRevision,
   type SettlementReceipt,
+  type SettlementUnresolvedTask,
   type SettlementVerificationTrace,
 } from './types.js';
 
@@ -706,6 +708,27 @@ async function verifyTask(
 }
 
 /**
+ * The unresolved tasks of a verdict as the receipt names them, in the order of the verdict.
+ * An entry takes the halted leaf and the operation id from the verification trace of its task.
+ * A task with no segment has neither.
+ */
+function unresolvedOnReceipt(
+  unresolved: readonly UnresolvedTask[],
+  traces: readonly SettlementVerificationTrace[],
+): SettlementUnresolvedTask[] {
+  const traceOf = new Map(traces.map((trace): [string, SettlementVerificationTrace] => [trace.taskId, trace]));
+  return unresolved.map(({ taskId, cause }) => {
+    const trace = traceOf.get(taskId);
+    return {
+      taskId,
+      cause,
+      ...(trace?.failedLeaf !== undefined ? { failedLeaf: trace.failedLeaf } : {}),
+      ...(trace?.operationId !== undefined ? { operationId: trace.operationId } : {}),
+    };
+  });
+}
+
+/**
  * The refusal of a submitted batch that carries no claim. The message names the next call for each
  * state. A batch claims each required task that is not complete. When every required task is
  * complete, a claim for one of them comes back `already-complete`. A held batch gets its decisions
@@ -1124,6 +1147,7 @@ export async function handleSettle(
       verdict = adjudicateSettlement(capsule, claims, deviations, { ...context, verification: outcomes });
     }
 
+    const unresolved = unresolvedOnReceipt(verdict.unresolved, traces);
     const settledAt = new Date().toISOString();
 
     const bytes = encodeSettlementBundle({
@@ -1174,6 +1198,7 @@ export async function handleSettle(
         outcome: verdict.outcome,
         ...(round > 0 ? { round } : {}),
         acceptedTasks: verdict.acceptedTasks,
+        ...(verdict.unresolved.length > 0 ? { unresolvedTasks: verdict.unresolved } : {}),
         findingCounts,
         adjudicated: verdict.adjudicated,
         requestDigest,
@@ -1247,6 +1272,7 @@ export async function handleSettle(
                   outcome: verdict.outcome,
                   round,
                   acceptedTasks: verdict.acceptedTasks,
+                  ...(unresolved.length > 0 ? { unresolved } : {}),
                   findings: verdict.findings,
                   adjudicated: verdict.adjudicated,
                   requestDigest,

@@ -754,6 +754,56 @@ describe('the outcome of a batch with findings of more than one class', () => {
     expect(SETTLEMENT_OUTCOMES).toContain('accepted-with-rationale');
     expect(PRECEDENCE.map(([classes]) => verdictWith(classes).outcome)).not.toContain('accepted-with-rationale');
   });
+
+  /**
+   * Eight rows of the matrix hold an unresolved finding, and the verification of `task-verify`
+   * failed in each. Only the row with no other class names the task as unresolved. In the other
+   * seven rows nothing was verified, so the verdict has an empty list.
+   */
+  it('Adjudicate_TheUnresolvedListOfAVerdict_HasEntriesOnlyWhenTheBatchNeedsACorrection', () => {
+    const withUnresolvedFinding = PRECEDENCE.filter(([classes]) => classes.includes('unresolved'));
+    expect(withUnresolvedFinding).toHaveLength(8);
+
+    const lists = PRECEDENCE.map(([classes]) => verdictWith(classes).unresolved);
+    const corrective = PRECEDENCE.findIndex(([, outcome]) => outcome === 'corrective-capsule');
+    expect(lists[corrective]).toEqual([{ taskId: 'task-verify', cause: 'verification-failed' }]);
+    expect(lists.filter((list) => list.length > 0)).toHaveLength(1);
+    for (const [classes] of withUnresolvedFinding) {
+      const verdict = verdictWith(classes);
+      expect(verdict.findings.map((f) => [f.kind, f.subject])).toContainEqual(['verification-failed', 'task-verify']);
+      expect(verdict.unresolved.length > 0, classes.join('+')).toBe(verdict.outcome === 'corrective-capsule');
+    }
+  });
+
+  /**
+   * The findings keep the order of the claims, and the unresolved list is sorted by task id.
+   * A task that passed is not in the list, and a settled batch has an empty list.
+   */
+  it('Adjudicate_TheUnresolvedList_IsSortedByTaskIdAndHoldsOnlyTheTasksThatFailed', () => {
+    const finalPass = (verify: TaskVerificationOutcome, compile: TaskVerificationOutcome): SettlementVerdict =>
+      adjudicateSettlement(capsuleWithTwoShapes(), [passingClaim(), compileClaim()], [], {
+        evidenceResolves: () => true,
+        verification: new Map<string, TaskVerificationOutcome>([
+          ['task-verify', verify],
+          ['task-compile', compile],
+        ]),
+      });
+
+    const both = finalPass(HALTED, HALTED);
+    expect(both.findings.map((f) => f.subject)).toEqual(['task-verify', 'task-compile']);
+    expect(both.unresolved).toEqual([
+      { taskId: 'task-compile', cause: 'verification-failed' },
+      { taskId: 'task-verify', cause: 'verification-failed' },
+    ]);
+
+    const one = finalPass(HALTED, { kind: 'verified' });
+    expect(one.acceptedTasks).toEqual(['task-compile']);
+    expect(one.unresolved).toEqual([{ taskId: 'task-verify', cause: 'verification-failed' }]);
+
+    const none = finalPass({ kind: 'verified' }, { kind: 'verified' });
+    expect(none.outcome).toBe('settled');
+    expect(none.unresolved).toEqual([]);
+  });
 });
 
 /** The context of a batch on a stream that shows exactly the listed tasks complete. */

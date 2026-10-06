@@ -5,7 +5,7 @@
  */
 
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
-import type { SettlementFinding, SettlementCensus, SettlementOutcome } from './adjudicate.js';
+import type { SettlementFinding, SettlementCensus, SettlementOutcome, UnresolvedTask } from './adjudicate.js';
 
 /** The settlement key: which compilation, and which batch of it. */
 export interface SettledCapsuleIdentity {
@@ -31,6 +31,15 @@ export interface SettlementVerificationTrace {
   readonly failedLeaf?: string;
   readonly message?: string;
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
+}
+
+/**
+ * One unresolved task as the receipt names it for the correction. `failedLeaf` and `operationId`
+ * are those of the verification segment of the task. They are absent when no segment ran.
+ */
+export interface SettlementUnresolvedTask extends UnresolvedTask {
+  readonly failedLeaf?: string;
+  readonly operationId?: string;
 }
 
 /** A decision a settlement round carries for one deviation the batch waits on. */
@@ -87,6 +96,12 @@ export interface SettlementReceipt {
    * verification. The list of that receipt holds the tasks that are recorded complete.
    */
   readonly acceptedTasks: readonly string[];
+  /**
+   * Under `corrective-capsule`, the tasks that the correction claims, sorted by task id. Each has
+   * one entry, and the list is not empty. Each other outcome has no list. Under such an outcome,
+   * either each task is complete or nothing was verified.
+   */
+  readonly unresolved?: readonly SettlementUnresolvedTask[];
   readonly findings: readonly SettlementFinding[];
   readonly adjudicated: SettlementCensus;
   readonly requestDigest: string;

@@ -3104,11 +3104,19 @@ export const SettlementCensusData = z
   })
   .strict();
 
+/** One task that a settlement leaves unresolved, and the kind of the finding against it. */
+export const SettlementUnresolvedCause = z
+  .object({
+    taskId: z.string().min(1).describe('The task that the correction claims'),
+    cause: z.string().min(1).describe('Adjudication finding kind, as `verbs/settle` names it'),
+  })
+  .strict();
+
 /**
  * The record of one adjudicated batch. The payload is a summary: the capsule, the outcome, the
- * accepted tasks, and the finding count of each kind. The findings and the claims are in the
- * referenced bundle, so no projection folds them. Counts keep the row size independent of how
- * badly the work went.
+ * accepted tasks, the unresolved tasks, and the finding count of each kind. The findings and the
+ * claims are in the referenced bundle, so no projection folds them. Counts keep the row size
+ * independent of the number of findings.
  */
 export const ExecutionSettledData = z
   .object({
@@ -3145,6 +3153,15 @@ export const ExecutionSettledData = z
     acceptedTasks: z
       .array(z.string().min(1))
       .describe('Task ids whose claims were adjudicated with no finding against them'),
+    unresolvedTasks: z
+      .array(SettlementUnresolvedCause)
+      .min(1)
+      .optional()
+      .describe(
+        'Under corrective-capsule, the tasks the correction claims, sorted by task id, each with ' +
+          'the kind of its finding; absent under every other outcome and on a record written ' +
+          'before settlement named them',
+      ),
     findingCounts: z
       .array(SettlementFindingCount)
       .describe('Findings by kind; the findings themselves are in the referenced bundle'),

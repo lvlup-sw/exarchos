@@ -4490,3 +4490,46 @@ describe('ExecutionSettledData outcome', () => {
     expect(ExecutionSettledData.safeParse(settledRow('accepted')).success).toBe(false);
   });
 });
+
+/**
+ * The `execution.settled` row names the unresolved tasks of a batch in an optional field.
+ * The schema of the row is strict, so the field must be optional for a stored row to parse.
+ */
+describe('ExecutionSettledData unresolved tasks', () => {
+  /** A row that an earlier build stored has no such field. It goes through JSON before the parse. */
+  it('ExecutionSettledData_AStoredRowWithoutUnresolvedTasks_StillParses', () => {
+    const stored: unknown = JSON.parse(JSON.stringify(settledRow('rejected')));
+    expect(stored).not.toHaveProperty('unresolvedTasks');
+    const parsed = ExecutionSettledData.safeParse(stored);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
+    expect(parsed.data).not.toHaveProperty('unresolvedTasks');
+  });
+
+  /** The row keeps each entry as the task and the cause, in the order that the handler wrote. */
+  it('ExecutionSettledData_ARowWithUnresolvedTasks_ParsesAndKeepsEachEntry', () => {
+    const unresolvedTasks = [
+      { taskId: 'task-compile', cause: 'verification-failed' },
+      { taskId: 'task-verify', cause: 'verification-failed' },
+    ];
+    const stored: unknown = JSON.parse(JSON.stringify({ ...settledRow('corrective-capsule'), unresolvedTasks }));
+    const parsed = ExecutionSettledData.safeParse(stored);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
+    expect(parsed.data?.unresolvedTasks).toEqual(unresolvedTasks);
+  });
+
+  /**
+   * The row holds the task and the cause alone. The halted leaf and the operation id stay on the
+   * receipt, so an entry that carries one is refused. A list is absent, and never empty.
+   */
+  it.each([
+    ['an entry with a field of the receipt', [{ taskId: 'task-verify', cause: 'verification-failed', failedLeaf: 'task_complete' }]],
+    ['an entry with no cause', [{ taskId: 'task-verify' }]],
+    ['an entry with an empty task id', [{ taskId: '', cause: 'verification-failed' }]],
+    ['an empty list', []],
+    ['a list of task ids', ['task-verify']],
+  ] satisfies [string, unknown[]][])('ExecutionSettledData_UnresolvedTasksWith_%s_AreRefused', (_name, unresolvedTasks) => {
+    const row = { ...settledRow('corrective-capsule'), unresolvedTasks };
+    expect(ExecutionSettledData.safeParse(row).success).toBe(false);
+    expect(ExecutionSettledData.safeParse(settledRow('corrective-capsule')).success).toBe(true);
+  });
+});

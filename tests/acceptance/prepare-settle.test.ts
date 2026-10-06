@@ -431,8 +431,9 @@ describe('prepare then settle, through the dispatcher', () => {
   /**
    * The negative twin of the normal path: the same call against a project whose lint fails. The
    * production gate records its failing verdict and halts the segment. `settle` leaves each task
-   * unresolved and names its halt. The failing verdict is durable once for each task, no
-   * completion is durable, and the tasks stay pending.
+   * unresolved and names its halt. The receipt and the settlement record list the three tasks.
+   * The failing verdict is durable once for each task, no completion is durable, and the tasks
+   * stay pending.
    */
   it('PrepareSettle_ABatchWhoseVerificationFails_NeedsACorrectionWithTheHaltNamed', async () => {
     await seedDelegatingFeature();
@@ -451,7 +452,8 @@ describe('prepare then settle, through the dispatcher', () => {
       outcome: string;
       acceptedTasks: string[];
       findings: { kind: string; subject: string; message: string }[];
-      verification: { taskId: string; outcome: string; failedLeaf?: string }[];
+      verification: { taskId: string; outcome: string; failedLeaf?: string; operationId?: string }[];
+      unresolved?: { taskId: string; cause: string; failedLeaf?: string; operationId?: string }[];
     };
     expect(receipt.outcome).toBe('corrective-capsule');
     expect(receipt.acceptedTasks).toEqual([]);
@@ -465,6 +467,21 @@ describe('prepare then settle, through the dispatcher', () => {
       ['task-a', 'failed', 'check_static_analysis'],
       ['task-b', 'failed', 'check_static_analysis'],
       ['task-c', 'failed', 'check_static_analysis'],
+    ]);
+    expect(receipt.unresolved).toStrictEqual(
+      receipt.verification.map((trace) => ({
+        taskId: trace.taskId,
+        cause: 'verification-failed',
+        failedLeaf: 'check_static_analysis',
+        operationId: trace.operationId,
+      })),
+    );
+    expect(receipt.unresolved?.map((task) => task.operationId).every((id) => /^settle-task:[0-9a-f]{64}$/.test(id ?? ''))).toBe(true);
+    const [record] = (await rowsOf('execution.settled')) as { data: { unresolvedTasks?: unknown } }[];
+    expect(record?.data.unresolvedTasks).toStrictEqual([
+      { taskId: 'task-a', cause: 'verification-failed' },
+      { taskId: 'task-b', cause: 'verification-failed' },
+      { taskId: 'task-c', cause: 'verification-failed' },
     ]);
     const gates = (await rowsOf('gate.executed')) as { data: { gateName: string; passed: boolean } }[];
     expect(gates.filter((g) => g.data.gateName === 'static-analysis' && !g.data.passed)).toHaveLength(3);

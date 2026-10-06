@@ -829,6 +829,140 @@ describe('settle — the verification a settled batch runs', () => {
   });
 
   /**
+   * The capsule requires two tasks, and the segment of one halts. The receipt names that task as
+   * unresolved, with the halted leaf and the operation id of its verification trace. The
+   * settlement record names the task and the cause alone. The task that passed is in neither
+   * list, and a retry returns the same list.
+   */
+  it('Settle_ABatchWithOnePassingAndOneHaltedTask_NamesTheUnresolvedTaskOnTheReceiptAndTheRecord', async () => {
+    const capsule = capsuleWithTask('task-unverified', 15);
+    await seedPrepared({
+      ...capsule,
+      settlementContract: { ...capsule.settlementContract, requiredResults: ['task-unverified', 'task-verify'] },
+    });
+    const args = {
+      featureId: STREAM,
+      capsuleVersion: 15,
+      batchId: 'batch-unresolved',
+      claims: [
+        passingClaim(),
+        { taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+      ],
+    };
+    const receipt = receiptOf(await settle(args));
+    expect(receipt.outcome).toBe('corrective-capsule');
+    expect(receipt.acceptedTasks).toEqual(['task-verify']);
+    const halted = receipt.verification?.find((trace) => trace.taskId === 'task-unverified');
+    expect(halted?.operationId).toMatch(/^settle-task:[0-9a-f]{64}$/);
+    expect(receipt.unresolved).toStrictEqual([
+      {
+        taskId: 'task-unverified',
+        cause: 'verification-failed',
+        failedLeaf: 'task_complete',
+        operationId: halted?.operationId,
+      },
+    ]);
+
+    const rows = await settledRows();
+    expect(rows).toHaveLength(1);
+    const record = ExecutionSettledData.parse(rows[0]?.data);
+    expect(record.outcome).toBe('corrective-capsule');
+    expect(record.acceptedTasks).toEqual(['task-verify']);
+    expect(record.unresolvedTasks).toStrictEqual([{ taskId: 'task-unverified', cause: 'verification-failed' }]);
+
+    const tail = (await store.query(STREAM)).length;
+    const again = receiptOf(await settle(args));
+    expect(again.unresolved).toStrictEqual(receipt.unresolved);
+    expect(again).toEqual(receipt);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+  });
+
+  /**
+   * The batch claims two tasks with no seeded gate, the later id first, so both segments halt.
+   * The findings keep the order of the claims. The list of the receipt and the list of the record
+   * are sorted by task id. Each entry of the receipt names the operation of its own task.
+   */
+  it('Settle_TwoHaltedTasksClaimedInReverseOrder_AreNamedInTaskIdOrder', async () => {
+    const first = capsuleWithTask('task-zeta', 16);
+    await seedPrepared({
+      ...first,
+      graph: { ...first.graph, tasks: [...first.graph.tasks, { taskId: 'task-alpha', title: 'also task-alpha' }] },
+      contracts: {
+        ...first.contracts,
+        taskResults: { ...first.contracts.taskResults, 'task-alpha': first.contracts.taskResults['task-zeta'] ?? [] },
+      },
+      settlementContract: {
+        requiredResults: ['task-zeta', 'task-alpha'],
+        taskVerification: {
+          ...first.settlementContract.taskVerification,
+          'task-alpha': { riskTier: 'low', boundaryTouching: false, baseRef: 'feature/capsule-corpus' },
+        },
+      },
+    });
+    const receipt = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 16,
+        batchId: 'batch-two-halts',
+        claims: ['task-zeta', 'task-alpha'].map((taskId) => ({
+          taskId,
+          fields: { passed: true, worktreePath: WORKTREE },
+          evidence: [],
+        })),
+      }),
+    );
+    expect(receipt.outcome).toBe('corrective-capsule');
+    expect(receipt.acceptedTasks).toEqual([]);
+    expect(receipt.findings.map((finding) => finding.subject)).toEqual(['task-zeta', 'task-alpha']);
+    expect(receipt.unresolved?.map((task) => [task.taskId, task.cause, task.failedLeaf])).toEqual([
+      ['task-alpha', 'verification-failed', 'task_complete'],
+      ['task-zeta', 'verification-failed', 'task_complete'],
+    ]);
+    const operationOf = (taskId: string): string | undefined =>
+      receipt.verification?.find((trace) => trace.taskId === taskId)?.operationId;
+    expect(operationOf('task-alpha')).toMatch(/^settle-task:[0-9a-f]{64}$/);
+    expect(operationOf('task-zeta')).toMatch(/^settle-task:[0-9a-f]{64}$/);
+    expect(operationOf('task-alpha')).not.toBe(operationOf('task-zeta'));
+    expect(receipt.unresolved?.map((task) => task.operationId)).toEqual([
+      operationOf('task-alpha'),
+      operationOf('task-zeta'),
+    ]);
+
+    const record = ExecutionSettledData.parse((await settledRows())[0]?.data);
+    expect(record.unresolvedTasks).toStrictEqual([
+      { taskId: 'task-alpha', cause: 'verification-failed' },
+      { taskId: 'task-zeta', cause: 'verification-failed' },
+    ]);
+  });
+
+  /**
+   * The unresolved list is the work that a correction claims, so only a batch that needs a
+   * correction has one. A settled batch leaves no task unresolved. A rejected batch and a held
+   * batch were not verified. The receipt and the record of each carry no list, not an empty one.
+   */
+  it.each([
+    ['settled', { claims: [passingClaim()] }],
+    ['rejected', { claims: [failingClaim()] }],
+    [
+      'deviation-pending',
+      {
+        claims: [passingClaim()],
+        deviations: [{ deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' }],
+      },
+    ],
+  ])('Settle_ABatchWithTheOutcome_%s_NamesNoUnresolvedTask', async (outcome, batch) => {
+    const receipt = receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: `batch-${outcome}`, ...batch }),
+    );
+    expect(receipt.outcome).toBe(outcome);
+    expect(receipt).not.toHaveProperty('unresolved');
+    const rows = await settledRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.data).not.toHaveProperty('unresolvedTasks');
+    expect(ExecutionSettledData.parse(rows[0]?.data).outcome).toBe(outcome);
+  });
+
+  /**
    * `task_complete` on the primitive path already left the fact on this workflow. Settle accepts
    * the task as it is, runs nothing, and does not change the fact.
    */
@@ -2357,6 +2491,7 @@ describe('settle — the design revision a decision round records', () => {
       22,
       [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
     );
+    expect(held).not.toHaveProperty('unresolved');
     const decided = receiptOf(await decide('batch-halted', answers(held), 22));
     expect(decided.outcome).toBe('corrective-capsule');
     expect(decided.acceptedTasks).toEqual([]);
@@ -2365,6 +2500,14 @@ describe('settle — the design revision a decision round records', () => {
     ]);
     expect(decided.verification?.map((trace) => [trace.outcome, trace.failedLeaf])).toEqual([
       ['failed', 'task_complete'],
+    ]);
+    expect(decided.unresolved).toStrictEqual([
+      {
+        taskId: 'task-unverified',
+        cause: 'verification-failed',
+        failedLeaf: 'task_complete',
+        operationId: decided.verification?.[0]?.operationId,
+      },
     ]);
     expect(await completionRows()).toEqual([]);
 
@@ -2383,7 +2526,11 @@ describe('settle — the design revision a decision round records', () => {
       deviationIds: [held.pendingDeviations?.[0]?.deviationId],
     });
     const records = await rowsOf('execution.settled');
+    expect(ExecutionSettledData.parse(records[0]?.data)).not.toHaveProperty('unresolvedTasks');
     expect(ExecutionSettledData.parse(records[1]?.data).outcome).toBe('corrective-capsule');
+    expect(ExecutionSettledData.parse(records[1]?.data).unresolvedTasks).toStrictEqual([
+      { taskId: 'task-unverified', cause: 'verification-failed' },
+    ]);
     expect(records[1]?.sequence).toBe((rows[0]?.sequence ?? Number.NaN) + 1);
   });
 
@@ -2657,10 +2804,12 @@ describe('settle — a claim that a later revision supersedes', () => {
     expect(receipt.acceptedTasks).toEqual([]);
     expect(receipt.verification).toEqual([]);
     expect(receipt).not.toHaveProperty('designRevision');
+    expect(receipt).not.toHaveProperty('unresolved');
 
     expect(await store.query(STREAM)).toHaveLength(tail + 1);
     expect(await bundleBlobCount()).toBe(blobs + 1);
     const record = ExecutionSettledData.parse((await settledRows()).at(-1)?.data);
+    expect(record).not.toHaveProperty('unresolvedTasks');
     expect(record).toMatchObject({
       batchId: 'batch-earlier',
       capsuleVersion: 7,
@@ -3094,11 +3243,13 @@ describe('settle — a required result that the stream shows complete', () => {
     expect(first.outcome).toBe('corrective-capsule');
     expect(first.acceptedTasks).toEqual(['task-verify']);
     expect(findingsOf(first)).toEqual([['verification-failed', SECOND_TASK, 'claims[1]']]);
+    expect(first.unresolved?.map((task) => task.taskId)).toEqual([SECOND_TASK]);
 
     await seedPassingStaticAnalysis(SECOND_TASK);
     const correction = batch('batch-correction', [secondClaim()]);
     const corrected = receiptOf(await settle(correction));
     expect(corrected.outcome).toBe('settled');
+    expect(corrected).not.toHaveProperty('unresolved');
     expect(corrected.findings).toEqual([]);
     expect(corrected.acceptedTasks).toEqual([SECOND_TASK]);
     expect(corrected.capsule.capsuleVersion).toBe(BOTH_VERSION);

@@ -60,6 +60,19 @@ const ReceiptVerificationSchema = z
   })
   .passthrough();
 
+/**
+ * One task that a `corrective-capsule` batch leaves unresolved. `cause` is the kind of the finding
+ * against the task. The two optional fields name the verification segment of the task that halted.
+ */
+const ReceiptUnresolvedTaskSchema = z
+  .object({
+    taskId: z.string().min(1),
+    cause: z.string().min(1),
+    failedLeaf: z.string().min(1).optional(),
+    operationId: z.string().min(1).optional(),
+  })
+  .passthrough();
+
 const SettlementReceiptData = z
   .object({
     operationId: z.string().min(1),
@@ -67,6 +80,7 @@ const SettlementReceiptData = z
     capsule: ReceiptCapsuleSchema,
     outcome: z.enum(SETTLEMENT_OUTCOMES),
     acceptedTasks: z.array(z.string().min(1)),
+    unresolved: z.array(ReceiptUnresolvedTaskSchema).optional(),
     findings: z.array(ReceiptFindingSchema),
     adjudicated: ReceiptCensusSchema,
     requestDigest: z.string().min(1),
