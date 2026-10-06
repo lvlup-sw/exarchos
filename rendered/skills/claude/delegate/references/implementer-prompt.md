@@ -309,7 +309,7 @@ Report provenance as a JSON object in your task completion call:
 
 The orchestrator submits your report as one claim of the batch to `settle`. Settlement runs the task's gates against `worktreePath` and, when they pass, records the completion carrying these fields — the same `task.completed` the primitive path's `task_complete` records — so the ProvenanceView traces requirements through to implementation. Do not call `task_complete` yourself; on the capsule path there is no per-task governance call for you to make.
 
-If a capsule assumption turned out wrong while you worked, report a **deviation** (`deviationKind` from the envelope you were given, with a statement) rather than working around it silently.
+If a capsule assumption turned out wrong while you worked, report a **deviation** rather than working around it silently: the `deviationKind` from the envelope you were given, a statement of what did not hold, and the change you propose (`proposedChange`). Report one deviation per failed assumption. Do not name the tasks the change affects — the orchestrator holds the plan and fills those in.
 
 ## Completion
 
