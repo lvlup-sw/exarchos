@@ -13,7 +13,7 @@ import { mkdtemp, readdir, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { resolveConfig, type ResolvedProjectConfig } from '../../../../src/config/resolve.js';
-import { capsuleDigest } from '../../../../src/contract/capsule/capsule-digest.js';
+import { capsuleDigest, contentDigest } from '../../../../src/contract/capsule/capsule-digest.js';
 import {
   deriveMcpCallerIdentity,
   snapshotCallerAuthorization,
@@ -93,11 +93,15 @@ interface SeedTask {
 /** The integration branch the seeded workflow's tasks fork from. */
 const INTEGRATION_BRANCH = 'feature/prepare-unit';
 
+/** The artifacts that the seeded workflow records when a case names none. */
+const SEEDED_ARTIFACTS: Readonly<Record<string, unknown>> = { design: 'docs/specs/prepare-unit.md' };
+
 /** A feature workflow standing in `delegate` with the given plan and, unless told otherwise, an integration branch. */
 async function seedDelegatingFeature(
   tasks: readonly SeedTask[],
   streamId = STREAM,
   integrationBranch: string | null = INTEGRATION_BRANCH,
+  artifacts: Readonly<Record<string, unknown>> = SEEDED_ARTIFACTS,
 ): Promise<void> {
   await store.append(streamId, { type: 'workflow.started', data: { featureId: streamId, workflowType: 'feature' } });
   await store.append(streamId, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
@@ -105,7 +109,7 @@ async function seedDelegatingFeature(
     type: 'state.patched',
     data: {
       patch: {
-        'artifacts.design': 'docs/specs/prepare-unit.md',
+        ...Object.fromEntries(Object.entries(artifacts).map(([key, value]) => [`artifacts.${key}`, value])),
         ...(integrationBranch !== null ? { 'synthesis.integrationBranch': integrationBranch } : {}),
         tasks: tasks.map((t) => ({ id: t.id, title: `title of ${t.id}`, status: t.status, blockedBy: t.blockedBy ?? [] })),
       },
@@ -145,6 +149,44 @@ const PLAN: readonly SeedTask[] = [
   { id: 'T-3', status: 'pending' },
   { id: 'T-4', status: 'pending', blockedBy: ['T-3'] },
 ];
+
+const SPEC_PATH = 'docs/specs/prepare-unit-spec.md';
+const DESIGN_PATH = 'docs/designs/prepare-unit-design.md';
+const PLAN_PATH = 'docs/plans/prepare-unit-plan.md';
+/** The longest value, in characters, that prepare takes as a design reference. */
+const REFERENCE_BOUND = 512;
+
+interface DesignBinding {
+  readonly rationale: readonly string[];
+  readonly designRecordDigests: readonly string[];
+}
+
+/** What a compiled capsule binds as its design of record: each rationale statement, and the digest of each `design-record` source. */
+function designBinding(receipt: PreparedCapsuleReceipt): DesignBinding {
+  return {
+    rationale: receipt.capsule.knowledge.rationale.map((entry) => entry.statement),
+    designRecordDigests: receipt.capsule.provenance.sources
+      .filter((source) => source.sourceId === 'design-record')
+      .map((source) => source.digest),
+  };
+}
+
+/** The binding of a capsule whose design of record is the given reference. */
+function bindingOf(designRef: string): DesignBinding {
+  return {
+    rationale: [`The design of record is ${designRef}.`],
+    designRecordDigests: [contentDigest(designRef)],
+  };
+}
+
+/** The binding of a capsule that has no design of record. */
+const NO_BINDING: DesignBinding = { rationale: [], designRecordDigests: [] };
+
+/** Seeds one workflow with the given artifacts, prepares it, and returns what its capsule binds. */
+async function bindingFor(artifacts: Readonly<Record<string, unknown>>, streamId = STREAM): Promise<DesignBinding> {
+  await seedDelegatingFeature(PLAN, streamId, INTEGRATION_BRANCH, artifacts);
+  return designBinding(receiptOf(await prepare({ featureId: streamId })));
+}
 
 describe('prepare — the compilation endpoint', () => {
   /** The test reads the bundle back out of custody and digests it again. The record pins bytes that decode to the capsule that the caller got. */
@@ -319,6 +361,48 @@ describe('prepare — the compilation endpoint', () => {
     await seedDelegatingFeature(PLAN);
     const receipt = receiptOf(await prepare({ featureId: STREAM }, [{ id: 'INV-9', summary: 'catalog statement' }]));
     expect(receipt.capsule.authority.invariants.map((i) => i.id)).toContain('INV-9');
+  });
+
+  /** The spec is the first key that prepare reads, so it wins over the plan of the same workflow. */
+  it('Prepare_AWorkflowWithSpecAndPlan_BindsTheSpec', async () => {
+    expect(await bindingFor({ spec: SPEC_PATH, plan: PLAN_PATH })).toEqual(bindingOf(SPEC_PATH));
+  });
+
+  it('Prepare_AWorkflowWithDesignAndPlan_BindsTheDesign', async () => {
+    expect(await bindingFor({ design: DESIGN_PATH, plan: PLAN_PATH })).toEqual(bindingOf(DESIGN_PATH));
+  });
+
+  /** An artifact key can hold a document instead of its path. A value with a line feed or a carriage return is not a reference. */
+  it('Prepare_ASpecThatHoldsContents_IsSkippedForThePlanPath', async () => {
+    const contents = [
+      '# The spec\n\nThe design is in this text.\n',
+      '# The spec\r\nThe design is in this text.',
+      'The spec\rThe design is in this text.',
+    ];
+    for (const [index, spec] of contents.entries()) {
+      const binding = await bindingFor({ spec, plan: PLAN_PATH }, `${STREAM}-contents-${index}`);
+      expect(binding, JSON.stringify(spec)).toEqual(bindingOf(PLAN_PATH));
+    }
+  });
+
+  /** The bound is inclusive. A line at the bound is a reference, and one more character makes it too long. */
+  it('Prepare_AReferenceOverTheLengthBound_IsSkipped', async () => {
+    const atTheBound = 'r'.repeat(REFERENCE_BOUND);
+    const overTheBound = 'r'.repeat(REFERENCE_BOUND + 1);
+    expect(await bindingFor({ spec: overTheBound, plan: PLAN_PATH }, `${STREAM}-over`)).toEqual(bindingOf(PLAN_PATH));
+    expect(await bindingFor({ spec: atTheBound, plan: PLAN_PATH }, `${STREAM}-at`)).toEqual(bindingOf(atTheBound));
+  });
+
+  it('Prepare_APlanOnlyWorkflow_BindsThePlanArtifactAsTheDesignOfRecord', async () => {
+    expect(await bindingFor({ plan: PLAN_PATH })).toEqual(bindingOf(PLAN_PATH));
+  });
+
+  /** The first workflow records no artifact. The second records a value that is not a reference under each key. The third records a list. */
+  it('Prepare_AWorkflowWithNoUsableArtifact_CompilesWithNoRationale', async () => {
+    expect(await bindingFor({}, `${STREAM}-none`)).toEqual(NO_BINDING);
+    const unusable = { spec: '', design: 'line one\nline two', plan: 'r'.repeat(REFERENCE_BOUND + 1) };
+    expect(await bindingFor(unusable, `${STREAM}-unusable`)).toEqual(NO_BINDING);
+    expect(await bindingFor({ spec: [SPEC_PATH] }, `${STREAM}-list`)).toEqual(NO_BINDING);
   });
 
   /** A server that dispatches for another workspace must bind the configuration and catalog of that workspace, not those of the process directory. */

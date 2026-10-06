@@ -152,6 +152,39 @@ function resolveBaseRef(
   return { ok: true, baseRef: branch };
 }
 
+/** The artifact keys that can name the design of record, in the order that prepare reads them. */
+const DESIGN_REFERENCE_KEYS: readonly string[] = ['spec', 'design', 'plan'];
+
+/** The longest artifact value, in characters, that prepare takes as a design reference. */
+const DESIGN_REFERENCE_MAX_LENGTH = 512;
+
+/**
+ * Tells a reference to a document from the contents of a document.
+ * A reference is a string of one line that is not empty and stays in the length bound.
+ */
+function isDesignReference(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= DESIGN_REFERENCE_MAX_LENGTH &&
+    !/[\r\n]/.test(value)
+  );
+}
+
+/**
+ * The design of record of the workflow: the first artifact value that is a reference.
+ * An artifact key can hold the contents of a document, so a value that is not a reference is skipped.
+ * With no reference, the capsule binds no design.
+ */
+function resolveDesignRef(state: Record<string, unknown>): string | undefined {
+  const artifacts = isRecord(state.artifacts) ? state.artifacts : {};
+  for (const key of DESIGN_REFERENCE_KEYS) {
+    const value = artifacts[key];
+    if (isDesignReference(value)) return value;
+  }
+  return undefined;
+}
+
 /**
  * The resolved invariants of the repository, by id and summary.
  *
@@ -252,9 +285,7 @@ export async function handlePrepare(
     });
   }
 
-  const artifacts = isRecord(state.artifacts) ? state.artifacts : {};
-  const designRef =
-    typeof artifacts.design === 'string' && artifacts.design.length > 0 ? artifacts.design : undefined;
+  const designRef = resolveDesignRef(state);
   const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(
     workflowType,
     phase,
