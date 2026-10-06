@@ -201,7 +201,7 @@ function normalDeviation(
  * the deviation carries them. A deviation with neither keeps the id that the
  * earlier build gave it, so a batch held by that build is still decided.
  */
-function deviationIdOf(identity: SettledCapsuleIdentity, deviation: ProposedDeviation): string {
+export function deviationIdOf(identity: SettledCapsuleIdentity, deviation: ProposedDeviation): string {
   const key = canonicalJson({
     workflowId: identity.workflowId,
     capsuleVersion: identity.capsuleVersion,

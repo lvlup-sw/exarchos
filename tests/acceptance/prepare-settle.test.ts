@@ -31,7 +31,7 @@ import { CapsuleRecompiledData, DesignRevisedData, WorkflowPreparedData } from '
 import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
 import { lowerBuiltInDefinition } from '../../src/verbs/prepare/lower-definition.js';
-import { commitPreparedCapsule } from '../../src/verbs/prepare/prepared-record.js';
+import { commitPreparedCapsule, decodePreparedBundle } from '../../src/verbs/prepare/prepared-record.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
@@ -190,6 +190,31 @@ async function recompileRows(): Promise<ReturnType<typeof CapsuleRecompiledData.
   return (await rowsOf('capsule.recompiled')).map((row) =>
     CapsuleRecompiledData.parse((row as { data: unknown }).data),
   );
+}
+
+/** The row types that record the work of one task: its announcement, its gate verdicts and its completion. */
+const WORK_ROW_TYPES: readonly string[] = ['task.assigned', 'gate.executed', 'task.completed'];
+
+/**
+ * The work rows of the stream for the given tasks, in commit order, each with its sequence.
+ * An announcement and a completion name their task on the row. A gate verdict names it in its details.
+ */
+async function workRowsOf(taskIds: readonly string[]): Promise<{ type: string; sequence: number }[]> {
+  const rows: { type: string; sequence: number }[] = [];
+  for (const event of await eventStore.query(STREAM)) {
+    if (!WORK_ROW_TYPES.includes(event.type)) continue;
+    const data = event.data as { taskId?: unknown; details?: { taskId?: unknown } } | undefined;
+    const taskId = event.type === 'gate.executed' ? data?.details?.taskId : data?.taskId;
+    if (typeof taskId === 'string' && taskIds.includes(taskId)) rows.push({ type: event.type, sequence: event.sequence });
+  }
+  return rows;
+}
+
+/** The number of rows of each type. Each task leaves four gate verdicts, one for each ladder gate. */
+function countsByType(rows: readonly { readonly type: string }[]): Record<string, number> {
+  const counts: Record<string, number> = {};
+  for (const row of rows) counts[row.type] = (counts[row.type] ?? 0) + 1;
+  return counts;
 }
 
 /** The compiler name that the build before the design version counter stamped. */
@@ -804,6 +829,145 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(completions.map((e) => e.data.taskId).sort()).toEqual([first.id, sibling.id, named.id]);
     expect(await rowsOf('design.revised')).toHaveLength(1);
     expect(await recompileRows()).toHaveLength(1);
+  });
+
+  /**
+   * The whole material path. The first capsule holds two tasks with no blocker, and the `update`
+   * action then plans a third task that waits on the first. The first batch is held with a material
+   * deviation that names the third task and proposes a change. The accepted decision settles the two
+   * tasks and revises the design.
+   *
+   * The next `prepare` is the continuation. Its capsule holds the third task alone, under the second
+   * design version, and it states the accepted change and its actor. The third task then settles.
+   *
+   * Each assertion reads the rows of the stream, or the capsule that the second record pins in custody.
+   * The two finished tasks get no further assignment, gate or completion row.
+   */
+  it('PrepareSettle_AMaterialRevision_RecompilesItsSliceAndLeavesFinishedWorkUntouched', async () => {
+    const [first, second, third] = TASKS;
+    if (first === undefined || second === undefined || third === undefined) throw new Error('the plan is three tasks');
+    const finding = 'the endpoint reads a cache that the design did not name';
+    const proposedChange = 'the third task reads the cache through the adapter';
+    const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
+    await seedDelegatingFeature([first, second], { _esVersion: CURRENT_ES_VERSION });
+
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const compiled = prepared.data as PreparedReceipt;
+    expect(compiled.capsule.graph.tasks.map((t) => t.taskId)).toEqual([first.id, second.id]);
+
+    const planned = await call('exarchos_workflow', {
+      action: 'update',
+      featureId: STREAM,
+      updates: { tasks: [first, second, { ...third, blockedBy: [first.id] }] },
+    });
+    expect(planned.success, JSON.stringify(planned)).toBe(true);
+
+    const firstBatch = { action: 'settle', featureId: STREAM, capsuleVersion: compiled.capsuleVersion, batchId: 'batch-1' };
+    const held = await call('exarchos_orchestrate', {
+      ...firstBatch,
+      claims: completedClaims(greenWorktree, [first.id, second.id]),
+      deviations: [
+        { deviationKind: 'invalidated-assumption', statement: finding, affectedTasks: [third.id], proposedChange },
+      ],
+    });
+    expect(held.success, JSON.stringify(held)).toBe(true);
+    const heldReceipt = held.data as { outcome: string; pendingDeviations?: { deviationId: string }[] };
+    expect(heldReceipt.outcome).toBe('deviation-pending');
+    expect(heldReceipt.pendingDeviations).toHaveLength(1);
+
+    const decided = await call('exarchos_orchestrate', {
+      ...firstBatch,
+      decisions: (heldReceipt.pendingDeviations ?? []).map(({ deviationId }) => ({
+        deviationId,
+        decision: 'accepted',
+        actor: 'human:reviewer',
+        rationale: 'the design did not name the cache, and the change is sound',
+      })),
+    });
+    expect(decided.success, JSON.stringify(decided)).toBe(true);
+    expect(decided.data).toMatchObject({ outcome: 'settled', acceptedTasks: [first.id, second.id] });
+    const finishedWork = await workRowsOf([first.id, second.id]);
+    expect(countsByType(finishedWork)).toEqual({ 'task.assigned': 2, 'gate.executed': 8, 'task.completed': 2 });
+
+    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
+    const next = recompiled.data as PreparedReceipt;
+    expect(next.capsuleVersion).toBe(2);
+    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual([third.id]);
+    expect(next.recompile?.invalidatedTasks).toEqual([third.id]);
+    const estimatedTokens = Math.ceil(Buffer.byteLength(JSON.stringify(recompiled.data), 'utf8') / 4);
+    expect(estimatedTokens).toBeLessThan(PREPARE_ECONOMY_BUDGET_TOKENS);
+
+    const early = await call('exarchos_workflow', moveToReview);
+    expect(early.success, JSON.stringify(early)).toBe(false);
+    expect(early.error?.code).toBe('GUARD_FAILED');
+    expect(early.error?.message).toContain('1 task(s) incomplete');
+    const transitionsBefore = (await rowsOf('workflow.transition')) as { data: { to: string } }[];
+    expect(transitionsBefore.at(-1)?.data.to).toBe('delegate');
+
+    const settled = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion: next.capsuleVersion,
+      batchId: 'batch-2',
+      claims: completedClaims(greenWorktree, [third.id]),
+    });
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    expect(settled.data).toMatchObject({
+      outcome: 'settled',
+      acceptedTasks: [third.id],
+      capsule: { capsuleVersion: 2, designVersion: 'design-v2' },
+    });
+
+    const records = (await rowsOf('workflow.prepared')).map((row) =>
+      WorkflowPreparedData.parse((row as { data: unknown }).data),
+    );
+    expect(records.map((record) => [record.capsuleVersion, record.designVersion])).toEqual([
+      [1, 'design-v1'],
+      [2, 'design-v2'],
+    ]);
+    const settlements = (await rowsOf('execution.settled')) as { data: { outcome: string; batchId: string } }[];
+    expect(settlements.map((row) => [row.data.batchId, row.data.outcome])).toEqual([
+      ['batch-1', 'deviation-pending'],
+      ['batch-1', 'settled'],
+      ['batch-2', 'settled'],
+    ]);
+    const revisions = (await rowsOf('design.revised')).map((row) =>
+      DesignRevisedData.parse((row as { data: unknown }).data),
+    );
+    expect(revisions.map((row) => [row.priorDesignVersion, row.nextDesignVersion, row.affectedTasks])).toEqual([
+      [1, 2, [third.id]],
+    ]);
+    const recompiles = await recompileRows();
+    expect(recompiles).toHaveLength(1);
+    expect(recompiles[0]).toMatchObject({ capsuleVersion: 2, nextDesignVersion: 2, invalidatedTasks: [third.id] });
+
+    const pinned = records[1]?.bundleRefs[0];
+    if (pinned === undefined) throw new Error('the second prepared record names no bundle');
+    const inCustody = decodePreparedBundle(await eventStore.bundleStore.resolve(pinned.digest)).capsule;
+    expect(inCustody.identity.designVersion).toBe('design-v2');
+    expect(inCustody.knowledge.rationale.map((entry) => entry.statement)).toEqual([
+      'Design version 2 holds an accepted change. Decided by "human:reviewer". ' +
+        'Proposed change: "the third task reads the cache through the adapter". ' +
+        'Deviation: "the endpoint reads a cache that the design did not name".',
+    ]);
+    expect(inCustody.provenance.sources).toContainEqual({
+      sourceId: 'design-revisions',
+      digest: contentDigest(revisions),
+    });
+
+    expect(await workRowsOf([first.id, second.id])).toEqual(finishedWork);
+    expect(countsByType(await workRowsOf([third.id]))).toEqual({
+      'task.assigned': 1,
+      'gate.executed': 4,
+      'task.completed': 1,
+    });
+
+    const moved = await call('exarchos_workflow', moveToReview);
+    expect(moved.success, JSON.stringify(moved)).toBe(true);
+    const transitions = (await rowsOf('workflow.transition')) as { data: { to: string } }[];
+    expect(transitions.at(-1)?.data.to).toBe('review');
   });
 
   /**

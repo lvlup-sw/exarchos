@@ -81,6 +81,8 @@ function receiptOf(recompile?: PreparedRecompile): PreparedCapsuleReceipt {
     catalogInvariants: [],
     designRef: 'docs/specs/capped-prepare.md',
     designVersion: recompile?.nextDesignVersion ?? 1,
+    designRevisions: [],
+    acceptedChanges: [],
     compilerVersion: PREPARE_COMPILER_VERSION,
     baseRef: 'feature/capped-prepare',
     executionProfile: { capabilities: ['fs:read', 'shell:exec'] },

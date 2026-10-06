@@ -29,6 +29,8 @@ export const PREPARE_REFUSAL_CODES = [
   'CAPSULE_UNSOUND',
   /** The calling runtime lacks a capability the batch's execution profile requires. */
   'RUNTIME_UNFIT',
+  /** The settlement bundle of a bound design revision cannot be read, or it lacks an accepted change that the row names. */
+  'REVISION_UNREADABLE',
 ] as const;
 
 export type PrepareRefusalCode = (typeof PREPARE_REFUSAL_CODES)[number];

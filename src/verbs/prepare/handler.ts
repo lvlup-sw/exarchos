@@ -16,7 +16,12 @@
  * The first prepare after a design revision is a continuation. Its commit also records
  * `capsule.recompiled`, which names the unfinished tasks that the revision invalidated.
  * A retry of a continuation returns the recorded receipt, with the recompile that it recorded.
+ *
+ * A capsule under a revised design states the accepted changes. After the replay lookup, prepare
+ * reads them from the settlement bundles of the bound revisions. An unreadable bundle refuses the call.
  */
+
+import { ZodError } from 'zod';
 
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
@@ -28,22 +33,30 @@ import { runExclusivePerOperation } from '../../dispatch/core/operation-serializ
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
+import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { ConcurrencyError } from '../../events/concurrency-error.js';
+import { DesignRevisedData, type DesignRevised } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { findActionInRegistry } from '../../registry.js';
 import { ALL_RUNBOOKS } from '../../runbooks/definitions.js';
+import { ContentAddressedStoreError } from '../../storage/artifacts/content-addressed-store.js';
 import { capabilityNeedSatisfied } from '../../workflow/capabilities/resolver.js';
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
 import { resolveWorkflowState } from '../resolve-state.js';
+import { deviationIdOf } from '../settle/handler.js';
+import { decodeSettlementBundle, type SettlementBundleV1 } from '../settle/settlement-bundle.js';
 import type { CatalogInvariant } from './bind-authority.js';
 import {
   compileDelegationCapsule,
   PREPARE_COMPILER_VERSION,
+  selectDesignChanges,
   verificationProfiles,
+  type AcceptedDesignChange,
+  type BoundDesignChange,
   type CompileCapsuleInput,
 } from './compile-capsule.js';
-import { designVersionOf } from './design-version.js';
+import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
 import { lowerBuiltInDefinition } from './lower-definition.js';
 import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
 import { commitPreparedCapsule } from './prepared-record.js';
@@ -153,6 +166,139 @@ function recompileOf(
   };
 }
 
+/** The design revision rows of one stream read, in commit order, each parsed through the row schema. */
+function designRevisionsOf(
+  events: readonly { readonly type: string; readonly data?: unknown }[],
+): DesignRevised[] {
+  return events
+    .filter((event) => event.type === DESIGN_REVISED_TYPE)
+    .map((event) => DesignRevisedData.parse(event.data));
+}
+
+/** The number of schema issues that a refusal names for a bundle that does not decode. */
+const DECODE_ISSUES_NAMED = 3;
+
+/**
+ * Why the settlement bundle of a revision gave no bundle, as the end of a sentence about that bundle.
+ * A missing blob and a blob that does not match its digest are different faults with different repairs.
+ */
+function unreadableReason(error: unknown): string {
+  if (error instanceof ContentAddressedStoreError && error.code === 'CONTENT_NOT_FOUND') {
+    return 'is not in the run-bundle store';
+  }
+  if (error instanceof ContentAddressedStoreError && error.code === 'DIGEST_MISMATCH') {
+    return 'does not match its digest in the run-bundle store';
+  }
+  if (error instanceof ZodError) {
+    const issues = error.issues
+      .slice(0, DECODE_ISSUES_NAMED)
+      .map((issue) => `${issue.path.join('.')}: ${issue.message}`);
+    return `does not decode as a settlement bundle (${issues.join('; ')})`;
+  }
+  return `cannot be read (${error instanceof Error ? error.message : String(error)})`;
+}
+
+/**
+ * The refusal for a bound revision whose accepted changes cannot be read.
+ * `fault` ends the first sentence. It says what is wrong with the settlement bundle that the row names.
+ */
+function revisionUnreadable(streamId: string, revision: DesignRevised, fault: string): PrepareRefusal {
+  return {
+    code: 'REVISION_UNREADABLE',
+    message:
+      `the revision of '${streamId}' to design version ${revision.nextDesignVersion} ${fault}. ` +
+      'A capsule under a revised design states the accepted changes of that bundle, so nothing was ' +
+      'compiled or recorded. Restore the bundle in the run-bundle store, then prepare again.',
+  };
+}
+
+type SettlementBundleRead =
+  | { readonly ok: true; readonly bundle: SettlementBundleV1 }
+  | { readonly ok: false; readonly reason: string };
+
+/** Resolves one settlement bundle and decodes it. A failure of either step is an answer, not an exception. */
+async function readSettlementBundle(
+  bundles: RunBundleStore,
+  digest: BundleRefV1['digest'],
+): Promise<SettlementBundleRead> {
+  try {
+    return { ok: true, bundle: decodeSettlementBundle(await bundles.resolve(digest)) };
+  } catch (error) {
+    return { ok: false, reason: unreadableReason(error) };
+  }
+}
+
+type AcceptedChangesRead =
+  | { readonly ok: true; readonly changes: readonly AcceptedDesignChange[] }
+  | { readonly ok: false; readonly refusal: PrepareRefusal };
+
+/**
+ * Reads the accepted changes of the bound revisions from their settlement bundles.
+ * It reads one bundle for each bound revision, and it reads no bundle of another revision.
+ * From a bundle it takes each deviation that the row names, and no other deviation.
+ * The deviation id function of `settle` pairs a deviation with its decision, and the decision must accept it.
+ *
+ * A bundle that does not resolve or decode refuses the read.
+ * So does a bundle that lacks a named deviation, or the decision that accepted it.
+ */
+async function readAcceptedChanges(
+  streamId: string,
+  bound: readonly BoundDesignChange[],
+  bundles: RunBundleStore,
+): Promise<AcceptedChangesRead> {
+  const changes: AcceptedDesignChange[] = [];
+  for (const revision of new Set(bound.map((change) => change.revision))) {
+    const ref = revision.bundleRefs[0];
+    if (ref === undefined) {
+      return { ok: false, refusal: revisionUnreadable(streamId, revision, 'names no settlement bundle') };
+    }
+    const named = `names the settlement bundle ${ref.artifactId} (${ref.digest.algorithm}:${ref.digest.value})`;
+    const read = await readSettlementBundle(bundles, ref.digest);
+    if (!read.ok) {
+      return { ok: false, refusal: revisionUnreadable(streamId, revision, `${named}, which ${read.reason}`) };
+    }
+    const { bundle } = read;
+    const held = new Map(
+      bundle.deviations.map((deviation) => [
+        deviationIdOf(bundle.capsule, {
+          deviationKind: deviation.deviationKind,
+          statement: deviation.statement,
+          ...(deviation.affectedTasks !== undefined ? { affectedTasks: deviation.affectedTasks } : {}),
+          ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
+        }),
+        deviation,
+      ]),
+    );
+    const accepted = new Map(
+      (bundle.decisions ?? [])
+        .filter((decision) => decision.decision === 'accepted')
+        .map((decision) => [decision.deviationId, decision]),
+    );
+    for (const deviationId of revision.deviationIds) {
+      const deviation = held.get(deviationId);
+      const decision = accepted.get(deviationId);
+      if (deviation === undefined || decision === undefined) {
+        const lacks = deviation === undefined ? 'the deviation' : 'an accepted decision for the deviation';
+        return {
+          ok: false,
+          refusal: revisionUnreadable(
+            streamId,
+            revision,
+            `${named}, which lacks ${lacks} ${JSON.stringify(deviationId)} that the revision names`,
+          ),
+        };
+      }
+      changes.push({
+        deviationId,
+        actor: decision.actor,
+        statement: deviation.statement,
+        ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
+      });
+    }
+  }
+  return { ok: true, changes };
+}
+
 /** How a caller records the integration branch, quoted in the refusal that asks for it. */
 const SET_INTEGRATION_BRANCH =
   'exarchos_workflow({ action: "update", featureId: "<featureId>", ' +
@@ -259,6 +405,9 @@ function resolvedCatalogInvariants(
  * because a second `task.assigned` moves a task back to `assigned`.
  * The runtime check occurs before compilation. The verification sequence is a
  * compilation input, so a policy change compiles the next version.
+ *
+ * A replay returns the receipt of its claim and reads no bundle. Only a call that compiles reads
+ * the settlement bundles of the revisions that its capsule binds.
  */
 export async function handlePrepare(
   raw: Record<string, unknown>,
@@ -370,6 +519,17 @@ export async function handlePrepare(
       .lookupOperationClaim<PreparedCapsuleReceipt>(operationId);
     if (claim !== undefined) return receiptResult(claim.result);
 
+    const designRevisions = designRevisionsOf(events);
+    const accepted = await readAcceptedChanges(
+      streamId,
+      selectDesignChanges(
+        designRevisions,
+        batch.tasks.map((task) => task.taskId),
+      ).bound,
+      deps.bundleStore ?? ctx.eventStore.bundleStore,
+    );
+    if (!accepted.ok) return refused(accepted.refusal);
+
     const compiled = compileDelegationCapsule({
       workflowId: streamId,
       capsuleVersion,
@@ -378,6 +538,8 @@ export async function handlePrepare(
       catalogInvariants,
       designRef,
       designVersion,
+      designRevisions,
+      acceptedChanges: accepted.changes,
       compilerVersion,
       baseRef,
       executionProfile: { capabilities },

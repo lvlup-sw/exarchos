@@ -20,7 +20,7 @@ import {
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
 import { EdgeConditionNodeSchema } from '../../contract/ir/admission-ir.js';
-import { TaskCompletedData } from '../../events/schemas.js';
+import { TaskCompletedData, type DesignRevised } from '../../events/schemas.js';
 import { findActionInRegistry } from '../../registry.js';
 import { VERIFICATION_GATE_NAMES, type RiskTier } from '../../workflow/verification-policy.js';
 import {
@@ -39,7 +39,7 @@ import type { PrepareRefusal } from './types.js';
  * The handler also keys its replay claim on this name, so a capsule of an earlier compiler is not replayed.
  * Raise the number when the compiler changes what it writes into a capsule.
  */
-export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-2';
+export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-3';
 
 /** The deviation kinds that a worker can propose when an assumption of the capsule does not hold. */
 export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption', 'missing-context'];
@@ -50,6 +50,80 @@ export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assum
  * The capsule pins this list, so settlement reads the kinds from the capsule that it judges.
  */
 const DELEGATION_MATERIAL_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption'];
+
+/** The most accepted design changes that one capsule states. One more statement counts the rest. */
+const MAX_BOUND_DESIGN_CHANGES = 8;
+
+/** The most characters that a capsule keeps of a deviation statement, and of a proposed change. */
+const DESIGN_CHANGE_TEXT_LIMIT = 280;
+
+/** The most characters that a capsule keeps of the name of a deciding actor. */
+const DESIGN_CHANGE_ACTOR_LIMIT = 80;
+
+/** The mark that ends a text that the compiler cut. The mark counts in the limit. */
+const CUT_MARK = '...';
+
+/** The id of the provenance source that pins the design revision rows of the stream. */
+const DESIGN_REVISIONS_SOURCE_ID = 'design-revisions';
+
+/**
+ * One accepted design change, as the settlement bundle of its revision holds it.
+ * The handler reads it from custody. The compiler cuts the texts and writes the statement.
+ */
+export interface AcceptedDesignChange {
+  /** The id of the deviation, as the revision row names it. */
+  readonly deviationId: string;
+  /** The actor of the decision that accepted the deviation. */
+  readonly actor: string;
+  /** What the worker found, in its words. */
+  readonly statement: string;
+  /** The change that the worker proposed. It is absent when the worker proposed none. */
+  readonly proposedChange?: string;
+}
+
+/** One change that a capsule states: a deviation id, and the revision row that names it. */
+export interface BoundDesignChange {
+  readonly revision: DesignRevised;
+  readonly deviationId: string;
+}
+
+/** The accepted changes of a stream that one capsule states, and the count of the others. */
+export interface DesignChangeSelection {
+  /** The changes that the capsule states, in statement order. */
+  readonly bound: readonly BoundDesignChange[];
+  /** The number of changes that the revision rows name and the capsule does not state. */
+  readonly leftOut: number;
+}
+
+/**
+ * Selects the accepted changes that a capsule states, from the revision rows alone.
+ * The handler calls it before it reads a bundle, so it reads the bundles of the bound revisions only.
+ *
+ * A row names a task of the capsule when its affected tasks hold a task of the batch.
+ * The changes of those rows come first, and the changes of the other rows follow.
+ * In each group the newest revision comes first. In one revision, the order is that of its deviation ids.
+ * The first eight changes in that order are bound. The order is fixed, so equal inputs give an equal selection.
+ */
+export function selectDesignChanges(
+  revisions: readonly DesignRevised[],
+  batchTaskIds: readonly string[],
+): DesignChangeSelection {
+  const inBatch = new Set(batchTaskIds);
+  const namesBatchTask = (revision: DesignRevised): boolean =>
+    revision.affectedTasks.some((taskId) => inBatch.has(taskId));
+  const newestFirst = [...revisions].sort((a, b) => b.nextDesignVersion - a.nextDesignVersion);
+  const ordered = [
+    ...newestFirst.filter(namesBatchTask),
+    ...newestFirst.filter((revision) => !namesBatchTask(revision)),
+  ];
+  const changes = ordered.flatMap((revision) =>
+    revision.deviationIds.map((deviationId): BoundDesignChange => ({ revision, deviationId })),
+  );
+  return {
+    bound: changes.slice(0, MAX_BOUND_DESIGN_CHANGES),
+    leftOut: Math.max(0, changes.length - MAX_BOUND_DESIGN_CHANGES),
+  };
+}
 
 export interface CompileCapsuleInput {
   readonly workflowId: string;
@@ -64,6 +138,16 @@ export interface CompileCapsuleInput {
    * It starts at 1, and each recorded design revision moves it. The capsule identity carries its id.
    */
   readonly designVersion: number;
+  /**
+   * The design revision rows of the stream, in commit order. The capsule states the changes that
+   * {@link selectDesignChanges} binds from them, and its provenance pins all the rows.
+   */
+  readonly designRevisions: readonly DesignRevised[];
+  /**
+   * The accepted changes of the bound revisions, which the handler read from their settlement bundles.
+   * The compilation is refused when it lacks a change that it binds.
+   */
+  readonly acceptedChanges: readonly AcceptedDesignChange[];
   /**
    * The compiler name that the capsule records in its provenance.
    * The handler passes the name that it keys the replay claim on, so the record and the claim agree.
@@ -186,12 +270,87 @@ function verificationPatterns(
 }
 
 /**
+ * Cuts a text to a limit. A cut text ends with the cut mark, and the mark counts in the limit.
+ * The cut does not split a surrogate pair, so the text stays well formed.
+ */
+function cutTo(text: string, limit: number): string {
+  if (text.length <= limit) return text;
+  const end = limit - CUT_MARK.length;
+  const last = text.charCodeAt(end - 1);
+  const kept = last >= 0xd800 && last <= 0xdbff ? end - 1 : end;
+  return `${text.slice(0, kept)}${CUT_MARK}`;
+}
+
+/**
+ * The statement of one accepted change. It names the design version, the actor, the proposed change and the deviation.
+ * Each text has its own limit, so a long text cannot push another text out.
+ * Each text is in JSON quotes. Thus the statement is one line, and the words of the worker have clear bounds.
+ */
+function designChangeStatement(revision: DesignRevised, change: AcceptedDesignChange): string {
+  const quoted = (text: string, limit: number): string => JSON.stringify(cutTo(text, limit));
+  return (
+    `Design version ${revision.nextDesignVersion} holds an accepted change. ` +
+    `Decided by ${quoted(change.actor, DESIGN_CHANGE_ACTOR_LIMIT)}. ` +
+    (change.proposedChange !== undefined
+      ? `Proposed change: ${quoted(change.proposedChange, DESIGN_CHANGE_TEXT_LIMIT)}. `
+      : '') +
+    `Deviation: ${quoted(change.statement, DESIGN_CHANGE_TEXT_LIMIT)}.`
+  );
+}
+
+type DesignChangeStatements =
+  | { readonly ok: true; readonly statements: readonly { statement: string }[] }
+  | { readonly ok: false; readonly refusal: PrepareRefusal };
+
+/**
+ * The statements of the accepted design changes: one for each bound change, in selection order.
+ * One more statement counts the changes that the capsule does not state.
+ * A bound change that the input lacks refuses the compilation, so a capsule never states a placeholder.
+ */
+function designChangeStatements(
+  input: CompileCapsuleInput,
+  batchTaskIds: readonly string[],
+): DesignChangeStatements {
+  const selection = selectDesignChanges(input.designRevisions, batchTaskIds);
+  const accepted = new Map(input.acceptedChanges.map((change) => [change.deviationId, change]));
+  const statements: { statement: string }[] = [];
+  for (const { revision, deviationId } of selection.bound) {
+    const change = accepted.get(deviationId);
+    if (change === undefined) {
+      return {
+        ok: false,
+        refusal: {
+          code: 'REVISION_UNREADABLE',
+          message:
+            `the revision to design version ${revision.nextDesignVersion} names the accepted deviation ` +
+            `${JSON.stringify(deviationId)}, and the compilation was not given that change, so the capsule ` +
+            'cannot state it',
+        },
+      };
+    }
+    statements.push(statement(designChangeStatement(revision, change)));
+  }
+  if (selection.leftOut > 0) {
+    statements.push(
+      statement(
+        `${selection.leftOut} more accepted design change(s) are not stated in this capsule. ` +
+          'The design.revised rows of the workflow stream name each one.',
+      ),
+    );
+  }
+  return { ok: true, statements };
+}
+
+/**
  * Compiles one delegation batch, or refuses it.
  * The completion predicate is the task-completion condition, parsed through the capsule condition schema, so the declares block matches the node the capsule carries.
  * The steps that follow the batch in the pinned definition become non-goals.
  * The identity carries the id of the design version, which is the revision counter of the stream.
  * The digest of the design reference is a provenance source, and it is not part of the identity.
  * The settlement contract freezes the tier and the boundary flag of each task, so settlement does not read them from the claim.
+ *
+ * The rationale states the design of record, and then the accepted changes that the revision rows name.
+ * The digest of the revision rows is a provenance source, and a stream with no revision has no such source.
  */
 export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOutcome {
   const { workflowId, capsuleVersion, lowered, batch, designRef } = input;
@@ -219,11 +378,17 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
   const resultFields = delegatedTaskResultFields();
   const batchTaskIds = batch.tasks.map((task) => task.taskId);
 
+  const designChanges = designChangeStatements(input, batchTaskIds);
+  if (!designChanges.ok) return { ok: false, refusal: designChanges.refusal };
+
   const sources = [
     { sourceId: 'workflow-definition', digest: lowered.definitionVersion },
     { sourceId: 'plan-tasks', digest: contentDigest(batch) },
     { sourceId: 'authority', digest: contentDigest(authority) },
     ...(designRef !== undefined ? [{ sourceId: 'design-record', digest: contentDigest(designRef) }] : []),
+    ...(input.designRevisions.length > 0
+      ? [{ sourceId: DESIGN_REVISIONS_SOURCE_ID, digest: contentDigest(input.designRevisions) }]
+      : []),
   ];
 
   const document = {
@@ -269,7 +434,10 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     },
     knowledge: {
       mode: 'eager',
-      rationale: designRef !== undefined ? [statement(`The design of record is ${designRef}.`)] : [],
+      rationale: [
+        ...(designRef !== undefined ? [statement(`The design of record is ${designRef}.`)] : []),
+        ...designChanges.statements,
+      ],
       patterns: verificationPatterns(batch, input.verificationSequence),
       glossary: [],
     },
