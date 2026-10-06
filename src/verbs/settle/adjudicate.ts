@@ -439,3 +439,20 @@ export function adjudicateSettlement(
     adjudicated: census,
   };
 }
+
+/**
+ * The deviations of a round that revise the design, in the order of the round.
+ * A deviation is in the list when the decision accepted it and the pinned capsule lists its kind as material.
+ * A capsule with no list of material kinds selects none, so a capsule stored without the list keeps its meaning.
+ * The kinds come from the capsule that judges the batch, never from the current compiler.
+ */
+export function acceptedMaterialDeviations(
+  capsule: ExarchosCapsuleV1,
+  deviations: readonly ProposedDeviation[],
+  decided: NonNullable<AdjudicationContext['decided']>,
+): ProposedDeviation[] {
+  const material = new Set(capsule.contracts.deviationEnvelope.materialDeviationKinds ?? []);
+  return deviations.filter(
+    (deviation) => material.has(deviation.deviationKind) && decided(deviation) === 'accepted',
+  );
+}

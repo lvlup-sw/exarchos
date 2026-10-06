@@ -74,6 +74,7 @@ export interface UnverifiableActionEmission {
  * event. Add a row only after you confirm that the parser cannot read the new append.
  */
 export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freeze([
+  'design.revised',
   'deviation.decided',
   'deviation.proposed',
   'execution.settled',

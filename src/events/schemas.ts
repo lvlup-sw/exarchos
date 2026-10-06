@@ -93,8 +93,9 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
  * - `execution.settled`: the settle handler commits it after capsule parse, adjudication and custody.
  * - `workflow.prepared`: settlement adjudicates a capsule only when this record pins its digest.
  * - `deviation.proposed` and `deviation.decided`: the settle handler commits them for a held batch.
+ * - `design.revised`: the settle handler commits it when a decision accepts a material deviation.
  *
- * A caller that can append these types can fake a settlement or pin any capsule.
+ * A caller that can append these types can fake a settlement, pin any capsule, or move the design version.
  */
 export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'orchestrate.intent_executed',
@@ -102,12 +103,14 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'workflow.prepared',
   'deviation.proposed',
   'deviation.decided',
+  'design.revised',
 ] = [
   'orchestrate.intent_executed',
   'execution.settled',
   'workflow.prepared',
   'deviation.proposed',
   'deviation.decided',
+  'design.revised',
 ];
 
 /** Server-owned facts of the cancellation process manager. */
@@ -493,6 +496,11 @@ export const EventTypes = [
    */
   'deviation.proposed',
   'deviation.decided',
+  /**
+   * The design revision fact. A decision round that accepts a material deviation leaves one row.
+   * The row links the prior design version to the next one, and it rewrites no earlier row.
+   */
+  'design.revised',
 ] as const;
 
 export type EventType = typeof EventTypes[number];
@@ -3240,6 +3248,46 @@ export const DeviationDecidedData = z
   .strict();
 export type DeviationDecided = z.infer<typeof DeviationDecidedData>;
 
+/**
+ * The record of one design revision. One decision round leaves at most one row, for all the
+ * material deviations that the round accepted. The schema is structural: it does not compare the
+ * two versions, and it does not check the order of the lists. The change itself is in the
+ * referenced settlement bundle, which holds each deviation and its decision.
+ */
+export const DesignRevisedData = z
+  .object({
+    operationId: z.string().min(1).describe('The settle call that recorded the revision'),
+    workflowId: z.string().min(1).describe('Workflow the settled capsule compiled for'),
+    capsuleVersion: z.number().int().min(1).describe('Which compilation the decided batch ran under'),
+    batchId: z.string().min(1).describe('The batch whose decision round accepted the deviations'),
+    priorDesignVersion: z
+      .number()
+      .int()
+      .min(1)
+      .describe('The design version of the stream before this revision; 1 when no row came before'),
+    nextDesignVersion: z
+      .number()
+      .int()
+      .min(2)
+      .describe('The design version of the stream from this row on'),
+    deviationIds: z
+      .array(z.string().min(1))
+      .min(1)
+      .describe('Ids of the accepted material deviations that this revision records, sorted'),
+    affectedTasks: z
+      .array(z.string().min(1))
+      .describe('The unfinished tasks those deviations affect, as one sorted list; empty when they name none'),
+    [BUNDLE_REF_FIELD]: z
+      .array(BundleRefV1Schema)
+      .min(1)
+      .describe(
+        'Content-addressed reference to the settlement bundle of the decision round; ' +
+          'the bytes are durable before this row exists',
+      ),
+  })
+  .strict();
+export type DesignRevised = z.infer<typeof DesignRevisedData>;
+
 export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.started': WorkflowStartedData,
   'workflow.transition': WorkflowTransitionData,
@@ -3475,6 +3523,7 @@ export const EVENT_DATA_SCHEMAS: Partial<Record<EventType, z.ZodSchema>> = {
   'workflow.prepared': WorkflowPreparedData,
   'deviation.proposed': DeviationProposedData,
   'deviation.decided': DeviationDecidedData,
+  'design.revised': DesignRevisedData,
 };
 
 export type WorkflowEvent = z.infer<typeof WorkflowEventBase>;
@@ -3781,6 +3830,7 @@ export type EventDataMap = {
   'workflow.prepared': WorkflowPrepared;
   'deviation.proposed': DeviationProposed;
   'deviation.decided': DeviationDecided;
+  'design.revised': DesignRevised;
 };
 
 export interface EventCatalog {

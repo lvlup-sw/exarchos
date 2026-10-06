@@ -400,7 +400,7 @@ describe('EventTypes', () => {
    * The membership assertions catch a swap of one type for a different type, which keeps the count.
    */
   it('EventTypes_CountMatchesRegisteredTypes', () => {
-    expect(EventTypes).toHaveLength(184);
+    expect(EventTypes).toHaveLength(185);
     expect(EventTypes).toContain('tool.budget_exceeded');
     expect(EventTypes).toContain('ci.check_observed');
     expect(EventTypes).toContain('merge.recovered');

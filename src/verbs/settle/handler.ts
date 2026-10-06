@@ -13,6 +13,9 @@
  * A batch that the shape pass settles is then verified task by task. A halted
  * segment rejects the batch. Tasks whose segments committed stay complete.
  *
+ * A decision round that accepts a material deviation also commits one design
+ * revision. The revision takes its number inside the write transaction.
+ *
  * The operation claim derives from the batch identity, not from the caller. A
  * resubmitted batch gets its existing verdict. A correction under a new
  * `batchId` is a new settlement. Settlement does not move the phase.
@@ -34,11 +37,12 @@ import { runExclusivePerOperation } from '../../dispatch/core/operation-serializ
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
-import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
+import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import {
   AdmissionEvidenceRecordedData,
+  DesignRevisedData,
   DeviationDecidedData,
   DeviationProposedData,
   ExecutionSettledData,
@@ -52,10 +56,12 @@ import { compileIntent } from '../execute/compile.js';
 import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
 import { ladderRequirementId } from '../gates/durable-gate-producer.js';
+import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
+  acceptedMaterialDeviations,
   adjudicateSettlement,
   type AdjudicationContext,
   type ProposedDeviation,
@@ -77,6 +83,7 @@ import {
   type PendingDeviation,
   type SettledCapsuleIdentity,
   type SettlementDecision,
+  type SettlementDesignRevision,
   type SettlementReceipt,
   type SettlementVerificationTrace,
 } from './types.js';
@@ -221,6 +228,76 @@ function pendingDeviationsOf(
     statement: deviation.statement,
     ...(deviation.affectedTasks !== undefined ? { affectedTasks: deviation.affectedTasks } : {}),
   }));
+}
+
+/** What one design revision records about its deviations: both lists sorted, and each task once. */
+interface DesignRevisionContent {
+  readonly deviationIds: readonly string[];
+  readonly affectedTasks: readonly string[];
+}
+
+/**
+ * The content of the design revision of one round, or undefined when the round revises nothing.
+ * `revising` is the accepted material deviations of the round. One revision covers them all.
+ */
+function designRevisionContentOf(
+  identity: SettledCapsuleIdentity,
+  revising: readonly ProposedDeviation[],
+): DesignRevisionContent | undefined {
+  if (revising.length === 0) return undefined;
+  return {
+    deviationIds: revising.map((deviation) => deviationIdOf(identity, deviation)).sort(),
+    affectedTasks: [...new Set(revising.flatMap((deviation) => deviation.affectedTasks ?? []))].sort(),
+  };
+}
+
+/** The revision row of one round, and the entry that the receipt of the round carries for it. */
+interface DesignRevisionCommit {
+  readonly row: EventInput;
+  readonly receipt: SettlementDesignRevision;
+}
+
+/** The settle call and the batch that a fact of the divergence loop belongs to. */
+interface SettlementOfFact {
+  readonly operationId: string;
+  readonly workflowId: string;
+  readonly capsuleVersion: number;
+  readonly batchId: string;
+}
+
+/**
+ * Numbers one design revision and builds its row. `committed` is the stream as the write
+ * transaction reads it, so the prior version counts committed rows only. Thus two settlements on
+ * one stream record consecutive versions, and never the same version twice.
+ *
+ * `stamp` carries the type, the timestamp and the correlation of the row. `ref` is the settlement
+ * bundle of the round, which is in custody before the row commits.
+ */
+function designRevisionOf(
+  committed: readonly { readonly type: string; readonly data?: unknown }[],
+  content: DesignRevisionContent,
+  stamp: EventInput,
+  settlement: SettlementOfFact,
+  ref: BundleRefV1,
+): DesignRevisionCommit {
+  const priorDesignVersion = designVersionOf(committed);
+  const receipt: SettlementDesignRevision = {
+    priorDesignVersion,
+    nextDesignVersion: priorDesignVersion + 1,
+    deviationIds: content.deviationIds,
+  };
+  return {
+    row: {
+      ...stamp,
+      data: DesignRevisedData.parse({
+        ...settlement,
+        ...receipt,
+        affectedTasks: content.affectedTasks,
+        bundleRefs: [ref],
+      }),
+    },
+    receipt,
+  };
 }
 
 type HeldBatchLookup =
@@ -1024,7 +1101,7 @@ export async function handleSettle(
         const pending = verdict.outcome === 'deviation-pending' && !deciding
           ? pendingDeviationsOf(identity, deviations)
           : [];
-        const settlement = {
+        const settlement: SettlementOfFact = {
           operationId,
           workflowId: identity.workflowId,
           capsuleVersion: identity.capsuleVersion,
@@ -1053,13 +1130,27 @@ export async function handleSettle(
             timestamp: settledAt,
           }),
         );
-        const events = [...proposals, ...decidedRows, record];
+        const revised = designRevisionContentOf(
+          identity,
+          acceptedMaterialDeviations(capsule, deviations, decided),
+        );
+        const revisionStamp = stampFromAmbient({ type: DESIGN_REVISED_TYPE, timestamp: settledAt });
 
         try {
           const persisted = await ctx.eventStore
             .getAppender()
             .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
               const snapshot = tx.readStream(streamId);
+              const revision =
+                revised === undefined
+                  ? undefined
+                  : designRevisionOf(snapshot.events, revised, revisionStamp, settlement, ref);
+              const events = [
+                ...proposals,
+                ...decidedRows,
+                ...(revision !== undefined ? [revision.row] : []),
+                record,
+              ];
               return {
                 streamId,
                 events,
@@ -1078,6 +1169,7 @@ export async function handleSettle(
                   bundleRefs: [ref],
                   ...(pending.length > 0 ? { pendingDeviations: pending } : {}),
                   ...(deciding ? { decisions } : {}),
+                  ...(revision !== undefined ? { designRevision: revision.receipt } : {}),
                 },
               };
             });

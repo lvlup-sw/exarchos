@@ -59,6 +59,16 @@ export interface PendingDeviation {
   readonly affectedTasks?: readonly string[];
 }
 
+/**
+ * The design revision that a decision round recorded, as its receipt names it. The two versions
+ * and the deviation ids are those of the `design.revised` row. The affected tasks stay on the row.
+ */
+export interface SettlementDesignRevision {
+  readonly priorDesignVersion: number;
+  readonly nextDesignVersion: number;
+  readonly deviationIds: readonly string[];
+}
+
 /** What one `settle` call returns, on every outcome. */
 export interface SettlementReceipt {
   readonly operationId: string;
@@ -90,4 +100,9 @@ export interface SettlementReceipt {
   readonly pendingDeviations?: readonly PendingDeviation[];
   /** On a decision round: the decisions it recorded. */
   readonly decisions?: readonly SettlementDecision[];
+  /**
+   * On a decision round that accepted a material deviation: the design revision it recorded. It is
+   * present exactly when the round committed a `design.revised` row, whatever the outcome.
+   */
+  readonly designRevision?: SettlementDesignRevision;
 }

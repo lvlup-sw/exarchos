@@ -97,6 +97,14 @@ const SettlementReceiptData = z
           .passthrough(),
       )
       .optional(),
+    designRevision: z
+      .object({
+        priorDesignVersion: z.number().int().min(1),
+        nextDesignVersion: z.number().int().min(2),
+        deviationIds: z.array(z.string().min(1)).min(1),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 

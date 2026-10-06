@@ -391,6 +391,11 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
    */
   'deviation.proposed': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
   'deviation.decided': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /**
+   * `settle` appends one row when a decision round accepts a material deviation. It reads the rows
+   * back to number the next revision, and no registered reducer folds them.
+   */
+  'design.revised': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
 
   /**
    * `verbs/tasks/tools.ts` appends the three task lifecycle events. The `task_claim`,

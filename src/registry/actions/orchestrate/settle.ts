@@ -230,6 +230,16 @@ export const settleActions: readonly BuiltinToolAction[] = [
           'one per decision the decision round records, in the same commit as the record that ' +
           'closes the batch and ahead of it; none on the submitting round or on a replay',
       },
+      {
+        event: 'design.revised',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'one per decision round that accepts a deviation of a kind the capsule lists as ' +
+          'material, in the same commit as the record that closes the batch, after the decisions ' +
+          'and ahead of the record, whatever the outcome; none on any other round or on a replay',
+      },
     ),
   }),
 ];

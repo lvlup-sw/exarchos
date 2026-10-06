@@ -24,6 +24,7 @@ import * as path from 'node:path';
 
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
+import { DesignRevisedData } from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
@@ -264,18 +265,25 @@ describe('prepare then settle, through the dispatcher', () => {
   });
 
   /**
-   * A worker reports that a capsule assumption is wrong. The compiled envelope admits the
-   * deviation kind and requires approval, so `settle` holds the batch. It verifies nothing,
-   * completes nothing, and names the pending deviation.
+   * A worker reports that the capsule lacks context. The compiled envelope admits the deviation
+   * kind and requires approval, so `settle` holds the batch. It verifies nothing, completes
+   * nothing, and names the pending deviation.
    *
    * The second `settle` call names the same batch and carries the decision and no claims. With
    * the deviation accepted, `settle` verifies the work and settles the batch. The decision is a
    * fact next to the proposal. The guards then admit the transition, as after any settled batch.
+   *
+   * The compiled envelope does not list this kind as material, so the acceptance revises nothing.
    */
   it('PrepareSettle_AHeldBatchDecided_IsThreeCallsAndCompletesItsTasks', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
-    const { capsuleVersion } = prepared.data as PreparedReceipt;
+    const { capsuleVersion, capsule } = prepared.data as PreparedReceipt;
+    expect(capsule.contracts.deviationEnvelope).toEqual({
+      allowedDeviationKinds: ['invalidated-assumption', 'missing-context'],
+      materialDeviationKinds: ['invalidated-assumption'],
+      requiresApproval: true,
+    });
 
     const held = await call('exarchos_orchestrate', {
       action: 'settle',
@@ -284,7 +292,7 @@ describe('prepare then settle, through the dispatcher', () => {
       batchId: 'batch-1',
       claims: completedClaims(),
       deviations: [
-        { deviationKind: 'invalidated-assumption', statement: 'the endpoint sends no validators; a bounded TTL cache replaces the ETag check' },
+        { deviationKind: 'missing-context', statement: 'the capsule does not say which cache the endpoint reads' },
       ],
     });
     expect(held.success, JSON.stringify(held)).toBe(true);
@@ -303,7 +311,7 @@ describe('prepare then settle, through the dispatcher', () => {
         deviationId,
         decision: 'accepted',
         actor: 'human:reviewer',
-        rationale: 'the endpoint really sends no validators',
+        rationale: 'the capsule really does not name the cache',
       })),
     });
     expect(decided.success, JSON.stringify(decided)).toBe(true);
@@ -311,6 +319,8 @@ describe('prepare then settle, through the dispatcher', () => {
     expect((decided.data as { outcome: string; round: number }).round).toBe(1);
     expect(await rowsOf('deviation.decided')).toHaveLength(1);
     expect(await rowsOf('execution.settled')).toHaveLength(2);
+    expect(await rowsOf('design.revised')).toEqual([]);
+    expect(decided.data).not.toHaveProperty('designRevision');
     const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
     expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
 
@@ -488,5 +498,38 @@ describe('prepare then settle, through the dispatcher', () => {
       error: { code: 'RESERVED_EVENT_TYPE', eventType: 'deviation.decided' },
     });
     expect(await rowsOf('deviation.decided')).toEqual([]);
+  });
+
+  /**
+   * A revision row moves the design version of the stream. If the generic surface can append it, a
+   * caller can revise the design with no accepted deviation. The row is well formed, so the
+   * refusal is the reservation and not the shape of the row.
+   */
+  it('PrepareSettle_ADesignRevision_CannotBeAppendedByAnyoneButSettle', async () => {
+    const data = {
+      operationId: 'settle:forged',
+      workflowId: STREAM,
+      capsuleVersion: 1,
+      batchId: 'batch-1',
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: ['dev:forged'],
+      affectedTasks: [],
+      bundleRefs: [
+        { artifactId: 'run-bundle:settlement-adjudication:batch-1:1', digest: { algorithm: 'sha256', value: 'f'.repeat(64) } },
+      ],
+    };
+    expect(DesignRevisedData.safeParse(data).success).toBe(true);
+
+    const result = await dispatch(
+      'exarchos_event',
+      { action: 'append', stream: STREAM, event: { type: 'design.revised', data } },
+      callerContext(),
+    );
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'design.revised' },
+    });
+    expect(await rowsOf('design.revised')).toEqual([]);
   });
 });

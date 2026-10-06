@@ -15,6 +15,7 @@ import { baseValidCapsule } from '../../../../src/contract/capsule/exarchos-caps
 import {
   BLOCKING_SETTLEMENT_FINDING_KINDS,
   SETTLEMENT_FINDING_KINDS,
+  acceptedMaterialDeviations,
   adjudicateSettlement,
   type AdjudicationContext,
   type ProposedDeviation,
@@ -466,5 +467,74 @@ describe('settlement adjudication', () => {
     );
     expect(verdict.findings).toEqual([]);
     expect(verdict.adjudicated.fields).toBe(2);
+  });
+});
+
+/** The base capsule with the given list of material kinds on an envelope that admits two kinds. */
+function withMaterialKinds(materialDeviationKinds: readonly string[]): ExarchosCapsuleV1 {
+  const base = baseValidCapsule();
+  return ExarchosCapsuleV1Schema.parse({
+    ...base,
+    contracts: {
+      ...base.contracts,
+      deviationEnvelope: {
+        allowedDeviationKinds: ['invalidated-assumption', 'missing-context'],
+        materialDeviationKinds,
+        requiresApproval: true,
+      },
+    },
+  });
+}
+
+/**
+ * The selector of the deviations that revise the design. It reads the material kinds from the
+ * capsule and the decisions from the round, and it reads nothing else.
+ */
+describe('the accepted material deviations of a round', () => {
+  /**
+   * The round holds one deviation for each way to stay out of the list: rejected, undecided, and
+   * accepted under a kind that is not material. The two that remain keep the order of the round.
+   */
+  it('AcceptedMaterialDeviations_AMixedRound_SelectsOnlyTheAcceptedMaterialOnes', () => {
+    const accepted: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' };
+    const rejected: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the branch is not main' };
+    const undecided: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the cache is cold' };
+    const notMaterial: ProposedDeviation = { deviationKind: 'missing-context', statement: 'the port is not named' };
+    const alsoAccepted: ProposedDeviation = {
+      deviationKind: 'invalidated-assumption',
+      statement: 'the queue is not ordered',
+      affectedTasks: ['task-later'],
+    };
+    const decisions = new Map<ProposedDeviation, 'accepted' | 'rejected'>([
+      [accepted, 'accepted'],
+      [rejected, 'rejected'],
+      [notMaterial, 'accepted'],
+      [alsoAccepted, 'accepted'],
+    ]);
+
+    const selected = acceptedMaterialDeviations(
+      withMaterialKinds(['invalidated-assumption']),
+      [accepted, rejected, undecided, notMaterial, alsoAccepted],
+      (deviation) => decisions.get(deviation),
+    );
+    expect(selected).toEqual([accepted, alsoAccepted]);
+  });
+
+  /**
+   * The base capsule carries no list, and a capsule can carry an empty one. Each selects none of a
+   * round that accepts every deviation. The same round under a capsule that lists the kind selects
+   * the deviation, so the list alone decides.
+   */
+  it('AcceptedMaterialDeviations_ACapsuleWithNoMaterialKinds_SelectsNone', () => {
+    const deviation: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' };
+    const acceptEach = (): 'accepted' => 'accepted';
+    const withoutList = baseValidCapsule();
+    expect(withoutList.contracts.deviationEnvelope).not.toHaveProperty('materialDeviationKinds');
+
+    expect(acceptedMaterialDeviations(withoutList, [deviation], acceptEach)).toEqual([]);
+    expect(acceptedMaterialDeviations(withMaterialKinds([]), [deviation], acceptEach)).toEqual([]);
+    expect(acceptedMaterialDeviations(withMaterialKinds(['invalidated-assumption']), [deviation], acceptEach)).toEqual([
+      deviation,
+    ]);
   });
 });

@@ -13,7 +13,7 @@
 //
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the persisted operation claim the SQLite appender hands back on a replay which is read out of the store rather than rebuilt in process
 
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as path from 'node:path';
 import { mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -42,9 +42,11 @@ import {
 } from '../../../../src/events/bundle/digest-references.js';
 import { EventStore } from '../../../../src/events/store.js';
 import {
+  DesignRevisedData,
   DeviationDecidedData,
   DeviationProposedData,
   ExecutionSettledData,
+  type DesignRevised,
 } from '../../../../src/events/schemas.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
@@ -1789,5 +1791,439 @@ describe('settle — the decision round', () => {
         { deviationId: proposal?.deviationId, ...DEVIATION, affectedTasks: ['task-later', 'task-other'] },
       ]);
     });
+  });
+});
+
+/** The capsule with the envelope that this build compiles: two allowed kinds, and one of them material. */
+function withMaterialEnvelope(capsule: ExarchosCapsuleV1, requiresApproval = true): ExarchosCapsuleV1 {
+  return {
+    ...capsule,
+    contracts: {
+      ...capsule.contracts,
+      deviationEnvelope: {
+        allowedDeviationKinds: ['invalidated-assumption', 'missing-context'],
+        materialDeviationKinds: ['invalidated-assumption'],
+        requiresApproval,
+      },
+    },
+  };
+}
+
+/**
+ * An accepted deviation of a kind that the pinned capsule lists as material revises the design. The
+ * decision round that accepts it commits one `design.revised` row for all such deviations. The row
+ * comes after the decision rows and before the closing record, whatever the verdict of the round.
+ * The capsule of these tests admits two kinds and lists `invalidated-assumption` as material.
+ */
+describe('settle — the design revision a decision round records', () => {
+  const MATERIAL_VERSION = 20;
+  const MATERIAL = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
+  const OTHER_MATERIAL = { deviationKind: 'invalidated-assumption', statement: 'the branch was not main' };
+  const CONTEXT = { deviationKind: 'missing-context', statement: 'the capsule did not name the port' };
+  const ACTOR = 'human:reviewer';
+  const RATIONALE = 'the assumption was wrong and the change is sound';
+
+  type Answer = 'accepted' | 'rejected';
+
+  beforeEach(async () => {
+    await seedPrepared(withMaterialEnvelope(withVersion(baseValidCapsule(), MATERIAL_VERSION)));
+  });
+
+  async function hold(
+    batchId: string,
+    deviations: readonly Record<string, unknown>[],
+    capsuleVersion: number = MATERIAL_VERSION,
+    claims: readonly Record<string, unknown>[] = [passingClaim()],
+  ): Promise<SettlementReceipt> {
+    const receipt = receiptOf(await settle({ featureId: STREAM, capsuleVersion, batchId, claims, deviations }));
+    expect(receipt.outcome).toBe('deviation-pending');
+    return receipt;
+  }
+
+  function answers(
+    held: SettlementReceipt,
+    answerAtPosition: (position: number) => Answer = () => 'accepted',
+  ): { deviationId: string; decision: Answer; actor: string; rationale: string }[] {
+    return (held.pendingDeviations ?? []).map((pending, position) => ({
+      deviationId: pending.deviationId,
+      decision: answerAtPosition(position),
+      actor: ACTOR,
+      rationale: RATIONALE,
+    }));
+  }
+
+  async function decide(
+    batchId: string,
+    decisions: unknown,
+    capsuleVersion: number = MATERIAL_VERSION,
+  ): Promise<ToolResult> {
+    return settle({ featureId: STREAM, capsuleVersion, batchId, decisions });
+  }
+
+  async function revisions(): Promise<{ readonly sequence: number; readonly data: DesignRevised }[]> {
+    return (await rowsOf('design.revised')).map((row) => ({
+      sequence: row.sequence,
+      data: DesignRevisedData.parse(row.data),
+    }));
+  }
+
+  /**
+   * The row names the settle call, the batch, the two versions and the deviation. It sits directly
+   * after the decision row and directly before the closing record, which is the tail of the receipt.
+   * Its reference resolves to the bundle of the decision round, which holds the decision.
+   */
+  it('Settle_AnAcceptedMaterialDeviation_CommitsOneRevisionBetweenTheDecisionAndTheRecord', async () => {
+    const held = await hold('batch-revised', [MATERIAL]);
+    expect(await revisions()).toEqual([]);
+
+    const decisions = answers(held);
+    const decided = receiptOf(await decide('batch-revised', decisions));
+    expect(decided.outcome).toBe('settled');
+
+    const rows = await revisions();
+    expect(rows).toHaveLength(1);
+    const revision = rows[0];
+    expect(revision?.data).toStrictEqual({
+      operationId: decided.operationId,
+      workflowId: held.capsule.workflowId,
+      capsuleVersion: MATERIAL_VERSION,
+      batchId: 'batch-revised',
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: [held.pendingDeviations?.[0]?.deviationId],
+      affectedTasks: [],
+      [BUNDLE_REF_FIELD]: decided.bundleRefs,
+    });
+
+    const decisionSequence = (await rowsOf('deviation.decided'))[0]?.sequence ?? Number.NaN;
+    const recordSequence = (await rowsOf('execution.settled'))[1]?.sequence ?? Number.NaN;
+    expect(revision?.sequence).toBe(decisionSequence + 1);
+    expect(recordSequence).toBe(decisionSequence + 2);
+    expect(decided.tailSequence).toBe(recordSequence);
+
+    const digest = revision?.data.bundleRefs[0]?.digest;
+    if (digest === undefined) throw new Error('the revision row references no bundle');
+    const bundle = decodeSettlementBundle(await store.bundleStore.resolve(digest));
+    expect(bundle.round).toBe(1);
+    expect(bundle.decisions).toEqual(decisions);
+  });
+
+  /**
+   * The receipt carries the two versions and the deviation ids of the row. The held receipt carries
+   * no revision. The registered output schema declares the field, so it refuses a malformed one.
+   */
+  it('Settle_AnAcceptedMaterialDeviation_NamesTheRevisionOnItsReceipt', async () => {
+    const held = await hold('batch-receipt', [MATERIAL]);
+    expect(held).not.toHaveProperty('designRevision');
+
+    const decided = receiptOf(await decide('batch-receipt', answers(held)));
+    expect(decided.designRevision).toStrictEqual({
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: [held.pendingDeviations?.[0]?.deviationId],
+    });
+    const row = (await revisions())[0]?.data;
+    expect(decided.designRevision).toStrictEqual({
+      priorDesignVersion: row?.priorDesignVersion,
+      nextDesignVersion: row?.nextDesignVersion,
+      deviationIds: row?.deviationIds,
+    });
+
+    const schema = settleActions.find((action) => action.name === 'settle')?.outputSchema;
+    if (schema === undefined) throw new Error('the settle action declares no output schema');
+    const envelope = (data: unknown): Record<string, unknown> => ({
+      success: true,
+      data,
+      next_actions: [],
+      _meta: {},
+      _perf: { ms: 0, bytes: 0, tokens: 0 },
+    });
+    expect(schema.safeParse(envelope(decided)).success).toBe(true);
+    const malformed = { ...decided, designRevision: { ...decided.designRevision, nextDesignVersion: 'two' } };
+    expect(schema.safeParse(envelope(malformed)).success).toBe(false);
+  });
+
+  /**
+   * The round accepts three material deviations and one that is not material. The one row names the
+   * three ids in sorted order, which is not the order of the batch. Its tasks are the union of the
+   * tasks of the three, so the task of the fourth deviation is absent.
+   */
+  it('Settle_SeveralAcceptedMaterialDeviations_AreOneRevisionNamingThemAllInSortedOrder', async () => {
+    await seedPlan([...PLAN, { id: 'task-extra', title: 'extra work', status: 'pending' }]);
+    const held = await hold('batch-several', [
+      { ...MATERIAL, affectedTasks: ['task-other'] },
+      { ...OTHER_MATERIAL, affectedTasks: ['task-other', 'task-later'] },
+      { deviationKind: 'invalidated-assumption', statement: 'the cache was cold' },
+      { ...CONTEXT, affectedTasks: ['task-extra'] },
+    ]);
+    const pending = held.pendingDeviations ?? [];
+    expect(pending.map((deviation) => deviation.deviationKind)).toEqual([
+      'invalidated-assumption',
+      'invalidated-assumption',
+      'invalidated-assumption',
+      'missing-context',
+    ]);
+    const materialIds = pending.slice(0, 3).map((deviation) => deviation.deviationId);
+    const sortedIds = [...materialIds].sort();
+    expect(materialIds).not.toEqual(sortedIds);
+
+    const decided = receiptOf(await decide('batch-several', answers(held)));
+    expect(decided.outcome).toBe('settled');
+    expect(decided.adjudicated.decisions).toBe(4);
+    expect(await rowsOf('deviation.decided')).toHaveLength(4);
+
+    const rows = await revisions();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.data.deviationIds).toEqual(sortedIds);
+    expect(rows[0]?.data.affectedTasks).toEqual(['task-later', 'task-other']);
+    expect(decided.designRevision).toStrictEqual({
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: sortedIds,
+    });
+  });
+
+  /** The decision is recorded and the batch settles, so the absent row is not the result of a round that did nothing. */
+  it('Settle_AnAcceptedNonMaterialDeviation_RevisesNothingAndItsReceiptCarriesNoRevision', async () => {
+    const held = await hold('batch-context', [CONTEXT]);
+    const decided = receiptOf(await decide('batch-context', answers(held)));
+    expect(decided.outcome).toBe('settled');
+    expect(decided.adjudicated.decisions).toBe(1);
+    expect(await rowsOf('deviation.decided')).toHaveLength(1);
+    expect(await completionRows()).toHaveLength(1);
+
+    expect(await rowsOf('design.revised')).toEqual([]);
+    expect(decided).not.toHaveProperty('designRevision');
+  });
+
+  it('Settle_ARejectedMaterialDecision_RevisesNothing', async () => {
+    const held = await hold('batch-refused-material', [MATERIAL]);
+    const decided = receiptOf(await decide('batch-refused-material', answers(held, () => 'rejected')));
+    expect(decided.outcome).toBe('rejected');
+    expect(decided.findings.map((finding) => finding.kind)).toEqual(['deviation-rejected']);
+    expect((await rowsOf('deviation.decided')).map((row) => DeviationDecidedData.parse(row.data).decision)).toEqual([
+      'rejected',
+    ]);
+
+    expect(await rowsOf('design.revised')).toEqual([]);
+    expect(decided).not.toHaveProperty('designRevision');
+  });
+
+  /**
+   * The rejected deviation refuses the batch, and the accepted one is still a recorded fact. The
+   * row names the accepted deviation and its task only, and it keeps its place before the record.
+   */
+  it('Settle_ARoundThatAcceptsOneMaterialDeviationAndRejectsAnother_RevisesForTheAcceptedOneOnly', async () => {
+    await seedPlan();
+    const held = await hold('batch-mixed', [
+      { ...MATERIAL, affectedTasks: ['task-later'] },
+      { ...OTHER_MATERIAL, affectedTasks: ['task-other'] },
+    ]);
+    const acceptedId = held.pendingDeviations?.[0]?.deviationId;
+    const decided = receiptOf(
+      await decide('batch-mixed', answers(held, (position) => (position === 0 ? 'accepted' : 'rejected'))),
+    );
+    expect(decided.outcome).toBe('rejected');
+    expect(decided.findings.map((finding) => finding.kind)).toEqual(['deviation-rejected']);
+    expect(await completionRows()).toEqual([]);
+
+    const rows = await revisions();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.data.deviationIds).toEqual([acceptedId]);
+    expect(rows[0]?.data.affectedTasks).toEqual(['task-later']);
+    expect(decided.designRevision).toStrictEqual({
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: [acceptedId],
+    });
+    const decisionSequences = (await rowsOf('deviation.decided')).map((row) => row.sequence);
+    expect(decisionSequences).toHaveLength(2);
+    expect(rows[0]?.sequence).toBe(Math.max(...decisionSequences) + 1);
+    expect(decided.tailSequence).toBe((rows[0]?.sequence ?? Number.NaN) + 1);
+  });
+
+  /**
+   * The base capsule carries no list of material kinds, as a capsule that an earlier build prepared.
+   * Its kind is the one that the other capsule lists as material, and the decision accepts it.
+   */
+  it('Settle_ACapsulePreparedBeforeMaterialKindsExisted_RevisesNothing', async () => {
+    expect(baseValidCapsule().contracts.deviationEnvelope).not.toHaveProperty('materialDeviationKinds');
+    const held = await hold('batch-older-capsule', [MATERIAL], 7);
+    const decided = receiptOf(await decide('batch-older-capsule', answers(held), 7));
+    expect(decided.outcome).toBe('settled');
+    expect(decided.adjudicated.decisions).toBe(1);
+
+    expect(await rowsOf('design.revised')).toEqual([]);
+    expect(decided).not.toHaveProperty('designRevision');
+  });
+
+  /**
+   * The envelope lists the kind as material and does not require approval. The first submission
+   * settles with the deviation admitted, so no round decides it and nothing accepts it.
+   */
+  it('Settle_AnEnvelopeThatDoesNotRequireApproval_AdmitsWithoutADecisionAndRevisesNothing', async () => {
+    const unapproved = withMaterialEnvelope(withVersion(baseValidCapsule(), 21), false);
+    expect(unapproved.contracts.deviationEnvelope.materialDeviationKinds).toEqual(['invalidated-assumption']);
+    await seedPrepared(unapproved);
+
+    const receipt = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 21,
+        batchId: 'batch-unapproved',
+        claims: [passingClaim()],
+        deviations: [MATERIAL],
+      }),
+    );
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.round).toBe(0);
+    expect(receipt.findings).toEqual([]);
+    expect(receipt.adjudicated.deviations).toBe(1);
+    expect(receipt.adjudicated.decisions).toBe(0);
+    expect(receipt.pendingDeviations).toBeUndefined();
+    expect(await completionRows()).toHaveLength(1);
+
+    const late = await decide(
+      'batch-unapproved',
+      [{ deviationId: 'dev:000000000000000000000000', decision: 'accepted', actor: ACTOR, rationale: RATIONALE }],
+      21,
+    );
+    expect(late.error?.code).toBe('BATCH_NOT_HELD');
+    expect(await rowsOf('deviation.proposed')).toEqual([]);
+    expect(await rowsOf('deviation.decided')).toEqual([]);
+    expect(await rowsOf('design.revised')).toEqual([]);
+    expect(receipt).not.toHaveProperty('designRevision');
+  });
+
+  /**
+   * No gate is seeded for the claimed task, so its completion leaf refuses and the segment halts.
+   * The batch is rejected for the halt. The acceptance is the recorded fact, so the row stands.
+   */
+  it('Settle_AnAcceptedMaterialDeviationWhoseVerificationFails_StillRevisesTheDesign', async () => {
+    await seedPrepared(withMaterialEnvelope(capsuleWithTask('task-unverified', 22)));
+    const held = await hold(
+      'batch-halted',
+      [MATERIAL],
+      22,
+      [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
+    );
+    const decided = receiptOf(await decide('batch-halted', answers(held), 22));
+    expect(decided.outcome).toBe('rejected');
+    expect(decided.acceptedTasks).toEqual([]);
+    expect(decided.findings.map((finding) => [finding.kind, finding.subject])).toEqual([
+      ['verification-failed', 'task-unverified'],
+    ]);
+    expect(decided.verification?.map((trace) => [trace.outcome, trace.failedLeaf])).toEqual([
+      ['failed', 'task_complete'],
+    ]);
+    expect(await completionRows()).toEqual([]);
+
+    const rows = await revisions();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.data).toMatchObject({
+      batchId: 'batch-halted',
+      capsuleVersion: 22,
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: [held.pendingDeviations?.[0]?.deviationId],
+    });
+    expect(decided.designRevision).toStrictEqual({
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: [held.pendingDeviations?.[0]?.deviationId],
+    });
+    const records = await rowsOf('execution.settled');
+    expect(ExecutionSettledData.parse(records[1]?.data).outcome).toBe('rejected');
+    expect(records[1]?.sequence).toBe((rows[0]?.sequence ?? Number.NaN) + 1);
+  });
+
+  /**
+   * The first submission is rejected, so no round decides its deviation and a decision finds nothing
+   * held. The held batch at the end leaves one row, so the count is not zero by default.
+   */
+  it('Settle_ABatchRejectedForAnAffectedTask_LeavesNoRevision', async () => {
+    await seedPlan();
+    const rejected = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: MATERIAL_VERSION,
+        batchId: 'batch-inadmissible',
+        claims: [passingClaim()],
+        deviations: [{ ...MATERIAL, affectedTasks: ['task-ghost'] }],
+      }),
+    );
+    expect(rejected.outcome).toBe('rejected');
+    expect(rejected.findings.map((finding) => finding.kind)).toEqual(['deviation-unknown-task']);
+    expect(rejected).not.toHaveProperty('designRevision');
+    const decision = await decide('batch-inadmissible', [
+      { deviationId: 'dev:000000000000000000000000', decision: 'accepted', actor: ACTOR, rationale: RATIONALE },
+    ]);
+    expect(decision.error?.code).toBe('BATCH_NOT_HELD');
+    expect(await rowsOf('design.revised')).toEqual([]);
+
+    const held = await hold('batch-admissible', [{ ...MATERIAL, affectedTasks: ['task-later'] }]);
+    receiptOf(await decide('batch-admissible', answers(held)));
+    const rows = await revisions();
+    expect(rows.map((row) => [row.data.batchId, row.data.affectedTasks])).toEqual([
+      ['batch-admissible', ['task-later']],
+    ]);
+  });
+
+  /** The replay returns the stored receipt. It appends no row and puts no blob in custody. */
+  it('Settle_AReplayedMaterialDecision_ReturnsTheSameRevisionAndAppendsNothing', async () => {
+    const held = await hold('batch-replayed-revision', [MATERIAL]);
+    const decisions = answers(held);
+    const first = receiptOf(await decide('batch-replayed-revision', decisions));
+    expect(first.designRevision).toBeDefined();
+    const blobs = await bundleBlobCount();
+    const tail = (await store.query(STREAM)).length;
+
+    const replayed = receiptOf(await decide('batch-replayed-revision', decisions));
+    expect(replayed).toEqual(first);
+    expect(replayed.designRevision).toStrictEqual(first.designRevision);
+    expect(await rowsOf('design.revised')).toHaveLength(1);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+  });
+
+  /**
+   * Two batches are held while the stream is at design version 1. The second decision does all of
+   * its work outside the write transaction. Then the first decision commits in full, directly
+   * before the transaction of the second opens. A prior version that the second read at any earlier
+   * point is 1, and it records version 2 a second time. The second reads the stream inside its
+   * transaction, so it counts the row of the first. The appender is the real one.
+   */
+  it('Settle_ARevisionCommittedWhileThisOneAdjudicates_IsCountedByTheNext', async () => {
+    const first = await hold('batch-race-first', [MATERIAL]);
+    const second = await hold('batch-race-second', [OTHER_MATERIAL]);
+    expect(await rowsOf('design.revised')).toEqual([]);
+
+    const appender = store.getAppender();
+    const commit = appender.decideOnce.bind(appender);
+    let interleaved = 0;
+    const staged = vi.spyOn(appender, 'decideOnce').mockImplementation(
+      async (operationId, requestDigest, closure) => {
+        if (interleaved === 0 && operationId.startsWith('settle:')) {
+          interleaved += 1;
+          const committed = receiptOf(await decide('batch-race-first', answers(first)));
+          expect(committed.designRevision).toMatchObject({ priorDesignVersion: 1, nextDesignVersion: 2 });
+        }
+        return commit(operationId, requestDigest, closure);
+      },
+    );
+    const counted = receiptOf(await decide('batch-race-second', answers(second)));
+    staged.mockRestore();
+
+    expect(interleaved).toBe(1);
+    expect(counted.outcome).toBe('settled');
+    expect(counted.designRevision).toMatchObject({ priorDesignVersion: 2, nextDesignVersion: 3 });
+    const rows = await revisions();
+    expect(rows.map((row) => [row.data.batchId, row.data.priorDesignVersion, row.data.nextDesignVersion])).toEqual([
+      ['batch-race-first', 1, 2],
+      ['batch-race-second', 2, 3],
+    ]);
+    const records = await rowsOf('execution.settled');
+    expect(counted.tailSequence).toBe(records.at(-1)?.sequence);
+    expect(rows[1]?.sequence).toBe(counted.tailSequence - 1);
   });
 });

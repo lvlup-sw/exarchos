@@ -23,7 +23,7 @@ const OUT = path.join(ROOT, 'tools/audit/core/primary-owner-population.json');
  * The expected size of the per-event-type population.
  * It must equal `PRIMARY_OWNER_POPULATION_FLOOR` in `src/events/registration-validate.ts`.
  */
-const PRIMARY_OWNER_POPULATION_FLOOR = 76;
+const PRIMARY_OWNER_POPULATION_FLOOR = 77;
 const CENSUS_MARKER = '<<<CENSUS>>>';
 
 /**
