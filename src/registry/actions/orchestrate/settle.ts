@@ -12,6 +12,10 @@ import { z } from 'zod';
 import { withCappedShape } from '../../../output-schema-declaration.js';
 import { SETTLE_ECONOMY_BUDGET_TOKENS, summarizeSettlementReceipt } from '../../../verbs/settle/economy.js';
 import { SettlementOutputSchema } from '../../../verbs/settle/schemas.js';
+import {
+  MAX_AFFECTED_TASKS_PER_DEVIATION,
+  MAX_DEVIATIONS_PER_BATCH,
+} from '../../../verbs/settle/types.js';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
 import { DELEGATE_PHASES, REVIEW_PHASES, ROLE_ANY } from '../../phases.js';
@@ -103,9 +107,19 @@ export const settleActions: readonly BuiltinToolAction[] = [
         deviations: z
           .array(
             z
-              .object({ deviationKind: z.string().min(1), statement: z.string().min(1) })
+              .object({
+                deviationKind: z.string().min(1),
+                statement: z.string().min(1),
+                affectedTasks: z
+                  .array(z.string().min(1))
+                  .max(MAX_AFFECTED_TASKS_PER_DEVIATION)
+                  .optional()
+                  .describe('Unfinished tasks of the current plan that the deviation changes, outside this batch'),
+                proposedChange: z.string().min(1).optional().describe('The change the worker proposes'),
+              })
               .strict(),
           )
+          .max(MAX_DEVIATIONS_PER_BATCH)
           .optional()
           .describe("Deviations proposed because a capsule assumption did not hold"),
         decisions: z

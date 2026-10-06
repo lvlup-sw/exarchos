@@ -785,7 +785,21 @@
             "items": {
               "additionalProperties": false,
               "properties": {
+                "affectedTasks": {
+                  "description": "Unfinished tasks of the current plan that the deviation changes, outside this batch",
+                  "items": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "maxItems": 32,
+                  "type": "array"
+                },
                 "deviationKind": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "proposedChange": {
+                  "description": "The change the worker proposes",
                   "minLength": 1,
                   "type": "string"
                 },
@@ -800,6 +814,7 @@
               ],
               "type": "object"
             },
+            "maxItems": 16,
             "type": "array"
           },
           "diagnostics": {

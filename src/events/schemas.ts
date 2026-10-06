@@ -3217,6 +3217,13 @@ export const DeviationProposedData = z
       .string()
       .min(1)
       .describe("What the worker found wrong with the capsule's assumption, in its words"),
+    affectedTasks: z
+      .array(z.string().min(1))
+      .optional()
+      .describe(
+        'The unfinished tasks the deviation affects, sorted and unique; absent when it names ' +
+          'none, and on a row written before a deviation could name tasks',
+      ),
   })
   .strict();
 export type DeviationProposed = z.infer<typeof DeviationProposedData>;

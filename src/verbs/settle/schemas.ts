@@ -80,6 +80,7 @@ const SettlementReceiptData = z
             deviationId: z.string().min(1),
             deviationKind: z.string().min(1),
             statement: z.string().min(1),
+            affectedTasks: z.array(z.string().min(1)).optional(),
           })
           .passthrough(),
       )

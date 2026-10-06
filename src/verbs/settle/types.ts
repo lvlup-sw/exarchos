@@ -38,11 +38,25 @@ export interface SettlementDecision {
   readonly rationale: string;
 }
 
-/** A deviation a held batch waits on, named on the receipt for the decision to answer. */
+/**
+ * The most deviations that one submitted batch carries. The bound is on the request only. A stored
+ * batch has no bound, so a batch held by an earlier build still decodes.
+ */
+export const MAX_DEVIATIONS_PER_BATCH = 16;
+
+/** The most affected tasks that one submitted deviation names. The bound is on the request only. */
+export const MAX_AFFECTED_TASKS_PER_DEVIATION = 32;
+
+/**
+ * A deviation a held batch waits on, named on the receipt for the decision to answer.
+ * `affectedTasks` is present when the deviation names tasks. The proposed change is not here: it
+ * stays in the settlement bundle.
+ */
 export interface PendingDeviation {
   readonly deviationId: string;
   readonly deviationKind: string;
   readonly statement: string;
+  readonly affectedTasks?: readonly string[];
 }
 
 /** What one `settle` call returns, on every outcome. */

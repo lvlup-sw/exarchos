@@ -52,12 +52,16 @@ import { compileIntent } from '../execute/compile.js';
 import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
 import { ladderRequirementId } from '../gates/durable-gate-producer.js';
+import { readPlannedTask } from '../prepare/partition-tasks.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
+import { resolveWorkflowState } from '../resolve-state.js';
 import {
   adjudicateSettlement,
+  type AdjudicationContext,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementEvidence,
+  type TaskStanding,
   type TaskVerificationOutcome,
 } from './adjudicate.js';
 import {
@@ -67,12 +71,14 @@ import {
   SETTLEMENT_BUNDLE_KIND,
   SETTLEMENT_BUNDLE_VERSION,
 } from './settlement-bundle.js';
-import type {
-  PendingDeviation,
-  SettledCapsuleIdentity,
-  SettlementDecision,
-  SettlementReceipt,
-  SettlementVerificationTrace,
+import {
+  MAX_AFFECTED_TASKS_PER_DEVIATION,
+  MAX_DEVIATIONS_PER_BATCH,
+  type PendingDeviation,
+  type SettledCapsuleIdentity,
+  type SettlementDecision,
+  type SettlementReceipt,
+  type SettlementVerificationTrace,
 } from './types.js';
 
 /** The runbook every accepted task's verification is compiled from. */
@@ -160,9 +166,33 @@ function decisionDigestOf(
 }
 
 /**
+ * A deviation in its normal form. The affected ids are sorted and unique, and an empty list is
+ * absent. The deviation id, the request digest and the settlement bundle all hold this form. Thus
+ * two spellings of one deviation are one request, and a decision round computes the same id.
+ */
+function normalDeviation(
+  deviationKind: string,
+  statement: string,
+  affectedTasks: readonly string[] | undefined,
+  proposedChange: string | undefined,
+): ProposedDeviation {
+  const affected = [...new Set(affectedTasks ?? [])].sort();
+  return {
+    deviationKind,
+    statement,
+    ...(affected.length > 0 ? { affectedTasks: affected } : {}),
+    ...(proposedChange !== undefined ? { proposedChange } : {}),
+  };
+}
+
+/**
  * The id of a deviation, derived from its batch and its content. The decision
  * round names it without restating it. The same deviation in a new batch is a
  * new proposal.
+ *
+ * The affected tasks and the proposed change are part of the content only when
+ * the deviation carries them. A deviation with neither keeps the id that the
+ * earlier build gave it, so a batch held by that build is still decided.
  */
 function deviationIdOf(identity: SettledCapsuleIdentity, deviation: ProposedDeviation): string {
   const key = canonicalJson({
@@ -171,11 +201,16 @@ function deviationIdOf(identity: SettledCapsuleIdentity, deviation: ProposedDevi
     batchId: identity.batchId,
     deviationKind: deviation.deviationKind,
     statement: deviation.statement,
+    ...(deviation.affectedTasks !== undefined ? { affectedTasks: deviation.affectedTasks } : {}),
+    ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
   });
   return `dev:${createHash('sha256').update(key, 'utf8').digest('hex').slice(0, 24)}`;
 }
 
-/** What a held batch waits on, as the decision round is asked to answer it. */
+/**
+ * What a held batch waits on, as the decision round is asked to answer it. An entry names the
+ * affected tasks and never the proposed change, which stays in the settlement bundle.
+ */
 function pendingDeviationsOf(
   identity: SettledCapsuleIdentity,
   deviations: readonly ProposedDeviation[],
@@ -184,6 +219,7 @@ function pendingDeviationsOf(
     deviationId: deviationIdOf(identity, deviation),
     deviationKind: deviation.deviationKind,
     statement: deviation.statement,
+    ...(deviation.affectedTasks !== undefined ? { affectedTasks: deviation.affectedTasks } : {}),
   }));
 }
 
@@ -241,7 +277,9 @@ async function heldBatch(
       fields: claim.fields,
       evidence: claim.evidence,
     })),
-    deviations: bundle.deviations,
+    deviations: bundle.deviations.map((held) =>
+      normalDeviation(held.deviationKind, held.statement, held.affectedTasks, held.proposedChange),
+    ),
   };
 }
 
@@ -259,6 +297,45 @@ function completedTaskIds(events: readonly { readonly type: string; readonly dat
     if (typeof taskId === 'string') ids.add(taskId);
   }
   return ids;
+}
+
+type TaskStandingLookup =
+  | { readonly ok: true; readonly standingOf: (taskId: string) => TaskStanding }
+  | { readonly ok: false; readonly error: ToolResult };
+
+/**
+ * How each task stands in the current plan, for the tasks that a deviation names. The plan is the
+ * resolved workflow state, not the capsule, so a task planned after the compilation can be named.
+ *
+ * A task is finished when the plan reader shows it complete, or when the stream holds its
+ * completion row. The reader takes one entry at a time. A refused entry is skipped, so it cannot
+ * hide another task, and its own id is unknown with the refusal. A state that does not resolve
+ * returns the error of the resolver.
+ */
+async function taskStandingLookup(ctx: DispatchContext, streamId: string): Promise<TaskStandingLookup> {
+  const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: ctx.eventStore });
+  if ('error' in resolved) return { ok: false, error: resolved.error };
+  const entries: readonly unknown[] = Array.isArray(resolved.state.tasks) ? resolved.state.tasks : [];
+  const complete = new Map<string, boolean>();
+  const refusals = new Map<string, string>();
+  for (const [index, entry] of entries.entries()) {
+    const read = readPlannedTask(entry, index);
+    if ('code' in read) {
+      if (isRecord(entry) && typeof entry.id === 'string') refusals.set(entry.id, read.message);
+      continue;
+    }
+    complete.set(read.id, read.complete || complete.get(read.id) === true);
+  }
+  const completed = completedTaskIds(await ctx.eventStore.query(streamId, { type: 'task.completed' }));
+  return {
+    ok: true,
+    standingOf: (taskId: string): TaskStanding => {
+      if (completed.has(taskId) || complete.get(taskId) === true) return { kind: 'finished' };
+      if (complete.has(taskId)) return { kind: 'pending' };
+      const unreadable = refusals.get(taskId);
+      return unreadable === undefined ? { kind: 'unknown' } : { kind: 'unknown', unreadable };
+    },
+  };
 }
 
 /**
@@ -525,11 +602,36 @@ function readClaims(raw: unknown): SettlementClaim[] | string {
   return claims;
 }
 
-/** Deviations as the request carries them, refused as a whole if any is malformed. */
+/** The affected task ids of one deviation as the request carries them, or the reason for the refusal. */
+function readAffectedTasks(raw: unknown, at: string): string[] | string {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) return `${at} must be an array of task ids`;
+  if (raw.length > MAX_AFFECTED_TASKS_PER_DEVIATION) {
+    return `${at} names ${raw.length} tasks, and a deviation names at most ${MAX_AFFECTED_TASKS_PER_DEVIATION}`;
+  }
+  const taskIds: string[] = [];
+  for (const [j, taskId] of raw.entries()) {
+    if (typeof taskId !== 'string' || taskId.length === 0) return `${at}[${j}] must be a task id`;
+    taskIds.push(taskId);
+  }
+  return taskIds;
+}
+
+/**
+ * Deviations as the request carries them, refused as a whole if any is malformed. The request is
+ * bounded here as in the registered schema. Each deviation is read into its normal form, and
+ * identical deviations of one batch are one deviation.
+ */
 function readDeviations(raw: unknown): ProposedDeviation[] | string {
   if (raw === undefined) return [];
-  if (!Array.isArray(raw)) return 'deviations must be an array of { deviationKind, statement }';
+  if (!Array.isArray(raw)) {
+    return 'deviations must be an array of { deviationKind, statement, affectedTasks?, proposedChange? }';
+  }
+  if (raw.length > MAX_DEVIATIONS_PER_BATCH) {
+    return `deviations carries ${raw.length} entries, and a batch carries at most ${MAX_DEVIATIONS_PER_BATCH}`;
+  }
   const deviations: ProposedDeviation[] = [];
+  const read = new Set<string>();
   for (const [i, entry] of raw.entries()) {
     if (!isRecord(entry)) return `deviations[${i}] must be an object`;
     const deviationKind = readString(entry, 'deviationKind');
@@ -537,7 +639,17 @@ function readDeviations(raw: unknown): ProposedDeviation[] | string {
     if (deviationKind === undefined || statement === undefined) {
       return `deviations[${i}] requires both deviationKind and statement`;
     }
-    deviations.push({ deviationKind, statement });
+    const affectedTasks = readAffectedTasks(entry.affectedTasks, `deviations[${i}].affectedTasks`);
+    if (typeof affectedTasks === 'string') return affectedTasks;
+    const proposedChange = entry.proposedChange;
+    if (proposedChange !== undefined && (typeof proposedChange !== 'string' || proposedChange.length === 0)) {
+      return `deviations[${i}].proposedChange must be text that is not empty`;
+    }
+    const deviation = normalDeviation(deviationKind, statement, affectedTasks, proposedChange);
+    const content = canonicalJson(deviation);
+    if (read.has(content)) continue;
+    read.add(content);
+    deviations.push(deviation);
   }
   return deviations;
 }
@@ -789,7 +901,14 @@ export async function handleSettle(
     const resolved = await resolvedEvidence(ctx, stateDir, streamId, claims);
     const evidenceResolves = (evidence: SettlementEvidence): boolean => resolved.has(evidenceKey(evidence));
 
-    const shape = adjudicateSettlement(capsule, claims, deviations, { evidenceResolves, decided });
+    let context: AdjudicationContext = { evidenceResolves, decided };
+    if (!deciding && deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
+      const standing = await taskStandingLookup(ctx, streamId);
+      if (!standing.ok) return standing.error;
+      context = { ...context, taskStanding: standing.standingOf };
+    }
+
+    const shape = adjudicateSettlement(capsule, claims, deviations, context);
     let verdict = shape;
     const traces: SettlementVerificationTrace[] = [];
 
@@ -836,11 +955,7 @@ export async function handleSettle(
         traces.push(run.trace);
       }
 
-      verdict = adjudicateSettlement(capsule, claims, deviations, {
-        evidenceResolves,
-        decided,
-        verification: outcomes,
-      });
+      verdict = adjudicateSettlement(capsule, claims, deviations, { ...context, verification: outcomes });
     }
 
     const settledAt = new Date().toISOString();
@@ -856,7 +971,12 @@ export async function handleSettle(
       acceptedTasks: [...verdict.acceptedTasks],
       findings: [...verdict.findings],
       claims: claims.map((c) => ({ taskId: c.taskId, fields: c.fields, evidence: [...c.evidence] })),
-      deviations: [...deviations],
+      deviations: deviations.map((deviation) => ({
+        deviationKind: deviation.deviationKind,
+        statement: deviation.statement,
+        ...(deviation.affectedTasks !== undefined ? { affectedTasks: [...deviation.affectedTasks] } : {}),
+        ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
+      })),
       decisions: [...decisions],
       ...(round > 0 ? { round } : {}),
       adjudicated: verdict.adjudicated,
@@ -913,7 +1033,16 @@ export async function handleSettle(
         const proposals = pending.map((proposal) =>
           stampFromAmbient({
             type: DEVIATION_PROPOSED_TYPE,
-            data: DeviationProposedData.parse({ ...settlement, ...proposal }),
+            data: DeviationProposedData.parse({
+              operationId: settlement.operationId,
+              workflowId: settlement.workflowId,
+              capsuleVersion: settlement.capsuleVersion,
+              batchId: settlement.batchId,
+              deviationId: proposal.deviationId,
+              deviationKind: proposal.deviationKind,
+              statement: proposal.statement,
+              ...(proposal.affectedTasks !== undefined ? { affectedTasks: proposal.affectedTasks } : {}),
+            }),
             timestamp: settledAt,
           }),
         );

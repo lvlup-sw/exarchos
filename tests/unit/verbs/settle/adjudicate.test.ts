@@ -20,6 +20,7 @@ import {
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementFindingKind,
+  type TaskStanding,
 } from '../../../../src/verbs/settle/adjudicate.js';
 
 /** The claim the base capsule's one required result is satisfied by. */
@@ -36,6 +37,22 @@ function passingClaim(): SettlementClaim {
  * verification has run. The cases that bend either say so themselves.
  */
 const RESOLVING: AdjudicationContext = { evidenceResolves: () => true };
+
+/** A deviation inside the envelope of the base capsule that names the given tasks as affected. */
+function affecting(...affectedTasks: string[]): ProposedDeviation {
+  return { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite', affectedTasks };
+}
+
+/**
+ * The context of a first submission whose deviations name tasks. Each listed task stands as
+ * given, and a task that is not listed is unknown to the plan.
+ */
+function standing(tasks: Readonly<Record<string, TaskStanding>>): AdjudicationContext {
+  return {
+    evidenceResolves: () => true,
+    taskStanding: (taskId) => tasks[taskId] ?? { kind: 'unknown' },
+  };
+}
 
 interface AdjudicationCase {
   readonly name: string;
@@ -143,6 +160,33 @@ const CASES: readonly AdjudicationCase[] = [
     (b) => b,
     [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
     { evidenceResolves: () => true, decided: () => 'rejected' },
+  ),
+  bend(
+    'a deviation that names a task the plan does not hold',
+    'deviation-unknown-task',
+    'deviations[0].affectedTasks[1]',
+    [passingClaim()],
+    (b) => b,
+    [affecting('task-later', 'task-ghost')],
+    standing({ 'task-later': { kind: 'pending' } }),
+  ),
+  bend(
+    'a deviation that names a finished task',
+    'deviation-names-finished-task',
+    'deviations[0].affectedTasks[0]',
+    [passingClaim()],
+    (b) => b,
+    [affecting('task-done', 'task-later')],
+    standing({ 'task-done': { kind: 'finished' }, 'task-later': { kind: 'pending' } }),
+  ),
+  bend(
+    'a deviation that names a task the batch claims',
+    'deviation-names-claimed-task',
+    'deviations[0].affectedTasks[0]',
+    [passingClaim()],
+    (b) => b,
+    [affecting('task-verify', 'task-later')],
+    standing({ 'task-verify': { kind: 'pending' }, 'task-later': { kind: 'pending' } }),
   ),
 ];
 
@@ -266,6 +310,105 @@ describe('settlement adjudication', () => {
     const undecided = decide(undefined);
     expect(undecided.outcome).toBe('deviation-pending');
     expect(undecided.adjudicated.decisions).toBe(0);
+  });
+
+  /**
+   * The denominator of the three findings about an affected task. Each named task is pending and
+   * outside the batch, so the deviation holds the batch as a deviation with no task list does.
+   */
+  it('Adjudicate_ADeviationNamingPendingTasksOutsideTheBatch_HoldsTheBatch', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [affecting('task-later', 'task-other')],
+      standing({ 'task-later': { kind: 'pending' }, 'task-other': { kind: 'pending' } }),
+    );
+    expect(verdict.outcome).toBe('deviation-pending');
+    expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-awaiting-approval']);
+    expect(verdict.acceptedTasks).toEqual(['task-verify']);
+  });
+
+  /**
+   * Each finding about an affected task blocks, so the batch is rejected and not held. The
+   * deviation gets no approval finding, because nothing waits for a decision.
+   */
+  it('Adjudicate_AFindingAboutAnAffectedTask_RejectsTheBatchAndAsksForNoApproval', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [affecting('task-done', 'task-ghost', 'task-later', 'task-verify')],
+      standing({
+        'task-done': { kind: 'finished' },
+        'task-later': { kind: 'pending' },
+        'task-verify': { kind: 'pending' },
+      }),
+    );
+    expect(verdict.outcome).toBe('rejected');
+    expect(verdict.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
+      ['deviation-names-finished-task', 'task-done', 'deviations[0].affectedTasks[0]'],
+      ['deviation-unknown-task', 'task-ghost', 'deviations[0].affectedTasks[1]'],
+      ['deviation-names-claimed-task', 'task-verify', 'deviations[0].affectedTasks[3]'],
+    ]);
+    expect(verdict.findings[0]?.message).toContain('plan the rework as a new task');
+    for (const kind of ['deviation-unknown-task', 'deviation-names-finished-task', 'deviation-names-claimed-task']) {
+      expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain(kind);
+    }
+  });
+
+  /** A task that the batch claims and the stream shows complete gets both findings, so one correction covers both. */
+  it('Adjudicate_AnAffectedTaskThatIsFinishedAndClaimed_GetsBothFindings', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [affecting('task-verify')],
+      standing({ 'task-verify': { kind: 'finished' } }),
+    );
+    expect(verdict.findings.map((f) => f.kind)).toEqual([
+      'deviation-names-finished-task',
+      'deviation-names-claimed-task',
+    ]);
+    expect(verdict.outcome).toBe('rejected');
+  });
+
+  /** The plan holds an entry for the task, but the reader refused it. The finding gives the refusal. */
+  it('Adjudicate_AnAffectedTaskWhosePlanEntryWasRefused_SaysTheEntryCouldNotBeRead', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [affecting('task-later')],
+      standing({ 'task-later': { kind: 'unknown', unreadable: 'the stamp is outside its vocabulary' } }),
+    );
+    expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-unknown-task']);
+    expect(verdict.findings[0]?.message).toContain('could not be read: the stamp is outside its vocabulary');
+    expect(verdict.outcome).toBe('rejected');
+  });
+
+  /**
+   * The decision round supplies no standing, so the affected tasks get no check. The same batch
+   * with a standing is rejected, which shows that the absence of the standing is what admits it.
+   */
+  it('Adjudicate_WithNoTaskStanding_TheAffectedTasksGetNoCheck', () => {
+    const deviation = affecting('task-ghost', 'task-verify');
+    const decided = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [deviation], {
+      evidenceResolves: () => true,
+      decided: () => 'accepted',
+    });
+    expect(decided.findings).toEqual([]);
+    expect(decided.outcome).toBe('settled');
+
+    const first = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [deviation], standing({}));
+    expect(first.outcome).toBe('rejected');
+  });
+
+  /** A deviation outside the envelope is refused whole, and its affected tasks get no findings. */
+  it('Adjudicate_ADeviationOutsideTheEnvelope_GetsNoFindingAboutItsAffectedTasks', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [{ deviationKind: 'rewrote-the-charter', statement: 'seemed fine', affectedTasks: ['task-ghost'] }],
+      standing({}),
+    );
+    expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-outside-envelope']);
   });
 
   /** One pass reports every defect, so a caller does not find the defects one round trip at a time. */

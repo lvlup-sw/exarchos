@@ -3,7 +3,8 @@
  * The harness runs without governance calls, so it is judged by the terms it ran under.
  *
  * This module is pure: no store, no filesystem, no clock. The handler records the verdict.
- * The context supplies the two facts that the module cannot compute: whether an evidence reference resolves, and each task verification outcome.
+ * The context supplies the facts that the module cannot compute.
+ * They are whether an evidence reference resolves, how a named task stands, and each task verification outcome.
  *
  * The capsule parts that decide the verdict are `contracts.taskResults`, `contracts.evidenceKinds`, `contracts.deviationEnvelope`,
  * `settlementContract.requiredResults` and `settlementContract.taskVerification`.
@@ -25,6 +26,9 @@ export const SETTLEMENT_FINDING_KINDS = [
   'deviation-outside-envelope',
   'deviation-awaiting-approval',
   'deviation-rejected',
+  'deviation-unknown-task',
+  'deviation-names-finished-task',
+  'deviation-names-claimed-task',
   'verification-failed',
 ] as const;
 
@@ -61,11 +65,28 @@ export interface SettlementEvidence {
   readonly ref: string;
 }
 
-/** A deviation the worker proposes because a capsule assumption did not hold. */
+/**
+ * A deviation the worker proposes because a capsule assumption did not hold.
+ * `affectedTasks` names the unfinished tasks that the deviation changes. The handler sorts the list, makes it unique, and drops an empty list.
+ * `proposedChange` is the change that the worker proposes, in its words.
+ */
 export interface ProposedDeviation {
   readonly deviationKind: string;
   readonly statement: string;
+  readonly affectedTasks?: readonly string[];
+  readonly proposedChange?: string;
 }
+
+/**
+ * How a task that a deviation names stands in the current plan.
+ * `finished` is a task that the plan or the stream shows complete.
+ * `unknown` is a task that the plan does not hold.
+ * `unreadable` is the refusal of the plan reader, when the plan holds an entry for the task that the reader refused.
+ */
+export type TaskStanding =
+  | { readonly kind: 'pending' }
+  | { readonly kind: 'finished' }
+  | { readonly kind: 'unknown'; readonly unreadable?: string };
 
 /** How a batch stands after adjudication. */
 export type SettlementOutcome = 'settled' | 'rejected' | 'deviation-pending';
@@ -94,6 +115,11 @@ export interface AdjudicationContext {
    * It returns undefined for an undecided deviation. The round that proposes the deviations has no `decided` function.
    */
   readonly decided?: (deviation: ProposedDeviation) => 'accepted' | 'rejected' | undefined;
+  /**
+   * How a task that a deviation names stands. The handler supplies it only on the first submission of a batch whose deviations name tasks.
+   * Without it, the affected tasks get no check. Thus a decision still settles after a later plan drops an affected task.
+   */
+  readonly taskStanding?: (taskId: string) => TaskStanding;
   /**
    * The verification outcome per claimed task. It is absent on the shape pass, which decides whether verification runs.
    * On the final pass, a claim without a passing entry is not accepted.
@@ -148,6 +174,8 @@ function typeOfValue(value: unknown): string {
  * An evidence reference that does not resolve to an intact recorded row is inadmissible, whatever its kind.
  * On the final pass, a claim is accepted only when its verification passed.
  * A rejected deviation refuses the batch, because the decision is made and the next batch is a correction.
+ * A deviation inside the envelope can affect only a pending task that the batch does not claim.
+ * Each other task that it names refuses the batch, so the batch is not held.
  */
 export function adjudicateSettlement(
   capsule: ExarchosCapsuleV1,
@@ -325,6 +353,49 @@ export function adjudicateSettlement(
           ' — this is an escalation, not a deviation',
       });
       return;
+    }
+    const standingOf = context.taskStanding;
+    if (standingOf !== undefined) {
+      const before = findings.length;
+      const named = JSON.stringify(deviation.deviationKind);
+      (deviation.affectedTasks ?? []).forEach((taskId, j) => {
+        const taskAt = `deviations[${i}].affectedTasks[${j}]`;
+        const task = JSON.stringify(taskId);
+        const standing = standingOf(taskId);
+        if (standing.kind === 'unknown') {
+          findings.push({
+            kind: 'deviation-unknown-task',
+            subject: taskId,
+            at: taskAt,
+            message:
+              standing.unreadable === undefined
+                ? `${named} names task ${task} as affected, and the current plan holds no such task`
+                : `${named} names task ${task} as affected, and the plan entry for that task could ` +
+                  `not be read: ${standing.unreadable}`,
+          });
+        }
+        if (standing.kind === 'finished') {
+          findings.push({
+            kind: 'deviation-names-finished-task',
+            subject: taskId,
+            at: taskAt,
+            message:
+              `${named} names task ${task} as affected, and that task is finished. A finished ` +
+              'task is not reopened: plan the rework as a new task, and name the new task',
+          });
+        }
+        if (seen.has(taskId)) {
+          findings.push({
+            kind: 'deviation-names-claimed-task',
+            subject: taskId,
+            at: taskAt,
+            message:
+              `${named} names task ${task} as affected, and this batch claims that task. A ` +
+              'deviation affects work that is still to do, not a result that the batch returns',
+          });
+        }
+      });
+      if (findings.length !== before) return;
     }
     if (!capsule.contracts.deviationEnvelope.requiresApproval) return;
     const decision = context.decided?.(deviation);
