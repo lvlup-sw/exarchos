@@ -53,7 +53,6 @@ import {
   selectDesignChanges,
   verificationProfiles,
   type AcceptedDesignChange,
-  type BoundDesignChange,
   type CompileCapsuleInput,
 } from './compile-capsule.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
@@ -233,9 +232,8 @@ type AcceptedChangesRead =
   | { readonly ok: false; readonly refusal: PrepareRefusal };
 
 /**
- * Reads the accepted changes of the bound revisions from their settlement bundles.
- * It reads one bundle for each bound revision, and it reads no bundle of another revision.
- * From a bundle it takes each deviation that the row names, and no other deviation.
+ * Reads the accepted changes of one revision from the settlement bundle that its row names.
+ * From the bundle it takes each deviation that the row names, in row order, and no other deviation.
  * The deviation id function of `settle` pairs a deviation with its decision, and the decision must accept it.
  *
  * A bundle that does not resolve or decode refuses the read.
@@ -243,58 +241,82 @@ type AcceptedChangesRead =
  */
 async function readAcceptedChanges(
   streamId: string,
-  bound: readonly BoundDesignChange[],
+  revision: DesignRevised,
+  bundles: RunBundleStore,
+): Promise<AcceptedChangesRead> {
+  const ref = revision.bundleRefs[0];
+  if (ref === undefined) {
+    return { ok: false, refusal: revisionUnreadable(streamId, revision, 'names no settlement bundle') };
+  }
+  const named = `names the settlement bundle ${ref.artifactId} (${ref.digest.algorithm}:${ref.digest.value})`;
+  const read = await readSettlementBundle(bundles, ref.digest);
+  if (!read.ok) {
+    return { ok: false, refusal: revisionUnreadable(streamId, revision, `${named}, which ${read.reason}`) };
+  }
+  const { bundle } = read;
+  const held = new Map(
+    bundle.deviations.map((deviation) => [
+      deviationIdOf(bundle.capsule, {
+        deviationKind: deviation.deviationKind,
+        statement: deviation.statement,
+        ...(deviation.affectedTasks !== undefined ? { affectedTasks: deviation.affectedTasks } : {}),
+        ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
+      }),
+      deviation,
+    ]),
+  );
+  const accepted = new Map(
+    (bundle.decisions ?? [])
+      .filter((decision) => decision.decision === 'accepted')
+      .map((decision) => [decision.deviationId, decision]),
+  );
+  const changes: AcceptedDesignChange[] = [];
+  for (const deviationId of revision.deviationIds) {
+    const deviation = held.get(deviationId);
+    const decision = accepted.get(deviationId);
+    if (deviation === undefined || decision === undefined) {
+      const lacks = deviation === undefined ? 'the deviation' : 'an accepted decision for the deviation';
+      return {
+        ok: false,
+        refusal: revisionUnreadable(
+          streamId,
+          revision,
+          `${named}, which lacks ${lacks} ${JSON.stringify(deviationId)} that the revision names`,
+        ),
+      };
+    }
+    changes.push({
+      deviationId,
+      actor: decision.actor,
+      statement: deviation.statement,
+      ...(deviation.affectedTasks !== undefined ? { affectedTasks: deviation.affectedTasks } : {}),
+      ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
+    });
+  }
+  return { ok: true, changes };
+}
+
+/**
+ * Reads the accepted changes that the capsule states, one settlement bundle at a time.
+ * The selection of the compiler names the next revision whose changes it needs, and this function reads that bundle.
+ * Thus the bundle of each bound revision is read once, and the bundle of no other revision is read.
+ *
+ * Each read gives the selection one more revision, so one pass for each revision completes the selection.
+ * The compiler runs the same selection on the result, and it refuses a result that is not complete.
+ */
+async function readBoundChanges(
+  streamId: string,
+  revisions: readonly DesignRevised[],
+  batchTaskIds: readonly string[],
   bundles: RunBundleStore,
 ): Promise<AcceptedChangesRead> {
   const changes: AcceptedDesignChange[] = [];
-  for (const revision of new Set(bound.map((change) => change.revision))) {
-    const ref = revision.bundleRefs[0];
-    if (ref === undefined) {
-      return { ok: false, refusal: revisionUnreadable(streamId, revision, 'names no settlement bundle') };
-    }
-    const named = `names the settlement bundle ${ref.artifactId} (${ref.digest.algorithm}:${ref.digest.value})`;
-    const read = await readSettlementBundle(bundles, ref.digest);
-    if (!read.ok) {
-      return { ok: false, refusal: revisionUnreadable(streamId, revision, `${named}, which ${read.reason}`) };
-    }
-    const { bundle } = read;
-    const held = new Map(
-      bundle.deviations.map((deviation) => [
-        deviationIdOf(bundle.capsule, {
-          deviationKind: deviation.deviationKind,
-          statement: deviation.statement,
-          ...(deviation.affectedTasks !== undefined ? { affectedTasks: deviation.affectedTasks } : {}),
-          ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
-        }),
-        deviation,
-      ]),
-    );
-    const accepted = new Map(
-      (bundle.decisions ?? [])
-        .filter((decision) => decision.decision === 'accepted')
-        .map((decision) => [decision.deviationId, decision]),
-    );
-    for (const deviationId of revision.deviationIds) {
-      const deviation = held.get(deviationId);
-      const decision = accepted.get(deviationId);
-      if (deviation === undefined || decision === undefined) {
-        const lacks = deviation === undefined ? 'the deviation' : 'an accepted decision for the deviation';
-        return {
-          ok: false,
-          refusal: revisionUnreadable(
-            streamId,
-            revision,
-            `${named}, which lacks ${lacks} ${JSON.stringify(deviationId)} that the revision names`,
-          ),
-        };
-      }
-      changes.push({
-        deviationId,
-        actor: decision.actor,
-        statement: deviation.statement,
-        ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
-      });
-    }
+  for (let reads = 0; reads < revisions.length; reads += 1) {
+    const selection = selectDesignChanges(revisions, batchTaskIds, changes);
+    if (selection.complete) break;
+    const read = await readAcceptedChanges(streamId, selection.unread, bundles);
+    if (!read.ok) return read;
+    changes.push(...read.changes);
   }
   return { ok: true, changes };
 }
@@ -347,15 +369,21 @@ const DESIGN_REFERENCE_KEYS: readonly string[] = ['spec', 'design', 'plan'];
 const DESIGN_REFERENCE_MAX_LENGTH = 512;
 
 /**
+ * The characters that end a line in an artifact value. Two are the line feed and the carriage return.
+ * The others are the vertical tab, the form feed, the next line character, and the line and paragraph separators.
+ */
+const LINE_BREAK = /[\n\r\u000b\u000c\u0085\u2028\u2029]/;
+
+/**
  * Tells a reference to a document from the contents of a document.
- * A reference is a string of one line that is not empty and stays in the length bound.
+ * A reference is a string of one line that is not blank and stays in the length bound.
  */
 function isDesignReference(value: unknown): value is string {
   return (
     typeof value === 'string' &&
-    value.length > 0 &&
+    value.trim().length > 0 &&
     value.length <= DESIGN_REFERENCE_MAX_LENGTH &&
-    !/[\r\n]/.test(value)
+    !LINE_BREAK.test(value)
   );
 }
 
@@ -520,12 +548,10 @@ export async function handlePrepare(
     if (claim !== undefined) return receiptResult(claim.result);
 
     const designRevisions = designRevisionsOf(events);
-    const accepted = await readAcceptedChanges(
+    const accepted = await readBoundChanges(
       streamId,
-      selectDesignChanges(
-        designRevisions,
-        batch.tasks.map((task) => task.taskId),
-      ).bound,
+      designRevisions,
+      batch.tasks.map((task) => task.taskId),
       deps.bundleStore ?? ctx.eventStore.bundleStore,
     );
     if (!accepted.ok) return refused(accepted.refusal);

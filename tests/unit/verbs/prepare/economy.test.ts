@@ -177,6 +177,76 @@ describe('the capped prepare receipt', () => {
   });
 
   /**
+   * A claim of an earlier build holds a receipt with fewer fields, so the reducer reads each field as optional.
+   * The first receipt holds only the fields that each build wrote, so it has no recompile.
+   * The second holds a recompile that is null, and the third a recompile with one version and no task list.
+   * The capsule of the fourth has no graph, and the fifth has no capsule. Each one is over the budget.
+   *
+   * The reducer gives each a summary within the budget. A summary has a recompile only when the
+   * receipt holds one, and it has an empty list for each list that the receipt lacks.
+   */
+  it('PrepareEconomy_ASparseReceiptOverTheBudget_SummarisesWithoutItsAbsentFields', () => {
+    const full = receiptOf();
+    const keeping = (keys: readonly string[]): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(full).filter(([key]) => keys.includes(key)));
+    const writtenByEachBuild = [
+      'operationId',
+      'streamId',
+      'workflowId',
+      'capsuleVersion',
+      'capsuleDigest',
+      'definitionVersion',
+      'capsule',
+      'tailSequence',
+    ];
+    const earliest = keeping(writtenByEachBuild);
+    expect(Object.keys(earliest).sort()).toStrictEqual([...writtenByEachBuild].sort());
+    const padding = 'p'.repeat(5 * PREPARE_ECONOMY_BUDGET_TOKENS);
+    const sparse: readonly Record<string, unknown>[] = [
+      earliest,
+      { ...earliest, recompile: null },
+      { ...earliest, recompile: { priorCapsuleVersion: 4 } },
+      { ...earliest, capsule: { identity: full.capsule.identity, padding } },
+      { ...keeping(writtenByEachBuild.filter((key) => key !== 'capsule')), padding },
+    ];
+    const wholeBatch = { tasks: LARGE_BATCH, shown: SUMMARY_FIRST_PAGE_ITEMS };
+    const expectedCounts = [
+      wholeBatch,
+      wholeBatch,
+      { ...wholeBatch, declaredTasks: 0, invalidatedTasks: 0 },
+      { tasks: 0, shown: 0 },
+      { tasks: 0, shown: 0 },
+    ];
+    expect(sparse).toHaveLength(expectedCounts.length);
+
+    for (const [index, receipt] of sparse.entries()) {
+      expect(estimateOutputTokens(receipt), `receipt ${index}`).toBeGreaterThan(PREPARE_ECONOMY_BUDGET_TOKENS);
+
+      const summary = summarizePreparedCapsuleReceipt(receipt);
+
+      expect(estimateOutputTokens(summary), `receipt ${index}`).toBeLessThanOrEqual(PREPARE_ECONOMY_BUDGET_TOKENS);
+      expect(summary.counts, `receipt ${index}`).toStrictEqual(expectedCounts[index]);
+      expect(summary.firstPage, `receipt ${index}`).toHaveLength(expectedCounts[index]?.shown ?? Number.NaN);
+      expect('recompile' in summary, `receipt ${index}`).toBe(index === 2);
+      expect(summary.capsuleDigest).toBe(full.capsuleDigest);
+      expect(summary.bundleRefs).toBeUndefined();
+      expect(CappedDataSchema.safeParse(JSON.parse(JSON.stringify(summary))).success).toBe(true);
+      const dispatched = enforceResponseEconomy({ success: true, data: receipt }, 'exarchos_orchestrate', 'prepare');
+      expect(dispatched._meta).toMatchObject({ [ECONOMY_META_TRUNCATED]: true });
+      expect(dispatched.data).toStrictEqual(summary);
+    }
+
+    expect(summarizePreparedCapsuleReceipt(sparse[2]).recompile).toStrictEqual({
+      priorCapsuleVersion: 4,
+      priorDesignVersion: undefined,
+      nextDesignVersion: undefined,
+      declaredTasks: [],
+      invalidatedTasks: [],
+    });
+    expect(summarizePreparedCapsuleReceipt(earliest).summary).not.toContain('recompiled');
+  });
+
+  /**
    * The invalidated list grows by one task until the summary with its task page is over the
    * budget. At that size the summary has no task page, and the recompile is still whole.
    * The last comparison puts the task page back, to show that the trim was necessary.

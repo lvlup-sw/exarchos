@@ -77,52 +77,71 @@ export interface AcceptedDesignChange {
   readonly actor: string;
   /** What the worker found, in its words. */
   readonly statement: string;
+  /** The tasks that the deviation names as affected. It is absent when the deviation names none. */
+  readonly affectedTasks?: readonly string[];
   /** The change that the worker proposed. It is absent when the worker proposed none. */
   readonly proposedChange?: string;
 }
 
-/** One change that a capsule states: a deviation id, and the revision row that names it. */
-export interface BoundDesignChange {
+/** One change that a capsule states, and the revision row that names it. */
+interface BoundDesignChange {
   readonly revision: DesignRevised;
-  readonly deviationId: string;
-}
-
-/** The accepted changes of a stream that one capsule states, and the count of the others. */
-export interface DesignChangeSelection {
-  /** The changes that the capsule states, in statement order. */
-  readonly bound: readonly BoundDesignChange[];
-  /** The number of changes that the revision rows name and the capsule does not state. */
-  readonly leftOut: number;
+  readonly change: AcceptedDesignChange;
 }
 
 /**
- * Selects the accepted changes that a capsule states, from the revision rows alone.
- * The handler calls it before it reads a bundle, so it reads the bundles of the bound revisions only.
+ * The answer of one selection. A complete selection holds the changes that the capsule states, in
+ * statement order, and the count of the changes that it does not state.
+ * An incomplete selection names the next revision whose changes it needs, and one deviation that it lacks.
+ */
+type DesignChangeSelection =
+  | { readonly complete: true; readonly bound: readonly BoundDesignChange[]; readonly leftOut: number }
+  | { readonly complete: false; readonly unread: DesignRevised; readonly lacking: string };
+
+/**
+ * Selects the accepted changes that a capsule states. `accepted` holds the changes that the caller
+ * read from the settlement bundles. A revision is read when `accepted` holds each deviation of its row.
  *
- * A row names a task of the capsule when its affected tasks hold a task of the batch.
- * The changes of those rows come first, and the changes of the other rows follow.
- * In each group the newest revision comes first. In one revision, the order is that of its deviation ids.
- * The first eight changes in that order are bound. The order is fixed, so equal inputs give an equal selection.
+ * The first group holds each change that names a task of the batch, and the second group holds the rest.
+ * A row names each task that its changes name, so only a row that names a task of the batch gives the first group.
+ * Each group has the newest revision first. In one revision, the order is that of the deviation ids on its row.
+ * The first eight changes in that order are bound.
+ *
+ * The walk asks for a revision only while one of its changes can be bound.
+ * Thus a caller that reads each revision that the selection asks for reads the bundles of the bound revisions only.
  */
 export function selectDesignChanges(
   revisions: readonly DesignRevised[],
   batchTaskIds: readonly string[],
+  accepted: readonly AcceptedDesignChange[],
 ): DesignChangeSelection {
   const inBatch = new Set(batchTaskIds);
-  const namesBatchTask = (revision: DesignRevised): boolean =>
-    revision.affectedTasks.some((taskId) => inBatch.has(taskId));
+  const namesBatchTask = (taskIds: readonly string[] = []): boolean =>
+    taskIds.some((taskId) => inBatch.has(taskId));
+  const given = new Map(accepted.map((change) => [change.deviationId, change]));
   const newestFirst = [...revisions].sort((a, b) => b.nextDesignVersion - a.nextDesignVersion);
-  const ordered = [
-    ...newestFirst.filter(namesBatchTask),
-    ...newestFirst.filter((revision) => !namesBatchTask(revision)),
-  ];
-  const changes = ordered.flatMap((revision) =>
-    revision.deviationIds.map((deviationId): BoundDesignChange => ({ revision, deviationId })),
-  );
-  return {
-    bound: changes.slice(0, MAX_BOUND_DESIGN_CHANGES),
-    leftOut: Math.max(0, changes.length - MAX_BOUND_DESIGN_CHANGES),
-  };
+
+  const bound: BoundDesignChange[] = [];
+  for (const firstGroup of [true, false]) {
+    for (const revision of newestFirst) {
+      if (bound.length >= MAX_BOUND_DESIGN_CHANGES) break;
+      const rowNamesBatchTask = namesBatchTask(revision.affectedTasks);
+      if (firstGroup && !rowNamesBatchTask) continue;
+      const changes: AcceptedDesignChange[] = [];
+      for (const deviationId of revision.deviationIds) {
+        const change = given.get(deviationId);
+        if (change === undefined) return { complete: false, unread: revision, lacking: deviationId };
+        changes.push(change);
+      }
+      for (const change of changes) {
+        if (bound.length >= MAX_BOUND_DESIGN_CHANGES) break;
+        const inFirstGroup = rowNamesBatchTask && namesBatchTask(change.affectedTasks);
+        if (inFirstGroup === firstGroup) bound.push({ revision, change });
+      }
+    }
+  }
+  const named = revisions.reduce((count, revision) => count + revision.deviationIds.length, 0);
+  return { complete: true, bound, leftOut: named - bound.length };
 }
 
 export interface CompileCapsuleInput {
@@ -145,7 +164,7 @@ export interface CompileCapsuleInput {
   readonly designRevisions: readonly DesignRevised[];
   /**
    * The accepted changes of the bound revisions, which the handler read from their settlement bundles.
-   * The compilation is refused when it lacks a change that it binds.
+   * The compilation is refused when it lacks a change of a revision that the selection asks for.
    */
   readonly acceptedChanges: readonly AcceptedDesignChange[];
   /**
@@ -305,31 +324,29 @@ type DesignChangeStatements =
 /**
  * The statements of the accepted design changes: one for each bound change, in selection order.
  * One more statement counts the changes that the capsule does not state.
- * A bound change that the input lacks refuses the compilation, so a capsule never states a placeholder.
+ * The compilation is refused when the input lacks a change that the selection asks for.
+ * Thus a capsule never states a placeholder.
  */
 function designChangeStatements(
   input: CompileCapsuleInput,
   batchTaskIds: readonly string[],
 ): DesignChangeStatements {
-  const selection = selectDesignChanges(input.designRevisions, batchTaskIds);
-  const accepted = new Map(input.acceptedChanges.map((change) => [change.deviationId, change]));
-  const statements: { statement: string }[] = [];
-  for (const { revision, deviationId } of selection.bound) {
-    const change = accepted.get(deviationId);
-    if (change === undefined) {
-      return {
-        ok: false,
-        refusal: {
-          code: 'REVISION_UNREADABLE',
-          message:
-            `the revision to design version ${revision.nextDesignVersion} names the accepted deviation ` +
-            `${JSON.stringify(deviationId)}, and the compilation was not given that change, so the capsule ` +
-            'cannot state it',
-        },
-      };
-    }
-    statements.push(statement(designChangeStatement(revision, change)));
+  const selection = selectDesignChanges(input.designRevisions, batchTaskIds, input.acceptedChanges);
+  if (!selection.complete) {
+    return {
+      ok: false,
+      refusal: {
+        code: 'REVISION_UNREADABLE',
+        message:
+          `the revision to design version ${selection.unread.nextDesignVersion} names the accepted deviation ` +
+          `${JSON.stringify(selection.lacking)}, and the compilation was not given that change, so the capsule ` +
+          'cannot state it',
+      },
+    };
   }
+  const statements = selection.bound.map(({ revision, change }) =>
+    statement(designChangeStatement(revision, change)),
+  );
   if (selection.leftOut > 0) {
     statements.push(
       statement(

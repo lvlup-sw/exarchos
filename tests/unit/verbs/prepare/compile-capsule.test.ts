@@ -14,6 +14,7 @@ import { builtInWorkflowAuthority } from '../../../../src/verbs/prepare/built-in
 import {
   compileDelegationCapsule,
   PREPARE_COMPILER_VERSION,
+  selectDesignChanges,
   type AcceptedDesignChange,
   type CompileCapsuleInput,
 } from '../../../../src/verbs/prepare/compile-capsule.js';
@@ -104,9 +105,17 @@ function revisionRow(
   });
 }
 
-/** The accepted change of a deviation id. Its statement holds the id, so each statement is distinct. */
-function acceptedChange(deviationId: string): AcceptedDesignChange {
-  return { deviationId, actor: ACTOR, statement: `the finding of ${deviationId}` };
+/**
+ * The accepted change of a deviation id. Its statement holds the id, so each statement is distinct.
+ * The change names the given tasks as affected, as the settlement bundle of its revision holds them.
+ */
+function acceptedChange(deviationId: string, affectedTasks: readonly string[] = []): AcceptedDesignChange {
+  return {
+    deviationId,
+    actor: ACTOR,
+    statement: `the finding of ${deviationId}`,
+    ...(affectedTasks.length > 0 ? { affectedTasks } : {}),
+  };
 }
 
 /** The statement that a capsule binds for `acceptedChange(deviationId)` at a design version. */
@@ -122,6 +131,64 @@ function rationaleOf(overrides: Partial<CompileCapsuleInput>): string[] {
   const outcome = compileDelegationCapsule(input(overrides));
   if (!outcome.ok) throw new Error(outcome.refusal.message);
   return outcome.capsule.knowledge.rationale.map((entry) => entry.statement);
+}
+
+/** The tasks of the fixture batch. The second task of the fixture plan waits on the first, so the batch lacks it. */
+const ORDERING_BATCH: readonly string[] = ['T-1', 'T-3'];
+
+/** The tasks that each change of the ordering fixture names as affected. A change that is absent here names none. */
+const ORDERING_TASKS: Readonly<Record<string, readonly string[]>> = {
+  'dev:v3': ['T-3'],
+  'dev:v4': ['T-9'],
+  'dev:v5-a': ['T-1'],
+  'dev:v5-b': ['T-9'],
+  'dev:v8': ['T-9'],
+  'dev:v11-b': ['T-2'],
+};
+
+/** One row of the ordering fixture. As `settle` records it, the row names each task that its changes name. */
+function orderingRow(nextDesignVersion: number, deviationIds: readonly string[]): DesignRevised {
+  const affectedTasks = [...new Set(deviationIds.flatMap((deviationId) => ORDERING_TASKS[deviationId] ?? []))].sort();
+  return revisionRow(nextDesignVersion, deviationIds, affectedTasks);
+}
+
+/**
+ * Ten revisions that name twelve changes. Two changes name a task of the batch.
+ * They are the second deviation of version 5 and the one deviation of version 3.
+ */
+const ORDERING_ROWS: readonly DesignRevised[] = [
+  orderingRow(2, ['dev:v2']),
+  orderingRow(3, ['dev:v3']),
+  orderingRow(4, ['dev:v4']),
+  orderingRow(5, ['dev:v5-b', 'dev:v5-a']),
+  orderingRow(6, ['dev:v6']),
+  orderingRow(7, ['dev:v7']),
+  orderingRow(8, ['dev:v8']),
+  orderingRow(9, ['dev:v9']),
+  orderingRow(10, ['dev:v10']),
+  orderingRow(11, ['dev:v11-b', 'dev:v11-a']),
+];
+
+/** The design versions of the revisions that the selection reads from the ordering fixture, in read order. */
+const ORDERING_READ: readonly number[] = [5, 3, 11, 10, 9, 8, 7];
+
+/** The eight changes that a capsule binds from the ordering fixture, in statement order. */
+const ORDERING_BOUND: readonly (readonly [number, string])[] = [
+  [5, 'dev:v5-a'],
+  [3, 'dev:v3'],
+  [11, 'dev:v11-b'],
+  [11, 'dev:v11-a'],
+  [10, 'dev:v10'],
+  [9, 'dev:v9'],
+  [8, 'dev:v8'],
+  [7, 'dev:v7'],
+];
+
+/** The accepted changes of the fixture revisions with the given design versions, as their bundles hold them. */
+function orderingChangesOf(versions: readonly number[]): AcceptedDesignChange[] {
+  return ORDERING_ROWS.filter((row) => versions.includes(row.nextDesignVersion)).flatMap((row) =>
+    row.deviationIds.map((deviationId) => acceptedChange(deviationId, ORDERING_TASKS[deviationId])),
+  );
 }
 
 describe('delegation capsule compilation', () => {
@@ -472,63 +539,143 @@ describe('delegation capsule compilation — the accepted design changes', () =>
   });
 
   /**
-   * Ten revisions name eleven changes, because the newest revision covers two deviations.
-   * Two old revisions name a task of the batch, so their changes come first, the newer one ahead.
+   * Ten revisions name twelve changes, because two revisions cover two deviations each.
+   * Two changes name a task of the batch, so they come first, the one of the newer revision ahead.
+   * One of them is the second deviation of its row, and the first deviation of that row is not bound.
    * The other changes follow from the newest revision down, and the two of one revision keep its order.
-   * The compiler gets only the eight changes that it binds. The last statement counts the other three.
+   * The compiler gets only the changes of the seven revisions that it binds. The last statement counts the other four.
    *
    * The order of the rows in the input does not move the statements.
    * Seven revisions that name eight changes bind them all, with no count.
    */
   it('Compile_MoreThanEightChanges_BindsThoseThatNameItsTasksFirstAndCountsTheRest', () => {
-    const designRevisions = [
-      revisionRow(2, ['dev:v2']),
-      revisionRow(3, ['dev:v3'], ['T-3']),
-      revisionRow(4, ['dev:v4'], ['T-9']),
-      revisionRow(5, ['dev:v5'], ['T-1', 'T-9']),
-      revisionRow(6, ['dev:v6']),
-      revisionRow(7, ['dev:v7']),
-      revisionRow(8, ['dev:v8'], ['T-9']),
-      revisionRow(9, ['dev:v9']),
-      revisionRow(10, ['dev:v10']),
-      revisionRow(11, ['dev:v11-b', 'dev:v11-a'], ['T-2']),
-    ];
-    expect(designRevisions.flatMap((row) => row.deviationIds)).toHaveLength(11);
-    const bound: readonly (readonly [number, string])[] = [
-      [5, 'dev:v5'],
-      [3, 'dev:v3'],
-      [11, 'dev:v11-b'],
-      [11, 'dev:v11-a'],
-      [10, 'dev:v10'],
-      [9, 'dev:v9'],
-      [8, 'dev:v8'],
-      [7, 'dev:v7'],
-    ];
+    expect(ORDERING_ROWS.flatMap((row) => row.deviationIds)).toHaveLength(12);
+    expect(ORDERING_ROWS.find((row) => row.nextDesignVersion === 5)?.deviationIds).toEqual(['dev:v5-b', 'dev:v5-a']);
     const overrides = {
       designVersion: 11,
-      designRevisions,
-      acceptedChanges: bound.map(([, deviationId]) => acceptedChange(deviationId)),
+      designRevisions: ORDERING_ROWS,
+      acceptedChanges: orderingChangesOf(ORDERING_READ),
     };
+    expect(overrides.acceptedChanges).toHaveLength(9);
 
     const rationale = rationaleOf(overrides);
     expect(rationale).toEqual([
       DESIGN_OF_RECORD,
-      ...bound.map(([version, deviationId]) => changeStatement(version, deviationId)),
-      '3 more accepted design change(s) are not stated in this capsule. ' +
+      ...ORDERING_BOUND.map(([version, deviationId]) => changeStatement(version, deviationId)),
+      '4 more accepted design change(s) are not stated in this capsule. ' +
         'The design.revised rows of the workflow stream name each one.',
     ]);
-    expect(rationaleOf({ ...overrides, designRevisions: [...designRevisions].reverse() })).toEqual(rationale);
+    expect(rationaleOf({ ...overrides, designRevisions: [...ORDERING_ROWS].reverse() })).toEqual(rationale);
 
-    const exactlyEight = designRevisions.slice(3);
-    const ids = exactlyEight.flatMap((row) => row.deviationIds);
-    expect(ids).toHaveLength(8);
-    const whole = rationaleOf({
-      ...overrides,
-      designRevisions: exactlyEight,
-      acceptedChanges: ids.map((deviationId) => acceptedChange(deviationId)),
-    });
-    expect(whole).toHaveLength(9);
-    expect(whole.filter((statement) => statement.includes('more accepted design change'))).toEqual([]);
+    const exactlyEight = ORDERING_ROWS.filter((row) => ![2, 4, 5].includes(row.nextDesignVersion));
+    const versions = exactlyEight.map((row) => row.nextDesignVersion);
+    expect(exactlyEight.flatMap((row) => row.deviationIds)).toHaveLength(8);
+    expect(rationaleOf({ ...overrides, designRevisions: exactlyEight, acceptedChanges: orderingChangesOf(versions) })).toEqual([
+      DESIGN_OF_RECORD,
+      changeStatement(3, 'dev:v3'),
+      changeStatement(11, 'dev:v11-b'),
+      changeStatement(11, 'dev:v11-a'),
+      changeStatement(10, 'dev:v10'),
+      changeStatement(9, 'dev:v9'),
+      changeStatement(8, 'dev:v8'),
+      changeStatement(7, 'dev:v7'),
+      changeStatement(6, 'dev:v6'),
+    ]);
+  });
+
+  /**
+   * The walk starts with no read revision. Each answer names one revision, and the case gives the
+   * changes of that revision, as the handler does after it reads the bundle.
+   * The walk asks first for the two revisions that name a task of the batch, the newer one ahead.
+   * Then it asks for the other revisions from the newest down, until eight changes are bound.
+   * It asks for no revision twice, and it never asks for the three revisions that it does not bind.
+   */
+  it('SelectDesignChanges_FromNoReadRevision_AsksForEachBoundRevisionOnceAndForNoOther', () => {
+    const asked: number[] = [];
+    const given: AcceptedDesignChange[] = [];
+    let selection = selectDesignChanges(ORDERING_ROWS, ORDERING_BATCH, given);
+    for (let step = 0; step < ORDERING_ROWS.length && !selection.complete; step += 1) {
+      asked.push(selection.unread.nextDesignVersion);
+      expect(selection.unread.deviationIds).toContain(selection.lacking);
+      given.push(...orderingChangesOf([selection.unread.nextDesignVersion]));
+      selection = selectDesignChanges(ORDERING_ROWS, ORDERING_BATCH, given);
+    }
+
+    expect(asked).toEqual(ORDERING_READ);
+    if (!selection.complete) throw new Error('the selection is not complete after each revision that it asked for');
+    expect(selection.bound.map(({ revision, change }) => [revision.nextDesignVersion, change.deviationId])).toEqual(
+      ORDERING_BOUND,
+    );
+    expect(selection.leftOut).toBe(4);
+  });
+
+  /**
+   * A row that `settle` records names each task that its changes name. Two rows here do not.
+   * The change of version 3 names a task of the batch, and its row names no task.
+   * The row of version 4 names a task of the batch, and its change names none.
+   * A change is in the first group only when its row and the change both name a task of the batch.
+   * Thus both changes are bound with the rest, from the newest revision down, and none is lost.
+   */
+  it('SelectDesignChanges_ARowThatDisagreesWithItsChangeAboutABatchTask_BindsTheChangeWithTheRest', () => {
+    const rows = [
+      revisionRow(2, ['dev:both-name'], ['T-1']),
+      revisionRow(3, ['dev:change-names'], []),
+      revisionRow(4, ['dev:row-names'], ['T-3']),
+    ];
+    const changes = [
+      acceptedChange('dev:both-name', ['T-1']),
+      acceptedChange('dev:change-names', ['T-1']),
+      acceptedChange('dev:row-names'),
+    ];
+
+    const selection = selectDesignChanges(rows, ORDERING_BATCH, changes);
+
+    if (!selection.complete) throw new Error('the selection is not complete with each change given');
+    expect(selection.bound.map(({ revision, change }) => [revision.nextDesignVersion, change.deviationId])).toEqual([
+      [2, 'dev:both-name'],
+      [4, 'dev:row-names'],
+      [3, 'dev:change-names'],
+    ]);
+    expect(selection.leftOut).toBe(0);
+  });
+
+  /**
+   * A text of 300 characters keeps its first 277 characters and gets the mark, so it is 280 long.
+   * A text of 280 characters stays whole.
+   *
+   * In each other text, the last kept position holds a code unit at an edge of the high surrogate range.
+   * The first and the last high surrogate are each cut with the pair that they start.
+   * The unit before the range stays, and so does a low surrogate, which ends a pair that is whole.
+   */
+  it('Compile_ACutAtTheLimit_KeepsExactlyTheLimitAndNeverHalfAPair', () => {
+    const kept = TEXT_LIMIT - CUT_MARK.length;
+    const statedFor = (statement: string): string => {
+      const [stated] = rationaleOf({
+        designRef: undefined,
+        designRevisions: [revisionRow(2, ['dev:one'])],
+        acceptedChanges: [{ deviationId: 'dev:one', actor: ACTOR, statement }],
+      });
+      if (stated === undefined) throw new Error('the capsule states no change');
+      return stated;
+    };
+    const stating = (text: string): string =>
+      `Design version 2 holds an accepted change. Decided by "${ACTOR}". Deviation: "${text}".`;
+
+    expect(statedFor('s'.repeat(300))).toBe(stating(`${'s'.repeat(277)}${CUT_MARK}`));
+    expect(`${'s'.repeat(277)}${CUT_MARK}`).toHaveLength(TEXT_LIMIT);
+    expect(statedFor('s'.repeat(TEXT_LIMIT))).toBe(stating('s'.repeat(TEXT_LIMIT)));
+
+    const unit = (code: number): string => String.fromCharCode(code);
+    const head = 's'.repeat(kept - 1);
+    const tail = 's'.repeat(40);
+    const firstPair = `${unit(0xd800)}${unit(0xdc00)}`;
+    const lastPair = `${unit(0xdbff)}${unit(0xdfff)}`;
+    expect(statedFor(`${head}${firstPair}${tail}`)).toBe(stating(`${head}${CUT_MARK}`));
+    expect(statedFor(`${head}${lastPair}${tail}`)).toBe(stating(`${head}${CUT_MARK}`));
+    expect(statedFor(`${head}${unit(0xd7ff)}${tail}`)).toBe(stating(`${head}${unit(0xd7ff)}${CUT_MARK}`));
+    const pairThatEndsAtTheCut = `${'s'.repeat(kept - 2)}${firstPair}`;
+    expect(pairThatEndsAtTheCut).toHaveLength(kept);
+    expect(statedFor(`${pairThatEndsAtTheCut}${tail}`)).toBe(stating(`${pairThatEndsAtTheCut}${CUT_MARK}`));
   });
 
   /** The compiler states no placeholder. A bound change that the caller did not pass refuses the compilation. */

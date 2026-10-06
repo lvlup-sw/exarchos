@@ -12,7 +12,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as path from 'node:path';
-import { mkdtemp, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { resolveConfig, type ResolvedProjectConfig } from '../../../../src/config/resolve.js';
@@ -54,9 +54,14 @@ import { lowerBuiltInDefinition } from '../../../../src/verbs/prepare/lower-defi
 import { commitPreparedCapsule, findPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { PREPARE_REFUSAL_CODES, type PreparedCapsuleReceipt } from '../../../../src/verbs/prepare/types.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
-import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
+import {
+  decodeSettlementBundle,
+  encodeSettlementBundle,
+  type SettlementBundleV1,
+} from '../../../../src/verbs/settle/settlement-bundle.js';
 import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
+import { initStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'feat-prepare-unit';
@@ -585,6 +590,36 @@ function bundleStoreAnswering(asked: BundleRefV1['digest'], answer: BundleRefV1[
   return bundles;
 }
 
+/**
+ * Puts an edited copy of the settlement bundle of a revision in custody, and returns its digest.
+ * The copy passes the bundle schema, so a prepare that reads it decodes it as it decodes the real one.
+ */
+async function editedBundleOf(
+  row: DesignRevised,
+  edit: (bundle: SettlementBundleV1) => SettlementBundleV1,
+): Promise<BundleRefV1['digest']> {
+  const real = decodeSettlementBundle(await store.bundleStore.resolve(bundleDigestOf(row)));
+  return store.bundleStore.put(encodeSettlementBundle(edit(real)));
+}
+
+/** One accepted material deviation of a staged round, which names the given tasks as affected. */
+function acceptedMaterial(statement: string, affectedTasks?: readonly string[]): StagedDeviation {
+  return {
+    deviationKind: 'invalidated-assumption',
+    statement,
+    decision: 'accepted',
+    ...(affectedTasks !== undefined ? { affectedTasks } : {}),
+  };
+}
+
+/** The statement that counts the accepted changes that a capsule does not state. */
+function leftOutStatement(count: number): string {
+  return (
+    `${count} more accepted design change(s) are not stated in this capsule. ` +
+    'The design.revised rows of the workflow stream name each one.'
+  );
+}
+
 /** A bundle store that fails each read with the given fault, as a store on a broken disk does. */
 function failingBundleStore(fault: string): RunBundleStore {
   const bundles: RunBundleStore = Object.create(store.bundleStore);
@@ -809,6 +844,26 @@ describe('prepare — the compilation endpoint', () => {
     const unusable = { spec: '', design: 'line one\nline two', plan: 'r'.repeat(REFERENCE_BOUND + 1) };
     expect(await bindingFor(unusable, `${STREAM}-unusable`)).toEqual(NO_BINDING);
     expect(await bindingFor({ spec: [SPEC_PATH] }, `${STREAM}-list`)).toEqual(NO_BINDING);
+  });
+
+  /**
+   * A blank value names no document. Five more characters end a line, so a value that holds one is two lines.
+   * They are the vertical tab, the form feed, the next line character, and the line and paragraph separators.
+   * Each such spec is skipped for the plan path. A path with spaces in it is one line that is not blank, so it binds.
+   */
+  it('Prepare_ABlankOrMultiLineSeparatorReference_IsSkipped', async () => {
+    const character = (code: number): string => String.fromCharCode(code);
+    const blank = [' ', '    ', character(0x09), ` ${character(0xa0)} `];
+    const twoLines = [0x0b, 0x0c, 0x85, 0x2028, 0x2029].map((code) => `docs/specs/one${character(code)}two.md`);
+    const skipped = [...blank, ...twoLines];
+    expect(skipped).toHaveLength(9);
+    for (const [index, spec] of skipped.entries()) {
+      const binding = await bindingFor({ spec, plan: PLAN_PATH }, `${STREAM}-skipped-${index}`);
+      expect(binding, JSON.stringify(spec)).toEqual(bindingOf(PLAN_PATH));
+    }
+
+    const spaced = 'docs/specs/prepare unit spec.md';
+    expect(await bindingFor({ spec: spaced, plan: PLAN_PATH }, `${STREAM}-spaced`)).toEqual(bindingOf(spaced));
   });
 
   /**
@@ -1332,6 +1387,36 @@ describe('prepare — the continuation after a design revision', () => {
     expect((await readdir(stateDir)).filter((name) => name.endsWith('.state.json'))).toEqual([]);
   });
 
+  /**
+   * The case above finds no state document, and a prepare that writes to a document that is absent
+   * also leaves none. Here the state directory holds the document of the workflow before the
+   * continuation. The document lists the two invalidated tasks as unfinished.
+   * The continuation records its recompile, and the bytes of the document are the same after it.
+   */
+  it('Prepare_AContinuationBesideAStateDocument_LeavesTheDocumentAsItWas', async () => {
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    await revise(first, 'batch-revising', ['task-named']);
+    const { stateFile } = await initStateFile(stateDir, STREAM, 'feature', {
+      phase: 'delegate',
+      tasks: CONTINUATION_PLAN.map((task) => ({ id: task.id, title: `title of ${task.id}`, status: task.status })),
+    });
+    expect((await readdir(stateDir)).filter((name) => name.endsWith('.state.json'))).toEqual([path.basename(stateFile)]);
+    const before = await readFile(stateFile);
+    const document: unknown = JSON.parse(before.toString('utf8'));
+    expect(document).toMatchObject({
+      tasks: expect.arrayContaining([
+        expect.objectContaining({ id: 'task-named', status: 'pending' }),
+        expect.objectContaining({ id: 'task-after', status: 'pending' }),
+      ]),
+    });
+
+    const continued = receiptOf(await prepare({ featureId: STREAM }));
+    expect(continued.recompile?.invalidatedTasks).toEqual(['task-named', 'task-after']);
+    expect(await recompileRows()).toHaveLength(1);
+    expect((await readFile(stateFile)).equals(before)).toBe(true);
+  });
+
   /** The retry gets its answer from the claim of the continuation. It appends no row and writes no blob. */
   it('Prepare_ARetriedContinuation_ReturnsTheRecordedCapsuleAndAppendsNothing', async () => {
     const { next } = await continuationAfter(['task-named']);
@@ -1414,7 +1499,8 @@ describe('prepare — the continuation after a design revision', () => {
 
   /**
    * Each task completes after the revision and before the next prepare. The refusal appends no
-   * row and writes no blob.
+   * row and writes no blob. The refusal also leaves the revision pending. When the plan holds its
+   * unfinished tasks again, the next prepare is the continuation of the same revision.
    */
   it('Prepare_APendingRevisionWithEveryTaskComplete_IsRefusedAndRecordsNothing', async () => {
     await seedDelegatingFeature(CONTINUATION_PLAN);
@@ -1430,6 +1516,16 @@ describe('prepare — the continuation after a design revision', () => {
     expect(await recompileRows()).toEqual([]);
     expect(await preparedRows()).toHaveLength(1);
     expect(await bundleBlobCount()).toBe(blobs);
+
+    await replan(CONTINUATION_PLAN);
+    const before = await rowCount();
+    const continued = receiptOf(await prepare({ featureId: STREAM }));
+    expect(continued.capsuleVersion).toBe(2);
+    expect(continued.capsule.identity.designVersion).toBe('design-v2');
+    expect(continued.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-ready', 'task-open']);
+    expect(continued.recompile).toStrictEqual(NAMED_RECOMPILE);
+    expect((await rowsAfter(before)).map((e) => e.type)).toEqual(['capsule.recompiled', 'workflow.prepared']);
+    expect(await recompileRows()).toMatchObject([NAMED_RECOMPILE]);
   });
 
   /**
@@ -1686,28 +1782,238 @@ describe('prepare — the accepted design changes as knowledge', () => {
     expect(await recompileRows()).toEqual([]);
     expect(await bundleBlobCount()).toBe(blobs);
 
+    const decisionOnly = await editedBundleOf(round.row, (bundle) => ({
+      ...bundle,
+      deviations: bundle.deviations.filter((deviation) => deviation.statement !== material.statement),
+    }));
+    const stripped = decodeSettlementBundle(await store.bundleStore.resolve(decisionOnly));
+    expect(stripped.decisions).toContainEqual(expect.objectContaining({ deviationId: named, decision: 'accepted' }));
+    expect(stripped.deviations.map((deviation) => deviation.statement)).toEqual(['batch-revising did not name the port']);
+    const withoutDeviation = await prepareThrough(bundleStoreAnswering(bundleDigestOf(round.row), decisionOnly));
+    expect(refusalCodeOf(withoutDeviation), JSON.stringify(withoutDeviation)).toBe('REVISION_UNREADABLE');
+    expect(withoutDeviation.error?.message).toContain(`lacks the deviation "${named}"`);
+    expect(await rowCount()).toBe(rows);
+    expect(await preparedRows()).toHaveLength(1);
+
     const compiled = receiptOf(await prepare({ featureId: STREAM }));
     expect(compiled.capsuleVersion).toBe(2);
     expect(designBinding(compiled).rationale).toHaveLength(3);
   });
 
   /**
-   * Ten revisions name ten changes. The two oldest name a task of the batch, so they are bound first.
-   * The six newest of the others follow, and the last statement counts the two that are left out.
-   * The seam records each read. The prepare reads the bundle of each bound revision once, and it
-   * reads no bundle of the two revisions that it does not bind.
+   * The edited bundle is the real bundle of the round with one decision changed: it rejects the
+   * deviation that the row names. The seam answers the read of the revision with that bundle.
+   * The bundle still holds the deviation and a decision for it, so only the answer of the decision refuses it.
+   * The call records nothing. Through the store of the test, the same prepare compiles.
+   */
+  it('Prepare_ABundleWhoseNamedDeviationWasRejected_IsRefusedAsUnreadable', async () => {
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    const round = await decide(first, 'batch-revising', [acceptedMaterial('the queue was not durable', ['task-named'])]);
+    const named = round.idOf('the queue was not durable');
+    expect(round.row.deviationIds).toEqual([named]);
+
+    const rejecting = await editedBundleOf(round.row, (bundle) => ({
+      ...bundle,
+      decisions: (bundle.decisions ?? []).map((decision) =>
+        decision.deviationId === named ? { ...decision, decision: 'rejected' } : decision,
+      ),
+    }));
+    const edited = decodeSettlementBundle(await store.bundleStore.resolve(rejecting));
+    expect(edited.decisions?.map((decision) => decision.decision)).toEqual(['rejected', 'rejected']);
+    expect(edited.decisions?.map((decision) => decision.deviationId)).toContain(named);
+    expect(edited.deviations.map((deviation) => deviation.statement)).toContain('the queue was not durable');
+    const rows = await rowCount();
+    const blobs = await bundleBlobCount();
+
+    const refused = await prepareThrough(bundleStoreAnswering(bundleDigestOf(round.row), rejecting));
+    expect(refusalCodeOf(refused), JSON.stringify(refused)).toBe('REVISION_UNREADABLE');
+    expect(refused.error?.message).toContain(`lacks an accepted decision for the deviation "${named}"`);
+    expect(refused.error?.message).toContain('design version 2');
+    expect(await rowCount()).toBe(rows);
+    expect(await preparedRows()).toHaveLength(1);
+    expect(await recompileRows()).toEqual([]);
+    expect(await bundleBlobCount()).toBe(blobs);
+
+    const compiled = receiptOf(await prepare({ featureId: STREAM }));
+    expect(compiled.capsuleVersion).toBe(2);
+    expect(designBinding(compiled).rationale).toEqual([
+      DESIGN_OF_RECORD,
+      acceptedStatement(2, 'the queue was not durable'),
+    ]);
+  });
+
+  /**
+   * The stream holds one revision. The continuation is recorded through the seam, under the name of
+   * an earlier compiler. The production call passes no name, so that claim does not answer it.
+   * It compiles the next capsule version from the same batch, and that capsule states the accepted change.
+   * The revision is not pending after the continuation, so the production call records no recompile.
+   */
+  it('Prepare_AClaimFromAnEarlierCompilerOnARevisedStream_IsCompiledAgainWithTheAcceptedChanges', async () => {
+    expect(EARLIER_COMPILER_VERSION).not.toBe(PREPARE_COMPILER_VERSION);
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    await revise(first, 'batch-revising', ['task-named']);
+
+    const recorded = receiptOf(await prepareAsCompiler(EARLIER_COMPILER_VERSION));
+    expect(recorded.capsuleVersion).toBe(2);
+    expect(recorded.capsule.provenance.compilerVersion).toBe(EARLIER_COMPILER_VERSION);
+    expect(recorded.recompile).toStrictEqual(NAMED_RECOMPILE);
+
+    const prepared = receiptOf(await prepare({ featureId: STREAM }));
+    expect(prepared.capsuleVersion).toBe(3);
+    expect(prepared.operationId).not.toBe(recorded.operationId);
+    expect(prepared.capsule.provenance.compilerVersion).toBe(PREPARE_COMPILER_VERSION);
+    expect(prepared.capsule.identity.designVersion).toBe('design-v2');
+    expect(prepared.capsule.graph).toEqual(recorded.capsule.graph);
+    expect(designBinding(prepared).rationale).toEqual([DESIGN_OF_RECORD, acceptedStatement(2, REVISED_FINDING)]);
+    expect(prepared).not.toHaveProperty('recompile');
+
+    const records = (await preparedRows()).map((row) => WorkflowPreparedData.parse(row));
+    expect(records.map((row) => [row.capsuleVersion, row.designVersion, row.compilerVersion])).toEqual([
+      [1, 'design-v1', PREPARE_COMPILER_VERSION],
+      [2, 'design-v2', EARLIER_COMPILER_VERSION],
+      [3, 'design-v2', PREPARE_COMPILER_VERSION],
+    ]);
+    expect(await recompileRows()).toHaveLength(1);
+  });
+
+  /**
+   * One round accepts twelve material deviations. One of them names the task that the next capsule
+   * compiles, and its id is the last on the row. Five of the others name a task outside that capsule.
+   * The first eight ids of the row do not hold the last one, and the position check keeps that true.
+   * The capsule states that change first, and then the first seven of the others in row order.
+   * The last statement counts the four changes that the capsule does not state.
+   */
+  it('Prepare_ARoundOfManyDeviationsWithOneThatNamesACapsuleTask_BindsThatChangeFirst', async () => {
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    const others = Array.from({ length: 11 }, (_, index) =>
+      acceptedMaterial(`assumption ${index} did not hold`, index % 2 === 1 ? ['task-apart'] : undefined),
+    );
+    const naming = acceptedMaterial(REVISED_FINDING, ['task-named']);
+    const round = await decide(first, 'batch-revising-many', [...others.slice(0, 5), naming, ...others.slice(5)]);
+    const namingId = round.idOf(naming.statement);
+    expect(round.row.deviationIds).toHaveLength(12);
+    expect(round.row.affectedTasks).toEqual(['task-apart', 'task-named']);
+    expect(round.row.deviationIds.indexOf(namingId)).toBeGreaterThanOrEqual(8);
+    await replan(completing(CONTINUATION_PLAN, 'task-ready'));
+
+    const next = receiptOf(await prepare({ featureId: STREAM }));
+    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-open', 'task-named']);
+
+    const statedInRowOrder = round.row.deviationIds
+      .filter((deviationId) => deviationId !== namingId)
+      .map((deviationId) => {
+        const deviation = others.find((candidate) => round.idOf(candidate.statement) === deviationId);
+        if (deviation === undefined) throw new Error(`the row names ${deviationId}, which no staged deviation has`);
+        return acceptedStatement(2, deviation.statement);
+      });
+    expect(statedInRowOrder).toHaveLength(11);
+    expect(designBinding(next).rationale).toEqual([
+      DESIGN_OF_RECORD,
+      acceptedStatement(2, naming.statement),
+      ...statedInRowOrder.slice(0, 7),
+      leftOutStatement(4),
+    ]);
+  });
+
+  /**
+   * Three rounds revise the design. The oldest accepts three deviations. One names the task that the
+   * next capsule compiles, one names no task, and one names a task outside that capsule.
+   * The middle round accepts two, and one of them names the task of the capsule. The newest accepts one.
+   *
+   * The capsule states the two changes that name its task first, the one of the newer revision ahead.
+   * The other four follow from the newest revision down, and the two of the oldest keep the order of its row.
+   * The seam records each read. The prepare reads the two revisions that name the task, the newer one
+   * ahead, and then the third. It reads no bundle twice.
+   */
+  it('Prepare_ChangesThatNameACapsuleTask_ComeFirstAcrossRevisionsNewestFirst', async () => {
+    await seedDelegatingFeature(CONTINUATION_PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    const oldestPlain = 'the oldest round found a change with no task';
+    const oldestApart = 'the oldest round found a change apart';
+    const oldest = await decide(first, 'batch-revising-oldest', [
+      acceptedMaterial(oldestPlain),
+      acceptedMaterial('the oldest round found a change of the named task', ['task-named']),
+      acceptedMaterial(oldestApart, ['task-apart']),
+    ]);
+    const middle = await decide(first, 'batch-revising-middle', [
+      acceptedMaterial('the middle round found a change with no task'),
+      acceptedMaterial('the middle round found a change of the named task', ['task-after', 'task-named']),
+    ]);
+    const newest = await decide(first, 'batch-revising-newest', [
+      acceptedMaterial('the newest round found a change with no task'),
+    ]);
+    expect([oldest, middle, newest].map((round) => [round.row.nextDesignVersion, round.row.deviationIds.length])).toEqual([
+      [2, 3],
+      [3, 2],
+      [4, 1],
+    ]);
+    await replan(completing(CONTINUATION_PLAN, 'task-ready'));
+
+    const counting = countingBundleStore();
+    const next = receiptOf(await prepareThrough(counting.bundles));
+    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-open', 'task-named']);
+
+    const oldestRest = new Map([oldestPlain, oldestApart].map((statement) => [oldest.idOf(statement), statement]));
+    const oldestRestInRowOrder = oldest.row.deviationIds.flatMap((deviationId) => {
+      const statement = oldestRest.get(deviationId);
+      return statement === undefined ? [] : [statement];
+    });
+    expect(oldestRestInRowOrder).toHaveLength(2);
+    expect(designBinding(next).rationale).toEqual([
+      DESIGN_OF_RECORD,
+      acceptedStatement(3, 'the middle round found a change of the named task'),
+      acceptedStatement(2, 'the oldest round found a change of the named task'),
+      acceptedStatement(4, 'the newest round found a change with no task'),
+      acceptedStatement(3, 'the middle round found a change with no task'),
+      ...oldestRestInRowOrder.map((statement) => acceptedStatement(2, statement)),
+    ]);
+    expect(counting.read).toEqual([middle, oldest, newest].map((round) => bundleDigestOf(round.row).value));
+  });
+
+  /**
+   * Ten revisions name thirteen changes. The first names the task that the next capsule compiles.
+   * The second covers three deviations, and one of them names that task. Those two changes are bound first.
+   * The six newest revisions follow, and the last statement counts the five changes that are left out.
+   *
+   * The seam records each read. The prepare reads the two revisions that name the task, and then the
+   * six newest, each one once. The third revision covers two deviations and the fourth covers one.
+   * No change of them is bound, and the prepare reads neither bundle.
    */
   it('Prepare_OnlyTheBundlesOfBoundRevisions_AreRead', async () => {
     await seedDelegatingFeature(CONTINUATION_PLAN);
     const first = receiptOf(await prepare({ featureId: STREAM }));
-    const naming = 2;
+    const namedOfThree = 'the second round found a change of the named task';
+    await revise(first, 'batch-revising-0', ['task-named']);
+    await decide(first, 'batch-revising-1', [
+      acceptedMaterial('the second round found a change with no task'),
+      acceptedMaterial(namedOfThree, ['task-named']),
+      acceptedMaterial('the second round found a change apart', ['task-apart']),
+    ]);
+    await decide(first, 'batch-revising-2', [
+      acceptedMaterial('the third round found a change with no task'),
+      acceptedMaterial('the third round found a change apart', ['task-apart']),
+    ]);
     const staged = 10;
-    for (let index = 0; index < staged; index += 1) {
-      await revise(first, `batch-revising-${index}`, index < naming ? ['task-named'] : []);
+    for (let index = 3; index < staged; index += 1) {
+      await revise(first, `batch-revising-${index}`, []);
     }
     await replan(completing(CONTINUATION_PLAN, 'task-ready'));
     const rows = await revisionRows();
-    expect(rows.map((row) => row.nextDesignVersion)).toEqual([2, 3, 4, 5, 6, 7, 8, 9, 10, 11]);
+    expect(rows.map((row) => [row.nextDesignVersion, row.deviationIds.length])).toEqual([
+      [2, 1],
+      [3, 3],
+      [4, 2],
+      [5, 1],
+      [6, 1],
+      [7, 1],
+      [8, 1],
+      [9, 1],
+      [10, 1],
+      [11, 1],
+    ]);
     const digests = rows.map((row) => bundleDigestOf(row).value);
     expect(new Set(digests).size).toBe(staged);
 
@@ -1715,16 +2021,17 @@ describe('prepare — the accepted design changes as knowledge', () => {
     const next = receiptOf(await prepareThrough(counting.bundles));
     expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual(['task-open', 'task-named']);
 
-    const boundVersions = [3, 2, 11, 10, 9, 8, 7, 6];
+    const restVersions = [11, 10, 9, 8, 7, 6];
     expect(designBinding(next).rationale).toEqual([
       DESIGN_OF_RECORD,
-      ...boundVersions.map((version) => acceptedStatement(version, REVISED_FINDING)),
-      '2 more accepted design change(s) are not stated in this capsule. ' +
-        'The design.revised rows of the workflow stream name each one.',
+      acceptedStatement(3, namedOfThree),
+      acceptedStatement(2, REVISED_FINDING),
+      ...restVersions.map((version) => acceptedStatement(version, REVISED_FINDING)),
+      leftOutStatement(5),
     ]);
-    const boundDigests = boundVersions.map((version) => digests[version - 2]);
+    const readVersions = [3, 2, ...restVersions];
+    expect(counting.read).toEqual(readVersions.map((version) => digests[version - 2]));
     const leftOutDigests = [digests[2], digests[3]];
-    expect([...counting.read].sort()).toEqual([...boundDigests].sort());
     expect(counting.read.filter((digest) => leftOutDigests.includes(digest))).toEqual([]);
   });
 

@@ -86,6 +86,23 @@ describe('worktree inventory', () => {
     },
   );
 
+  /**
+   * The live comparison runs only when a caller sets the variable, and the `audit:worktrees` script is that caller.
+   * The script must set the variable and name this file. Without the script, the comparison never runs.
+   */
+  it('WorktreeInventory_TheLiveAudit_HasAPackageScriptThatSetsItsVariableAndNamesThisFile', () => {
+    const manifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8')) as {
+      scripts: Record<string, string>;
+    };
+    const thisFile = path.relative(REPO_ROOT, import.meta.filename).split(path.sep).join('/');
+    const callers = Object.entries(manifest.scripts)
+      .filter(([, command]) => command.includes('EXARCHOS_WORKTREE_AUDIT') && command.includes(thisFile))
+      .map(([name]) => name);
+
+    expect(thisFile).toBe('tests/architecture/worktree-inventory.test.ts');
+    expect(callers).toEqual(['audit:worktrees']);
+  });
+
   /** The inventory must not get a destructive mode later. */
   it('WorktreeInventory_Disposition_IsInventoryOnly', () => {
     expect(inventory.disposition).toBe('inventory-only');
