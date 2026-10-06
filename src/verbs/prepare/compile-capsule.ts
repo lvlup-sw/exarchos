@@ -39,6 +39,13 @@ export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-1';
 /** The deviation kinds that a worker can propose when an assumption of the capsule does not hold. */
 export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption', 'missing-context'];
 
+/**
+ * The allowed deviation kinds that are material: an accepted deviation of such a kind revises the design.
+ * A deviation for missing context does not revise the design, so that kind is absent.
+ * The capsule pins this list, so settlement reads the kinds from the capsule that it judges.
+ */
+const DELEGATION_MATERIAL_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption'];
+
 export interface CompileCapsuleInput {
   readonly workflowId: string;
   readonly capsuleVersion: number;
@@ -238,7 +245,11 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
       taskInputs: {},
       taskResults: Object.fromEntries(batchTaskIds.map((taskId) => [taskId, resultFields])),
       evidenceKinds: delegatedEvidenceKinds(),
-      deviationEnvelope: { allowedDeviationKinds: [...DELEGATION_DEVIATION_KINDS], requiresApproval: true },
+      deviationEnvelope: {
+        allowedDeviationKinds: [...DELEGATION_DEVIATION_KINDS],
+        materialDeviationKinds: [...DELEGATION_MATERIAL_DEVIATION_KINDS],
+        requiresApproval: true,
+      },
     },
     knowledge: {
       mode: 'eager',

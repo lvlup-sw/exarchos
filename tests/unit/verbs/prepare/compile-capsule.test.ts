@@ -166,6 +166,26 @@ describe('delegation capsule compilation', () => {
     ]);
   });
 
+  /** Settlement reads the material kinds from the pinned capsule, so the compiler must write them there. */
+  it('Compile_TheEnvelope_PinsTheMaterialKinds', () => {
+    const outcome = compileDelegationCapsule(input());
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.capsule.contracts.deviationEnvelope.materialDeviationKinds).toEqual(['invalidated-assumption']);
+  });
+
+  /**
+   * The envelope refuses a deviation of a kind that is not allowed, so a material kind outside the allowed kinds never applies.
+   * The length assertion keeps the comparison from passing on an empty list.
+   */
+  it('Compile_EachMaterialKind_IsAlsoAnAllowedKind', () => {
+    const outcome = compileDelegationCapsule(input());
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    const { allowedDeviationKinds, materialDeviationKinds } = outcome.capsule.contracts.deviationEnvelope;
+    const material = materialDeviationKinds ?? [];
+    expect(material.length).toBeGreaterThan(0);
+    expect(material.filter((kind) => !allowedDeviationKinds.includes(kind))).toEqual([]);
+  });
+
   /**
    * This case is the denominator for the refusal cases below.
    * A compiler that emits terms that cannot settle passes the structural tests in this file.
