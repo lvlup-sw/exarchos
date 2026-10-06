@@ -1,8 +1,9 @@
 /**
  * The registration of the `prepare` action: schema, contract, and economy. `prepare` compiles the
  * outstanding delegation batch of a workflow into one immutable capsule. It records
- * `workflow.prepared` with the capsule digest. The compiler, the custody write, and the record are
- * in `verbs/prepare/`.
+ * `workflow.prepared` with the capsule digest. The first compilation after a design revision also
+ * records `capsule.recompiled`. The compiler, the custody write, and the records are in
+ * `verbs/prepare/`.
  *
  * `prepare` is the first call of the semantic plane, and `settle` is the second. Between them, the
  * harness runs the capsule with no governance calls.
@@ -53,19 +54,20 @@ export const prepareActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'prepare',
     description:
-      "Compile a feature workflow's ready tasks (pending, every blocker complete) into ONE " +
-      'immutable capsule and commit one workflow.prepared record pinning its digest. Call it in the ' +
-      'delegate phase, before each wave. The capsule carries the task graph, each task\'s result ' +
-      'contract, the evidence kinds, the deviation envelope, the authority the batch is settled ' +
-      'against, each task\'s verification terms (tier and boundary from the plan; base from ' +
-      'synthesis.integrationBranch), and the execution profile — the capabilities the plane\'s ' +
-      'calls need; a runtime lacking one is refused before it fans out. It announces ' +
-      'each compiled task the stream has not heard of (`task.assigned`). Run the batch with no ' +
-      'further governance calls, then submit results with `settle` (`capsuleVersion`, ' +
-      '`batchId`). Unchanged inputs replay the recorded capsule; changed inputs compile the next ' +
-      'version. Refused before any effect: WORKFLOW_NOT_FOUND, WORKFLOW_TYPE_UNSUPPORTED, ' +
-      'PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, NO_READY_TASKS, BASE_UNRESOLVED, INVALID_TASK_ID, ' +
-      'INVALID_TASK_STAMP, UNKNOWN_DEPENDENCY, CAPSULE_UNSOUND, RUNTIME_UNFIT.',
+      "Compile a feature workflow's ready tasks (pending, blockers complete) into ONE immutable " +
+      'capsule and commit one workflow.prepared record pinning its digest. Call it in the ' +
+      'delegate phase before each wave. The capsule holds the task graph, result contracts, ' +
+      'evidence kinds, the deviation envelope, the settlement authority, task verification terms ' +
+      '(plan tier and boundary; base from synthesis.integrationBranch) and the execution ' +
+      'profile: capabilities the plane needs; a runtime lacking one is refused. It announces ' +
+      'tasks new to the stream (`task.assigned`). The first prepare after a design revision ' +
+      'also records `capsule.recompiled` and returns `recompile`: the invalidated tasks. Run ' +
+      'the batch with no governance calls, then `settle` it (`capsuleVersion`, `batchId`). ' +
+      'Unchanged inputs replay the recorded capsule; changed inputs compile the next version. ' +
+      'Refused before any effect: WORKFLOW_NOT_FOUND, WORKFLOW_TYPE_UNSUPPORTED, ' +
+      'PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, NO_READY_TASKS, BASE_UNRESOLVED, ' +
+      'INVALID_TASK_ID, INVALID_TASK_STAMP, UNKNOWN_DEPENDENCY, CAPSULE_UNSOUND, RUNTIME_UNFIT, ' +
+      'REVISION_UNREADABLE.',
     schema: z
       .object({
         /**
@@ -103,8 +105,9 @@ export const prepareActions: readonly BuiltinToolAction[] = [
         'the replay path by construction',
     ),
     /**
-     * `fs:read` reads the repository config and the invariants catalog. `fs:write` puts the capsule
-     * into content-addressed custody before the record commits.
+     * `fs:read` reads the repository config, the invariants catalog, and the settlement bundles of
+     * the design revisions that the capsule binds. `fs:write` puts the capsule into content-addressed
+     * custody before the record commits.
      */
     needs: declared('fs:read', 'fs:write'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
@@ -127,6 +130,16 @@ export const prepareActions: readonly BuiltinToolAction[] = [
         description:
           'one per compiled task the stream has not yet heard of, in the same commit as the record ' +
           'and ahead of it; none for a task already announced, on a replay, or on a refusal',
+      },
+      {
+        event: 'capsule.recompiled',
+        condition: 'conditional',
+        owner: 'orchestrate',
+        role: 'primary',
+        description:
+          'one on the first compilation after a design revision, in the same commit as the ' +
+          'record, after the announcements and ahead of the record; none on any other ' +
+          'compilation, on a replay, or on a refusal',
       },
     ),
   }),

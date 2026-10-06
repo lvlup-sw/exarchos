@@ -958,6 +958,7 @@ export const workflowStateProjection: ViewProjection<WorkflowStateView> = {
       case 'deviation.proposed':
       case 'deviation.decided':
       case 'design.revised':
+      case 'capsule.recompiled':
         return view;
 
       default: {

@@ -26,9 +26,15 @@ import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-co
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
-import { TaskAssignedData, WorkflowPreparedData, type WorkflowPrepared } from '../../events/schemas.js';
+import {
+  CapsuleRecompiledData,
+  TaskAssignedData,
+  WorkflowPreparedData,
+  type EventType,
+  type WorkflowPrepared,
+} from '../../events/schemas.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
-import type { PreparedCapsuleReceipt } from './types.js';
+import type { PreparedCapsuleReceipt, PreparedRecompile } from './types.js';
 
 /** The `kind` discriminator every prepared bundle carries. */
 export const PREPARED_BUNDLE_KIND = 'prepared-capsule';
@@ -41,6 +47,9 @@ export const WORKFLOW_PREPARED_SCHEMA_VERSION = '1.0';
 
 const WORKFLOW_PREPARED_TYPE = 'workflow.prepared';
 const TASK_ASSIGNED_TYPE = 'task.assigned';
+
+/** The event that records one recompile. This commit is its one writer. */
+const CAPSULE_RECOMPILED_TYPE = 'capsule.recompiled' satisfies EventType;
 
 export const PreparedBundleV1Schema = z
   .object({
@@ -99,12 +108,19 @@ export interface PreparedCommit {
    * reads a second announcement as a return to `assigned`.
    */
   readonly announce?: readonly { readonly taskId: string; readonly title: string }[];
+  /**
+   * The recompile of a continuation: the first compilation after a design revision. The commit
+   * appends one `capsule.recompiled` row for it, after the announcements and before the record.
+   * The receipt then carries the same recompile. An ordinary compilation passes none.
+   */
+  readonly recompile?: PreparedRecompile;
 }
 
 /**
  * Puts a compiled capsule in custody and commits the record that pins it.
- * The `task.assigned` announcements come first and the record comes last. The sequence of the
- * record, read inside the write lock, is the tail of the receipt.
+ * The `task.assigned` announcements come first and the record comes last. The recompile row of a
+ * continuation is between them. The sequence of the record, read inside the write lock, is the
+ * tail of the receipt.
  * The append goes through `decideOnce`, which the emitter-closure census does not read. The
  * allowance row of the settlement record also covers this route.
  *
@@ -152,7 +168,29 @@ export async function commitPreparedCapsule(
         timestamp: capsule.provenance.compiledAt,
         schemaVersion: WORKFLOW_PREPARED_SCHEMA_VERSION,
       });
-      const events = [...announcements, record];
+      const { recompile } = commit;
+      const recompiled =
+        recompile === undefined
+          ? []
+          : [
+              stampFromAmbient({
+                type: CAPSULE_RECOMPILED_TYPE,
+                data: CapsuleRecompiledData.parse({
+                  operationId,
+                  workflowId: capsule.identity.workflowId,
+                  capsuleVersion: capsule.identity.capsuleVersion,
+                  capsuleDigest: digest,
+                  priorCapsuleVersion: recompile.priorCapsuleVersion,
+                  priorDesignVersion: recompile.priorDesignVersion,
+                  nextDesignVersion: recompile.nextDesignVersion,
+                  declaredTasks: recompile.declaredTasks,
+                  invalidatedTasks: recompile.invalidatedTasks,
+                  bundleRefs: [ref],
+                }),
+                timestamp: capsule.provenance.compiledAt,
+              }),
+            ];
+      const events = [...announcements, ...recompiled, record];
       return ctx.eventStore
         .getAppender()
         .decideOnce<PreparedCapsuleReceipt>(operationId, requestDigest, (tx) => ({
@@ -169,6 +207,7 @@ export async function commitPreparedCapsule(
             capsule,
             tailSequence: tx.readStream(streamId).version + events.length,
             bundleRefs: [ref],
+            ...(recompile !== undefined ? { recompile } : {}),
           },
         }));
     });

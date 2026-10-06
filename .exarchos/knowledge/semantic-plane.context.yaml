@@ -17,7 +17,7 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-10-05
+  as_of: 2026-10-06
   main_at: ca44825b6
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
@@ -410,8 +410,8 @@ build_order:
       status: "done"
       refs: "#1920"
     - leg: "divergence loop C2 (material path: design.revised, capsule.recompiled, continuation prepare)"
-      status: "in progress, half done. Landed: materiality pinned in the capsule (materialDeviationKinds); affectedTasks and proposedChange on a deviation; design.revised with settle as its emitter; the design version counter on the capsule and in the prepare replay key; the claim-superseded-by-revision finding; the capped receipt core. Pending: the continuation prepare with capsule.recompiled; binding the accepted change as knowledge."
-      refs: "#1926 (the first half lands with the material-path branch)"
+      status: "done. First half: materiality pinned in the capsule (materialDeviationKinds); affectedTasks and proposedChange on a deviation; design.revised with settle as its emitter; the design version counter on the capsule and in the prepare replay key; the claim-superseded-by-revision finding; the capped receipt core. Second half: the continuation prepare, which is the first prepare after a design revision and commits capsule.recompiled ahead of its workflow.prepared record; the recompiled slice on its receipt (recompile: the unfinished tasks that the revision names and each unfinished task that waits on one of them); the accepted changes bound as knowledge (knowledge.rationale) on every capsule at design version 2 or later; the REVISION_UNREADABLE refusal of prepare when the settlement bundle of a bound revision cannot be read. Not in this leg: reopening finished work and partial settlement, which are C3."
+      refs: "#1926 (lands with the material-path branch)"
     - leg: "divergence loop C3 (settlement vocabulary: permitted, corrective-capsule, recompile-required, partial settlement with result status)"
       status: "not started"
       refs: "#1926"
@@ -464,8 +464,8 @@ drift:
     resolution: "divergence loop C3 (#1926)"
   - id: "knowledge"
     design: "C2 binds the smallest sufficient slice; workers never fetch design knowledge"
-    built: "one statement: 'The design of record is <path>'"
-    resolution: "knowledge binding leg (#1930)"
+    built: "rationale statements for the whole capsule, and no per-task slice. The first is 'The design of record is <path>'. On a capsule at design version 2 or later, the accepted design changes follow it: one statement for each change (the deciding actor, the proposed change when one was given, the deviation statement), for at most eight changes, then one statement that counts the rest. prepare reads the changes from the settlement bundles of the revisions that the capsule binds."
+    resolution: "knowledge binding leg (#1930). The accepted changes land with the material path (#1926)."
   - id: "state-document"
     design: ".state.json retired for the run manifest"
     built: "transition guards read the document; settle syncs it"
@@ -508,8 +508,12 @@ drift:
     resolution: "unresolved; the material path (#1926) builds the counter only"
   - id: "revision-reach"
     design: "a material change recompiles the affected slice; partial settlement is valid"
-    built: "a revision cannot invalidate finished work. It names only unfinished tasks outside the settled batch, and a deviation that names a finished or claimed task rejects the batch. Rework is a new task."
+    built: "the continuation prepare recompiles unfinished work only. Its slice is the unfinished tasks that the revision names and each unfinished task that waits on one of them, and the walk never passes through a finished task. A revision cannot invalidate finished work. It names only unfinished tasks outside the settled batch, and a deviation that names a finished or claimed task rejects the batch. A continuation announces no finished task and leaves no row for one. Rework is a new task."
     resolution: "reopening and partial settlement are deferred to the settlement vocabulary slice (divergence loop C3, #1926)"
+  - id: "material-call-count"
+    design: "3 calls for a workflow with a material deviation (2, plus the continuation prepare), and 3 for one with a required decision (2, plus a second settle that carries the decision)"
+    built: "5 calls on the measured path of a material deviation with a human decision: prepare, settle (held), settle (the decision, which records design.revised), prepare (the continuation, which records capsule.recompiled), settle (the recompiled capsule). The static census counts it as the delegation exception material-revision: 5 Exarchos calls at N=1, with 2 runbook fetches counted apart. A material deviation always takes the decision round, because the envelope requires approval, and the recompiled capsule takes a settle of its own. The census counts one delegate intent, not a workflow."
+    resolution: "unresolved. The per-workflow measurement belongs to the workflow-scoped capsule leg (#1927) and the re-aim of #1687."
   - id: "prepare-replay-key"
     design: "prepare is idempotent: a retry with unchanged inputs returns the recorded capsule"
     built: "the replay key gained the design version and the compiler version, so a prepare claim recorded before this upgrade no longer matches. A prepare retried across the upgrade compiles the next capsule version."
@@ -522,8 +526,8 @@ drift:
 # ─── measured facts (re-check before relying on them) ────────────────────────
 
 measured:
-  as_of: 2026-10-05
-  main_at: ca44825b6       # measured on the material-path branch, which is this commit of main plus the first half of #1926
+  as_of: 2026-10-06
+  main_at: ca44825b6       # measured on the material-path branch, which is this commit of main plus the material path (#1926, divergence loop C2)
   facts:
     - fact: prepare refuses non-feature workflows and non-delegate phases
       check: "grep -n -E 'WORKFLOW_TYPE_UNSUPPORTED|PHASE_NOT_PREPARABLE' src/verbs/prepare/handler.ts"
@@ -541,20 +545,24 @@ measured:
       check: "grep -n -A16 'function blockingGateRefusal' src/verbs/execute/executor.ts; npx vitest run --project core tests/unit/verbs/settle/blocking-gate.test.ts"
     - fact: "gates still carry per-language code (static analysis hardcodes dotnet build -warnaserror; test globs come from a per-toolchain table)"
       check: "grep -n warnaserror src/verbs/pure/static-analysis.ts; grep -n testGlobsForToolchain src/verbs/gates/test-adequacy-handler.ts"
-    - fact: C2 knowledge binding is one rationale statement
-      check: "grep -n 'The design of record is' src/verbs/prepare/compile-capsule.ts"
+    - fact: "C2 knowledge binding is the design of record and, on a capsule at design version 2 or later, the accepted design changes: one rationale statement for each, for at most eight, then one that counts the rest. No per-task slice is bound."
+      check: "grep -n -E 'The design of record is|MAX_BOUND_DESIGN_CHANGES|holds an accepted change' src/verbs/prepare/compile-capsule.ts"
+    - fact: "the first prepare after a design revision is a continuation: it commits one capsule.recompiled row ahead of its workflow.prepared record, and its receipt carries recompile (priorCapsuleVersion, priorDesignVersion, nextDesignVersion, declaredTasks, invalidatedTasks). A retry replays that receipt and appends nothing. A task that is invalidated and not ready is compiled by a later, ordinary prepare."
+      check: "grep -n -E 'pendingRevisionOf|recompiledSliceOf' src/verbs/prepare/handler.ts; grep -n 'const events = ' src/verbs/prepare/prepared-record.ts; npx vitest run --project acceptance tests/acceptance/prepare-settle.test.ts -t AMaterialRevision"
+    - fact: "prepare refuses REVISION_UNREADABLE when the settlement bundle of a revision that the capsule binds cannot be read, or lacks a deviation or an accepted decision that the revision names. Nothing is compiled or recorded. A call that compiles has no bypass; the remedy is to restore the bundle in the run-bundle store."
+      check: "grep -n REVISION_UNREADABLE src/verbs/prepare/handler.ts src/verbs/prepare/types.ts"
     - fact: prepare lowers the HSM into a kernel definition at compile time
       check: "sed -n 1,30p src/verbs/prepare/lower-definition.ts"
     - fact: next_actions is live
       check: "ls src/next-actions-computer.ts"
     - fact: "the kernel package is a build-only devDependency pinned at 0.14.0; the published package does not list it (#1941)"
       check: "node -p \"const p=require('./package.json'); [p.devDependencies['@lvlup-sw/strategos-contracts'], (p.dependencies||{})['@lvlup-sw/strategos-contracts']]\""
-    - fact: "EventTypes count is 185 with the material path (184 on main before it; design.revised is the addition)"
+    - fact: "EventTypes count is 186 with the material path (184 on main before it; design.revised and capsule.recompiled are the additions)"
       check: "grep -rn 'EventTypes).toHaveLength' tests/unit/events/schemas.test.ts"
-    - fact: "five of the six semantic event kinds have landed with an emitter: workflow.prepared (prepare), and execution.settled, deviation.proposed, deviation.decided and design.revised (settle). capsule.recompiled has not landed."
-      check: "grep -n \"event: '\" src/registry/actions/orchestrate/prepare.ts src/registry/actions/orchestrate/settle.ts; grep -rn 'capsule.recompiled' src | wc -l"
-    - fact: per-intent call census
-      check: "npx tsx tools/audit/core/call-shape/measure.ts   (output: tools/audit/core/call-shape/call-shape-census.md)"
+    - fact: "six of the six semantic event kinds have landed with an emitter: workflow.prepared and capsule.recompiled (prepare), and execution.settled, deviation.proposed, deviation.decided and design.revised (settle). The check also lists task.assigned, which prepare emits and which is not one of the six."
+      check: "grep -n \"event: '\" src/registry/actions/orchestrate/prepare.ts src/registry/actions/orchestrate/settle.ts"
+    - fact: "per-intent call census. The delegation exception material-revision counts 5 Exarchos calls at N=1."
+      check: "npx tsx tools/audit/core/call-shape/measure.ts --check; grep -n 'material-revision' tools/audit/core/call-shape/call-shape-census.md   (regenerate without --check; output: tools/audit/core/call-shape/call-shape-census.md)"
     - fact: agent-teams workers are told to call Exarchos
       check: "grep -n -A4 'Workflow Intelligence' content/delivery/skills/delegate/references/implementer-prompt.md"
     - fact: run bundles live under the state dir
@@ -614,7 +622,7 @@ issue_map:
   roadmap_index: 1599
   interaction_economy_epic: 1856
   event_authority_remainder: 1898      # auto-closed in error 2026-09-14; reopened 2026-10-01; on v3.0.0 (exit criterion)
-  divergence_loop: "1926 (tracker); C1 = PR 1920 (merged); C2 = the material path, whose first half lands with the material-path branch"
+  divergence_loop: "1926 (tracker); C1 = PR 1920 (merged); C2 = the material path, which lands with the material-path branch; C3 = the settlement vocabulary, not started"
   first_adapter: "1912 (closed, complete)"
   executor: "1857 (closed; engine is settle's core)"
   workflow_scoped_capsule: 1927

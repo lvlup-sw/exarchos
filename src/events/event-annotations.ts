@@ -396,6 +396,11 @@ export const EVENT_ANNOTATIONS: Readonly<Record<string, EventRegistration>> = Ob
    * back to number the next revision, and no registered reducer folds them.
    */
   'design.revised': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
+  /**
+   * `prepare` appends one row with the first capsule that it compiles after a design revision.
+   * The row is the record of that recompile, and no registered reducer folds it.
+   */
+  'capsule.recompiled': { lifecycle: 'active', tier: 'substrate', rationale: 'operation-record' },
 
   /**
    * `verbs/tasks/tools.ts` appends the three task lifecycle events. The `task_claim`,

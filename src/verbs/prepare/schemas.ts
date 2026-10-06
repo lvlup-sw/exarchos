@@ -29,6 +29,16 @@ const PreparedCapsuleReceiptData = z
     capsule: z.record(z.string(), z.unknown()),
     tailSequence: z.number().int().nonnegative(),
     bundleRefs: z.array(ReceiptBundleRefSchema).min(1).optional(),
+    recompile: z
+      .object({
+        priorCapsuleVersion: z.number().int().min(1),
+        priorDesignVersion: z.number().int().min(1),
+        nextDesignVersion: z.number().int().min(2),
+        declaredTasks: z.array(z.string().min(1)),
+        invalidatedTasks: z.array(z.string().min(1)),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 

@@ -201,7 +201,7 @@ function normalDeviation(
  * the deviation carries them. A deviation with neither keeps the id that the
  * earlier build gave it, so a batch held by that build is still decided.
  */
-function deviationIdOf(identity: SettledCapsuleIdentity, deviation: ProposedDeviation): string {
+export function deviationIdOf(identity: SettledCapsuleIdentity, deviation: ProposedDeviation): string {
   const key = canonicalJson({
     workflowId: identity.workflowId,
     capsuleVersion: identity.capsuleVersion,
@@ -437,6 +437,19 @@ async function laterRevisionLookup(
     for (const taskId of revision.affectedTasks) latest.set(taskId, revision.nextDesignVersion);
   }
   return (taskId: string): number | undefined => latest.get(taskId);
+}
+
+/**
+ * Folds the design revision rows of a stream, and throws on a row that the row schema refuses.
+ * A round that revises the design numbers its revision with the same fold inside its write
+ * transaction, and verification completes tasks before that transaction. This read runs before
+ * verification, so a damaged row fails the call before any task completes.
+ *
+ * It is a check and not a lock. The number of the revision still comes from the rows that the
+ * write transaction reads.
+ */
+async function checkRevisionRowsFold(ctx: DispatchContext, streamId: string): Promise<void> {
+  designVersionOf(await ctx.eventStore.query(streamId, { type: DESIGN_REVISED_TYPE }));
 }
 
 /**
@@ -1005,6 +1018,9 @@ export async function handleSettle(
 
     const supersedingDesignVersion = await laterRevisionLookup(ctx, streamId, pinned.sequence);
 
+    const revising = acceptedMaterialDeviations(capsule, deviations, decided);
+    if (revising.length > 0) await checkRevisionRowsFold(ctx, streamId);
+
     let context: AdjudicationContext = { evidenceResolves, decided, supersedingDesignVersion };
     if (!deciding && deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await taskStandingLookup(ctx, streamId);
@@ -1157,10 +1173,7 @@ export async function handleSettle(
             timestamp: settledAt,
           }),
         );
-        const revised = designRevisionContentOf(
-          identity,
-          acceptedMaterialDeviations(capsule, deviations, decided),
-        );
+        const revised = designRevisionContentOf(identity, revising);
         const revisionStamp = stampFromAmbient({ type: DESIGN_REVISED_TYPE, timestamp: settledAt });
 
         try {

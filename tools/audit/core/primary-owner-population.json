@@ -1,17 +1,17 @@
 {
   "totals": {
-    "emissionEdges": 109,
-    "edgesCarryingRole": 109,
-    "edgesCarryingOwner": 109,
-    "distinctEventsWithEdges": 77,
+    "emissionEdges": 110,
+    "edgesCarryingRole": 110,
+    "edgesCarryingOwner": 110,
+    "distinctEventsWithEdges": 78,
     "distinctOwners": 3,
-    "registeredEvents": 185,
+    "registeredEvents": 186,
     "moduleEmitterRows": 24
   },
   "keys": {
     "per-event-type/primary-edges": {
-      "populationSize": 77,
-      "satisfyingCount": 72,
+      "populationSize": 78,
+      "satisfyingCount": 73,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 5,
@@ -113,6 +113,7 @@
         "admission.rollout-decision",
         "branch.delete.executed",
         "branch.delete.requested",
+        "capsule.recompiled",
         "catalog.registered",
         "ci.check_observed",
         "ci.status",
@@ -192,8 +193,8 @@
       }
     },
     "per-event-type/primary-owners": {
-      "populationSize": 77,
-      "satisfyingCount": 77,
+      "populationSize": 78,
+      "satisfyingCount": 78,
       "zeroPrimaryCount": 0,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -206,6 +207,7 @@
         "admission.rollout-decision",
         "branch.delete.executed",
         "branch.delete.requested",
+        "capsule.recompiled",
         "catalog.registered",
         "ci.check_observed",
         "ci.status",
@@ -289,8 +291,8 @@
       }
     },
     "per-emission-site/primary-edges": {
-      "populationSize": 109,
-      "satisfyingCount": 106,
+      "populationSize": 110,
+      "satisfyingCount": 107,
       "zeroPrimaryCount": 3,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -338,6 +340,7 @@
         "admission.rollout-decision@exarchos_orchestrate.cutover_decide",
         "branch.delete.executed@exarchos_workflow.cancel",
         "branch.delete.requested@exarchos_workflow.cancel",
+        "capsule.recompiled@exarchos_orchestrate.prepare",
         "catalog.registered@exarchos_orchestrate.invariants_add",
         "ci.check_observed@exarchos_orchestrate.assess_stack",
         "ci.status@exarchos_orchestrate.assess_stack",
@@ -446,8 +449,8 @@
       }
     },
     "per-event-and-tool/primary-owners": {
-      "populationSize": 78,
-      "satisfyingCount": 77,
+      "populationSize": 79,
+      "satisfyingCount": 78,
       "zeroPrimaryCount": 1,
       "unownedPrimaryCount": 0,
       "multiPrimaryCount": 0,
@@ -471,6 +474,7 @@
         "admission.rollout-decision@exarchos_orchestrate",
         "branch.delete.executed@exarchos_workflow",
         "branch.delete.requested@exarchos_workflow",
+        "capsule.recompiled@exarchos_orchestrate",
         "catalog.registered@exarchos_orchestrate",
         "ci.check_observed@exarchos_orchestrate",
         "ci.status@exarchos_orchestrate",
@@ -596,10 +600,11 @@
     },
     {
       "tier": "substrate",
-      "eventCount": 46,
+      "eventCount": 47,
       "events": [
         "branch.delete.executed",
         "branch.delete.requested",
+        "capsule.recompiled",
         "catalog.registered",
         "design.revised",
         "deviation.decided",

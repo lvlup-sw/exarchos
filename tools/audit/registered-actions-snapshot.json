@@ -5,7 +5,7 @@
     "tools": 5,
     "visibleTools": 4,
     "actions": 127,
-    "eventTypes": 185
+    "eventTypes": 186
   },
   "tools": [
     {
@@ -291,6 +291,12 @@
       "lifecycle": "active",
       "tier": "substrate",
       "rationale": "compensation-record"
+    },
+    {
+      "type": "capsule.recompiled",
+      "lifecycle": "active",
+      "tier": "substrate",
+      "rationale": "operation-record"
     },
     {
       "type": "catalog.registered",

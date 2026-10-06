@@ -713,6 +713,71 @@ describe('the capped settle receipt', () => {
   });
 
   /**
+   * A claim of an earlier build holds a receipt with fewer fields, so the reducer reads each field as optional.
+   * The first receipt holds only the fields that each build wrote. It has no round, no verification,
+   * no pending deviation, no decision and no design revision. The second holds its findings alone,
+   * and the third holds no findings. Each one is over the budget.
+   *
+   * The reducer gives each a summary within the budget. The summary has an empty list for each list
+   * that the receipt lacks, and no core field that the receipt lacks.
+   */
+  it('SettleEconomy_ASparseReceiptOverTheBudget_SummarisesWithoutItsAbsentFields', () => {
+    const tasks = tasksOf(['verified', 'verified'], 6);
+    const full = receiptOf({ ...SMALL_BATCH, outcome: 'rejected', round: 0, tasks, findings: findingsOf(24, tasks) });
+    const keeping = (keys: readonly string[]): Record<string, unknown> =>
+      Object.fromEntries(Object.entries(full).filter(([key]) => keys.includes(key)));
+    const writtenByEachBuild = [
+      'operationId',
+      'streamId',
+      'capsule',
+      'outcome',
+      'acceptedTasks',
+      'findings',
+      'adjudicated',
+      'requestDigest',
+      'tailSequence',
+    ];
+    const earliest = keeping(writtenByEachBuild);
+    const findingsAlone = keeping(['findings']);
+    const withoutFindings = {
+      ...keeping(writtenByEachBuild.filter((key) => key !== 'findings')),
+      acceptedTasks: Array.from({ length: 600 }, (_, index) => taskIdOf(index, 12)),
+    };
+    expect(Object.keys(earliest).sort()).toStrictEqual([...writtenByEachBuild].sort());
+
+    const noOutcomes = { verification: 0, verificationOmitted: 0 };
+    const expectedCounts = [
+      { findings: 24, shown: SUMMARY_FIRST_PAGE_ITEMS, acceptedTasks: 0, ...noOutcomes },
+      { findings: 24, shown: SUMMARY_FIRST_PAGE_ITEMS, acceptedTasks: 0, ...noOutcomes },
+      { findings: 0, shown: 0, acceptedTasks: 600, ...noOutcomes },
+    ];
+    for (const [index, sparse] of [earliest, findingsAlone, withoutFindings].entries()) {
+      expect(estimateOutputTokens(sparse), `receipt ${index}`).toBeGreaterThan(SETTLE_ECONOMY_BUDGET_TOKENS);
+
+      const summary = summarizeSettlementReceipt(sparse);
+
+      expect(estimateOutputTokens(summary), `receipt ${index}`).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
+      expect(summary.counts, `receipt ${index}`).toStrictEqual(expectedCounts[index]);
+      expect(summary.verification).toStrictEqual([]);
+      expect(summary.round).toBeUndefined();
+      expect(Object.keys(summary).filter((key) => ['pendingDeviations', 'decisions', 'designRevision'].includes(key))).toEqual([]);
+      expect(CappedDataSchema.safeParse(JSON.parse(JSON.stringify(summary))).success).toBe(true);
+      const dispatched = enforceResponseEconomy({ success: true, data: sparse }, 'exarchos_orchestrate', 'settle');
+      expect(dispatched.data).toStrictEqual(summary);
+    }
+
+    const earliestSummary = summarizeSettlementReceipt(earliest);
+    expect(earliestSummary.firstPage).toStrictEqual(firstPageOf(full));
+    expect(earliestSummary.summary).toBe(
+      `batch '${SMALL_BATCH.batchId}' of capsule v${SMALL_BATCH.magnitude} rejected — ` +
+        `0 task(s) accepted, 24 finding(s); ${SUMMARY_FIRST_PAGE_ITEMS} shown`,
+    );
+    expect(earliestSummary.capsule).toStrictEqual(full.capsule);
+    expect(summarizeSettlementReceipt(findingsAlone).firstPage).toStrictEqual(firstPageOf(full));
+    expect(summarizeSettlementReceipt(withoutFindings).firstPage).toStrictEqual([]);
+  });
+
+  /**
    * Each generated receipt is inside the input bounds: sixteen deviations, forty tasks, task ids
    * of 48 characters, and batch and workflow ids of 256 characters. The two maximal receipts hold
    * each bound at its maximum at once, and they run as explicit examples of the property.
