@@ -416,6 +416,30 @@ async function taskStandingLookup(ctx: DispatchContext, streamId: string): Promi
 }
 
 /**
+ * The tasks that a design revision names after one position of the stream, each with the design
+ * version of the latest such revision. `afterSequence` is the sequence of the prepared record, so
+ * the lookup counts only a revision that the capsule did not see.
+ *
+ * A capsule holds the terms of a task as they were at its compilation. A later revision that
+ * names the task changes those terms, so the task settles under a later capsule. The read is
+ * outside the write transaction, so it is a check and not a lock. A revision row that the schema
+ * refuses throws, because a skipped row lets a task settle under terms that a revision replaced.
+ */
+async function laterRevisionLookup(
+  ctx: DispatchContext,
+  streamId: string,
+  afterSequence: number,
+): Promise<(taskId: string) => number | undefined> {
+  const rows = await ctx.eventStore.query(streamId, { type: DESIGN_REVISED_TYPE, sinceSequence: afterSequence });
+  const latest = new Map<string, number>();
+  for (const row of rows) {
+    const revision = DesignRevisedData.parse(row.data);
+    for (const taskId of revision.affectedTasks) latest.set(taskId, revision.nextDesignVersion);
+  }
+  return (taskId: string): number | undefined => latest.get(taskId);
+}
+
+/**
  * Bring the state document level with the tasks that the stream shows complete.
  * The transition guards read `state.tasks[].status` from the document, so a
  * completion fact admits nothing until the document agrees.
@@ -764,7 +788,8 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
  * and the commit serializes them across processes. On a race, the caller gets the receipt that
  * `decideOnce` persisted. Every segment compiles before any runs, so a claim that cannot compile
  * leaves the batch unclaimed. A task that the stream already shows complete passed its gates
- * through `task_complete`, so settlement does not verify it again.
+ * through `task_complete`, so settlement does not verify it again. Each round that adjudicates
+ * reads the later design revisions, and a claim for a task that one of them names rejects the batch.
  *
  * The emitter-closure census does not read `decideOnce`, so an allowance row covers this append.
  * The record is the last event, and the tail sequence comes from a read inside the write lock.
@@ -978,7 +1003,9 @@ export async function handleSettle(
     const resolved = await resolvedEvidence(ctx, stateDir, streamId, claims);
     const evidenceResolves = (evidence: SettlementEvidence): boolean => resolved.has(evidenceKey(evidence));
 
-    let context: AdjudicationContext = { evidenceResolves, decided };
+    const supersedingDesignVersion = await laterRevisionLookup(ctx, streamId, pinned.sequence);
+
+    let context: AdjudicationContext = { evidenceResolves, decided, supersedingDesignVersion };
     if (!deciding && deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await taskStandingLookup(ctx, streamId);
       if (!standing.ok) return standing.error;

@@ -4,7 +4,7 @@
  *
  * This module is pure: no store, no filesystem, no clock. The handler records the verdict.
  * The context supplies the facts that the module cannot compute.
- * They are whether an evidence reference resolves, how a named task stands, and each task verification outcome.
+ * They are whether an evidence reference resolves, how a named task stands, which later revision names a claimed task, and each task verification outcome.
  *
  * The capsule parts that decide the verdict are `contracts.taskResults`, `contracts.evidenceKinds`, `contracts.deviationEnvelope`,
  * `settlementContract.requiredResults` and `settlementContract.taskVerification`.
@@ -16,6 +16,7 @@ import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.
 /** Every kind of finding adjudication can report. */
 export const SETTLEMENT_FINDING_KINDS = [
   'unknown-task',
+  'claim-superseded-by-revision',
   'undeclared-result-shape',
   'duplicate-claim',
   'missing-claim',
@@ -121,6 +122,11 @@ export interface AdjudicationContext {
    */
   readonly taskStanding?: (taskId: string) => TaskStanding;
   /**
+   * The design version of the latest revision that names a task, among the revisions that the stream recorded after the capsule.
+   * It returns undefined for a task that no such revision names. Without the function, no claim gets the check.
+   */
+  readonly supersedingDesignVersion?: (taskId: string) => number | undefined;
+  /**
    * The verification outcome per claimed task. It is absent on the shape pass, which decides whether verification runs.
    * On the final pass, a claim without a passing entry is not accepted.
    */
@@ -176,6 +182,9 @@ function typeOfValue(value: unknown): string {
  * A rejected deviation refuses the batch, because the decision is made and the next batch is a correction.
  * A deviation inside the envelope can affect only a pending task that the batch does not claim.
  * Each other task that it names refuses the batch, so the batch is not held.
+ *
+ * A claim for a task that a later revision names is refused whole, because the capsule holds the earlier terms of the task.
+ * The finding blocks, so the whole batch waits for the capsule that the next preparation compiles.
  */
 export function adjudicateSettlement(
   capsule: ExarchosCapsuleV1,
@@ -222,6 +231,20 @@ export function adjudicateSettlement(
         subject: claim.taskId,
         at: `${at}.taskId`,
         message: `the capsule's graph declares no task ${JSON.stringify(claim.taskId)}`,
+      });
+      return;
+    }
+
+    const revisedTo = context.supersedingDesignVersion?.(claim.taskId);
+    if (revisedTo !== undefined) {
+      findings.push({
+        kind: 'claim-superseded-by-revision',
+        subject: claim.taskId,
+        at: `${at}.taskId`,
+        message:
+          `task ${JSON.stringify(claim.taskId)} is named by the revision to design version ${revisedTo}, ` +
+          `which the stream recorded after capsule v${capsule.identity.capsuleVersion} was compiled. This ` +
+          'capsule holds the earlier terms of the task: prepare again, and settle the batch under the new capsule',
       });
       return;
     }

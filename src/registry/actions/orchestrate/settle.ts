@@ -58,19 +58,19 @@ export const settleActions: readonly BuiltinToolAction[] = [
      * show: a rejected batch is a successful call, not an error.
      */
     description:
-      'Adjudicate ONE batch of returned claims against a prepared capsule, verify each accepted ' +
-      'task, and commit one execution.settled record. `capsuleVersion` names the capsule prepare ' +
-      'recorded; the terms come from that record, never from current state. Claims are read ' +
-      'against each task\'s result shape, evidence must resolve to a recorded row of an admitted ' +
-      'kind, deviations against the envelope. A batch with no finding then RUNS each task\'s ' +
-      'task-completion segment (the ladder gates under the tier the capsule froze, then ' +
-      'task_complete) against the claim\'s `worktreePath`; a halted segment is a ' +
-      'verification-failed finding. A REJECTED batch is a successful call whose findings say ' +
-      'what to fix. A HELD batch names `pendingDeviations`; settle the SAME batch again with ' +
-      '`decisions` (no claims) to record each and verify the work, or reject it. Errors ' +
-      '(nothing adjudicated): CAPSULE_INVALID, CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, ' +
+      'Adjudicate ONE batch of claims against a prepared capsule, verify each accepted task, and ' +
+      'commit one execution.settled record. `capsuleVersion` names the capsule prepare recorded; ' +
+      'that record gives the terms. The verdict also reads the plan\'s task standing and design ' +
+      'revisions after the capsule: a claim for a task a later revision names rejects the batch ' +
+      '(prepare again). Claims are judged by each task\'s result shape, evidence by recorded rows ' +
+      'of admitted kinds, deviations by the envelope. A batch with no finding RUNS each task\'s ' +
+      'task-completion segment (frozen-tier ladder gates, then task_complete) in the claim\'s ' +
+      '`worktreePath`; a halt is a verification-failed finding. A REJECTED batch is a successful ' +
+      'call; findings say what to fix. A HELD batch names `pendingDeviations`; settle the ' +
+      'SAME batch with `decisions` (no claims) to verify or reject it. Errors (nothing ' +
+      'adjudicated): CAPSULE_INVALID, CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, ' +
       'CAPSULE_UNRESOLVED, BATCH_NOT_HELD, DECISION_INCOMPLETE. Keyed by (capsuleVersion, ' +
-      '`batchId`): a resubmitted batch returns its verdict; a correction takes a NEW `batchId`.',
+      '`batchId`): a retry returns its verdict; a correction takes a NEW `batchId`.',
     schema: z
       .object({
         capsuleVersion: z
@@ -165,8 +165,10 @@ export const settleActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     requires: none(
-      'the capsule carries its own terms, pinned at compile time; a prior gate or approval ' +
-        'floor read at settlement would be the current-state dependency a capsule exists to remove',
+      'the capsule carries its own terms, pinned at compile time, so settlement consumes no ' +
+        'prior gate or approval floor. The verdict does read two facts of the current stream ' +
+        'that no gate resolves: the plan standing of a task a deviation names, and each design ' +
+        'revision recorded after the capsule',
     ),
     /**
      * The replay contract is the reason for no postcondition. The ensures check looks for a row

@@ -55,6 +55,17 @@ function standing(tasks: Readonly<Record<string, TaskStanding>>): AdjudicationCo
   };
 }
 
+/**
+ * The context of a batch on a capsule that later revisions followed. Each listed task is named by
+ * a revision to the given design version, and no revision names a task that is not listed.
+ */
+function namedByALaterRevision(versions: Readonly<Record<string, number>>): AdjudicationContext {
+  return {
+    evidenceResolves: () => true,
+    supersedingDesignVersion: (taskId) => versions[taskId],
+  };
+}
+
 interface AdjudicationCase {
   readonly name: string;
   readonly kind: SettlementFindingKind;
@@ -92,6 +103,15 @@ const CASES: readonly AdjudicationCase[] = [
     passingClaim(),
     passingClaim(),
   ]),
+  bend(
+    'a claim for a task that a later revision names',
+    'claim-superseded-by-revision',
+    'claims[0].taskId',
+    [passingClaim()],
+    (b) => b,
+    undefined,
+    namedByALaterRevision({ 'task-verify': 2 }),
+  ),
   bend('a required result the batch does not carry', 'missing-claim', 'claims', []),
   bend('a required field the claim omits', 'missing-field', 'claims[0].fields', [
     { taskId: 'task-verify', fields: {}, evidence: [] },
@@ -410,6 +430,52 @@ describe('settlement adjudication', () => {
       standing({}),
     );
     expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-outside-envelope']);
+  });
+
+  /**
+   * The superseded claim is also defective in its fields and its evidence, and it gets the one
+   * finding. The sibling claim is clean, so the pass accepts it, and the batch is rejected all the
+   * same. A revision that names no task of the batch changes nothing.
+   */
+  it('Adjudicate_AClaimForATaskALaterRevisionNamed_IsRefusedWholeAndRejectsTheBatch', () => {
+    const base = baseValidCapsule();
+    const capsule: ExarchosCapsuleV1 = {
+      ...base,
+      contracts: {
+        ...base.contracts,
+        taskResults: {
+          ...base.contracts.taskResults,
+          'task-compile': [{ name: 'passed', type: 'boolean', required: true }],
+        },
+      },
+    };
+    const sibling: SettlementClaim = { taskId: 'task-compile', fields: { passed: true }, evidence: [] };
+    const superseded: SettlementClaim = {
+      taskId: 'task-verify',
+      fields: { passed: 'yes', smuggled: 1 },
+      evidence: [{ kind: 'vibes', ref: 'r' }],
+    };
+
+    const verdict = adjudicateSettlement(capsule, [superseded, sibling], [], namedByALaterRevision({ 'task-verify': 3 }));
+    expect(verdict.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
+      ['claim-superseded-by-revision', 'task-verify', 'claims[0].taskId'],
+    ]);
+    expect(verdict.findings[0]?.message).toContain('design version 3');
+    expect(verdict.findings[0]?.message).toContain('capsule v7');
+    expect(verdict.findings[0]?.message).toContain('prepare again');
+    expect(verdict.outcome).toBe('rejected');
+    expect(verdict.acceptedTasks).toEqual(['task-compile']);
+    expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain('claim-superseded-by-revision');
+
+    const untouched = adjudicateSettlement(
+      capsule,
+      [passingClaim(), sibling],
+      [],
+      namedByALaterRevision({ 'task-later': 3 }),
+    );
+    expect(untouched.findings).toEqual([]);
+    expect(untouched.outcome).toBe('settled');
+    expect(untouched.acceptedTasks).toEqual(['task-compile', 'task-verify']);
   });
 
   /** One pass reports every defect, so a caller does not find the defects one round trip at a time. */

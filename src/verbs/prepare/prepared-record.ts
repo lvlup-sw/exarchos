@@ -179,6 +179,8 @@ export type PreparedLookup =
   | {
       readonly found: true;
       readonly record: WorkflowPrepared;
+      /** The stream sequence of the record. A row with a higher sequence came after the compilation. */
+      readonly sequence: number;
       readonly capsule: ExarchosCapsuleV1;
       readonly definition: WorkflowDefinitionV1;
     }
@@ -191,6 +193,8 @@ export type PreparedLookup =
  * `found: false` means that no record exists. Custody bytes that do not match their record throw,
  * because that is corruption and a "not prepared" answer sends the caller to compile again.
  * A capsule that names a definition digest other than the definition in its bundle also throws.
+ *
+ * The lookup also gives the stream sequence of the record that it found.
  */
 export async function findPreparedCapsule(
   ctx: DispatchContext,
@@ -199,13 +203,14 @@ export async function findPreparedCapsule(
   bundleStore?: RunBundleStore,
 ): Promise<PreparedLookup> {
   const rows = await ctx.eventStore.query(streamId, { type: WORKFLOW_PREPARED_TYPE });
-  let record: WorkflowPrepared | undefined;
+  let latest: { readonly record: WorkflowPrepared; readonly sequence: number } | undefined;
   for (const row of rows) {
     const parsed = WorkflowPreparedData.safeParse(row.data);
     if (!parsed.success || parsed.data.capsuleVersion !== capsuleVersion) continue;
-    record = parsed.data;
+    latest = { record: parsed.data, sequence: row.sequence };
   }
-  if (record === undefined) return { found: false };
+  if (latest === undefined) return { found: false };
+  const { record, sequence } = latest;
 
   const ref = record.bundleRefs[0];
   if (ref === undefined) return { found: false };
@@ -225,5 +230,5 @@ export async function findPreparedCapsule(
         `${decoded.capsule.identity.definitionVersion} and its bundle carries ${definitionDigest}`,
     );
   }
-  return { found: true, record, capsule: decoded.capsule, definition: decoded.definition };
+  return { found: true, record, sequence, capsule: decoded.capsule, definition: decoded.definition };
 }
