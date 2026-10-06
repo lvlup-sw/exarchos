@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1316,
-    "parsedFiles": 1270,
+    "testFiles": 1317,
+    "parsedFiles": 1271,
     "shellFiles": 46,
-    "cases": 14514,
+    "cases": 14520,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -62669,6 +62669,42 @@
         {
           "suite": "settle — a blocking gate that blocks",
           "name": "Settle_AKillProbeThatBlocks_RejectsTheBatchAndLeavesNoCompletion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/economy.test.ts": {
+      "file": "tests/unit/verbs/settle/economy.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the capped settle receipt",
+          "name": "SettleEconomy_ACappedHeldReceipt_NamesEveryPendingDeviationByIdAndKind",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped settle receipt",
+          "name": "SettleEconomy_ACappedDecidedReceipt_KeepsTheRoundAndEveryDecision",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped settle receipt",
+          "name": "SettleEconomy_ACappedRevisedReceipt_KeepsTheDesignRevision",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped settle receipt",
+          "name": "SettleEconomy_ACappedRejectedReceipt_KeepsTheOperationAndLeafOfItsFirstFailures",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped settle receipt",
+          "name": "SettleEconomy_ASummaryOverTheBudget_DropsTheFindingsPageThenTheOutcomesAndNeverTheCore",
+          "dynamic": false
+        },
+        {
+          "suite": "the capped settle receipt",
+          "name": "SettleEconomy_AnyReceiptWithinTheInputBounds_SummarisesUnderTheSettleBudget",
           "dynamic": false
         }
       ]
