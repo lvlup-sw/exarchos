@@ -38,11 +38,35 @@ export interface SettlementDecision {
   readonly rationale: string;
 }
 
-/** A deviation a held batch waits on, named on the receipt for the decision to answer. */
+/**
+ * The most deviations that one submitted batch carries. The bound is on the request only. A stored
+ * batch has no bound, so a batch held by an earlier build still decodes.
+ */
+export const MAX_DEVIATIONS_PER_BATCH = 16;
+
+/** The most affected tasks that one submitted deviation names. The bound is on the request only. */
+export const MAX_AFFECTED_TASKS_PER_DEVIATION = 32;
+
+/**
+ * A deviation a held batch waits on, named on the receipt for the decision to answer.
+ * `affectedTasks` is present when the deviation names tasks. The proposed change is not here: it
+ * stays in the settlement bundle.
+ */
 export interface PendingDeviation {
   readonly deviationId: string;
   readonly deviationKind: string;
   readonly statement: string;
+  readonly affectedTasks?: readonly string[];
+}
+
+/**
+ * The design revision that a decision round recorded, as its receipt names it. The two versions
+ * and the deviation ids are those of the `design.revised` row. The affected tasks stay on the row.
+ */
+export interface SettlementDesignRevision {
+  readonly priorDesignVersion: number;
+  readonly nextDesignVersion: number;
+  readonly deviationIds: readonly string[];
 }
 
 /** What one `settle` call returns, on every outcome. */
@@ -76,4 +100,9 @@ export interface SettlementReceipt {
   readonly pendingDeviations?: readonly PendingDeviation[];
   /** On a decision round: the decisions it recorded. */
   readonly decisions?: readonly SettlementDecision[];
+  /**
+   * On a decision round that accepted a material deviation: the design revision it recorded. It is
+   * present exactly when the round committed a `design.revised` row, whatever the outcome.
+   */
+  readonly designRevision?: SettlementDesignRevision;
 }

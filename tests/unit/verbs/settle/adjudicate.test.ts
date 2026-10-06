@@ -15,11 +15,13 @@ import { baseValidCapsule } from '../../../../src/contract/capsule/exarchos-caps
 import {
   BLOCKING_SETTLEMENT_FINDING_KINDS,
   SETTLEMENT_FINDING_KINDS,
+  acceptedMaterialDeviations,
   adjudicateSettlement,
   type AdjudicationContext,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementFindingKind,
+  type TaskStanding,
 } from '../../../../src/verbs/settle/adjudicate.js';
 
 /** The claim the base capsule's one required result is satisfied by. */
@@ -36,6 +38,33 @@ function passingClaim(): SettlementClaim {
  * verification has run. The cases that bend either say so themselves.
  */
 const RESOLVING: AdjudicationContext = { evidenceResolves: () => true };
+
+/** A deviation inside the envelope of the base capsule that names the given tasks as affected. */
+function affecting(...affectedTasks: string[]): ProposedDeviation {
+  return { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite', affectedTasks };
+}
+
+/**
+ * The context of a first submission whose deviations name tasks. Each listed task stands as
+ * given, and a task that is not listed is unknown to the plan.
+ */
+function standing(tasks: Readonly<Record<string, TaskStanding>>): AdjudicationContext {
+  return {
+    evidenceResolves: () => true,
+    taskStanding: (taskId) => tasks[taskId] ?? { kind: 'unknown' },
+  };
+}
+
+/**
+ * The context of a batch on a capsule that later revisions followed. Each listed task is named by
+ * a revision to the given design version, and no revision names a task that is not listed.
+ */
+function namedByALaterRevision(versions: Readonly<Record<string, number>>): AdjudicationContext {
+  return {
+    evidenceResolves: () => true,
+    supersedingDesignVersion: (taskId) => versions[taskId],
+  };
+}
 
 interface AdjudicationCase {
   readonly name: string;
@@ -74,6 +103,15 @@ const CASES: readonly AdjudicationCase[] = [
     passingClaim(),
     passingClaim(),
   ]),
+  bend(
+    'a claim for a task that a later revision names',
+    'claim-superseded-by-revision',
+    'claims[0].taskId',
+    [passingClaim()],
+    (b) => b,
+    undefined,
+    namedByALaterRevision({ 'task-verify': 2 }),
+  ),
   bend('a required result the batch does not carry', 'missing-claim', 'claims', []),
   bend('a required field the claim omits', 'missing-field', 'claims[0].fields', [
     { taskId: 'task-verify', fields: {}, evidence: [] },
@@ -143,6 +181,33 @@ const CASES: readonly AdjudicationCase[] = [
     (b) => b,
     [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
     { evidenceResolves: () => true, decided: () => 'rejected' },
+  ),
+  bend(
+    'a deviation that names a task the plan does not hold',
+    'deviation-unknown-task',
+    'deviations[0].affectedTasks[1]',
+    [passingClaim()],
+    (b) => b,
+    [affecting('task-later', 'task-ghost')],
+    standing({ 'task-later': { kind: 'pending' } }),
+  ),
+  bend(
+    'a deviation that names a finished task',
+    'deviation-names-finished-task',
+    'deviations[0].affectedTasks[0]',
+    [passingClaim()],
+    (b) => b,
+    [affecting('task-done', 'task-later')],
+    standing({ 'task-done': { kind: 'finished' }, 'task-later': { kind: 'pending' } }),
+  ),
+  bend(
+    'a deviation that names a task the batch claims',
+    'deviation-names-claimed-task',
+    'deviations[0].affectedTasks[0]',
+    [passingClaim()],
+    (b) => b,
+    [affecting('task-verify', 'task-later')],
+    standing({ 'task-verify': { kind: 'pending' }, 'task-later': { kind: 'pending' } }),
   ),
 ];
 
@@ -268,6 +333,151 @@ describe('settlement adjudication', () => {
     expect(undecided.adjudicated.decisions).toBe(0);
   });
 
+  /**
+   * The denominator of the three findings about an affected task. Each named task is pending and
+   * outside the batch, so the deviation holds the batch as a deviation with no task list does.
+   */
+  it('Adjudicate_ADeviationNamingPendingTasksOutsideTheBatch_HoldsTheBatch', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [affecting('task-later', 'task-other')],
+      standing({ 'task-later': { kind: 'pending' }, 'task-other': { kind: 'pending' } }),
+    );
+    expect(verdict.outcome).toBe('deviation-pending');
+    expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-awaiting-approval']);
+    expect(verdict.acceptedTasks).toEqual(['task-verify']);
+  });
+
+  /**
+   * Each finding about an affected task blocks, so the batch is rejected and not held. The
+   * deviation gets no approval finding, because nothing waits for a decision.
+   */
+  it('Adjudicate_AFindingAboutAnAffectedTask_RejectsTheBatchAndAsksForNoApproval', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [affecting('task-done', 'task-ghost', 'task-later', 'task-verify')],
+      standing({
+        'task-done': { kind: 'finished' },
+        'task-later': { kind: 'pending' },
+        'task-verify': { kind: 'pending' },
+      }),
+    );
+    expect(verdict.outcome).toBe('rejected');
+    expect(verdict.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
+      ['deviation-names-finished-task', 'task-done', 'deviations[0].affectedTasks[0]'],
+      ['deviation-unknown-task', 'task-ghost', 'deviations[0].affectedTasks[1]'],
+      ['deviation-names-claimed-task', 'task-verify', 'deviations[0].affectedTasks[3]'],
+    ]);
+    expect(verdict.findings[0]?.message).toContain('plan the rework as a new task');
+    for (const kind of ['deviation-unknown-task', 'deviation-names-finished-task', 'deviation-names-claimed-task']) {
+      expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain(kind);
+    }
+  });
+
+  /** A task that the batch claims and the stream shows complete gets both findings, so one correction covers both. */
+  it('Adjudicate_AnAffectedTaskThatIsFinishedAndClaimed_GetsBothFindings', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [affecting('task-verify')],
+      standing({ 'task-verify': { kind: 'finished' } }),
+    );
+    expect(verdict.findings.map((f) => f.kind)).toEqual([
+      'deviation-names-finished-task',
+      'deviation-names-claimed-task',
+    ]);
+    expect(verdict.outcome).toBe('rejected');
+  });
+
+  /** The plan holds an entry for the task, but the reader refused it. The finding gives the refusal. */
+  it('Adjudicate_AnAffectedTaskWhosePlanEntryWasRefused_SaysTheEntryCouldNotBeRead', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [affecting('task-later')],
+      standing({ 'task-later': { kind: 'unknown', unreadable: 'the stamp is outside its vocabulary' } }),
+    );
+    expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-unknown-task']);
+    expect(verdict.findings[0]?.message).toContain('could not be read: the stamp is outside its vocabulary');
+    expect(verdict.outcome).toBe('rejected');
+  });
+
+  /**
+   * The decision round supplies no standing, so the affected tasks get no check. The same batch
+   * with a standing is rejected, which shows that the absence of the standing is what admits it.
+   */
+  it('Adjudicate_WithNoTaskStanding_TheAffectedTasksGetNoCheck', () => {
+    const deviation = affecting('task-ghost', 'task-verify');
+    const decided = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [deviation], {
+      evidenceResolves: () => true,
+      decided: () => 'accepted',
+    });
+    expect(decided.findings).toEqual([]);
+    expect(decided.outcome).toBe('settled');
+
+    const first = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [deviation], standing({}));
+    expect(first.outcome).toBe('rejected');
+  });
+
+  /** A deviation outside the envelope is refused whole, and its affected tasks get no findings. */
+  it('Adjudicate_ADeviationOutsideTheEnvelope_GetsNoFindingAboutItsAffectedTasks', () => {
+    const verdict = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [{ deviationKind: 'rewrote-the-charter', statement: 'seemed fine', affectedTasks: ['task-ghost'] }],
+      standing({}),
+    );
+    expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-outside-envelope']);
+  });
+
+  /**
+   * The superseded claim is also defective in its fields and its evidence, and it gets the one
+   * finding. The sibling claim is clean, so the pass accepts it, and the batch is rejected all the
+   * same. A revision that names no task of the batch changes nothing.
+   */
+  it('Adjudicate_AClaimForATaskALaterRevisionNamed_IsRefusedWholeAndRejectsTheBatch', () => {
+    const base = baseValidCapsule();
+    const capsule: ExarchosCapsuleV1 = {
+      ...base,
+      contracts: {
+        ...base.contracts,
+        taskResults: {
+          ...base.contracts.taskResults,
+          'task-compile': [{ name: 'passed', type: 'boolean', required: true }],
+        },
+      },
+    };
+    const sibling: SettlementClaim = { taskId: 'task-compile', fields: { passed: true }, evidence: [] };
+    const superseded: SettlementClaim = {
+      taskId: 'task-verify',
+      fields: { passed: 'yes', smuggled: 1 },
+      evidence: [{ kind: 'vibes', ref: 'r' }],
+    };
+
+    const verdict = adjudicateSettlement(capsule, [superseded, sibling], [], namedByALaterRevision({ 'task-verify': 3 }));
+    expect(verdict.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
+      ['claim-superseded-by-revision', 'task-verify', 'claims[0].taskId'],
+    ]);
+    expect(verdict.findings[0]?.message).toContain('design version 3');
+    expect(verdict.findings[0]?.message).toContain('capsule v7');
+    expect(verdict.findings[0]?.message).toContain('prepare again');
+    expect(verdict.outcome).toBe('rejected');
+    expect(verdict.acceptedTasks).toEqual(['task-compile']);
+    expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain('claim-superseded-by-revision');
+
+    const untouched = adjudicateSettlement(
+      capsule,
+      [passingClaim(), sibling],
+      [],
+      namedByALaterRevision({ 'task-later': 3 }),
+    );
+    expect(untouched.findings).toEqual([]);
+    expect(untouched.outcome).toBe('settled');
+    expect(untouched.acceptedTasks).toEqual(['task-compile', 'task-verify']);
+  });
+
   /** One pass reports every defect, so a caller does not find the defects one round trip at a time. */
   it('Adjudicate_ManyDefects_AreAllReported', () => {
     const verdict = adjudicateSettlement(
@@ -323,5 +533,74 @@ describe('settlement adjudication', () => {
     );
     expect(verdict.findings).toEqual([]);
     expect(verdict.adjudicated.fields).toBe(2);
+  });
+});
+
+/** The base capsule with the given list of material kinds on an envelope that admits two kinds. */
+function withMaterialKinds(materialDeviationKinds: readonly string[]): ExarchosCapsuleV1 {
+  const base = baseValidCapsule();
+  return ExarchosCapsuleV1Schema.parse({
+    ...base,
+    contracts: {
+      ...base.contracts,
+      deviationEnvelope: {
+        allowedDeviationKinds: ['invalidated-assumption', 'missing-context'],
+        materialDeviationKinds,
+        requiresApproval: true,
+      },
+    },
+  });
+}
+
+/**
+ * The selector of the deviations that revise the design. It reads the material kinds from the
+ * capsule and the decisions from the round, and it reads nothing else.
+ */
+describe('the accepted material deviations of a round', () => {
+  /**
+   * The round holds one deviation for each way to stay out of the list: rejected, undecided, and
+   * accepted under a kind that is not material. The two that remain keep the order of the round.
+   */
+  it('AcceptedMaterialDeviations_AMixedRound_SelectsOnlyTheAcceptedMaterialOnes', () => {
+    const accepted: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' };
+    const rejected: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the branch is not main' };
+    const undecided: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the cache is cold' };
+    const notMaterial: ProposedDeviation = { deviationKind: 'missing-context', statement: 'the port is not named' };
+    const alsoAccepted: ProposedDeviation = {
+      deviationKind: 'invalidated-assumption',
+      statement: 'the queue is not ordered',
+      affectedTasks: ['task-later'],
+    };
+    const decisions = new Map<ProposedDeviation, 'accepted' | 'rejected'>([
+      [accepted, 'accepted'],
+      [rejected, 'rejected'],
+      [notMaterial, 'accepted'],
+      [alsoAccepted, 'accepted'],
+    ]);
+
+    const selected = acceptedMaterialDeviations(
+      withMaterialKinds(['invalidated-assumption']),
+      [accepted, rejected, undecided, notMaterial, alsoAccepted],
+      (deviation) => decisions.get(deviation),
+    );
+    expect(selected).toEqual([accepted, alsoAccepted]);
+  });
+
+  /**
+   * The base capsule carries no list, and a capsule can carry an empty one. Each selects none of a
+   * round that accepts every deviation. The same round under a capsule that lists the kind selects
+   * the deviation, so the list alone decides.
+   */
+  it('AcceptedMaterialDeviations_ACapsuleWithNoMaterialKinds_SelectsNone', () => {
+    const deviation: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' };
+    const acceptEach = (): 'accepted' => 'accepted';
+    const withoutList = baseValidCapsule();
+    expect(withoutList.contracts.deviationEnvelope).not.toHaveProperty('materialDeviationKinds');
+
+    expect(acceptedMaterialDeviations(withoutList, [deviation], acceptEach)).toEqual([]);
+    expect(acceptedMaterialDeviations(withMaterialKinds([]), [deviation], acceptEach)).toEqual([]);
+    expect(acceptedMaterialDeviations(withMaterialKinds(['invalidated-assumption']), [deviation], acceptEach)).toEqual([
+      deviation,
+    ]);
   });
 });

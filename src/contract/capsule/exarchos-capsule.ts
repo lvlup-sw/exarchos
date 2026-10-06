@@ -177,10 +177,16 @@ export const CapsuleFieldDescriptorSchema = z
   })
   .strict();
 
-/** What a worker can propose when the capsule assumptions are wrong. */
+/**
+ * What a worker can propose when the capsule assumptions are wrong.
+ * `materialDeviationKinds` lists the material kinds: an accepted deviation of a material kind revises the design.
+ * An absent list means that no kind is material, so a capsule stored without the list keeps its meaning.
+ * The rule is structural. This schema does not compare the material kinds with the allowed kinds.
+ */
 export const CapsuleDeviationEnvelopeSchema = z
   .object({
     allowedDeviationKinds: z.array(SharedStableIdSchema).min(1),
+    materialDeviationKinds: z.array(SharedStableIdSchema).optional(),
     requiresApproval: z.boolean(),
   })
   .strict();

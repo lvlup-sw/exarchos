@@ -5,6 +5,9 @@
 // and those bytes read back as the capsule that the receipt returned. A retry gets its answer
 // from the durable claim. Each refusal leaves the store unchanged.
 //
+// One case needs a design revision on the stream. The row comes from a real decision round of
+// `settle`, because `settle` is the one writer of that row.
+//
 // @oracle-sources: ../../../../src/verbs/prepare/handler.ts, the prepared bundle read back out of the content-addressed store and re-digested rather than compared with the in-process capsule
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -15,6 +18,10 @@ import { tmpdir } from 'node:os';
 import { resolveConfig, type ResolvedProjectConfig } from '../../../../src/config/resolve.js';
 import { capsuleDigest, contentDigest } from '../../../../src/contract/capsule/capsule-digest.js';
 import {
+  ExarchosCapsuleV1Schema,
+  type ExarchosCapsuleV1,
+} from '../../../../src/contract/capsule/exarchos-capsule.js';
+import {
   deriveMcpCallerIdentity,
   snapshotCallerAuthorization,
 } from '../../../../src/dispatch/caller-identity.js';
@@ -24,14 +31,19 @@ import {
   runWithDispatchContext,
 } from '../../../../src/dispatch/dispatch-context.js';
 import type { RunBundleStore } from '../../../../src/events/bundle/run-bundle-store.js';
-import { WorkflowPreparedData } from '../../../../src/events/schemas.js';
+import { DesignRevisedData, WorkflowPreparedData, type DesignRevised } from '../../../../src/events/schemas.js';
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
+import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
+import { productionExecuteDeps } from '../../../../src/verbs/execute/executor.js';
 import type { CatalogInvariant } from '../../../../src/verbs/prepare/bind-authority.js';
+import { PREPARE_COMPILER_VERSION } from '../../../../src/verbs/prepare/compile-capsule.js';
 import { handlePrepare, planeExecutionCapabilities } from '../../../../src/verbs/prepare/handler.js';
 import { lowerBuiltInDefinition } from '../../../../src/verbs/prepare/lower-definition.js';
-import { findPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
+import { commitPreparedCapsule, findPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import type { PreparedCapsuleReceipt } from '../../../../src/verbs/prepare/types.js';
+import { handleSettle } from '../../../../src/verbs/settle/handler.js';
+import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -186,6 +198,63 @@ const NO_BINDING: DesignBinding = { rationale: [], designRecordDigests: [] };
 async function bindingFor(artifacts: Readonly<Record<string, unknown>>, streamId = STREAM): Promise<DesignBinding> {
   await seedDelegatingFeature(PLAN, streamId, INTEGRATION_BRANCH, artifacts);
   return designBinding(receiptOf(await prepare({ featureId: streamId })));
+}
+
+/** The compiler name that the build before the design version counter stamped. */
+const EARLIER_COMPILER_VERSION = 'exarchos-prepare-1';
+
+/**
+ * The design version id that the earlier compiler stamped for a design reference.
+ * It is the prefix, then the first sixteen hex digits of the digest of the reference.
+ */
+function earlierDesignVersionId(designRef: string | null): string {
+  return `design-${contentDigest(designRef).slice(0, 16)}`;
+}
+
+/**
+ * Prepares the seeded stream through the seam, as a compiler of the given name.
+ * Each other dependency is the one that `prepare` passes.
+ */
+async function prepareAsCompiler(compilerVersion: string): Promise<ToolResult> {
+  return runWithDispatchContext(correlation(), () =>
+    handlePrepare({ featureId: STREAM }, stateDir, wiring(), {
+      catalogInvariants: () => [],
+      now: () => COMPILED_AT,
+      compilerVersion,
+    }),
+  );
+}
+
+/**
+ * Records one prepare through the seam under the given compiler name.
+ * Then it prepares again as production does, with no name.
+ * The two replay cases call it, so they differ only in the name that they pass.
+ */
+async function recordedThenPrepared(
+  compilerVersion: string,
+): Promise<{ readonly recorded: PreparedCapsuleReceipt; readonly prepared: PreparedCapsuleReceipt }> {
+  await seedDelegatingFeature(PLAN);
+  const recorded = receiptOf(await prepareAsCompiler(compilerVersion));
+  const prepared = receiptOf(await prepare({ featureId: STREAM }));
+  return { recorded, prepared };
+}
+
+/** One `settle` call for the seeded stream, with the collaborators that the composite passes. */
+async function settle(raw: Record<string, unknown>): Promise<SettlementReceipt> {
+  const result = await runWithDispatchContext(correlation(), () =>
+    handleSettle({ featureId: STREAM, ...raw }, stateDir, wiring(), {
+      execute: productionExecuteDeps(ACTION_HANDLERS, 'exarchos_orchestrate'),
+    }),
+  );
+  expect(result.success, JSON.stringify(result)).toBe(true);
+  if (!result.success) throw new Error('unreachable');
+  return result.data as unknown as SettlementReceipt;
+}
+
+/** The design revision rows of the seeded stream, each parsed through the row schema. */
+async function revisionRows(): Promise<DesignRevised[]> {
+  const events = await store.query(STREAM);
+  return events.filter((e) => e.type === 'design.revised').map((e) => DesignRevisedData.parse(e.data));
 }
 
 describe('prepare — the compilation endpoint', () => {
@@ -403,6 +472,176 @@ describe('prepare — the compilation endpoint', () => {
     const unusable = { spec: '', design: 'line one\nline two', plan: 'r'.repeat(REFERENCE_BOUND + 1) };
     expect(await bindingFor(unusable, `${STREAM}-unusable`)).toEqual(NO_BINDING);
     expect(await bindingFor({ spec: [SPEC_PATH] }, `${STREAM}-list`)).toEqual(NO_BINDING);
+  });
+
+  /**
+   * The id is the counter of the stream and holds no part of the design reference.
+   * A workflow with another reference, or with none, is at the same version.
+   * The digest of the reference stays in the provenance sources.
+   */
+  it('Prepare_AStreamWithNoRevision_CompilesTheFirstDesignVersion', async () => {
+    await seedDelegatingFeature(PLAN);
+    const receipt = receiptOf(await prepare({ featureId: STREAM }));
+    expect(await revisionRows()).toEqual([]);
+    expect(receipt.capsule.identity.designVersion).toBe('design-v1');
+    expect(WorkflowPreparedData.parse((await preparedRows())[0]).designVersion).toBe('design-v1');
+    expect(designBinding(receipt)).toEqual(bindingOf('docs/specs/prepare-unit.md'));
+
+    const elsewhere = `${STREAM}-another-reference`;
+    await seedDelegatingFeature(PLAN, elsewhere, INTEGRATION_BRANCH, { spec: SPEC_PATH });
+    const other = receiptOf(await prepare({ featureId: elsewhere }));
+    expect(other.capsule.identity.designVersion).toBe('design-v1');
+    expect(designBinding(other)).toEqual(bindingOf(SPEC_PATH));
+
+    const unbound = `${STREAM}-no-reference`;
+    await seedDelegatingFeature(PLAN, unbound, INTEGRATION_BRANCH, {});
+    expect(receiptOf(await prepare({ featureId: unbound })).capsule.identity.designVersion).toBe('design-v1');
+  });
+
+  /**
+   * The batch is held with two deviations. The decision accepts the material one and rejects the other.
+   * So the round records one design revision, rejects the batch with nothing run, and leaves the plan as it was.
+   * The held batch alone moves no input, so the retry before the decision replays the first receipt.
+   * After the revision, the same plan compiles the next capsule version under the next design version.
+   * The last comparison puts the two first versions back, so nothing else in the capsule moved.
+   */
+  it('Prepare_AfterADesignRevision_CompilesTheNextVersionRatherThanReplaying', async () => {
+    await seedDelegatingFeature(PLAN);
+    const first = receiptOf(await prepare({ featureId: STREAM }));
+    expect(first.capsule.identity.designVersion).toBe('design-v1');
+
+    const batch = { capsuleVersion: first.capsuleVersion, batchId: 'batch-revises-the-design' };
+    const held = await settle({
+      ...batch,
+      claims: first.capsule.graph.tasks.map((task) => ({
+        taskId: task.taskId,
+        fields: { worktreePath: '/nonexistent-prepare-worktree' },
+        evidence: [],
+      })),
+      deviations: [
+        { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' },
+        { deviationKind: 'missing-context', statement: 'the capsule did not name the port' },
+      ],
+    });
+    expect(held.outcome).toBe('deviation-pending');
+    expect(held.pendingDeviations?.map((pending) => pending.deviationKind)).toEqual([
+      'invalidated-assumption',
+      'missing-context',
+    ]);
+    expect(await revisionRows()).toEqual([]);
+    expect(receiptOf(await prepare({ featureId: STREAM }))).toEqual(first);
+
+    const decided = await settle({
+      ...batch,
+      decisions: (held.pendingDeviations ?? []).map((pending) => ({
+        deviationId: pending.deviationId,
+        decision: pending.deviationKind === 'invalidated-assumption' ? 'accepted' : 'rejected',
+        actor: 'human:reviewer',
+        rationale: 'the assumption was wrong, and the capsule did name the port',
+      })),
+    });
+    expect(decided.outcome).toBe('rejected');
+    expect(decided.verification).toEqual([]);
+    expect(decided.designRevision).toMatchObject({ priorDesignVersion: 1, nextDesignVersion: 2 });
+    const revisions = await revisionRows();
+    expect(revisions.map((row) => [row.priorDesignVersion, row.nextDesignVersion])).toEqual([[1, 2]]);
+    expect(revisions[0]?.bundleRefs).toEqual(decided.bundleRefs);
+    expect((await store.query(STREAM)).filter((e) => e.type === 'task.completed')).toEqual([]);
+
+    const next = receiptOf(await prepare({ featureId: STREAM }));
+    expect(next.capsuleVersion).toBe(2);
+    expect(next.operationId).not.toBe(first.operationId);
+    expect(next.capsuleDigest).not.toBe(first.capsuleDigest);
+    expect(next.capsule.identity.designVersion).toBe('design-v2');
+    expect({
+      ...next.capsule,
+      identity: { ...next.capsule.identity, designVersion: 'design-v1', capsuleVersion: 1 },
+    }).toEqual(first.capsule);
+
+    const rows = (await preparedRows()).map((row) => WorkflowPreparedData.parse(row));
+    expect(rows.map((row) => [row.capsuleVersion, row.designVersion])).toEqual([
+      [1, 'design-v1'],
+      [2, 'design-v2'],
+    ]);
+    expect(receiptOf(await prepare({ featureId: STREAM }))).toEqual(next);
+    expect(await preparedRows()).toHaveLength(2);
+  });
+
+  /**
+   * The first prepare is recorded under the name of the earlier compiler. The second is the production call.
+   * The claim of the earlier compiler does not answer it, so it compiles the next version from the same batch.
+   */
+  it('Prepare_AClaimFromAnEarlierCompilerVersion_IsNotReplayed', async () => {
+    expect(EARLIER_COMPILER_VERSION).not.toBe(PREPARE_COMPILER_VERSION);
+    const { recorded, prepared } = await recordedThenPrepared(EARLIER_COMPILER_VERSION);
+    expect(recorded.capsuleVersion).toBe(1);
+    expect(recorded.capsule.provenance.compilerVersion).toBe(EARLIER_COMPILER_VERSION);
+
+    expect(prepared.capsuleVersion).toBe(2);
+    expect(prepared.operationId).not.toBe(recorded.operationId);
+    expect(prepared.capsule.provenance.compilerVersion).toBe(PREPARE_COMPILER_VERSION);
+    expect(prepared.capsule.graph).toEqual(recorded.capsule.graph);
+    const rows = (await preparedRows()).map((row) => WorkflowPreparedData.parse(row));
+    expect(rows.map((row) => [row.capsuleVersion, row.compilerVersion])).toEqual([
+      [1, EARLIER_COMPILER_VERSION],
+      [2, PREPARE_COMPILER_VERSION],
+    ]);
+  });
+
+  /** The same two calls, with the name of this build through the seam. The second call replays the claim of the first. */
+  it('Prepare_AClaimFromTheSameCompilerVersion_IsReplayed', async () => {
+    const { recorded, prepared } = await recordedThenPrepared(PREPARE_COMPILER_VERSION);
+    expect(recorded.capsuleVersion).toBe(1);
+    expect(recorded.capsule.provenance.compilerVersion).toBe(PREPARE_COMPILER_VERSION);
+
+    expect(prepared).toEqual(recorded);
+    expect(await preparedRows()).toHaveLength(1);
+    expect(await bundleBlobCount()).toBe(1);
+  });
+
+  /**
+   * The stored capsule is the one that this build compiles, with two fields in the form of the earlier build.
+   * They are the design version id in its hash form and the name of the earlier compiler.
+   * The production commit puts the capsule in custody as the next version.
+   * The lookup that settlement uses reads it back, and the capsule of this build is still found beside it.
+   */
+  it('Prepare_ACapsuleStoredWithTheEarlierIdentityForm_StillParsesAndIsFound', async () => {
+    await seedDelegatingFeature(PLAN);
+    const current = receiptOf(await prepare({ featureId: STREAM }));
+    const earlierId = earlierDesignVersionId('docs/specs/prepare-unit.md');
+    expect(earlierId).toMatch(/^design-[0-9a-f]{16}$/);
+    expect(current.capsule.identity.designVersion).not.toBe(earlierId);
+
+    const earlier: ExarchosCapsuleV1 = {
+      ...current.capsule,
+      identity: { ...current.capsule.identity, designVersion: earlierId, capsuleVersion: 2 },
+      provenance: { ...current.capsule.provenance, compilerVersion: EARLIER_COMPILER_VERSION },
+    };
+    const lowered = lowerBuiltInDefinition('feature');
+    if (lowered === undefined) throw new Error('the feature workflow did not lower');
+    const stored = await runWithDispatchContext(correlation(), () =>
+      commitPreparedCapsule(wiring(), {
+        streamId: STREAM,
+        operationId: 'prepare:recorded-by-the-earlier-compiler',
+        requestDigest: 'sha256:recorded-by-the-earlier-compiler',
+        workflowType: 'feature',
+        capsule: earlier,
+        definition: lowered.definition,
+      }),
+    );
+    expect(stored.capsuleDigest).toBe(capsuleDigest(earlier));
+
+    const found = await findPreparedCapsule(wiring(), STREAM, 2);
+    if (!found.found) throw new Error('the capsule in the earlier identity form was not found');
+    expect(ExarchosCapsuleV1Schema.parse(found.capsule)).toEqual(earlier);
+    expect(found.capsule.identity.designVersion).toBe(earlierId);
+    expect(found.record.designVersion).toBe(earlierId);
+    expect(found.record.compilerVersion).toBe(EARLIER_COMPILER_VERSION);
+    expect(found.record.capsuleDigest).toBe(capsuleDigest(earlier));
+
+    const beside = await findPreparedCapsule(wiring(), STREAM, 1);
+    if (!beside.found) throw new Error('the capsule of this build was not found');
+    expect(beside.capsule.identity.designVersion).toBe('design-v1');
   });
 
   /** A server that dispatches for another workspace must bind the configuration and catalog of that workspace, not those of the process directory. */

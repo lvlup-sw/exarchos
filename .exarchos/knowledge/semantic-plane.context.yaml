@@ -17,8 +17,8 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-10-02
-  main_at: 90ab4c88e
+  as_of: 2026-10-05
+  main_at: ca44825b6
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -375,6 +375,20 @@ decisions:
   - date: "2026-10-02"
     source: "Reed, release session"
     decision: "v2.12.0's npm publish failed because the repo .npmrc maps the @lvlup-sw scope to GitHub Packages, and a scope registry outranks publishConfig.registry. Cut v2.12.1 with the fix rather than hand-publish 2.12.0, so npm latest is a CI build with provenance. v2.12.0 stays a GitHub-only release."
+
+  - date: "2026-10-05"
+    source: "#1926 (material path, approved design)"
+    decision: "A second, ordinary prepare recompiles. settle does not compile, and its outcome vocabulary does not grow in this slice: SettlementOutcome stays settled | rejected | deviation-pending. settle records an accepted material deviation as design.revised. The design version is a compilation input of prepare, so the next prepare compiles the next capsule version."
+  - date: "2026-10-05"
+    source: "#1926 (material path, approved design)"
+    decision: "The deviation kind decides materiality. An accepted invalidated-assumption is a material design change, and missing-context is not. The capsule pins which kinds are material (contracts.deviationEnvelope.materialDeviationKinds), so settle reads them from the capsule that judges the batch and never from the current compiler."
+  - date: "2026-10-05"
+    source: "#1926 (material path, approved design)"
+    decision: "A revision names only unfinished tasks. Finished work survives a revision by construction. Rework of finished work is planned as a new task, and the deviation names that new task. Nothing is reopened."
+  - date: "2026-10-05"
+    source: "#1926, plan review"
+    decision: "Withdrawn: an earlier choice to reopen finished tasks, with a new guard on the move to review. A reopened task whose redo changes no test cannot pass the kill probe, and the guard it needed has a second representation in the admission layer."
+    status: "WITHDRAWN 2026-10-05; the decision above replaces it (rework is a new task)"
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -396,8 +410,8 @@ build_order:
       status: "done"
       refs: "#1920"
     - leg: "divergence loop C2 (material path: design.revised, capsule.recompiled, continuation prepare)"
-      status: "not started"
-      refs: "#1926"
+      status: "in progress, half done. Landed: materiality pinned in the capsule (materialDeviationKinds); affectedTasks and proposedChange on a deviation; design.revised with settle as its emitter; the design version counter on the capsule and in the prepare replay key; the claim-superseded-by-revision finding; the capped receipt core. Pending: the continuation prepare with capsule.recompiled; binding the accepted change as knowledge."
+      refs: "#1926 (the first half lands with the material-path branch)"
     - leg: "divergence loop C3 (settlement vocabulary: permitted, corrective-capsule, recompile-required, partial settlement with result status)"
       status: "not started"
       refs: "#1926"
@@ -484,12 +498,32 @@ drift:
     design: "retired for plugin distribution"
     built: "launcher shipped; v2.12.0 is the first release that carries the plane (the interim per-wave prepare/settle)"
     resolution: "distribution leg"
+  - id: "materiality"
+    design: "settlement classifies what changed: a changed assumption, goal interpretation or task boundary is material"
+    built: "the deviation kind decides materiality, not a classification of what changed. An accepted invalidated-assumption is material and missing-context is not. The capsule pins the material kinds."
+    resolution: "decided 2026-10-05 (#1926): the kind decides"
+  - id: "design-version"
+    design: "designVersion names the design that a capsule was compiled from"
+    built: "the design version is a counter of the recorded revisions (design-v<N>, one step per design.revised row), on the capsule and in the prepare replay key. The bytes of the design record are not pinned."
+    resolution: "unresolved; the material path (#1926) builds the counter only"
+  - id: "revision-reach"
+    design: "a material change recompiles the affected slice; partial settlement is valid"
+    built: "a revision cannot invalidate finished work. It names only unfinished tasks outside the settled batch, and a deviation that names a finished or claimed task rejects the batch. Rework is a new task."
+    resolution: "reopening and partial settlement are deferred to the settlement vocabulary slice (divergence loop C3, #1926)"
+  - id: "prepare-replay-key"
+    design: "prepare is idempotent: a retry with unchanged inputs returns the recorded capsule"
+    built: "the replay key gained the design version and the compiler version, so a prepare claim recorded before this upgrade no longer matches. A prepare retried across the upgrade compiles the next capsule version."
+    resolution: "by construction: the compiler name is in the key so that a capsule of an earlier compiler is not replayed. A capsule that the earlier compiler stored is still found by its version."
+  - id: "kill-probe-false-pass"
+    design: "settle accepts a medium-tier or high-tier task only when the kill probe shows that a test of the task can fail"
+    built: "the kill probe gives false passes in this repository. It resolves the test command to the unit project, which collects none of the tests under the unit, integration and acceptance trees. A run that collects nothing exits with an error, and the probe reads that error as a kill."
+    resolution: "unresolved. Until it is fixed, a kill-probe pass in this repository is not evidence that a test can fail."
 
 # ─── measured facts (re-check before relying on them) ────────────────────────
 
 measured:
-  as_of: 2026-10-01
-  main_at: 9defc8a36
+  as_of: 2026-10-05
+  main_at: ca44825b6       # measured on the material-path branch, which is this commit of main plus the first half of #1926
   facts:
     - fact: prepare refuses non-feature workflows and non-delegate phases
       check: "grep -n -E 'WORKFLOW_TYPE_UNSUPPORTED|PHASE_NOT_PREPARABLE' src/verbs/prepare/handler.ts"
@@ -515,8 +549,10 @@ measured:
       check: "ls src/next-actions-computer.ts"
     - fact: "the kernel package is a build-only devDependency pinned at 0.14.0; the published package does not list it (#1941)"
       check: "node -p \"const p=require('./package.json'); [p.devDependencies['@lvlup-sw/strategos-contracts'], (p.dependencies||{})['@lvlup-sw/strategos-contracts']]\""
-    - fact: "EventTypes count is 184 on main"
+    - fact: "EventTypes count is 185 with the material path (184 on main before it; design.revised is the addition)"
       check: "grep -rn 'EventTypes).toHaveLength' tests/unit/events/schemas.test.ts"
+    - fact: "five of the six semantic event kinds have landed with an emitter: workflow.prepared (prepare), and execution.settled, deviation.proposed, deviation.decided and design.revised (settle). capsule.recompiled has not landed."
+      check: "grep -n \"event: '\" src/registry/actions/orchestrate/prepare.ts src/registry/actions/orchestrate/settle.ts; grep -rn 'capsule.recompiled' src | wc -l"
     - fact: per-intent call census
       check: "npx tsx tools/audit/core/call-shape/measure.ts   (output: tools/audit/core/call-shape/call-shape-census.md)"
     - fact: agent-teams workers are told to call Exarchos
@@ -578,7 +614,7 @@ issue_map:
   roadmap_index: 1599
   interaction_economy_epic: 1856
   event_authority_remainder: 1898      # auto-closed in error 2026-09-14; reopened 2026-10-01; on v3.0.0 (exit criterion)
-  divergence_loop: "1926 (tracker); C1 = PR 1920 (merged)"
+  divergence_loop: "1926 (tracker); C1 = PR 1920 (merged); C2 = the material path, whose first half lands with the material-path branch"
   first_adapter: "1912 (closed, complete)"
   executor: "1857 (closed; engine is settle's core)"
   workflow_scoped_capsule: 1927

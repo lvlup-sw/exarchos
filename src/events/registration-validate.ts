@@ -60,7 +60,7 @@ export const MULTI_PRIMARY_OWNER_CODE = 'MULTI_PRIMARY_OWNER';
  * declared emission edge. It is a floor with the same ratchet rule as
  * {@link EMISSION_DENOMINATOR_FLOOR}. Each new event type with a declared edge adds one.
  */
-export const PRIMARY_OWNER_POPULATION_FLOOR = 76;
+export const PRIMARY_OWNER_POPULATION_FLOOR = 77;
 
 /**
  * The measured size of the set that the provider comparison ranges over: declared emission edges

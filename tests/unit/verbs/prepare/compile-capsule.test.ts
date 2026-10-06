@@ -5,12 +5,14 @@
 
 import { describe, it, expect } from 'vitest';
 
+import { contentDigest } from '../../../../src/contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../../../src/contract/capsule/capsule-references.js';
 import { ExarchosCapsuleV1Schema } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import { bindCatalogInvariants } from '../../../../src/verbs/prepare/bind-authority.js';
 import { builtInWorkflowAuthority } from '../../../../src/verbs/prepare/built-in-authority.js';
 import {
   compileDelegationCapsule,
+  PREPARE_COMPILER_VERSION,
   type CompileCapsuleInput,
 } from '../../../../src/verbs/prepare/compile-capsule.js';
 import { lowerBuiltInDefinition } from '../../../../src/verbs/prepare/lower-definition.js';
@@ -33,6 +35,9 @@ function batchOf(tasks: readonly unknown[]): DelegationBatch {
   return outcome.batch;
 }
 
+/** The design reference of the fixture workflow. */
+const DESIGN_REF = 'docs/specs/feature.md';
+
 function input(overrides: Partial<CompileCapsuleInput> = {}): CompileCapsuleInput {
   return {
     workflowId: 'feat-prepare-unit',
@@ -44,7 +49,9 @@ function input(overrides: Partial<CompileCapsuleInput> = {}): CompileCapsuleInpu
       { id: 'T-3', title: 'third', status: 'pending', blockedBy: [] },
     ]),
     catalogInvariants: [],
-    designRef: 'docs/specs/feature.md',
+    designRef: DESIGN_REF,
+    designVersion: 1,
+    compilerVersion: PREPARE_COMPILER_VERSION,
     baseRef: 'feature/prepare-unit',
     executionProfile: { capabilities: ['fs:read', 'shell:exec'] },
     verificationSequence: (riskTier, boundaryTouching) => resolveVerificationPolicy(riskTier, boundaryTouching).sequence,
@@ -164,6 +171,65 @@ describe('delegation capsule compilation', () => {
       'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_integration_suite, check_contract_drift, check_mock_boundary.',
       'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
     ]);
+  });
+
+  /** Settlement reads the material kinds from the pinned capsule, so the compiler must write them there. */
+  it('Compile_TheEnvelope_PinsTheMaterialKinds', () => {
+    const outcome = compileDelegationCapsule(input());
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.capsule.contracts.deviationEnvelope.materialDeviationKinds).toEqual(['invalidated-assumption']);
+  });
+
+  /**
+   * The envelope refuses a deviation of a kind that is not allowed, so a material kind outside the allowed kinds never applies.
+   * The length assertion keeps the comparison from passing on an empty list.
+   */
+  it('Compile_EachMaterialKind_IsAlsoAnAllowedKind', () => {
+    const outcome = compileDelegationCapsule(input());
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    const { allowedDeviationKinds, materialDeviationKinds } = outcome.capsule.contracts.deviationEnvelope;
+    const material = materialDeviationKinds ?? [];
+    expect(material.length).toBeGreaterThan(0);
+    expect(material.filter((kind) => !allowedDeviationKinds.includes(kind))).toEqual([]);
+  });
+
+  /**
+   * The identity carries the id of the counter that the caller passes in, and no part of the design reference.
+   * The digest of the reference is a provenance source, and a new counter does not move it.
+   * The last comparison puts the first id back, so the counter changes nothing else in the capsule.
+   */
+  it('Compile_TheDesignVersion_IsTheIdOfTheCounterAndTheReferenceDigestStaysInProvenance', () => {
+    const first = compileDelegationCapsule(input());
+    const revised = compileDelegationCapsule(input({ designVersion: 2 }));
+    const unbound = compileDelegationCapsule(input({ designRef: undefined }));
+    if (!first.ok) throw new Error(first.refusal.message);
+    if (!revised.ok) throw new Error(revised.refusal.message);
+    if (!unbound.ok) throw new Error(unbound.refusal.message);
+
+    expect(first.capsule.identity.designVersion).toBe('design-v1');
+    expect(revised.capsule.identity.designVersion).toBe('design-v2');
+    expect(unbound.capsule.identity.designVersion).toBe('design-v1');
+
+    const designRecords = (outcome: typeof first): unknown[] =>
+      outcome.capsule.provenance.sources.filter((source) => source.sourceId === 'design-record');
+    expect(designRecords(first)).toEqual([{ sourceId: 'design-record', digest: contentDigest(DESIGN_REF) }]);
+    expect(designRecords(revised)).toEqual(designRecords(first));
+    expect(designRecords(unbound)).toEqual([]);
+
+    expect({
+      ...revised.capsule,
+      identity: { ...revised.capsule.identity, designVersion: first.capsule.identity.designVersion },
+    }).toEqual(first.capsule);
+  });
+
+  /** The handler keys its replay claim on the same name, so the provenance must carry the name that the caller passes. */
+  it('Compile_TheProvenance_NamesTheCompilerThatTheCallerPasses', () => {
+    const current = compileDelegationCapsule(input());
+    const earlier = compileDelegationCapsule(input({ compilerVersion: 'exarchos-prepare-earlier' }));
+    if (!current.ok) throw new Error(current.refusal.message);
+    if (!earlier.ok) throw new Error(earlier.refusal.message);
+    expect(current.capsule.provenance.compilerVersion).toBe(PREPARE_COMPILER_VERSION);
+    expect(earlier.capsule.provenance.compilerVersion).toBe('exarchos-prepare-earlier');
   });
 
   /**

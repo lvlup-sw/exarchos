@@ -57,7 +57,8 @@ export type PartitionOutcome =
   | { readonly ok: true; readonly batch: DelegationBatch }
   | { readonly ok: false; readonly refusal: PrepareRefusal };
 
-interface PlannedTask {
+/** One entry of the plan, as the plan reader resolves it. Settlement reads `complete` to learn how a task stands. */
+export interface PlannedTask {
   readonly id: string;
   readonly title: string;
   readonly complete: boolean;
@@ -109,7 +110,12 @@ function readVerification(entry: Record<string, unknown>, id: string): BatchTask
   return { riskTier: deriveRiskTier(stamp), boundaryTouching: deriveBoundaryTouching(stamp) };
 }
 
-function readPlannedTask(entry: unknown, index: number): PlannedTask | PrepareRefusal {
+/**
+ * Reads one entry of the plan. It refuses an entry with no stable id, and an entry with a stamp
+ * outside its vocabulary. A caller that reads the plan entry by entry can skip a refused entry
+ * and keep the others.
+ */
+export function readPlannedTask(entry: unknown, index: number): PlannedTask | PrepareRefusal {
   if (!isRecord(entry) || typeof entry.id !== 'string') {
     return { code: 'INVALID_TASK_ID', message: `planned task ${index} carries no id` };
   }

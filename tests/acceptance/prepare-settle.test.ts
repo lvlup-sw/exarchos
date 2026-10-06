@@ -2,7 +2,8 @@
 // and nothing between them.
 //
 // Every call goes through `dispatch` with a real caller identity and capability resolver. Thus
-// admission, the economy cap and the reserved-type guard apply as they do for an agent.
+// admission, the economy cap and the reserved-type guard apply as they do for an agent. One case
+// stores a capsule in the form of an earlier build, through the commit function of `prepare`.
 //
 // `settle` accepts the capsule from `prepare` by version, and answers a retry of the same batch
 // from the claim. It refuses an edited capsule, and only `prepare` can write the prepared record.
@@ -22,11 +23,17 @@ import { mkdtemp, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
+import { contentDigest } from '../../src/contract/capsule/capsule-digest.js';
+import { ExarchosCapsuleV1Schema } from '../../src/contract/capsule/exarchos-capsule.js';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
+import { DesignRevisedData, WorkflowPreparedData } from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
+import { lowerBuiltInDefinition } from '../../src/verbs/prepare/lower-definition.js';
+import { commitPreparedCapsule } from '../../src/verbs/prepare/prepared-record.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
+import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
@@ -98,26 +105,39 @@ const TASKS = [
 ];
 
 /**
- * Seeds a feature workflow in `delegate` with three ready tasks and their integration branch.
- * The events that the projection folds and the document that the transition guards read hold the
- * same facts.
+ * Seeds a feature workflow in `delegate` with its ready tasks and their integration branch.
+ * The plan is the three tasks, unless a case names another plan. The events that the projection
+ * folds and the document that the transition guards read hold the same facts.
+ *
+ * `document` adds fields to the document. A case that changes the plan through the `update` action
+ * marks the document as event-sourced, as `init` does, so the action also appends the patch.
  */
-async function seedDelegatingFeature(): Promise<void> {
+async function seedDelegatingFeature(
+  tasks: readonly (typeof TASKS)[number][] = TASKS,
+  document: Readonly<Record<string, unknown>> = {},
+): Promise<void> {
   await initStateFile(stateDir, STREAM, 'feature', {
+    ...document,
     phase: 'delegate',
-    tasks: TASKS.map(({ id, title, status }) => ({ id, title, status })),
+    tasks: tasks.map(({ id, title, status }) => ({ id, title, status })),
   });
   await eventStore.append(STREAM, { type: 'workflow.started', data: { featureId: STREAM, workflowType: 'feature' } });
   await eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await eventStore.append(STREAM, {
     type: 'state.patched',
-    data: { patch: { 'synthesis.integrationBranch': 'feature/prepare-settle', tasks: TASKS } },
+    data: { patch: { 'synthesis.integrationBranch': 'feature/prepare-settle', tasks } },
   });
 }
 
-/** Every task claims the same worktree: where the work is, and what it touched. */
-function completedClaims(worktreePath: string = greenWorktree): Record<string, unknown>[] {
-  return ['task-a', 'task-b', 'task-c'].map((taskId) => ({
+/**
+ * Every named task claims the same worktree: where the work is, and what it touched.
+ * The claims cover the three tasks, unless a case names the tasks of its batch.
+ */
+function completedClaims(
+  worktreePath: string = greenWorktree,
+  taskIds: readonly string[] = TASKS.map((task) => task.id),
+): Record<string, unknown>[] {
+  return taskIds.map((taskId) => ({
     taskId,
     fields: { worktreePath, files: [`src/${taskId}.ts`] },
     evidence: [],
@@ -151,10 +171,20 @@ interface PreparedReceipt {
   readonly capsuleVersion: number;
   readonly capsuleDigest: string;
   readonly capsule: Record<string, unknown> & {
+    readonly identity: { readonly designVersion: string };
     readonly graph: { readonly tasks: readonly { readonly taskId: string }[] };
     readonly contracts: Record<string, unknown>;
   };
 }
+
+/** The compiler name that the build before the design version counter stamped. */
+const EARLIER_COMPILER_VERSION = 'exarchos-prepare-1';
+
+/**
+ * The design version id that the earlier compiler stamped for a workflow with no design reference.
+ * It is the prefix, then the first sixteen hex digits of the digest of the absent reference.
+ */
+const EARLIER_DESIGN_VERSION_ID = `design-${contentDigest(null).slice(0, 16)}`;
 
 describe('prepare then settle, through the dispatcher', () => {
   /**
@@ -264,18 +294,25 @@ describe('prepare then settle, through the dispatcher', () => {
   });
 
   /**
-   * A worker reports that a capsule assumption is wrong. The compiled envelope admits the
-   * deviation kind and requires approval, so `settle` holds the batch. It verifies nothing,
-   * completes nothing, and names the pending deviation.
+   * A worker reports that the capsule lacks context. The compiled envelope admits the deviation
+   * kind and requires approval, so `settle` holds the batch. It verifies nothing, completes
+   * nothing, and names the pending deviation.
    *
    * The second `settle` call names the same batch and carries the decision and no claims. With
    * the deviation accepted, `settle` verifies the work and settles the batch. The decision is a
    * fact next to the proposal. The guards then admit the transition, as after any settled batch.
+   *
+   * The compiled envelope does not list this kind as material, so the acceptance revises nothing.
    */
   it('PrepareSettle_AHeldBatchDecided_IsThreeCallsAndCompletesItsTasks', async () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
-    const { capsuleVersion } = prepared.data as PreparedReceipt;
+    const { capsuleVersion, capsule } = prepared.data as PreparedReceipt;
+    expect(capsule.contracts.deviationEnvelope).toEqual({
+      allowedDeviationKinds: ['invalidated-assumption', 'missing-context'],
+      materialDeviationKinds: ['invalidated-assumption'],
+      requiresApproval: true,
+    });
 
     const held = await call('exarchos_orchestrate', {
       action: 'settle',
@@ -284,7 +321,7 @@ describe('prepare then settle, through the dispatcher', () => {
       batchId: 'batch-1',
       claims: completedClaims(),
       deviations: [
-        { deviationKind: 'invalidated-assumption', statement: 'the endpoint sends no validators; a bounded TTL cache replaces the ETag check' },
+        { deviationKind: 'missing-context', statement: 'the capsule does not say which cache the endpoint reads' },
       ],
     });
     expect(held.success, JSON.stringify(held)).toBe(true);
@@ -303,7 +340,7 @@ describe('prepare then settle, through the dispatcher', () => {
         deviationId,
         decision: 'accepted',
         actor: 'human:reviewer',
-        rationale: 'the endpoint really sends no validators',
+        rationale: 'the capsule really does not name the cache',
       })),
     });
     expect(decided.success, JSON.stringify(decided)).toBe(true);
@@ -311,6 +348,8 @@ describe('prepare then settle, through the dispatcher', () => {
     expect((decided.data as { outcome: string; round: number }).round).toBe(1);
     expect(await rowsOf('deviation.decided')).toHaveLength(1);
     expect(await rowsOf('execution.settled')).toHaveLength(2);
+    expect(await rowsOf('design.revised')).toEqual([]);
+    expect(decided.data).not.toHaveProperty('designRevision');
     const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
     expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
 
@@ -391,6 +430,308 @@ describe('prepare then settle, through the dispatcher', () => {
     const got = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
     const tasks = (got.data as { tasks: { status: string }[] }).tasks;
     expect(tasks.map((t) => t.status)).toEqual(['pending', 'pending', 'pending']);
+  });
+
+  /**
+   * The stored capsule is the one that this build compiles, with two fields in the form of the
+   * earlier build. They are the design version id in its hash form and the name of the earlier
+   * compiler. No call of this build compiles that form, so the commit function of `prepare` puts
+   * the capsule in custody as the next version. `settle` finds it by version and settles the batch.
+   */
+  it('PrepareSettle_ACapsuleStoredWithTheEarlierIdentityForm_StillSettles', async () => {
+    await seedDelegatingFeature();
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const current = ExarchosCapsuleV1Schema.parse((prepared.data as PreparedReceipt).capsule);
+    expect(EARLIER_DESIGN_VERSION_ID).toMatch(/^design-[0-9a-f]{16}$/);
+    expect(current.identity.designVersion).not.toBe(EARLIER_DESIGN_VERSION_ID);
+
+    const earlierVersion = current.identity.capsuleVersion + 1;
+    const earlier = ExarchosCapsuleV1Schema.parse({
+      ...current,
+      identity: { ...current.identity, designVersion: EARLIER_DESIGN_VERSION_ID, capsuleVersion: earlierVersion },
+      provenance: { ...current.provenance, compilerVersion: EARLIER_COMPILER_VERSION },
+    });
+    const lowered = lowerBuiltInDefinition('feature');
+    if (lowered === undefined) throw new Error('the feature workflow did not lower');
+    await commitPreparedCapsule(callerContext(), {
+      streamId: STREAM,
+      operationId: 'prepare:recorded-by-the-earlier-compiler',
+      requestDigest: 'sha256:recorded-by-the-earlier-compiler',
+      workflowType: 'feature',
+      capsule: earlier,
+      definition: lowered.definition,
+    });
+    const records = (await rowsOf('workflow.prepared')).map((row) =>
+      WorkflowPreparedData.parse((row as { data: unknown }).data),
+    );
+    expect(records.map((record) => [record.capsuleVersion, record.designVersion, record.compilerVersion])).toEqual([
+      [current.identity.capsuleVersion, 'design-v1', current.provenance.compilerVersion],
+      [earlierVersion, EARLIER_DESIGN_VERSION_ID, EARLIER_COMPILER_VERSION],
+    ]);
+
+    const settled = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion: earlierVersion,
+      batchId: 'batch-earlier-form',
+      claims: completedClaims(),
+    });
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    const receipt = settled.data as {
+      outcome: string;
+      acceptedTasks: string[];
+      capsule: { capsuleVersion: number; designVersion: string };
+    };
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.acceptedTasks).toEqual(['task-a', 'task-b', 'task-c']);
+    expect(receipt.capsule).toMatchObject({ capsuleVersion: earlierVersion, designVersion: EARLIER_DESIGN_VERSION_ID });
+    expect(await rowsOf('execution.settled')).toHaveLength(1);
+    const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
+    expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
+  });
+
+  /**
+   * The plan holds two tasks when the first capsule is compiled. Then the `update` action plans the
+   * third task. A deviation can name only an unfinished task that its own batch does not claim, so
+   * the deviation of the batch names the third task.
+   *
+   * The kind is material in the compiled envelope. The accepted decision settles the batch and
+   * records one design revision. The settled batch keeps the design version that it was compiled
+   * under. The next `prepare` compiles the third task under the next design version.
+   */
+  it('PrepareSettle_AnAcceptedMaterialDeviation_RevisesTheDesignAndTheNextCapsuleCompilesUnderIt', async () => {
+    const [first, second, third] = TASKS;
+    if (first === undefined || second === undefined || third === undefined) throw new Error('the plan is three tasks');
+    await seedDelegatingFeature([first, second], { _esVersion: CURRENT_ES_VERSION });
+
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const compiled = prepared.data as PreparedReceipt;
+    expect(compiled.capsuleVersion).toBe(1);
+    expect(compiled.capsule.identity.designVersion).toBe('design-v1');
+    expect(compiled.capsule.graph.tasks.map((t) => t.taskId)).toEqual([first.id, second.id]);
+
+    const planned = await call('exarchos_workflow', {
+      action: 'update',
+      featureId: STREAM,
+      updates: { tasks: TASKS },
+    });
+    expect(planned.success, JSON.stringify(planned)).toBe(true);
+
+    const batch = { action: 'settle', featureId: STREAM, capsuleVersion: compiled.capsuleVersion, batchId: 'batch-1' };
+    const held = await call('exarchos_orchestrate', {
+      ...batch,
+      claims: completedClaims(greenWorktree, [first.id, second.id]),
+      deviations: [
+        {
+          deviationKind: 'invalidated-assumption',
+          statement: 'the endpoint reads a cache that the design did not name',
+          affectedTasks: [third.id],
+          proposedChange: 'the third task reads the cache through the adapter',
+        },
+      ],
+    });
+    expect(held.success, JSON.stringify(held)).toBe(true);
+    const heldReceipt = held.data as {
+      outcome: string;
+      pendingDeviations?: { deviationId: string; affectedTasks?: string[] }[];
+    };
+    expect(heldReceipt.outcome).toBe('deviation-pending');
+    expect(heldReceipt.pendingDeviations?.map((pending) => pending.affectedTasks)).toEqual([[third.id]]);
+    expect(await rowsOf('design.revised')).toEqual([]);
+
+    const decided = await call('exarchos_orchestrate', {
+      ...batch,
+      decisions: (heldReceipt.pendingDeviations ?? []).map(({ deviationId }) => ({
+        deviationId,
+        decision: 'accepted',
+        actor: 'human:reviewer',
+        rationale: 'the design did not name the cache, and the change is sound',
+      })),
+    });
+    expect(decided.success, JSON.stringify(decided)).toBe(true);
+    const decidedReceipt = decided.data as {
+      outcome: string;
+      acceptedTasks: string[];
+      capsule: { designVersion: string };
+      designRevision?: { priorDesignVersion: number; nextDesignVersion: number; deviationIds: string[] };
+    };
+    expect(decidedReceipt.outcome).toBe('settled');
+    expect(decidedReceipt.acceptedTasks).toEqual([first.id, second.id]);
+    expect(decidedReceipt.capsule.designVersion).toBe('design-v1');
+    const deviationIds = (heldReceipt.pendingDeviations ?? []).map((pending) => pending.deviationId);
+    expect(deviationIds).toHaveLength(1);
+    expect(decidedReceipt.designRevision).toStrictEqual({ priorDesignVersion: 1, nextDesignVersion: 2, deviationIds });
+
+    const revisions = (await rowsOf('design.revised')).map((row) =>
+      DesignRevisedData.parse((row as { data: unknown }).data),
+    );
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0]).toMatchObject({
+      capsuleVersion: 1,
+      batchId: 'batch-1',
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds,
+      affectedTasks: [third.id],
+    });
+
+    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
+    const next = recompiled.data as PreparedReceipt;
+    expect(next.capsuleVersion).toBe(2);
+    expect(next.capsule.identity.designVersion).toBe('design-v2');
+    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual([third.id]);
+    const records = (await rowsOf('workflow.prepared')).map((row) =>
+      WorkflowPreparedData.parse((row as { data: unknown }).data),
+    );
+    expect(records.map((record) => [record.capsuleVersion, record.designVersion])).toEqual([
+      [1, 'design-v1'],
+      [2, 'design-v2'],
+    ]);
+  });
+
+  /**
+   * The first capsule holds one task. The `update` action then plans two tasks with no blocker, and
+   * the deviation of the first batch names one of them. The second `prepare` runs before the
+   * decision, so its capsule holds the named task under the terms that the revision changes.
+   *
+   * The accepted decision records the revision after the second capsule. A batch on that capsule is
+   * rejected for the named task, and the unfinished sibling in it stays unfinished. The third
+   * `prepare` compiles a new capsule under the next design version, and both tasks settle under it.
+   */
+  it('PrepareSettle_AClaimRefusedForALaterRevision_SettlesAfterTheNextPrepare', async () => {
+    const [first, sibling, named] = TASKS;
+    if (first === undefined || sibling === undefined || named === undefined) throw new Error('the plan is three tasks');
+    await seedDelegatingFeature([first], { _esVersion: CURRENT_ES_VERSION });
+
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const compiled = prepared.data as PreparedReceipt;
+    expect(compiled.capsuleVersion).toBe(1);
+    expect(compiled.capsule.graph.tasks.map((t) => t.taskId)).toEqual([first.id]);
+
+    const planned = await call('exarchos_workflow', {
+      action: 'update',
+      featureId: STREAM,
+      updates: { tasks: TASKS },
+    });
+    expect(planned.success, JSON.stringify(planned)).toBe(true);
+
+    const firstBatch = { action: 'settle', featureId: STREAM, capsuleVersion: compiled.capsuleVersion, batchId: 'batch-1' };
+    const held = await call('exarchos_orchestrate', {
+      ...firstBatch,
+      claims: completedClaims(greenWorktree, [first.id]),
+      deviations: [
+        {
+          deviationKind: 'invalidated-assumption',
+          statement: 'the endpoint reads a cache that the design did not name',
+          affectedTasks: [named.id],
+          proposedChange: 'the named task reads the cache through the adapter',
+        },
+      ],
+    });
+    expect(held.success, JSON.stringify(held)).toBe(true);
+    const heldReceipt = held.data as { outcome: string; pendingDeviations?: { deviationId: string }[] };
+    expect(heldReceipt.outcome).toBe('deviation-pending');
+    expect(heldReceipt.pendingDeviations).toHaveLength(1);
+
+    const beforeTheDecision = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(beforeTheDecision.success, JSON.stringify(beforeTheDecision)).toBe(true);
+    const second = beforeTheDecision.data as PreparedReceipt;
+    expect(second.capsuleVersion).toBe(2);
+    expect(second.capsule.identity.designVersion).toBe('design-v1');
+    expect(second.capsule.graph.tasks.map((t) => t.taskId)).toEqual([first.id, sibling.id, named.id]);
+
+    const decided = await call('exarchos_orchestrate', {
+      ...firstBatch,
+      decisions: (heldReceipt.pendingDeviations ?? []).map(({ deviationId }) => ({
+        deviationId,
+        decision: 'accepted',
+        actor: 'human:reviewer',
+        rationale: 'the design did not name the cache, and the change is sound',
+      })),
+    });
+    expect(decided.success, JSON.stringify(decided)).toBe(true);
+    const decidedReceipt = decided.data as {
+      outcome: string;
+      acceptedTasks: string[];
+      designRevision?: { priorDesignVersion: number; nextDesignVersion: number };
+    };
+    expect(decidedReceipt.outcome).toBe('settled');
+    expect(decidedReceipt.acceptedTasks).toEqual([first.id]);
+    expect(decidedReceipt.designRevision).toMatchObject({ priorDesignVersion: 1, nextDesignVersion: 2 });
+
+    const stream = await eventStore.query(STREAM);
+    const revisionRows = stream.filter((event) => event.type === 'design.revised');
+    expect(revisionRows).toHaveLength(1);
+    expect(DesignRevisedData.parse(revisionRows[0]?.data).affectedTasks).toEqual([named.id]);
+    const secondRecord = stream.filter((event) => event.type === 'workflow.prepared')[1];
+    expect(WorkflowPreparedData.parse(secondRecord?.data).capsuleVersion).toBe(2);
+    expect(secondRecord?.sequence ?? Number.NaN).toBeLessThan(revisionRows[0]?.sequence ?? Number.NaN);
+
+    const refused = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion: second.capsuleVersion,
+      batchId: 'batch-2',
+      claims: completedClaims(),
+    });
+    expect(refused.success, JSON.stringify(refused)).toBe(true);
+    const refusedReceipt = refused.data as {
+      outcome: string;
+      findings: { kind: string; subject: string; message: string }[];
+      verification: unknown[];
+    };
+    expect(refusedReceipt.outcome).toBe('rejected');
+    expect(refusedReceipt.findings.map((f) => [f.kind, f.subject])).toEqual([
+      ['claim-superseded-by-revision', named.id],
+    ]);
+    expect(refusedReceipt.findings[0]?.message).toContain('design version 2');
+    expect(refusedReceipt.findings[0]?.message).toContain('prepare again');
+    expect(refusedReceipt.verification).toEqual([]);
+    expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(1);
+    const completedBefore = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
+    expect(completedBefore.map((e) => e.data.taskId)).toEqual([first.id]);
+
+    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
+    const third = recompiled.data as PreparedReceipt;
+    expect(third.capsuleVersion).toBe(3);
+    expect(third.capsuleDigest).not.toBe(second.capsuleDigest);
+    expect(third.capsule.identity.designVersion).toBe('design-v2');
+    expect(third.capsule.graph.tasks.map((t) => t.taskId)).toEqual([sibling.id, named.id]);
+    const records = (await rowsOf('workflow.prepared')).map((row) =>
+      WorkflowPreparedData.parse((row as { data: unknown }).data),
+    );
+    expect(records.map((record) => [record.capsuleVersion, record.designVersion])).toEqual([
+      [1, 'design-v1'],
+      [2, 'design-v1'],
+      [3, 'design-v2'],
+    ]);
+
+    const settled = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion: third.capsuleVersion,
+      batchId: 'batch-3',
+      claims: completedClaims(greenWorktree, [sibling.id, named.id]),
+    });
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    const settledReceipt = settled.data as {
+      outcome: string;
+      acceptedTasks: string[];
+      findings: unknown[];
+      capsule: { capsuleVersion: number; designVersion: string };
+    };
+    expect(settledReceipt.outcome).toBe('settled');
+    expect(settledReceipt.findings).toEqual([]);
+    expect(settledReceipt.acceptedTasks).toEqual([sibling.id, named.id]);
+    expect(settledReceipt.capsule).toMatchObject({ capsuleVersion: 3, designVersion: 'design-v2' });
+    const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
+    expect(completions.map((e) => e.data.taskId).sort()).toEqual([first.id, sibling.id, named.id]);
+    expect(await rowsOf('design.revised')).toHaveLength(1);
   });
 
   /**
@@ -488,5 +829,38 @@ describe('prepare then settle, through the dispatcher', () => {
       error: { code: 'RESERVED_EVENT_TYPE', eventType: 'deviation.decided' },
     });
     expect(await rowsOf('deviation.decided')).toEqual([]);
+  });
+
+  /**
+   * A revision row moves the design version of the stream. If the generic surface can append it, a
+   * caller can revise the design with no accepted deviation. The row is well formed, so the
+   * refusal is the reservation and not the shape of the row.
+   */
+  it('PrepareSettle_ADesignRevision_CannotBeAppendedByAnyoneButSettle', async () => {
+    const data = {
+      operationId: 'settle:forged',
+      workflowId: STREAM,
+      capsuleVersion: 1,
+      batchId: 'batch-1',
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: ['dev:forged'],
+      affectedTasks: [],
+      bundleRefs: [
+        { artifactId: 'run-bundle:settlement-adjudication:batch-1:1', digest: { algorithm: 'sha256', value: 'f'.repeat(64) } },
+      ],
+    };
+    expect(DesignRevisedData.safeParse(data).success).toBe(true);
+
+    const result = await dispatch(
+      'exarchos_event',
+      { action: 'append', stream: STREAM, event: { type: 'design.revised', data } },
+      callerContext(),
+    );
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'design.revised' },
+    });
+    expect(await rowsOf('design.revised')).toEqual([]);
   });
 });

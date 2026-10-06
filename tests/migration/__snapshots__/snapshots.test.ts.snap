@@ -94,7 +94,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — and its \`baseRef\`, the integration branch the task's worktree forks from and the kill probe measures its diff from |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
-| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing |
+| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
 | \`knowledge.rationale[]\` | The design of record |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
@@ -111,7 +111,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, \`prepare\` again |
 | \`RUNTIME_UNFIT\` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan or a changed integration branch compiles the next version. **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
+A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (\`identity.designVersion\`, \`design-v<N>\`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
@@ -161,7 +161,7 @@ Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
 2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
-3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, with a statement) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
+3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -275,7 +275,11 @@ const claims = reports.map((r) => ({
 }))
 \`\`\`
 
-**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement }\`), not into a fudged claim.
+**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
+
+**A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — the held receipt lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides.
+
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -296,10 +300,14 @@ exarchos_orchestrate({
 
 Settlement adjudicates every claim's shape against the capsule, then — for a batch with no finding — runs each task's verification through the executor and reads the outcome back. One call, every reason: the receipt's \`findings\` list everything wrong at once, and \`verification[]\` names the segment each task ran under (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
+A receipt over its response budget comes back as a summary. It always keeps the round, \`designRevision\`, every pending deviation (id and kind) and every decision (id and decision). Beside them it keeps the first page of findings (\`firstPage\`, without the messages) and up to four \`verification[]\` outcomes, failures first, each failure with its \`operationId\` and \`failedLeaf\` — so a rejected batch still names where its first failures halted. To fit, it drops the findings page first and the outcomes second; what it drops stays in the settlement bundle \`bundleRefs\` names.
+
 **\`settled\`** — every accepted task passed its gates and is recorded complete (\`task.completed\` from the same leaf the primitive path uses; the state document the transition guard reads is level). Go to Step 4.
 
 **\`rejected\`** — read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not verified, and it was not held. Fix the deviation: a kind outside the envelope is an escalation, and the other three are \`affectedTasks\` entries a deviation cannot name (Build the batch, above).
+- \`claim-superseded-by-revision\`: a design revision recorded after this capsule was compiled names the claimed task, so the capsule holds the task's earlier terms and the whole batch is rejected. \`prepare\` again, and settle the batch under the new capsule.
 - \`verification-failed\`: the task's segment halted on the named leaf (the message carries the gate's own reason; \`verification[].operationId\` reads the segment's receipt back through \`execute_intent\`). Dispatch a fixer to that worktree (below). Tasks whose segments committed are complete and stay complete.
 
 Then resubmit **every required task** under a **new** batch id — a settled batch id is claimed, and a correction is a new batch. Already-complete tasks are accepted without running again:
@@ -314,7 +322,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them. Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
+**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them, each with the change it proposes (the receipt does not carry it). Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -331,7 +339,9 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. \`rejected\` records it and rejects the batch: revise the plan and \`prepare\` again (recording the revision as its own fact is the next slice of the divergence loop). A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. A correction that follows an accepted decision does not restate the deviation — it is decided, and restated it is a new proposal that holds the new batch for a second decision. \`rejected\` records the decision too and rejects the batch: revise the plan — a rework task planned for the rejected deviation is removed from it — and \`prepare\` again. A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+
+**\`designRevision\` on the receipt** — the round accepted at least one deviation of a material kind and recorded one design revision for it (\`design.revised\`, design version N to N+1), whatever the round's verdict. The receipt names the two versions and the deviations (\`priorDesignVersion\`, \`nextDesignVersion\`, \`deviationIds\`). It means: revise the plan if the accepted change needs it, then \`prepare\` again — the tasks the revision names settle only under a capsule compiled after it. A claim refused as \`claim-superseded-by-revision\` means the same.
 
 **Errors** (nothing adjudicated): \`CAPSULE_NOT_PREPARED\` — the version was never prepared here; \`CAPSULE_DIGEST_MISMATCH\` — a submitted capsule is not the recorded one; \`CAPSULE_UNRESOLVED\` — the recorded capsule cannot be applied (a task without verification terms: \`prepare\` again); \`OPERATION_DIGEST_MISMATCH\` — the batch id was already settled under different claims, or decided under a different decision: use a new id, or the decision that stands; \`BATCH_NOT_HELD\` — decisions for a batch that was never settled, or is settled or rejected already: nothing waits on a decision; \`DECISION_INCOMPLETE\` — the decision answers fewer deviations than the batch waits on; \`INVALID_INPUT\` — a claim the segment cannot be built from (typically no \`worktreePath\`), corrected under the **same** id, or a decision that carries claims or names no pending deviation.
 
@@ -1186,7 +1196,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — and its \`baseRef\`, the integration branch the task's worktree forks from and the kill probe measures its diff from |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
-| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing |
+| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
 | \`knowledge.rationale[]\` | The design of record |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
@@ -1203,7 +1213,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, \`prepare\` again |
 | \`RUNTIME_UNFIT\` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan or a changed integration branch compiles the next version. **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
+A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (\`identity.designVersion\`, \`design-v<N>\`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
@@ -1253,7 +1263,7 @@ Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
 2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
-3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, with a statement) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
+3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -1341,7 +1351,11 @@ const claims = reports.map((r) => ({
 }))
 \`\`\`
 
-**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement }\`), not into a fudged claim.
+**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
+
+**A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — the held receipt lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides.
+
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -1362,10 +1376,14 @@ exarchos_orchestrate({
 
 Settlement adjudicates every claim's shape against the capsule, then — for a batch with no finding — runs each task's verification through the executor and reads the outcome back. One call, every reason: the receipt's \`findings\` list everything wrong at once, and \`verification[]\` names the segment each task ran under (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
+A receipt over its response budget comes back as a summary. It always keeps the round, \`designRevision\`, every pending deviation (id and kind) and every decision (id and decision). Beside them it keeps the first page of findings (\`firstPage\`, without the messages) and up to four \`verification[]\` outcomes, failures first, each failure with its \`operationId\` and \`failedLeaf\` — so a rejected batch still names where its first failures halted. To fit, it drops the findings page first and the outcomes second; what it drops stays in the settlement bundle \`bundleRefs\` names.
+
 **\`settled\`** — every accepted task passed its gates and is recorded complete (\`task.completed\` from the same leaf the primitive path uses; the state document the transition guard reads is level). Go to Step 4.
 
 **\`rejected\`** — read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not verified, and it was not held. Fix the deviation: a kind outside the envelope is an escalation, and the other three are \`affectedTasks\` entries a deviation cannot name (Build the batch, above).
+- \`claim-superseded-by-revision\`: a design revision recorded after this capsule was compiled names the claimed task, so the capsule holds the task's earlier terms and the whole batch is rejected. \`prepare\` again, and settle the batch under the new capsule.
 - \`verification-failed\`: the task's segment halted on the named leaf (the message carries the gate's own reason; \`verification[].operationId\` reads the segment's receipt back through \`execute_intent\`). Dispatch a fixer to that worktree (below). Tasks whose segments committed are complete and stay complete.
 
 Then resubmit **every required task** under a **new** batch id — a settled batch id is claimed, and a correction is a new batch. Already-complete tasks are accepted without running again:
@@ -1380,7 +1398,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them. Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
+**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them, each with the change it proposes (the receipt does not carry it). Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -1397,7 +1415,9 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. \`rejected\` records it and rejects the batch: revise the plan and \`prepare\` again (recording the revision as its own fact is the next slice of the divergence loop). A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. A correction that follows an accepted decision does not restate the deviation — it is decided, and restated it is a new proposal that holds the new batch for a second decision. \`rejected\` records the decision too and rejects the batch: revise the plan — a rework task planned for the rejected deviation is removed from it — and \`prepare\` again. A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+
+**\`designRevision\` on the receipt** — the round accepted at least one deviation of a material kind and recorded one design revision for it (\`design.revised\`, design version N to N+1), whatever the round's verdict. The receipt names the two versions and the deviations (\`priorDesignVersion\`, \`nextDesignVersion\`, \`deviationIds\`). It means: revise the plan if the accepted change needs it, then \`prepare\` again — the tasks the revision names settle only under a capsule compiled after it. A claim refused as \`claim-superseded-by-revision\` means the same.
 
 **Errors** (nothing adjudicated): \`CAPSULE_NOT_PREPARED\` — the version was never prepared here; \`CAPSULE_DIGEST_MISMATCH\` — a submitted capsule is not the recorded one; \`CAPSULE_UNRESOLVED\` — the recorded capsule cannot be applied (a task without verification terms: \`prepare\` again); \`OPERATION_DIGEST_MISMATCH\` — the batch id was already settled under different claims, or decided under a different decision: use a new id, or the decision that stands; \`BATCH_NOT_HELD\` — decisions for a batch that was never settled, or is settled or rejected already: nothing waits on a decision; \`DECISION_INCOMPLETE\` — the decision answers fewer deviations than the batch waits on; \`INVALID_INPUT\` — a claim the segment cannot be built from (typically no \`worktreePath\`), corrected under the **same** id, or a decision that carries claims or names no pending deviation.
 
@@ -2219,7 +2239,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — and its \`baseRef\`, the integration branch the task's worktree forks from and the kill probe measures its diff from |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
-| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing |
+| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
 | \`knowledge.rationale[]\` | The design of record |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
@@ -2236,7 +2256,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, \`prepare\` again |
 | \`RUNTIME_UNFIT\` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan or a changed integration branch compiles the next version. **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
+A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (\`identity.designVersion\`, \`design-v<N>\`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
@@ -2286,7 +2306,7 @@ Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
 2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
-3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, with a statement) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
+3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -2370,7 +2390,11 @@ const claims = reports.map((r) => ({
 }))
 \`\`\`
 
-**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement }\`), not into a fudged claim.
+**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
+
+**A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — the held receipt lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides.
+
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -2391,10 +2415,14 @@ exarchos_orchestrate({
 
 Settlement adjudicates every claim's shape against the capsule, then — for a batch with no finding — runs each task's verification through the executor and reads the outcome back. One call, every reason: the receipt's \`findings\` list everything wrong at once, and \`verification[]\` names the segment each task ran under (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
+A receipt over its response budget comes back as a summary. It always keeps the round, \`designRevision\`, every pending deviation (id and kind) and every decision (id and decision). Beside them it keeps the first page of findings (\`firstPage\`, without the messages) and up to four \`verification[]\` outcomes, failures first, each failure with its \`operationId\` and \`failedLeaf\` — so a rejected batch still names where its first failures halted. To fit, it drops the findings page first and the outcomes second; what it drops stays in the settlement bundle \`bundleRefs\` names.
+
 **\`settled\`** — every accepted task passed its gates and is recorded complete (\`task.completed\` from the same leaf the primitive path uses; the state document the transition guard reads is level). Go to Step 4.
 
 **\`rejected\`** — read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not verified, and it was not held. Fix the deviation: a kind outside the envelope is an escalation, and the other three are \`affectedTasks\` entries a deviation cannot name (Build the batch, above).
+- \`claim-superseded-by-revision\`: a design revision recorded after this capsule was compiled names the claimed task, so the capsule holds the task's earlier terms and the whole batch is rejected. \`prepare\` again, and settle the batch under the new capsule.
 - \`verification-failed\`: the task's segment halted on the named leaf (the message carries the gate's own reason; \`verification[].operationId\` reads the segment's receipt back through \`execute_intent\`). Dispatch a fixer to that worktree (below). Tasks whose segments committed are complete and stay complete.
 
 Then resubmit **every required task** under a **new** batch id — a settled batch id is claimed, and a correction is a new batch. Already-complete tasks are accepted without running again:
@@ -2409,7 +2437,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them. Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
+**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them, each with the change it proposes (the receipt does not carry it). Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -2426,7 +2454,9 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. \`rejected\` records it and rejects the batch: revise the plan and \`prepare\` again (recording the revision as its own fact is the next slice of the divergence loop). A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. A correction that follows an accepted decision does not restate the deviation — it is decided, and restated it is a new proposal that holds the new batch for a second decision. \`rejected\` records the decision too and rejects the batch: revise the plan — a rework task planned for the rejected deviation is removed from it — and \`prepare\` again. A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+
+**\`designRevision\` on the receipt** — the round accepted at least one deviation of a material kind and recorded one design revision for it (\`design.revised\`, design version N to N+1), whatever the round's verdict. The receipt names the two versions and the deviations (\`priorDesignVersion\`, \`nextDesignVersion\`, \`deviationIds\`). It means: revise the plan if the accepted change needs it, then \`prepare\` again — the tasks the revision names settle only under a capsule compiled after it. A claim refused as \`claim-superseded-by-revision\` means the same.
 
 **Errors** (nothing adjudicated): \`CAPSULE_NOT_PREPARED\` — the version was never prepared here; \`CAPSULE_DIGEST_MISMATCH\` — a submitted capsule is not the recorded one; \`CAPSULE_UNRESOLVED\` — the recorded capsule cannot be applied (a task without verification terms: \`prepare\` again); \`OPERATION_DIGEST_MISMATCH\` — the batch id was already settled under different claims, or decided under a different decision: use a new id, or the decision that stands; \`BATCH_NOT_HELD\` — decisions for a batch that was never settled, or is settled or rejected already: nothing waits on a decision; \`DECISION_INCOMPLETE\` — the decision answers fewer deviations than the batch waits on; \`INVALID_INPUT\` — a claim the segment cannot be built from (typically no \`worktreePath\`), corrected under the **same** id, or a decision that carries claims or names no pending deviation.
 
@@ -3244,7 +3274,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — and its \`baseRef\`, the integration branch the task's worktree forks from and the kill probe measures its diff from |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
-| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing |
+| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
 | \`knowledge.rationale[]\` | The design of record |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
@@ -3261,7 +3291,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, \`prepare\` again |
 | \`RUNTIME_UNFIT\` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan or a changed integration branch compiles the next version. **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
+A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (\`identity.designVersion\`, \`design-v<N>\`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
@@ -3311,7 +3341,7 @@ Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
 2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
-3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, with a statement) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
+3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -3400,7 +3430,11 @@ const claims = reports.map((r) => ({
 }))
 \`\`\`
 
-**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement }\`), not into a fudged claim.
+**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
+
+**A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — the held receipt lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides.
+
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -3421,10 +3455,14 @@ exarchos_orchestrate({
 
 Settlement adjudicates every claim's shape against the capsule, then — for a batch with no finding — runs each task's verification through the executor and reads the outcome back. One call, every reason: the receipt's \`findings\` list everything wrong at once, and \`verification[]\` names the segment each task ran under (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
+A receipt over its response budget comes back as a summary. It always keeps the round, \`designRevision\`, every pending deviation (id and kind) and every decision (id and decision). Beside them it keeps the first page of findings (\`firstPage\`, without the messages) and up to four \`verification[]\` outcomes, failures first, each failure with its \`operationId\` and \`failedLeaf\` — so a rejected batch still names where its first failures halted. To fit, it drops the findings page first and the outcomes second; what it drops stays in the settlement bundle \`bundleRefs\` names.
+
 **\`settled\`** — every accepted task passed its gates and is recorded complete (\`task.completed\` from the same leaf the primitive path uses; the state document the transition guard reads is level). Go to Step 4.
 
 **\`rejected\`** — read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not verified, and it was not held. Fix the deviation: a kind outside the envelope is an escalation, and the other three are \`affectedTasks\` entries a deviation cannot name (Build the batch, above).
+- \`claim-superseded-by-revision\`: a design revision recorded after this capsule was compiled names the claimed task, so the capsule holds the task's earlier terms and the whole batch is rejected. \`prepare\` again, and settle the batch under the new capsule.
 - \`verification-failed\`: the task's segment halted on the named leaf (the message carries the gate's own reason; \`verification[].operationId\` reads the segment's receipt back through \`execute_intent\`). Dispatch a fixer to that worktree (below). Tasks whose segments committed are complete and stay complete.
 
 Then resubmit **every required task** under a **new** batch id — a settled batch id is claimed, and a correction is a new batch. Already-complete tasks are accepted without running again:
@@ -3439,7 +3477,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them. Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
+**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them, each with the change it proposes (the receipt does not carry it). Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -3456,7 +3494,9 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. \`rejected\` records it and rejects the batch: revise the plan and \`prepare\` again (recording the revision as its own fact is the next slice of the divergence loop). A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. A correction that follows an accepted decision does not restate the deviation — it is decided, and restated it is a new proposal that holds the new batch for a second decision. \`rejected\` records the decision too and rejects the batch: revise the plan — a rework task planned for the rejected deviation is removed from it — and \`prepare\` again. A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+
+**\`designRevision\` on the receipt** — the round accepted at least one deviation of a material kind and recorded one design revision for it (\`design.revised\`, design version N to N+1), whatever the round's verdict. The receipt names the two versions and the deviations (\`priorDesignVersion\`, \`nextDesignVersion\`, \`deviationIds\`). It means: revise the plan if the accepted change needs it, then \`prepare\` again — the tasks the revision names settle only under a capsule compiled after it. A claim refused as \`claim-superseded-by-revision\` means the same.
 
 **Errors** (nothing adjudicated): \`CAPSULE_NOT_PREPARED\` — the version was never prepared here; \`CAPSULE_DIGEST_MISMATCH\` — a submitted capsule is not the recorded one; \`CAPSULE_UNRESOLVED\` — the recorded capsule cannot be applied (a task without verification terms: \`prepare\` again); \`OPERATION_DIGEST_MISMATCH\` — the batch id was already settled under different claims, or decided under a different decision: use a new id, or the decision that stands; \`BATCH_NOT_HELD\` — decisions for a batch that was never settled, or is settled or rejected already: nothing waits on a decision; \`DECISION_INCOMPLETE\` — the decision answers fewer deviations than the batch waits on; \`INVALID_INPUT\` — a claim the segment cannot be built from (typically no \`worktreePath\`), corrected under the **same** id, or a decision that carries claims or names no pending deviation.
 
@@ -4279,7 +4319,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — and its \`baseRef\`, the integration branch the task's worktree forks from and the kill probe measures its diff from |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
-| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing |
+| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
 | \`knowledge.rationale[]\` | The design of record |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
@@ -4296,7 +4336,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, \`prepare\` again |
 | \`RUNTIME_UNFIT\` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan or a changed integration branch compiles the next version. **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
+A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (\`identity.designVersion\`, \`design-v<N>\`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
@@ -4337,7 +4377,7 @@ Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
 2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
-3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, with a statement) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
+3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -4411,7 +4451,11 @@ const claims = reports.map((r) => ({
 }))
 \`\`\`
 
-**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement }\`), not into a fudged claim.
+**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
+
+**A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — the held receipt lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides.
+
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -4432,10 +4476,14 @@ exarchos_orchestrate({
 
 Settlement adjudicates every claim's shape against the capsule, then — for a batch with no finding — runs each task's verification through the executor and reads the outcome back. One call, every reason: the receipt's \`findings\` list everything wrong at once, and \`verification[]\` names the segment each task ran under (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
+A receipt over its response budget comes back as a summary. It always keeps the round, \`designRevision\`, every pending deviation (id and kind) and every decision (id and decision). Beside them it keeps the first page of findings (\`firstPage\`, without the messages) and up to four \`verification[]\` outcomes, failures first, each failure with its \`operationId\` and \`failedLeaf\` — so a rejected batch still names where its first failures halted. To fit, it drops the findings page first and the outcomes second; what it drops stays in the settlement bundle \`bundleRefs\` names.
+
 **\`settled\`** — every accepted task passed its gates and is recorded complete (\`task.completed\` from the same leaf the primitive path uses; the state document the transition guard reads is level). Go to Step 4.
 
 **\`rejected\`** — read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not verified, and it was not held. Fix the deviation: a kind outside the envelope is an escalation, and the other three are \`affectedTasks\` entries a deviation cannot name (Build the batch, above).
+- \`claim-superseded-by-revision\`: a design revision recorded after this capsule was compiled names the claimed task, so the capsule holds the task's earlier terms and the whole batch is rejected. \`prepare\` again, and settle the batch under the new capsule.
 - \`verification-failed\`: the task's segment halted on the named leaf (the message carries the gate's own reason; \`verification[].operationId\` reads the segment's receipt back through \`execute_intent\`). Dispatch a fixer to that worktree (below). Tasks whose segments committed are complete and stay complete.
 
 Then resubmit **every required task** under a **new** batch id — a settled batch id is claimed, and a correction is a new batch. Already-complete tasks are accepted without running again:
@@ -4450,7 +4498,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them. Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
+**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them, each with the change it proposes (the receipt does not carry it). Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -4467,7 +4515,9 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. \`rejected\` records it and rejects the batch: revise the plan and \`prepare\` again (recording the revision as its own fact is the next slice of the divergence loop). A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. A correction that follows an accepted decision does not restate the deviation — it is decided, and restated it is a new proposal that holds the new batch for a second decision. \`rejected\` records the decision too and rejects the batch: revise the plan — a rework task planned for the rejected deviation is removed from it — and \`prepare\` again. A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+
+**\`designRevision\` on the receipt** — the round accepted at least one deviation of a material kind and recorded one design revision for it (\`design.revised\`, design version N to N+1), whatever the round's verdict. The receipt names the two versions and the deviations (\`priorDesignVersion\`, \`nextDesignVersion\`, \`deviationIds\`). It means: revise the plan if the accepted change needs it, then \`prepare\` again — the tasks the revision names settle only under a capsule compiled after it. A claim refused as \`claim-superseded-by-revision\` means the same.
 
 **Errors** (nothing adjudicated): \`CAPSULE_NOT_PREPARED\` — the version was never prepared here; \`CAPSULE_DIGEST_MISMATCH\` — a submitted capsule is not the recorded one; \`CAPSULE_UNRESOLVED\` — the recorded capsule cannot be applied (a task without verification terms: \`prepare\` again); \`OPERATION_DIGEST_MISMATCH\` — the batch id was already settled under different claims, or decided under a different decision: use a new id, or the decision that stands; \`BATCH_NOT_HELD\` — decisions for a batch that was never settled, or is settled or rejected already: nothing waits on a decision; \`DECISION_INCOMPLETE\` — the decision answers fewer deviations than the batch waits on; \`INVALID_INPUT\` — a claim the segment cannot be built from (typically no \`worktreePath\`), corrected under the **same** id, or a decision that carries claims or names no pending deviation.
 
@@ -5285,7 +5335,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — and its \`baseRef\`, the integration branch the task's worktree forks from and the kill probe measures its diff from |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
-| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing |
+| \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
 | \`knowledge.rationale[]\` | The design of record |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
@@ -5302,7 +5352,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`UNKNOWN_DEPENDENCY\`, \`INVALID_TASK_ID\`, \`INVALID_TASK_STAMP\`, \`CAPSULE_UNSOUND\` | The plan cannot be expressed as a batch | Fix the plan, \`prepare\` again |
 | \`RUNTIME_UNFIT\` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan or a changed integration branch compiles the next version. **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
+A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (\`identity.designVersion\`, \`design-v<N>\`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
@@ -5352,7 +5402,7 @@ Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
 2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
-3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, with a statement) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
+3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -5440,7 +5490,11 @@ const claims = reports.map((r) => ({
 }))
 \`\`\`
 
-**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement }\`), not into a fudged claim.
+**Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
+
+**A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — the held receipt lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides.
+
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -5461,10 +5515,14 @@ exarchos_orchestrate({
 
 Settlement adjudicates every claim's shape against the capsule, then — for a batch with no finding — runs each task's verification through the executor and reads the outcome back. One call, every reason: the receipt's \`findings\` list everything wrong at once, and \`verification[]\` names the segment each task ran under (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
+A receipt over its response budget comes back as a summary. It always keeps the round, \`designRevision\`, every pending deviation (id and kind) and every decision (id and decision). Beside them it keeps the first page of findings (\`firstPage\`, without the messages) and up to four \`verification[]\` outcomes, failures first, each failure with its \`operationId\` and \`failedLeaf\` — so a rejected batch still names where its first failures halted. To fit, it drops the findings page first and the outcomes second; what it drops stays in the settlement bundle \`bundleRefs\` names.
+
 **\`settled\`** — every accepted task passed its gates and is recorded complete (\`task.completed\` from the same leaf the primitive path uses; the state document the transition guard reads is level). Go to Step 4.
 
 **\`rejected\`** — read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): the batch was not verified. Fix the claim.
+- A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not verified, and it was not held. Fix the deviation: a kind outside the envelope is an escalation, and the other three are \`affectedTasks\` entries a deviation cannot name (Build the batch, above).
+- \`claim-superseded-by-revision\`: a design revision recorded after this capsule was compiled names the claimed task, so the capsule holds the task's earlier terms and the whole batch is rejected. \`prepare\` again, and settle the batch under the new capsule.
 - \`verification-failed\`: the task's segment halted on the named leaf (the message carries the gate's own reason; \`verification[].operationId\` reads the segment's receipt back through \`execute_intent\`). Dispatch a fixer to that worktree (below). Tasks whose segments committed are complete and stay complete.
 
 Then resubmit **every required task** under a **new** batch id — a settled batch id is claimed, and a correction is a new batch. Already-complete tasks are accepted without running again:
@@ -5479,7 +5537,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them. Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
+**\`deviation-pending\`** — a worker proposed a deviation inside the envelope and the envelope requires approval. Nothing was verified; no task is complete. The receipt's \`pendingDeviations\` names each deviation by \`deviationId\`, and the stream carries one \`deviation.proposed\` per entry. **Human checkpoint**: present them, each with the change it proposes (the receipt does not carry it). Then settle the **same** batch again with the decisions and **no claims** — the batch decided is the batch held, read back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -5496,7 +5554,9 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. \`rejected\` records it and rejects the batch: revise the plan and \`prepare\` again (recording the revision as its own fact is the next slice of the divergence loop). A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+Every pending deviation is decided in that one call (\`DECISION_INCOMPLETE\` otherwise). \`accepted\` records the decision (\`deviation.decided\`) and verifies the work the deviation stood on: the batch settles, or is rejected on verification like any other. A correction that follows an accepted decision does not restate the deviation — it is decided, and restated it is a new proposal that holds the new batch for a second decision. \`rejected\` records the decision too and rejects the batch: revise the plan — a rework task planned for the rejected deviation is removed from it — and \`prepare\` again. A decision is recorded once — resubmitting it returns the verdict; a different decision on a decided batch is refused.
+
+**\`designRevision\` on the receipt** — the round accepted at least one deviation of a material kind and recorded one design revision for it (\`design.revised\`, design version N to N+1), whatever the round's verdict. The receipt names the two versions and the deviations (\`priorDesignVersion\`, \`nextDesignVersion\`, \`deviationIds\`). It means: revise the plan if the accepted change needs it, then \`prepare\` again — the tasks the revision names settle only under a capsule compiled after it. A claim refused as \`claim-superseded-by-revision\` means the same.
 
 **Errors** (nothing adjudicated): \`CAPSULE_NOT_PREPARED\` — the version was never prepared here; \`CAPSULE_DIGEST_MISMATCH\` — a submitted capsule is not the recorded one; \`CAPSULE_UNRESOLVED\` — the recorded capsule cannot be applied (a task without verification terms: \`prepare\` again); \`OPERATION_DIGEST_MISMATCH\` — the batch id was already settled under different claims, or decided under a different decision: use a new id, or the decision that stands; \`BATCH_NOT_HELD\` — decisions for a batch that was never settled, or is settled or rejected already: nothing waits on a decision; \`DECISION_INCOMPLETE\` — the decision answers fewer deviations than the batch waits on; \`INVALID_INPUT\` — a claim the segment cannot be built from (typically no \`worktreePath\`), corrected under the **same** id, or a decision that carries claims or names no pending deviation.
 

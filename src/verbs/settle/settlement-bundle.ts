@@ -48,8 +48,17 @@ const ClaimTraceSchema = z
   })
   .strict();
 
+/**
+ * One deviation as the batch carried it, in the normal form that its id hashes. The two optional
+ * fields have no bound here. The request bounds them, and a stored batch must always decode.
+ */
 const DeviationSchema = z
-  .object({ deviationKind: z.string().min(1), statement: z.string().min(1) })
+  .object({
+    deviationKind: z.string().min(1),
+    statement: z.string().min(1),
+    affectedTasks: z.array(z.string().min(1)).optional(),
+    proposedChange: z.string().min(1).optional(),
+  })
   .strict();
 
 /** One decision a decision round carried, as it was applied. */

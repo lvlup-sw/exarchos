@@ -243,7 +243,22 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing and the transition follow as on the normal path. A rejected one rejects the batch; revising the plan and preparing again is the normal path, and recording the revision is the next slice of the divergence loop.',
+      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing and the transition follow as on the normal path. A rejected one rejects the batch; revising the plan and preparing again is the normal path. An accepted deviation of a material kind also records a design revision on that call, which the design-revised path follows.',
+    },
+    {
+      id: 'design-revised',
+      label: 'an accepted deviation revises the design, so the tasks the orchestrator named as affected wait for the next capsule version',
+      trigger: { source: 'delegate', needle: 'the orchestrator fills `affectedTasks`' },
+      through: `${O}.settle`,
+      extra: [
+        {
+          kind: 'site',
+          ref: at('delegate', `${O}.settle`, 'decisions: pendingDeviations.map'),
+          why: 'the decision round: accepting a deviation of a material kind records the design revision on this same call',
+        },
+      ],
+      reentersNormalPath: false,
+      why: 'The revision is recorded on the decision call, so this path adds that call and no other. A revision names only unfinished tasks outside the batch, and those wait for a later wave whatever the decision. That wave begins with prepare as every wave does, and the design version is a compilation input, so the same call compiles the next capsule version. Preparing again is therefore the normal path, as after a rejected decision. A claim that a later revision supersedes is the one case that prepares a second time for the same tasks; the skill names that remedy and no call site of its own, so it is not counted.',
     },
     {
       id: 'context-compaction',

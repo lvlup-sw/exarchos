@@ -136,6 +136,17 @@ function withBase(base: ExarchosCapsuleV1, baseRef: string): unknown {
   };
 }
 
+/** The base capsule with a list of material deviation kinds on its envelope, and nothing else changed. */
+function withMaterialKinds(base: ExarchosCapsuleV1, materialDeviationKinds: readonly unknown[]): unknown {
+  return {
+    ...base,
+    contracts: {
+      ...base.contracts,
+      deviationEnvelope: { ...base.contracts.deviationEnvelope, materialDeviationKinds },
+    },
+  };
+}
+
 /** The shared corpus. Both the Zod source and the Ajv validator run every entry. */
 export const CAPSULE_ROUNDTRIP_FIXTURES: readonly CapsuleFixture[] = [
   { name: 'the base capsule', valid: true, document: baseValidCapsule() },
@@ -159,6 +170,12 @@ export const CAPSULE_ROUNDTRIP_FIXTURES: readonly CapsuleFixture[] = [
         supplementBudget: 4096,
       },
     },
+  },
+  /** The base capsule carries no list, so this fixture is the one that proves the envelope accepts the key. */
+  {
+    name: 'a deviation envelope that lists its material kinds',
+    valid: true,
+    document: withMaterialKinds(baseValidCapsule(), ['invalidated-assumption']),
   },
 
   bend('authority is empty', (b) => ({ ...b, authority: {} })),
@@ -219,6 +236,7 @@ export const CAPSULE_ROUNDTRIP_FIXTURES: readonly CapsuleFixture[] = [
     ...b,
     contracts: { ...b.contracts, evidenceKinds: [] },
   })),
+  bend('a material deviation kind that is not a string', (b) => withMaterialKinds(b, [7])),
   bend('no required results', (b) => ({
     ...b,
     settlementContract: { ...b.settlementContract, requiredResults: [] },

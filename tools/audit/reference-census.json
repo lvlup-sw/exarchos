@@ -1,7 +1,7 @@
 {
-  "capturedAt": "2026-09-13",
-  "trackedFiles": 3168,
-  "scannedFiles": 3029,
+  "capturedAt": "2026-10-06",
+  "trackedFiles": 3216,
+  "scannedFiles": 3105,
   "namedFilesIncluded": [
     ".github/CODEOWNERS",
     ".gitattributes",
@@ -12,18 +12,17 @@
     "docs/designs": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 110,
+      "externalReferrers": 47,
       "referrersByKind": {
-        "code": 80,
-        "config": 3,
+        "code": 20,
+        "config": 0,
         "snapshot": 1,
         "markdownLive": 24,
         "markdownArchival": 1,
         "other": 1
       },
-      "liveReferrers": 109,
+      "liveReferrers": 46,
       "sampleReferrers": [
-        ".exarchos.yml",
         ".exarchos/invariants.md",
         "CHANGELOG.md",
         "content/design/skills/discover/SKILL.md",
@@ -32,168 +31,148 @@
         "content/design/skills/plan/references/spec-template.md",
         "content/design/skills/plan/references/testing-strategy-guide.md",
         "content/governance/skills/invariants/SKILL.md",
-        "content/harness/runtimes/codex.yaml",
-        "content/harness/runtimes/opencode.yaml",
-        "content/remediation/skills/dogfood/SKILL.md"
+        "content/remediation/skills/dogfood/SKILL.md",
+        "docs/README.md",
+        "rendered/skills/claude/ideate/SKILL.md",
+        "rendered/skills/codex/ideate/SKILL.md"
       ],
       "sampleLiveCodeReferrers": [
-        "src/adapters/cli/cli-format.ts",
-        "src/architecture/vocabulary-lint.ts",
         "src/config/artifacts.ts",
-        "src/contract/schemas/envelope.ts",
-        "src/events/concurrency-error.ts",
-        "src/events/storage-busy-error.ts",
-        "src/events/store.ts",
-        "src/format.ts"
+        "src/workflow/playbooks.ts",
+        "tests/architecture/artifact-dir-literals.test.ts",
+        "tests/scripts/lib/comment-classifier.test.ts",
+        "tests/unit/architecture/doc-scanners-specs.test.ts",
+        "tests/unit/architecture/vocabulary-lint.test.ts",
+        "tests/unit/config/artifact-dir-symlink.test.ts",
+        "tests/unit/config/artifacts.test.ts"
       ]
     },
     "docs/plans": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 63,
+      "externalReferrers": 34,
       "referrersByKind": {
-        "code": 40,
-        "config": 3,
+        "code": 14,
+        "config": 1,
         "snapshot": 1,
         "markdownLive": 18,
         "markdownArchival": 0,
-        "other": 1
+        "other": 0
       },
-      "liveReferrers": 63,
+      "liveReferrers": 34,
       "sampleReferrers": [
         ".claude-plugin/packaging-policy.json",
         "content/delivery/skills/delegate/references/worked-example.md",
         "content/design/skills/plan/SKILL.md",
         "content/design/skills/plan/references/plan-document-template.md",
         "content/design/skills/plan/references/spec-template.md",
-        "content/harness/runtimes/claude.yaml",
-        "content/harness/runtimes/copilot.yaml",
         "content/remediation/skills/refactor/references/phases/overhaul-plan.md",
         "rendered/skills/claude/delegate/references/worked-example.md",
         "rendered/skills/codex/delegate/references/worked-example.md",
         "rendered/skills/copilot/delegate/references/worked-example.md",
-        "rendered/skills/cursor/delegate/references/worked-example.md"
+        "rendered/skills/cursor/delegate/references/worked-example.md",
+        "rendered/skills/generic/delegate/references/worked-example.md",
+        "rendered/skills/opencode/delegate/references/worked-example.md"
       ],
       "sampleLiveCodeReferrers": [
         "src/architecture/vocabulary-lint.ts",
-        "src/dispatch/core/interceptors/session-machinery.ts",
-        "src/projections/views/convergence-view.ts",
-        "src/runtime/agents/generate-agents.ts",
-        "src/verbs/gates/static-analysis.ts",
-        "src/verbs/pure/static-analysis.ts",
         "src/workflow/playbooks.ts",
-        "src/workflow/rehydrate.ts"
+        "tests/unit/architecture/doc-scanners-specs.test.ts",
+        "tests/unit/architecture/vocabulary-lint.test.ts",
+        "tests/unit/config/artifacts.test.ts",
+        "tests/unit/projections/rehydration/reducer.test.ts",
+        "tests/unit/projections/rehydration/schema.test.ts",
+        "tests/unit/projections/views/delegation-readiness-view.test.ts"
       ]
     },
     "docs/research": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 29,
+      "externalReferrers": 14,
       "referrersByKind": {
-        "code": 20,
-        "config": 1,
+        "code": 6,
+        "config": 0,
         "snapshot": 1,
         "markdownLive": 7,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 29,
+      "liveReferrers": 14,
       "sampleReferrers": [
         ".exarchos/invariants.md",
         "CHANGELOG.md",
         "agent-principles.md",
         "content/design/skills/discover/SKILL.md",
-        "content/harness/runtimes/codex.yaml",
         "rendered/skills/standard/discover/SKILL.md",
-        "src/adapters/mcp/mcp.ts",
         "src/architecture/vocabulary-lint.ts",
-        "src/dispatch/core/interceptors/session-machinery.ts",
-        "src/runtime/agents/adapters/codex.ts",
-        "src/utils/json-schema.ts",
-        "src/verbs/gates/check-exploration-depth.ts"
+        "src/verbs/gates/check-exploration-depth.ts",
+        "tests/migration/__snapshots__/snapshots.test.ts.snap",
+        "tests/unit/verbs/gates/check-exploration-depth.test.ts",
+        "tests/unit/verbs/tasks/discover-bridge.test.ts",
+        "tests/unit/workflow/guards.artifact.test.ts",
+        "tests/unit/workflow/guards.test.ts"
       ],
       "sampleLiveCodeReferrers": [
-        "src/adapters/mcp/mcp.ts",
         "src/architecture/vocabulary-lint.ts",
-        "src/dispatch/core/interceptors/session-machinery.ts",
-        "src/runtime/agents/adapters/codex.ts",
-        "src/utils/json-schema.ts",
         "src/verbs/gates/check-exploration-depth.ts",
-        "tests/unit/adapters/mcp/mcp.test.ts",
-        "tests/unit/commands/phase-transition-prose.test.ts"
+        "tests/unit/verbs/gates/check-exploration-depth.test.ts",
+        "tests/unit/verbs/tasks/discover-bridge.test.ts",
+        "tests/unit/workflow/guards.artifact.test.ts",
+        "tests/unit/workflow/guards.test.ts"
       ]
     },
     "docs/audits": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 2,
+      "externalReferrers": 1,
       "referrersByKind": {
-        "code": 1,
+        "code": 0,
         "config": 1,
         "snapshot": 0,
         "markdownLive": 0,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 2,
+      "liveReferrers": 1,
       "sampleReferrers": [
-        "tests/architecture/prose-exodus.test.ts",
         "tools/audit/projection-fold-seam.json"
       ],
-      "sampleLiveCodeReferrers": [
-        "tests/architecture/prose-exodus.test.ts"
-      ]
+      "sampleLiveCodeReferrers": []
     },
     "docs/adrs": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 12,
+      "externalReferrers": 4,
       "referrersByKind": {
-        "code": 7,
+        "code": 0,
         "config": 1,
         "snapshot": 0,
         "markdownLive": 3,
         "markdownArchival": 0,
-        "other": 1
+        "other": 0
       },
-      "liveReferrers": 12,
+      "liveReferrers": 4,
       "sampleReferrers": [
         ".claude-plugin/packaging-policy.json",
         "content/remediation/skills/refactor/references/phases/update-docs.md",
         "content/synthesis/skills/synthesize/references/pr-descriptions.md",
-        "rendered/skills/standard/synthesize/references/pr-descriptions.md",
-        "src/adapters/cli/hooks.ts",
-        "src/install/build-hooks.ts",
-        "src/lifecycle/session-start.ts",
-        "src/lifecycle/subagent-stop.ts",
-        "tests/scripts/validate-plugin.test.sh",
-        "tests/unit/architecture/invariants-loader.test.ts",
-        "tests/unit/install/hooks-validation.test.ts",
-        "tests/unit/install/plugin-validation.test.ts"
+        "rendered/skills/standard/synthesize/references/pr-descriptions.md"
       ],
-      "sampleLiveCodeReferrers": [
-        "src/adapters/cli/hooks.ts",
-        "src/install/build-hooks.ts",
-        "src/lifecycle/session-start.ts",
-        "src/lifecycle/subagent-stop.ts",
-        "tests/unit/architecture/invariants-loader.test.ts",
-        "tests/unit/install/hooks-validation.test.ts",
-        "tests/unit/install/plugin-validation.test.ts"
-      ]
+      "sampleLiveCodeReferrers": []
     },
     "docs/rca": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 37,
+      "externalReferrers": 30,
       "referrersByKind": {
-        "code": 13,
+        "code": 6,
         "config": 4,
         "snapshot": 1,
         "markdownLive": 16,
         "markdownArchival": 0,
         "other": 3
       },
-      "liveReferrers": 37,
+      "liveReferrers": 30,
       "sampleReferrers": [
         ".claude/scripts/workflow-state.sh",
         ".github/workflows/benchmark-gate.yml",
@@ -210,67 +189,66 @@
       ],
       "sampleLiveCodeReferrers": [
         "src/architecture/vocabulary-lint.ts",
-        "src/config/artifacts.ts",
-        "src/projections/views/handlers/materializer.ts",
-        "src/verbs/composite.ts",
-        "src/verbs/team/worktree-baseref.ts",
-        "tests/scripts/check-event-store-composition-root.test.ts",
-        "tests/unit/config/artifact-dir-symlink.test.ts",
-        "tests/unit/event-store/single-composition-root.test.ts"
+        "tests/unit/event-store/single-composition-root.test.ts",
+        "tests/unit/install/commands-checkpoint-validation.test.ts",
+        "tests/unit/install/commands-rehydrate-validation.test.ts",
+        "tests/unit/workflow/guards.artifact.test.ts",
+        "tools/audit/gates/check-event-store-composition-root.mjs"
       ]
     },
     "docs/guides": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 27,
+      "externalReferrers": 17,
       "referrersByKind": {
-        "code": 17,
-        "config": 2,
+        "code": 9,
+        "config": 1,
         "snapshot": 0,
         "markdownLive": 7,
         "markdownArchival": 0,
-        "other": 1
+        "other": 0
       },
-      "liveReferrers": 27,
+      "liveReferrers": 17,
       "sampleReferrers": [
-        ".exarchos.yml",
         ".exarchos/invariants.md",
         ".github/workflows/ci.yml",
         "content/continuity/commands/tag.md",
-        "eslint.envelopes.config.js",
         "rendered/commands/tag.md",
-        "src/architecture/sdlc-catalog.ts",
-        "src/architecture/vocabulary-lint.ts",
-        "src/config/yaml-schema.ts",
         "src/verbs/init/seed-exarchos-config.ts",
         "src/verbs/invariants/scaffold.ts",
-        "tests/evals/Building_resilient_prompts_using_an_evaluation_flywheel.md"
+        "tests/evals/Building_resilient_prompts_using_an_evaluation_flywheel.md",
+        "tests/evals/mcp_eval_notebook.md",
+        "tests/evals/receipt_inspection.md",
+        "tests/scripts/ci-topology.test.ts",
+        "tests/unit/architecture/invariants-loader.test.ts",
+        "tests/unit/architecture/vocabulary-lint.test.ts"
       ],
       "sampleLiveCodeReferrers": [
-        "eslint.envelopes.config.js",
-        "src/architecture/sdlc-catalog.ts",
-        "src/architecture/vocabulary-lint.ts",
-        "src/config/yaml-schema.ts",
         "src/verbs/init/seed-exarchos-config.ts",
         "src/verbs/invariants/scaffold.ts",
         "tests/scripts/ci-topology.test.ts",
-        "tests/unit/architecture/invariants-loader.test.ts"
+        "tests/unit/architecture/invariants-loader.test.ts",
+        "tests/unit/architecture/vocabulary-lint.test.ts",
+        "tests/unit/verbs/invariants/exarchos-yml-writer.test.ts",
+        "tests/unit/verbs/stryker-adapter.smoke.test.ts",
+        "tools/audit/gates/check-measured-premises.mjs"
       ]
     },
     "docs/references": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 1,
+      "externalReferrers": 2,
       "referrersByKind": {
         "code": 0,
-        "config": 0,
+        "config": 1,
         "snapshot": 0,
         "markdownLive": 1,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 1,
+      "liveReferrers": 2,
       "sampleReferrers": [
+        ".exarchos/knowledge/semantic-plane.context.yaml",
         "CHANGELOG.md"
       ],
       "sampleLiveCodeReferrers": []
@@ -278,18 +256,17 @@
     "docs/proposals": {
       "disposition": "delete",
       "ownFiles": 0,
-      "externalReferrers": 12,
+      "externalReferrers": 8,
       "referrersByKind": {
-        "code": 4,
-        "config": 1,
+        "code": 1,
+        "config": 0,
         "snapshot": 0,
         "markdownLive": 7,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 12,
+      "liveReferrers": 8,
       "sampleReferrers": [
-        ".exarchos.yml",
         "content/design/skills/ideate/references/constraint-anchoring.md",
         "rendered/skills/claude/ideate/references/constraint-anchoring.md",
         "rendered/skills/codex/ideate/references/constraint-anchoring.md",
@@ -297,16 +274,10 @@
         "rendered/skills/cursor/ideate/references/constraint-anchoring.md",
         "rendered/skills/generic/ideate/references/constraint-anchoring.md",
         "rendered/skills/opencode/ideate/references/constraint-anchoring.md",
-        "src/architecture/vocabulary-lint.ts",
-        "src/config/yaml-schema.ts",
-        "tests/unit/architecture/invariants-loader.test.ts",
-        "tests/unit/architecture/vocabulary-lint.test.ts"
+        "src/architecture/vocabulary-lint.ts"
       ],
       "sampleLiveCodeReferrers": [
-        "src/architecture/vocabulary-lint.ts",
-        "src/config/yaml-schema.ts",
-        "tests/unit/architecture/invariants-loader.test.ts",
-        "tests/unit/architecture/vocabulary-lint.test.ts"
+        "src/architecture/vocabulary-lint.ts"
       ]
     },
     "docs/bugs": {
@@ -418,19 +389,18 @@
     "docs/migrations": {
       "disposition": "delete",
       "ownFiles": 1,
-      "externalReferrers": 7,
+      "externalReferrers": 6,
       "referrersByKind": {
-        "code": 5,
+        "code": 4,
         "config": 0,
         "snapshot": 0,
         "markdownLive": 2,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 7,
+      "liveReferrers": 6,
       "sampleReferrers": [
         "src/events/event-name.ts",
-        "src/events/schemas.ts",
         "tests/scripts/migration-followups.test.ts",
         "tests/unit/events/event-name.test.ts",
         "tools/audit/comment-quality/audit.md",
@@ -439,7 +409,6 @@
       ],
       "sampleLiveCodeReferrers": [
         "src/events/event-name.ts",
-        "src/events/schemas.ts",
         "tests/scripts/migration-followups.test.ts",
         "tests/unit/events/event-name.test.ts",
         "tools/audit/prose-manifest.ts"
@@ -448,53 +417,46 @@
     "docs/evals": {
       "disposition": "re-home",
       "ownFiles": 0,
-      "externalReferrers": 4,
+      "externalReferrers": 2,
       "referrersByKind": {
-        "code": 3,
+        "code": 1,
         "config": 1,
         "snapshot": 0,
         "markdownLive": 0,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 4,
+      "liveReferrers": 2,
       "sampleReferrers": [
         "tests/architecture/test-inventory.test.ts",
-        "tests/evals/native-baseline/harness.ts",
-        "tools/audit/test-inventory-baseline.json",
-        "vitest.config.ts"
+        "tools/audit/test-inventory-baseline.json"
       ],
       "sampleLiveCodeReferrers": [
-        "tests/architecture/test-inventory.test.ts",
-        "tests/evals/native-baseline/harness.ts",
-        "vitest.config.ts"
+        "tests/architecture/test-inventory.test.ts"
       ]
     },
     "docs/schemas": {
       "disposition": "re-home",
       "ownFiles": 0,
-      "externalReferrers": 7,
+      "externalReferrers": 6,
       "referrersByKind": {
-        "code": 1,
+        "code": 0,
         "config": 1,
         "snapshot": 1,
         "markdownLive": 4,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 7,
+      "liveReferrers": 6,
       "sampleReferrers": [
         "CHANGELOG.md",
         "content/continuity/skills/checkpoint/SKILL.md",
         "rendered/skills/standard/checkpoint/SKILL.md",
-        "tests/architecture/test-inventory.test.ts",
         "tests/migration/__fixtures__/batch-baselines/checkpoint.md",
         "tests/migration/__snapshots__/snapshots.test.ts.snap",
         "tools/audit/test-inventory-baseline.json"
       ],
-      "sampleLiveCodeReferrers": [
-        "tests/architecture/test-inventory.test.ts"
-      ]
+      "sampleLiveCodeReferrers": []
     },
     "docs/assets": {
       "disposition": "re-home",
@@ -518,19 +480,18 @@
     "docs/architecture": {
       "disposition": "re-home",
       "ownFiles": 0,
-      "externalReferrers": 38,
+      "externalReferrers": 28,
       "referrersByKind": {
-        "code": 28,
-        "config": 7,
+        "code": 19,
+        "config": 6,
         "snapshot": 0,
         "markdownLive": 3,
         "markdownArchival": 0,
         "other": 0
       },
-      "liveReferrers": 38,
+      "liveReferrers": 28,
       "sampleReferrers": [
         ".exarchos/invariants.md",
-        ".github/workflows/ci.yml",
         "CHANGELOG.md",
         "content/harness/runtimes/claude.yaml",
         "content/harness/runtimes/codex.yaml",
@@ -539,18 +500,19 @@
         "content/harness/runtimes/generic.yaml",
         "content/harness/runtimes/opencode.yaml",
         "content/remediation/skills/refactor/references/phases/update-docs.md",
-        "src/architecture/catalog-sources.ts",
-        "src/architecture/invariant-schema.ts"
+        "src/architecture/invariant-schema.ts",
+        "src/verbs/invariants/scaffold.ts",
+        "tests/scripts/docs-check.test.ts"
       ],
       "sampleLiveCodeReferrers": [
-        "src/architecture/catalog-sources.ts",
         "src/architecture/invariant-schema.ts",
-        "src/architecture/invariants-loader.ts",
-        "src/architecture/vocabulary-lint.ts",
-        "src/events/store.ts",
-        "src/projections/taskstore/types.ts",
-        "src/projections/types.ts",
-        "src/verbs/invariants/scaffold.ts"
+        "src/verbs/invariants/scaffold.ts",
+        "tests/scripts/docs-check.test.ts",
+        "tests/unit/architecture/contract-seam-doc.test.ts",
+        "tests/unit/architecture/invariant-schema.test.ts",
+        "tests/unit/architecture/invariants-loader.test.ts",
+        "tests/unit/architecture/project-catalog.test.ts",
+        "tests/unit/architecture/resolve-effective-catalog.test.ts"
       ]
     }
   }

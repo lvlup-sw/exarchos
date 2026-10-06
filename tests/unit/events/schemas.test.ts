@@ -515,7 +515,7 @@ describe('EventTypes', () => {
    * The onboard pair is the audit trail of onboarding, so the catalog must not contain `init.executed`.
    */
   it('EventTypes_HasExpectedCount', () => {
-    expect(EventTypes).toHaveLength(184);
+    expect(EventTypes).toHaveLength(185);
     expect(EventTypes).toContain('tool.budget_exceeded');
     expect(EventTypes).toContain('ci.check_observed');
     expect(EventTypes).toContain('merge.recovered');
@@ -3802,7 +3802,7 @@ describe('WLM operational-core merge lease schemas', () => {
 
   /** The count pins the size of the catalog, and the set check proves that no type is a duplicate. */
   it('EventTypes_CountPins_159_AdmissionProofSchemasAreAdditive', () => {
-    expect(EventTypes).toHaveLength(184);
+    expect(EventTypes).toHaveLength(185);
     expect(new Set(EventTypes).size).toBe(EventTypes.length);
   });
 
