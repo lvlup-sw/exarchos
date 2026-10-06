@@ -2721,6 +2721,85 @@ describe('settle — a claim that a later revision supersedes', () => {
   });
 
   /**
+   * The capsule requires two tasks, and the revision names one of them. The batch claims only the
+   * sibling, and the named task is not complete. The named task gets the stale finding at the claim
+   * list, so the capsule can settle no new batch, and the sibling is not verified.
+   */
+  it('Settle_AnUnclaimedUnfinishedTaskALaterRevisionNamed_NeedsARecompile', async () => {
+    await seedPassingStaticAnalysis(SIBLING_TASK);
+    await seedPrepared(requiringBoth(SIBLING_TASK, 31));
+    await revise('batch-revising', ['task-verify']);
+    const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).length;
+
+    const receipt = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 31,
+        batchId: 'batch-omits-the-named-task',
+        claims: [claimFor(SIBLING_TASK)],
+      }),
+    );
+    expect(receipt.outcome).toBe('recompile-required');
+    expect(findingsOf(receipt)).toEqual([[SUPERSEDED, 'task-verify', 'claims']]);
+    expect(receipt.findings[0]?.message).toContain('the batch carries none');
+    expect(receipt.findings[0]?.message).toContain('design version 2');
+    expect(receipt.findings[0]?.message).toContain('capsule v31');
+    expect(receipt.findings[0]?.message).toContain('prepare again');
+    expect(receipt.acceptedTasks).toEqual([SIBLING_TASK]);
+    expect(receipt.verification).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(segments);
+    expect(await completedTasks()).toEqual([REVISING_TASK]);
+    expect(ExecutionSettledData.parse((await settledRows()).at(-1)?.data)).toMatchObject({
+      batchId: 'batch-omits-the-named-task',
+      outcome: 'recompile-required',
+      findingCounts: [{ kind: SUPERSEDED, count: 1 }],
+    });
+  });
+
+  /**
+   * The revising batch is held while the named task is pending. The base capsule then settles the
+   * task, and the decision records the revision after that. A batch that omits the finished task
+   * settles, because its recorded completion is the result. A batch on the same capsule that
+   * claims the task needs a recompile, so the revision does name the task after that capsule.
+   */
+  it('Settle_AnUnclaimedFinishedTaskALaterRevisionNamed_NeedsNoClaim', async () => {
+    await seedPassingStaticAnalysis(SIBLING_TASK);
+    await seedPrepared(requiringBoth(SIBLING_TASK, 31));
+    const proposed = await proposeRevision('batch-revising', ['task-verify']);
+    receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-finishes-it', claims: [passingClaim()] }));
+    const revision = await acceptRevision('batch-revising', proposed);
+    expect(revision.data.affectedTasks).toEqual(['task-verify']);
+    expect(await preparedSequence(31)).toBeLessThan(revision.sequence);
+
+    const omitted = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 31,
+        batchId: 'batch-omits-the-finished-task',
+        claims: [claimFor(SIBLING_TASK)],
+      }),
+    );
+    expect(omitted.outcome).toBe('settled');
+    expect(omitted.findings).toEqual([]);
+    expect(omitted.acceptedTasks).toEqual([SIBLING_TASK]);
+    expect(omitted.verification?.map((trace) => [trace.taskId, trace.outcome])).toEqual([
+      ['task-verify', 'already-complete'],
+      [SIBLING_TASK, 'verified'],
+    ]);
+
+    const claimed = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 31,
+        batchId: 'batch-claims-the-finished-task',
+        claims: [passingClaim(), claimFor(SIBLING_TASK)],
+      }),
+    );
+    expect(claimed.outcome).toBe('recompile-required');
+    expect(findingsOf(claimed)).toEqual([[SUPERSEDED, 'task-verify', 'claims[0].taskId']]);
+  });
+
+  /**
    * The batch is held on the base capsule before the revision names its task. The decision accepts
    * the deviation, and the round adjudicates the held claims, so the batch needs a recompile. The base
    * capsule lists no material kind, so the round records its decision and no revision.
@@ -2924,8 +3003,464 @@ describe('settle — a claim that a later revision supersedes', () => {
 });
 
 /**
+ * A recorded completion satisfies a required result, so a correction claims only the tasks that
+ * are not complete. The capsule of these tests requires `task-verify` and a second task. The
+ * common setup seeds the gate of `task-verify`, and a test seeds the gate of the second task.
+ *
+ * A round that reaches verification brings the state document level for each required task that
+ * the stream shows complete. A round that stops before verification writes no document.
+ * `recordCompletion` leaves the completion fact of a task on the stream and writes no document.
+ * `staleTheDocument` puts both tasks back in progress, as a failed document write leaves them.
+ */
+describe('settle — a required result that the stream shows complete', () => {
+  const BOTH_VERSION = 40;
+  const SECOND_TASK = 'task-second';
+  const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
+  const IN_PROGRESS = [
+    ['task-verify', 'in_progress'],
+    [SECOND_TASK, 'in_progress'],
+  ];
+  const COMPLETE = [
+    ['task-verify', 'complete'],
+    [SECOND_TASK, 'complete'],
+  ];
+
+  function requiringBoth(capsuleVersion: number): ExarchosCapsuleV1 {
+    const capsule = capsuleWithTask(SECOND_TASK, capsuleVersion);
+    return {
+      ...capsule,
+      settlementContract: { ...capsule.settlementContract, requiredResults: [SECOND_TASK, 'task-verify'] },
+    };
+  }
+
+  beforeEach(async () => {
+    await seedPrepared(requiringBoth(BOTH_VERSION));
+  });
+
+  function secondClaim(): Record<string, unknown> {
+    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  }
+
+  function batch(batchId: string, claims: readonly unknown[], capsuleVersion = BOTH_VERSION): Record<string, unknown> {
+    return { featureId: STREAM, capsuleVersion, batchId, claims };
+  }
+
+  function findingsOf(receipt: SettlementReceipt): string[][] {
+    return receipt.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  function tracesOf(receipt: SettlementReceipt): string[][] {
+    return (receipt.verification ?? []).map((trace) => [trace.taskId, trace.outcome]);
+  }
+
+  async function recordCompletion(taskId: string): Promise<void> {
+    await store.append(STREAM, { type: 'task.completed', data: { taskId, verified: false } });
+  }
+
+  async function seedDocument(): Promise<string> {
+    await initStateFile(stateDir, STREAM, 'feature', {
+      tasks: [
+        { id: 'task-verify', title: 'verify', status: 'in_progress' },
+        { id: SECOND_TASK, title: 'second', status: 'in_progress' },
+      ],
+    });
+    return path.join(stateDir, `${STREAM}.state.json`);
+  }
+
+  async function documentStatuses(stateFile: string): Promise<unknown[][]> {
+    const state: { tasks?: unknown } = await readStateFile(stateFile);
+    const tasks: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
+    return tasks.map((task) => {
+      const entry: { id?: unknown; status?: unknown } = typeof task === 'object' && task !== null ? task : {};
+      return [entry.id, entry.status];
+    });
+  }
+
+  async function staleTheDocument(stateFile: string): Promise<void> {
+    const current = await readStateFile(stateFile);
+    const tasks = IN_PROGRESS.map(([id, status]) => ({ id, title: id, status }));
+    await writeFile(stateFile, JSON.stringify({ ...current, tasks }), 'utf-8');
+    expect(await documentStatuses(stateFile)).toEqual(IN_PROGRESS);
+  }
+
+  /**
+   * The first batch claims both tasks. One segment commits and one halts, so the batch needs a
+   * correction. The correction is a new batch on the same capsule that claims only the halted task.
+   * It settles. The receipt, the record and the bundle show what satisfied the other requirement:
+   * an `already-complete` outcome, which the census counts. The accepted tasks are the claimed tasks.
+   */
+  it('Settle_ACorrectionThatClaimsOnlyTheUnresolvedTask_Settles', async () => {
+    const first = receiptOf(await settle(batch('batch-first', [passingClaim(), secondClaim()])));
+    expect(first.outcome).toBe('corrective-capsule');
+    expect(first.acceptedTasks).toEqual(['task-verify']);
+    expect(findingsOf(first)).toEqual([['verification-failed', SECOND_TASK, 'claims[1]']]);
+
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const correction = batch('batch-correction', [secondClaim()]);
+    const corrected = receiptOf(await settle(correction));
+    expect(corrected.outcome).toBe('settled');
+    expect(corrected.findings).toEqual([]);
+    expect(corrected.acceptedTasks).toEqual([SECOND_TASK]);
+    expect(corrected.capsule.capsuleVersion).toBe(BOTH_VERSION);
+    expect(corrected.operationId).not.toBe(first.operationId);
+    expect(corrected.verification).toEqual([
+      { taskId: 'task-verify', outcome: 'already-complete' },
+      expect.objectContaining({ taskId: SECOND_TASK, outcome: 'verified' }),
+    ]);
+    expect(corrected.adjudicated).toMatchObject({ claims: 1, requiredResults: 2, verification: 2 });
+    expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify', SECOND_TASK]);
+
+    const record = ExecutionSettledData.parse((await settledRows()).at(-1)?.data);
+    expect(record).toMatchObject({
+      batchId: 'batch-correction',
+      outcome: 'settled',
+      acceptedTasks: [SECOND_TASK],
+      findingCounts: [],
+    });
+    expect(record.adjudicated).toMatchObject({ claims: 1, requiredResults: 2, verification: 2 });
+    const bundle = await bundleOf(corrected);
+    expect(bundle.claims.map((claim) => claim.taskId)).toEqual([SECOND_TASK]);
+    expect(bundle.verification?.map((trace) => [trace.taskId, trace.outcome])).toEqual([
+      ['task-verify', 'already-complete'],
+      [SECOND_TASK, 'verified'],
+    ]);
+
+    const tail = (await store.query(STREAM)).length;
+    expect(receiptOf(await settle(correction))).toEqual(corrected);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+  });
+
+  /**
+   * The denominator of the waiver. No task is complete, so the required task that the batch omits
+   * is a missing claim. The claim that the batch carries is not verified.
+   */
+  it('Settle_AnUnclaimedRequiredTaskThatIsNotComplete_IsStillAMissingClaim', async () => {
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const receipt = receiptOf(await settle(batch('batch-omits-an-open-task', [secondClaim()])));
+    expect(receipt.outcome).toBe('rejected');
+    expect(findingsOf(receipt)).toEqual([['missing-claim', 'task-verify', 'claims']]);
+    expect(receipt.acceptedTasks).toEqual([SECOND_TASK]);
+    expect(receipt.verification).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+    expect(await completionRows()).toEqual([]);
+  });
+
+  /**
+   * The stream shows both required tasks complete, so a batch with no claim has no finding to get.
+   * It is refused as invalid input in each spelling, and it leaves no row, no blob and no claim.
+   * The same batch id then carries a claim and settles, with both requirements already complete.
+   */
+  it('Settle_ASubmittedBatchWithNoClaim_IsRefusedAsInvalidInput', async () => {
+    await recordCompletion('task-verify');
+    await recordCompletion(SECOND_TASK);
+    const tail = (await store.query(STREAM)).length;
+    const blobs = await bundleBlobCount();
+
+    const claimless: Record<string, unknown>[] = [{}, { claims: [] }, { claims: [], deviations: [DEVIATION] }];
+    for (const body of claimless) {
+      const result = await settle({ featureId: STREAM, capsuleVersion: BOTH_VERSION, batchId: 'batch-claimless', ...body });
+      expect(result.success, JSON.stringify(body)).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain('carries no claim');
+    }
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+
+    const claimed = receiptOf(await settle(batch('batch-claimless', [secondClaim()])));
+    expect(claimed.outcome).toBe('settled');
+    expect(claimed.acceptedTasks).toEqual([SECOND_TASK]);
+    expect(tracesOf(claimed)).toEqual([
+      [SECOND_TASK, 'already-complete'],
+      ['task-verify', 'already-complete'],
+    ]);
+  });
+
+  /**
+   * The two literals come from the build before a submitted batch needed a claim. That build
+   * adjudicated a batch with no claim on the base capsule, and rejected it for the missing claim.
+   * The claim, the record and the bundle are written by hand, in the shape that the build left.
+   *
+   * The retry finds the stored claim before the check for a claim, so it gets the stored receipt
+   * and appends nothing. A batch with no claim under a new id is refused.
+   */
+  it('Settle_ABatchWithNoClaimRecordedBeforeTheChange_StillReplays', async () => {
+    const EARLIER_BATCH = 'batch-claimless-earlier';
+    const EARLIER_OPERATION = 'settle:8d4411f9b2f00542b3371426080ab61de21da668c7d3865aa59843f2d5902de0';
+    const EARLIER_DIGEST = 'sha256:4bc6ffc4323bbed62ae3dbfa4526ea3756a01d500f10c9de649f80b242849ea0';
+    const compiled = baseValidCapsule().identity;
+    const capsule = {
+      workflowId: compiled.workflowId,
+      definitionVersion: compiled.definitionVersion,
+      designVersion: compiled.designVersion,
+      capsuleVersion: 7,
+      batchId: EARLIER_BATCH,
+    };
+    const message = 'settlement requires a result from task "task-verify" and the batch carries none';
+    const adjudicated = { claims: 0, requiredResults: 1, fields: 0, evidence: 0, deviations: 0, verification: 0, decisions: 0 };
+    const earlierBundle = {
+      bundleVersion: '1.0',
+      kind: 'settlement-adjudication',
+      operationId: EARLIER_OPERATION,
+      streamId: STREAM,
+      requestDigest: EARLIER_DIGEST,
+      capsule,
+      outcome: 'rejected',
+      acceptedTasks: [],
+      findings: [{ kind: 'missing-claim', subject: 'task-verify', at: 'claims', message }],
+      claims: [],
+      deviations: [],
+      decisions: [],
+      adjudicated,
+      verification: [],
+      settledAt: '2026-01-01T00:00:00.000Z',
+    };
+    const digest = await store.bundleStore.put(Buffer.from(`${JSON.stringify(earlierBundle)}\n`, 'utf8'));
+    const record = ExecutionSettledData.parse({
+      operationId: EARLIER_OPERATION,
+      workflowId: capsule.workflowId,
+      capsuleVersion: 7,
+      batchId: EARLIER_BATCH,
+      definitionVersion: capsule.definitionVersion,
+      outcome: 'rejected',
+      acceptedTasks: [],
+      findingCounts: [{ kind: 'missing-claim', count: 1 }],
+      adjudicated,
+      requestDigest: EARLIER_DIGEST,
+      [BUNDLE_REF_FIELD]: [{ artifactId: `run-bundle:settlement-adjudication:${EARLIER_BATCH}:7`, digest }],
+    });
+    const [ref] = record.bundleRefs;
+    if (ref === undefined) throw new Error('the record written by hand references no bundle');
+    const stored = await store.getAppender().decideOnce<SettlementReceipt>(EARLIER_OPERATION, EARLIER_DIGEST, (tx) => ({
+      streamId: STREAM,
+      events: [{ type: 'execution.settled', data: record }],
+      result: {
+        operationId: EARLIER_OPERATION,
+        streamId: STREAM,
+        capsule,
+        outcome: 'rejected',
+        round: 0,
+        acceptedTasks: [],
+        findings: [{ kind: 'missing-claim', subject: 'task-verify', at: 'claims', message }],
+        adjudicated,
+        requestDigest: EARLIER_DIGEST,
+        tailSequence: tx.readStream(STREAM).version + 1,
+        verification: [],
+        bundleRefs: [ref],
+      },
+    }));
+    const tail = (await store.query(STREAM)).length;
+    const blobs = await bundleBlobCount();
+
+    const retries: Record<string, unknown>[] = [{}, { claims: [] }];
+    for (const body of retries) {
+      const replayed = receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: EARLIER_BATCH, ...body }));
+      expect(replayed).toEqual(stored);
+      expect(replayed.outcome).toBe('rejected');
+      expect(findingsOf(replayed)).toEqual([['missing-claim', 'task-verify', 'claims']]);
+    }
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+
+    const fresh = await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-claimless-now' });
+    expect(fresh.success).toBe(false);
+    expect(fresh.error?.code).toBe('INVALID_INPUT');
+    expect(await store.query(STREAM)).toHaveLength(tail);
+  });
+
+  /**
+   * The heal case. The stream shows `task-verify` complete, and the document shows it in progress,
+   * as after a completion whose document write failed. The next batch omits the task and settles,
+   * and the document then shows both tasks complete.
+   *
+   * The document is then put back by hand. A replay of the batch returns the same receipt and
+   * brings both tasks level again, the task that the batch did not claim included.
+   */
+  it('Settle_ATaskCompleteOnTheStreamAndNotOnTheDocument_IsBroughtLevelByABatchThatOmitsIt', async () => {
+    const stateFile = await seedDocument();
+    await recordCompletion('task-verify');
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    expect(await documentStatuses(stateFile)).toEqual(IN_PROGRESS);
+
+    const heals = batch('batch-heals', [secondClaim()]);
+    const first = receiptOf(await settle(heals));
+    expect(first.outcome).toBe('settled');
+    expect(tracesOf(first)).toEqual([
+      ['task-verify', 'already-complete'],
+      [SECOND_TASK, 'verified'],
+    ]);
+    expect(await documentStatuses(stateFile)).toEqual(COMPLETE);
+
+    await staleTheDocument(stateFile);
+    expect(receiptOf(await settle(heals))).toEqual(first);
+    expect(await documentStatuses(stateFile)).toEqual(COMPLETE);
+    expect(await completionRows()).toHaveLength(2);
+  });
+
+  /**
+   * The first batch needs a correction: `task-verify` is complete and the second task is not. The
+   * document is then put back by hand. A replay returns the same receipt and brings the complete
+   * task level. The task that is not complete stays in progress.
+   */
+  it('Settle_AReplayOfABatchThatNeedsACorrection_BringsItsCompleteTaskLevel', async () => {
+    const stateFile = await seedDocument();
+    const partial = batch('batch-replay-partial', [passingClaim(), secondClaim()]);
+    const first = receiptOf(await settle(partial));
+    expect(first.outcome).toBe('corrective-capsule');
+    const afterTheFirst = [
+      ['task-verify', 'complete'],
+      [SECOND_TASK, 'in_progress'],
+    ];
+    expect(await documentStatuses(stateFile)).toEqual(afterTheFirst);
+
+    await staleTheDocument(stateFile);
+    expect(receiptOf(await settle(partial))).toEqual(first);
+    expect(await documentStatuses(stateFile)).toEqual(afterTheFirst);
+    expect(await completionRows()).toHaveLength(1);
+  });
+
+  /**
+   * The stream shows `task-verify` complete and the document does not, so a round that levels the
+   * document changes its bytes. A held round, a rejected round and a round that needs a recompile
+   * each leave the bytes as they were. A replay of the held round does the same.
+   *
+   * The revision row is written by hand. It names the second task after the capsule of the batches.
+   * A capsule prepared after the row then settles the same claim, and that round writes the document.
+   */
+  it('Settle_ARoundThatStopsBeforeVerification_WritesNoDocument', async () => {
+    const stateFile = await seedDocument();
+    await recordCompletion('task-verify');
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const before = await readFile(stateFile, 'utf-8');
+
+    const heldBatch = { ...batch('batch-held', [secondClaim()]), deviations: [DEVIATION] };
+    const held = receiptOf(await settle(heldBatch));
+    expect(held.outcome).toBe('deviation-pending');
+    expect(findingsOf(held).map(([kind]) => kind)).toEqual(['deviation-awaiting-approval']);
+    expect(await readFile(stateFile, 'utf-8')).toBe(before);
+    expect(receiptOf(await settle(heldBatch))).toEqual(held);
+    expect(await readFile(stateFile, 'utf-8')).toBe(before);
+
+    const wrongType = { taskId: SECOND_TASK, fields: { passed: 'yes', worktreePath: WORKTREE }, evidence: [] };
+    const rejected = receiptOf(await settle(batch('batch-rejected', [wrongType])));
+    expect(rejected.outcome).toBe('rejected');
+    expect(findingsOf(rejected).map(([kind]) => kind)).toEqual(['field-type-mismatch']);
+    expect(await readFile(stateFile, 'utf-8')).toBe(before);
+
+    const digest = await store.bundleStore.put(Buffer.from('{"note":"a revision written by hand"}\n', 'utf8'));
+    await store.append(STREAM, {
+      type: 'design.revised',
+      data: DesignRevisedData.parse({
+        operationId: 'settle:revised-by-hand',
+        workflowId: baseValidCapsule().identity.workflowId,
+        capsuleVersion: 7,
+        batchId: 'batch-revised-by-hand',
+        priorDesignVersion: 1,
+        nextDesignVersion: 2,
+        deviationIds: ['dev:written-by-hand'],
+        affectedTasks: [SECOND_TASK],
+        [BUNDLE_REF_FIELD]: [{ artifactId: 'run-bundle:settlement-adjudication:batch-revised-by-hand:7', digest }],
+      }),
+    });
+    const stale = receiptOf(await settle(batch('batch-stale', [secondClaim()])));
+    expect(stale.outcome).toBe('recompile-required');
+    expect(findingsOf(stale)).toEqual([['claim-superseded-by-revision', SECOND_TASK, 'claims[0].taskId']]);
+    expect(await readFile(stateFile, 'utf-8')).toBe(before);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+
+    await seedPrepared(requiringBoth(BOTH_VERSION + 1));
+    const settled = receiptOf(await settle(batch('batch-after-the-row', [secondClaim()], BOTH_VERSION + 1)));
+    expect(settled.outcome).toBe('settled');
+    expect(await documentStatuses(stateFile)).toEqual(COMPLETE);
+  });
+
+  /**
+   * The claim carries no worktree, so its segment does not compile and the call is refused. The
+   * stream shows `task-verify` complete and the document does not. Every segment compiles before
+   * the round writes the document, so the refusal leaves the bytes as they were.
+   */
+  it('Settle_AClaimThatDoesNotCompile_IsRefusedBeforeTheDocumentIsWritten', async () => {
+    const stateFile = await seedDocument();
+    await recordCompletion('task-verify');
+    const before = await readFile(stateFile, 'utf-8');
+
+    const withoutWorktree = { taskId: SECOND_TASK, fields: { passed: true }, evidence: [] };
+    const refused = await settle(batch('batch-does-not-compile', [withoutWorktree]));
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('INVALID_INPUT');
+    expect(refused.error?.message).toContain('worktreePath');
+    expect(await readFile(stateFile, 'utf-8')).toBe(before);
+    expect(await settledRows()).toEqual([]);
+  });
+
+  /**
+   * The held batch omits the task that the stream shows complete. The decision round reads the
+   * held claims back and verifies them. It needs no claim for the complete task, and it brings
+   * the document level for it.
+   */
+  it('Settle_ADecisionOnAHeldBatchThatOmitsACompleteTask_VerifiesAndLevelsTheDocument', async () => {
+    const stateFile = await seedDocument();
+    await recordCompletion('task-verify');
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const held = receiptOf(await settle({ ...batch('batch-held-then-decided', [secondClaim()]), deviations: [DEVIATION] }));
+    expect(held.outcome).toBe('deviation-pending');
+    expect(await documentStatuses(stateFile)).toEqual(IN_PROGRESS);
+
+    const decided = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: BOTH_VERSION,
+        batchId: 'batch-held-then-decided',
+        decisions: (held.pendingDeviations ?? []).map((pending) => ({
+          deviationId: pending.deviationId,
+          decision: 'accepted',
+          actor: 'human:reviewer',
+          rationale: 'the assumption was wrong and the workaround is sound',
+        })),
+      }),
+    );
+    expect(decided.outcome).toBe('settled');
+    expect(decided.round).toBe(1);
+    expect(decided.acceptedTasks).toEqual([SECOND_TASK]);
+    expect(tracesOf(decided)).toEqual([
+      ['task-verify', 'already-complete'],
+      [SECOND_TASK, 'verified'],
+    ]);
+    expect(await documentStatuses(stateFile)).toEqual(COMPLETE);
+  });
+
+  /**
+   * The stream shows `task-verify` complete, and the document is corrupt. The batch omits the task,
+   * and the round still must bring the document level for it. The call is refused before any effect:
+   * no segment runs, and no row or blob is left. After the repair, the same batch settles.
+   */
+  it('Settle_ADocumentThatCannotBeWritten_RefusesABatchThatOmitsTheCompleteTask', async () => {
+    const stateFile = await seedDocument();
+    const intact = await readFile(stateFile, 'utf-8');
+    await recordCompletion('task-verify');
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    await writeFile(stateFile, '{ not a document', 'utf-8');
+    const tail = (await store.query(STREAM)).length;
+    const blobs = await bundleBlobCount();
+
+    const refused = await settle(batch('batch-unwritable', [secondClaim()]));
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('STATE_SYNC_FAILED');
+    expect(refused.error?.message).toContain('"task-verify"');
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+
+    await writeFile(stateFile, intact, 'utf-8');
+    const repaired = receiptOf(await settle(batch('batch-unwritable', [secondClaim()])));
+    expect(repaired.outcome).toBe('settled');
+    expect(await documentStatuses(stateFile)).toEqual(COMPLETE);
+    expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify', SECOND_TASK]);
+  });
+});
+
+/**
  * The text of the settle action that an agent reads, and the reason that its contract gives for
- * the requirements dimension. The verdict reads two facts of the current stream, and both texts say so.
+ * the requirements dimension. The verdict reads three facts of the current stream. The description
+ * names two of them, and the reason names all three.
  */
 describe('settle — the text of the action', () => {
   function settleAction(): (typeof settleActions)[number] {
@@ -2951,8 +3486,9 @@ describe('settle — the text of the action', () => {
     if (requires.kind !== 'none') throw new Error('the settle action declares requirements');
     expect(requires.because).not.toContain('current-state dependency');
     expect(requires.because).toContain('no prior gate or approval floor');
-    expect(requires.because).toContain('The verdict does read two facts of the current stream');
+    expect(requires.because).toContain('The verdict does read three facts of the current stream');
     expect(requires.because).toContain('the plan standing of a task a deviation names');
     expect(requires.because).toContain('each design revision recorded after the capsule');
+    expect(requires.because).toContain('the completion row of a required task the batch does not claim');
   });
 });

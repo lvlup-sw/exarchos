@@ -17,9 +17,12 @@ export interface SettledCapsuleIdentity {
 }
 
 /**
- * How the verification of one accepted claim ran. `operationId` names the task-completion segment,
- * so a caller can read its receipt through `execute_intent`. It is absent when the stream already
- * showed the task complete. `bundleRefs` is the run bundle of a segment that committed a record.
+ * How settlement read the completion of one task. A task has a trace when the shape pass accepts
+ * its claim, or when the capsule requires it and the stream already shows it complete.
+ *
+ * `operationId` names the task-completion segment, so a caller can read its receipt through
+ * `execute_intent`. It is absent under `already-complete`, where no segment ran. `bundleRefs` is
+ * the run bundle of a segment that committed a record.
  */
 export interface SettlementVerificationTrace {
   readonly taskId: string;
@@ -89,8 +92,10 @@ export interface SettlementReceipt {
   readonly requestDigest: string;
   readonly tailSequence: number;
   /**
-   * How each accepted claim was verified. It is empty when adjudication stopped the batch before
-   * verification. It is optional for the same reason as `bundleRefs`.
+   * How each accepted claim was verified. It also holds an `already-complete` entry for each
+   * required task that the batch does not claim and the stream shows complete. It is empty when
+   * adjudication stopped the batch before verification. It is optional for the same reason as
+   * `bundleRefs`.
    */
   readonly verification?: readonly SettlementVerificationTrace[];
   /**

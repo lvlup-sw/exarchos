@@ -18,6 +18,7 @@ import {
   SETTLEMENT_OUTCOMES,
   acceptedMaterialDeviations,
   adjudicateSettlement,
+  outcomeVerifies,
   verificationRuns,
   type AdjudicationContext,
   type ProposedDeviation,
@@ -141,6 +142,16 @@ const CASES: readonly AdjudicationCase[] = [
     namedByALaterRevision({ 'task-verify': 2 }),
   ),
   bend('a required result the batch does not carry', 'missing-claim', 'refuse', 'claims', []),
+  bend(
+    'a required result the batch does not carry, for a task that a later revision names',
+    'claim-superseded-by-revision',
+    'stale',
+    'claims',
+    [passingClaim()],
+    () => requiringBothTasks(),
+    undefined,
+    namedByALaterRevision({ 'task-compile': 2 }),
+  ),
   bend('a required field the claim omits', 'missing-field', 'refuse', 'claims[0].fields', [
     { taskId: 'task-verify', fields: {}, evidence: [] },
   ]),
@@ -625,6 +636,15 @@ function capsuleWithTwoShapes(): ExarchosCapsuleV1 {
   };
 }
 
+/** The capsule with two shapes, with both of its tasks required. */
+function requiringBothTasks(): ExarchosCapsuleV1 {
+  const capsule = capsuleWithTwoShapes();
+  return {
+    ...capsule,
+    settlementContract: { ...capsule.settlementContract, requiredResults: ['task-verify', 'task-compile'] },
+  };
+}
+
 /** A clean claim for `task-compile` under the capsule with two shapes. */
 function compileClaim(): SettlementClaim {
   return { taskId: 'task-compile', fields: { passed: true }, evidence: [] };
@@ -736,6 +756,113 @@ describe('the outcome of a batch with findings of more than one class', () => {
   });
 });
 
+/** The context of a batch on a stream that shows exactly the listed tasks complete. */
+function completeOnTheStream(...taskIds: string[]): AdjudicationContext {
+  return { evidenceResolves: () => true, taskComplete: (taskId) => taskIds.includes(taskId) };
+}
+
+/**
+ * A recorded completion satisfies a required result. The capsule of these cases requires
+ * `task-verify` and `task-compile`, and each batch but the last claims `task-verify` only.
+ */
+describe('a required result that the batch does not claim', () => {
+  function findingsOf(verdict: SettlementVerdict): string[][] {
+    return verdict.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  /**
+   * The denominator. The unclaimed task is a missing claim in each of three contexts. They are no
+   * completion predicate, a predicate that says no, and a predicate that says yes for the other task only.
+   */
+  it.each([
+    ['no completion predicate', RESOLVING],
+    ['a stream that shows no task complete', completeOnTheStream()],
+    ['a stream that shows only the claimed task complete', completeOnTheStream('task-verify')],
+  ] satisfies [string, AdjudicationContext][])(
+    'Adjudicate_AnUnclaimedRequiredTaskUnder_%s_IsAMissingClaim',
+    (_name, context) => {
+      const verdict = adjudicateSettlement(requiringBothTasks(), [passingClaim()], [], context);
+      expect(findingsOf(verdict)).toEqual([['missing-claim', 'task-compile', 'claims']]);
+      expect(verdict.outcome).toBe('rejected');
+      expect(verdict.adjudicated.requiredResults).toBe(2);
+    },
+  );
+
+  /**
+   * The stream shows the unclaimed task complete, so the requirement has its result and the batch
+   * gets no finding. The accepted tasks are the claimed tasks, so the unclaimed task is not in the list.
+   */
+  it('Adjudicate_AnUnclaimedRequiredTaskThatTheStreamShowsComplete_NeedsNoClaim', () => {
+    const verdict = adjudicateSettlement(requiringBothTasks(), [passingClaim()], [], completeOnTheStream('task-compile'));
+    expect(verdict.findings).toEqual([]);
+    expect(verdict.outcome).toBe('settled');
+    expect(verdict.acceptedTasks).toEqual(['task-verify']);
+    expect(verdict.adjudicated).toMatchObject({ claims: 1, requiredResults: 2, verification: 0 });
+  });
+
+  /**
+   * On the final pass the census counts the recorded outcome of the unclaimed task beside the
+   * outcome of the claim. A final pass that carries no outcome for the unclaimed task counts one.
+   */
+  it('Adjudicate_OnTheFinalPass_TheCensusCountsTheOutcomeOfTheUnclaimedCompleteTask', () => {
+    const finalPass = (outcomes: readonly (readonly [string, TaskVerificationOutcome])[]): SettlementVerdict =>
+      adjudicateSettlement(requiringBothTasks(), [passingClaim()], [], {
+        ...completeOnTheStream('task-compile'),
+        verification: new Map(outcomes),
+      });
+
+    const both = finalPass([
+      ['task-compile', { kind: 'already-complete' }],
+      ['task-verify', { kind: 'verified' }],
+    ]);
+    expect(both.findings).toEqual([]);
+    expect(both.outcome).toBe('settled');
+    expect(both.acceptedTasks).toEqual(['task-verify']);
+    expect(both.adjudicated.verification).toBe(2);
+
+    const claimOnly = finalPass([['task-verify', { kind: 'verified' }]]);
+    expect(claimOnly.outcome).toBe('settled');
+    expect(claimOnly.adjudicated.verification).toBe(1);
+  });
+
+  /**
+   * The unclaimed task is not complete, and a later revision names it. The finding is stale and it
+   * points at the claim list, so the capsule settles no new batch and nothing is verified.
+   */
+  it('Adjudicate_AnUnclaimedIncompleteTaskThatALaterRevisionNames_IsStale', () => {
+    const verdict = adjudicateSettlement(requiringBothTasks(), [passingClaim()], [], {
+      ...namedByALaterRevision({ 'task-compile': 4 }),
+      taskComplete: () => false,
+    });
+    expect(findingsOf(verdict)).toEqual([['claim-superseded-by-revision', 'task-compile', 'claims']]);
+    expect(verdict.findings[0]?.message).toContain('the batch carries none');
+    expect(verdict.findings[0]?.message).toContain('design version 4');
+    expect(verdict.findings[0]?.message).toContain('capsule v7');
+    expect(verdict.findings[0]?.message).toContain('prepare again');
+    expect(verdict.outcome).toBe('recompile-required');
+    expect(verificationRuns(verdict.findings)).toBe(false);
+    expect(verdict.acceptedTasks).toEqual(['task-verify']);
+  });
+
+  /**
+   * A later revision names a task that the stream shows complete. Without a claim, the completion
+   * is the result and the batch settles. With a claim, the revision check comes first and the claim is stale.
+   */
+  it('Adjudicate_ACompleteTaskThatALaterRevisionNames_NeedsNoClaimAndIsStaleWhenClaimed', () => {
+    const context: AdjudicationContext = {
+      ...namedByALaterRevision({ 'task-compile': 4 }),
+      taskComplete: (taskId) => taskId === 'task-compile',
+    };
+    const unclaimed = adjudicateSettlement(requiringBothTasks(), [passingClaim()], [], context);
+    expect(unclaimed.findings).toEqual([]);
+    expect(unclaimed.outcome).toBe('settled');
+
+    const claimed = adjudicateSettlement(requiringBothTasks(), [passingClaim(), compileClaim()], [], context);
+    expect(findingsOf(claimed)).toEqual([['claim-superseded-by-revision', 'task-compile', 'claims[1].taskId']]);
+    expect(claimed.outcome).toBe('recompile-required');
+  });
+});
+
 /** Whether verification runs after a shape pass, as the handler asks it. */
 describe('the findings that stop verification', () => {
   function finding(kind: SettlementFindingKind): SettlementFinding {
@@ -761,6 +888,18 @@ describe('the findings that stop verification', () => {
   it('VerificationRuns_ForEachDeclaredKind_IsTrueOnlyForAFailedVerification', () => {
     const letsItRun = SETTLEMENT_FINDING_KINDS.filter((kind) => verificationRuns([finding(kind)]));
     expect(letsItRun).toEqual(['verification-failed']);
+  });
+
+  /**
+   * The outcomes under which a batch reached verification, in the order of the outcome list.
+   * Each other outcome is the outcome of a finding class that stops verification.
+   */
+  it('OutcomeVerifies_IsTrueForTheThreeOutcomesThatReachVerification', () => {
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => outcomeVerifies(outcome))).toEqual([
+      'settled',
+      'corrective-capsule',
+      'accepted-with-rationale',
+    ]);
   });
 
   /** The shape pass of a real batch: a clean batch and a held batch, read through the adjudicator. */

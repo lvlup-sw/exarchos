@@ -91,9 +91,10 @@ const CensusSchema = z
   .strict();
 
 /**
- * How the verification of one accepted claim ran. The segment detail is in its
- * own bundle, named by `bundleRefs`. This trace records only how the
- * settlement read it.
+ * How settlement read the completion of one task. The task is one with an
+ * accepted claim, or a required task that the stream already showed complete.
+ * The segment detail is in its own bundle, named by `bundleRefs`. This trace
+ * records only how the settlement read it.
  */
 const VerificationTraceSchema = z
   .object({

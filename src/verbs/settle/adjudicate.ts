@@ -4,7 +4,8 @@
  *
  * This module is pure: no store, no filesystem, no clock. The handler records the verdict.
  * The context supplies the facts that the module cannot compute.
- * They are whether an evidence reference resolves, how a named task stands, which later revision names a claimed task, and each task verification outcome.
+ * They are whether an evidence reference resolves, how a named task stands, and which later revision names a task.
+ * They are also whether the stream shows a task complete, and each task verification outcome.
  *
  * The capsule parts that decide the verdict are `contracts.taskResults`, `contracts.evidenceKinds`, `contracts.deviationEnvelope`,
  * `settlementContract.requiredResults` and `settlementContract.taskVerification`.
@@ -189,6 +190,14 @@ export function verificationRuns(findings: readonly SettlementFinding[]): boolea
 }
 
 /**
+ * Whether a batch with this outcome reached verification. Under such an outcome, the tasks that passed are recorded complete.
+ * An outcome did not reach it when it is the outcome of a finding class that stops verification.
+ */
+export function outcomeVerifies(outcome: SettlementOutcome): boolean {
+  return !Object.values(FINDING_CLASS_EFFECTS).some((effect) => effect.outcome === outcome && !effect.verifies);
+}
+
+/**
  * The verification outcome of one task, as the handler reports it.
  * `verified` is a segment that ran to its terminal leaf and committed.
  * `already-complete` is a task that the stream showed complete before the batch, so nothing ran again.
@@ -219,12 +228,18 @@ export interface AdjudicationContext {
   readonly taskStanding?: (taskId: string) => TaskStanding;
   /**
    * The design version of the latest revision that names a task, among the revisions that the stream recorded after the capsule.
-   * It returns undefined for a task that no such revision names. Without the function, no claim gets the check.
+   * It returns undefined for a task that no such revision names. Without the function, no task gets the check.
    */
   readonly supersedingDesignVersion?: (taskId: string) => number | undefined;
   /**
-   * The verification outcome per claimed task. It is absent on the shape pass, which decides whether verification runs.
+   * Whether the stream shows a task complete. A required task that it shows complete needs no claim.
+   * Without the function, each required task needs a claim.
+   */
+  readonly taskComplete?: (taskId: string) => boolean;
+  /**
+   * The verification outcome per task. It is absent on the shape pass, which decides whether verification runs.
    * On the final pass, a claim without a passing entry is not accepted.
+   * It also holds the outcome of each required task that the stream shows complete and the batch does not claim.
    */
   readonly verification?: ReadonlyMap<string, TaskVerificationOutcome>;
 }
@@ -254,6 +269,58 @@ export interface SettlementCensus {
   readonly verification: number;
   /** Decisions read for proposed deviations. It is zero on a round with no decisions. */
   readonly decisions: number;
+}
+
+/**
+ * The stale finding for a task that a later revision names. `met` says how the batch meets the task.
+ * The message names the design version of the revision and the next call.
+ */
+function supersededByRevision(
+  capsule: ExarchosCapsuleV1,
+  taskId: string,
+  revisedTo: number,
+  at: string,
+  met: string,
+): SettlementFinding {
+  return {
+    kind: 'claim-superseded-by-revision',
+    subject: taskId,
+    at,
+    message:
+      `${met} is named by the revision to design version ${revisedTo}, ` +
+      `which the stream recorded after capsule v${capsule.identity.capsuleVersion} was compiled. This ` +
+      'capsule holds the earlier terms of the task: prepare again, and settle the batch under the new capsule',
+  };
+}
+
+/**
+ * The finding for a required task that the batch does not claim, or undefined when the task needs no claim.
+ * A task that the stream shows complete needs no claim, because the recorded completion is its result.
+ * An incomplete task that a later revision names is stale, so its capsule can settle no new batch.
+ * Each other task is a missing claim.
+ */
+function unclaimedRequirementFinding(
+  capsule: ExarchosCapsuleV1,
+  required: string,
+  context: AdjudicationContext,
+): SettlementFinding | undefined {
+  if (context.taskComplete?.(required) === true) return undefined;
+  const revisedTo = context.supersedingDesignVersion?.(required);
+  if (revisedTo !== undefined) {
+    return supersededByRevision(
+      capsule,
+      required,
+      revisedTo,
+      'claims',
+      `settlement requires a result from task ${JSON.stringify(required)} and the batch carries none, and the task`,
+    );
+  }
+  return {
+    kind: 'missing-claim',
+    subject: required,
+    at: 'claims',
+    message: `settlement requires a result from task ${JSON.stringify(required)} and the batch carries none`,
+  };
 }
 
 /** The capsule's own field-type vocabulary, as a runtime test over a value. */
@@ -333,15 +400,9 @@ export function adjudicateSettlement(
 
     const revisedTo = context.supersedingDesignVersion?.(claim.taskId);
     if (revisedTo !== undefined) {
-      findings.push({
-        kind: 'claim-superseded-by-revision',
-        subject: claim.taskId,
-        at: `${at}.taskId`,
-        message:
-          `task ${JSON.stringify(claim.taskId)} is named by the revision to design version ${revisedTo}, ` +
-          `which the stream recorded after capsule v${capsule.identity.capsuleVersion} was compiled. This ` +
-          'capsule holds the earlier terms of the task: prepare again, and settle the batch under the new capsule',
-      });
+      findings.push(
+        supersededByRevision(capsule, claim.taskId, revisedTo, `${at}.taskId`, `task ${JSON.stringify(claim.taskId)}`),
+      );
       return;
     }
 
@@ -452,12 +513,12 @@ export function adjudicateSettlement(
   for (const required of capsule.settlementContract.requiredResults) {
     census.requiredResults += 1;
     if (seen.has(required)) continue;
-    findings.push({
-      kind: 'missing-claim',
-      subject: required,
-      at: 'claims',
-      message: `settlement requires a result from task ${JSON.stringify(required)} and the batch carries none`,
-    });
+    const finding = unclaimedRequirementFinding(capsule, required, context);
+    if (finding !== undefined) {
+      findings.push(finding);
+      continue;
+    }
+    if (context.verification?.has(required) === true) census.verification += 1;
   }
 
   deviations.forEach((deviation, i) => {

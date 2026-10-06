@@ -64,6 +64,7 @@ import {
   acceptedMaterialDeviations,
   adjudicateSettlement,
   type AdjudicationContext,
+  outcomeVerifies,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementEvidence,
@@ -375,6 +376,21 @@ function completedTaskIds(events: readonly { readonly type: string; readonly dat
     if (typeof taskId === 'string') ids.add(taskId);
   }
   return ids;
+}
+
+/**
+ * The tasks that a verified round finds complete on the stream before it runs a segment.
+ * They are the required tasks of the capsule and the accepted tasks of the batch that `completed` holds.
+ * The round brings the state document level for each of them, after every segment compiles.
+ * A required task in the list needs no claim. The list is sorted, and it holds each task once.
+ */
+function recordedCompleteTasks(
+  capsule: ExarchosCapsuleV1,
+  acceptedTasks: readonly string[],
+  completed: ReadonlySet<string>,
+): string[] {
+  const candidates = new Set([...capsule.settlementContract.requiredResults, ...acceptedTasks]);
+  return [...candidates].filter((taskId) => completed.has(taskId)).sort();
 }
 
 type TaskStandingLookup =
@@ -689,6 +705,19 @@ async function verifyTask(
   };
 }
 
+/**
+ * The refusal of a submitted batch that carries no claim. A recorded completion satisfies a required
+ * result, so a batch with no claim has nothing to adjudicate. The caller checks after the replay
+ * lookup, so a batch with no claim that an earlier build recorded still returns its verdict.
+ */
+function claimlessBatch(batchLabel: string): ToolResult {
+  return invalid(
+    `${batchLabel} carries no claim, and a submitted batch carries at least one. A task that is ` +
+      'recorded complete needs no claim, so a batch with no claim has nothing to adjudicate. Claim ' +
+      'the tasks that are not complete, or decide a held batch with `decisions`.',
+  );
+}
+
 /** Claims as the request carries them, refused as a whole if any entry is malformed. */
 function readClaims(raw: unknown): SettlementClaim[] | string {
   if (raw === undefined) return [];
@@ -801,9 +830,9 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
  * unresolved, or without verification terms. Calls for one batch run one at a time in a process,
  * and the commit serializes them across processes. On a race, the caller gets the receipt that
  * `decideOnce` persisted. Every segment compiles before any runs, so a claim that cannot compile
- * leaves the batch unclaimed. A task that the stream already shows complete passed its gates
- * through `task_complete`, so settlement does not verify it again. Each round that adjudicates
- * reads the later design revisions, and a claim for a task that one of them names is stale.
+ * leaves the batch unclaimed. A task that the stream already shows complete passed its gates, so
+ * it needs no claim and no second verification. Each round that adjudicates reads the later design
+ * revisions, and one that names a claimed or an unfinished task makes the batch stale.
  *
  * The emitter-closure census does not read `decideOnce`, so an allowance row covers this append.
  * The record is the last event, and the tail sequence comes from a read inside the write lock.
@@ -955,19 +984,27 @@ export async function handleSettle(
                 'back under a new batchId.',
         );
       }
-      if (claim.result.outcome === 'settled' && claim.result.acceptedTasks.length > 0) {
-        const sync = await bringDocumentLevel(stateDir, streamId, claim.result.acceptedTasks);
-        if (sync.kind === 'failed') {
-          return documentNotLevel(
-            sync,
-            `${batchLabel} is settled and its tasks are recorded complete`,
-            'Settle the same batch again to bring the document level; nothing is adjudicated twice.',
-            claim.result,
-          );
+      if (outcomeVerifies(claim.result.outcome)) {
+        const recorded = recordedCompleteTasks(
+          capsule,
+          claim.result.acceptedTasks,
+          completedTaskIds(await ctx.eventStore.query(streamId, { type: 'task.completed' })),
+        );
+        if (recorded.length > 0) {
+          const sync = await bringDocumentLevel(stateDir, streamId, recorded);
+          if (sync.kind === 'failed') {
+            return documentNotLevel(
+              sync,
+              `${batchLabel} has its verdict and its complete tasks are recorded`,
+              'Settle the same batch again to bring the document level; nothing is adjudicated twice.',
+              claim.result,
+            );
+          }
         }
       }
       return receiptResult(claim.result);
     }
+    if (!deciding && submittedClaims.length === 0) return claimlessBatch(batchLabel);
 
     let claims: SettlementClaim[] = submittedClaims;
     let deviations: ProposedDeviation[] = submittedDeviations;
@@ -1022,7 +1059,10 @@ export async function handleSettle(
     const revising = acceptedMaterialDeviations(capsule, deviations, decided);
     if (revising.length > 0) await checkRevisionRowsFold(ctx, streamId);
 
-    let context: AdjudicationContext = { evidenceResolves, decided, supersedingDesignVersion };
+    const completed = completedTaskIds(await ctx.eventStore.query(streamId, { type: 'task.completed' }));
+    const taskComplete = (taskId: string): boolean => completed.has(taskId);
+
+    let context: AdjudicationContext = { evidenceResolves, decided, supersedingDesignVersion, taskComplete };
     if (!deciding && deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await taskStandingLookup(ctx, streamId);
       if (!standing.ok) return standing.error;
@@ -1035,26 +1075,11 @@ export async function handleSettle(
 
     if (verificationRuns(shape.findings)) {
       const byTask = new Map(claims.map((claim): [string, SettlementClaim] => [claim.taskId, claim]));
-      const completed = completedTaskIds(
-        await ctx.eventStore.query(streamId, { type: 'task.completed' }),
-      );
 
       const compiled: CompiledVerification[] = [];
       const outcomes = new Map<string, TaskVerificationOutcome>();
       for (const taskId of shape.acceptedTasks) {
-        if (completed.has(taskId)) {
-          const sync = await bringDocumentLevel(stateDir, streamId, [taskId]);
-          if (sync.kind === 'failed') {
-            return documentNotLevel(
-              sync,
-              `task ${JSON.stringify(taskId)} of ${batchLabel} is already recorded complete`,
-              'Nothing was adjudicated; settle the batch again once the document can be written.',
-            );
-          }
-          outcomes.set(taskId, { kind: 'already-complete' });
-          traces.push({ taskId, outcome: 'already-complete' });
-          continue;
-        }
+        if (completed.has(taskId)) continue;
         const claim = byTask.get(taskId);
         const terms = verificationTerms[taskId];
         if (claim === undefined || terms === undefined) continue;
@@ -1067,6 +1092,23 @@ export async function handleSettle(
           );
         }
         compiled.push({ taskId, operationId: verificationOperationId(operationId, taskId), args });
+      }
+
+      const recorded = recordedCompleteTasks(capsule, shape.acceptedTasks, completed);
+      if (recorded.length > 0) {
+        const sync = await bringDocumentLevel(stateDir, streamId, recorded);
+        if (sync.kind === 'failed') {
+          return documentNotLevel(
+            sync,
+            `the stream already records ${recorded.map((taskId) => JSON.stringify(taskId)).join(', ')} ` +
+              `complete for ${batchLabel}`,
+            'Nothing was adjudicated; settle the batch again once the document can be written.',
+          );
+        }
+      }
+      for (const taskId of recorded) {
+        outcomes.set(taskId, { kind: 'already-complete' });
+        traces.push({ taskId, outcome: 'already-complete' });
       }
 
       for (const task of compiled) {

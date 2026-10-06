@@ -166,9 +166,10 @@ export const settleActions: readonly BuiltinToolAction[] = [
   }, {
     requires: none(
       'the capsule carries its own terms, pinned at compile time, so settlement consumes no ' +
-        'prior gate or approval floor. The verdict does read two facts of the current stream ' +
-        'that no gate resolves: the plan standing of a task a deviation names, and each design ' +
-        'revision recorded after the capsule',
+        'prior gate or approval floor. The verdict does read three facts of the current stream ' +
+        'that no gate resolves: the plan standing of a task a deviation names, each design ' +
+        'revision recorded after the capsule, and the completion row of a required task the ' +
+        'batch does not claim',
     ),
     /**
      * The replay contract is the reason for no postcondition. The ensures check looks for a row
