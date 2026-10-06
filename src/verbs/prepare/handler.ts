@@ -8,8 +8,10 @@
  * against this capsule.
  *
  * Every refusal occurs before any effect. The workflow must name the branch that its tasks fork from.
- * The claim key is the digest of the compilation inputs, the base included, so a retry returns the
- * recorded capsule. Changed inputs get the next capsule version.
+ *
+ * The claim key is the digest of the compilation inputs, so a retry returns the recorded capsule.
+ * The inputs include the base, the design version of the stream and the name of the compiler.
+ * Changed inputs get the next capsule version.
  */
 
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
@@ -31,7 +33,13 @@ import { capabilityNeedSatisfied } from '../../workflow/capabilities/resolver.js
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import type { CatalogInvariant } from './bind-authority.js';
-import { compileDelegationCapsule, verificationProfiles, type CompileCapsuleInput } from './compile-capsule.js';
+import {
+  compileDelegationCapsule,
+  PREPARE_COMPILER_VERSION,
+  verificationProfiles,
+  type CompileCapsuleInput,
+} from './compile-capsule.js';
+import { designVersionOf } from './design-version.js';
 import { lowerBuiltInDefinition } from './lower-definition.js';
 import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
 import { commitPreparedCapsule } from './prepared-record.js';
@@ -82,6 +90,11 @@ export interface PrepareDeps {
     repoRoot: string,
   ) => readonly CatalogInvariant[];
   readonly now?: () => string;
+  /**
+   * The compiler name that the compilation is recorded under. Production passes none and gets the name of this build.
+   * A test passes an earlier name, to record a claim as an earlier compiler left it.
+   */
+  readonly compilerVersion?: string;
 }
 
 function invalid(message: string): ToolResult {
@@ -212,8 +225,9 @@ function resolvedCatalogInvariants(
  *
  * The handler reads the stream before it folds the state. The stream tail is
  * the expected sequence of the commit, so the store refuses the commit after a
- * concurrent append. The commit announces only the batch tasks that the stream
- * has not seen, because a second `task.assigned` moves a task back to `assigned`.
+ * concurrent append. The handler folds the design version from the same read.
+ * The commit announces only the batch tasks that the stream has not seen,
+ * because a second `task.assigned` moves a task back to `assigned`.
  * The runtime check occurs before compilation. The verification sequence is a
  * compilation input, so a policy change compiles the next version.
  */
@@ -286,6 +300,8 @@ export async function handlePrepare(
   }
 
   const designRef = resolveDesignRef(state);
+  const designVersion = designVersionOf(events);
+  const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
   const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(
     workflowType,
     phase,
@@ -307,6 +323,8 @@ export async function handlePrepare(
     batch,
     catalogInvariants,
     designRef: designRef ?? null,
+    designVersion,
+    compilerVersion,
     executionProfile: { capabilities },
     verificationTerms,
     baseRef,
@@ -328,6 +346,8 @@ export async function handlePrepare(
       batch,
       catalogInvariants,
       designRef,
+      designVersion,
+      compilerVersion,
       baseRef,
       executionProfile: { capabilities },
       verificationSequence: sequenceOf,

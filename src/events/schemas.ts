@@ -3172,7 +3172,10 @@ export const WorkflowPreparedData = z
       .string()
       .min(1)
       .describe('Digest of the workflow definition the capsule compiled from'),
-    designVersion: z.string().min(1).describe('The design reference this compilation pinned'),
+    designVersion: z
+      .string()
+      .min(1)
+      .describe('The design version this compilation pinned: the revision counter of the stream'),
     capsuleDigest: z
       .string()
       .min(1)

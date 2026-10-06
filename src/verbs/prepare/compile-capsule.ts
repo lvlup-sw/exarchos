@@ -1,5 +1,5 @@
 /**
- * Compiles one delegation batch into a capsule. The module is pure: the handler reads state, resolves the catalog, and passes in the version and the timestamp.
+ * Compiles one delegation batch into a capsule. The module is pure: the handler reads state, resolves the catalog, and passes in the versions and the timestamp.
  *
  * The stages run in this order:
  * - normalize: the caller lowers the built-in machine into a kernel definition. Its digest is the `definitionVersion` of the capsule.
@@ -29,12 +29,17 @@ import {
 } from '../../workflow/admission/built-in-workflow-ir.js';
 import { bindCatalogInvariants, type CatalogInvariant } from './bind-authority.js';
 import { builtInWorkflowAuthority } from './built-in-authority.js';
+import { designVersionId } from './design-version.js';
 import type { LoweredBuiltInDefinition } from './lower-definition.js';
 import { DELEGATION_STEP_ID, type BatchTaskVerification, type DelegationBatch } from './partition-tasks.js';
 import type { PrepareRefusal } from './types.js';
 
-/** Names the compiler that produced a capsule, so a reader can tell compilations apart. */
-export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-1';
+/**
+ * Names the compiler that produced a capsule, so a reader can tell compilations apart.
+ * The handler also keys its replay claim on this name, so a capsule of an earlier compiler is not replayed.
+ * Raise the number when the compiler changes what it writes into a capsule.
+ */
+export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-2';
 
 /** The deviation kinds that a worker can propose when an assumption of the capsule does not hold. */
 export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption', 'missing-context'];
@@ -54,6 +59,16 @@ export interface CompileCapsuleInput {
   readonly catalogInvariants: readonly CatalogInvariant[];
   /** The workflow's design artifact reference, when it records one. */
   readonly designRef: string | undefined;
+  /**
+   * The design version of the stream: the revision counter that the handler folds from its events.
+   * It starts at 1, and each recorded design revision moves it. The capsule identity carries its id.
+   */
+  readonly designVersion: number;
+  /**
+   * The compiler name that the capsule records in its provenance.
+   * The handler passes the name that it keys the replay claim on, so the record and the claim agree.
+   */
+  readonly compilerVersion: string;
   /**
    * The branch that each task in the batch forks from: the integration branch of the workflow,
    * which the handler resolves. It is frozen into the verification terms of each task, so the
@@ -174,7 +189,8 @@ function verificationPatterns(
  * Compiles one delegation batch, or refuses it.
  * The completion predicate is the task-completion condition, parsed through the capsule condition schema, so the declares block matches the node the capsule carries.
  * The steps that follow the batch in the pinned definition become non-goals.
- * `designVersion` pins the digest of the design reference, not the bytes of the design record.
+ * The identity carries the id of the design version, which is the revision counter of the stream.
+ * The digest of the design reference is a provenance source, and it is not part of the identity.
  * The settlement contract freezes the tier and the boundary flag of each task, so settlement does not read them from the claim.
  */
 export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOutcome {
@@ -215,7 +231,7 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     identity: {
       workflowId,
       definitionVersion: lowered.definitionVersion,
-      designVersion: `design-${contentDigest(designRef ?? null).slice(0, 16)}`,
+      designVersion: designVersionId(input.designVersion),
       capsuleVersion,
     },
     intent: {
@@ -263,7 +279,7 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     provenance: {
       sources,
       compiledAt: input.compiledAt,
-      compilerVersion: PREPARE_COMPILER_VERSION,
+      compilerVersion: input.compilerVersion,
     },
     settlementContract: {
       requiredResults: [...batch.requiredResults],
