@@ -103,7 +103,9 @@ type DesignChangeSelection =
  * read from the settlement bundles. A revision is read when `accepted` holds each deviation of its row.
  *
  * The first group holds each change that names a task of the batch, and the second group holds the rest.
- * A row names each task that its changes name, so only a row that names a task of the batch gives the first group.
+ * `settle` writes each row with the tasks that its changes name. Thus only a row that names a task of the batch gives the first group.
+ * The order and the reads rest on that property of a row.
+ *
  * Each group has the newest revision first. In one revision, the order is that of the deviation ids on its row.
  * The first eight changes in that order are bound.
  *

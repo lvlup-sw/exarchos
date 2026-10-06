@@ -610,6 +610,45 @@ describe('delegation capsule compilation — the accepted design changes', () =>
   });
 
   /**
+   * Nine revisions each name a task of the batch, and a newer one names none.
+   * The first group alone fills the eight places, so the walk stops in its first pass.
+   * It asks for the eight newest of the nine, and it never asks for the ninth or for the other revision.
+   * Changes of a revision that the walk did not ask for give the same selection.
+   */
+  it('SelectDesignChanges_MoreRevisionsThatNameABatchTaskThanPlaces_BindsTheNewestAndAsksForNoOther', () => {
+    const naming = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+    const rows = [
+      ...naming.map((version) => revisionRow(version, [`dev:names-${version}`], ['T-1'])),
+      revisionRow(11, ['dev:names-none']),
+    ];
+    const changesOf = (version: number): AcceptedDesignChange[] =>
+      version === 11
+        ? [acceptedChange('dev:names-none')]
+        : [acceptedChange(`dev:names-${version}`, ['T-1'])];
+    const newestEight = [10, 9, 8, 7, 6, 5, 4, 3];
+
+    const asked: number[] = [];
+    const given: AcceptedDesignChange[] = [];
+    let selection = selectDesignChanges(rows, ORDERING_BATCH, given);
+    for (let step = 0; step < rows.length && !selection.complete; step += 1) {
+      asked.push(selection.unread.nextDesignVersion);
+      given.push(...changesOf(selection.unread.nextDesignVersion));
+      selection = selectDesignChanges(rows, ORDERING_BATCH, given);
+    }
+
+    expect(asked).toEqual(newestEight);
+    if (!selection.complete) throw new Error('the selection is not complete after each revision that it asked for');
+    const boundOf = (bound: typeof selection.bound): number[] => bound.map(({ revision }) => revision.nextDesignVersion);
+    expect(boundOf(selection.bound)).toEqual(newestEight);
+    expect(selection.leftOut).toBe(2);
+
+    const withSurplus = selectDesignChanges(rows, ORDERING_BATCH, [...changesOf(11), ...changesOf(2), ...given]);
+    if (!withSurplus.complete) throw new Error('the selection is not complete with surplus changes');
+    expect(boundOf(withSurplus.bound)).toEqual(newestEight);
+    expect(withSurplus.leftOut).toBe(2);
+  });
+
+  /**
    * A row that `settle` records names each task that its changes name. Two rows here do not.
    * The change of version 3 names a task of the batch, and its row names no task.
    * The row of version 4 names a task of the batch, and its change names none.
