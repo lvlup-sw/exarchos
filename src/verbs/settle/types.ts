@@ -75,14 +75,19 @@ export interface SettlementReceipt {
   readonly streamId: string;
   readonly capsule: SettledCapsuleIdentity;
   readonly outcome: SettlementOutcome;
+  /**
+   * Under `settled`, `accepted-with-rationale` and `corrective-capsule`, the claimed tasks that
+   * are recorded complete. Under each other outcome nothing was verified, and the list holds the
+   * tasks whose claims the shape pass found no fault in.
+   */
   readonly acceptedTasks: readonly string[];
   readonly findings: readonly SettlementFinding[];
   readonly adjudicated: SettlementCensus;
   readonly requestDigest: string;
   readonly tailSequence: number;
   /**
-   * How each accepted claim was verified. It is empty when adjudication refused or held the batch
-   * before verification. It is optional for the same reason as `bundleRefs`.
+   * How each accepted claim was verified. It is empty when adjudication stopped the batch before
+   * verification. It is optional for the same reason as `bundleRefs`.
    */
   readonly verification?: readonly SettlementVerificationTrace[];
   /**

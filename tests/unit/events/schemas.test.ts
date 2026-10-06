@@ -96,8 +96,10 @@ import {
   PromotionExecutedData,
   EmissionViolatedData,
   AdmissionCutoverReadyData,
+  ExecutionSettledData,
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
+import { SETTLEMENT_OUTCOMES } from '../../../src/verbs/settle/adjudicate.js';
 import * as mutationOwner from '../../../src/vcs/mutation-owner.js';
 import { promoteTree, promotionPlan, defaultPromotionIo } from '../../../src/install/atomic-promotion.js';
 import { digestTree } from '../../../src/install/install-identity.js';
@@ -4427,5 +4429,64 @@ describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
       const roundTripped = JSON.parse(JSON.stringify(c.payload));
       expect(c.schema.safeParse(roundTripped).success, c.label).toBe(false);
     }
+  });
+});
+
+/** An `execution.settled` row with the given outcome and the fields that each build wrote. */
+function settledRow(outcome: string): Record<string, unknown> {
+  return {
+    operationId: 'settle:op-1',
+    workflowId: 'wf-1',
+    capsuleVersion: 3,
+    batchId: 'batch-0001',
+    definitionVersion: 'b'.repeat(64),
+    outcome,
+    acceptedTasks: ['task-verify'],
+    findingCounts: [],
+    adjudicated: { claims: 1, requiredResults: 1, fields: 1, evidence: 0, deviations: 0, verification: 1 },
+    requestDigest: `sha256:${'a'.repeat(64)}`,
+    bundleRefs: [
+      {
+        artifactId: 'run-bundle:settlement-adjudication:batch-0001:3',
+        digest: { algorithm: 'sha256', value: 'c'.repeat(64) },
+      },
+    ],
+  };
+}
+
+/**
+ * The outcome of the `execution.settled` row is a closed enum. Its names only grow, so a row that
+ * an earlier build stored still parses.
+ */
+describe('ExecutionSettledData outcome', () => {
+  /** The three names of the earlier builds. A stored row goes through JSON before the parse. */
+  it.each(['settled', 'rejected', 'deviation-pending'])(
+    'ExecutionSettledData_AStoredRowWithTheOutcome_%s_StillParses',
+    (outcome) => {
+      const stored: unknown = JSON.parse(JSON.stringify(settledRow(outcome)));
+      const parsed = ExecutionSettledData.safeParse(stored);
+      expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
+      expect(parsed.data?.outcome).toBe(outcome);
+    },
+  );
+
+  /** The three names that this build adds. */
+  it.each(['recompile-required', 'corrective-capsule', 'accepted-with-rationale'])(
+    'ExecutionSettledData_ARowWithTheAddedOutcome_%s_Parses',
+    (outcome) => {
+      const parsed = ExecutionSettledData.safeParse(settledRow(outcome));
+      expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
+      expect(parsed.data?.outcome).toBe(outcome);
+    },
+  );
+
+  /** The enum of the row is the one outcome list, and a name outside the list is refused. */
+  it('ExecutionSettledData_ItsOutcomeEnum_IsTheSharedOutcomeListAndRefusesAnUnknownName', () => {
+    expect(SETTLEMENT_OUTCOMES).toHaveLength(6);
+    for (const outcome of SETTLEMENT_OUTCOMES) {
+      expect(ExecutionSettledData.safeParse(settledRow(outcome)).success, outcome).toBe(true);
+    }
+    expect(ExecutionSettledData.safeParse(settledRow('mostly-fine')).success).toBe(false);
+    expect(ExecutionSettledData.safeParse(settledRow('accepted')).success).toBe(false);
   });
 });

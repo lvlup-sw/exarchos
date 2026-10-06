@@ -37,11 +37,37 @@ export const SETTLEMENT_FINDING_KINDS = [
 export type SettlementFindingKind = (typeof SETTLEMENT_FINDING_KINDS)[number];
 
 /**
- * The findings that refuse a batch, as opposed to holding it.
- * `deviation-awaiting-approval` is absent on purpose. A deviation inside the envelope is a valid answer to a wrong capsule assumption, so it holds the batch.
+ * How a finding acts on its batch.
+ * `stale` means that a later revision replaced the terms of the capsule before the batch arrived.
+ * `refuse` means that the request or a deviation is in error.
+ * `hold` means that a deviation waits for its decision.
+ * `unresolved` means that one task is not complete. The other tasks are judged apart from it.
  */
-export const BLOCKING_SETTLEMENT_FINDING_KINDS: readonly SettlementFindingKind[] =
-  SETTLEMENT_FINDING_KINDS.filter((kind) => kind !== 'deviation-awaiting-approval');
+export type SettlementFindingClass = 'stale' | 'refuse' | 'hold' | 'unresolved';
+
+/**
+ * The class of each finding kind. The record is exhaustive, so a kind with no class does not compile.
+ * A deviation inside the envelope is a valid answer to a wrong capsule assumption, so its finding holds the batch.
+ * A failed verification leaves its task unresolved, and it does not refuse the tasks that passed.
+ */
+export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, SettlementFindingClass>> = {
+  'unknown-task': 'refuse',
+  'claim-superseded-by-revision': 'stale',
+  'undeclared-result-shape': 'refuse',
+  'duplicate-claim': 'refuse',
+  'missing-claim': 'refuse',
+  'missing-field': 'refuse',
+  'field-type-mismatch': 'refuse',
+  'undeclared-field': 'refuse',
+  'inadmissible-evidence': 'refuse',
+  'deviation-outside-envelope': 'refuse',
+  'deviation-awaiting-approval': 'hold',
+  'deviation-rejected': 'refuse',
+  'deviation-unknown-task': 'refuse',
+  'deviation-names-finished-task': 'refuse',
+  'deviation-names-claimed-task': 'refuse',
+  'verification-failed': 'unresolved',
+};
 
 /** A single, path-annotated adjudication finding. */
 export interface SettlementFinding {
@@ -89,8 +115,73 @@ export type TaskStanding =
   | { readonly kind: 'finished' }
   | { readonly kind: 'unknown'; readonly unreadable?: string };
 
+/** Returns the listed names as a tuple of literal types, so one list can feed each closed enum. */
+function outcomeNames<const Names extends readonly [string, ...string[]]>(...names: Names): Names {
+  return names;
+}
+
+/**
+ * Every settlement outcome. Each closed enum of the outcome is built from this list.
+ * The first three names are the ones that stored rows, bundles and replayed claims carry, and their meaning does not change.
+ * `recompile-required` is a batch on a capsule that a later revision replaced.
+ * `corrective-capsule` is a batch with a task that is not complete, while the tasks that passed are complete.
+ * `accepted-with-rationale` is a complete batch in which a claim records a delegated choice.
+ */
+export const SETTLEMENT_OUTCOMES = outcomeNames(
+  'settled',
+  'rejected',
+  'deviation-pending',
+  'recompile-required',
+  'corrective-capsule',
+  'accepted-with-rationale',
+);
+
 /** How a batch stands after adjudication. */
-export type SettlementOutcome = 'settled' | 'rejected' | 'deviation-pending';
+export type SettlementOutcome = (typeof SETTLEMENT_OUTCOMES)[number];
+
+/** What a finding of one class does to its batch. */
+interface FindingClassEffect {
+  /** The place of the class in the order of precedence. The lowest number among the findings of a batch decides its outcome. */
+  readonly precedence: number;
+  readonly outcome: SettlementOutcome;
+  /** Whether settlement still verifies the clean claims of a batch that has a finding of the class. */
+  readonly verifies: boolean;
+}
+
+/**
+ * The effect of each finding class. The record is exhaustive, so a class with no effect does not compile.
+ * A stale, refused or held batch is stopped before verification, so nothing in it is verified.
+ * An unresolved task does not stop its batch, so the other tasks of the batch can still complete.
+ */
+const FINDING_CLASS_EFFECTS: Readonly<Record<SettlementFindingClass, FindingClassEffect>> = {
+  stale: { precedence: 0, outcome: 'recompile-required', verifies: false },
+  refuse: { precedence: 1, outcome: 'rejected', verifies: false },
+  hold: { precedence: 2, outcome: 'deviation-pending', verifies: false },
+  unresolved: { precedence: 3, outcome: 'corrective-capsule', verifies: true },
+};
+
+/** The effect of the class of one finding. */
+function effectOf(finding: SettlementFinding): FindingClassEffect {
+  return FINDING_CLASS_EFFECTS[SETTLEMENT_FINDING_CLASSES[finding.kind]];
+}
+
+/** The outcome that a list of findings gives: that of the class first in precedence. No finding gives `settled`. */
+function outcomeOf(findings: readonly SettlementFinding[]): SettlementOutcome {
+  let decided: FindingClassEffect | undefined;
+  for (const finding of findings) {
+    const effect = effectOf(finding);
+    if (decided === undefined || effect.precedence < decided.precedence) decided = effect;
+  }
+  return decided === undefined ? 'settled' : decided.outcome;
+}
+
+/**
+ * Whether verification runs after the shape pass that gave these findings.
+ * It runs when no finding is stale, refuses the batch, or holds it. A finding that leaves a task unresolved does not stop it.
+ */
+export function verificationRuns(findings: readonly SettlementFinding[]): boolean {
+  return findings.every((finding) => effectOf(finding).verifies);
+}
 
 /**
  * The verification outcome of one task, as the handler reports it.
@@ -184,7 +275,7 @@ function typeOfValue(value: unknown): string {
  * Each other task that it names refuses the batch, so the batch is not held.
  *
  * A claim for a task that a later revision names is refused whole, because the capsule holds the earlier terms of the task.
- * The finding blocks, so the whole batch waits for the capsule that the next preparation compiles.
+ * The finding is stale, so the whole batch waits for the capsule that the next preparation compiles.
  */
 export function adjudicateSettlement(
   capsule: ExarchosCapsuleV1,
@@ -445,17 +536,8 @@ export function adjudicateSettlement(
     });
   });
 
-  const blocking = findings.some((finding) =>
-    BLOCKING_SETTLEMENT_FINDING_KINDS.includes(finding.kind),
-  );
-  const outcome: SettlementOutcome = blocking
-    ? 'rejected'
-    : findings.length > 0
-      ? 'deviation-pending'
-      : 'settled';
-
   return {
-    outcome,
+    outcome: outcomeOf(findings),
     capsuleVersion: capsule.identity.capsuleVersion,
     acceptedTasks: [...accepted].sort(),
     findings,

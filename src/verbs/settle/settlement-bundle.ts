@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { canonicalJson } from '../../contract/request-context.js';
 import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
-import { SETTLEMENT_FINDING_KINDS } from './adjudicate.js';
+import { SETTLEMENT_FINDING_KINDS, SETTLEMENT_OUTCOMES } from './adjudicate.js';
 
 /** The `kind` discriminator every settlement bundle carries. */
 export const SETTLEMENT_BUNDLE_KIND = 'settlement-adjudication';
@@ -123,7 +123,7 @@ export const SettlementBundleV1Schema = z
         batchId: z.string().min(1),
       })
       .strict(),
-    outcome: z.enum(['settled', 'rejected', 'deviation-pending']),
+    outcome: z.enum(SETTLEMENT_OUTCOMES),
     acceptedTasks: z.array(z.string().min(1)),
     findings: z.array(FindingSchema),
     claims: z.array(ClaimTraceSchema),
@@ -139,8 +139,8 @@ export const SettlementBundleV1Schema = z
     adjudicated: CensusSchema,
     /**
      * Optional only for a bundle written before settlement verified anything.
-     * This build always writes the list. It is empty when adjudication refused
-     * or held the batch before verification ran.
+     * This build always writes the list. It is empty when adjudication stopped
+     * the batch before verification ran.
      */
     verification: z.array(VerificationTraceSchema).optional(),
     settledAt: z.iso.datetime({ offset: true }),

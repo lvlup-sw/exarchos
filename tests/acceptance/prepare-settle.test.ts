@@ -430,11 +430,11 @@ describe('prepare then settle, through the dispatcher', () => {
 
   /**
    * The negative twin of the normal path: the same call against a project whose lint fails. The
-   * production gate records its failing verdict and halts the segment. `settle` rejects the batch
-   * and names the halt of each task. The failing verdict is durable once for each task, no
+   * production gate records its failing verdict and halts the segment. `settle` leaves each task
+   * unresolved and names its halt. The failing verdict is durable once for each task, no
    * completion is durable, and the tasks stay pending.
    */
-  it('PrepareSettle_ABatchWhoseVerificationFails_IsRejectedWithTheHaltNamed', async () => {
+  it('PrepareSettle_ABatchWhoseVerificationFails_NeedsACorrectionWithTheHaltNamed', async () => {
     await seedDelegatingFeature();
     const redWorktree = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -453,7 +453,7 @@ describe('prepare then settle, through the dispatcher', () => {
       findings: { kind: string; subject: string; message: string }[];
       verification: { taskId: string; outcome: string; failedLeaf?: string }[];
     };
-    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.outcome).toBe('corrective-capsule');
     expect(receipt.acceptedTasks).toEqual([]);
     expect(receipt.findings.map((f) => [f.kind, f.subject])).toEqual([
       ['verification-failed', 'task-a'],
@@ -676,8 +676,8 @@ describe('prepare then settle, through the dispatcher', () => {
    * the deviation of the first batch names one of them. The second `prepare` runs before the
    * decision, so its capsule holds the named task under the terms that the revision changes.
    *
-   * The accepted decision records the revision after the second capsule. A batch on that capsule is
-   * rejected for the named task, and the unfinished sibling in it stays unfinished. The third
+   * The accepted decision records the revision after the second capsule. A batch on that capsule
+   * needs a recompile for the named task, and the unfinished sibling in it stays unfinished. The third
    * `prepare` compiles a new capsule under the next design version, and both tasks settle under it.
    *
    * The second `prepare` comes before the revision, so it records no recompile. The third is the
@@ -768,7 +768,7 @@ describe('prepare then settle, through the dispatcher', () => {
       findings: { kind: string; subject: string; message: string }[];
       verification: unknown[];
     };
-    expect(refusedReceipt.outcome).toBe('rejected');
+    expect(refusedReceipt.outcome).toBe('recompile-required');
     expect(refusedReceipt.findings.map((f) => [f.kind, f.subject])).toEqual([
       ['claim-superseded-by-revision', named.id],
     ]);

@@ -10,8 +10,8 @@
  * only compared with the record. A refused batch is still a settlement: it
  * returns success with `outcome: 'rejected'` and appends the record.
  *
- * A batch that the shape pass settles is then verified task by task. A halted
- * segment rejects the batch. Tasks whose segments committed stay complete.
+ * A batch that the shape pass does not stop is verified task by task. A halted
+ * segment leaves its task unresolved, and committed tasks stay complete.
  *
  * A decision round that accepts a material deviation also commits one design
  * revision. The revision takes its number inside the write transaction.
@@ -69,6 +69,7 @@ import {
   type SettlementEvidence,
   type TaskStanding,
   type TaskVerificationOutcome,
+  verificationRuns,
 } from './adjudicate.js';
 import {
   decodeSettlementBundle,
@@ -98,7 +99,7 @@ const DEVIATION_DECIDED_TYPE = 'deviation.decided';
 /**
  * The round that decides the deviations of a held batch. There is one round,
  * because a decision covers every deviation that the batch waits on. A decided
- * batch is settled or rejected.
+ * batch is not held again.
  */
 const DECISION_ROUND = 1;
 
@@ -802,7 +803,7 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
  * `decideOnce` persisted. Every segment compiles before any runs, so a claim that cannot compile
  * leaves the batch unclaimed. A task that the stream already shows complete passed its gates
  * through `task_complete`, so settlement does not verify it again. Each round that adjudicates
- * reads the later design revisions, and a claim for a task that one of them names rejects the batch.
+ * reads the later design revisions, and a claim for a task that one of them names is stale.
  *
  * The emitter-closure census does not read `decideOnce`, so an allowance row covers this append.
  * The record is the last event, and the tail sequence comes from a read inside the write lock.
@@ -1032,7 +1033,7 @@ export async function handleSettle(
     let verdict = shape;
     const traces: SettlementVerificationTrace[] = [];
 
-    if (shape.outcome === 'settled') {
+    if (verificationRuns(shape.findings)) {
       const byTask = new Map(claims.map((claim): [string, SettlementClaim] => [claim.taskId, claim]));
       const completed = completedTaskIds(
         await ctx.eventStore.query(streamId, { type: 'task.completed' }),

@@ -748,10 +748,10 @@ describe('settle — the verification a settled batch runs', () => {
 
   /**
    * The seeded gate does not cover this task, so its completion leaf refuses and the segment halts.
-   * The batch is rejected with a finding that names the halt. The segment record agrees, and the
-   * settlement record holds the finding count.
+   * The batch needs a correction, and a finding names the halt. The segment record agrees, and the
+   * settlement record holds the outcome and the finding count.
    */
-  it('Settle_ATaskWhoseSegmentHalts_IsAFindingAndTheBatchIsRejected', async () => {
+  it('Settle_ATaskWhoseSegmentHalts_IsAFindingAndTheBatchNeedsACorrection', async () => {
     await seedPrepared(capsuleWithTask('task-unverified', 12));
     const receipt = receiptOf(
       await settle({
@@ -761,7 +761,7 @@ describe('settle — the verification a settled batch runs', () => {
         claims: [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
       }),
     );
-    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.outcome).toBe('corrective-capsule');
     expect(receipt.acceptedTasks).toEqual([]);
     expect(receipt.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
       ['verification-failed', 'task-unverified', 'claims[0]'],
@@ -774,8 +774,58 @@ describe('settle — the verification a settled batch runs', () => {
     expect(records.map((r) => (r.data as { outcome: string }).outcome)).toEqual(['failed']);
     expect(await completionRows()).toEqual([]);
     const [row] = await settledRows();
+    expect(ExecutionSettledData.parse(row?.data).outcome).toBe('corrective-capsule');
     expect(ExecutionSettledData.parse(row?.data).findingCounts).toEqual([{ kind: 'verification-failed', count: 1 }]);
     expect(ExecutionSettledData.parse(row?.data).adjudicated.verification).toBe(1);
+  });
+
+  /**
+   * The capsule requires two tasks. The gate of one is seeded and the other has none, so one segment
+   * commits and one halts. The batch needs a correction, and the task that passed is complete. The
+   * receipt, the settlement record and the bundle agree, and a retry returns the same receipt.
+   */
+  it('Settle_ABatchWithOnePassingAndOneHaltedTask_NeedsACorrectionAndCompletesThePassingTask', async () => {
+    const capsule = capsuleWithTask('task-unverified', 14);
+    await seedPrepared({
+      ...capsule,
+      settlementContract: { ...capsule.settlementContract, requiredResults: ['task-unverified', 'task-verify'] },
+    });
+    const args = {
+      featureId: STREAM,
+      capsuleVersion: 14,
+      batchId: 'batch-partial',
+      claims: [
+        passingClaim(),
+        { taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+      ],
+    };
+    const receipt = receiptOf(await settle(args));
+    expect(receipt.outcome).toBe('corrective-capsule');
+    expect(receipt.acceptedTasks).toEqual(['task-verify']);
+    expect(receipt.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
+      ['verification-failed', 'task-unverified', 'claims[1]'],
+    ]);
+    expect(receipt.verification?.map((trace) => [trace.taskId, trace.outcome])).toEqual([
+      ['task-unverified', 'failed'],
+      ['task-verify', 'verified'],
+    ]);
+    expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify']);
+
+    const [row] = await settledRows();
+    const record = ExecutionSettledData.parse(row?.data);
+    expect(record.outcome).toBe('corrective-capsule');
+    expect(record.acceptedTasks).toEqual(['task-verify']);
+    expect(record.findingCounts).toEqual([{ kind: 'verification-failed', count: 1 }]);
+    expect(record.adjudicated.verification).toBe(2);
+    const digest = record.bundleRefs[0]?.digest;
+    if (digest === undefined) throw new Error('the settlement record references no bundle');
+    const bundle = decodeSettlementBundle(await store.bundleStore.resolve(digest));
+    expect(bundle.outcome).toBe('corrective-capsule');
+    expect(bundle.acceptedTasks).toEqual(['task-verify']);
+
+    const tail = (await store.query(STREAM)).length;
+    expect(receiptOf(await settle(args))).toEqual(receipt);
+    expect(await store.query(STREAM)).toHaveLength(tail);
   });
 
   /**
@@ -980,8 +1030,8 @@ describe('settle — the verification a settled batch runs', () => {
   });
 
   /**
-   * The leaf leaves the fact but cannot write the document, so the segment halts and the batch is
-   * rejected. The fact stays durable on the stream. While the document is corrupt, the next batch
+   * The leaf leaves the fact but cannot write the document, so the segment halts and the batch
+   * needs a correction. The fact stays durable on the stream. While the document is corrupt, the next batch
    * gets a refusal before any effect and stays open. After the repair, that batch finds the task
    * complete, updates the document, and leaves no second fact.
    */
@@ -993,13 +1043,13 @@ describe('settle — the verification a settled batch runs', () => {
     const intact = await readFile(stateFile, 'utf-8');
     await writeFile(stateFile, '{ not a document', 'utf-8');
 
-    const rejected = receiptOf(
+    const halted = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-unwritable-document', claims: [passingClaim()] }),
     );
-    expect(rejected.outcome).toBe('rejected');
-    expect(rejected.findings.map((f) => f.kind)).toEqual(['verification-failed']);
-    expect(rejected.verification?.map((t) => [t.outcome, t.failedLeaf])).toEqual([['failed', 'task_complete']]);
-    expect(rejected.findings[0]?.message).toContain('state document');
+    expect(halted.outcome).toBe('corrective-capsule');
+    expect(halted.findings.map((f) => f.kind)).toEqual(['verification-failed']);
+    expect(halted.verification?.map((t) => [t.outcome, t.failedLeaf])).toEqual([['failed', 'task_complete']]);
+    expect(halted.findings[0]?.message).toContain('state document');
     expect(await completionRows()).toHaveLength(1);
 
     const stillCorrupt = await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-retry-1', claims: [passingClaim()] });
@@ -2297,7 +2347,7 @@ describe('settle — the design revision a decision round records', () => {
 
   /**
    * No gate is seeded for the claimed task, so its completion leaf refuses and the segment halts.
-   * The batch is rejected for the halt. The acceptance is the recorded fact, so the row stands.
+   * The halt leaves the task unresolved. The acceptance is the recorded fact, so the row stands.
    */
   it('Settle_AnAcceptedMaterialDeviationWhoseVerificationFails_StillRevisesTheDesign', async () => {
     await seedPrepared(withMaterialEnvelope(capsuleWithTask('task-unverified', 22)));
@@ -2308,7 +2358,7 @@ describe('settle — the design revision a decision round records', () => {
       [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
     );
     const decided = receiptOf(await decide('batch-halted', answers(held), 22));
-    expect(decided.outcome).toBe('rejected');
+    expect(decided.outcome).toBe('corrective-capsule');
     expect(decided.acceptedTasks).toEqual([]);
     expect(decided.findings.map((finding) => [finding.kind, finding.subject])).toEqual([
       ['verification-failed', 'task-unverified'],
@@ -2333,7 +2383,7 @@ describe('settle — the design revision a decision round records', () => {
       deviationIds: [held.pendingDeviations?.[0]?.deviationId],
     });
     const records = await rowsOf('execution.settled');
-    expect(ExecutionSettledData.parse(records[1]?.data).outcome).toBe('rejected');
+    expect(ExecutionSettledData.parse(records[1]?.data).outcome).toBe('corrective-capsule');
     expect(records[1]?.sequence).toBe((rows[0]?.sequence ?? Number.NaN) + 1);
   });
 
@@ -2480,7 +2530,7 @@ describe('settle — the design revision a decision round records', () => {
 /**
  * A design revision names the unfinished tasks that an accepted deviation changes. A capsule
  * compiled before the revision holds the earlier terms of such a task. Thus a claim for the task
- * under that capsule rejects its batch.
+ * under that capsule gives its batch the outcome `recompile-required`, and nothing is verified.
  *
  * Each revision here comes from a real decision round, so its row references a bundle in custody.
  * A batch on the revising capsule is held for a material deviation that names the tasks, and a
@@ -2583,7 +2633,7 @@ describe('settle — a claim that a later revision supersedes', () => {
   /**
    * The base capsule was prepared before the revision that names its task. The finding names the
    * design version of the revision and says to prepare again. The refusal leaves the settlement
-   * record of a rejected batch and its bundle, and nothing else.
+   * record of a batch that needs a recompile and its bundle, and nothing else.
    */
   it('Settle_AClaimForATaskALaterRevisionNamed_IsRefusedUnderTheEarlierCapsule', async () => {
     const revision = await revise('batch-revising', ['task-verify']);
@@ -2599,7 +2649,7 @@ describe('settle — a claim that a later revision supersedes', () => {
     const receipt = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-earlier', claims: [passingClaim()] }),
     );
-    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.outcome).toBe('recompile-required');
     expect(findingsOf(receipt)).toEqual([[SUPERSEDED, 'task-verify', 'claims[0].taskId']]);
     expect(receipt.findings[0]?.message).toContain('design version 2');
     expect(receipt.findings[0]?.message).toContain('capsule v7');
@@ -2614,7 +2664,7 @@ describe('settle — a claim that a later revision supersedes', () => {
     expect(record).toMatchObject({
       batchId: 'batch-earlier',
       capsuleVersion: 7,
-      outcome: 'rejected',
+      outcome: 'recompile-required',
       findingCounts: [{ kind: SUPERSEDED, count: 1 }],
     });
     expect(await completedTasks()).toEqual([REVISING_TASK]);
@@ -2645,10 +2695,10 @@ describe('settle — a claim that a later revision supersedes', () => {
 
   /**
    * The capsule requires two tasks, and the revision names one of them. The shape pass admits the
-   * claim of the sibling, and its gate is seeded. Thus only the rejection of the batch keeps the
+   * claim of the sibling, and its gate is seeded. Thus only the stale finding of the batch keeps the
    * sibling from its verification and its completion.
    */
-  it('Settle_ASiblingOfANamedTask_IsRejectedWithTheBatch', async () => {
+  it('Settle_ASiblingOfANamedTask_IsNotVerifiedWhenTheBatchNeedsARecompile', async () => {
     await seedPassingStaticAnalysis(SIBLING_TASK);
     await seedPrepared(requiringBoth(SIBLING_TASK, 31));
     await revise('batch-revising', ['task-verify']);
@@ -2662,7 +2712,7 @@ describe('settle — a claim that a later revision supersedes', () => {
         claims: [passingClaim(), claimFor(SIBLING_TASK)],
       }),
     );
-    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.outcome).toBe('recompile-required');
     expect(findingsOf(receipt)).toEqual([[SUPERSEDED, 'task-verify', 'claims[0].taskId']]);
     expect(receipt.acceptedTasks).toEqual([SIBLING_TASK]);
     expect(receipt.verification).toEqual([]);
@@ -2672,10 +2722,10 @@ describe('settle — a claim that a later revision supersedes', () => {
 
   /**
    * The batch is held on the base capsule before the revision names its task. The decision accepts
-   * the deviation, and the round adjudicates the held claims, so it rejects the batch. The base
+   * the deviation, and the round adjudicates the held claims, so the batch needs a recompile. The base
    * capsule lists no material kind, so the round records its decision and no revision.
    */
-  it('Settle_ADecisionRoundWhoseHeldClaimALaterRevisionNamed_RejectsTheBatch', async () => {
+  it('Settle_ADecisionRoundWhoseHeldClaimALaterRevisionNamed_NeedsARecompile', async () => {
     const held = receiptOf(
       await settle({
         featureId: STREAM,
@@ -2692,7 +2742,7 @@ describe('settle — a claim that a later revision supersedes', () => {
     const decided = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-held-earlier', decisions: accepting(held) }),
     );
-    expect(decided.outcome).toBe('rejected');
+    expect(decided.outcome).toBe('recompile-required');
     expect(decided.round).toBe(1);
     expect(findingsOf(decided)).toEqual([[SUPERSEDED, 'task-verify', 'claims[0].taskId']]);
     expect(decided.findings[0]?.message).toContain('design version 2');
@@ -2711,10 +2761,10 @@ describe('settle — a claim that a later revision supersedes', () => {
 
   /**
    * The held batch carries a material deviation of its own, on a capsule that lists the kind. The
-   * round is rejected for the superseded claim. The acceptance is still the recorded fact, so the
-   * round commits its revision under the next version, directly before its closing record.
+   * round needs a recompile for the superseded claim. The acceptance is still the recorded fact, so
+   * the round commits its revision under the next version, directly before its closing record.
    */
-  it('Settle_ADecisionRoundRejectedForASupersededClaim_StillRecordsItsRevision', async () => {
+  it('Settle_ADecisionRoundThatNeedsARecompileForASupersededClaim_StillRecordsItsRevision', async () => {
     await seedPrepared(withMaterialEnvelope(withVersion(baseValidCapsule(), 33)));
     const held = receiptOf(
       await settle({
@@ -2732,7 +2782,7 @@ describe('settle — a claim that a later revision supersedes', () => {
     const decided = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 33, batchId: 'batch-held-material', decisions: accepting(held) }),
     );
-    expect(decided.outcome).toBe('rejected');
+    expect(decided.outcome).toBe('recompile-required');
     expect(findingsOf(decided)).toEqual([[SUPERSEDED, 'task-verify', 'claims[0].taskId']]);
     expect(decided.verification).toEqual([]);
     expect(await completedTasks()).toEqual([REVISING_TASK]);
@@ -2753,13 +2803,13 @@ describe('settle — a claim that a later revision supersedes', () => {
     const digest = own?.data.bundleRefs[0]?.digest;
     if (digest === undefined) throw new Error('the revision row references no bundle');
     const bundle = decodeSettlementBundle(await store.bundleStore.resolve(digest));
-    expect(bundle.outcome).toBe('rejected');
+    expect(bundle.outcome).toBe('recompile-required');
     expect(bundle.round).toBe(1);
 
     const closing = (await rowsOf('execution.settled')).at(-1);
     expect(ExecutionSettledData.parse(closing?.data)).toMatchObject({
       batchId: 'batch-held-material',
-      outcome: 'rejected',
+      outcome: 'recompile-required',
       round: 1,
       findingCounts: [{ kind: SUPERSEDED, count: 1 }],
     });
@@ -2770,8 +2820,8 @@ describe('settle — a claim that a later revision supersedes', () => {
   /**
    * The revising batch is held while the task is pending. The base capsule then settles the task,
    * and only after that does the decision record the revision that names it. The retry of the
-   * settled batch gets its first receipt and appends nothing. The same claim as a new batch is
-   * rejected, so the persisted claim answered the retry and the lookup did not.
+   * settled batch gets its first receipt and appends nothing. The same claim as a new batch
+   * needs a recompile, so the persisted claim answered the retry and the lookup did not.
    */
   it('Settle_AReplayUnderAnEarlierCapsule_IsStillAnswered', async () => {
     const proposed = await proposeRevision('batch-revising', ['task-verify']);
@@ -2791,13 +2841,13 @@ describe('settle — a claim that a later revision supersedes', () => {
     expect(await bundleBlobCount()).toBe(blobs);
 
     const fresh = receiptOf(await settle({ ...args, batchId: 'batch-fresh-earlier' }));
-    expect(fresh.outcome).toBe('rejected');
+    expect(fresh.outcome).toBe('recompile-required');
     expect(findingsOf(fresh)).toEqual([[SUPERSEDED, 'task-verify', 'claims[0].taskId']]);
   });
 
   /**
    * Two capsules hold the same two tasks under the same terms. One was prepared before the revision
-   * and one after it. The same claims are rejected under the first and settle under the second,
+   * and one after it. The same claims need a recompile under the first and settle under the second,
    * which completes the named task and its sibling.
    */
   it('Settle_AClaimUnderACapsuleCompiledAfterTheRevision_Settles', async () => {
@@ -2812,7 +2862,7 @@ describe('settle — a claim that a later revision supersedes', () => {
     const earlier = receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 31, batchId: 'batch-on-the-earlier', claims }),
     );
-    expect(earlier.outcome).toBe('rejected');
+    expect(earlier.outcome).toBe('recompile-required');
     expect(findingsOf(earlier)).toEqual([[SUPERSEDED, 'task-verify', 'claims[0].taskId']]);
 
     const later = receiptOf(

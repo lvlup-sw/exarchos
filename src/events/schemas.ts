@@ -11,6 +11,7 @@ import * as path from 'node:path';
 import { z } from 'zod';
 import { WorkflowTypeSchema } from '../workflow/schemas.js';
 import { DoctorOutputSchema } from '../verbs/doctor/schema.js';
+import { SETTLEMENT_OUTCOMES } from '../verbs/settle/adjudicate.js';
 import { ReconcilePlanSchema, ReconcileResultSchema } from '../dispatch/core/onboarding/types.js';
 import {
   AdmissionDecisionRecordV1Schema,
@@ -3127,8 +3128,11 @@ export const ExecutionSettledData = z
       .min(1)
       .describe('Digest of the workflow definition the capsule compiled from'),
     outcome: z
-      .enum(['settled', 'rejected', 'deviation-pending'])
-      .describe('Whether the batch settled, was refused, or is held for a deviation decision'),
+      .enum(SETTLEMENT_OUTCOMES)
+      .describe(
+        'How the batch stands: settled, accepted-with-rationale, corrective-capsule, ' +
+          'deviation-pending, rejected, or recompile-required',
+      ),
     round: z
       .number()
       .int()

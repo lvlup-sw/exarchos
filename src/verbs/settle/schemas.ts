@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
+import { SETTLEMENT_OUTCOMES } from './adjudicate.js';
 
 const ReceiptBundleRefSchema = z
   .object({
@@ -64,7 +65,7 @@ const SettlementReceiptData = z
     operationId: z.string().min(1),
     streamId: z.string().min(1),
     capsule: ReceiptCapsuleSchema,
-    outcome: z.enum(['settled', 'rejected', 'deviation-pending']),
+    outcome: z.enum(SETTLEMENT_OUTCOMES),
     acceptedTasks: z.array(z.string().min(1)),
     findings: z.array(ReceiptFindingSchema),
     adjudicated: ReceiptCensusSchema,

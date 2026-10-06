@@ -20,6 +20,7 @@ import { findActionInRegistry } from '../../../../src/registry.js';
 import { DELEGATION_DEVIATION_KINDS } from '../../../../src/verbs/prepare/compile-capsule.js';
 import {
   SETTLEMENT_FINDING_KINDS,
+  SETTLEMENT_OUTCOMES,
   type SettlementFinding,
   type SettlementOutcome,
 } from '../../../../src/verbs/settle/adjudicate.js';
@@ -58,6 +59,9 @@ const WITHHELD_TEXT = {
 };
 
 type TaskOutcome = 'verified' | 'already-complete' | 'failed';
+
+/** The outcomes under which the handler verifies. Their receipts list the tasks that are complete. */
+const VERIFIED_OUTCOMES: readonly SettlementOutcome[] = ['settled', 'accepted-with-rationale', 'corrective-capsule'];
 
 /** One task of a batch and how its verification ended. */
 interface TaskSpec {
@@ -226,7 +230,9 @@ function receiptOf(spec: ReceiptSpec): WireReceipt {
       batchId: spec.batchId,
     },
     outcome: spec.outcome,
-    acceptedTasks: spec.outcome === 'settled' ? spec.tasks.map((task) => task.taskId) : [],
+    acceptedTasks: VERIFIED_OUTCOMES.includes(spec.outcome)
+      ? spec.tasks.filter((task) => task.outcome !== 'failed').map((task) => task.taskId)
+      : [],
     findings: spec.findings,
     adjudicated: {
       claims: spec.magnitude,
@@ -275,7 +281,8 @@ function maximalHeldReceipt(): WireReceipt {
 
 /**
  * A decided receipt with each input bound at its maximum. It carries sixteen decisions, and its
- * design revision names all sixteen deviations.
+ * design revision names all sixteen deviations. Each decision accepts and each verification
+ * failed, so the outcome is `corrective-capsule`.
  */
 function maximalDecidedReceipt(): WireReceipt {
   const decisions = decisionsOf(MAX_DEVIATIONS_PER_BATCH).map(
@@ -283,7 +290,7 @@ function maximalDecidedReceipt(): WireReceipt {
   );
   return receiptOf({
     ...maximalBatch(),
-    outcome: 'rejected',
+    outcome: 'corrective-capsule',
     round: 1,
     decisions,
     designRevision: {
@@ -405,11 +412,14 @@ const batchArb = fc.record({
   ),
 });
 
-/** The receipt of a submitting round. A held batch names up to sixteen pending deviations. */
+/**
+ * The receipt of a submitting round, with each of the six outcomes. A held batch names up to
+ * sixteen pending deviations.
+ */
 const submittingReceiptArb: fc.Arbitrary<WireReceipt> = fc
   .tuple(
     batchArb,
-    fc.constantFrom<SettlementOutcome>('settled', 'rejected', 'deviation-pending'),
+    fc.constantFrom<SettlementOutcome>(...SETTLEMENT_OUTCOMES),
     fc.array(
       fc.record({
         deviationKind: fc.constantFrom(...DELEGATION_DEVIATION_KINDS),
@@ -443,13 +453,14 @@ const submittingReceiptArb: fc.Arbitrary<WireReceipt> = fc
   );
 
 /**
- * The receipt of a decision round, with up to sixteen decisions. When `revises` is true and a
- * decision accepts, the receipt carries a design revision that names each accepted deviation.
+ * The receipt of a decision round, with up to sixteen decisions. A decided batch is not held again,
+ * so the round has each outcome but `deviation-pending`. When `revises` is true and a decision
+ * accepts, the receipt carries a design revision that names each accepted deviation.
  */
 const decisionReceiptArb: fc.Arbitrary<WireReceipt> = fc
   .tuple(
     batchArb,
-    fc.constantFrom<SettlementOutcome>('settled', 'rejected'),
+    fc.constantFrom<SettlementOutcome>(...SETTLEMENT_OUTCOMES.filter((outcome) => outcome !== 'deviation-pending')),
     fc.array(
       fc.record({
         decision: fc.constantFrom<SettlementDecision['decision']>('accepted', 'rejected'),
@@ -610,14 +621,14 @@ describe('the capped settle receipt', () => {
   /**
    * The summary lists four outcomes with the failures first. A failure keeps the operation id and
    * the leaf of its halted segment, and it drops the message and the bundle reference. The counts
-   * give the outcomes that the list leaves out.
+   * give the outcomes that the list leaves out, and the tasks that passed and are complete.
    */
-  it('SettleEconomy_ACappedRejectedReceipt_KeepsTheOperationAndLeafOfItsFirstFailures', () => {
+  it('SettleEconomy_ACappedCorrectiveReceipt_KeepsTheOperationAndLeafOfItsFirstFailures', () => {
     const twoFailures = tasksOf(['verified', 'failed', 'verified', 'already-complete', 'failed', 'verified'], 6);
     const few = cappedSummaryOf(
       receiptOf({
         ...SMALL_BATCH,
-        outcome: 'rejected',
+        outcome: 'corrective-capsule',
         round: 0,
         tasks: twoFailures,
         findings: findingsOf(24, twoFailures),
@@ -630,6 +641,8 @@ describe('the capped settle receipt', () => {
       { taskId: 'task-00', outcome: 'verified' },
       { taskId: 'task-02', outcome: 'verified' },
     ]);
+    expect(few.outcome).toBe('corrective-capsule');
+    expect(few.counts.acceptedTasks).toBe(4);
     expect(few.counts.verification).toBe(6);
     expect(few.counts.verificationOmitted).toBe(2);
     expect(few.firstPage).toHaveLength(SUMMARY_FIRST_PAGE_ITEMS);
@@ -645,7 +658,7 @@ describe('the capped settle receipt', () => {
     const many = cappedSummaryOf(
       receiptOf({
         ...SMALL_BATCH,
-        outcome: 'rejected',
+        outcome: 'corrective-capsule',
         round: 0,
         tasks: sixFailures,
         findings: findingsOf(24, sixFailures),
@@ -672,7 +685,7 @@ describe('the capped settle receipt', () => {
     const decisions = decisionsOf(MAX_DEVIATIONS_PER_BATCH);
     const smaller = receiptOf({
       ...SMALL_BATCH,
-      outcome: 'rejected',
+      outcome: 'corrective-capsule',
       round: 1,
       tasks,
       findings: findingsOf(12, tasks),

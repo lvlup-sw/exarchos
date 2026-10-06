@@ -13,15 +13,22 @@ import {
 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import { baseValidCapsule } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import {
-  BLOCKING_SETTLEMENT_FINDING_KINDS,
+  SETTLEMENT_FINDING_CLASSES,
   SETTLEMENT_FINDING_KINDS,
+  SETTLEMENT_OUTCOMES,
   acceptedMaterialDeviations,
   adjudicateSettlement,
+  verificationRuns,
   type AdjudicationContext,
   type ProposedDeviation,
   type SettlementClaim,
+  type SettlementFinding,
+  type SettlementFindingClass,
   type SettlementFindingKind,
+  type SettlementOutcome,
+  type SettlementVerdict,
   type TaskStanding,
+  type TaskVerificationOutcome,
 } from '../../../../src/verbs/settle/adjudicate.js';
 
 /** The claim the base capsule's one required result is satisfied by. */
@@ -66,9 +73,27 @@ function namedByALaterRevision(versions: Readonly<Record<string, number>>): Adju
   };
 }
 
+/**
+ * The outcome that each finding class gives when no class before it is present. The list is in the
+ * order of precedence, and it is written here apart from the table of the adjudicator.
+ */
+const OUTCOME_OF_CLASS: readonly (readonly [SettlementFindingClass, SettlementOutcome])[] = [
+  ['stale', 'recompile-required'],
+  ['refuse', 'rejected'],
+  ['hold', 'deviation-pending'],
+  ['unresolved', 'corrective-capsule'],
+];
+
+/** The outcome of a batch whose findings have exactly these classes. No class gives `settled`. */
+function outcomeFor(classes: readonly SettlementFindingClass[]): SettlementOutcome {
+  return OUTCOME_OF_CLASS.find(([findingClass]) => classes.includes(findingClass))?.[1] ?? 'settled';
+}
+
 interface AdjudicationCase {
   readonly name: string;
   readonly kind: SettlementFindingKind;
+  /** The class that the kind must have. The batch of the case gives findings of this class only. */
+  readonly findingClass: SettlementFindingClass;
   readonly at: string;
   readonly capsule: ExarchosCapsuleV1;
   readonly claims: readonly SettlementClaim[];
@@ -79,64 +104,71 @@ interface AdjudicationCase {
 function bend(
   name: string,
   kind: SettlementFindingKind,
+  findingClass: SettlementFindingClass,
   at: string,
   claims: readonly SettlementClaim[],
   mutate: (base: ExarchosCapsuleV1) => ExarchosCapsuleV1 = (b) => b,
   deviations?: readonly ProposedDeviation[],
   context?: AdjudicationContext,
 ): AdjudicationCase {
-  return { name, kind, at, capsule: mutate(baseValidCapsule()), claims, deviations, context };
+  return { name, kind, findingClass, at, capsule: mutate(baseValidCapsule()), claims, deviations, context };
 }
 
 const CASES: readonly AdjudicationCase[] = [
-  bend('a claim for a task the graph does not declare', 'unknown-task', 'claims[1].taskId', [
+  bend('a claim for a task the graph does not declare', 'unknown-task', 'refuse', 'claims[1].taskId', [
     passingClaim(),
     { taskId: 'task-ghost', fields: {}, evidence: [] },
   ]),
   bend(
     'a claim for a task with no declared result shape',
     'undeclared-result-shape',
+    'refuse',
     'claims[1].fields',
     [passingClaim(), { taskId: 'task-compile', fields: { anything: 1 }, evidence: [] }],
   ),
-  bend('two claims for one task', 'duplicate-claim', 'claims[1].taskId', [
+  bend('two claims for one task', 'duplicate-claim', 'refuse', 'claims[1].taskId', [
     passingClaim(),
     passingClaim(),
   ]),
   bend(
     'a claim for a task that a later revision names',
     'claim-superseded-by-revision',
+    'stale',
     'claims[0].taskId',
     [passingClaim()],
     (b) => b,
     undefined,
     namedByALaterRevision({ 'task-verify': 2 }),
   ),
-  bend('a required result the batch does not carry', 'missing-claim', 'claims', []),
-  bend('a required field the claim omits', 'missing-field', 'claims[0].fields', [
+  bend('a required result the batch does not carry', 'missing-claim', 'refuse', 'claims', []),
+  bend('a required field the claim omits', 'missing-field', 'refuse', 'claims[0].fields', [
     { taskId: 'task-verify', fields: {}, evidence: [] },
   ]),
   bend(
     'a field arriving as the wrong type',
     'field-type-mismatch',
+    'refuse',
     'claims[0].fields.passed',
     [{ taskId: 'task-verify', fields: { passed: 'yes' }, evidence: [] }],
   ),
   bend(
     'a field the result contract does not declare',
     'undeclared-field',
+    'refuse',
     'claims[0].fields.smuggled',
     [{ taskId: 'task-verify', fields: { passed: true, smuggled: 1 }, evidence: [] }],
   ),
   bend(
     'evidence of a kind the capsule does not admit',
     'inadmissible-evidence',
+    'refuse',
     'claims[0].evidence[0].kind',
     [{ taskId: 'task-verify', fields: { passed: true }, evidence: [{ kind: 'vibes', ref: 'r' }] }],
   ),
   bend(
     'evidence of an admitted kind whose reference does not resolve',
     'inadmissible-evidence',
+    'refuse',
     'claims[0].evidence[0].ref',
     [passingClaim()],
     (b) => b,
@@ -146,6 +178,7 @@ const CASES: readonly AdjudicationCase[] = [
   bend(
     'an accepted claim whose verification halted',
     'verification-failed',
+    'unresolved',
     'claims[0]',
     [passingClaim()],
     (b) => b,
@@ -160,6 +193,7 @@ const CASES: readonly AdjudicationCase[] = [
   bend(
     'a deviation outside the envelope',
     'deviation-outside-envelope',
+    'refuse',
     'deviations[0].deviationKind',
     [passingClaim()],
     (b) => b,
@@ -168,6 +202,7 @@ const CASES: readonly AdjudicationCase[] = [
   bend(
     'a deviation inside an envelope that requires approval',
     'deviation-awaiting-approval',
+    'hold',
     'deviations[0].deviationKind',
     [passingClaim()],
     (b) => b,
@@ -176,6 +211,7 @@ const CASES: readonly AdjudicationCase[] = [
   bend(
     'a proposed deviation the decision refused',
     'deviation-rejected',
+    'refuse',
     'deviations[0].deviationKind',
     [passingClaim()],
     (b) => b,
@@ -185,6 +221,7 @@ const CASES: readonly AdjudicationCase[] = [
   bend(
     'a deviation that names a task the plan does not hold',
     'deviation-unknown-task',
+    'refuse',
     'deviations[0].affectedTasks[1]',
     [passingClaim()],
     (b) => b,
@@ -194,6 +231,7 @@ const CASES: readonly AdjudicationCase[] = [
   bend(
     'a deviation that names a finished task',
     'deviation-names-finished-task',
+    'refuse',
     'deviations[0].affectedTasks[0]',
     [passingClaim()],
     (b) => b,
@@ -203,6 +241,7 @@ const CASES: readonly AdjudicationCase[] = [
   bend(
     'a deviation that names a task the batch claims',
     'deviation-names-claimed-task',
+    'refuse',
     'deviations[0].affectedTasks[0]',
     [passingClaim()],
     (b) => b,
@@ -259,6 +298,18 @@ describe('settlement adjudication', () => {
     expect(verdict.outcome).not.toBe('settled');
   });
 
+  /**
+   * The batch of each case gives findings of one class, so its outcome is the outcome of that class.
+   * The first assertion reads the class table. The other two read the verdict of the adjudicator.
+   */
+  it.each(CASES)('Adjudicate_HasItsClass_$name', ({ capsule, claims, deviations, kind, findingClass, context }) => {
+    expect(SETTLEMENT_FINDING_CLASSES[kind]).toBe(findingClass);
+    const verdict = adjudicateSettlement(capsule, claims, deviations ?? [], context ?? RESOLVING);
+    expect(new Set(verdict.findings.map((f) => SETTLEMENT_FINDING_CLASSES[f.kind]))).toEqual(new Set([findingClass]));
+    expect(verdict.outcome).toBe(outcomeFor([findingClass]));
+  });
+
+  /** A kind with no case fails here, so no kind gets its class without a batch that shows it. */
   it('Adjudicate_EveryDeclaredFindingKind_HasACase', () => {
     const covered = new Set(CASES.map((c) => c.kind));
     const uncovered = SETTLEMENT_FINDING_KINDS.filter((kind) => !covered.has(kind));
@@ -269,8 +320,34 @@ describe('settlement adjudication', () => {
   });
 
   /**
-   * This is the one finding kind that does not block. A refusal of a valid deviation pushes a worker to comply with a premise that it disproved.
-   * The length check proves that every other kind blocks.
+   * The class table holds each declared kind and no other key. One kind is stale, one holds, and one
+   * leaves a task unresolved. Each other kind refuses the batch.
+   */
+  it('Adjudicate_TheClassTable_CoversEachKindAndNamesTheThreeThatDoNotRefuse', () => {
+    expect(Object.keys(SETTLEMENT_FINDING_CLASSES).sort()).toEqual([...SETTLEMENT_FINDING_KINDS].sort());
+    const kindsOf = (findingClass: SettlementFindingClass): SettlementFindingKind[] =>
+      SETTLEMENT_FINDING_KINDS.filter((kind) => SETTLEMENT_FINDING_CLASSES[kind] === findingClass);
+    expect(kindsOf('stale')).toEqual(['claim-superseded-by-revision']);
+    expect(kindsOf('hold')).toEqual(['deviation-awaiting-approval']);
+    expect(kindsOf('unresolved')).toEqual(['verification-failed']);
+    expect(kindsOf('refuse')).toHaveLength(SETTLEMENT_FINDING_KINDS.length - 3);
+  });
+
+  /** The six outcome names. The first three are the names that stored rows, bundles and claims carry. */
+  it('Adjudicate_TheOutcomeList_KeepsTheThreeStoredNamesAndAddsThree', () => {
+    expect(SETTLEMENT_OUTCOMES).toEqual([
+      'settled',
+      'rejected',
+      'deviation-pending',
+      'recompile-required',
+      'corrective-capsule',
+      'accepted-with-rationale',
+    ]);
+  });
+
+  /**
+   * A refusal of a valid deviation pushes a worker to comply with a premise that it disproved.
+   * Thus the finding holds the batch, and it is the one kind that does.
    */
   it('Adjudicate_ADeviationInsideTheEnvelope_HoldsTheBatchRatherThanRefusingIt', () => {
     const verdict = adjudicateSettlement(
@@ -281,8 +358,7 @@ describe('settlement adjudication', () => {
     );
     expect(verdict.outcome).toBe('deviation-pending');
     expect(verdict.findings.map((f) => f.kind)).toEqual(['deviation-awaiting-approval']);
-    expect(BLOCKING_SETTLEMENT_FINDING_KINDS).not.toContain('deviation-awaiting-approval');
-    expect(BLOCKING_SETTLEMENT_FINDING_KINDS.length).toBe(SETTLEMENT_FINDING_KINDS.length - 1);
+    expect(SETTLEMENT_FINDING_CLASSES['deviation-awaiting-approval']).toBe('hold');
   });
 
   it('Adjudicate_AnEnvelopeThatDoesNotRequireApproval_SettlesWithTheDeviation', () => {
@@ -326,7 +402,7 @@ describe('settlement adjudication', () => {
     expect(rejected.findings.map((f) => f.kind)).toEqual(['deviation-rejected']);
     expect(rejected.acceptedTasks).toEqual(['task-verify']);
     expect(rejected.adjudicated.decisions).toBe(1);
-    expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain('deviation-rejected');
+    expect(SETTLEMENT_FINDING_CLASSES['deviation-rejected']).toBe('refuse');
 
     const undecided = decide(undefined);
     expect(undecided.outcome).toBe('deviation-pending');
@@ -350,7 +426,7 @@ describe('settlement adjudication', () => {
   });
 
   /**
-   * Each finding about an affected task blocks, so the batch is rejected and not held. The
+   * Each finding about an affected task refuses, so the batch is rejected and not held. The
    * deviation gets no approval finding, because nothing waits for a decision.
    */
   it('Adjudicate_AFindingAboutAnAffectedTask_RejectsTheBatchAndAsksForNoApproval', () => {
@@ -371,9 +447,7 @@ describe('settlement adjudication', () => {
       ['deviation-names-claimed-task', 'task-verify', 'deviations[0].affectedTasks[3]'],
     ]);
     expect(verdict.findings[0]?.message).toContain('plan the rework as a new task');
-    for (const kind of ['deviation-unknown-task', 'deviation-names-finished-task', 'deviation-names-claimed-task']) {
-      expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain(kind);
-    }
+    expect(verdict.findings.map((f) => SETTLEMENT_FINDING_CLASSES[f.kind])).toEqual(['refuse', 'refuse', 'refuse']);
   });
 
   /** A task that the batch claims and the stream shows complete gets both findings, so one correction covers both. */
@@ -434,10 +508,10 @@ describe('settlement adjudication', () => {
 
   /**
    * The superseded claim is also defective in its fields and its evidence, and it gets the one
-   * finding. The sibling claim is clean, so the pass accepts it, and the batch is rejected all the
-   * same. A revision that names no task of the batch changes nothing.
+   * finding. The sibling claim is clean, so the pass accepts it, and the batch needs a recompile all
+   * the same. A revision that names no task of the batch changes nothing.
    */
-  it('Adjudicate_AClaimForATaskALaterRevisionNamed_IsRefusedWholeAndRejectsTheBatch', () => {
+  it('Adjudicate_AClaimForATaskALaterRevisionNamed_IsRefusedWholeAndTheBatchNeedsARecompile', () => {
     const base = baseValidCapsule();
     const capsule: ExarchosCapsuleV1 = {
       ...base,
@@ -463,9 +537,9 @@ describe('settlement adjudication', () => {
     expect(verdict.findings[0]?.message).toContain('design version 3');
     expect(verdict.findings[0]?.message).toContain('capsule v7');
     expect(verdict.findings[0]?.message).toContain('prepare again');
-    expect(verdict.outcome).toBe('rejected');
+    expect(verdict.outcome).toBe('recompile-required');
     expect(verdict.acceptedTasks).toEqual(['task-compile']);
-    expect(BLOCKING_SETTLEMENT_FINDING_KINDS).toContain('claim-superseded-by-revision');
+    expect(SETTLEMENT_FINDING_CLASSES['claim-superseded-by-revision']).toBe('stale');
 
     const untouched = adjudicateSettlement(
       capsule,
@@ -533,6 +607,180 @@ describe('settlement adjudication', () => {
     );
     expect(verdict.findings).toEqual([]);
     expect(verdict.adjudicated.fields).toBe(2);
+  });
+});
+
+/** The base capsule with a result shape for `task-compile` too, so one batch can carry two clean claims. */
+function capsuleWithTwoShapes(): ExarchosCapsuleV1 {
+  const base = baseValidCapsule();
+  return {
+    ...base,
+    contracts: {
+      ...base.contracts,
+      taskResults: {
+        ...base.contracts.taskResults,
+        'task-compile': [{ name: 'passed', type: 'boolean', required: true }],
+      },
+    },
+  };
+}
+
+/** A clean claim for `task-compile` under the capsule with two shapes. */
+function compileClaim(): SettlementClaim {
+  return { taskId: 'task-compile', fields: { passed: true }, evidence: [] };
+}
+
+/** The verification outcome of a segment that halted on its completion leaf. */
+const HALTED: TaskVerificationOutcome = {
+  kind: 'failed',
+  failedLeaf: 'task_complete',
+  message: 'Required gates not passed',
+};
+
+/**
+ * The verdict of one batch that gives one finding of each listed class, and no other finding.
+ * The stale finding is a claim for a task that a later revision names. The refusing finding is a
+ * claim for a task that the graph does not declare. The holding finding is a deviation with no
+ * decision. The unresolved finding is the failed verification of the one clean claim.
+ */
+function verdictWith(classes: readonly SettlementFindingClass[]): SettlementVerdict {
+  const stale = classes.includes('stale');
+  const claims: SettlementClaim[] = [
+    passingClaim(),
+    ...(stale ? [compileClaim()] : []),
+    ...(classes.includes('refuse') ? [{ taskId: 'task-ghost', fields: {}, evidence: [] }] : []),
+  ];
+  const deviations: ProposedDeviation[] = classes.includes('hold')
+    ? [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }]
+    : [];
+  return adjudicateSettlement(capsuleWithTwoShapes(), claims, deviations, {
+    evidenceResolves: () => true,
+    supersedingDesignVersion: (taskId) => (stale && taskId === 'task-compile' ? 2 : undefined),
+    verification: new Map<string, TaskVerificationOutcome>([
+      ['task-verify', classes.includes('unresolved') ? HALTED : { kind: 'verified' }],
+    ]),
+  });
+}
+
+/**
+ * Each set of finding classes with the outcome that it gives. The rows are written out, so the
+ * expected outcome of a row does not come from the table of the adjudicator.
+ */
+const PRECEDENCE: readonly (readonly [readonly SettlementFindingClass[], SettlementOutcome])[] = [
+  [[], 'settled'],
+  [['unresolved'], 'corrective-capsule'],
+  [['hold'], 'deviation-pending'],
+  [['hold', 'unresolved'], 'deviation-pending'],
+  [['refuse'], 'rejected'],
+  [['refuse', 'unresolved'], 'rejected'],
+  [['refuse', 'hold'], 'rejected'],
+  [['refuse', 'hold', 'unresolved'], 'rejected'],
+  [['stale'], 'recompile-required'],
+  [['stale', 'unresolved'], 'recompile-required'],
+  [['stale', 'hold'], 'recompile-required'],
+  [['stale', 'hold', 'unresolved'], 'recompile-required'],
+  [['stale', 'refuse'], 'recompile-required'],
+  [['stale', 'refuse', 'unresolved'], 'recompile-required'],
+  [['stale', 'refuse', 'hold'], 'recompile-required'],
+  [['stale', 'refuse', 'hold', 'unresolved'], 'recompile-required'],
+];
+
+/**
+ * The precedence of the finding classes. A stale finding beats a refusing one, which beats a holding
+ * one, which beats an unresolved one, which beats none.
+ */
+describe('the outcome of a batch with findings of more than one class', () => {
+  /** The denominator of the matrix: each subset of the four classes has one row. */
+  it('Adjudicate_ThePrecedenceMatrix_HoldsEachSetOfClassesOnce', () => {
+    const sets = PRECEDENCE.map(([classes]) => [...classes].sort().join('+'));
+    expect(new Set(sets).size).toBe(2 ** 4);
+    expect(sets).toHaveLength(2 ** 4);
+  });
+
+  /** The first assertion proves that the batch gives exactly the classes of its row. */
+  it.each(PRECEDENCE)('Adjudicate_FindingsOfTheClasses_%j_GiveTheOutcome_%s', (classes, outcome) => {
+    const verdict = verdictWith(classes);
+    expect(verdict.findings.map((f) => SETTLEMENT_FINDING_CLASSES[f.kind]).sort()).toEqual([...classes].sort());
+    expect(verdict.outcome).toBe(outcome);
+    expect(outcome).toBe(outcomeFor(classes));
+  });
+
+  /**
+   * Two clean claims go to the final pass, and the verification of one failed. The batch needs a
+   * correction, and the claim that passed stays accepted. With both verified, the batch settles.
+   */
+  it('Adjudicate_OneFailedVerificationBesideAPassedOne_NeedsACorrectionAndKeepsThePassedTask', () => {
+    const adjudicate = (compile: TaskVerificationOutcome): SettlementVerdict =>
+      adjudicateSettlement(capsuleWithTwoShapes(), [passingClaim(), compileClaim()], [], {
+        evidenceResolves: () => true,
+        verification: new Map<string, TaskVerificationOutcome>([
+          ['task-verify', { kind: 'verified' }],
+          ['task-compile', compile],
+        ]),
+      });
+
+    const partial = adjudicate(HALTED);
+    expect(partial.outcome).toBe('corrective-capsule');
+    expect(partial.acceptedTasks).toEqual(['task-verify']);
+    expect(partial.findings.map((f) => [f.kind, f.subject])).toEqual([['verification-failed', 'task-compile']]);
+
+    const whole = adjudicate({ kind: 'already-complete' });
+    expect(whole.outcome).toBe('settled');
+    expect(whole.acceptedTasks).toEqual(['task-compile', 'task-verify']);
+  });
+
+  /** No verdict of the adjudicator is the outcome that only a recorded rationale gives. */
+  it('Adjudicate_NoSetOfClasses_GivesAcceptedWithRationale', () => {
+    expect(SETTLEMENT_OUTCOMES).toContain('accepted-with-rationale');
+    expect(PRECEDENCE.map(([classes]) => verdictWith(classes).outcome)).not.toContain('accepted-with-rationale');
+  });
+});
+
+/** Whether verification runs after a shape pass, as the handler asks it. */
+describe('the findings that stop verification', () => {
+  function finding(kind: SettlementFindingKind): SettlementFinding {
+    return { kind, subject: 'task-verify', at: 'claims[0]', message: 'a finding' };
+  }
+
+  /** A shape pass with no finding lets verification run, and so does a task that is only unresolved. */
+  it('VerificationRuns_WithNoFindingOrOnlyAnUnresolvedTask_IsTrue', () => {
+    expect(verificationRuns([])).toBe(true);
+    expect(verificationRuns([finding('verification-failed')])).toBe(true);
+  });
+
+  /** One finding of a stale, refusing or holding kind stops verification, alone or beside an unresolved task. */
+  it.each(['claim-superseded-by-revision', 'unknown-task', 'deviation-awaiting-approval'] satisfies SettlementFindingKind[])(
+    'VerificationRuns_WithAFindingOfKind_%s_IsFalse',
+    (kind) => {
+      expect(verificationRuns([finding(kind)])).toBe(false);
+      expect(verificationRuns([finding('verification-failed'), finding(kind)])).toBe(false);
+    },
+  );
+
+  /** Each declared kind but the one that leaves a task unresolved stops verification. */
+  it('VerificationRuns_ForEachDeclaredKind_IsTrueOnlyForAFailedVerification', () => {
+    const letsItRun = SETTLEMENT_FINDING_KINDS.filter((kind) => verificationRuns([finding(kind)]));
+    expect(letsItRun).toEqual(['verification-failed']);
+  });
+
+  /** The shape pass of a real batch: a clean batch and a held batch, read through the adjudicator. */
+  it('VerificationRuns_OnTheShapePassOfABatch_FollowsItsFindings', () => {
+    const clean = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [], RESOLVING);
+    const held = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
+      RESOLVING,
+    );
+    const superseded = adjudicateSettlement(
+      baseValidCapsule(),
+      [passingClaim()],
+      [],
+      namedByALaterRevision({ 'task-verify': 2 }),
+    );
+    expect(verificationRuns(clean.findings)).toBe(true);
+    expect(verificationRuns(held.findings)).toBe(false);
+    expect(verificationRuns(superseded.findings)).toBe(false);
   });
 });
 
