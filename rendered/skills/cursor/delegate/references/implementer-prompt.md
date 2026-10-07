@@ -283,7 +283,68 @@ Report provenance as a JSON object in your task completion call:
 
 The orchestrator submits your report as one claim of the batch to `settle`. Settlement runs the task's gates against `worktreePath` and, when they pass, records the completion carrying these fields — the same `task.completed` the primitive path's `task_complete` records — so the ProvenanceView traces requirements through to implementation. Do not call `task_complete` yourself; on the capsule path there is no per-task governance call for you to make.
 
-If a capsule assumption turned out wrong while you worked, report a **deviation** rather than working around it silently: the `deviationKind` from the envelope you were given, a statement of what did not hold, and the change you propose (`proposedChange`). Report one deviation per failed assumption. Do not name the tasks the change affects — the orchestrator holds the plan and fills those in.
+If a capsule assumption turned out wrong while you worked, report a **deviation** rather than working around it silently: the `deviationKind` from the envelope you were given, a statement of what did not hold, and the change you propose (`proposedChange`). Report one deviation per failed assumption. Do not name the other tasks the change affects — the orchestrator holds the plan and fills those in. Name your own task only when the assumption is wrong for it (see If Your Own Task Rests on a Wrong Assumption).
+
+### If You Cannot Complete the Task
+
+Do not report a task as complete when it is not complete. Report a **status** and a **reason**, and no result fields:
+
+- `failed`: you attempted the task, and you have no result that settlement can verify.
+- `blocked`: the task cannot proceed until something outside the task changes.
+
+```json
+{
+  "status": "blocked",
+  "reason": "The schema migration that this task reads is not merged."
+}
+```
+
+Write the reason in at most 280 characters. Say what stopped the work and what must change. Do not send `worktreePath`, `files`, `tests` or another result field with a status. Settlement refuses a report that has a status and result fields.
+
+Settlement runs no gate for a task with a status, and it does not record the task as complete. The orchestrator then corrects the task or dispatches it again. A third status, `skipped`, is for the orchestrator: it marks a task that no worker ran.
+
+### A Choice Inside Your Delegated Freedom
+
+Your packet lists the **delegated decisions** of the capsule, each with an `id`. These choices are yours, and they need no approval. To record one of these choices, add a **rationale** to your completion report:
+
+```json
+{
+  "rationale": [
+    {
+      "delegatedDecision": "implementation-approach",
+      "statement": "A table drives the parser, because the grammar has no recursion."
+    }
+  ]
+}
+```
+
+Use the `id` of a delegated decision from your packet, with no change. Write each statement in at most 280 characters, and record at most four choices. Add a rationale only to a completed task, with the result fields.
+
+A rationale changes no gate: settlement verifies your work in the same way with it and without it. Do not name an `id` that your packet does not list, because settlement rejects the batch for it. A choice outside the delegated decisions is a deviation, so report it as a deviation.
+
+### If Your Own Task Rests on a Wrong Assumption
+
+If a capsule assumption is wrong for your own task, stop the work on the task. Do not complete the task on terms that you changed. Report these two items:
+
+1. The status `blocked`, with a reason that states the wrong assumption.
+2. A deviation that names your own task, states what did not hold, and gives the change that you propose (`proposedChange`).
+
+```json
+{
+  "status": "blocked",
+  "reason": "The endpoint reads a cache that the design does not name.",
+  "deviations": [
+    {
+      "deviationKind": "invalidated-assumption",
+      "statement": "The endpoint reads a cache that the design does not name.",
+      "affectedTasks": ["<your task id>"],
+      "proposedChange": "The task reads the cache through the adapter."
+    }
+  ]
+}
+```
+
+A human decides the deviation, and the task stays not complete until then. If the decision accepts a change to the design, the orchestrator dispatches the task again with the new terms.
 
 ## Completion
 
@@ -293,6 +354,9 @@ When done, report:
 3. Test results (pass/fail)
 4. Provenance: implements (requirement IDs), acceptanceTestRef (if present), tests (name + file), files (paths)
 5. Any issues encountered
+6. Each choice that you recorded as a rationale, with the `id` of its delegated decision
+
+If you did not complete the task, report the status and the reason in place of items 1 to 4.
 ```
 
 ## Usage Example

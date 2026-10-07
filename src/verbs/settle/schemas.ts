@@ -87,7 +87,7 @@ const OUTCOME_GUIDE =
   '`accepted-with-rationale`: `settled`, and a claim records a delegated choice. ' +
   '`corrective-capsule`: the tasks that passed are complete. Settle a new batchId on the same ' +
   'capsule with only the `unresolved` tasks. With a `designRevision`, prepare first. ' +
-  'The next three verify nothing, and `acceptedTasks` lists claims with no shape fault. ' +
+  'The next three verify nothing, and `acceptedTasks` lists claims with no finding. ' +
   '`rejected`: settle the correction under a new batchId. ' +
   '`deviation-pending`: settle the same batchId with `decisions` only. ' +
   '`recompile-required`: prepare, then settle under the new capsule';

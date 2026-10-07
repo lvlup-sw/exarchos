@@ -192,7 +192,7 @@ const DELEGATION: IntentModel = {
     {
       kind: 'site',
       ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1",'),
-      why: 'one call submits every claim; settlement adjudicates them and runs each accepted task\'s gates itself, so no per-task governance call follows',
+      why: 'one call submits every claim; settlement adjudicates them and runs each accepted task\'s gates itself, so no per-task governance call follows. A batch in which a claim records a delegated choice is accepted with rationale on this same call, so that path has the normal count',
     },
     {
       kind: 'mention',
@@ -216,7 +216,7 @@ const DELEGATION: IntentModel = {
   exceptions: [
     {
       id: 'corrective-capsule',
-      label: 'a task fails its verification, so a fixer is dispatched and the unresolved task is settled in a new batch on the same capsule',
+      label: 'a task is unresolved after settlement, so a fixer is dispatched and the task is settled in a new batch on the same capsule',
       trigger: { source: 'delegate', needle: '**`corrective-capsule`** — at least one task is unresolved.' },
       through: `${O}.settle`,
       extra: [
@@ -228,7 +228,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The corrective path: prepare, the settle that leaves a task unresolved, and the settle of the correction. Counted to the correction that settles. Settlement compiles no capsule on this path, so no prepare follows. Landing, the backstop and the transition then follow as on the normal path. Reading the receipt of the halted segment names no call. A summary that omits unresolved entries claims every required task in the same call. A receipt that also carries a design revision prepares first, which is the material-revision path. A second correction is a re-run that the prose does not name, so the count is a lower bound.',
+      why: 'The corrective path: prepare, the settle that leaves a task unresolved, and the settle of the correction. Counted to the correction that settles. A task is unresolved when its verification fails, or when its claim reports it as failed, blocked or skipped. The Exarchos calls are the same for each cause. The fixer is the harness call of a failed task. A blocked or skipped task takes another harness step, which the count does not show. Settlement compiles no capsule on this path, so no prepare follows. Landing, the backstop and the transition then follow as on the normal path. Reading the receipt of the halted segment names no call. A summary that omits unresolved entries claims every required task in the same call. A receipt that also carries a design revision prepares first, which is the material-revision path. A second correction is a re-run that the prose names with no call site and no limit, so the count is a lower bound.',
     },
     {
       id: 'settlement-rejected',
@@ -243,7 +243,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'A request error only: a fault in the shape of a claim, a deviation that cannot be held, or a refused deviation. Counted to the corrected request that settles. The correction is to the request, so no fixer is dispatched: a task that fails its verification is the corrective-capsule path. A refused deviation whose rework task leaves the plan prepares again first, which is the normal path. Landing, the backstop and the transition follow as on the normal path.',
+      why: 'A request error only: a fault in the shape of a claim, a rationale that names a decision that the capsule does not delegate, a deviation that cannot be held, or a refused deviation. Counted to the corrected request that settles. The correction is to the request, so no fixer is dispatched: a task that fails its verification is the corrective-capsule path. A refused deviation whose rework task leaves the plan prepares again first, which is the normal path. Landing, the backstop and the transition follow as on the normal path.',
     },
     {
       id: 'recompile-required',
@@ -278,7 +278,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing and the transition follow as on the normal path. An accepted one whose verification leaves a task unresolved goes on to the correction of the corrective-capsule path, one call more. A rejected one rejects the batch, and the settle of the corrected work is the settlement-rejected path. An accepted deviation of a material kind also records a design revision on that call. The design-revised path counts to that call, and the material-revision path counts the continuation that follows it.',
+      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing and the transition follow as on the normal path. An accepted one that leaves a task unresolved goes on to the correction of the corrective-capsule path, one call more. The task is unresolved after a failed verification, or because its held claim reports it as not completed. A rejected one rejects the batch, and the settle of the corrected work is the settlement-rejected path. An accepted deviation of a material kind also records a design revision on that call. The design-revised path counts to that call, and the material-revision path counts the continuation that follows it.',
     },
     {
       id: 'design-revised',
@@ -293,7 +293,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'Counted to the call that records the revision. The revision is recorded on the decision call, so this path adds that call and no other. A revision names only unfinished tasks outside the batch, and those wait for the next capsule version whatever the round\'s verdict. What follows the revision, the continuation prepare and the settle of the capsule it compiles, is the material-revision path and is counted there, not here. A batch that arrives on a capsule that a later revision made stale prepares a second time. The recompile-required path counts that, not this one.',
+      why: 'Counted to the call that records the revision. The revision is recorded on the decision call, so this path adds that call and no other. A revision names only unfinished tasks: a task outside the batch, or a task that the batch reports as not completed. Those tasks wait for the next capsule version whatever the round\'s verdict. What follows the revision, the continuation prepare and the settle of the capsule it compiles, is the material-revision path and is counted there, not here. A batch that arrives on a capsule that a later revision made stale prepares a second time. The recompile-required path counts that, not this one.',
     },
     {
       id: 'material-revision',
@@ -318,7 +318,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The whole path of a material deviation with a human decision, counted to the settlement of the recompiled capsule: prepare, the settle that is held, the settle that carries the decision and records the revision, the continuation prepare, and the settle of the capsule it compiled. The continuation and its settle have no call site of their own, because each is the call the normal path already shows, so each is counted at that site. The design-revised path stops at the decision call; this path counts on from it. Dispatching and collecting the recompiled tasks are harness calls the branch does not name again, so the harness count is a lower bound. Landing, the backstop and the transition follow as on the normal path. An invalidated task that is not ready yet waits for a later prepare, which is the normal path. A retry of the continuation replays its receipt and is not a second continuation.',
+      why: 'The whole path of a material deviation with a human decision, counted to the settlement of the recompiled capsule: prepare, the settle that is held, the settle that carries the decision and records the revision, the continuation prepare, and the settle of the capsule it compiled. The continuation and its settle have no call site of their own, because each is the call the normal path already shows, so each is counted at that site. The design-revised path stops at the decision call; this path counts on from it. The own-task path has the same five calls: the held batch reports a task as blocked and its deviation names that task, the decision round needs a correction and records the revision, and the continuation compiles the task. Dispatching and collecting the recompiled tasks are harness calls the branch does not name again, so the harness count is a lower bound. Landing, the backstop and the transition follow as on the normal path. An invalidated task that is not ready yet waits for a later prepare, which is the normal path. A retry of the continuation replays its receipt and is not a second continuation.',
     },
     {
       id: 'context-compaction',

@@ -5089,6 +5089,10 @@ describe('settle — the text of the action', () => {
    * The earlier text said that the terms never come from current state, which hid the two reads.
    * A later text said that a claim that a revision names rejects the batch. That batch is stale,
    * not rejected, and a failed verification no longer rejects the tasks that passed.
+   *
+   * A third text said that a batch with no finding runs the segments, and that a halt needs a
+   * correction. A claim that reports its task as not completed is a finding, and the segments of
+   * the completed claims still run. Such a claim needs a correction too.
    */
   it('SettleAction_ItsDescription_SaysTheVerdictReadsTaskStandingAndLaterRevisions', () => {
     const { description } = settleAction();
@@ -5102,7 +5106,14 @@ describe('settle — the text of the action', () => {
       'a revision that names a claimed or unfinished required task gives `recompile-required`',
     );
     expect(description).toContain('prepare again');
-    expect(description).toContain('A halt gives `corrective-capsule`: tasks that pass are complete');
+    expect(description).not.toContain('A batch with no finding RUNS');
+    expect(description).not.toContain('A halt gives');
+    expect(description).toContain(
+      "A batch not stale, rejected or held RUNS each completed claim's task-completion segment",
+    );
+    expect(description).toContain(
+      'A halt or a claim not `completed` gives `corrective-capsule`: tasks that pass are complete',
+    );
     expect(description).toContain('Every verdict is a successful call');
   });
 
@@ -5115,6 +5126,7 @@ describe('settle — the text of the action', () => {
    *
    * The text names three outcomes by their position after one sentence, so the entries after that
    * sentence must be those three. The same sentence says what `acceptedTasks` lists under them.
+   * A claim that reports its task as not completed is not in that list, and it has no shape fault.
    * The entry of the outcome that a rationale gives does not say that no batch gets it.
    */
   it('SettleAction_ItsOutputSchema_StatesEachOutcomeAndTheCallThatFollows', () => {
@@ -5137,7 +5149,8 @@ describe('settle — the text of the action', () => {
     expect(guide).toContain('`deviation-pending`: settle the same batchId with `decisions` only');
     expect(guide).toContain('`recompile-required`: prepare, then settle under the new capsule');
 
-    const unverified = 'The next three verify nothing, and `acceptedTasks` lists claims with no shape fault. ';
+    expect(guide).not.toContain('no shape fault');
+    const unverified = 'The next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
     const [verifiedPart, unverifiedPart, ...rest] = guide.split(unverified);
     expect(rest).toEqual([]);
     const entriesIn = (part: string | undefined): SettlementOutcome[] =>

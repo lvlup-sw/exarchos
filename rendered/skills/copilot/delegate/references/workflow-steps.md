@@ -141,14 +141,19 @@ exarchos_orchestrate({
 })
 ```
 
+A task that is not completed gets a claim with a status and a reason, and no fields: `{ taskId: "task-002", status: "blocked", reason: "<why>" }`. The status is `failed`, `blocked` or `skipped`. A completed claim can record a delegated choice: `rationale: [{ delegatedDecision: "<id from the capsule>", statement: "<the choice>" }]`.
+
 **Settlement decides:**
 - Every claim is read against the task's declared result shape
 - Each accepted task's verification runs — the ladder gates under the tier the capsule froze, then the completion — against the worktree the claim names
+- A claim with a status gets no verification, and its task stays unresolved
 - A settled batch leaves every required task complete. Each other outcome names every finding at once
 
 **On `settled`:** All delegation results verified. Update TodoWrite status, land the worktrees, run the wave backstop, then check if schema sync is needed (Step 7) and proceed to review phase.
 
-**On `corrective-capsule`:** The tasks that passed are complete. Read `unresolved`, and dispatch a fixer to the worktree of each task in it. Then settle a new batch id on the same capsule, and claim only the unresolved tasks.
+**On `accepted-with-rationale`:** The batch is settled, and a claim records a delegated choice. The same gates ran. Continue as on `settled`.
+
+**On `corrective-capsule`:** The tasks that passed are complete. Read `unresolved`. Its `cause` says why each task is unresolved: a gate halted (`verification-failed`), or the claim reported the task as `failed`, `blocked` or `skipped`. Fix the task, remove the block, or dispatch the task. Then settle a new batch id on the same capsule, and claim only the unresolved tasks. If the receipt carries `designRevision`, call `prepare` first.
 
 **On `rejected`:** The request or a deviation is in error, and settlement verified nothing. Read the findings, and correct the claim or the deviation. Then settle the corrected request under a new batch id on the same capsule.
 

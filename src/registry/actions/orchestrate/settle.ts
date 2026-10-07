@@ -71,15 +71,14 @@ export const settleActions: readonly BuiltinToolAction[] = [
       'gives the terms. The verdict also reads the plan\'s task standing and design revisions ' +
       'after the capsule: a revision that names a claimed or unfinished required task gives ' +
       '`recompile-required` (prepare again). Claims are judged by each task\'s result shape, ' +
-      'evidence by recorded rows of admitted kinds, deviations by the envelope. A batch with no ' +
-      'finding RUNS each task\'s task-completion segment (frozen-tier ladder gates, then ' +
-      'task_complete) in the claim\'s `worktreePath`. A halt gives `corrective-capsule`: tasks ' +
-      'that pass are complete. Every verdict is a successful call; findings say what to fix. A ' +
-      'HELD batch names `pendingDeviations`; settle the SAME batch with `decisions` (no ' +
-      'claims). Errors (nothing adjudicated): CAPSULE_INVALID, CAPSULE_NOT_PREPARED, ' +
-      'CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED, BATCH_NOT_HELD, DECISION_INCOMPLETE. Keyed ' +
-      'by (capsuleVersion, `batchId`): a retry returns its verdict; a correction takes a NEW ' +
-      '`batchId`.',
+      'evidence by recorded rows of admitted kinds, deviations by the envelope. A batch not ' +
+      'stale, rejected or held RUNS each completed claim\'s task-completion segment (frozen-tier ' +
+      'ladder gates, then task_complete) in its `worktreePath`. A halt or a claim not ' +
+      '`completed` gives `corrective-capsule`: tasks that pass are complete. Every verdict is a ' +
+      'successful call; findings say what to fix. A HELD batch names `pendingDeviations`; settle ' +
+      'the SAME batch with `decisions`. Errors (nothing adjudicated): CAPSULE_INVALID, ' +
+      'CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED, BATCH_NOT_HELD, ' +
+      'DECISION_INCOMPLETE. Keyed by (capsuleVersion, `batchId`): a retry returns its verdict.',
     schema: z
       .object({
         capsuleVersion: z

@@ -38,14 +38,14 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 
 ### Error: `all-tasks-complete not satisfied: N task(s) incomplete`
 
-**Cause:** A task is not complete after settlement. Its batch has an unresolved task (`corrective-capsule`), or the batch was rejected, held or stale, and settlement verified nothing. Read the outcome and the `findings` of the settlement receipt: a task that settlement did not verify is not complete, whatever the worker reported. Or, on the primitive path, the runtime's native task list was modified but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
+**Cause:** A task is not complete after settlement. Its batch has an unresolved task (`corrective-capsule`), or the batch was rejected, held or stale, and settlement verified nothing. A task is unresolved when its verification failed, or when its claim reported it as `failed`, `blocked` or `skipped`. Read the outcome and the `findings` of the settlement receipt: a task that settlement did not verify is not complete, whatever the worker reported. Or, on the primitive path, the runtime's native task list was modified but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
 
 <!-- requires:team:agent-teams -->
 With Agent Teams enabled, this typically happens when teammates update their runtime task list (for example via `TaskUpdate`) but the orchestrator hasn't mirrored those statuses into exarchos workflow state.
 <!-- /requires -->
 
 
-**Solution:** On the capsule path, make the next call that the outcome names (Step 3 of the skill). For `corrective-capsule`, fix each unresolved task, then settle a new batch id on the same capsule that claims those tasks. Settlement marks each task that passes complete. On the primitive path only, call `exarchos_workflow update` with updated task statuses before transitioning:
+**Solution:** On the capsule path, make the next call that the outcome names (Step 3 of the skill). For `corrective-capsule`, read the `cause` of each unresolved task. Fix the task, remove its block, or dispatch it. Then settle a new batch id on the same capsule that claims those tasks. Settlement marks each task that passes complete. On the primitive path only, call `exarchos_workflow update` with updated task statuses before transitioning:
 ```json
 {
   "action": "update",

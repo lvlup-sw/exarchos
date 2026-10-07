@@ -131,3 +131,22 @@ Both tasks complete. Land each worktree through `serialize_merge` (the merge-pen
 exarchos_workflow({ action: "transition", featureId: "add-email-validation", target: "review" })
 Skill({ skill: "exarchos:review", args: "docs/plans/add-email-validation.md" })
 ```
+
+## Variations
+
+**A worker reports that its task is blocked.** If the worker of task-002 cannot proceed, send a claim with a status and a reason, and no fields:
+
+```typescript
+{ taskId: "task-002", status: "blocked", reason: "The DNS fixture that the task reads is not merged." }
+```
+
+The outcome is `corrective-capsule`. task-001 is complete, and `unresolved` holds `{ "taskId": "task-002", "cause": "task-blocked" }`. No gate ran for task-002, so the entry has no `failedLeaf` and no `operationId`. After the block is removed, settle a new batch id on the same capsule, and claim task-002 as completed.
+
+**A worker records a delegated choice.** The capsule lists `implementation-approach` in `authority.delegatedDecisions`. If the worker of task-001 records a choice under that id, add the choice to the claim:
+
+```typescript
+{ taskId: "task-001", fields: { /* as before */ }, evidence: [],
+  rationale: [{ delegatedDecision: "implementation-approach", statement: "One regex validates the format, because the format has no nesting." }] }
+```
+
+Settlement runs the same gates. If each task passes, the outcome is `accepted-with-rationale` in place of `settled`, and the next step is the same.
