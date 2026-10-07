@@ -74,23 +74,23 @@ const ReceiptUnresolvedTaskSchema = z
   .passthrough();
 
 /**
- * The meaning of each outcome and the call that follows it. An agent reads this text through `describe`.
+ * The call that follows each outcome. An agent reads this text through `describe`.
  * `describe` returns the output schema twice, so each character here counts twice against the
  * response budget of `describe` (`DESCRIBE_ECONOMY_BUDGET_TOKENS`). The text is short for that
- * reason, and it also says what `acceptedTasks` lists. The delegate skill gives the full guidance.
+ * reason: the name of an outcome gives its meaning. The text also says what `acceptedTasks` lists
+ * under an outcome that verifies nothing.
+ *
+ * The delegate skill gives the full guidance. It also says that no outcome compiles a capsule.
  */
 const OUTCOME_GUIDE =
-  'How the batch stands, and the next call. No outcome compiles a capsule. ' +
   '`settled`: each required task is complete. ' +
+  '`accepted-with-rationale`: `settled`, and a claim records a delegated choice. ' +
   '`corrective-capsule`: the tasks that passed are complete. Settle a new batchId on the same ' +
   'capsule with only the `unresolved` tasks. With a `designRevision`, prepare first. ' +
-  '`accepted-with-rationale`: not returned in this build. ' +
-  'Under the next three outcomes this build verifies nothing, and `acceptedTasks` lists claims ' +
-  'with no shape fault. ' +
-  '`rejected`: a request or deviation error. Settle the correction under a new batchId. ' +
-  '`deviation-pending`: a deviation waits for its decision. Settle the same batchId with ' +
-  '`decisions` only. ' +
-  '`recompile-required`: the capsule is stale. Prepare, then settle under the new capsule';
+  'The next three verify nothing, and `acceptedTasks` lists claims with no shape fault. ' +
+  '`rejected`: settle the correction under a new batchId. ' +
+  '`deviation-pending`: settle the same batchId with `decisions` only. ' +
+  '`recompile-required`: prepare, then settle under the new capsule';
 
 const SettlementReceiptData = z
   .object({

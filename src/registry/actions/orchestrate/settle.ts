@@ -11,7 +11,11 @@
 import { z } from 'zod';
 import { withCappedShape } from '../../../output-schema-declaration.js';
 import { CLAIM_STATUSES } from '../../../verbs/settle/adjudicate.js';
-import { MAX_CLAIM_REASON_LENGTH } from '../../../verbs/settle/claim-codec.js';
+import {
+  MAX_CLAIM_REASON_LENGTH,
+  MAX_RATIONALE_ENTRIES_PER_CLAIM,
+  MAX_RATIONALE_STATEMENT_LENGTH,
+} from '../../../verbs/settle/claim-codec.js';
 import { SETTLE_ECONOMY_BUDGET_TOKENS, summarizeSettlementReceipt } from '../../../verbs/settle/economy.js';
 import { SettlementOutputSchema } from '../../../verbs/settle/schemas.js';
 import {
@@ -58,8 +62,8 @@ export const settleActions: readonly BuiltinToolAction[] = [
     /**
      * The text fits the per-action description budget. It names the fact that the schema cannot
      * show: each verdict is a successful call, not an error. A rejected batch is one of them.
-     * The meaning of each outcome and its next call are in the output schema. That text counts
-     * against the response budget of `describe`, which returns the output schema twice.
+     * The call that follows each outcome is in the output schema. That text counts against the
+     * response budget of `describe`, which returns the output schema twice.
      */
     description:
       'Adjudicate ONE batch of claims against a prepared capsule, verify each accepted task, ' +
@@ -120,6 +124,20 @@ export const settleActions: readonly BuiltinToolAction[] = [
                 evidence: z
                   .array(z.object({ kind: z.string().min(1), ref: z.string().min(1) }).strict())
                   .optional(),
+                rationale: z
+                  .array(
+                    z
+                      .object({
+                        delegatedDecision: z.string().min(1),
+                        statement: z.string().min(1).max(MAX_RATIONALE_STATEMENT_LENGTH),
+                      })
+                      .strict(),
+                  )
+                  .max(MAX_RATIONALE_ENTRIES_PER_CLAIM)
+                  .optional()
+                  .describe(
+                    'Completed claims only: choices under a capsule `delegatedDecisions` id',
+                  ),
               })
               .strict(),
           )

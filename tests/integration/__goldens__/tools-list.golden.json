@@ -684,6 +684,30 @@
                   },
                   "type": "object"
                 },
+                "rationale": {
+                  "description": "Completed claims only: choices under a capsule `delegatedDecisions` id",
+                  "items": {
+                    "additionalProperties": false,
+                    "properties": {
+                      "delegatedDecision": {
+                        "minLength": 1,
+                        "type": "string"
+                      },
+                      "statement": {
+                        "maxLength": 280,
+                        "minLength": 1,
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "delegatedDecision",
+                      "statement"
+                    ],
+                    "type": "object"
+                  },
+                  "maxItems": 4,
+                  "type": "array"
+                },
                 "reason": {
                   "description": "Required unless `completed`: why the task is not completed. A claim with a reason has no fields and no evidence",
                   "maxLength": 280,

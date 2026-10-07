@@ -3112,11 +3112,23 @@ export const SettlementUnresolvedCause = z
   })
   .strict();
 
+/** One delegated choice that an accepted task records. The statement of the choice is in the referenced bundle. */
+export const SettlementRecordedRationale = z
+  .object({
+    taskId: z.string().min(1).describe('The accepted task whose claim records the choice'),
+    delegatedDecision: z
+      .string()
+      .min(1)
+      .describe("The id of the delegated decision in the capsule's authority that the choice is made under"),
+  })
+  .strict();
+
 /**
  * The record of one adjudicated batch. The payload is a summary: the capsule, the outcome, the
- * accepted tasks, the unresolved tasks, and the finding count of each kind. The findings and the
- * claims are in the referenced bundle, so no projection folds them. Counts keep the row size
- * independent of the number of findings.
+ * accepted tasks, the unresolved tasks, and the finding count of each kind. It also names the
+ * delegated choices that the accepted tasks record. The findings and the claims are in the
+ * referenced bundle, so no projection folds them. Counts keep the row size independent of the
+ * number of findings.
  */
 export const ExecutionSettledData = z
   .object({
@@ -3161,6 +3173,16 @@ export const ExecutionSettledData = z
         'Under corrective-capsule, the tasks the correction claims, sorted by task id, each with ' +
           'the kind of its finding; absent under every other outcome and on a record written ' +
           'before settlement named them',
+      ),
+    rationales: z
+      .array(SettlementRecordedRationale)
+      .min(1)
+      .optional()
+      .describe(
+        'The delegated choices that the accepted tasks record, sorted by task id and then by ' +
+          'decision id; present only under an outcome that reached verification, and absent ' +
+          'when no accepted claim carries a rationale and on a record written before a claim ' +
+          'could carry one',
       ),
     findingCounts: z
       .array(SettlementFindingCount)

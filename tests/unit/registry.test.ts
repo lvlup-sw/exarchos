@@ -3447,6 +3447,47 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       expect(withList(['task-a'])).toBe(false);
       expect(withList('task-a')).toBe(false);
     });
+
+    /**
+     * A claim of the `settle` input can record delegated choices. The schema that the registry
+     * declares admits up to four of them, each with a statement of up to 280 characters. It
+     * refuses a fifth choice, a longer statement and an entry key that it does not declare.
+     *
+     * The receipt of a batch that is accepted with rationale has the fields of a settled receipt.
+     * The outcome says that a claim records a choice, so the output schema declares no new field.
+     */
+    it('the settle input schema admits a rationale on a claim, and the receipt needs no new field', () => {
+      const settle = findAction('exarchos_orchestrate', 'settle');
+      const choice = { delegatedDecision: 'implementation-approach', statement: 'x'.repeat(280) };
+      const admits = (rationale: unknown): boolean =>
+        settle.schema.safeParse({
+          featureId: 'feat-x',
+          capsuleVersion: 1,
+          batchId: 'batch-0001',
+          claims: [{ taskId: 'task-a', fields: {}, evidence: [], rationale }],
+        }).success;
+
+      expect(admits(undefined)).toBe(true);
+      expect(admits([])).toBe(true);
+      expect(admits([choice])).toBe(true);
+      expect(admits([choice, choice, choice, choice])).toBe(true);
+
+      expect(admits([choice, choice, choice, choice, choice])).toBe(false);
+      expect(admits([{ ...choice, statement: 'x'.repeat(281) }])).toBe(false);
+      expect(admits([{ ...choice, statement: '' }])).toBe(false);
+      expect(admits([{ ...choice, delegatedDecision: '' }])).toBe(false);
+      expect(admits([{ delegatedDecision: 'execution-order' }])).toBe(false);
+      expect(admits([{ ...choice, grants: 'a waiver' }])).toBe(false);
+      expect(admits(choice)).toBe(false);
+
+      const baseline = baselineDataByAction['exarchos_orchestrate.settle'];
+      expect(baseline).toBeDefined();
+      expect(baseline).not.toHaveProperty('rationales');
+      const accepted = settle.outputSchema.safeParse(
+        baselineEnvelope({ ...baseline, outcome: 'accepted-with-rationale', acceptedTasks: ['task-a'] }),
+      );
+      expect(accepted.success, accepted.success ? '' : JSON.stringify(accepted.error.issues)).toBe(true);
+    });
   });
 
   /**

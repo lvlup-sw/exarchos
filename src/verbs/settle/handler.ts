@@ -587,6 +587,7 @@ function verificationOperationId(operationId: string, taskId: string): string {
  * The tier, the boundary flag and the base come from the capsule, never from the claim. They choose
  * the gates and the start of the diff. The worktree and the branch come from the claim. The claim
  * fields are the completion `result`, as on the `task_complete` path.
+ * The function does not read the rationale of the claim, so a recorded choice changes no gate.
  */
 function verificationArgsOf(
   claim: SettlementClaim,
@@ -749,7 +750,7 @@ function claimlessBatch(batchLabel: string): ToolResult {
 function readClaims(raw: unknown): SettlementClaim[] | string {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {
-    return 'claims must be an array of { taskId, fields, evidence } or { taskId, status, reason }';
+    return 'claims must be an array of { taskId, fields, evidence, rationale? } or { taskId, status, reason }';
   }
   const claims: SettlementClaim[] = [];
   for (const [i, entry] of raw.entries()) {
@@ -1187,6 +1188,7 @@ export async function handleSettle(
         ...(round > 0 ? { round } : {}),
         acceptedTasks: verdict.acceptedTasks,
         ...(verdict.unresolved.length > 0 ? { unresolvedTasks: verdict.unresolved } : {}),
+        ...(verdict.rationales.length > 0 ? { rationales: verdict.rationales } : {}),
         findingCounts,
         adjudicated: verdict.adjudicated,
         requestDigest,
