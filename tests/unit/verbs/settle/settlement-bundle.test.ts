@@ -313,6 +313,10 @@ describe('the claim codec', () => {
       [{ rationale: [{ ...choice, delegatedDecision: '' }] }, 'claims[0].rationale[0].delegatedDecision is required'],
       [{ rationale: [{ ...choice, delegatedDecision: 3 }] }, 'claims[0].rationale[0].delegatedDecision is required'],
       [
+        { rationale: [{ ...choice, delegatedDecision: 'd'.repeat(257) }] },
+        'claims[0].rationale[0].delegatedDecision holds 257 characters, and the id of a delegated decision holds at most 256',
+      ],
+      [
         { rationale: [{ delegatedDecision: 'execution-order' }] },
         'claims[0].rationale[0].statement must be text of 1 to 280 characters',
       ],
@@ -346,6 +350,8 @@ describe('the claim codec', () => {
     const longest = 'x'.repeat(MAX_RATIONALE_STATEMENT_LENGTH);
     const most = Array.from({ length: MAX_RATIONALE_ENTRIES_PER_CLAIM }, () => ({ ...choice, statement: longest }));
     expect(claimOf({ taskId: 'task-verify', rationale: most }).rationale).toStrictEqual(most);
+    const longestId = [{ ...choice, delegatedDecision: 'd'.repeat(256) }];
+    expect(claimOf({ taskId: 'task-verify', rationale: longestId }).rationale).toStrictEqual(longestId);
   });
 
   /**

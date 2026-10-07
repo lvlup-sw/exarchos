@@ -1094,6 +1094,28 @@ describe('a claim that reports its task as not completed', () => {
   );
 
   /**
+   * A stored claim can hold a status and a rationale, although the request reader refuses that form.
+   * The recorded completion accepts the task. The rationale is not recorded, and it is not checked
+   * against the capsule. Thus the batch is settled, and it is not accepted with rationale.
+   */
+  it.each([...INCOMPLETE_CLAIM_STATUSES])(
+    'Adjudicate_AClaimWithTheStatus_%s_ThatAlsoHoldsARationale_RecordsNoDelegatedChoice',
+    (status) => {
+      const undelegated: ClaimRationale = { delegatedDecision: 'published-contract-change', statement: 'the event gained a field' };
+      const claims = [choosing(reporting(status), CHOICE, undelegated)];
+      const verdict = adjudicateSettlement(delegating(), claims, [], {
+        ...completeOnTheStream('task-verify'),
+        verification: new Map<string, TaskVerificationOutcome>([['task-verify', { kind: 'already-complete' }]]),
+      });
+
+      expect(verdict.findings).toEqual([]);
+      expect(verdict.acceptedTasks).toEqual(['task-verify']);
+      expect(verdict.rationales).toEqual([]);
+      expect(verdict.outcome).toBe('settled');
+    },
+  );
+
+  /**
    * The checks that come before the status keep their place. A later revision that names the task
    * makes the claim stale, also when the stream shows the task complete. A task that the graph does
    * not declare is unknown, and a second claim for one task is a duplicate.

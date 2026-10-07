@@ -30,6 +30,12 @@ export const MAX_RATIONALE_ENTRIES_PER_CLAIM = 4;
 /** The most characters that the statement of one submitted rationale entry holds. The bound is on the request only. */
 export const MAX_RATIONALE_STATEMENT_LENGTH = 280;
 
+/**
+ * The most characters that the delegated decision id of one submitted rationale entry holds.
+ * A capsule gives no longer id to a statement. The bound is on the request only.
+ */
+const MAX_DELEGATED_DECISION_ID_LENGTH = 256;
+
 const EvidenceTraceSchema = z.object({ kind: z.string().min(1), ref: z.string().min(1) }).strict();
 
 /** One delegated choice as a bundle stores it, with the statement of the worker. The statement has no bound here. */
@@ -96,7 +102,7 @@ function evidenceOfRequest(raw: unknown, at: string): SettlementEvidence[] | str
 
 /**
  * The rationale list of one request entry, or the reason for the refusal. An absent list is an empty list.
- * The list holds at most four entries, and the statement of an entry holds at most 280 characters.
+ * The list holds at most four entries. The statement of an entry holds at most 280 characters, and its decision id at most 256.
  */
 function rationaleOfRequest(raw: unknown, at: string): ClaimRationale[] | string {
   const entries = raw ?? [];
@@ -113,6 +119,12 @@ function rationaleOfRequest(raw: unknown, at: string): ClaimRationale[] | string
     const delegatedDecision = textOf(item, 'delegatedDecision');
     if (delegatedDecision === undefined) {
       return `${at}[${j}].delegatedDecision is required: the id of a delegated decision of the capsule`;
+    }
+    if (delegatedDecision.length > MAX_DELEGATED_DECISION_ID_LENGTH) {
+      return (
+        `${at}[${j}].delegatedDecision holds ${delegatedDecision.length} characters, and the id of a ` +
+        `delegated decision holds at most ${MAX_DELEGATED_DECISION_ID_LENGTH}`
+      );
     }
     const statement = item.statement;
     if (

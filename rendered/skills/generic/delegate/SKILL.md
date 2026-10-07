@@ -338,7 +338,7 @@ If a task is still not completed, claim it with its status and reason again. Tha
 
 If a summary omits unresolved entries (`counts.unresolvedOmitted` is more than 0), claim every required task again. Settlement runs no gate again for a complete task, and returns that task as `already-complete`.
 
-If the receipt also carries `designRevision`, call `prepare` first (see `designRevision`, below). Then settle under the capsule that `prepare` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path: the revision names the task, so a new batch on the earlier capsule is `recompile-required`.
+If the receipt also carries `designRevision`, call `prepare` first (see `designRevision`, below). Then settle under the capsule that `prepare` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is `recompile-required`.
 
 **`rejected`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read `findings`:
 - A shape finding (`missing-field`, `undeclared-field`, `field-type-mismatch`, `unknown-task`, `undeclared-result-shape`, `duplicate-claim`, `missing-claim`, `inadmissible-evidence`): correct the claim. `missing-claim` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.

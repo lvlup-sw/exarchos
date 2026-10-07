@@ -125,6 +125,7 @@ export interface ClaimRationale {
  * One claim in its normal form: the result that a task returned, or the reason that the task is not completed.
  * `status` is absent on a completed claim, so a claim that an earlier build recorded keeps its bytes and its request digest.
  * A claim with a status has a reason, no fields, no evidence and no rationale. The claim codec gives each claim this form.
+ * Adjudication records no rationale from a claim with a status, so a stored claim outside this form grants nothing.
  * `rationale` is absent on a claim that records no delegated choice, for the same reason as `status`.
  */
 export interface SettlementClaim {
@@ -553,6 +554,7 @@ export function adjudicateSettlement(
   const recorded: RecordedRationale[] = [];
   const accept = (claim: SettlementClaim): void => {
     accepted.add(claim.taskId);
+    if (claim.status !== undefined) return;
     for (const entry of claim.rationale ?? []) {
       recorded.push({ taskId: claim.taskId, delegatedDecision: entry.delegatedDecision });
     }
