@@ -592,6 +592,8 @@ measured:
       check: "grep -n \"event: '\" src/registry/actions/orchestrate/prepare.ts src/registry/actions/orchestrate/settle.ts"
     - fact: "per-intent call census. The delegation exceptions count, in Exarchos calls at N=1: corrective-capsule 3, settlement-rejected 3, deviation-pending 3, recompile-required 4, material-revision 5."
       check: "npx tsx tools/audit/core/call-shape/measure.ts --check; grep -n -E 'corrective-capsule|recompile-required|material-revision' tools/audit/core/call-shape/call-shape-census.md   (regenerate without --check; output: tools/audit/core/call-shape/call-shape-census.md)"
+    - fact: "describe of the settle action alone is 7955 of the 8000 estimated tokens of the describe budget, the largest describe of one action. describe returns the output schema of an action twice, so text in the settle output schema counts twice. 45 tokens are left, and the claim fields that are not built yet (status, reason, rationale) add text to the same response."
+      check: "npx vitest run --project core tests/unit/registry.test.ts -t describeAction_OfOneAction"
     - fact: agent-teams workers are told to call Exarchos
       check: "grep -n -A4 'Workflow Intelligence' content/delivery/skills/delegate/references/implementer-prompt.md"
     - fact: run bundles live under the state dir

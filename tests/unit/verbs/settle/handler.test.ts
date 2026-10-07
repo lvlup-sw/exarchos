@@ -3665,9 +3665,13 @@ describe('settle — the text of the action', () => {
   });
 
   /**
-   * The description of the action has a token budget, so the output schema states the meaning of
+   * The description of the action is at its budget, so the output schema states the meaning of
    * each outcome and the call that follows it. An outcome that the list gains with no entry in
-   * the text fails here. The text is the one that `describe` returns for the action.
+   * the text fails here. The text is the one that `describe` returns for the action. It counts
+   * twice against the response budget of `describe`, which a test of the registry measures.
+   *
+   * The text names three outcomes by their position after one sentence, so the entries after that
+   * sentence must be those three.
    */
   it('SettleAction_ItsOutputSchema_StatesEachOutcomeAndTheCallThatFollows', () => {
     const guides = descriptionsIn(zodToJsonSchema(settleAction().outputSchema)).filter((text) =>
@@ -3679,13 +3683,22 @@ describe('settle — the text of the action', () => {
     for (const outcome of SETTLEMENT_OUTCOMES) {
       expect(guide, `the text states no meaning for ${outcome}`).toContain(`\`${outcome}\`: `);
     }
-    expect(guide).toContain('Settle the corrected request under a new batchId on the same capsule');
+    expect(guide).toContain('Settle the corrected request under a new batchId');
     expect(guide).toContain('Settle the same batchId with `decisions` and no claims');
-    expect(guide).toContain('settle a new batchId on the same capsule that claims only those tasks');
-    expect(guide).toContain('When the receipt carries `designRevision`, prepare first');
-    expect(guide).toContain('Prepare again, then settle under the capsule that prepare returns');
+    expect(guide).toContain('Settle a new batchId on the same capsule that claims only the `unresolved` tasks');
+    expect(guide).toContain('If the receipt has `designRevision`, prepare first');
+    expect(guide).toContain('Prepare again, then settle under the new capsule');
     expect(guide).toContain('No outcome compiles a capsule');
-    expect(guide).toContain('`settled` as accepted and `deviation-pending` as decision-required');
+
+    const unverified =
+      'Under each of the next three outcomes this build verifies nothing, and `acceptedTasks` ' +
+      'lists tasks whose claims have no shape fault. ';
+    const [verifiedPart, unverifiedPart, ...rest] = guide.split(unverified);
+    expect(rest).toEqual([]);
+    const entriesIn = (part: string | undefined): string[] =>
+      SETTLEMENT_OUTCOMES.filter((outcome) => part?.includes(`\`${outcome}\`: `) === true);
+    expect(entriesIn(verifiedPart)).toEqual(['settled', 'corrective-capsule', 'accepted-with-rationale']);
+    expect(entriesIn(unverifiedPart)).toEqual(['rejected', 'deviation-pending', 'recompile-required']);
   });
 
   /** The earlier reason called a read at settlement the dependency that a capsule removes. */

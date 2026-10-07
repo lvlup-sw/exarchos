@@ -56,7 +56,8 @@ export const settleActions: readonly BuiltinToolAction[] = [
     /**
      * The text fits the per-action description budget. It names the fact that the schema cannot
      * show: each verdict is a successful call, not an error. A rejected batch is one of them.
-     * The meaning of each outcome and its next call are in the output schema, which has no budget.
+     * The meaning of each outcome and its next call are in the output schema. That text counts
+     * against the response budget of `describe`, which returns the output schema twice.
      */
     description:
       'Adjudicate ONE batch of claims against a prepared capsule, verify each accepted task, ' +

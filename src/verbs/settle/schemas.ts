@@ -75,24 +75,24 @@ const ReceiptUnresolvedTaskSchema = z
 
 /**
  * The meaning of each outcome and the call that follows it. An agent reads this text through `describe`.
- * The description of the action has a token budget, and this text has none.
+ * `describe` returns the output schema twice, so each character here counts twice against the
+ * response budget of `describe` (`DESCRIBE_ECONOMY_BUDGET_TOKENS`). The text is short for that
+ * reason, and it also says what `acceptedTasks` lists. The delegate skill gives the full guidance.
  */
 const OUTCOME_GUIDE =
-  'How the batch stands, and the call that follows. No outcome compiles a capsule: only prepare ' +
-  'compiles. `settled`: each required task is complete, and no settle call follows. ' +
-  '`rejected`: the request or a deviation is in error, and nothing was verified. Settle the ' +
-  'corrected request under a new batchId on the same capsule. `deviation-pending`: a ' +
-  'deviation waits for its decision, and nothing was verified. Settle the same batchId with ' +
-  '`decisions` and no claims. `corrective-capsule`: the tasks that passed are complete, and ' +
-  '`unresolved` names the others. Correct them, then settle a new batchId on the same capsule ' +
-  'that claims only those tasks. When the receipt carries `designRevision`, prepare first and ' +
-  'settle under the capsule that prepare returns. `recompile-required`: a design revision ' +
-  'after the capsule names a claimed task or an unfinished required task, and nothing was ' +
-  'verified. Prepare again, then settle under the capsule that prepare returns. ' +
-  '`accepted-with-rationale`: no batch gets this outcome in this build. The design names ' +
-  '`settled` as accepted and `deviation-pending` as decision-required. A replay can return a ' +
-  '`rejected` receipt of an earlier build, which can also record a superseded claim or a ' +
-  'failed verification';
+  'How the batch stands, and the next call. No outcome compiles a capsule. ' +
+  '`settled`: each required task is complete. ' +
+  '`corrective-capsule`: the tasks that passed are complete. Settle a new batchId on the same ' +
+  'capsule that claims only the `unresolved` tasks. If the receipt has `designRevision`, ' +
+  'prepare first. ' +
+  '`accepted-with-rationale`: not returned in this build. ' +
+  'Under each of the next three outcomes this build verifies nothing, and `acceptedTasks` ' +
+  'lists tasks whose claims have no shape fault. ' +
+  '`rejected`: a request or deviation error. Settle the corrected request under a new batchId. ' +
+  '`deviation-pending`: a deviation waits for its decision. Settle the same batchId with ' +
+  '`decisions` and no claims. ' +
+  '`recompile-required`: a later design revision made the capsule stale. Prepare again, then ' +
+  'settle under the new capsule';
 
 const SettlementReceiptData = z
   .object({
@@ -100,21 +100,8 @@ const SettlementReceiptData = z
     streamId: z.string().min(1),
     capsule: ReceiptCapsuleSchema,
     outcome: z.enum(SETTLEMENT_OUTCOMES).describe(OUTCOME_GUIDE),
-    acceptedTasks: z
-      .array(z.string().min(1))
-      .describe(
-        'Under `settled`, `accepted-with-rationale` and `corrective-capsule`: the claimed tasks ' +
-          'that are recorded complete. Under each other outcome this build verifies nothing, ' +
-          'and the list holds the tasks whose claims the shape pass found no fault in',
-      ),
-    unresolved: z
-      .array(ReceiptUnresolvedTaskSchema)
-      .optional()
-      .describe(
-        'Present only under `corrective-capsule`: the tasks that the correction claims, sorted ' +
-          'by task id. `cause` is the kind of the finding against the task. `failedLeaf` and ' +
-          '`operationId` name its halted verification segment',
-      ),
+    acceptedTasks: z.array(z.string().min(1)),
+    unresolved: z.array(ReceiptUnresolvedTaskSchema).optional(),
     findings: z.array(ReceiptFindingSchema),
     adjudicated: ReceiptCensusSchema,
     requestDigest: z.string().min(1),
