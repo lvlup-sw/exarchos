@@ -410,6 +410,15 @@ function incompleteClaimFinding(
   };
 }
 
+/**
+ * The tasks that a batch claims as completed. A deviation of the batch cannot name one of them.
+ * It affects work that is still to do, and not a result that the batch returns.
+ * A claim that reports its task as failed, blocked or skipped returns no result, so a deviation can name its task.
+ */
+function tasksClaimedAsCompleted(claims: readonly SettlementClaim[]): Set<string> {
+  return new Set(claims.filter((claim) => claim.status === undefined).map((claim) => claim.taskId));
+}
+
 /** The capsule's own field-type vocabulary, as a runtime test over a value. */
 function typeOfValue(value: unknown): string {
   if (Array.isArray(value)) return 'array';
@@ -430,7 +439,7 @@ function typeOfValue(value: unknown): string {
  * An evidence reference that does not resolve to an intact recorded row is inadmissible, whatever its kind.
  * On the final pass, a claim is accepted only when its verification passed.
  * A rejected deviation refuses the batch, because the decision is made and the next batch is a correction.
- * A deviation inside the envelope can affect only a pending task that the batch does not claim.
+ * A deviation inside the envelope can affect only a pending task that the batch does not claim as completed.
  * Each other task that it names refuses the batch, so the batch is not held.
  *
  * A claim for a task that a later revision names is refused whole, because the capsule holds the earlier terms of the task.
@@ -458,6 +467,7 @@ export function adjudicateSettlement(
   const allowedDeviations = new Set(capsule.contracts.deviationEnvelope.allowedDeviationKinds);
 
   const seen = new Set<string>();
+  const claimedAsCompleted = tasksClaimedAsCompleted(claims);
   const accepted = new Set<string>();
 
   claims.forEach((claim, i) => {
@@ -658,13 +668,13 @@ export function adjudicateSettlement(
               'task is not reopened: plan the rework as a new task, and name the new task',
           });
         }
-        if (seen.has(taskId)) {
+        if (claimedAsCompleted.has(taskId)) {
           findings.push({
             kind: 'deviation-names-claimed-task',
             subject: taskId,
             at: taskAt,
             message:
-              `${named} names task ${task} as affected, and this batch claims that task. A ` +
+              `${named} names task ${task} as affected, and this batch claims that task as completed. A ` +
               'deviation affects work that is still to do, not a result that the batch returns',
           });
         }

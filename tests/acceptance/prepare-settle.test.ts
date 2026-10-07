@@ -255,6 +255,38 @@ function countsByType(rows: readonly { readonly type: string }[]): Record<string
   return counts;
 }
 
+/** The fields that tell the rows of the divergence loop apart. Each row type carries some of them. */
+interface LoopRowData {
+  readonly taskId?: string;
+  readonly capsuleVersion?: number;
+  readonly batchId?: string;
+  readonly outcome?: string;
+  readonly decision?: string;
+  readonly nextDesignVersion?: number;
+}
+
+/** The label of each row type of the divergence loop: the type, then the fact that tells the row from its siblings. */
+const LOOP_ROW_LABELS: Readonly<Record<string, (data: LoopRowData) => string>> = {
+  'task.assigned': (data) => `task.assigned ${data.taskId}`,
+  'workflow.prepared': (data) => `workflow.prepared v${data.capsuleVersion}`,
+  'deviation.proposed': (data) => `deviation.proposed ${data.batchId}`,
+  'task.completed': (data) => `task.completed ${data.taskId}`,
+  'deviation.decided': (data) => `deviation.decided ${data.batchId} ${data.decision}`,
+  'design.revised': (data) => `design.revised v${data.nextDesignVersion}`,
+  'execution.settled': (data) => `execution.settled ${data.batchId} ${data.outcome}`,
+  'capsule.recompiled': (data) => `capsule.recompiled v${data.capsuleVersion}`,
+};
+
+/** The rows of the divergence loop on the stream, in commit order, each as its label. A row of another type is left out. */
+async function loopRows(): Promise<string[]> {
+  const labels: string[] = [];
+  for (const event of await eventStore.query(STREAM)) {
+    const label = LOOP_ROW_LABELS[event.type];
+    if (label !== undefined) labels.push(label((event.data ?? {}) as LoopRowData));
+  }
+  return labels;
+}
+
 /** The compiler name that the build before the design version counter stamped. */
 const EARLIER_COMPILER_VERSION = 'exarchos-prepare-1';
 
@@ -807,8 +839,8 @@ describe('prepare then settle, through the dispatcher', () => {
 
   /**
    * The plan holds two tasks when the first capsule is compiled. Then the `update` action plans the
-   * third task. A deviation can name only an unfinished task that its own batch does not claim, so
-   * the deviation of the batch names the third task.
+   * third task. A deviation cannot name a task that its own batch claims as completed, so the
+   * deviation of the batch names the third task.
    *
    * The kind is material in the compiled envelope. The accepted decision settles the batch and
    * records one design revision. The settled batch keeps the design version that it was compiled
@@ -1247,6 +1279,218 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(moved.success, JSON.stringify(moved)).toBe(true);
     const transitions = (await rowsOf('workflow.transition')) as { data: { to: string } }[];
     expect(transitions.at(-1)?.data.to).toBe('review');
+  });
+
+  /**
+   * The own-task path. The worker of the second task finds that an assumption of the design is wrong.
+   * It reports the task as blocked, and its deviation names that task. The first `settle` holds the batch.
+   *
+   * The accepted decision revises the design for the blocked task. It verifies the first task and records it
+   * complete, and the batch needs a correction. The first capsule now holds the earlier terms of the blocked
+   * task, so a new batch on it needs a recompile.
+   *
+   * The next `prepare` is the continuation. Its capsule holds the task alone under the second design version,
+   * and its recompile row names the task. The task then settles under that capsule.
+   * The walk ends with the rows of the loop in commit order, and a retry of each `settle` call appends nothing.
+   */
+  it('PrepareSettle_ABlockedTaskNamedByItsOwnDeviation_IsRevisedRecompiledAndSettled', async () => {
+    const [done, named] = TASKS;
+    if (done === undefined || named === undefined) throw new Error('the plan holds two tasks');
+    const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
+    await seedDelegatingFeature([done, named]);
+
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const compiled = prepared.data as PreparedReceipt;
+    expect(compiled.capsuleVersion).toBe(1);
+    expect(compiled.capsule.identity.designVersion).toBe('design-v1');
+    expect(compiled.capsule.graph.tasks.map((t) => t.taskId)).toEqual([done.id, named.id]);
+
+    const heldBatch = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion: compiled.capsuleVersion,
+      batchId: 'batch-1',
+      claims: [
+        ...completedClaims(greenWorktree, [done.id]),
+        { taskId: named.id, status: 'blocked', reason: 'the endpoint reads a cache that the design did not name' },
+      ],
+      deviations: [
+        {
+          deviationKind: 'invalidated-assumption',
+          statement: 'the endpoint reads a cache that the design did not name',
+          affectedTasks: [named.id],
+          proposedChange: 'the task reads the cache through the adapter',
+        },
+      ],
+    };
+    const held = await call('exarchos_orchestrate', heldBatch);
+    expect(held.success, JSON.stringify(held)).toBe(true);
+    const heldReceipt = held.data as {
+      outcome: string;
+      findings: { kind: string; subject: string }[];
+      pendingDeviations?: { deviationId: string; affectedTasks?: string[] }[];
+    };
+    expect(heldReceipt.outcome).toBe('deviation-pending');
+    expect(heldReceipt.findings.map((f) => [f.kind, f.subject])).toEqual([
+      ['task-blocked', named.id],
+      ['deviation-awaiting-approval', 'invalidated-assumption'],
+    ]);
+    expect(heldReceipt.pendingDeviations?.map((pending) => pending.affectedTasks)).toEqual([[named.id]]);
+    expect(held.data).not.toHaveProperty('unresolved');
+    expect(await rowsOf('orchestrate.intent_executed')).toEqual([]);
+    expect(await rowsOf('task.completed')).toEqual([]);
+    expect(await rowsOf('design.revised')).toEqual([]);
+
+    const deviationIds = (heldReceipt.pendingDeviations ?? []).map((pending) => pending.deviationId);
+    expect(deviationIds).toHaveLength(1);
+    const decision = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion: compiled.capsuleVersion,
+      batchId: 'batch-1',
+      decisions: deviationIds.map((deviationId) => ({
+        deviationId,
+        decision: 'accepted',
+        actor: 'human:reviewer',
+        rationale: 'the design did not name the cache, and the change is sound',
+      })),
+    };
+    const decided = await call('exarchos_orchestrate', decision);
+    expect(decided.success, JSON.stringify(decided)).toBe(true);
+    expect(decided.data).toMatchObject({
+      outcome: 'corrective-capsule',
+      round: 1,
+      acceptedTasks: [done.id],
+      findings: [{ kind: 'task-blocked', subject: named.id }],
+      verification: [{ taskId: done.id, outcome: 'verified' }],
+      capsule: { capsuleVersion: 1, designVersion: 'design-v1' },
+    });
+    const decidedReceipt = decided.data as { unresolved?: unknown; designRevision?: unknown };
+    expect(decidedReceipt.unresolved).toStrictEqual([{ taskId: named.id, cause: 'task-blocked' }]);
+    expect(decidedReceipt.designRevision).toStrictEqual({ priorDesignVersion: 1, nextDesignVersion: 2, deviationIds });
+    const revisions = (await rowsOf('design.revised')).map((row) =>
+      DesignRevisedData.parse((row as { data: unknown }).data),
+    );
+    expect(revisions).toHaveLength(1);
+    expect(revisions[0]).toMatchObject({
+      capsuleVersion: 1,
+      batchId: 'batch-1',
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds,
+      affectedTasks: [named.id],
+    });
+    expect(countsByType(await workRowsOf([done.id]))).toEqual({
+      'task.assigned': 1,
+      'gate.executed': 4,
+      'task.completed': 1,
+    });
+    expect(countsByType(await workRowsOf([named.id]))).toEqual({ 'task.assigned': 1 });
+    const partial = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
+    expect(partial.data).toMatchObject({
+      tasks: [
+        { id: done.id, status: 'complete' },
+        { id: named.id, status: 'pending' },
+      ],
+    });
+    const early = await call('exarchos_workflow', moveToReview);
+    expect(early.success, JSON.stringify(early)).toBe(false);
+    expect(early.error?.code).toBe('GUARD_FAILED');
+
+    const staleBatch = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion: compiled.capsuleVersion,
+      batchId: 'batch-2',
+      claims: completedClaims(greenWorktree, [named.id]),
+    };
+    const stale = await call('exarchos_orchestrate', staleBatch);
+    expect(stale.success, JSON.stringify(stale)).toBe(true);
+    const staleReceipt = stale.data as {
+      outcome: string;
+      findings: { kind: string; subject: string; message: string }[];
+      verification: unknown[];
+    };
+    expect(staleReceipt.outcome).toBe('recompile-required');
+    expect(staleReceipt.findings.map((f) => [f.kind, f.subject])).toEqual([
+      ['claim-superseded-by-revision', named.id],
+    ]);
+    expect(staleReceipt.findings[0]?.message).toContain('design version 2');
+    expect(staleReceipt.findings[0]?.message).toContain('prepare again');
+    expect(staleReceipt.verification).toEqual([]);
+    expect(stale.data).not.toHaveProperty('unresolved');
+    expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(1);
+    expect(countsByType(await workRowsOf([named.id]))).toEqual({ 'task.assigned': 1 });
+    expect(await recompileRows()).toEqual([]);
+
+    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
+    const next = recompiled.data as PreparedReceipt;
+    expect(next.capsuleVersion).toBe(2);
+    expect(next.capsule.identity.designVersion).toBe('design-v2');
+    expect(next.capsule.graph.tasks.map((t) => t.taskId)).toEqual([named.id]);
+    const recompile = {
+      priorCapsuleVersion: 1,
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      declaredTasks: [named.id],
+      invalidatedTasks: [named.id],
+    };
+    expect(next.recompile).toStrictEqual(recompile);
+    expect(await recompileRows()).toMatchObject([{ capsuleVersion: 2, capsuleDigest: next.capsuleDigest, ...recompile }]);
+
+    const lastBatch = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion: next.capsuleVersion,
+      batchId: 'batch-3',
+      claims: completedClaims(greenWorktree, [named.id]),
+    };
+    const settled = await call('exarchos_orchestrate', lastBatch);
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    expect(settled.data).toMatchObject({
+      outcome: 'settled',
+      acceptedTasks: [named.id],
+      findings: [],
+      verification: [{ taskId: named.id, outcome: 'verified' }],
+      capsule: { capsuleVersion: 2, designVersion: 'design-v2' },
+    });
+    expect(settled.data).not.toHaveProperty('unresolved');
+    expect(settled.data).not.toHaveProperty('designRevision');
+
+    expect(await loopRows()).toEqual([
+      `task.assigned ${done.id}`,
+      `task.assigned ${named.id}`,
+      'workflow.prepared v1',
+      'deviation.proposed batch-1',
+      'execution.settled batch-1 deviation-pending',
+      `task.completed ${done.id}`,
+      'deviation.decided batch-1 accepted',
+      'design.revised v2',
+      'execution.settled batch-1 corrective-capsule',
+      'execution.settled batch-2 recompile-required',
+      'capsule.recompiled v2',
+      'workflow.prepared v2',
+      `task.completed ${named.id}`,
+      'execution.settled batch-3 settled',
+    ]);
+    expect((await settlementRecords()).map((record) => [record.batchId, record.round, record.unresolvedTasks])).toEqual([
+      ['batch-1', undefined, undefined],
+      ['batch-1', 1, [{ taskId: named.id, cause: 'task-blocked' }]],
+      ['batch-2', undefined, undefined],
+      ['batch-3', undefined, undefined],
+    ]);
+
+    await expectReplayReturnsTheReceiptAndAppendsNothing(heldBatch, held);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(decision, decided);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(staleBatch, stale);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(lastBatch, settled);
+    expect(await rowsOf('design.revised')).toHaveLength(1);
+    expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(2);
+
+    const moved = await call('exarchos_workflow', moveToReview);
+    expect(moved.success, JSON.stringify(moved)).toBe(true);
   });
 
   /**

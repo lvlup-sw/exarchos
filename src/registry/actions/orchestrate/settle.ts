@@ -138,7 +138,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
                   .array(z.string().min(1))
                   .max(MAX_AFFECTED_TASKS_PER_DEVIATION)
                   .optional()
-                  .describe('Unfinished tasks of the current plan that the deviation changes, outside this batch'),
+                  .describe('Unfinished current-plan tasks that the deviation changes, none claimed as completed'),
                 proposedChange: z.string().min(1).optional().describe('The change the worker proposes'),
               })
               .strict(),

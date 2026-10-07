@@ -1075,6 +1075,142 @@ describe('a claim that reports its task as not completed', () => {
   });
 });
 
+/**
+ * A deviation cannot name a task that its batch claims as completed, because the batch returns a result for that task.
+ * A claim that reports its task as not completed returns no result, so a deviation of the batch can name that task.
+ * The capsule of these cases requires `task-verify` and `task-compile`.
+ */
+describe('a deviation that names a task of its own batch', () => {
+  function findingsOf(verdict: SettlementVerdict): string[][] {
+    return verdict.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  const PENDING = standing({ 'task-verify': { kind: 'pending' }, 'task-compile': { kind: 'pending' } });
+
+  /**
+   * The denominator of the cases below. The same deviation beside a completed claim for the task refuses the batch.
+   * Thus the status of the claim is what admits the deviation in each case that follows.
+   */
+  it('Adjudicate_ADeviationNamingATaskThatItsBatchClaimsAsCompleted_RefusesTheBatch', () => {
+    const verdict = adjudicateSettlement(
+      requiringBothTasks(),
+      [passingClaim(), compileClaim()],
+      [affecting('task-compile')],
+      PENDING,
+    );
+    expect(findingsOf(verdict)).toEqual([
+      ['deviation-names-claimed-task', 'task-compile', 'deviations[0].affectedTasks[0]'],
+    ]);
+    expect(verdict.findings[0]?.message).toContain('this batch claims that task as completed');
+    expect(verdict.outcome).toBe('rejected');
+  });
+
+  /**
+   * The claim reports the task as not completed, and the deviation names that task. The deviation gets no finding
+   * about the task, so it waits for its decision and the batch is held. The only other finding is that of the status.
+   */
+  it.each([
+    ['failed', 'task-failed'],
+    ['blocked', 'task-blocked'],
+    ['skipped', 'task-skipped'],
+  ] satisfies [IncompleteClaimStatus, SettlementFindingKind][])(
+    'Adjudicate_ADeviationNamingATaskThatItsBatchReportsAs_%s_HoldsTheBatch',
+    (status, kind) => {
+      const verdict = adjudicateSettlement(
+        requiringBothTasks(),
+        [passingClaim(), reporting(status, 'task-compile')],
+        [affecting('task-compile')],
+        PENDING,
+      );
+      expect(findingsOf(verdict)).toEqual([
+        [kind, 'task-compile', 'claims[1]'],
+        ['deviation-awaiting-approval', 'invalidated-assumption', 'deviations[0].deviationKind'],
+      ]);
+      expect(verdict.outcome).toBe('deviation-pending');
+      expect(verdict.acceptedTasks).toEqual(['task-verify']);
+      expect(verdict.unresolved).toEqual([]);
+      expect(verificationRuns(verdict.findings)).toBe(false);
+    },
+  );
+
+  /** The three statuses of the cases above are each status that is not `completed`. */
+  it('Adjudicate_TheStatusesThatAdmitAnOwnTaskDeviation_AreEachIncompleteStatus', () => {
+    expect([...INCOMPLETE_CLAIM_STATUSES]).toEqual(['failed', 'blocked', 'skipped']);
+  });
+
+  /**
+   * One deviation names both tasks of the batch. The finding is for the task that the batch claims as completed,
+   * and the blocked task gets none. The batch is refused, so the deviation asks for no approval.
+   */
+  it('Adjudicate_ADeviationNamingACompletedTaskAndABlockedTask_RefusesOnlyForTheCompletedTask', () => {
+    const verdict = adjudicateSettlement(
+      requiringBothTasks(),
+      [passingClaim(), reporting('blocked', 'task-compile')],
+      [affecting('task-compile', 'task-verify')],
+      PENDING,
+    );
+    expect(findingsOf(verdict)).toEqual([
+      ['task-blocked', 'task-compile', 'claims[1]'],
+      ['deviation-names-claimed-task', 'task-verify', 'deviations[0].affectedTasks[1]'],
+    ]);
+    expect(verdict.outcome).toBe('rejected');
+  });
+
+  /**
+   * The other two checks on an affected task do not read the status of the claim.
+   * A blocked task that the plan shows finished is still a finished task, and one that the plan does not hold is unknown.
+   * Neither gets the finding for a claimed task.
+   */
+  it('Adjudicate_ABlockedTaskThatIsFinishedOrUnknown_StillRefusesTheDeviationThatNamesIt', () => {
+    const claims = [passingClaim(), reporting('blocked', 'task-compile')];
+    const finished = adjudicateSettlement(
+      requiringBothTasks(),
+      claims,
+      [affecting('task-compile')],
+      standing({ 'task-compile': { kind: 'finished' } }),
+    );
+    expect(findingsOf(finished)).toEqual([
+      ['task-blocked', 'task-compile', 'claims[1]'],
+      ['deviation-names-finished-task', 'task-compile', 'deviations[0].affectedTasks[0]'],
+    ]);
+    expect(finished.outcome).toBe('rejected');
+
+    const unknown = adjudicateSettlement(requiringBothTasks(), claims, [affecting('task-compile')], standing({}));
+    expect(findingsOf(unknown)).toEqual([
+      ['task-blocked', 'task-compile', 'claims[1]'],
+      ['deviation-unknown-task', 'task-compile', 'deviations[0].affectedTasks[0]'],
+    ]);
+    expect(unknown.outcome).toBe('rejected');
+  });
+
+  /**
+   * The decision round reads the same batch with a decision and no standing. An accepted deviation leaves only the
+   * finding of the status, so verification runs and the batch needs a correction for the blocked task.
+   * A rejected deviation refuses the batch, so nothing is verified and the verdict names no unresolved task.
+   */
+  it('Adjudicate_TheDecisionOnAnOwnTaskDeviation_NeedsACorrectionWhenAcceptedAndRefusesWhenRejected', () => {
+    const claims = [passingClaim(), reporting('blocked', 'task-compile')];
+    const decide = (decision: 'accepted' | 'rejected'): SettlementVerdict =>
+      adjudicateSettlement(requiringBothTasks(), claims, [affecting('task-compile')], {
+        evidenceResolves: () => true,
+        decided: () => decision,
+      });
+
+    const accepted = decide('accepted');
+    expect(findingsOf(accepted)).toEqual([['task-blocked', 'task-compile', 'claims[1]']]);
+    expect(accepted.outcome).toBe('corrective-capsule');
+    expect(accepted.acceptedTasks).toEqual(['task-verify']);
+    expect(accepted.unresolved).toEqual([{ taskId: 'task-compile', cause: 'task-blocked' }]);
+    expect(verificationRuns(accepted.findings)).toBe(true);
+
+    const rejected = decide('rejected');
+    expect(rejected.findings.map((f) => f.kind)).toEqual(['task-blocked', 'deviation-rejected']);
+    expect(rejected.outcome).toBe('rejected');
+    expect(rejected.unresolved).toEqual([]);
+    expect(verificationRuns(rejected.findings)).toBe(false);
+  });
+});
+
 /** Whether verification runs after a shape pass, as the handler asks it. */
 describe('the findings that stop verification', () => {
   function finding(kind: SettlementFindingKind): SettlementFinding {

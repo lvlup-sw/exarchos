@@ -802,7 +802,7 @@
               "additionalProperties": false,
               "properties": {
                 "affectedTasks": {
-                  "description": "Unfinished tasks of the current plan that the deviation changes, outside this batch",
+                  "description": "Unfinished current-plan tasks that the deviation changes, none claimed as completed",
                   "items": {
                     "minLength": 1,
                     "type": "string"
