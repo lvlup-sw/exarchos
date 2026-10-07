@@ -2,11 +2,27 @@
 // one byte string. A document that the schema rejects never reaches custody.
 // Bytes that round-trip give back the written document.
 //
+// The claims of a bundle are the stored traces of the claim codec. The codec reads a request entry
+// into one normal form, and that form goes to the bytes and comes back with no field lost.
+//
 // @oracle-sources: ../../../../src/verbs/settle/settlement-bundle.ts, and the canonical-JSON encoder in contract/request-context which is authored for the request surface and not for this module
 
 import { describe, it, expect } from 'vitest';
 
-import { SETTLEMENT_OUTCOMES } from '../../../../src/verbs/settle/adjudicate.js';
+import { canonicalJson } from '../../../../src/contract/request-context.js';
+import {
+  CLAIM_STATUSES,
+  INCOMPLETE_CLAIM_STATUSES,
+  SETTLEMENT_OUTCOMES,
+  type SettlementClaim,
+} from '../../../../src/verbs/settle/adjudicate.js';
+import {
+  ClaimTraceSchema,
+  MAX_CLAIM_REASON_LENGTH,
+  claimOfRequest,
+  claimOfTrace,
+  claimTraceOf,
+} from '../../../../src/verbs/settle/claim-codec.js';
 import {
   SETTLEMENT_BUNDLE_KIND,
   SETTLEMENT_BUNDLE_VERSION,
@@ -137,5 +153,184 @@ describe('the settlement bundle', () => {
   /** The artifact id comes from caller text, so the id grammar rejects a path or a shell fragment. */
   it('SettlementBundle_AnIdTheGrammarRefuses_Throws', () => {
     expect(() => settlementBundleArtifactId('../../etc/passwd', 1)).toThrow();
+  });
+});
+
+/** A request entry of a completed claim with each part that such a claim can carry. */
+function completedEntry(): Record<string, unknown> {
+  return {
+    taskId: 'task-verify',
+    fields: { passed: true, worktreePath: '/work/task-verify', notes: { tries: 2, tags: ['a', 'b'] } },
+    evidence: [
+      { kind: 'test', ref: 'run-1' },
+      { kind: 'typecheck', ref: 'run-2' },
+    ],
+  };
+}
+
+/** A request entry of a claim that is not completed, with each part that such a claim can carry. */
+function blockedEntry(): Record<string, unknown> {
+  return { taskId: 'task-compile', status: 'blocked', reason: 'the schema migration is not merged' };
+}
+
+/** Reads a request entry that the codec must accept. */
+function claimOf(entry: unknown): SettlementClaim {
+  const claim = claimOfRequest(entry, 'claims[0]');
+  if (typeof claim === 'string') throw new Error(`the codec refused the entry: ${claim}`);
+  return claim;
+}
+
+/**
+ * The claim codec. It reads a request entry into the one normal form of a claim. It gives the
+ * stored trace of a claim, and the claim of a stored trace. The request reader, the bundle and
+ * the decision round of the handler convert a claim only through these functions.
+ */
+describe('the claim codec', () => {
+  /**
+   * The two entries are the maximal claims: between them they set each key of the stored schema.
+   * A key that the schema gains and neither entry sets fails the first assertion. Each claim then
+   * goes to bundle bytes and comes back as the same claim, key for key.
+   */
+  it('ClaimCodec_AMaximalClaim_SurvivesTheRequestTheBundleBytesAndTheReadBack', () => {
+    const claims = [claimOf(completedEntry()), claimOf(blockedEntry())];
+    const keysSet = new Set(claims.flatMap((claim) => Object.keys(claim)));
+    expect([...keysSet].sort()).toEqual(Object.keys(ClaimTraceSchema.shape).sort());
+
+    const bytes = encodeSettlementBundle(bundle({ claims: claims.map(claimTraceOf) }));
+    const readBack = decodeSettlementBundle(bytes).claims.map(claimOfTrace);
+    expect(readBack).toStrictEqual(claims);
+    expect(readBack).toStrictEqual([
+      {
+        taskId: 'task-verify',
+        fields: { passed: true, worktreePath: '/work/task-verify', notes: { tries: 2, tags: ['a', 'b'] } },
+        evidence: [
+          { kind: 'test', ref: 'run-1' },
+          { kind: 'typecheck', ref: 'run-2' },
+        ],
+      },
+      {
+        taskId: 'task-compile',
+        status: 'blocked',
+        reason: 'the schema migration is not merged',
+        fields: {},
+        evidence: [],
+      },
+    ]);
+  });
+
+  /**
+   * The status `completed` is the default, and the normal form does not hold it. A claim with the
+   * status and a claim with no status are thus one claim. It has the keys and the canonical text
+   * of a claim of the earlier build.
+   */
+  it('ClaimCodec_TheStatusCompleted_IsAbsentFromTheNormalForm', () => {
+    const bare = claimOf({ taskId: 'task-verify', fields: { passed: true }, evidence: [] });
+    const explicit = claimOf({ taskId: 'task-verify', status: 'completed', fields: { passed: true }, evidence: [] });
+    expect(explicit).toStrictEqual(bare);
+    expect(Object.keys(bare).sort()).toEqual(['evidence', 'fields', 'taskId']);
+    expect(canonicalJson(claimTraceOf(explicit))).toBe('{"evidence":[],"fields":{"passed":true},"taskId":"task-verify"}');
+
+    const defaults = claimOf({ taskId: 'task-verify' });
+    expect(defaults).toStrictEqual({ taskId: 'task-verify', fields: {}, evidence: [] });
+  });
+
+  /** Each status that is not `completed` stays on the claim with its reason, and the stored trace holds both. */
+  it.each([...INCOMPLETE_CLAIM_STATUSES])('ClaimCodec_TheStatus_%s_StaysOnTheClaimWithItsReason', (status) => {
+    const claim = claimOf({ taskId: 'task-verify', status, reason: 'the reason' });
+    expect(claim).toStrictEqual({ taskId: 'task-verify', status, reason: 'the reason', fields: {}, evidence: [] });
+    expect(claimOfTrace(claimTraceOf(claim))).toStrictEqual(claim);
+    expect(CLAIM_STATUSES).toEqual(['completed', ...INCOMPLETE_CLAIM_STATUSES]);
+  });
+
+  /** An empty field record and an empty evidence list carry nothing, so the entry is the same claim without them. */
+  it('ClaimCodec_AClaimThatIsNotCompletedWithEmptyFieldsAndEvidence_IsTheSameClaim', () => {
+    const spelled = claimOf({ ...blockedEntry(), fields: {}, evidence: [] });
+    expect(spelled).toStrictEqual(claimOf(blockedEntry()));
+  });
+
+  /**
+   * The cross-field rules. Each entry is refused with a reason that names its path, so the request
+   * is invalid input. The reason of a claim holds at most 280 characters, and a reason of exactly
+   * that length is read.
+   */
+  it('ClaimCodec_AnEntryThatBreaksAStatusRule_IsRefusedWithItsPath', () => {
+    const refused: [Record<string, unknown>, string][] = [
+      [{ taskId: 'task-verify', status: 'done' }, "claims[0].status must be one of 'completed', 'failed', 'blocked', 'skipped'"],
+      [{ taskId: 'task-verify', status: 7 }, 'claims[0].status must be one of'],
+      [{ taskId: 'task-verify', status: 'blocked' }, "claims[0].reason is required with the status 'blocked'"],
+      [{ taskId: 'task-verify', status: 'failed' }, "claims[0].reason is required with the status 'failed'"],
+      [{ taskId: 'task-verify', status: 'skipped' }, "claims[0].reason is required with the status 'skipped'"],
+      [{ taskId: 'task-verify', status: 'blocked', reason: '' }, 'claims[0].reason must be text of 1 to 280 characters'],
+      [{ taskId: 'task-verify', status: 'blocked', reason: 9 }, 'claims[0].reason must be text of 1 to 280 characters'],
+      [
+        { taskId: 'task-verify', status: 'blocked', reason: 'x'.repeat(MAX_CLAIM_REASON_LENGTH + 1) },
+        'claims[0].reason must be text of 1 to 280 characters',
+      ],
+      [{ taskId: 'task-verify', reason: 'it went well' }, 'claims[0].reason is given only with the status'],
+      [{ taskId: 'task-verify', status: 'completed', reason: 'it went well' }, 'claims[0].reason is given only with the status'],
+      [
+        { taskId: 'task-verify', status: 'blocked', reason: 'r', fields: { passed: false } },
+        "claims[0] has the status 'blocked', so it carries no fields and no evidence",
+      ],
+      [
+        { taskId: 'task-verify', status: 'skipped', reason: 'r', evidence: [{ kind: 'test', ref: 'run-1' }] },
+        "claims[0] has the status 'skipped', so it carries no fields and no evidence",
+      ],
+    ];
+    for (const [entry, reason] of refused) {
+      const read = claimOfRequest(entry, 'claims[0]');
+      expect(typeof read, JSON.stringify(entry)).toBe('string');
+      expect(read, JSON.stringify(entry)).toContain(reason);
+    }
+    expect(MAX_CLAIM_REASON_LENGTH).toBe(280);
+    const longest = 'x'.repeat(MAX_CLAIM_REASON_LENGTH);
+    expect(claimOf({ taskId: 'task-verify', status: 'blocked', reason: longest }).reason).toBe(longest);
+  });
+
+  /** The entries that were malformed before a claim had a status are refused with the same reasons. */
+  it('ClaimCodec_AMalformedEntry_IsRefusedWithItsPath', () => {
+    const refused: [unknown, string][] = [
+      ['task-verify', 'claims[0] must be an object'],
+      [{ fields: { passed: true } }, 'claims[0].taskId is required'],
+      [{ taskId: 'task-verify', fields: [] }, 'claims[0].fields must be an object of returned result fields'],
+      [{ taskId: 'task-verify', evidence: {} }, 'claims[0].evidence must be an array'],
+      [{ taskId: 'task-verify', evidence: ['run-1'] }, 'claims[0].evidence[0] must be an object'],
+      [{ taskId: 'task-verify', evidence: [{ kind: 'test' }] }, 'claims[0].evidence[0] requires both kind and ref'],
+    ];
+    for (const [entry, reason] of refused) {
+      expect(claimOfRequest(entry, 'claims[0]'), JSON.stringify(entry)).toBe(reason);
+    }
+  });
+
+  /**
+   * The stored schema is strict. A claim with a field that the schema does not declare gives no
+   * trace. Thus a field of the normal form cannot leave the bundle without a failure. A stored
+   * trace with such a field does not decode.
+   */
+  it('ClaimCodec_AFieldTheStoredSchemaDoesNotDeclare_ThrowsAndIsNeverDropped', () => {
+    const claim = claimOf(completedEntry());
+    expect(() => claimTraceOf({ ...claim, ...{ smuggled: true } })).toThrow();
+    const stored = { ...bundle(), claims: [{ taskId: 'task-verify', fields: {}, evidence: [], smuggled: true }] };
+    expect(() => decodeSettlementBundle(Buffer.from(`${JSON.stringify(stored)}\n`, 'utf8'))).toThrow();
+  });
+
+  /**
+   * A bundle that an earlier build wrote holds a claim with no status key, and it decodes to a
+   * completed claim. A stored reason has no bound, so a long one decodes. A stored status outside
+   * the three names does not, and neither does the default status, which the normal form never holds.
+   */
+  it('ClaimCodec_AStoredTrace_DecodesWithNoStatusAndWithAnUnboundedReason', () => {
+    const decode = (claims: readonly unknown[]): SettlementClaim[] =>
+      decodeSettlementBundle(Buffer.from(`${JSON.stringify({ ...bundle(), claims })}\n`, 'utf8')).claims.map(claimOfTrace);
+
+    const earlier = { taskId: 'task-verify', fields: { passed: true }, evidence: [] };
+    expect(decode([earlier])).toStrictEqual([earlier]);
+    expect(decode([earlier])[0]).not.toHaveProperty('status');
+
+    const long = { taskId: 'task-verify', status: 'failed', reason: 'x'.repeat(4 * MAX_CLAIM_REASON_LENGTH), fields: {}, evidence: [] };
+    expect(decode([long])).toStrictEqual([long]);
+
+    expect(() => decode([{ ...earlier, status: 'done' }])).toThrow();
+    expect(() => decode([{ ...earlier, status: 'completed' }])).toThrow();
   });
 });

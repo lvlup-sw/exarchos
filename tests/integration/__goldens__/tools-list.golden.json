@@ -652,7 +652,7 @@
             "type": "string"
           },
           "claims": {
-            "description": "The batch: one entry per task that returned a result. A submitted batch carries at least one. A required task that the stream shows complete needs no claim, so a correction after `corrective-capsule` claims only the `unresolved` tasks",
+            "description": "The batch: one entry per task that it reports, and at least one. A required task that the stream shows complete needs no claim",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -683,6 +683,22 @@
                     "type": "string"
                   },
                   "type": "object"
+                },
+                "reason": {
+                  "description": "Required unless `completed`: why the task is not completed. A claim with a reason has no fields and no evidence",
+                  "maxLength": 280,
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "status": {
+                  "description": "`failed`: attempted, no result to verify. `blocked`: waits for a change outside the task. `skipped`: not attempted in this run. Default `completed`",
+                  "enum": [
+                    "completed",
+                    "failed",
+                    "blocked",
+                    "skipped"
+                  ],
+                  "type": "string"
                 },
                 "taskId": {
                   "minLength": 1,

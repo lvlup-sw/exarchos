@@ -10,6 +10,8 @@
 
 import { z } from 'zod';
 import { withCappedShape } from '../../../output-schema-declaration.js';
+import { CLAIM_STATUSES } from '../../../verbs/settle/adjudicate.js';
+import { MAX_CLAIM_REASON_LENGTH } from '../../../verbs/settle/claim-codec.js';
 import { SETTLE_ECONOMY_BUDGET_TOKENS, summarizeSettlementReceipt } from '../../../verbs/settle/economy.js';
 import { SettlementOutputSchema } from '../../../verbs/settle/schemas.js';
 import {
@@ -98,6 +100,22 @@ export const settleActions: readonly BuiltinToolAction[] = [
             z
               .object({
                 taskId: z.string().min(1),
+                status: z
+                  .enum(CLAIM_STATUSES)
+                  .optional()
+                  .describe(
+                    '`failed`: attempted, no result to verify. `blocked`: waits for a change ' +
+                      'outside the task. `skipped`: not attempted in this run. Default `completed`',
+                  ),
+                reason: z
+                  .string()
+                  .min(1)
+                  .max(MAX_CLAIM_REASON_LENGTH)
+                  .optional()
+                  .describe(
+                    'Required unless `completed`: why the task is not completed. A claim with a ' +
+                      'reason has no fields and no evidence',
+                  ),
                 fields: z.record(z.string(), z.unknown()).optional(),
                 evidence: z
                   .array(z.object({ kind: z.string().min(1), ref: z.string().min(1) }).strict())
@@ -107,9 +125,8 @@ export const settleActions: readonly BuiltinToolAction[] = [
           )
           .optional()
           .describe(
-            'The batch: one entry per task that returned a result. A submitted batch carries at ' +
-              'least one. A required task that the stream shows complete needs no claim, so a ' +
-              'correction after `corrective-capsule` claims only the `unresolved` tasks',
+            'The batch: one entry per task that it reports, and at least one. A required task ' +
+              'that the stream shows complete needs no claim',
           ),
         deviations: z
           .array(

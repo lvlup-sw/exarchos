@@ -83,16 +83,14 @@ const OUTCOME_GUIDE =
   'How the batch stands, and the next call. No outcome compiles a capsule. ' +
   '`settled`: each required task is complete. ' +
   '`corrective-capsule`: the tasks that passed are complete. Settle a new batchId on the same ' +
-  'capsule that claims only the `unresolved` tasks. If the receipt has `designRevision`, ' +
-  'prepare first. ' +
+  'capsule with only the `unresolved` tasks. With a `designRevision`, prepare first. ' +
   '`accepted-with-rationale`: not returned in this build. ' +
-  'Under each of the next three outcomes this build verifies nothing, and `acceptedTasks` ' +
-  'lists tasks whose claims have no shape fault. ' +
-  '`rejected`: a request or deviation error. Settle the corrected request under a new batchId. ' +
+  'Under the next three outcomes this build verifies nothing, and `acceptedTasks` lists claims ' +
+  'with no shape fault. ' +
+  '`rejected`: a request or deviation error. Settle the correction under a new batchId. ' +
   '`deviation-pending`: a deviation waits for its decision. Settle the same batchId with ' +
-  '`decisions` and no claims. ' +
-  '`recompile-required`: a later design revision made the capsule stale. Prepare again, then ' +
-  'settle under the new capsule';
+  '`decisions` only. ' +
+  '`recompile-required`: the capsule is stale. Prepare, then settle under the new capsule';
 
 const SettlementReceiptData = z
   .object({

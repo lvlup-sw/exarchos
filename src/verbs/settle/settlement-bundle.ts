@@ -16,6 +16,7 @@ import { canonicalJson } from '../../contract/request-context.js';
 import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
 import { SETTLEMENT_FINDING_KINDS, SETTLEMENT_OUTCOMES } from './adjudicate.js';
+import { ClaimTraceSchema } from './claim-codec.js';
 
 /** The `kind` discriminator every settlement bundle carries. */
 export const SETTLEMENT_BUNDLE_KIND = 'settlement-adjudication';
@@ -29,22 +30,6 @@ const FindingSchema = z
     subject: z.string().min(1),
     at: z.string().min(1),
     message: z.string().min(1),
-  })
-  .strict();
-
-const EvidenceSchema = z
-  .object({ kind: z.string().min(1), ref: z.string().min(1) })
-  .strict();
-
-/**
- * One claim as adjudicated: the arguments that the verdict came from. `fields`
- * is a record of `unknown` because the capsule declares the result shape.
- */
-const ClaimTraceSchema = z
-  .object({
-    taskId: z.string().min(1),
-    fields: z.record(z.string(), z.unknown()),
-    evidence: z.array(EvidenceSchema),
   })
   .strict();
 
@@ -127,6 +112,7 @@ export const SettlementBundleV1Schema = z
     outcome: z.enum(SETTLEMENT_OUTCOMES),
     acceptedTasks: z.array(z.string().min(1)),
     findings: z.array(FindingSchema),
+    /** The claims as adjudicated: the arguments that the verdict came from. The claim codec owns the shape of each. */
     claims: z.array(ClaimTraceSchema),
     deviations: z.array(DeviationSchema),
     /**

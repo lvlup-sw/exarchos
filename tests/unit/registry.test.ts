@@ -3410,8 +3410,9 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
 
     /**
      * A receipt that needs a correction names its unresolved tasks. The schema admits an entry with
-     * the task and the cause, with or without the halted leaf and the operation id. A receipt with
-     * no list parses too, as a replayed claim of an earlier build carries none.
+     * the task and the cause, with or without the halted leaf and the operation id. A task that its
+     * claim reports as not completed has neither. A receipt with no list parses too, as a replayed
+     * claim of an earlier build carries none.
      * The receipt object passes unknown fields through. Thus the refused lists prove that the
      * schema declares the field.
      */
@@ -3425,6 +3426,13 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
           .success;
 
       expect(withList([{ taskId: 'task-a', cause: 'verification-failed' }])).toBe(true);
+      expect(
+        withList([
+          { taskId: 'task-a', cause: 'task-blocked' },
+          { taskId: 'task-b', cause: 'task-failed' },
+          { taskId: 'task-c', cause: 'task-skipped' },
+        ]),
+      ).toBe(true);
       expect(
         withList([
           { taskId: 'task-a', cause: 'verification-failed', failedLeaf: 'task_complete', operationId: 'settle-task:1' },

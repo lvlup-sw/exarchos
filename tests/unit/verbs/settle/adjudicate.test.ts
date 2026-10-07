@@ -13,6 +13,7 @@ import {
 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import { baseValidCapsule } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import {
+  INCOMPLETE_CLAIM_STATUSES,
   SETTLEMENT_FINDING_CLASSES,
   SETTLEMENT_FINDING_KINDS,
   SETTLEMENT_OUTCOMES,
@@ -21,6 +22,7 @@ import {
   outcomeVerifies,
   verificationRuns,
   type AdjudicationContext,
+  type IncompleteClaimStatus,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementFinding,
@@ -39,6 +41,11 @@ function passingClaim(): SettlementClaim {
     fields: { passed: true },
     evidence: [{ kind: 'test', ref: 'run-1' }],
   };
+}
+
+/** A claim that reports `task-verify` as not completed, in the normal form: a status, a reason, no fields and no evidence. */
+function reporting(status: IncompleteClaimStatus, taskId = 'task-verify'): SettlementClaim {
+  return { taskId, status, reason: `the worker says that the task is ${status}`, fields: {}, evidence: [] };
 }
 
 /**
@@ -201,6 +208,9 @@ const CASES: readonly AdjudicationCase[] = [
       ]),
     },
   ),
+  bend('a claim that reports its task as failed', 'task-failed', 'unresolved', 'claims[0]', [reporting('failed')]),
+  bend('a claim that reports its task as blocked', 'task-blocked', 'unresolved', 'claims[0]', [reporting('blocked')]),
+  bend('a claim that reports its task as skipped', 'task-skipped', 'unresolved', 'claims[0]', [reporting('skipped')]),
   bend(
     'a deviation outside the envelope',
     'deviation-outside-envelope',
@@ -331,17 +341,18 @@ describe('settlement adjudication', () => {
   });
 
   /**
-   * The class table holds each declared kind and no other key. One kind is stale, one holds, and one
-   * leaves a task unresolved. Each other kind refuses the batch.
+   * The class table holds each declared kind and no other key. One kind is stale, and one holds.
+   * Four leave a task unresolved: a failed verification, and one for each status of a claim that
+   * is not completed. Each other kind refuses the batch.
    */
-  it('Adjudicate_TheClassTable_CoversEachKindAndNamesTheThreeThatDoNotRefuse', () => {
+  it('Adjudicate_TheClassTable_CoversEachKindAndNamesTheSixThatDoNotRefuse', () => {
     expect(Object.keys(SETTLEMENT_FINDING_CLASSES).sort()).toEqual([...SETTLEMENT_FINDING_KINDS].sort());
     const kindsOf = (findingClass: SettlementFindingClass): SettlementFindingKind[] =>
       SETTLEMENT_FINDING_KINDS.filter((kind) => SETTLEMENT_FINDING_CLASSES[kind] === findingClass);
     expect(kindsOf('stale')).toEqual(['claim-superseded-by-revision']);
     expect(kindsOf('hold')).toEqual(['deviation-awaiting-approval']);
-    expect(kindsOf('unresolved')).toEqual(['verification-failed']);
-    expect(kindsOf('refuse')).toHaveLength(SETTLEMENT_FINDING_KINDS.length - 3);
+    expect(kindsOf('unresolved')).toEqual(['verification-failed', 'task-failed', 'task-blocked', 'task-skipped']);
+    expect(kindsOf('refuse')).toHaveLength(SETTLEMENT_FINDING_KINDS.length - 6);
   });
 
   /** The six outcome names. The first three are the names that stored rows, bundles and claims carry. */
@@ -913,6 +924,157 @@ describe('a required result that the batch does not claim', () => {
   });
 });
 
+/**
+ * A claim can report its task as failed, blocked or skipped. Such a claim returns no result, so
+ * nothing of it is read against the result shape and nothing is verified. Its task is unresolved,
+ * and the other claims of the batch are judged apart from it.
+ */
+describe('a claim that reports its task as not completed', () => {
+  function findingsOf(verdict: SettlementVerdict): string[][] {
+    return verdict.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  /** The denominator of the cases below: each status has one finding kind, and the kinds are distinct. */
+  it('Adjudicate_EachIncompleteStatus_HasItsOwnFindingKind', () => {
+    expect(INCOMPLETE_CLAIM_STATUSES).toEqual(['failed', 'blocked', 'skipped']);
+    const kinds = INCOMPLETE_CLAIM_STATUSES.map(
+      (status) => adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], RESOLVING).findings[0]?.kind,
+    );
+    expect(kinds).toEqual(['task-failed', 'task-blocked', 'task-skipped']);
+  });
+
+  /**
+   * The capsule requires `passed` of `task-verify`, and the claim carries no field. The one finding
+   * is the status of the task. The finding names the task as its subject, so the task is unresolved,
+   * and its message gives the reason of the worker. The required result is not a missing claim.
+   */
+  it.each([
+    ['failed', 'task-failed', 'was attempted and has no result to verify'],
+    ['blocked', 'task-blocked', 'cannot proceed until something outside the task changes'],
+    ['skipped', 'task-skipped', 'was not attempted in this run'],
+  ] satisfies [IncompleteClaimStatus, SettlementFindingKind, string][])(
+    'Adjudicate_AClaimWithTheStatus_%s_GivesOneFindingAndLeavesItsTaskUnresolved',
+    (status, kind, meaning) => {
+      const verdict = adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], RESOLVING);
+      expect(findingsOf(verdict)).toEqual([[kind, 'task-verify', 'claims[0]']]);
+      expect(verdict.findings[0]?.message).toContain(meaning);
+      expect(verdict.findings[0]?.message).toContain(`the worker says that the task is ${status}`);
+      expect(verdict.outcome).toBe('corrective-capsule');
+      expect(verdict.unresolved).toEqual([{ taskId: 'task-verify', cause: kind }]);
+      expect(verdict.acceptedTasks).toEqual([]);
+      expect(verdict.adjudicated).toMatchObject({ claims: 1, requiredResults: 1, fields: 0, evidence: 0 });
+      expect(verificationRuns(verdict.findings)).toBe(true);
+    },
+  );
+
+  /**
+   * One claim is blocked and one is completed. The shape pass accepts the completed claim and lets
+   * verification run. On the final pass the completed task is accepted. The blocked task is not,
+   * also when the outcomes hold a passing entry for it, and the census does not count that entry.
+   */
+  it('Adjudicate_ABlockedClaimBesideACompletedClaim_NeedsACorrectionAndKeepsTheCompletedTask', () => {
+    const claims = [reporting('blocked', 'task-compile'), passingClaim()];
+    const shape = adjudicateSettlement(requiringBothTasks(), claims, [], RESOLVING);
+    expect(findingsOf(shape)).toEqual([['task-blocked', 'task-compile', 'claims[0]']]);
+    expect(shape.acceptedTasks).toEqual(['task-verify']);
+    expect(verificationRuns(shape.findings)).toBe(true);
+
+    const final = adjudicateSettlement(requiringBothTasks(), claims, [], {
+      ...RESOLVING,
+      verification: new Map<string, TaskVerificationOutcome>([
+        ['task-verify', { kind: 'verified' }],
+        ['task-compile', { kind: 'verified' }],
+      ]),
+    });
+    expect(findingsOf(final)).toEqual([['task-blocked', 'task-compile', 'claims[0]']]);
+    expect(final.outcome).toBe('corrective-capsule');
+    expect(final.acceptedTasks).toEqual(['task-verify']);
+    expect(final.unresolved).toEqual([{ taskId: 'task-compile', cause: 'task-blocked' }]);
+    expect(final.adjudicated).toMatchObject({ claims: 2, requiredResults: 2, verification: 1 });
+  });
+
+  /**
+   * The stream shows the task complete, so the recorded completion is its result and the report
+   * makes no finding. The shape pass accepts the claim. The final pass accepts it with the outcome
+   * of a task that was complete before the batch. It refuses the claim when no outcome is supplied.
+   */
+  it.each([...INCOMPLETE_CLAIM_STATUSES])(
+    'Adjudicate_AClaimWithTheStatus_%s_ForATaskTheStreamShowsComplete_MakesNoFinding',
+    (status) => {
+      const context = completeOnTheStream('task-verify');
+      const shape = adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], context);
+      expect(shape.findings).toEqual([]);
+      expect(shape.acceptedTasks).toEqual(['task-verify']);
+      expect(shape.adjudicated).toMatchObject({ fields: 0, evidence: 0 });
+
+      const final = adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], {
+        ...context,
+        verification: new Map<string, TaskVerificationOutcome>([['task-verify', { kind: 'already-complete' }]]),
+      });
+      expect(final.findings).toEqual([]);
+      expect(final.outcome).toBe('settled');
+      expect(final.acceptedTasks).toEqual(['task-verify']);
+      expect(final.unresolved).toEqual([]);
+      expect(final.adjudicated.verification).toBe(1);
+
+      const withoutOutcome = adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], {
+        ...context,
+        verification: new Map(),
+      });
+      expect(findingsOf(withoutOutcome)).toEqual([['verification-failed', 'task-verify', 'claims[0]']]);
+    },
+  );
+
+  /**
+   * The checks that come before the status keep their place. A later revision that names the task
+   * makes the claim stale, also when the stream shows the task complete. A task that the graph does
+   * not declare is unknown, and a second claim for one task is a duplicate.
+   */
+  it('Adjudicate_AClaimThatIsNotCompleted_IsStillStaleUnknownOrDuplicateFirst', () => {
+    const stale = adjudicateSettlement(baseValidCapsule(), [reporting('blocked')], [], {
+      ...namedByALaterRevision({ 'task-verify': 3 }),
+      taskComplete: () => true,
+    });
+    expect(findingsOf(stale)).toEqual([['claim-superseded-by-revision', 'task-verify', 'claims[0].taskId']]);
+    expect(stale.outcome).toBe('recompile-required');
+
+    const unknown = adjudicateSettlement(baseValidCapsule(), [passingClaim(), reporting('skipped', 'task-ghost')], [], RESOLVING);
+    expect(findingsOf(unknown)).toEqual([['unknown-task', 'task-ghost', 'claims[1].taskId']]);
+    expect(unknown.outcome).toBe('rejected');
+
+    const twice = adjudicateSettlement(baseValidCapsule(), [passingClaim(), reporting('failed')], [], RESOLVING);
+    expect(findingsOf(twice)).toEqual([['duplicate-claim', 'task-verify', 'claims[1].taskId']]);
+    expect(twice.outcome).toBe('rejected');
+  });
+
+  /**
+   * A stale, refusing or holding finding beside the report stops verification, and it decides the
+   * outcome. The verdict then names no unresolved task, because nothing was verified.
+   */
+  it('Adjudicate_ABlockedClaimBesideAFindingOfAnotherClass_IsNotACorrection', () => {
+    const held = adjudicateSettlement(
+      requiringBothTasks(),
+      [reporting('blocked', 'task-compile'), passingClaim()],
+      [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
+      RESOLVING,
+    );
+    expect(held.findings.map((f) => f.kind)).toEqual(['task-blocked', 'deviation-awaiting-approval']);
+    expect(held.outcome).toBe('deviation-pending');
+    expect(held.unresolved).toEqual([]);
+    expect(verificationRuns(held.findings)).toBe(false);
+
+    const refused = adjudicateSettlement(
+      requiringBothTasks(),
+      [reporting('blocked', 'task-compile'), { taskId: 'task-verify', fields: { passed: 'yes' }, evidence: [] }],
+      [],
+      RESOLVING,
+    );
+    expect(refused.findings.map((f) => f.kind)).toEqual(['task-blocked', 'field-type-mismatch']);
+    expect(refused.outcome).toBe('rejected');
+    expect(refused.unresolved).toEqual([]);
+  });
+});
+
 /** Whether verification runs after a shape pass, as the handler asks it. */
 describe('the findings that stop verification', () => {
   function finding(kind: SettlementFindingKind): SettlementFinding {
@@ -923,6 +1085,7 @@ describe('the findings that stop verification', () => {
   it('VerificationRuns_WithNoFindingOrOnlyAnUnresolvedTask_IsTrue', () => {
     expect(verificationRuns([])).toBe(true);
     expect(verificationRuns([finding('verification-failed')])).toBe(true);
+    expect(verificationRuns([finding('task-blocked'), finding('task-failed'), finding('task-skipped')])).toBe(true);
   });
 
   /** One finding of a stale, refusing or holding kind stops verification, alone or beside an unresolved task. */
@@ -934,10 +1097,10 @@ describe('the findings that stop verification', () => {
     },
   );
 
-  /** Each declared kind but the one that leaves a task unresolved stops verification. */
-  it('VerificationRuns_ForEachDeclaredKind_IsTrueOnlyForAFailedVerification', () => {
+  /** Each declared kind but the four that leave a task unresolved stops verification. */
+  it('VerificationRuns_ForEachDeclaredKind_IsTrueOnlyForAKindThatLeavesATaskUnresolved', () => {
     const letsItRun = SETTLEMENT_FINDING_KINDS.filter((kind) => verificationRuns([finding(kind)]));
-    expect(letsItRun).toEqual(['verification-failed']);
+    expect(letsItRun).toEqual(['verification-failed', 'task-failed', 'task-blocked', 'task-skipped']);
   });
 
   /**

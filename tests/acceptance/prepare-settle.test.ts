@@ -657,6 +657,96 @@ describe('prepare then settle, through the dispatcher', () => {
   });
 
   /**
+   * A claim reports its task as blocked, beside two completed claims. The registered schema admits
+   * the status and the reason, and the two completed tasks are verified and recorded complete.
+   * The batch needs a correction. The blocked task is unresolved with no halted leaf, because no
+   * segment ran for it: it has no gate row and no completion.
+   *
+   * A blocked claim that also returns fields is invalid input, and it leaves no row. After the
+   * block is removed, a new batch on the same capsule claims the task as completed and settles.
+   * A replay of each of the two `settle` calls returns its receipt and appends no row.
+   */
+  it('PrepareSettle_ABlockedClaim_LeavesItsTaskUnresolvedAndTheOtherTasksComplete', async () => {
+    await seedDelegatingFeature();
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const capsuleVersion = await latestCapsuleVersion();
+    const blocked = { taskId: 'task-b', status: 'blocked', reason: 'the schema migration is not merged' };
+
+    const firstBatch = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-1',
+      claims: [...completedClaims(greenWorktree, ['task-a']), blocked, ...completedClaims(greenWorktree, ['task-c'])],
+    };
+    const first = await call('exarchos_orchestrate', firstBatch);
+    expect(first.success, JSON.stringify(first)).toBe(true);
+    expect(first.data).toMatchObject({
+      outcome: 'corrective-capsule',
+      acceptedTasks: ['task-a', 'task-c'],
+      findings: [{ kind: 'task-blocked', subject: 'task-b', at: 'claims[1]' }],
+      adjudicated: { claims: 3, requiredResults: 3, verification: 2 },
+      verification: [
+        { taskId: 'task-a', outcome: 'verified' },
+        { taskId: 'task-c', outcome: 'verified' },
+      ],
+    });
+    expect((first.data as { unresolved?: unknown }).unresolved).toStrictEqual([{ taskId: 'task-b', cause: 'task-blocked' }]);
+    expect((await settlementRecords()).map((record) => [record.batchId, record.outcome, record.unresolvedTasks])).toEqual([
+      ['batch-1', 'corrective-capsule', [{ taskId: 'task-b', cause: 'task-blocked' }]],
+    ]);
+    expect(countsByType(await workRowsOf(['task-a', 'task-c']))).toEqual({
+      'task.assigned': 2,
+      'gate.executed': 8,
+      'task.completed': 2,
+    });
+    const reported = countsByType(await workRowsOf(['task-b']));
+    expect(reported).not.toHaveProperty('gate.executed');
+    expect(reported).not.toHaveProperty('task.completed');
+    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+
+    const tail = (await eventStore.query(STREAM)).length;
+    const withFields = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-1-malformed',
+      claims: [{ ...blocked, fields: { worktreePath: greenWorktree } }],
+    });
+    expect(withFields.success, JSON.stringify(withFields)).toBe(false);
+    expect(withFields.error?.code).toBe('INVALID_INPUT');
+    expect(withFields.error?.message).toContain('carries no fields and no evidence');
+    expect(await eventStore.query(STREAM)).toHaveLength(tail);
+
+    const correction = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-1-correction',
+      claims: completedClaims(greenWorktree, ['task-b']),
+    };
+    const corrected = await call('exarchos_orchestrate', correction);
+    expect(corrected.success, JSON.stringify(corrected)).toBe(true);
+    expect(corrected.data).toMatchObject({
+      outcome: 'settled',
+      acceptedTasks: ['task-b'],
+      findings: [],
+      verification: [
+        { taskId: 'task-a', outcome: 'already-complete' },
+        { taskId: 'task-c', outcome: 'already-complete' },
+        { taskId: 'task-b', outcome: 'verified' },
+      ],
+    });
+    expect(await rowsOf('workflow.prepared')).toHaveLength(1);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(correction, corrected);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+
+    const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
+    expect(moved.success, JSON.stringify(moved)).toBe(true);
+  });
+
+  /**
    * The stored capsule is the one that this build compiles, with two fields in the form of the
    * earlier build. They are the design version id in its hash form and the name of the earlier
    * compiler. No call of this build compiles that form, so the commit function of `prepare` puts

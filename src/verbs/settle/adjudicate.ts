@@ -32,6 +32,9 @@ export const SETTLEMENT_FINDING_KINDS = [
   'deviation-names-finished-task',
   'deviation-names-claimed-task',
   'verification-failed',
+  'task-failed',
+  'task-blocked',
+  'task-skipped',
 ] as const;
 
 /** What adjudication found wrong with one claim, one task, or one deviation. */
@@ -50,6 +53,7 @@ export type SettlementFindingClass = 'stale' | 'refuse' | 'hold' | 'unresolved';
  * The class of each finding kind. The record is exhaustive, so a kind with no class does not compile.
  * A deviation inside the envelope is a valid answer to a wrong capsule assumption, so its finding holds the batch.
  * A failed verification leaves its task unresolved, and it does not refuse the tasks that passed.
+ * A claim that reports its task as not completed also leaves the task unresolved.
  */
 export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, SettlementFindingClass>> = {
   'unknown-task': 'refuse',
@@ -68,6 +72,9 @@ export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, 
   'deviation-names-finished-task': 'refuse',
   'deviation-names-claimed-task': 'refuse',
   'verification-failed': 'unresolved',
+  'task-failed': 'unresolved',
+  'task-blocked': 'unresolved',
+  'task-skipped': 'unresolved',
 };
 
 /** A single, path-annotated adjudication finding. */
@@ -80,9 +87,34 @@ export interface SettlementFinding {
   readonly message: string;
 }
 
-/** One task's returned result, with its fields and the evidence it cites. */
+/** Returns the listed names as a tuple of literal types, so one list can feed each closed enum. */
+function closedNames<const Names extends readonly [string, ...string[]]>(...names: Names): Names {
+  return names;
+}
+
+/**
+ * The statuses of a claim that reports its task as not completed.
+ * `failed` means that the worker attempted the task and has no result to verify.
+ * `blocked` means that the task cannot proceed until something outside the task changes.
+ * `skipped` means that the task was not attempted in this run.
+ */
+export const INCOMPLETE_CLAIM_STATUSES = closedNames('failed', 'blocked', 'skipped');
+
+/** A status of a claim that reports its task as not completed. */
+export type IncompleteClaimStatus = (typeof INCOMPLETE_CLAIM_STATUSES)[number];
+
+/** Each status that a request can give a claim. `completed` is the default. */
+export const CLAIM_STATUSES = closedNames('completed', ...INCOMPLETE_CLAIM_STATUSES);
+
+/**
+ * One claim in its normal form: the result that a task returned, or the reason that the task is not completed.
+ * `status` is absent on a completed claim, so a claim that an earlier build recorded keeps its bytes and its request digest.
+ * A claim with a status has a reason, no fields and no evidence. The claim codec gives each claim this form.
+ */
 export interface SettlementClaim {
   readonly taskId: string;
+  readonly status?: IncompleteClaimStatus | undefined;
+  readonly reason?: string | undefined;
   readonly fields: Readonly<Record<string, unknown>>;
   readonly evidence: readonly SettlementEvidence[];
 }
@@ -116,11 +148,6 @@ export type TaskStanding =
   | { readonly kind: 'finished' }
   | { readonly kind: 'unknown'; readonly unreadable?: string };
 
-/** Returns the listed names as a tuple of literal types, so one list can feed each closed enum. */
-function outcomeNames<const Names extends readonly [string, ...string[]]>(...names: Names): Names {
-  return names;
-}
-
 /**
  * Every settlement outcome. Each closed enum of the outcome is built from this list.
  *
@@ -133,7 +160,7 @@ function outcomeNames<const Names extends readonly [string, ...string[]]>(...nam
  * `corrective-capsule` is a batch with a task that is not complete, while the tasks that passed are complete.
  * `accepted-with-rationale` is a complete batch in which a claim records a delegated choice.
  */
-export const SETTLEMENT_OUTCOMES = outcomeNames(
+export const SETTLEMENT_OUTCOMES = closedNames(
   'settled',
   'rejected',
   'deviation-pending',
@@ -255,6 +282,7 @@ export interface AdjudicationContext {
   readonly supersedingDesignVersion?: (taskId: string) => number | undefined;
   /**
    * Whether the stream shows a task complete. A required task that it shows complete needs no claim.
+   * A claim that reports such a task as not completed gets no finding, and the task keeps its recorded completion.
    * Without the function, each required task needs a claim.
    */
   readonly taskComplete?: (taskId: string) => boolean;
@@ -350,6 +378,38 @@ function unclaimedRequirementFinding(
   };
 }
 
+/** The finding kind for each status of a claim that reports its task as not completed, and what the status says. */
+const INCOMPLETE_CLAIM_FINDINGS: Readonly<
+  Record<IncompleteClaimStatus, { readonly kind: SettlementFindingKind; readonly says: string }>
+> = {
+  failed: { kind: 'task-failed', says: 'was attempted and has no result to verify' },
+  blocked: { kind: 'task-blocked', says: 'cannot proceed until something outside the task changes' },
+  skipped: { kind: 'task-skipped', says: 'was not attempted in this run' },
+};
+
+/**
+ * The finding for a claim that reports its task as not completed. The subject is the task id, so the task is unresolved.
+ * Settlement runs no verification for such a claim and records no completion from it. The message gives the reason of the worker.
+ * A claim for a task that the stream shows complete gets no such finding, because the recorded completion is the result of the task.
+ */
+function incompleteClaimFinding(
+  taskId: string,
+  status: IncompleteClaimStatus,
+  reason: string | undefined,
+  at: string,
+): SettlementFinding {
+  const { kind, says } = INCOMPLETE_CLAIM_FINDINGS[status];
+  return {
+    kind,
+    subject: taskId,
+    at,
+    message:
+      `the claim reports that task ${JSON.stringify(taskId)} ${says}` +
+      `${reason === undefined ? '' : `: ${JSON.stringify(reason)}`}. ` +
+      'Nothing was verified for the task, and it is not complete',
+  };
+}
+
 /** The capsule's own field-type vocabulary, as a runtime test over a value. */
 function typeOfValue(value: unknown): string {
   if (Array.isArray(value)) return 'array';
@@ -433,79 +493,86 @@ export function adjudicateSettlement(
       return;
     }
 
-    const declared = capsule.contracts.taskResults[claim.taskId];
-    if (declared === undefined) {
-      findings.push({
-        kind: 'undeclared-result-shape',
-        subject: claim.taskId,
-        at: `${at}.fields`,
-        message:
-          `task ${JSON.stringify(claim.taskId)} returned a result and the capsule declares no ` +
-          'shape for it, so there is nothing to adjudicate the result against',
-      });
-      return;
-    }
-
-    const declaredByName = new Map(declared.map((field) => [field.name, field]));
-    for (const field of declared) {
-      census.fields += 1;
-      const present = Object.prototype.hasOwnProperty.call(claim.fields, field.name);
-      if (!present) {
-        if (field.required) {
-          findings.push({
-            kind: 'missing-field',
-            subject: field.name,
-            at: `${at}.fields`,
-            message: `task ${JSON.stringify(claim.taskId)} must return ${JSON.stringify(field.name)}`,
-          });
-        }
-        continue;
+    if (claim.status !== undefined) {
+      if (context.taskComplete?.(claim.taskId) !== true) {
+        findings.push(incompleteClaimFinding(claim.taskId, claim.status, claim.reason, at));
+        return;
       }
-      const actual = typeOfValue(claim.fields[field.name]);
-      if (actual === field.type) continue;
-      findings.push({
-        kind: 'field-type-mismatch',
-        subject: field.name,
-        at: `${at}.fields.${field.name}`,
-        message: `${JSON.stringify(field.name)} is declared ${field.type} and arrived as ${actual}`,
-      });
-    }
-
-    for (const name of Object.keys(claim.fields)) {
-      if (declaredByName.has(name)) continue;
-      findings.push({
-        kind: 'undeclared-field',
-        subject: name,
-        at: `${at}.fields.${name}`,
-        message:
-          `task ${JSON.stringify(claim.taskId)} returned ${JSON.stringify(name)}, which its ` +
-          'result contract does not declare',
-      });
-    }
-
-    claim.evidence.forEach((evidence, j) => {
-      census.evidence += 1;
-      if (!admissibleEvidence.has(evidence.kind)) {
+    } else {
+      const declared = capsule.contracts.taskResults[claim.taskId];
+      if (declared === undefined) {
         findings.push({
-          kind: 'inadmissible-evidence',
-          subject: evidence.kind,
-          at: `${at}.evidence[${j}].kind`,
-          message: `the capsule admits no evidence of kind ${JSON.stringify(evidence.kind)}`,
+          kind: 'undeclared-result-shape',
+          subject: claim.taskId,
+          at: `${at}.fields`,
+          message:
+            `task ${JSON.stringify(claim.taskId)} returned a result and the capsule declares no ` +
+            'shape for it, so there is nothing to adjudicate the result against',
         });
         return;
       }
-      if (context.evidenceResolves(evidence)) return;
-      findings.push({
-        kind: 'inadmissible-evidence',
-        subject: evidence.ref,
-        at: `${at}.evidence[${j}].ref`,
-        message:
-          `the cited ${evidence.kind} evidence ${JSON.stringify(evidence.ref)} does not resolve ` +
-          'to an intact recorded row on the stream',
-      });
-    });
 
-    if (findings.length !== before) return;
+      const declaredByName = new Map(declared.map((field) => [field.name, field]));
+      for (const field of declared) {
+        census.fields += 1;
+        const present = Object.prototype.hasOwnProperty.call(claim.fields, field.name);
+        if (!present) {
+          if (field.required) {
+            findings.push({
+              kind: 'missing-field',
+              subject: field.name,
+              at: `${at}.fields`,
+              message: `task ${JSON.stringify(claim.taskId)} must return ${JSON.stringify(field.name)}`,
+            });
+          }
+          continue;
+        }
+        const actual = typeOfValue(claim.fields[field.name]);
+        if (actual === field.type) continue;
+        findings.push({
+          kind: 'field-type-mismatch',
+          subject: field.name,
+          at: `${at}.fields.${field.name}`,
+          message: `${JSON.stringify(field.name)} is declared ${field.type} and arrived as ${actual}`,
+        });
+      }
+
+      for (const name of Object.keys(claim.fields)) {
+        if (declaredByName.has(name)) continue;
+        findings.push({
+          kind: 'undeclared-field',
+          subject: name,
+          at: `${at}.fields.${name}`,
+          message:
+            `task ${JSON.stringify(claim.taskId)} returned ${JSON.stringify(name)}, which its ` +
+            'result contract does not declare',
+        });
+      }
+
+      claim.evidence.forEach((evidence, j) => {
+        census.evidence += 1;
+        if (!admissibleEvidence.has(evidence.kind)) {
+          findings.push({
+            kind: 'inadmissible-evidence',
+            subject: evidence.kind,
+            at: `${at}.evidence[${j}].kind`,
+            message: `the capsule admits no evidence of kind ${JSON.stringify(evidence.kind)}`,
+          });
+          return;
+        }
+        if (context.evidenceResolves(evidence)) return;
+        findings.push({
+          kind: 'inadmissible-evidence',
+          subject: evidence.ref,
+          at: `${at}.evidence[${j}].ref`,
+          message:
+            `the cited ${evidence.kind} evidence ${JSON.stringify(evidence.ref)} does not resolve ` +
+            'to an intact recorded row on the stream',
+        });
+      });
+
+      if (findings.length !== before) return;
+    }
 
     const verification = context.verification;
     if (verification === undefined) {
