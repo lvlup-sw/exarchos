@@ -73,14 +73,48 @@ const ReceiptUnresolvedTaskSchema = z
   })
   .passthrough();
 
+/**
+ * The meaning of each outcome and the call that follows it. An agent reads this text through `describe`.
+ * The description of the action has a token budget, and this text has none.
+ */
+const OUTCOME_GUIDE =
+  'How the batch stands, and the call that follows. No outcome compiles a capsule: only prepare ' +
+  'compiles. `settled`: each required task is complete, and no settle call follows. ' +
+  '`rejected`: the request or a deviation is in error, and nothing was verified. Settle the ' +
+  'corrected request under a new batchId on the same capsule. `deviation-pending`: a ' +
+  'deviation waits for its decision, and nothing was verified. Settle the same batchId with ' +
+  '`decisions` and no claims. `corrective-capsule`: the tasks that passed are complete, and ' +
+  '`unresolved` names the others. Correct them, then settle a new batchId on the same capsule ' +
+  'that claims only those tasks. When the receipt carries `designRevision`, prepare first and ' +
+  'settle under the capsule that prepare returns. `recompile-required`: a design revision ' +
+  'after the capsule names a claimed task or an unfinished required task, and nothing was ' +
+  'verified. Prepare again, then settle under the capsule that prepare returns. ' +
+  '`accepted-with-rationale`: no batch gets this outcome in this build. The design names ' +
+  '`settled` as accepted and `deviation-pending` as decision-required. A replay can return a ' +
+  '`rejected` receipt of an earlier build, which can also record a superseded claim or a ' +
+  'failed verification';
+
 const SettlementReceiptData = z
   .object({
     operationId: z.string().min(1),
     streamId: z.string().min(1),
     capsule: ReceiptCapsuleSchema,
-    outcome: z.enum(SETTLEMENT_OUTCOMES),
-    acceptedTasks: z.array(z.string().min(1)),
-    unresolved: z.array(ReceiptUnresolvedTaskSchema).optional(),
+    outcome: z.enum(SETTLEMENT_OUTCOMES).describe(OUTCOME_GUIDE),
+    acceptedTasks: z
+      .array(z.string().min(1))
+      .describe(
+        'Under `settled`, `accepted-with-rationale` and `corrective-capsule`: the claimed tasks ' +
+          'that are recorded complete. Under each other outcome this build verifies nothing, ' +
+          'and the list holds the tasks whose claims the shape pass found no fault in',
+      ),
+    unresolved: z
+      .array(ReceiptUnresolvedTaskSchema)
+      .optional()
+      .describe(
+        'Present only under `corrective-capsule`: the tasks that the correction claims, sorted ' +
+          'by task id. `cause` is the kind of the finding against the task. `failedLeaf` and ' +
+          '`operationId` name its halted verification segment',
+      ),
     findings: z.array(ReceiptFindingSchema),
     adjudicated: ReceiptCensusSchema,
     requestDigest: z.string().min(1),

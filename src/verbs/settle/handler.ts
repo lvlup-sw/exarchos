@@ -877,7 +877,7 @@ export async function handleSettle(
   if (!batch.success) {
     return invalid(
       'batchId is required and must be an id of letters, digits, dot, underscore, colon or ' +
-        'hyphen. It names this batch: a retry reuses it, a correction of a rejected batch takes a new one',
+        'hyphen. It names this batch: a retry reuses it, and a correction takes a new one',
     );
   }
 

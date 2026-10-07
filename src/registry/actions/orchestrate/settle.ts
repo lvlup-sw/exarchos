@@ -55,22 +55,24 @@ export const settleActions: readonly BuiltinToolAction[] = [
     name: 'settle',
     /**
      * The text fits the per-action description budget. It names the fact that the schema cannot
-     * show: a rejected batch is a successful call, not an error.
+     * show: each verdict is a successful call, not an error. A rejected batch is one of them.
+     * The meaning of each outcome and its next call are in the output schema, which has no budget.
      */
     description:
-      'Adjudicate ONE batch of claims against a prepared capsule, verify each accepted task, and ' +
-      'commit one execution.settled record. `capsuleVersion` names the capsule prepare recorded; ' +
-      'that record gives the terms. The verdict also reads the plan\'s task standing and design ' +
-      'revisions after the capsule: a claim for a task a later revision names rejects the batch ' +
-      '(prepare again). Claims are judged by each task\'s result shape, evidence by recorded rows ' +
-      'of admitted kinds, deviations by the envelope. A batch with no finding RUNS each task\'s ' +
-      'task-completion segment (frozen-tier ladder gates, then task_complete) in the claim\'s ' +
-      '`worktreePath`; a halt is a verification-failed finding. A REJECTED batch is a successful ' +
-      'call; findings say what to fix. A HELD batch names `pendingDeviations`; settle the ' +
-      'SAME batch with `decisions` (no claims) to verify or reject it. Errors (nothing ' +
-      'adjudicated): CAPSULE_INVALID, CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, ' +
-      'CAPSULE_UNRESOLVED, BATCH_NOT_HELD, DECISION_INCOMPLETE. Keyed by (capsuleVersion, ' +
-      '`batchId`): a retry returns its verdict; a correction takes a NEW `batchId`.',
+      'Adjudicate ONE batch of claims against a prepared capsule, verify each accepted task, ' +
+      'commit one execution.settled record. The capsule prepare recorded as `capsuleVersion` ' +
+      'gives the terms. The verdict also reads the plan\'s task standing and design revisions ' +
+      'after the capsule: a revision that names a claimed or unfinished required task gives ' +
+      '`recompile-required` (prepare again). Claims are judged by each task\'s result shape, ' +
+      'evidence by recorded rows of admitted kinds, deviations by the envelope. A batch with no ' +
+      'finding RUNS each task\'s task-completion segment (frozen-tier ladder gates, then ' +
+      'task_complete) in the claim\'s `worktreePath`. A halt gives `corrective-capsule`: tasks ' +
+      'that pass are complete. Every verdict is a successful call; findings say what to fix. A ' +
+      'HELD batch names `pendingDeviations`; settle the SAME batch with `decisions` (no ' +
+      'claims). Errors (nothing adjudicated): CAPSULE_INVALID, CAPSULE_NOT_PREPARED, ' +
+      'CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED, BATCH_NOT_HELD, DECISION_INCOMPLETE. Keyed ' +
+      'by (capsuleVersion, `batchId`): a retry returns its verdict; a correction takes a NEW ' +
+      '`batchId`.',
     schema: z
       .object({
         capsuleVersion: z
@@ -88,7 +90,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
           .min(1)
           .describe(
             'Names this batch. With the capsule version it is the settlement key: a retry reuses ' +
-              'it, a correction of a rejected batch takes a new one',
+              'it, and a correction takes a new one',
           ),
         claims: z
           .array(
@@ -103,7 +105,11 @@ export const settleActions: readonly BuiltinToolAction[] = [
               .strict(),
           )
           .optional()
-          .describe('The batch: one entry per task that returned a result'),
+          .describe(
+            'The batch: one entry per task that returned a result. A submitted batch carries at ' +
+              'least one. A required task that the stream shows complete needs no claim, so a ' +
+              'correction after `corrective-capsule` claims only the `unresolved` tasks',
+          ),
         deviations: z
           .array(
             z

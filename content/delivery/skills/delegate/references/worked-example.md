@@ -1,6 +1,6 @@
 # Delegation Worked Example
 
-Complete trace of a two-task delegation on the capsule path: happy path for task-001, settlement rejection and recovery for task-002.
+Complete trace of a two-task delegation on the capsule path: happy path for task-001, and an unresolved task-002 with its correction.
 
 ## Context
 
@@ -81,22 +81,25 @@ exarchos_orchestrate({
 Response (abridged):
 ```json
 {
-  "outcome": "rejected",
+  "outcome": "corrective-capsule",
   "acceptedTasks": ["task-001"],
+  "unresolved": [
+    { "taskId": "task-002", "cause": "verification-failed", "failedLeaf": "check_static_analysis", "operationId": "settle-task:c04d…" }
+  ],
   "findings": [
     { "kind": "verification-failed", "subject": "task-002", "at": "claims[1]",
-      "message": "verification of task \"task-002\" halted on 'task_complete': Required gates not passed: static-analysis. Run these checks first." }
+      "message": "verification of task \"task-002\" halted on 'check_static_analysis': leaf 'check_static_analysis' is a blocking gate and its verdict blocked (passed: false)" }
   ],
   "verification": [
     { "taskId": "task-001", "outcome": "verified", "operationId": "settle-task:7a1e…" },
-    { "taskId": "task-002", "outcome": "failed", "operationId": "settle-task:c04d…", "failedLeaf": "task_complete" }
+    { "taskId": "task-002", "outcome": "failed", "operationId": "settle-task:c04d…", "failedLeaf": "check_static_analysis" }
   ]
 }
 ```
 
-task-001 passed its gates and is complete on the stream; task-002's static analysis recorded a failing verdict (read the `gate.executed` row, or the segment's receipt through `execute_intent` with that `operationId`): a typecheck error in `domain.ts`.
+The outcome is `corrective-capsule`. task-001 passed its gates and is complete on the stream. task-002 is unresolved: its static analysis recorded a failing verdict. Read the `gate.executed` row, or read the receipt of the segment through `execute_intent` with that `operationId`. The verdict shows a typecheck error in `domain.ts`.
 
-## 4. Fix and resubmit (task-002)
+## 4. Fix and settle the correction (task-002)
 
 **Do NOT trust the implementer's summary.** The gate's own output is the diagnosis: `domain.ts` calls `dns.resolveMx` with the wrong signature.
 
@@ -110,14 +113,14 @@ Task({
 })
 ```
 
-After the fix, resubmit **every required task** under a new batch id. task-001 is already complete and is accepted without running again:
+After the fix, settle a **new** batch id on the **same** capsule, and claim only task-002. task-001 is complete, so it needs no claim:
 
 ```typescript
 exarchos_orchestrate({
-  action: "settle", featureId: "add-email-validation", capsuleVersion: 1, batchId: "add-email-validation:wave-1:retry-1",
-  claims: [ /* task-001 as before */, /* task-002 as before */ ],
+  action: "settle", featureId: "add-email-validation", capsuleVersion: 1, batchId: "add-email-validation:wave-1:correction-1",
+  claims: [ /* task-002 as before */ ],
 })
-// → { "outcome": "settled", "acceptedTasks": ["task-001", "task-002"],
+// → { "outcome": "settled", "acceptedTasks": ["task-002"],
 //     "verification": [{ "taskId": "task-001", "outcome": "already-complete" }, { "taskId": "task-002", "outcome": "verified", ... }] }
 ```
 

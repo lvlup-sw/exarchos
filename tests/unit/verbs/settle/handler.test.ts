@@ -54,12 +54,14 @@ import { findActionInRegistry } from '../../../../src/registry.js';
 import { settleActions } from '../../../../src/registry/actions/orchestrate/settle.js';
 import { ALL_RUNBOOKS } from '../../../../src/runbooks/definitions.js';
 import type { RunbookDefinition } from '../../../../src/runbooks/types.js';
+import { zodToJsonSchema } from '../../../../src/utils/json-schema.js';
 import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js';
 import { INTENT_EXECUTED_EVENT, type ExecuteIntentDeps } from '../../../../src/verbs/execute/executor.js';
 import { ladderRequirementId } from '../../../../src/verbs/gates/durable-gate-producer.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
+import { SETTLEMENT_OUTCOMES } from '../../../../src/verbs/settle/adjudicate.js';
 import { deviationIdOf, handleSettle } from '../../../../src/verbs/settle/handler.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
 import {
@@ -3615,10 +3617,24 @@ describe('settle — a required result that the stream shows complete', () => {
   });
 });
 
+/** Each `description` text of a JSON schema, at any depth. */
+function descriptionsIn(node: unknown, found: string[] = []): string[] {
+  if (Array.isArray(node)) {
+    for (const item of node) descriptionsIn(item, found);
+    return found;
+  }
+  if (typeof node !== 'object' || node === null) return found;
+  for (const [key, value] of Object.entries(node)) {
+    if (key === 'description' && typeof value === 'string') found.push(value);
+    else descriptionsIn(value, found);
+  }
+  return found;
+}
+
 /**
  * The text of the settle action that an agent reads, and the reason that its contract gives for
  * the requirements dimension. The verdict reads three facts of the current stream. The description
- * names two of them, and the reason names all three.
+ * names two of them, and the reason names all three. The output schema states each outcome.
  */
 describe('settle — the text of the action', () => {
   function settleAction(): (typeof settleActions)[number] {
@@ -3627,15 +3643,49 @@ describe('settle — the text of the action', () => {
     return action;
   }
 
-  /** The earlier text said that the terms never come from current state, which hid the two reads. */
+  /**
+   * The earlier text said that the terms never come from current state, which hid the two reads.
+   * A later text said that a claim that a revision names rejects the batch. That batch is stale,
+   * not rejected, and a failed verification no longer rejects the tasks that passed.
+   */
   it('SettleAction_ItsDescription_SaysTheVerdictReadsTaskStandingAndLaterRevisions', () => {
     const { description } = settleAction();
     expect(description).not.toContain('never from current state');
     expect(description).toContain('The verdict also reads');
     expect(description).toContain('task standing');
     expect(description).toContain('design revisions after the capsule');
-    expect(description).toContain('a later revision names rejects the batch');
+    expect(description).not.toContain('rejects the batch');
+    expect(description).not.toContain('REJECTED batch');
+    expect(description).toContain(
+      'a revision that names a claimed or unfinished required task gives `recompile-required`',
+    );
     expect(description).toContain('prepare again');
+    expect(description).toContain('A halt gives `corrective-capsule`: tasks that pass are complete');
+    expect(description).toContain('Every verdict is a successful call');
+  });
+
+  /**
+   * The description of the action has a token budget, so the output schema states the meaning of
+   * each outcome and the call that follows it. An outcome that the list gains with no entry in
+   * the text fails here. The text is the one that `describe` returns for the action.
+   */
+  it('SettleAction_ItsOutputSchema_StatesEachOutcomeAndTheCallThatFollows', () => {
+    const guides = descriptionsIn(zodToJsonSchema(settleAction().outputSchema)).filter((text) =>
+      text.startsWith('How the batch stands'),
+    );
+    expect(guides).toHaveLength(1);
+    const guide = guides[0] ?? '';
+    expect(SETTLEMENT_OUTCOMES).toHaveLength(6);
+    for (const outcome of SETTLEMENT_OUTCOMES) {
+      expect(guide, `the text states no meaning for ${outcome}`).toContain(`\`${outcome}\`: `);
+    }
+    expect(guide).toContain('Settle the corrected request under a new batchId on the same capsule');
+    expect(guide).toContain('Settle the same batchId with `decisions` and no claims');
+    expect(guide).toContain('settle a new batchId on the same capsule that claims only those tasks');
+    expect(guide).toContain('When the receipt carries `designRevision`, prepare first');
+    expect(guide).toContain('Prepare again, then settle under the capsule that prepare returns');
+    expect(guide).toContain('No outcome compiles a capsule');
+    expect(guide).toContain('`settled` as accepted and `deviation-pending` as decision-required');
   });
 
   /** The earlier reason called a read at settlement the dependency that a capsule removes. */
