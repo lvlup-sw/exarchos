@@ -7,6 +7,7 @@
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 import { SETTLEMENT_OUTCOME_RULES, SETTLEMENT_OUTCOMES, type SettlementOutcome } from './adjudicate.js';
+import type { SettlementReceipt } from './types.js';
 
 const ReceiptBundleRefSchema = z
   .object({
@@ -156,3 +157,38 @@ const SettlementReceiptData = z
   .passthrough();
 
 export const SettlementOutputSchema = EnvelopeSchema(SettlementReceiptData);
+
+/** A compile error unless `T` is exactly `true`. */
+type Expect<T extends true> = T;
+
+/**
+ * The type with each index signature removed at each depth, and each array read-only. A
+ * `.passthrough()` object infers an index signature, and the receipt interface has none.
+ */
+type Closed<T> = T extends readonly (infer Item)[]
+  ? readonly Closed<Item>[]
+  : T extends object
+    ? { [K in keyof T as string extends K ? never : number extends K ? never : K]: Closed<T[K]> }
+    : T;
+
+/** The receipt that the output schema admits, with no index signature. */
+type ReceiptOfOutputSchema = Closed<z.output<typeof SettlementReceiptData>>;
+
+/**
+ * Each receipt that this build writes is a value of the output schema. Each field type and each
+ * enum member of the receipt type is one that the schema admits.
+ * @proof
+ */
+export type _SettlementReceiptIsAValueOfItsOutputSchema = Expect<
+  SettlementReceipt extends ReceiptOfOutputSchema ? true : false
+>;
+
+/**
+ * The receipt type and the output schema name the same fields.
+ * @proof
+ */
+export type _SettlementReceiptAndItsOutputSchemaNameTheSameFields = Expect<
+  [Exclude<keyof ReceiptOfOutputSchema, keyof SettlementReceipt>, Exclude<keyof SettlementReceipt, keyof ReceiptOfOutputSchema>] extends [never, never]
+    ? true
+    : false
+>;

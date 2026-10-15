@@ -5,7 +5,11 @@
 import { coercedRecord } from '../../../coerce.js';
 import { withCappedShape } from '../../../output-schema-declaration.js';
 import { IntentExecutedOutputSchema } from '../../../verbs/execute/schemas.js';
-import { EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS, summarizeIntentReceipt } from '../../../verbs/execute/economy.js';
+import {
+  EXECUTE_INTENT_DETAIL_READ,
+  EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS,
+  summarizeIntentReceipt,
+} from '../../../verbs/execute/economy.js';
 import { z } from 'zod';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
 import { LOCAL_MUTATION } from '../../annotations.js';
@@ -88,6 +92,7 @@ export const executeActions: readonly BuiltinToolAction[] = [
     economy: {
       budgetTokens: EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS,
       summarize: summarizeIntentReceipt,
+      detailRead: EXECUTE_INTENT_DETAIL_READ,
     },
     annotations: LOCAL_MUTATION,
   }, {

@@ -35,7 +35,7 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 
 ### Error: `all-tasks-complete not satisfied: N task(s) incomplete`
 
-**Cause:** A task is not complete after settlement. Its batch has an unresolved task (`corrective-capsule`), or the batch was rejected, held or stale, and settlement verified nothing. A task is unresolved when its verification failed, or when its claim reported it as `failed`, `blocked` or `skipped`. Read the outcome and the `findings` of the settlement receipt: a task that settlement did not verify is not complete, whatever the worker reported. Or, on the primitive path, the runtime's native task list was modified but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
+**Cause:** A task is not complete after settlement. Its batch has an unresolved task (`corrective-capsule`), or the batch was rejected, held or stale, and settlement verified nothing. A task is unresolved when its verification failed, or when its claim reported it as `failed`, `blocked` or `skipped`. Read the outcome and the `findings` of the settlement receipt: a task that settlement did not verify is not complete, whatever the worker reported. Without the receipt, read the settlement record: `exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })` returns one row for each settlement round, with its `outcome` and its `unresolvedTasks`. Or, on the primitive path, the runtime's native task list was modified but exarchos workflow state was not synced. The `all-tasks-complete` guard checks the exarchos workflow `tasks[]` array, NOT any runtime-native task list.
 
 
 

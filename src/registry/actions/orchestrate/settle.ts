@@ -17,7 +17,11 @@ import {
   MAX_RATIONALE_ENTRIES_PER_CLAIM,
   MAX_RATIONALE_STATEMENT_LENGTH,
 } from '../../../verbs/settle/claim-codec.js';
-import { SETTLE_ECONOMY_BUDGET_TOKENS, summarizeSettlementReceipt } from '../../../verbs/settle/economy.js';
+import {
+  SETTLE_DETAIL_READ,
+  SETTLE_ECONOMY_BUDGET_TOKENS,
+  summarizeSettlementReceipt,
+} from '../../../verbs/settle/economy.js';
 import { SettlementOutputSchema } from '../../../verbs/settle/schemas.js';
 import {
   MAX_AFFECTED_TASKS_PER_DEVIATION,
@@ -203,6 +207,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
     economy: {
       budgetTokens: SETTLE_ECONOMY_BUDGET_TOKENS,
       summarize: summarizeSettlementReceipt,
+      detailRead: SETTLE_DETAIL_READ,
     },
     annotations: LOCAL_MUTATION,
   }, {

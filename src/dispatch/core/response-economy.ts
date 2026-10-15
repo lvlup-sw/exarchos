@@ -11,8 +11,9 @@ import {
   ECONOMY_META_TRUNCATED,
   ECONOMY_META_DEGRADED,
 } from '../../format.js';
-import { findActionInRegistry, resolveEconomyBudget } from '../../registry.js';
+import { findActionInRegistry, resolveEconomyBudget, type ToolAction } from '../../registry.js';
 import {
+  detailAffordance,
   estimateOutputTokens,
   narrowAffordance,
   SUMMARY_FIRST_PAGE_ITEMS,
@@ -62,26 +63,50 @@ function extractCappableItems(data: unknown): { items: readonly unknown[]; total
   return { items: [], total: 0 };
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** The top-level keys of the Zod input shape of the action. A schema with no shape gives no key. */
+function inputKeysOf(action: { readonly schema?: unknown }): ReadonlySet<string> {
+  const schema = action.schema;
+  const shape: unknown = isRecord(schema) ? schema['shape'] : undefined;
+  return isRecord(shape) ? new Set(Object.keys(shape)) : new Set<string>();
+}
+
 /**
- * Builds the CLI flag for the steering hint from the top-level Zod shape of the action.
+ * Builds the CLI flag for the steering hint from the top-level input keys of the action.
  * `limit` comes first, then `offset`, then `fields`. With none of them it returns `undefined`.
  * A `.strict()` action rejects an undeclared flag, so a hint for it gives an `INVALID_INPUT` step.
  */
-function economyNarrowHint(
-  action: { schema?: unknown } | undefined,
-  actionName: string,
-): string | undefined {
-  const schema = action?.schema;
-  const shape =
-    schema !== null && typeof schema === 'object' && 'shape' in schema
-      ? (schema as { shape?: unknown }).shape
-      : undefined;
-  if (shape === null || typeof shape !== 'object') return undefined;
-  const keys = shape as Record<string, unknown>;
-  if ('limit' in keys) return `${actionName} --limit ${SUMMARY_FIRST_PAGE_ITEMS}`;
-  if ('offset' in keys) return `${actionName} --offset <n>`;
-  if ('fields' in keys) return `${actionName} --fields <comma,separated>`;
+function economyNarrowHint(keys: ReadonlySet<string>, actionName: string): string | undefined {
+  if (keys.has('limit')) return `${actionName} --limit ${SUMMARY_FIRST_PAGE_ITEMS}`;
+  if (keys.has('offset')) return `${actionName} --offset <n>`;
+  if (keys.has('fields')) return `${actionName} --fields <comma,separated>`;
   return undefined;
+}
+
+/** True when the input of the action declares a window parameter, `limit` or `offset`. */
+function declaresWindow(keys: ReadonlySet<string>): boolean {
+  return keys.has('limit') || keys.has('offset');
+}
+
+/**
+ * The next action of a capped response. Only an action whose input declares `limit` or `offset`
+ * gets the narrow affordance. A strict parse refuses a key that the input does not declare. Thus
+ * any other action gets a reason that names the read it declares in `economy.detailRead`.
+ */
+export function cappedAffordance(
+  action: Pick<ToolAction, 'schema' | 'economy'>,
+  actionName: string,
+  shown: number,
+  total: number,
+): NextAction {
+  const keys = inputKeysOf(action);
+  const hint = economyNarrowHint(keys, actionName);
+  return declaresWindow(keys)
+    ? narrowAffordance(actionName, shown, total, hint)
+    : detailAffordance(actionName, shown, total, action.economy?.detailRead, hint);
 }
 
 /**
@@ -104,12 +129,7 @@ function stampEconomyDegraded(result: ToolResult): ToolResult {
 /**
  * Enforces the registry-declared response-economy budget on a dispatched result. It does no I/O.
  * A failure, a success with no `data`, an unknown action, or `data` at or under budget returns
- * unchanged.
- *
- * Over budget, the declared `economy.summarize` replaces `data`. With no summarizer, a list-dominant
- * payload gets `{ summary, counts, firstPage }`, which is the `CappedDataSchema` shape.
- * A capped result gets `_meta.truncated` and a {@link narrowAffordance} entry first in `next_actions`.
- * A bad budget, a summarizer throw, or a payload that is not list-dominant fails open.
+ * unchanged. Over budget, it returns {@link capResponse}. A bad budget fails open.
  */
 export function enforceResponseEconomy(
   result: ToolResult,
@@ -127,8 +147,23 @@ export function enforceResponseEconomy(
     return stampEconomyDegraded(result);
   }
 
-  const tokens = estimateOutputTokens(result.data);
-  if (tokens <= budget) return result;
+  if (estimateOutputTokens(result.data) <= budget) return result;
+  return capResponse(result, tool, actionName);
+}
+
+/**
+ * The capped form of a success result, as the cap returns it over the budget. It does not compare
+ * the result with the budget. A failure, a success with no `data` or an unknown action returns unchanged.
+ *
+ * The declared `economy.summarize` replaces `data`. With no summarizer, a list-dominant payload
+ * gets `{ summary, counts, firstPage }`, which is the `CappedDataSchema` shape.
+ * A capped result gets `_meta.truncated` and a {@link cappedAffordance} entry first in `next_actions`.
+ * A summarizer throw, or a payload that is not list-dominant, fails open.
+ */
+export function capResponse(result: ToolResult, tool: string, actionName: string): ToolResult {
+  if (!result.success || result.data === undefined) return result;
+  const action = findActionInRegistry(tool, actionName);
+  if (action === undefined) return result;
 
   let cappedData: unknown;
   let total: number;
@@ -141,6 +176,7 @@ export function enforceResponseEconomy(
     }
     total = extractCappableItems(result.data).total;
   } else {
+    const tokens = estimateOutputTokens(result.data);
     const { items, total: itemTotal } = extractCappableItems(result.data);
     const listDominant =
       Array.isArray(result.data) ||
@@ -153,22 +189,19 @@ export function enforceResponseEconomy(
     const firstPage = items.slice(0, SUMMARY_FIRST_PAGE_ITEMS);
     cappedData = {
       summary:
-        `Response exceeded the ${budget}-token economy budget ` +
+        `Response exceeded the ${resolveEconomyBudget(action)}-token economy budget ` +
         `(~${tokens} estimated tokens); showing a counts summary and the ` +
-        `first ${firstPage.length} of ${total} item(s). Narrow with ` +
-        `limit / offset / fields to page the detail.`,
+        `first ${firstPage.length} of ${total} item(s).` +
+        (declaresWindow(inputKeysOf(action))
+          ? ' Narrow with limit / offset / fields to page the detail.'
+          : ''),
       counts: { total, shown: firstPage.length },
       firstPage,
     };
   }
 
   const shown = extractCappableItems(cappedData).total;
-  const affordance = narrowAffordance(
-    actionName,
-    shown,
-    total,
-    economyNarrowHint(action, actionName),
-  );
+  const affordance = cappedAffordance(action, actionName, shown, total);
   const existingNextActions: readonly NextAction[] = result.next_actions ?? [];
 
   const existingMeta =

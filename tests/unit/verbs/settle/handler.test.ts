@@ -52,7 +52,9 @@ import {
   WorkflowPreparedData,
   type DesignRevised,
 } from '../../../../src/events/schemas.js';
-import type { ToolResult } from '../../../../src/format.js';
+import { toEnvelope, type ToolResult } from '../../../../src/format.js';
+import { validateAgainstActionSchema } from '../../../../src/adapters/mcp/mcp.js';
+import { capResponse } from '../../../../src/dispatch/core/response-economy.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
 import { settleActions } from '../../../../src/registry/actions/orchestrate/settle.js';
 import { ALL_RUNBOOKS } from '../../../../src/runbooks/definitions.js';
@@ -62,6 +64,7 @@ import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js';
 import {
   INTENT_EXECUTED_EVENT,
+  handleExecuteIntent,
   type ExecuteIntentDeps,
   type LeafHandler,
 } from '../../../../src/verbs/execute/executor.js';
@@ -87,6 +90,7 @@ import {
   handleSettle,
   TASK_COMPLETION_LEAF_CLASSES,
 } from '../../../../src/verbs/settle/handler.js';
+import { summarizeSettlementReceipt } from '../../../../src/verbs/settle/economy.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
 import {
   MAX_AFFECTED_TASKS_PER_DEVIATION,
@@ -1227,6 +1231,43 @@ describe('settle — the verification a settled batch runs', () => {
     expect((repaired.tasks as { id: string; status: string }[]).map((t) => [t.id, t.status])).toEqual([
       ['task-verify', 'complete'],
     ]);
+  });
+
+  /**
+   * The verdict is durable, and the replay cannot write the document. The refusal names the repair,
+   * and it carries the verdict on `error.settlementReceipt`, because a failed envelope has no `data`.
+   * The envelope keeps the field, and the output gate of the MCP adapter passes it. The replay
+   * appends no row.
+   */
+  it('Settle_AReplayThatCannotLevelTheDocument_CarriesItsVerdictOnTheError', async () => {
+    await initStateFile(stateDir, STREAM, 'feature', {
+      tasks: [{ id: 'task-verify', title: 'verify', status: 'in_progress' }],
+    });
+    const stateFile = path.join(stateDir, `${STREAM}.state.json`);
+    const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-replay-unwritable', claims: [passingClaim()] };
+    const first = receiptOf(await settle(args));
+    await writeFile(stateFile, '{ not a document', 'utf-8');
+    const tail = (await store.query(STREAM)).length;
+
+    const refused = await settle(args);
+
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('STATE_SYNC_FAILED');
+    expect(refused.error?.message).toContain('`error.settlementReceipt`');
+    expect(refused.error?.message).toContain('exarchos_workflow reconcile');
+    expect(refused.error?.settlementReceipt).toStrictEqual(first);
+    expect(refused).not.toHaveProperty('data');
+    expect(await store.query(STREAM)).toHaveLength(tail);
+
+    const envelope = toEnvelope(refused);
+    expect(envelope.success).toBe(false);
+    if (envelope.success) throw new Error('unreachable');
+    expect(envelope.error.settlementReceipt).toStrictEqual(first);
+    const settleAction = findActionInRegistry('exarchos_orchestrate', 'settle');
+    if (settleAction === undefined) throw new Error('the settle action is not registered');
+    expect(validateAgainstActionSchema('exarchos_orchestrate', [settleAction], { action: 'settle' }, envelope)).toBe(
+      envelope,
+    );
   });
 
   /**
@@ -5309,6 +5350,178 @@ describe('settle — a claim that records a delegated choice', () => {
     const rationaleTexts = texts.filter((text) => text.includes('`delegatedDecisions`'));
     expect(rationaleTexts).toHaveLength(1);
     expect(rationaleTexts[0]).toContain('Completed claims only');
+  });
+});
+
+/**
+ * Each receipt that the handler returns crosses the output gate of the MCP adapter. The adapter
+ * parses each envelope against the registered output schema, and it replaces a miss with
+ * `INTERNAL_ERROR`. One stream gets a receipt of each of the six outcomes. Each receipt crosses the
+ * gate on the first call and on the replay. It crosses whole, and in the capped form of the cap.
+ * The gate returns its input when the envelope passes.
+ */
+describe('settle — the receipts that the MCP output gate admits', () => {
+  const DELEGATING_VERSION = 110;
+  const REVISING_VERSION = 120;
+  const STALE_VERSION = 130;
+  const SECOND_TASK = 'task-second';
+  const REVISING_TASK = 'task-revising';
+  const LATER_TASK = 'task-later';
+  const CHOICE = {
+    delegatedDecision: 'implementation-approach',
+    statement: 'a table drives the parser, because the grammar has no recursion',
+  };
+  const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
+
+  function claimFor(taskId: string): Record<string, unknown> {
+    return { taskId, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  }
+
+  function accepting(held: SettlementReceipt): Record<string, unknown>[] {
+    return (held.pendingDeviations ?? []).map((pending) => ({
+      deviationId: pending.deviationId,
+      decision: 'accepted',
+      actor: 'human:reviewer',
+      rationale: 'the assumption was wrong and the change is sound',
+    }));
+  }
+
+  function settleAction(): NonNullable<ReturnType<typeof findActionInRegistry>> {
+    const action = findActionInRegistry('exarchos_orchestrate', 'settle');
+    if (action === undefined) throw new Error('the settle action is not registered');
+    return action;
+  }
+
+  function throughTheGate(result: ToolResult): void {
+    const envelope = toEnvelope(result);
+    expect(envelope.success, JSON.stringify(envelope)).toBe(true);
+    expect(validateAgainstActionSchema('exarchos_orchestrate', [settleAction()], { action: 'settle' }, envelope)).toBe(
+      envelope,
+    );
+  }
+
+  async function settleTwice(args: Record<string, unknown>, outcome: SettlementOutcome): Promise<SettlementReceipt> {
+    const first = await settle(args);
+    const receipt = receiptOf(first);
+    expect(receipt.outcome).toBe(outcome);
+    const replay = await settle(args);
+    expect(receiptOf(replay)).toEqual(receipt);
+    for (const result of [first, replay]) {
+      throughTheGate(result);
+      const capped = capResponse(result, 'exarchos_orchestrate', 'settle');
+      expect((capped._meta as { truncated?: unknown }).truncated).toBe(true);
+      expect(capped.data).toStrictEqual(summarizeSettlementReceipt(receipt));
+      throughTheGate(capped);
+    }
+    return receipt;
+  }
+
+  /**
+   * The six outcomes come in order on one stream. Each request is settled twice, and the replay
+   * returns the receipt of the first call. A batch with a field of the wrong type is rejected. A
+   * passing claim settles. A deviation holds a batch, and its decision settles it.
+   *
+   * A halted gate needs a correction. A recorded choice is accepted with rationale. A revision that
+   * names a task makes the capsule of that task stale.
+   *
+   * The corrective receipt names the operation of the halted segment. The call that the skill
+   * states reads the recorded receipt of that segment, with the message of its leaf, and runs
+   * nothing. The keys of `result` in another order make a different request.
+   */
+  it('Settle_AReceiptOfEachOutcome_CrossesTheOutputGateWholeAndCappedOnTheFirstCallAndTheReplay', async () => {
+    await seedPlan();
+    const delegating = withBuiltInDelegatedDecisions(capsuleWithTask(SECOND_TASK, DELEGATING_VERSION));
+    await seedPrepared({
+      ...delegating,
+      settlementContract: { ...delegating.settlementContract, requiredResults: [SECOND_TASK, 'task-verify'] },
+    });
+    await seedPrepared(capsuleWithTask(LATER_TASK, STALE_VERSION));
+    await seedPrepared(withMaterialEnvelope(capsuleWithTask(REVISING_TASK, REVISING_VERSION)));
+    const outcomes = new Set<string>();
+    const settled = async (args: Record<string, unknown>, outcome: SettlementOutcome): Promise<SettlementReceipt> => {
+      const receipt = await settleTwice(args, outcome);
+      outcomes.add(receipt.outcome);
+      return receipt;
+    };
+
+    await settled({ featureId: STREAM, capsuleVersion: 7, batchId: 'gate-rejected', claims: [failingClaim()] }, 'rejected');
+    await settled({ featureId: STREAM, capsuleVersion: 7, batchId: 'gate-settled', claims: [passingClaim()] }, 'settled');
+    const held = await settled(
+      { featureId: STREAM, capsuleVersion: 7, batchId: 'gate-held', claims: [passingClaim()], deviations: [DEVIATION] },
+      'deviation-pending',
+    );
+    await settled({ featureId: STREAM, capsuleVersion: 7, batchId: 'gate-held', decisions: accepting(held) }, 'settled');
+
+    const correctiveArgs = { featureId: STREAM, capsuleVersion: DELEGATING_VERSION, batchId: 'gate-corrective', claims: [claimFor(SECOND_TASK)] };
+    const corrective = await settled(correctiveArgs, 'corrective-capsule');
+    const [unresolved] = corrective.unresolved ?? [];
+    expect(unresolved).toMatchObject({ taskId: SECOND_TASK, cause: 'verification-failed' });
+    const terms = delegating.settlementContract.taskVerification?.[SECOND_TASK];
+    if (unresolved?.operationId === undefined || terms === undefined) throw new Error('the halted segment is not named');
+    const read = (result: Record<string, unknown>): Promise<ToolResult> =>
+      runWithDispatchContext(correlation(), () =>
+        handleExecuteIntent(
+          {
+            intent: 'task-completion',
+            featureId: STREAM,
+            operationId: unresolved.operationId,
+            args: {
+              taskId: SECOND_TASK,
+              worktreePath: WORKTREE,
+              riskTier: terms.riskTier,
+              boundaryTouching: terms.boundaryTouching,
+              baseRef: terms.baseRef,
+              result,
+            },
+          },
+          stateDir,
+          wiring(),
+          executeDeps(),
+        ),
+      );
+    const tail = (await store.query(STREAM)).length;
+    const recorded = await read({ passed: true, worktreePath: WORKTREE });
+    expect(recorded.error?.code).toBe('INTENT_SEGMENT_FAILED');
+    expect(recorded.error?.intentReceipt?.failedLeaf).toBe(unresolved.failedLeaf);
+    expect(recorded.error?.intentReceipt?.operationId).toBe(unresolved.operationId);
+    expect(recorded.error?.message).toBe(corrective.verification?.find((trace) => trace.taskId === SECOND_TASK)?.message);
+    const reordered = await read({ worktreePath: WORKTREE, passed: true });
+    expect(reordered.error?.code).toBe('INTENT_REPLAY_DIGEST_MISMATCH');
+    expect(await store.query(STREAM)).toHaveLength(tail);
+
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    await settled(
+      {
+        featureId: STREAM,
+        capsuleVersion: DELEGATING_VERSION,
+        batchId: 'gate-rationale',
+        claims: [{ ...claimFor(SECOND_TASK), rationale: [CHOICE] }],
+      },
+      'accepted-with-rationale',
+    );
+
+    await seedPassingStaticAnalysis(REVISING_TASK);
+    const revising = await settled(
+      {
+        featureId: STREAM,
+        capsuleVersion: REVISING_VERSION,
+        batchId: 'gate-revising',
+        claims: [claimFor(REVISING_TASK)],
+        deviations: [{ ...DEVIATION, affectedTasks: [LATER_TASK] }],
+      },
+      'deviation-pending',
+    );
+    const revised = await settled(
+      { featureId: STREAM, capsuleVersion: REVISING_VERSION, batchId: 'gate-revising', decisions: accepting(revising) },
+      'settled',
+    );
+    expect(revised.designRevision?.deviationIds).toHaveLength(1);
+    await settled(
+      { featureId: STREAM, capsuleVersion: STALE_VERSION, batchId: 'gate-stale', claims: [claimFor(LATER_TASK)] },
+      'recompile-required',
+    );
+
+    expect([...outcomes].sort()).toStrictEqual([...SETTLEMENT_OUTCOMES].sort());
   });
 });
 

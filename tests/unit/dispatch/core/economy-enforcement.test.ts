@@ -24,11 +24,13 @@ import {
   ECONOMY_CARRIER_KEYS,
   type DispatchContext,
 } from '../../../../src/dispatch/core/dispatch.js';
+import { cappedAffordance } from '../../../../src/dispatch/core/response-economy.js';
 import {
   registerCustomTool,
   unregisterCustomTool,
   setCustomToolActionHandler,
   findActionInRegistry,
+  getFullRegistry,
   withCappedShape,
   type ActionAnnotations,
   type CompositeTool,
@@ -360,8 +362,9 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
 
   /**
    * The default schema `z.object({})` declares no `limit`, `offset` or `fields`. A `.strict()`
-   * action rejects an undeclared `--limit` with INVALID_INPUT, so the affordance must carry no
-   * CLI hint.
+   * action rejects an undeclared `--limit` with INVALID_INPUT. Thus the affordance carries no CLI
+   * hint, and its reason names no `limit` or `offset`. A second call returns the same summary, and
+   * the reason says so. The capped summary names no window either.
    */
   it('dispatchEconomy_NoWindowingParam_OmitsCliFlagHint', async () => {
     const dispose = registerEconomyTool({
@@ -375,28 +378,84 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
       const affordance = (result.next_actions ?? [])[0];
       expect(affordance?.verb).toBe('list');
       expect(affordance?.hint).toBeUndefined();
+      expect(affordance?.reason).not.toContain('limit/offset');
+      expect(affordance?.reason).toContain('list takes no limit or offset, so a second call returns the same summary.');
+      expect((result.data as { summary?: string }).summary).not.toContain('limit');
       expect(NextAction.safeParse(affordance).success).toBe(true);
     } finally {
       dispose();
     }
   });
 
-  /** An action that declares `limit` gets a `--limit` hint that the caller can use. */
+  /**
+   * An action with no window parameter declares the read that serves what its summary drops. The
+   * reason of the affordance names that read, and it names no window parameter.
+   */
+  it('dispatchEconomy_NoWindowingParamWithADeclaredRead_NamesTheRead', async () => {
+    const detailRead = 'exarchos_event query with filter.type probe.recorded returns each row.';
+    const dispose = registerEconomyTool({
+      tool: 'econ_detail_read_tool',
+      action: 'list',
+      economy: { budgetTokens: 20, detailRead },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_detail_read_tool', { action: 'list' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.reason).toBe(
+        `Showing 10 of 60. list takes no limit or offset, so a second call returns the same summary. ${detailRead}`,
+      );
+      expect(affordance?.hint).toBeUndefined();
+      expect(NextAction.safeParse(affordance).success).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  /** An action that declares `limit` gets a `--limit` hint that the caller can use, and the narrow reason. */
   it('dispatchEconomy_LimitParam_EmitsAccurateLimitFlagHint', async () => {
     const dispose = registerEconomyTool({
       tool: 'econ_limit_tool',
       action: 'list',
       schema: z.object({ limit: z.number().int().positive().optional() }),
-      economy: { budgetTokens: 20 },
+      economy: { budgetTokens: 20, detailRead: 'a read that the narrow affordance does not name' },
       handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
     });
     try {
       const result = await dispatch('econ_limit_tool', { action: 'list' }, ctx);
       const affordance = (result.next_actions ?? [])[0];
       expect(affordance?.hint).toBe('list --limit 10');
+      expect(affordance?.reason).toContain('narrow with limit/offset');
+      expect((result.data as { summary?: string }).summary).toContain('Narrow with limit / offset');
     } finally {
       dispose();
     }
+  });
+
+  /**
+   * Each registered action gets the narrow affordance only when its input declares `limit` or
+   * `offset`. A strict parse refuses an undeclared key, so the affordance of any other action names
+   * no window parameter. The registry holds actions of both kinds, so neither half is empty.
+   */
+  it('cappedAffordance_EachRegisteredAction_NamesAWindowOnlyWhenItsInputDeclaresOne', () => {
+    const seen = { windowed: 0, windowless: 0 };
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const keys = Object.keys(action.schema.shape);
+        const windowed = keys.includes('limit') || keys.includes('offset');
+        const affordance = cappedAffordance(action, action.name, 1, 2);
+        expect(NextAction.safeParse(affordance).success, `${tool.name}.${action.name}`).toBe(true);
+        expect(affordance.reason.includes('limit/offset'), `${tool.name}.${action.name}`).toBe(windowed);
+        expect(affordance.reason.includes('takes no limit or offset'), `${tool.name}.${action.name}`).toBe(!windowed);
+        if (action.economy?.detailRead !== undefined && !windowed) {
+          expect(affordance.reason.endsWith(action.economy.detailRead), `${tool.name}.${action.name}`).toBe(true);
+        }
+        seen.windowed += windowed ? 1 : 0;
+        seen.windowless += windowed ? 0 : 1;
+      }
+    }
+    expect(seen.windowed).toBeGreaterThan(0);
+    expect(seen.windowless).toBeGreaterThan(0);
   });
 
   /**

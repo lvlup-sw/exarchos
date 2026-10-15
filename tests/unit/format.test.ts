@@ -520,6 +520,81 @@ describe('toEnvelope', () => {
       expect(parsed.success).toBe(true);
     }
   });
+
+  /**
+   * `merge_pr` keeps the result of a merge that landed on `error.mergeResult` when the append of its
+   * record fails. Its message tells the caller to read that field, so the envelope must carry it.
+   */
+  it('toEnvelope_AMergeResultOnTheError_ReachesTheCaller', () => {
+    const mergeResult = { merged: true, sha: 'abc1234' };
+    const env = toEnvelope({
+      success: false,
+      error: { code: 'PR_MERGED_EVENT_UNRECORDED', message: 'read `error.mergeResult`', mergeResult },
+    });
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.mergeResult).toStrictEqual(mergeResult);
+      expect(ErrorEnvelopeSchema.safeParse(env).success).toBe(true);
+    }
+  });
+
+  /** A `PROJECTION_DEGRADED` refusal carries its typed verdict, and the envelope must carry it. */
+  it('toEnvelope_AProjectionDegradedVerdictOnTheError_ReachesTheCaller', () => {
+    const projectionDegraded = {
+      streamId: 'feat-degraded',
+      reason: 'projection-behind' as const,
+      eventTail: 12,
+      projectionCursor: 9,
+      lag: 3,
+      staleViews: ['workflow-state'],
+      observedAt: '2026-10-15T00:00:00.000Z',
+      sequence: 4,
+    };
+    const env = toEnvelope({
+      success: false,
+      error: { code: 'PROJECTION_DEGRADED', message: 'cannot answer', projectionDegraded },
+    });
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.projectionDegraded).toStrictEqual(projectionDegraded);
+      expect(ErrorEnvelopeSchema.safeParse(env).success).toBe(true);
+    }
+  });
+
+  /**
+   * A `settle` refusal after a recorded verdict carries the verdict on `error.settlementReceipt`.
+   * A failed envelope has no `data`, so the envelope must carry the error field.
+   */
+  it('toEnvelope_ASettlementReceiptOnTheError_ReachesTheCaller', () => {
+    const settlementReceipt = {
+      operationId: 'settle:op',
+      streamId: 'feat-settled',
+      capsule: {
+        workflowId: 'feat-settled',
+        definitionVersion: 'def',
+        designVersion: 'design-v1',
+        capsuleVersion: 1,
+        batchId: 'batch-1',
+      },
+      outcome: 'settled' as const,
+      acceptedTasks: ['task-1'],
+      findings: [],
+      adjudicated: { claims: 1, requiredResults: 1, fields: 1, evidence: 0, deviations: 0 },
+      requestDigest: 'sha256:request',
+      tailSequence: 7,
+    };
+    const env = toEnvelope({
+      success: false,
+      data: { dropped: true },
+      error: { code: 'STATE_SYNC_FAILED', message: 'the document is not level', settlementReceipt },
+    });
+    expect(env.success).toBe(false);
+    if (!env.success) {
+      expect(env.error.settlementReceipt).toStrictEqual(settlementReceipt);
+      expect(env).not.toHaveProperty('data');
+      expect(ErrorEnvelopeSchema.safeParse(env).success).toBe(true);
+    }
+  });
 });
 
 /**

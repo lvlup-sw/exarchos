@@ -78,6 +78,7 @@ import {
   verificationRuns,
 } from './adjudicate.js';
 import { claimOfRequest, claimOfTrace, claimTraceOf } from './claim-codec.js';
+import { settlementReceiptWithinBudget } from './economy.js';
 import {
   decodeSettlementBundle,
   encodeSettlementBundle,
@@ -568,7 +569,10 @@ const DOCUMENT_REPAIR_STEPS =
   'Run `exarchos_workflow reconcile`, then settle the same batch again. If the refusal comes back, ' +
   'stop and report it to a person.';
 
-/** The refusal when the state document cannot follow the facts. The facts stand. */
+/**
+ * The refusal when the state document cannot follow the facts. The facts stand. A recorded verdict
+ * goes on `error.settlementReceipt`, because a failed envelope carries no `data`.
+ */
 function documentNotLevel(
   sync: Extract<TaskStatusSyncOutcome, { kind: 'failed' }>,
   what: string,
@@ -577,12 +581,12 @@ function documentNotLevel(
 ): ToolResult {
   return {
     success: false,
-    ...(receipt !== undefined ? { data: receipt } : {}),
     error: {
       code: 'STATE_SYNC_FAILED',
       message:
         `${what}, but the state document the transition guards read could not be updated after ` +
         `${sync.attempts} attempt(s): ${sync.error}. ${then}`,
+      ...(receipt !== undefined ? { settlementReceipt: settlementReceiptWithinBudget(receipt) } : {}),
     },
   };
 }
@@ -1108,7 +1112,8 @@ export async function handleSettle(
               return documentNotLevel(
                 sync,
                 `${batchLabel} has its verdict and its complete tasks are recorded`,
-                `Nothing is adjudicated twice. ${DOCUMENT_REPAIR_STEPS}`,
+                'The verdict is on `error.settlementReceipt`. Nothing is adjudicated twice. ' +
+                  DOCUMENT_REPAIR_STEPS,
                 claim.result,
               );
             case 'synced':

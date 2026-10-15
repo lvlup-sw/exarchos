@@ -16,6 +16,7 @@ import { fc } from '@fast-check/vitest';
 
 import { estimateOutputTokens, SUMMARY_FIRST_PAGE_ITEMS } from '../../../../src/dispatch/core/economy.js';
 import { enforceResponseEconomy } from '../../../../src/dispatch/core/response-economy.js';
+import { toEnvelope } from '../../../../src/format.js';
 import { CappedDataSchema } from '../../../../src/output-schema-declaration.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
 import { DELEGATION_DEVIATION_KINDS } from '../../../../src/verbs/prepare/compile-capsule.js';
@@ -26,7 +27,9 @@ import {
   type SettlementOutcome,
 } from '../../../../src/verbs/settle/adjudicate.js';
 import {
+  SETTLE_DETAIL_READ,
   SETTLE_ECONOMY_BUDGET_TOKENS,
+  settlementReceiptWithinBudget,
   summarizeSettlementReceipt,
   type SettlementReceiptSummary,
 } from '../../../../src/verbs/settle/economy.js';
@@ -36,6 +39,7 @@ import {
   type PendingDeviation,
   type SettlementDecision,
   type SettlementDesignRevision,
+  type SettlementReceipt,
   type SettlementUnresolvedTask,
 } from '../../../../src/verbs/settle/types.js';
 
@@ -336,6 +340,29 @@ function maximalDecidedReceipt(revises = true): WireReceipt {
 }
 
 /**
+ * A decided receipt that only a replay returns, with each input bound at its maximum. An earlier
+ * build gave `rejected` after a failed verification, and a replay returns its stored receipt. It
+ * carries sixteen decisions, a design revision that names each of them, and forty failed traces.
+ * It names no unresolved task, because only a `corrective-capsule` receipt names them.
+ */
+function maximalReplayedRejectedReceipt(): WireReceipt {
+  const decisions = decisionsOf(MAX_DEVIATIONS_PER_BATCH).map(
+    (decision): SettlementDecision => ({ ...decision, decision: 'accepted' }),
+  );
+  return receiptOf({
+    ...maximalBatch(),
+    outcome: 'rejected',
+    round: 1,
+    decisions,
+    designRevision: {
+      priorDesignVersion: Number.MAX_SAFE_INTEGER - 1,
+      nextDesignVersion: Number.MAX_SAFE_INTEGER,
+      deviationIds: decisions.map((decision) => decision.deviationId),
+    },
+  });
+}
+
+/**
  * The corrective receipt of a submitting round with each input bound at its maximum. Each of its
  * forty verifications failed, so it names forty unresolved tasks. Its core is the round alone.
  */
@@ -437,6 +464,14 @@ function declaredSettleOutputSchema(): NonNullable<ReturnType<typeof findActionI
   const action = findActionInRegistry('exarchos_orchestrate', 'settle');
   if (action === undefined) throw new Error('the registry declares no settle action');
   return action.outputSchema;
+}
+
+/**
+ * The receipt as the handler type names it. The wire receipt holds plain strings where the type
+ * holds branded ids, and a JSON round trip gives the same value.
+ */
+function asReceipt(receipt: WireReceipt): SettlementReceipt {
+  return receipt as unknown as SettlementReceipt;
 }
 
 /** The summary of a receipt that the dispatcher caps. The receipt must be over the budget. */
@@ -1008,8 +1043,94 @@ describe('the capped settle receipt', () => {
   });
 
   /**
+   * Only a replay returns a decided `rejected` receipt with failed traces. At the input bounds it
+   * has forty failed traces, a decided core and no unresolved list. Its summary loses its findings
+   * page and then its outcomes. It keeps its core and its counts, and it is within the budget. With
+   * the outcomes put back, it goes over the budget.
+   */
+  it('SettleEconomy_TheReplayOnlyRejectedDecidedReceipt_AtTheInputBounds_DropsItsOutcomesAndKeepsItsCore', () => {
+    const replayed = maximalReplayedRejectedReceipt();
+    expect(replayed.outcome).toBe('rejected');
+    expect(replayed.round).toBe(1);
+    expect(replayed.unresolved).toBeUndefined();
+    expect(replayed.acceptedTasks).toStrictEqual([]);
+    expect(replayed.verification.map((trace) => trace.outcome)).toStrictEqual(
+      Array.from({ length: MAX_TASKS }, () => 'failed'),
+    );
+    expect(replayed.decisions).toHaveLength(MAX_DEVIATIONS_PER_BATCH);
+    expect(replayed.designRevision?.deviationIds).toHaveLength(MAX_DEVIATIONS_PER_BATCH);
+    expect(replayed.capsule.workflowId).toHaveLength(MAX_STABLE_ID_LENGTH);
+    expect(replayed.capsule.batchId).toHaveLength(MAX_STABLE_ID_LENGTH);
+
+    const summary = cappedSummaryOf(replayed);
+
+    expect(summary.firstPage).toStrictEqual([]);
+    expect(summary.counts.shown).toBe(0);
+    expect(summary.verification).toStrictEqual([]);
+    expect(summary.counts.verification).toBe(MAX_TASKS);
+    expect(summary.counts.verificationOmitted).toBe(MAX_TASKS);
+    expect(summary.unresolved).toBeUndefined();
+    expect('unresolved' in summary.counts).toBe(false);
+    expect(summary.outcome).toBe('rejected');
+    expect(coreOf(summary)).toStrictEqual(requiredCoreOf(replayed));
+    expect(estimateOutputTokens(summary)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
+    expect(estimateOutputTokens({ ...summary, verification: failedOutcomesOf(replayed) })).toBeGreaterThan(
+      SETTLE_ECONOMY_BUDGET_TOKENS,
+    );
+    expect(declaredSettleOutputSchema().safeParse(wireEnvelopeOf(summary)).success).toBe(true);
+  });
+
+  /**
+   * `settle` takes no `limit` and no `offset`, so a strict parse refuses both keys. The next action
+   * of a capped response names no window. It names the reads that serve what the summary drops:
+   * the settlement bundle, and the `execution.settled` record through the registered `exarchos_event`
+   * query. The capped response with that next action parses against the declared output schema.
+   */
+  it('SettleEconomy_ACappedResponse_NamesTheReadsOfTheDetailAndNoWindow', () => {
+    const settle = findActionInRegistry('exarchos_orchestrate', 'settle');
+    const query = findActionInRegistry('exarchos_event', 'query');
+    expect(Object.keys(settle?.schema.shape ?? {})).not.toContain('limit');
+    expect(Object.keys(settle?.schema.shape ?? {})).not.toContain('offset');
+    expect(Object.keys(query?.schema.shape ?? {})).toEqual(expect.arrayContaining(['stream', 'filter']));
+    expect(SETTLE_DETAIL_READ).toContain('exarchos_event query with filter.type execution.settled');
+    expect(SETTLE_DETAIL_READ).toContain('bundleRefs');
+
+    const dispatched = enforceResponseEconomy(
+      { success: true, data: maximalSubmittedCorrectiveReceipt() },
+      'exarchos_orchestrate',
+      'settle',
+    );
+    expect((dispatched._meta as { truncated?: unknown }).truncated).toBe(true);
+    const [affordance, ...others] = dispatched.next_actions ?? [];
+    expect(others).toStrictEqual([]);
+    expect(affordance?.verb).toBe('settle');
+    expect(affordance?.hint).toBeUndefined();
+    expect(affordance?.reason).not.toContain('limit/offset');
+    expect(affordance?.reason.endsWith(SETTLE_DETAIL_READ)).toBe(true);
+    expect(declaredSettleOutputSchema().safeParse(JSON.parse(JSON.stringify(toEnvelope(dispatched)))).success).toBe(
+      true,
+    );
+  });
+
+  /**
+   * A refusal carries a recorded verdict on its error, and an error is never capped. A receipt
+   * within the budget goes whole. A receipt over the budget goes as the summary that the cap gives.
+   */
+  it('SettleEconomy_TheReceiptOnARefusal_IsWholeWithinTheBudgetAndTheSummaryOverIt', () => {
+    const tasks = tasksOf(['verified'], 6);
+    const small = receiptOf({ ...SMALL_BATCH, outcome: 'settled', round: 0, tasks, findings: [] });
+    expect(estimateOutputTokens(small)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
+    const large = maximalSubmittedCorrectiveReceipt();
+
+    expect(settlementReceiptWithinBudget(asReceipt(small))).toBe(small);
+    const carried = settlementReceiptWithinBudget(asReceipt(large));
+    expect(carried).toStrictEqual(summarizeSettlementReceipt(large));
+    expect(estimateOutputTokens(carried)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
+  });
+
+  /**
    * Each generated receipt is inside the input bounds: sixteen deviations, forty tasks, task ids
-   * of 48 characters, and batch and workflow ids of 256 characters. The three maximal receipts
+   * of 48 characters, and batch and workflow ids of 256 characters. The four maximal receipts
    * hold each bound at its maximum at once, and they run as explicit examples of the property.
    *
    * The summary is within the budget by the estimator of the dispatcher, and its core is whole.
@@ -1024,6 +1145,7 @@ describe('the capped settle receipt', () => {
     const held = maximalHeldReceipt();
     const decided = maximalDecidedReceipt();
     const corrective = maximalSubmittedCorrectiveReceipt();
+    const replayed = maximalReplayedRejectedReceipt();
     const seen = { named: 0, trimmed: 0 };
 
     expect(held.pendingDeviations).toHaveLength(MAX_DEVIATIONS_PER_BATCH);
@@ -1032,7 +1154,10 @@ describe('the capped settle receipt', () => {
     expect(held.unresolved).toBeUndefined();
     expect(decided.unresolved).toHaveLength(MAX_TASKS);
     expect(corrective.unresolved).toHaveLength(MAX_TASKS);
-    for (const maximal of [held, decided, corrective]) {
+    expect(replayed.outcome).toBe('rejected');
+    expect(replayed.decisions).toHaveLength(MAX_DEVIATIONS_PER_BATCH);
+    expect(replayed.unresolved).toBeUndefined();
+    for (const maximal of [held, decided, corrective, replayed]) {
       expect(maximal.capsule.workflowId).toHaveLength(MAX_STABLE_ID_LENGTH);
       expect(maximal.capsule.batchId).toHaveLength(MAX_STABLE_ID_LENGTH);
       expect(maximal.verification).toHaveLength(MAX_TASKS);
@@ -1083,7 +1208,7 @@ describe('the capped settle receipt', () => {
         );
         expect(estimateOutputTokens(dispatched.data)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
       }),
-      { numRuns: 300, examples: [[held], [decided], [corrective]] },
+      { numRuns: 300, examples: [[held], [decided], [corrective], [replayed]] },
     );
     expect(seen.named).toBeGreaterThanOrEqual(2);
     expect(seen.trimmed).toBeGreaterThanOrEqual(2);

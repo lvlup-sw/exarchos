@@ -62,6 +62,27 @@ export function countBy<T>(items: readonly T[], key: (item: T) => string): Recor
 }
 
 /**
+ * The next action after the summary cut the output of an action that takes no `limit` and no
+ * `offset`. A second call returns the same summary. Thus the reason names the read that serves the
+ * rest, when the action declares one. `verb` is the name of the action itself.
+ */
+export function detailAffordance(
+  verb: string,
+  shown: number,
+  total: number,
+  detailRead?: string,
+  cliHint?: string,
+): NextAction {
+  return {
+    verb,
+    reason:
+      `Showing ${shown} of ${total}. ${verb} takes no limit or offset, so a second call returns the same summary.` +
+      (detailRead !== undefined ? ` ${detailRead}` : ''),
+    ...(cliHint !== undefined ? { hint: cliHint } : {}),
+  };
+}
+
+/**
  * The next action that tells the caller to narrow the query, after the item cap or the summary cut
  * the output. `verb` is the name of the action itself. The CLI hint is added only when the caller
  * gives one, because a `.strict()` action without a window parameter rejects `--limit`.
