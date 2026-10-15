@@ -167,8 +167,11 @@
       {
         "file": "tests/acceptance/host-obligation-execution.test.ts",
         "default": "telemetry",
-        "owner": "@rsalus",
-        "reason": "The context holds no event store, so the telemetry wrapper has nowhere to write. The cases read the obligation or the handler output in `data`. The wrapper adds fields beside `data` and changes none of it, and no case reads a stream."
+        "twin": {
+          "file": "tests/acceptance/host-obligation-execution.test.ts",
+          "test": "HostObligations_UnderTheShippedTelemetryDefault_RunOrReturnTheObligationAsBefore",
+          "keeps": "enableTelemetry: true"
+        }
       },
       {
         "file": "tests/acceptance/kill-probe-base.test.ts",
