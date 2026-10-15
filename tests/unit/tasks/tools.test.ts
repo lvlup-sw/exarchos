@@ -1154,9 +1154,10 @@ describe('handleTaskComplete workflow state sync', () => {
   /**
    * The `task.completed` event lands before the sync and stays. The state document is corrupt,
    * and the transition guards read that document. Thus the handler reports `STATE_SYNC_FAILED`
-   * with the event ack beside it. After the test restores the document, a retry syncs it: the
-   * task-keyed idempotency key returns the stored event, and the sync runs again. The two gate
-   * events hold sequences 1 and 2, so the ack holds sequence 3.
+   * with the event ack beside it. The refusal names `reconcile`, then the retry, then a stop rule.
+   * After the test restores the document, a retry syncs it: the task-keyed idempotency key returns
+   * the stored event, and the sync runs again. The two gate events hold sequences 1 and 2, so the
+   * ack holds sequence 3.
    */
   it('handleTaskComplete_WhenTheDocumentCannotBeWritten_ReportsTheFailureBesideTheDurableFact', async () => {
     const featureId = 'wf-sync-3';
@@ -1179,6 +1180,8 @@ describe('handleTaskComplete workflow state sync', () => {
     const failed = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
     expect(failed.success).toBe(false);
     expect(failed.error?.code).toBe('STATE_SYNC_FAILED');
+    expect(failed.error?.message).toContain('Run `exarchos_workflow reconcile`, then retry task_complete');
+    expect(failed.error?.message).toContain('stop and report it to a person');
     expect(failed.data).toEqual(ack);
     expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
 

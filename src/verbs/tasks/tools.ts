@@ -357,8 +357,9 @@ export async function handleTaskComplete(
           message:
             `task ${args.taskId} is recorded complete (task.completed at sequence ${event.sequence}), but ` +
             'the state document the transition guards read could not be updated after ' +
-            `${sync.attempts} attempt(s): ${sync.error}. Retry task_complete to bring the document ` +
-            'level; the fact is not recorded twice.',
+            `${sync.attempts} attempt(s): ${sync.error}. Run \`exarchos_workflow reconcile\`, then retry ` +
+            'task_complete. The fact is not recorded twice. If the refusal comes back, stop and report it ' +
+            'to a person.',
         },
       };
     }

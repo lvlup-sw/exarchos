@@ -326,7 +326,8 @@ export function outcomeVerifies(outcome: SettlementOutcome): boolean {
  * The verification outcome of one task, as the handler reports it.
  * `verified` is a segment that ran to its terminal leaf and committed.
  * `already-complete` is a task that the stream showed complete before the batch, so nothing ran again.
- * `failed` names the leaf where the segment halted and the message of that leaf.
+ * It is also a task whose segment halted after the stream recorded its completion.
+ * `failed` names the gate leaf whose verdict halted the segment, and the message of that leaf.
  */
 export type TaskVerificationOutcome =
   | { readonly kind: 'verified' }

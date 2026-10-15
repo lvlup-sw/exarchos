@@ -21,8 +21,8 @@ export interface SettledCapsuleIdentity {
  * its claim, or when the capsule requires it and the stream already shows it complete.
  *
  * `operationId` names the task-completion segment, so a caller can read its receipt through
- * `execute_intent`. It is absent under `already-complete`, where no segment ran. `bundleRefs` is
- * the run bundle of a segment that committed a record.
+ * `execute_intent`. It is absent under `already-complete`, because the stream holds the completion
+ * of the task. `bundleRefs` is the run bundle of a segment that committed a record.
  */
 export interface SettlementVerificationTrace {
   readonly taskId: string;

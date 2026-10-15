@@ -410,6 +410,11 @@ decisions:
     source: "Reed (#1926, settlement vocabulary, verification review)"
     decision: "task.completed is reserved to its gated writers: task_complete, called directly or as the last leaf of the segment that settle runs. The generic append and batch append refuse it with RESERVED_EVENT_TYPE, as they refuse the other reserved types. The drain of the hook-event sidecar files appends no row of a reserved type. A recorded completion is the result of a required task, so a required task with a completion row needs no claim and no second verification. Nothing is reopened (#1929)."
     known: "Owned by #1929. task_complete reads no design revision. A task that a later revision names can still be completed by task_complete, and a batch on the earlier capsule then settles that task as already-complete. Owned by #1886 (a child of #1929): task_complete accepts a gate.executed row that the generic append can write, so the reservation does not prove that a gate ran. Drift row completion-gate-row."
+
+  - date: "2026-10-15"
+    source: "Reed (#1926, settlement vocabulary, verification review)"
+    decision: "A halted segment records what the stream holds. After the segments, settle reads the completion rows again. A claimed task whose segment halted and whose row exists is complete: settle brings the document level for it and lists it as already-complete. A halt that is not a gate verdict fails the call with no verdict: a halt at the completion leaf, at a leaf that the runbook does not name, or on a broken leaf contract. Only a halt at a gate leaf gives verification-failed. Each STATE_SYNC_FAILED text names exarchos_workflow reconcile, then the retry, then a stop rule."
+    known: "The executor keeps the record of a halted segment. A retry of the same batch thus gets the recorded halt again, unless the stream then records the task complete, so the refusal sends the claims to a new batchId. A gate leaf whose handler fails still gives verification-failed, because the receipt does not carry the failure as a value. A version gap in the stored document fails each retry, and the fix in the store is not decided."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:

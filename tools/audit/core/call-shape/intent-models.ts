@@ -327,7 +327,7 @@ const DELEGATION: IntentModel = {
       through: null,
       extra: [
         { kind: 'site', ref: at('delegate', `${W}.get`, '`exarchos_workflow get`') },
-        { kind: 'site', ref: at('delegate', `${W}.reconcile`, '`exarchos_workflow reconcile`') },
+        { kind: 'site', ref: at('delegate', `${W}.reconcile`, '3. Reconcile: `exarchos_workflow reconcile`') },
       ],
       reentersNormalPath: false,
       why: 'Counted as recovery calls added to a delegation that otherwise completes. Listing the worktrees is an unfenced shell step and is not counted.',
@@ -382,6 +382,11 @@ const DELEGATION: IntentModel = {
       kind: 'site',
       ref: at('delegate', `${W}.update`, '"synthesis.integrationBranch": "<branch the tasks fork from>"'),
       why: 'the remedy for a BASE_UNRESOLVED refusal: made once, when the workflow records no integration branch, then prepare runs again',
+    },
+    {
+      kind: 'site',
+      ref: at('delegate', `${W}.reconcile`, 'Run `exarchos_workflow reconcile`, then settle the same batch again.'),
+      why: 'the remedy for a STATE_SYNC_FAILED refusal: made when the state document cannot be written, then the same batch is settled again. A refusal that comes back stops the run for a person',
     },
   ],
   excluded: [

@@ -10,8 +10,8 @@
  * only compared with the record. A refused batch is still a settlement: it
  * returns success with `outcome: 'rejected'` and appends the record.
  *
- * A batch that the shape pass does not stop is verified task by task. A halted
- * segment leaves its task unresolved, and committed tasks stay complete.
+ * A batch that the shape pass does not stop is verified task by task. Of the halts of a segment,
+ * only a gate verdict leaves its task unresolved. A task that the stream records complete is complete.
  *
  * A decision round that accepts a material deviation also commits one design
  * revision. The revision takes its number inside the write transaction.
@@ -30,6 +30,7 @@ import {
   ExarchosCapsuleV1Schema,
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
+import { assertNever } from '../../contract/error-families.js';
 import { SharedStableIdSchema } from '../../contract/ir/admission-ir.js';
 import { canonicalJson, requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
@@ -50,6 +51,7 @@ import {
 } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
+import type { TASK_COMPLETION } from '../../runbooks/definitions.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
 import { compileIntent } from '../execute/compile.js';
@@ -95,6 +97,38 @@ import {
 
 /** The runbook every accepted task's verification is compiled from. */
 const TASK_COMPLETION_INTENT = 'task-completion';
+
+/** A leaf of the task-completion runbook, as the runbook names it. */
+type TaskCompletionLeaf = (typeof TASK_COMPLETION)['steps'][number]['action'];
+
+/**
+ * The class of each leaf of the task-completion runbook. A `gate` leaf judges the work of the task.
+ * The `completion` leaf records the result after the gates, so its halt is not a verdict about
+ * the work. The record is exhaustive, so a new leaf without a class does not compile.
+ */
+export const TASK_COMPLETION_LEAF_CLASSES: Readonly<Record<TaskCompletionLeaf, 'gate' | 'completion'>> = {
+  check_test_adequacy: 'gate',
+  check_contract_drift: 'gate',
+  check_mock_boundary: 'gate',
+  check_static_analysis: 'gate',
+  task_complete: 'completion',
+};
+
+/** Whether an action is a leaf of the task-completion runbook. */
+function isTaskCompletionLeaf(action: string): action is TaskCompletionLeaf {
+  return Object.hasOwn(TASK_COMPLETION_LEAF_CLASSES, action);
+}
+
+/**
+ * Whether the halt of a segment is a gate verdict about the work of its task. It is a verdict
+ * when a gate leaf stopped the segment and the leaf kept its contract. A halt at the completion
+ * leaf, at a leaf that the runbook does not name, or on a broken contract is not a verdict.
+ */
+function haltIsGateVerdict(receipt: IntentReceipt): boolean {
+  if (receipt.failure?.code === 'INTENT_EMISSION_CONTRACT_VIOLATED') return false;
+  const leaf = receipt.failedLeaf;
+  return leaf !== undefined && isTaskCompletionLeaf(leaf) && TASK_COMPLETION_LEAF_CLASSES[leaf] === 'gate';
+}
 
 /** The divergence facts a settlement leaves, stamped from one place. */
 const DEVIATION_PROPOSED_TYPE = 'deviation.proposed';
@@ -362,9 +396,12 @@ async function heldBatch(
   };
 }
 
-/** Wrap a receipt as a success. `ToolResult.data` is `unknown`, so no cast is necessary. */
-function receiptResult(receipt: SettlementReceipt): ToolResult {
-  return { success: true, data: receipt };
+/**
+ * Wrap a receipt as a success, with the warnings of the call. `ToolResult.data` is `unknown`, so no
+ * cast is necessary.
+ */
+function receiptResult(receipt: SettlementReceipt, warnings: readonly string[] = []): ToolResult {
+  return { success: true, data: receipt, ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
 /** The tasks a stream already shows complete, read from the rows themselves. */
@@ -376,6 +413,19 @@ function completedTaskIds(events: readonly { readonly type: string; readonly dat
     if (typeof taskId === 'string') ids.add(taskId);
   }
   return ids;
+}
+
+/**
+ * The halted tasks that the stream records complete when the segments end, sorted. The completion
+ * leaf can append the fact and halt after it, and another call can complete the task while its
+ * segment runs. Completion wins, so each such task is complete and not unresolved.
+ */
+function completedAfterHalt(
+  halted: readonly string[],
+  events: readonly { readonly type: string; readonly data?: unknown }[],
+): string[] {
+  const completed = completedTaskIds(events);
+  return halted.filter((taskId) => completed.has(taskId)).sort();
 }
 
 /**
@@ -496,6 +546,25 @@ async function bringDocumentLevel(
   }
   return outcome;
 }
+
+/**
+ * The warning for the tasks that the state document does not list. The stream records each of them
+ * complete, and the document does not show it. A missing document gives no warning, because a
+ * tracked workflow can have none.
+ */
+function missingTaskWarnings(sync: Exclude<TaskStatusSyncOutcome, { kind: 'failed' }>): string[] {
+  if ((sync.kind === 'skipped' && sync.reason === 'no-document') || sync.missing.length === 0) return [];
+  const named = sync.missing.map((taskId) => JSON.stringify(taskId)).join(', ');
+  return [`the stream records ${named} complete, and the state document lists no entry to mark`];
+}
+
+/**
+ * The steps that a `STATE_SYNC_FAILED` refusal of settle names, in order. A version gap in the
+ * stored document fails each retry, so the last step ends the loop.
+ */
+const DOCUMENT_REPAIR_STEPS =
+  'Run `exarchos_workflow reconcile`, then settle the same batch again. If the refusal comes back, ' +
+  'stop and report it to a person.';
 
 /** The refusal when the state document cannot follow the facts. The facts stand. */
 function documentNotLevel(
@@ -621,21 +690,27 @@ function isIntentReceipt(value: unknown): value is IntentReceipt {
   );
 }
 
+/**
+ * The verification of one task. A `refused` run is not an answer about the task, so the call
+ * records no verdict. `halted` says that the segment ran and halted, so the stream can hold the
+ * completion of the task.
+ */
 type VerificationRun =
   | {
       readonly kind: 'ran';
       readonly outcome: TaskVerificationOutcome;
       readonly trace: SettlementVerificationTrace;
     }
-  | { readonly kind: 'refused'; readonly result: ToolResult };
+  | { readonly kind: 'refused'; readonly result: ToolResult; readonly halted: boolean };
 
 /**
  * Run the verification of one task through the executor, and read the receipt
  * as an outcome.
  *
- * A committed segment verified the task. A halted segment names the leaf that
- * stopped it. A refusal with no receipt is not an answer about the task. A
- * digest mismatch means that the claim for the task changed after verification.
+ * A committed segment verified the task. A gate verdict that halts the segment
+ * names the leaf that stopped it. A halt that is not a gate verdict, and a
+ * refusal with no receipt, are not answers about the task. A digest mismatch
+ * means that the claim for the task changed after verification.
  */
 async function verifyTask(
   compiled: CompiledVerification,
@@ -672,6 +747,20 @@ async function verifyTask(
     }
     const failedLeaf = receipt.failedLeaf ?? '<unknown>';
     const message = receipt.failure?.message ?? result.error?.message ?? 'the segment halted';
+    if (!haltIsGateVerdict(receipt)) {
+      return {
+        kind: 'refused',
+        halted: true,
+        result: refused(
+          receipt.failure?.code ?? result.error?.code ?? 'INTENT_SEGMENT_FAILED',
+          `the segment of task ${JSON.stringify(compiled.taskId)} of ${batchLabel} halted on ` +
+            `'${failedLeaf}', and the halt is not a gate verdict. Nothing was adjudicated. A retry of ` +
+            'this batchId gets the recorded halt again, unless the stream then records the task ' +
+            'complete. Correct the cause, then settle the claims again under a new batchId. The leaf ' +
+            `reported: ${message}`,
+        ),
+      };
+    }
     return {
       kind: 'ran',
       outcome: { kind: 'failed', failedLeaf, message },
@@ -688,6 +777,7 @@ async function verifyTask(
   if (result.error?.code === 'INTENT_REPLAY_DIGEST_MISMATCH') {
     return {
       kind: 'refused',
+      halted: false,
       result: refused(
         'OPERATION_DIGEST_MISMATCH',
         `task ${JSON.stringify(compiled.taskId)} of ${batchLabel} was already verified under a ` +
@@ -698,6 +788,7 @@ async function verifyTask(
   }
   return {
     kind: 'refused',
+    halted: false,
     result: refused(
       result.error?.code ?? 'VERIFICATION_NOT_RUN',
       `task ${JSON.stringify(compiled.taskId)} of ${batchLabel} could not be verified: ` +
@@ -999,6 +1090,7 @@ export async function handleSettle(
                 'back under a new batchId.',
         );
       }
+      const replayWarnings: string[] = [];
       if (outcomeVerifies(claim.result.outcome)) {
         const recorded = recordedCompleteTasks(
           capsule,
@@ -1007,17 +1099,25 @@ export async function handleSettle(
         );
         if (recorded.length > 0) {
           const sync = await bringDocumentLevel(stateDir, streamId, recorded);
-          if (sync.kind === 'failed') {
-            return documentNotLevel(
-              sync,
-              `${batchLabel} has its verdict and its complete tasks are recorded`,
-              'Settle the same batch again to bring the document level; nothing is adjudicated twice.',
-              claim.result,
-            );
+          switch (sync.kind) {
+            case 'failed':
+              return documentNotLevel(
+                sync,
+                `${batchLabel} has its verdict and its complete tasks are recorded`,
+                `Nothing is adjudicated twice. ${DOCUMENT_REPAIR_STEPS}`,
+                claim.result,
+              );
+            case 'synced':
+            case 'unchanged':
+            case 'skipped':
+              replayWarnings.push(...missingTaskWarnings(sync));
+              break;
+            default:
+              return assertNever(sync, 'state document sync outcome');
           }
         }
       }
-      return receiptResult(claim.result);
+      return receiptResult(claim.result, replayWarnings);
     }
     if (!deciding && submittedClaims.length === 0) return claimlessBatch(batchLabel);
 
@@ -1087,6 +1187,7 @@ export async function handleSettle(
     const shape = adjudicateSettlement(capsule, claims, deviations, context);
     let verdict = shape;
     const traces: SettlementVerificationTrace[] = [];
+    const warnings: string[] = [];
 
     if (verificationRuns(shape.findings)) {
       const byTask = new Map(claims.map((claim): [string, SettlementClaim] => [claim.taskId, claim]));
@@ -1112,13 +1213,21 @@ export async function handleSettle(
       const recorded = recordedCompleteTasks(capsule, shape.acceptedTasks, completed);
       if (recorded.length > 0) {
         const sync = await bringDocumentLevel(stateDir, streamId, recorded);
-        if (sync.kind === 'failed') {
-          return documentNotLevel(
-            sync,
-            `the stream already records ${recorded.map((taskId) => JSON.stringify(taskId)).join(', ')} ` +
-              `complete for ${batchLabel}`,
-            'Nothing was adjudicated; settle the batch again once the document can be written.',
-          );
+        switch (sync.kind) {
+          case 'failed':
+            return documentNotLevel(
+              sync,
+              `the stream already records ${recorded.map((taskId) => JSON.stringify(taskId)).join(', ')} ` +
+                `complete for ${batchLabel}`,
+              `Nothing was adjudicated. ${DOCUMENT_REPAIR_STEPS}`,
+            );
+          case 'synced':
+          case 'unchanged':
+          case 'skipped':
+            warnings.push(...missingTaskWarnings(sync));
+            break;
+          default:
+            return assertNever(sync, 'state document sync outcome');
         }
       }
       for (const taskId of recorded) {
@@ -1126,10 +1235,47 @@ export async function handleSettle(
         traces.push({ taskId, outcome: 'already-complete' });
       }
 
+      const runs: { readonly taskId: string; readonly run: VerificationRun }[] = [];
       for (const task of compiled) {
         const run = await verifyTask(task, streamId, batchLabel, stateDir, ctx, deps.execute);
+        if (run.kind === 'refused' && !run.halted) return run.result;
+        runs.push({ taskId: task.taskId, run });
+      }
+
+      const halted = runs
+        .filter(({ run }) => run.kind === 'refused' || run.outcome.kind === 'failed')
+        .map(({ taskId }) => taskId);
+      const completeAfterHalt =
+        halted.length === 0
+          ? []
+          : completedAfterHalt(halted, await ctx.eventStore.query(streamId, { type: 'task.completed' }));
+      if (completeAfterHalt.length > 0) {
+        const sync = await bringDocumentLevel(stateDir, streamId, completeAfterHalt);
+        switch (sync.kind) {
+          case 'failed':
+            return documentNotLevel(
+              sync,
+              `the stream records ${completeAfterHalt.map((taskId) => JSON.stringify(taskId)).join(', ')} ` +
+                `complete for ${batchLabel} after the segment of each one halted`,
+              `Nothing was adjudicated. ${DOCUMENT_REPAIR_STEPS}`,
+            );
+          case 'synced':
+          case 'unchanged':
+          case 'skipped':
+            warnings.push(...missingTaskWarnings(sync));
+            break;
+          default:
+            return assertNever(sync, 'state document sync outcome');
+        }
+      }
+      for (const { taskId, run } of runs) {
+        if (completeAfterHalt.includes(taskId)) {
+          outcomes.set(taskId, { kind: 'already-complete' });
+          traces.push({ taskId, outcome: 'already-complete' });
+          continue;
+        }
         if (run.kind === 'refused') return run.result;
-        outcomes.set(task.taskId, run.outcome);
+        outcomes.set(taskId, run.outcome);
         traces.push(run.trace);
       }
 
@@ -1275,7 +1421,7 @@ export async function handleSettle(
                 },
               };
             });
-          return receiptResult(persisted);
+          return receiptResult(persisted, warnings);
         } catch (error) {
           if (error instanceof OperationDigestMismatchError) {
             return refused(
