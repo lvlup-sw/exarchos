@@ -459,6 +459,33 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
   });
 
   /**
+   * A registered action with a declared summarizer and no window parameter declares the read that
+   * serves what its summary drops. A second call returns the same summary, so the reason of its
+   * capped next action names that read. The census holds `prepare`, `settle` and `execute_intent`.
+   */
+  it('cappedAffordance_EachWindowlessActionWithASummarizer_NamesItsDetailRead', () => {
+    const summarized: string[] = [];
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const keys = Object.keys(action.schema.shape);
+        if (keys.includes('limit') || keys.includes('offset') || action.economy?.summarize === undefined) continue;
+        const id = `${tool.name}.${action.name}`;
+        const detailRead = action.economy.detailRead ?? '';
+        summarized.push(id);
+        expect(detailRead.trim().length, id).toBeGreaterThan(0);
+        expect(cappedAffordance(action, action.name, 1, 2).reason.endsWith(` ${detailRead}`), id).toBe(true);
+      }
+    }
+    expect(summarized).toEqual(
+      expect.arrayContaining([
+        'exarchos_orchestrate.prepare',
+        'exarchos_orchestrate.settle',
+        'exarchos_orchestrate.execute_intent',
+      ]),
+    );
+  });
+
+  /**
    * A capped response of a typed-output action must pass its registered `outputSchema`, which is
    * the contract that the MCP facade enforces. The `worktrees` view registers
    * `withCappedShape(WorktreesOutputSchema)`. The stub returns 200 entries, which is more than the

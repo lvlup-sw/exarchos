@@ -12,6 +12,7 @@
 import { z } from 'zod';
 import { withCappedShape } from '../../../output-schema-declaration.js';
 import {
+  PREPARE_DETAIL_READ,
   PREPARE_ECONOMY_BUDGET_TOKENS,
   summarizePreparedCapsuleReceipt,
 } from '../../../verbs/prepare/economy.js';
@@ -88,6 +89,7 @@ export const prepareActions: readonly BuiltinToolAction[] = [
     economy: {
       budgetTokens: PREPARE_ECONOMY_BUDGET_TOKENS,
       summarize: summarizePreparedCapsuleReceipt,
+      detailRead: PREPARE_DETAIL_READ,
     },
     annotations: LOCAL_MUTATION,
   }, {
