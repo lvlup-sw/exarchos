@@ -6,7 +6,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { EventStore } from '../../../src/events/store.js';
 import { mergeSidecarEvents, type MergeResult } from '../../../src/storage/sidecar-merger.js';
+import { getReservedEventAppendRegistration } from '../../../src/registry.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+
+/** The check that the production callers pass: a type in the reserved append registry. */
+const isReservedType = (eventType: string): boolean =>
+  getReservedEventAppendRegistration(eventType) !== undefined;
 
 /**
  * Appends one raw JSONL line to `{streamId}.hook-events.jsonl`, the sidecar
@@ -48,7 +53,7 @@ describe('mergeSidecarEvents', () => {
       idempotencyKey: 'my-feature:team.task.completed:task-001',
     });
 
-    const result = await mergeSidecarEvents(tempDir, eventStore);
+    const result = await mergeSidecarEvents(tempDir, eventStore, isReservedType);
 
     expect(result.merged).toBe(1);
     const events = await eventStore.query('my-feature');
@@ -65,11 +70,11 @@ describe('mergeSidecarEvents', () => {
     };
 
     await writeSidecarLine(tempDir, 'my-feature', event);
-    await mergeSidecarEvents(tempDir, eventStore);
+    await mergeSidecarEvents(tempDir, eventStore, isReservedType);
 
     await writeSidecarLine(tempDir, 'my-feature', event);
 
-    const result = await mergeSidecarEvents(tempDir, eventStore);
+    const result = await mergeSidecarEvents(tempDir, eventStore, isReservedType);
 
     expect(result.skipped).toBe(1);
     expect(result.merged).toBe(0);
@@ -89,7 +94,7 @@ describe('mergeSidecarEvents', () => {
     const statBefore = await fs.stat(sidecarPath);
     expect(statBefore.isFile()).toBe(true);
 
-    await mergeSidecarEvents(tempDir, eventStore);
+    await mergeSidecarEvents(tempDir, eventStore, isReservedType);
 
     await expect(fs.stat(sidecarPath)).rejects.toThrow();
   });
@@ -98,7 +103,7 @@ describe('mergeSidecarEvents', () => {
     const sidecarPath = path.join(tempDir, 'empty-stream.hook-events.jsonl');
     await fs.writeFile(sidecarPath, '', 'utf-8');
 
-    const result = await mergeSidecarEvents(tempDir, eventStore);
+    const result = await mergeSidecarEvents(tempDir, eventStore, isReservedType);
 
     expect(result.merged).toBe(0);
     expect(result.errors).toBe(0);
@@ -120,7 +125,7 @@ describe('mergeSidecarEvents', () => {
       'utf-8',
     );
 
-    const result = await mergeSidecarEvents(tempDir, eventStore);
+    const result = await mergeSidecarEvents(tempDir, eventStore, isReservedType);
 
     expect(result.merged).toBe(1);
     expect(result.errors).toBe(1);
@@ -130,8 +135,36 @@ describe('mergeSidecarEvents', () => {
     expect(events[0].type).toBe('team.task.completed');
   });
 
+  /**
+   * A sidecar line is a generic write. A line of a reserved type, such as a completion row or a
+   * settlement row, appends no row and counts as an error. The other lines of the file still merge.
+   */
+  it('mergeSidecarEvents_ReservedType_AppendsNoRowAndCountsAnError', async () => {
+    await writeSidecarLine(tempDir, 'reserved-stream', {
+      type: 'task.completed',
+      data: { taskId: 'task-forged' },
+    });
+    await writeSidecarLine(tempDir, 'reserved-stream', {
+      type: 'execution.settled',
+      data: { batchId: 'batch-forged' },
+    });
+    await writeSidecarLine(tempDir, 'reserved-stream', {
+      type: 'team.task.completed',
+      data: { taskId: 'task-ok' },
+    });
+
+    const result = await mergeSidecarEvents(tempDir, eventStore, isReservedType);
+
+    expect(result).toEqual({ merged: 1, skipped: 0, errors: 2 });
+    const events = await eventStore.query('reserved-stream');
+    expect(events.map((e) => e.type)).toEqual(['team.task.completed']);
+    await expect(
+      fs.stat(path.join(tempDir, 'reserved-stream.hook-events.jsonl')),
+    ).rejects.toThrow();
+  });
+
   it('mergeSidecarEvents_NoSidecarFiles_ReturnsZero', async () => {
-    const result = await mergeSidecarEvents(tempDir, eventStore);
+    const result = await mergeSidecarEvents(tempDir, eventStore, isReservedType);
 
     expect(result.merged).toBe(0);
     expect(result.skipped).toBe(0);
@@ -165,7 +198,7 @@ describe('mergeSidecarEvents', () => {
           });
         }
 
-        await mergeSidecarEvents(propDir, propStore);
+        await mergeSidecarEvents(propDir, propStore, isReservedType);
         const countAfterFirst = (await propStore.query('prop-stream')).length;
 
         for (const input of eventInputs) {
@@ -176,7 +209,7 @@ describe('mergeSidecarEvents', () => {
           });
         }
 
-        await mergeSidecarEvents(propDir, propStore);
+        await mergeSidecarEvents(propDir, propStore, isReservedType);
         const countAfterSecond = (await propStore.query('prop-stream')).length;
 
         expect(countAfterSecond).toBe(countAfterFirst);

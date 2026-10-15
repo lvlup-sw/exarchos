@@ -408,8 +408,8 @@ decisions:
 
   - date: "2026-10-15"
     source: "Reed (#1926, settlement vocabulary, verification review)"
-    decision: "task.completed is reserved to its gated writers: task_complete, called directly or as the last leaf of the segment that settle runs. The generic append and batch append refuse it with RESERVED_EVENT_TYPE, as they refuse the other reserved types. A recorded completion is the result of a required task, so a required task with a completion row needs no claim and no second verification. Nothing is reopened (#1929)."
-    known: "Owned by #1929. task_complete reads no design revision. A task that a later revision names can still be completed by task_complete, and a batch on the earlier capsule then settles that task as already-complete."
+    decision: "task.completed is reserved to its gated writers: task_complete, called directly or as the last leaf of the segment that settle runs. The generic append and batch append refuse it with RESERVED_EVENT_TYPE, as they refuse the other reserved types. The drain of the hook-event sidecar files appends no row of a reserved type. A recorded completion is the result of a required task, so a required task with a completion row needs no claim and no second verification. Nothing is reopened (#1929)."
+    known: "Owned by #1929. task_complete reads no design revision. A task that a later revision names can still be completed by task_complete, and a batch on the earlier capsule then settles that task as already-complete. Owned by #1886 (a child of #1929): task_complete accepts a gate.executed row that the generic append can write, so the reservation does not prove that a gate ran. Drift row completion-gate-row."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -556,6 +556,10 @@ drift:
     design: "settle accepts a medium-tier or high-tier task only when the kill probe shows that a test of the task can fail"
     built: "the kill probe gives false passes in this repository. It resolves the test command to the unit project, which collects none of the tests under the unit, integration and acceptance trees. A run that collects nothing exits with an error, and the probe reads that error as a kill."
     resolution: "unresolved. Until it is fixed, a kill-probe pass in this repository is not evidence that a test can fail."
+  - id: "completion-gate-row"
+    design: "a task is complete only after the verification that its gate runs passes"
+    built: "task.completed is reserved (2026-10-15), but task_complete accepts a passing static-analysis gate.executed row for the task, and the generic append can write that row. Thus one appended row and one task_complete call complete a task with no gate run. settle then reports the task as already-complete, and a required task with that row needs no claim. A gate.executed row with details that name no task satisfies every task of the stream. In the segment that settle runs, the gate runs before the task_complete leaf, and a static-analysis verdict that blocks stops the segment."
+    resolution: "unresolved; owned by #1886 (a child of #1929, v3.0.0). The direction of #1886: the producer mints a row that the generic append cannot write, and only that row discharges task_complete. Reserving gate.executed instead takes away a documented append."
 
 # ─── measured facts (re-check before relying on them) ────────────────────────
 
@@ -711,4 +715,5 @@ traps:
   - "The static census counts what skills prescribe, not what agents do. The observed half of #1687 needs transcripts recorded after the skill rewrite."
   - "The description budget of an action (280 tokens) does not measure its schema text. describe returns the output schema twice, and the describe response has a budget of its own (8000 tokens) that a registry test measures. An earlier commit moved text into the settle output schema and said that no budget measures it."
   - "The status of a claim is not the status of a task. A claim that reports failed, blocked or skipped writes no task.failed row and leaves tasks[].status alone. The task is unresolved on the receipt and on the execution.settled row, and nowhere else on the stream."
+  - "A reserved completion row is not a proven gate run. task_complete accepts a gate.executed row that the generic append can write (#1886). A guard on the writer of a fact proves nothing when the writer reads a forgeable input."
   - "A rationale is not a deviation and not evidence. It names a delegated decision of the capsule, it takes no decision round, and it changes no gate. A choice outside the delegated decisions goes in deviations."

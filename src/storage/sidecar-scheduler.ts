@@ -1,12 +1,14 @@
 /**
  * Drains sidecar files (`{streamId}.hook-events.jsonl`) into the main EventStore on an
- * interval, so a long-running primary process keeps no sidecar backlog.
+ * interval, so a long-running primary process keeps no sidecar backlog. A sidecar line is a
+ * generic write, so the drain refuses each type that the generic append refuses.
  */
 
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
+import type { ReservedEventTypeCheck } from './sidecar-merger.js';
 
 export interface DrainResult {
   readonly merged: number;
@@ -45,14 +47,16 @@ function parseEnvInt(envVar: string, defaultValue: number): number {
  * returns. A tick does nothing while a drain runs. The timer is `unref`ed, so it does
  * not keep the process alive.
  *
- * @param stateDir   Directory that holds the sidecar files
- * @param eventStore EventStore that receives the events
- * @param intervalMs Drain interval in milliseconds. The default is `EXARCHOS_SIDECAR_DRAIN_INTERVAL_MS`, else 5000.
+ * @param stateDir       Directory that holds the sidecar files
+ * @param eventStore     EventStore that receives the events
+ * @param isReservedType The check of the reserved append registry. A line of a reserved type appends no row.
+ * @param intervalMs     Drain interval in milliseconds. The default is `EXARCHOS_SIDECAR_DRAIN_INTERVAL_MS`, else 5000.
  * @returns A handle with a `stop()` method that cancels the periodic drain
  */
 export async function startPeriodicMerge(
   stateDir: string,
   eventStore: EventStore,
+  isReservedType: ReservedEventTypeCheck,
   intervalMs?: number,
   opts?: PeriodicMergeOptions,
 ): Promise<PeriodicMergeHandle> {
@@ -63,7 +67,7 @@ export async function startPeriodicMerge(
 
   const runDrain = async (): Promise<void> => {
     if (stopped) return;
-    const result = await drainOnce(stateDir, eventStore);
+    const result = await drainOnce(stateDir, eventStore, isReservedType);
     if (opts?.onDrain) {
       opts.onDrain(result);
     }
@@ -99,11 +103,12 @@ export async function startPeriodicMerge(
  * and the Windows replace race cannot occur. A failed rename means that another
  * drainer claimed the file. If the read fails, the function renames the drain file
  * back to the sidecar path. An append counts as merged when the stream grows, else
- * as skipped.
+ * as skipped. A line of a reserved type counts as an error and appends no row.
  */
 async function drainOnce(
   stateDir: string,
   eventStore: EventStore,
+  isReservedType: ReservedEventTypeCheck,
 ): Promise<DrainResult> {
   const start = Date.now();
   let totalMerged = 0;
@@ -166,7 +171,7 @@ async function drainOnce(
       const timestamp = parsed.timestamp as string | undefined;
       const idempotencyKey = parsed.idempotencyKey as string | undefined;
 
-      if (!type) {
+      if (!type || isReservedType(type)) {
         totalErrors++;
         continue;
       }

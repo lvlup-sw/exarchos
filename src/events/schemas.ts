@@ -94,10 +94,11 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
  * - `workflow.prepared`: settlement adjudicates a capsule only when this record pins its digest.
  * - `deviation.proposed`, `deviation.decided` and `design.revised`: the settle handler commits them.
  * - `capsule.recompiled`: the prepare handler commits it with the first capsule after a revision.
- * - `task.completed`: `task_complete`, directly or as a settle leaf, after its static-analysis gate.
+ * - `task.completed`: `task_complete`, directly or as a settle leaf. A direct call accepts a
+ *   `gate.executed` row that the generic append can write (lvlup-sw/exarchos#1886).
  *
- * A caller that can append these types can fake a settlement, pin any capsule, or move the design
- * version. The caller can also fake a recompile, or complete a task that no gate checked.
+ * A caller that can append these types can fake a settlement or a recompile, or move the design
+ * version. It can also pin any capsule, or write a completion row without `task_complete`.
  */
 export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'orchestrate.intent_executed',

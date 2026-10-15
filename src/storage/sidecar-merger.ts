@@ -1,6 +1,7 @@
 /**
  * Merges hook-event sidecar files (`{streamId}.hook-events.jsonl`) into the main
- * EventStore at startup. CLI hook subprocesses write these files.
+ * EventStore at startup. CLI hook subprocesses write these files. A sidecar line
+ * is a generic write, so the merge refuses each type that the generic append refuses.
  */
 
 import * as fs from 'node:fs/promises';
@@ -14,20 +15,23 @@ export interface MergeResult {
   readonly errors: number;
 }
 
+/**
+ * Tells whether the generic append refuses an event type. The caller supplies the check from the
+ * reserved append registry, so the storage layer does not import the registry.
+ */
+export type ReservedEventTypeCheck = (eventType: string) => boolean;
+
 const SIDECAR_SUFFIX = '.hook-events.jsonl';
 
 /**
- * Scan stateDir for `*.hook-events.jsonl` files and merge each into the
- * EventStore. Events with idempotency keys are deduplicated automatically
- * by the EventStore. Corrupt JSON lines are skipped with an error count.
- *
- * Sidecar files are deleted after successful processing (even if some
- * lines were corrupt — the valid ones are merged and corrupt ones are
- * counted in `errors`).
+ * Merges each `*.hook-events.jsonl` file in `stateDir` into the EventStore, and then deletes the
+ * file. The EventStore drops a repeated idempotency key. A corrupt line, or a line of a reserved
+ * type, appends no row and counts in `errors`. The other lines of the file still merge.
  */
 export async function mergeSidecarEvents(
   stateDir: string,
   eventStore: EventStore,
+  isReservedType: ReservedEventTypeCheck,
 ): Promise<MergeResult> {
   let entries: string[];
   try {
@@ -53,6 +57,7 @@ export async function mergeSidecarEvents(
       filePath,
       streamId,
       eventStore,
+      isReservedType,
     );
 
     totalMerged += merged;
@@ -67,12 +72,14 @@ export async function mergeSidecarEvents(
 
 /**
  * Append each line of one sidecar file to the EventStore. A line counts as merged
- * when the stream grows, and as skipped when idempotency drops it.
+ * when the stream grows, and as skipped when idempotency drops it. A line of a
+ * reserved type counts as an error and appends no row.
  */
 async function mergeOneSidecar(
   filePath: string,
   streamId: string,
   eventStore: EventStore,
+  isReservedType: ReservedEventTypeCheck,
 ): Promise<MergeResult> {
   let content: string;
   try {
@@ -104,7 +111,7 @@ async function mergeOneSidecar(
     const timestamp = parsed.timestamp as string | undefined;
     const idempotencyKey = parsed.idempotencyKey as string | undefined;
 
-    if (!type) {
+    if (!type || isReservedType(type)) {
       errors++;
       continue;
     }

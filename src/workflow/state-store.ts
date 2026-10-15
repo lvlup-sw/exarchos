@@ -613,25 +613,35 @@ export async function markTasksCompleteInStateDocument(
 /**
  * Rebuild workflow state from the event store.
  *
- * It merges the hook-event sidecar files first. With no state, it creates the
- * state from a `workflow.started` event, if one exists, with its time. Then it
- * folds the events after `_eventSequence` through
+ * It merges the hook-event sidecar files first. The merge refuses each reserved
+ * append type, as the generic append does. It imports the registry at call time.
+ *
+ * With no state, it creates the state from a `workflow.started` event, if one
+ * exists, with its time. Then it folds the events after `_eventSequence` through
  * `workflowStateProjection.apply`. It takes the phase from the last transition
- * event and hydrates `_events` for the guards. The backend version
- * can drift from `_version`. Thus a version conflict retries with the fresh
- * version and then writes without CAS, because reconcile is the recovery path.
+ * event and hydrates `_events` for the guards. The backend version can drift
+ * from `_version`. Thus a version conflict retries with the fresh version and
+ * then writes without CAS, because reconcile is the recovery path.
  */
 export async function reconcileFromEvents(
   stateDir: string,
   featureId: string,
   eventStore: EventStore,
 ): Promise<{ reconciled: boolean; eventsApplied: number }> {
-  await mergeSidecarEvents(stateDir, eventStore).catch((err) => {
-    logger.warn(
-      { err: err instanceof Error ? err.message : String(err) },
-      'Hook-event sidecar merge before reconcile failed — continuing with existing events',
-    );
-  });
+  await import('../registry.js')
+    .then(({ getReservedEventAppendRegistration }) =>
+      mergeSidecarEvents(
+        stateDir,
+        eventStore,
+        (type) => getReservedEventAppendRegistration(type) !== undefined,
+      ),
+    )
+    .catch((err) => {
+      logger.warn(
+        { err: err instanceof Error ? err.message : String(err) },
+        'Hook-event sidecar merge before reconcile failed — continuing with existing events',
+      );
+    });
 
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 

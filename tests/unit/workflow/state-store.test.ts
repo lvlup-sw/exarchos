@@ -376,6 +376,32 @@ describe('reconcileFromEvents query efficiency', () => {
     querySpy.mockRestore();
   });
 
+  /**
+   * Reconcile merges the hook-event sidecar files with the check of the reserved append registry.
+   * A sidecar line of a completion row appends no row, and a line of an appendable type merges.
+   */
+  it('reconcileFromEvents_SidecarLineOfAReservedType_AppendsNoRow', async () => {
+    await initStateFile(tmpDir, 'sidecar-reserved', 'feature');
+    await eventStore.append('sidecar-reserved', {
+      type: 'workflow.started',
+      data: { featureId: 'sidecar-reserved', workflowType: 'feature' },
+    });
+    const lines = [
+      { type: 'task.completed', data: { taskId: 'task-forged' } },
+      { type: 'team.task.completed', data: { taskId: 'task-ok' } },
+    ].map((line) => JSON.stringify(line));
+    await fs.writeFile(
+      path.join(tmpDir, 'sidecar-reserved.hook-events.jsonl'),
+      `${lines.join('\n')}\n`,
+      'utf-8',
+    );
+
+    await reconcileFromEvents(tmpDir, 'sidecar-reserved', eventStore);
+
+    const types = (await eventStore.query('sidecar-reserved')).map((e) => e.type);
+    expect(types).toEqual(['workflow.started', 'team.task.completed']);
+  });
+
   /** The test sets `state._version` far above the backend version, so the CAS write conflicts. Reconcile must recover and write the state. */
   it('reconcileFromEvents_VersionConflict_RetriesAndSucceeds', async () => {
     const backend = new InMemoryBackend();
