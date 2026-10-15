@@ -93,14 +93,14 @@ async function callCli(
 const STREAM_ID = 'parity-feature';
 
 const APPEND_EVENT = {
-  type: 'task.completed',
-  data: { taskId: 'parity-task-1' },
+  type: 'task.progressed',
+  data: { taskId: 'parity-task-1', tddPhase: 'green' },
 } as const;
 
 const BATCH_EVENTS = [
-  { type: 'task.completed', data: { taskId: 'parity-task-a' } },
-  { type: 'task.completed', data: { taskId: 'parity-task-b' } },
-  { type: 'task.completed', data: { taskId: 'parity-task-c' } },
+  { type: 'task.progressed', data: { taskId: 'parity-task-a', tddPhase: 'red' } },
+  { type: 'task.progressed', data: { taskId: 'parity-task-b', tddPhase: 'green' } },
+  { type: 'task.progressed', data: { taskId: 'parity-task-c', tddPhase: 'refactor' } },
 ] as const;
 
 describe('DR-3: exarchos_event CLI/MCP parity', () => {
@@ -155,7 +155,7 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
     const mcpResult = await callMcp(
       'exarchos_event',
       'query',
-      { stream: STREAM_ID, filter: { type: 'task.completed' }, limit: 10 },
+      { stream: STREAM_ID, filter: { type: 'task.progressed' }, limit: 10 },
       mcpHarness,
     );
 
@@ -164,7 +164,7 @@ describe('DR-3: exarchos_event CLI/MCP parity', () => {
       'query',
       [
         '--stream', STREAM_ID,
-        '--filter', JSON.stringify({ type: 'task.completed' }),
+        '--filter', JSON.stringify({ type: 'task.progressed' }),
         '--limit', '10',
       ],
       cliHarness,

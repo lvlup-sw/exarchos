@@ -45,7 +45,7 @@ Ends at: transition delegate -> review (`content/delivery/skills/delegate/SKILL.
 7. `exarchos_orchestrate.serialize_merge` (work, perTask, via mention) `content/delivery/skills/delegate/SKILL.md:596`
 8. `exarchos_orchestrate.check_integration_suite` (work) `content/delivery/skills/delegate/SKILL.md:513`
 9. `exarchos_orchestrate.check_operational_resilience` (work) `content/delivery/skills/delegate/SKILL.md:523`
-10. `exarchos_workflow.transition` (work) `content/delivery/skills/delegate/SKILL.md:776`
+10. `exarchos_workflow.transition` (work) `content/delivery/skills/delegate/SKILL.md:780`
 
 Exception `corrective-capsule`: a task is unresolved after settlement, so a fixer is dispatched and the task is settled in a new batch on the same capsule (`content/delivery/skills/delegate/SKILL.md:366`)
 
@@ -96,14 +96,14 @@ Exception `integration-advanced-rollback`: the rebase cannot be resolved, so the
 
 Ends at: task_complete records the task complete (`content/delivery/skills/delegate/SKILL.md:233`)
 
-1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:789`
+1. `exarchos_orchestrate.runbook` (runbook-fetch) `content/delivery/skills/delegate/SKILL.md:793`
 2. `exarchos_orchestrate.check_test_adequacy` (work, via runbook:task-completion#1) `src/runbooks/definitions.ts`
 3. `exarchos_orchestrate.check_contract_drift` (work, via runbook:task-completion#2) `src/runbooks/definitions.ts`
 4. `exarchos_orchestrate.check_mock_boundary` (work, via runbook:task-completion#3) `src/runbooks/definitions.ts`
 5. `exarchos_orchestrate.check_static_analysis` (work, via runbook:task-completion#4) `src/runbooks/definitions.ts`
 6. `exarchos_orchestrate.task_complete` (work, via runbook:task-completion#5) `src/runbooks/definitions.ts`
 
-Exception `gate-failure-fix`: a blocking gate fails, so a fixer is dispatched and the task-fix chain runs (`content/delivery/skills/delegate/SKILL.md:805`)
+Exception `gate-failure-fix`: a blocking gate fails, so a fixer is dispatched and the task-fix chain runs (`content/delivery/skills/delegate/SKILL.md:809`)
 
 - Runs the normal path through `exarchos_orchestrate.check_static_analysis`, adds `native:SUBAGENT_RESULT_API`, `native:SPAWN_AGENT_CALL`, `exarchos_orchestrate.runbook`, `exarchos_orchestrate.check_test_adequacy`, `exarchos_orchestrate.check_static_analysis`, `exarchos_orchestrate.task_complete`.
 - Exarchos 7; describe 0; runbook fetch 2; harness 2.
@@ -177,7 +177,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 - Registry: 127 actions over 5 tools (4 visible), action ids sha256 `912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `tools/audit/registered-actions-snapshot.json`.
 - Contract authority `action-id-registry` digest `sha256:912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `src/contract/contract-authority.lock.json`.
-- `content/delivery/skills/delegate/SKILL.md` sha256 `e8ba391e76a70095fbe694bf26c28e74fcf2ba325acd0c4534cfa33a6cd14a0b`
+- `content/delivery/skills/delegate/SKILL.md` sha256 `8fcf044d0b771b272c362f5f06d7506c7134992e4a6d9e5d51c2aebb83aff6e0`
 - `content/design/skills/plan/SKILL.md` sha256 `9d3591bf30492e6f36be249da667fc37b396e47964e9eb6d11d043ed8066696d`
 - `content/review/skills/review/SKILL.md` sha256 `89c98a89c52e0c3c446de6426a0905b6a690ed4091a84e93f2f1076e24ad0aa2`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `22c020a7069bbd9a5ec0ee443a8599af683eb830441e38c442db4d4307b66960`

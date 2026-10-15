@@ -63,6 +63,9 @@ function mergeOrchestratorPhaseNotExcluded(state: Record<string, unknown>): bool
  * Guard for `delegate → merge-pending`: fires when the most recent
  * `task.completed` carries a worktree association AND the merge orchestrator
  * has not already terminated for this feature.
+ *
+ * The completion row is reserved. Thus the expected shape names its gated
+ * writer, `task_complete` with the worktree in its result, and no event append.
  */
 const mergePendingEntry: Guard = {
   id: 'merge-pending-entry',
@@ -75,7 +78,10 @@ const mergePendingEntry: Guard = {
         reason:
           'merge-pending-entry not satisfied: latest task.completed event lacks data.worktree / data.worktreePath',
         expectedShape: {
-          _events: [{ type: 'task.completed', data: { worktree: '<worktree-path>' } }],
+          'task.completed': {
+            writtenBy: 'exarchos_orchestrate task_complete',
+            result: { worktree: '<worktree-path>' },
+          },
         },
       };
     }

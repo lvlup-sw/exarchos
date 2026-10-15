@@ -441,7 +441,7 @@ When a task fails — a subagent reports failure, or settlement leaves the task 
 1. Read the failure output from the runtime's result-collection primitive (`Task() reply (inline, no poll)`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
-4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, unless the stream already shows it complete. Such a task comes back `already-complete`, and no gate runs again. A complete task needs no claim. To rework a complete task, plan a new task (Rollback procedure, below)
 
 A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status `failed` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more `settle` call for the correction. Use the status `blocked` or `skipped` in the same way for a task that waits or that no worker ran.
 
@@ -689,9 +689,13 @@ still fails after rebase:
    git reset --hard "$(cat /tmp/rollback.sha)"
    ```
 
-2. **Mark the task `failed`** in workflow state and dispatch a fixer (see
-   the Failure Recovery section above). Do **not** delete the worktree —
-   the fixer needs the original branch state to diagnose the conflict.
+2. **Plan the rework as a new task.** The task is already complete on the
+   stream: its completion row started this merge. A claim on it comes back
+   `already-complete`, and no gate runs again. Finished work is not
+   reopened. Add a new task for the rework to the plan, run `prepare`, and
+   dispatch a fixer for the new task (see the Failure Recovery section
+   above). Do **not** delete the worktree — the fixer needs the original
+   branch state to diagnose the conflict.
 
 3. **Record the incident** by emitting a `merge.aborted` event with
    `reason: "ancestry-rebase-conflict"` and the failing branch's pre-rebase

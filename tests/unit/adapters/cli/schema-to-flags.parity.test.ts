@@ -194,7 +194,7 @@ const TOOL_FIXTURES: ReadonlyArray<ToolFixture> = [
     wrongTypeField: 'stream',
     wrongTypeValue: 42,
     /** `event` is also required. A valid event keeps `stream` as the only failure. */
-    validExtras: { event: { type: 'task.completed', data: { taskId: 't-1' } } },
+    validExtras: { event: { type: 'task.progressed', data: { taskId: 't-1', tddPhase: 'green' } } },
     fieldPattern: /stream/i,
   },
   {

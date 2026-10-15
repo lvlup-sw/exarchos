@@ -87,6 +87,15 @@ export interface ReservedEventAppendRegistration {
 }
 
 /**
+ * The typed writer of each reserved type that has one. The refusal of a generic append names it.
+ * A completion row has a gated writer, so the refusal points the caller at `task_complete`.
+ */
+const TYPED_APPEND_HANDLERS: ReadonlyMap<string, string> = new Map([
+  ['admission.disagreement-disposition', 'handleAdmissionDisagreementDisposition'],
+  ['task.completed', 'task_complete'],
+]);
+
+/**
  * The server-owned catalog of reserved admission event types. It controls which untrusted write
  * surfaces can mint a fact. `EVENT_EMISSION_REGISTRY` is separate, and it classifies replay and
  * emission.
@@ -103,15 +112,10 @@ export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
     ...INTERNAL_CANCELLATION_EVENT_TYPES,
     ...INTERNAL_VCS_LEDGER_EVENT_TYPES,
     ...INTERNAL_EXECUTION_LEDGER_EVENT_TYPES,
-  ].map((eventType) => [
-    eventType,
-    {
-      eventType,
-      ...(eventType === 'admission.disagreement-disposition'
-        ? { typedHandler: 'handleAdmissionDisagreementDisposition' }
-        : {}),
-    },
-  ]),
+  ].map((eventType) => {
+    const typedHandler = TYPED_APPEND_HANDLERS.get(eventType);
+    return [eventType, { eventType, ...(typedHandler !== undefined ? { typedHandler } : {}) }];
+  }),
 );
 
 export function getReservedEventAppendRegistration(

@@ -31,23 +31,27 @@ function storedEvents(result: ToolResult): Array<Record<string, unknown>> {
 }
 
 /**
- * The measured kill fixture (2026-08-07, stream `internal-mechanics-overhaul`, sequences 152 to
- * 157). `task.completed` registers `evidence` as an object. Six events with a string `evidence`
- * reached the store through `batch_append`, and `append` rejected the same payload.
+ * The shape of the measured kill fixture (2026-08-07, stream `internal-mechanics-overhaul`,
+ * sequences 152 to 157): a string where the schema registers an object. Six such events reached the
+ * store through `batch_append`, and `append` rejected the same payload. The fixture then used
+ * `task.completed`, which the generic surface now refuses as reserved. Thus the cases use the
+ * object field `diagnostics` of `task.failed`, which a caller can still append.
  */
-const STRING_EVIDENCE_EVENT = {
-  type: 'task.completed',
+const STRING_DIAGNOSTICS_EVENT = {
+  type: 'task.failed',
   data: {
     taskId: 'task-071',
-    evidence: 'all tests pass',
+    error: 'lint failed',
+    diagnostics: 'all tests pass',
   },
 } as const;
 
 const WELL_FORMED_EVENT = {
-  type: 'task.completed',
+  type: 'task.failed',
   data: {
     taskId: 'task-071',
-    evidence: { type: 'test', output: 'ok', passed: true },
+    error: 'lint failed',
+    diagnostics: { exitCode: 1 },
   },
 } as const;
 
@@ -55,14 +59,14 @@ describe('batch_append event-data validation (DR-1)', () => {
   /** The store is authoritative and events are immutable, so an invalid event must not land. */
   it('BatchAppend_EventWithSchemaViolatingData_IsRejected', async () => {
     const result = await handleBatchAppend(
-      { stream: 'kill-fixture', events: [{ ...STRING_EVIDENCE_EVENT }] },
+      { stream: 'kill-fixture', events: [{ ...STRING_DIAGNOSTICS_EVENT }] },
       tempDir,
       eventStore,
     );
 
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('VALIDATION_ERROR');
-    expect(result.error?.message).toContain('evidence');
+    expect(result.error?.message).toContain('diagnostics');
 
     const query = await handleEventQuery({ stream: 'kill-fixture' }, tempDir, eventStore);
     expect(storedEvents(query)).toHaveLength(0);
@@ -80,7 +84,7 @@ describe('batch_append event-data validation (DR-1)', () => {
         stream: 'atomicity',
         events: [
           { ...WELL_FORMED_EVENT, data: { ...WELL_FORMED_EVENT.data, taskId: 'before' } },
-          { ...STRING_EVIDENCE_EVENT },
+          { ...STRING_DIAGNOSTICS_EVENT },
           { ...WELL_FORMED_EVENT, data: { ...WELL_FORMED_EVENT.data, taskId: 'after' } },
         ],
       },
@@ -122,7 +126,7 @@ describe('batch_append event-data validation (DR-1)', () => {
         stream: 'dedup-data',
         events: [
           { ...WELL_FORMED_EVENT, idempotencyKey: 'dup-key-2' },
-          { ...STRING_EVIDENCE_EVENT, idempotencyKey: 'dup-key-2' },
+          { ...STRING_DIAGNOSTICS_EVENT, idempotencyKey: 'dup-key-2' },
         ],
       },
       tempDir,
@@ -167,29 +171,27 @@ describe('batch_append event-data validation (DR-1)', () => {
   /** The length check fails a run that compares zero payloads. */
   it('AppendAndBatchAppend_IdenticalPayload_AgreeOnValidity', async () => {
     const payloads: ReadonlyArray<{ label: string; event: Record<string, unknown> }> = [
-      { label: 'string-evidence', event: { ...STRING_EVIDENCE_EVENT } },
+      { label: 'string-diagnostics', event: { ...STRING_DIAGNOSTICS_EVENT } },
       { label: 'well-formed', event: { ...WELL_FORMED_EVENT } },
       {
-        label: 'evidence-missing-passed',
-        event: {
-          type: 'task.completed',
-          data: { taskId: 't', evidence: { type: 'test', output: 'ok' } },
-        },
+        label: 'error-over-limit',
+        event: { type: 'task.failed', data: { taskId: 't', error: 'x'.repeat(501) } },
       },
       {
-        label: 'evidence-bad-enum',
-        event: {
-          type: 'task.completed',
-          data: { taskId: 't', evidence: { type: 'vibes', output: 'ok', passed: true } },
-        },
+        label: 'missing-required-error',
+        event: { type: 'task.failed', data: { taskId: 't' } },
       },
       {
         label: 'missing-required-taskId',
-        event: { type: 'task.completed', data: { verified: true } },
+        event: { type: 'task.failed', data: { error: 'lint failed' } },
       },
       {
         label: 'unknown-event-type',
         event: { type: 'not.a.real.event.type', data: {} },
+      },
+      {
+        label: 'reserved-completion-row',
+        event: { type: 'task.completed', data: { taskId: 't' } },
       },
     ];
 

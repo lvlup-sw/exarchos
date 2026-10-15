@@ -1863,4 +1863,57 @@ describe('prepare then settle, through the dispatcher', () => {
     });
     expect(await rowsOf('capsule.recompiled')).toEqual([]);
   });
+
+  /**
+   * Settlement takes a completion row as the result of a required task, and it runs no gate for
+   * that task again. If a generic surface can write the row, a caller can complete a task that no
+   * gate checked. The append, the batch append and a write of `_events` through `update` refuse
+   * it and leave no row. The gated writer `task_complete` still writes it after the gate passed.
+   */
+  it('PrepareSettle_ACompletionRow_CannotBeAppendedByAnyoneButTaskComplete', async () => {
+    await seedDelegatingFeature();
+    const row = { type: 'task.completed', data: { taskId: 'task-a', worktreePath: greenWorktree } };
+
+    const appended = await call('exarchos_event', { action: 'append', stream: STREAM, event: row });
+    expect(appended).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'task.completed', registeredHandler: 'task_complete' },
+    });
+
+    const batched = await call('exarchos_event', {
+      action: 'batch_append',
+      stream: STREAM,
+      events: [{ type: 'task.progressed', data: { taskId: 'task-a', tddPhase: 'green' } }, row],
+    });
+    expect(batched).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'task.completed', batchIndex: 1 },
+    });
+
+    const patched = await call('exarchos_workflow', {
+      action: 'update',
+      featureId: STREAM,
+      updates: { _events: [row] },
+    });
+    expect(patched).toMatchObject({ success: false, error: { code: 'RESERVED_FIELD' } });
+    expect(await rowsOf('task.completed')).toEqual([]);
+    expect(await rowsOf('task.progressed')).toEqual([]);
+
+    const gate = await call('exarchos_orchestrate', {
+      action: 'check_static_analysis',
+      featureId: STREAM,
+      taskId: 'task-a',
+      repoRoot: greenWorktree,
+    });
+    expect(gate.success, JSON.stringify(gate)).toBe(true);
+    const completed = await call('exarchos_orchestrate', {
+      action: 'task_complete',
+      featureId: STREAM,
+      taskId: 'task-a',
+      result: { worktreePath: greenWorktree },
+    });
+    expect(completed.success, JSON.stringify(completed)).toBe(true);
+    const rows = (await rowsOf('task.completed')) as { data: { taskId: string; worktreePath: string } }[];
+    expect(rows.map((event) => [event.data.taskId, event.data.worktreePath])).toEqual([['task-a', greenWorktree]]);
+  });
 });
