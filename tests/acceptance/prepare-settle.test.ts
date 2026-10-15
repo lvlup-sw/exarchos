@@ -7,26 +7,23 @@
 //
 // `settle` accepts the capsule from `prepare` by version, and answers a retry of the same batch
 // from the claim. It refuses an edited capsule, and only `prepare` can write the prepared record.
-// To settle a batch, `settle` runs the production static-analysis gate on a real project and
-// persists the verdict. The tasks are then complete on the stream, in the projection and on the
-// state document, so the guards admit the next transition. When the lint of the project fails,
-// the same call leaves the task unresolved and names the halt.
-//
-// The tasks are low-risk and off the boundary, so the ladder runs static analysis only. Policy
-// skips the kill probe, the contract-drift gate and the mock-boundary gate. No test needs a git
-// repository.
+// Most tasks are low-risk and off the boundary. The ladder then runs the production static-analysis
+// gate on a real project, and policy skips the other gates. One case puts two tasks at the medium
+// tier in real git worktrees, so the shipped runbook also runs the kill probe. The cases turn
+// telemetry off, and one twin case keeps the shipped default.
 //
 // @oracle-sources: ../../src/verbs/prepare/handler.ts, the settlement record and bundle blobs counted out of the real event store and content-addressed store after each dispatched call
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readdir, realpath, stat, writeFile } from 'node:fs/promises';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, readdir, realpath, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
 import { contentDigest } from '../../src/contract/capsule/capsule-digest.js';
 import { ExarchosCapsuleV1Schema } from '../../src/contract/capsule/exarchos-capsule.js';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
-import { dispatch } from '../../src/dispatch/core/dispatch.js';
+import { dispatch, type DispatchContext } from '../../src/dispatch/core/dispatch.js';
+import { TELEMETRY_STREAM } from '../../src/dispatch/core/infra-streams.js';
 import {
   CapsuleRecompiledData,
   DesignRevisedData,
@@ -37,11 +34,13 @@ import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
 import { lowerBuiltInDefinition } from '../../src/verbs/prepare/lower-definition.js';
 import { commitPreparedCapsule, decodePreparedBundle } from '../../src/verbs/prepare/prepared-record.js';
+import { SETTLEMENT_OUTCOME_RULES } from '../../src/verbs/settle/adjudicate.js';
 import { MAX_DELEGATED_DECISION_ID_LENGTH } from '../../src/verbs/settle/claim-codec.js';
 import { decodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
+import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'feat-prepare-settle-acceptance';
@@ -81,34 +80,48 @@ afterEach(async () => {
   for (const dir of scratchDirs.splice(0)) await rmrfAsync(dir);
 });
 
-function callerContext() {
+/**
+ * The dispatch context of an agent. Telemetry is off unless a case asks for the shipped default,
+ * so most cases read only the rows of the call under test.
+ */
+function callerContext(options: { readonly telemetry?: boolean } = {}): DispatchContext {
   return {
     stateDir,
     eventStore,
-    enableTelemetry: false,
+    enableTelemetry: options.telemetry ?? false,
     callerIdentity: deriveMcpCallerIdentity({ sessionId: 'prepare-settle-acceptance' }),
     capabilityResolver: createInMemoryResolver(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec']),
   };
 }
 
-async function call(tool: string, args: Record<string, unknown>): Promise<{
-  success: boolean;
-  data?: unknown;
-  error?: { code?: string; message?: string };
-}> {
-  return (await dispatch(tool, args, callerContext())) as {
-    success: boolean;
-    data?: unknown;
-    error?: { code?: string; message?: string };
-  };
+interface CallResult {
+  readonly success: boolean;
+  readonly data?: unknown;
+  readonly error?: { readonly code?: string; readonly message?: string };
 }
 
+async function call(tool: string, args: Record<string, unknown>, context: DispatchContext = callerContext()): Promise<CallResult> {
+  return (await dispatch(tool, args, context)) as CallResult;
+}
+
+/** One task of the plan, as the planner stamps it. */
+interface PlannedTask {
+  readonly id: string;
+  readonly title: string;
+  readonly status: string;
+  readonly blockedBy: readonly string[];
+  readonly riskTier: 'low' | 'medium' | 'high';
+  readonly boundaryTouching: boolean;
+}
+
+/** The branch that each task forks from. `prepare` freezes it in the capsule as the base of the kill probe. */
+const INTEGRATION_BRANCH = 'feature/prepare-settle';
+
 /** Stamped by the planner: low risk, off the boundary, so static analysis is the whole ladder. */
-const STAMP = { riskTier: 'low', boundaryTouching: false } as const;
-const TASKS = [
-  { id: 'task-a', title: 'first', status: 'pending', blockedBy: [], ...STAMP },
-  { id: 'task-b', title: 'second', status: 'pending', blockedBy: [], ...STAMP },
-  { id: 'task-c', title: 'third', status: 'pending', blockedBy: [], ...STAMP },
+const TASKS: readonly PlannedTask[] = [
+  { id: 'task-a', title: 'first', status: 'pending', blockedBy: [], riskTier: 'low', boundaryTouching: false },
+  { id: 'task-b', title: 'second', status: 'pending', blockedBy: [], riskTier: 'low', boundaryTouching: false },
+  { id: 'task-c', title: 'third', status: 'pending', blockedBy: [], riskTier: 'low', boundaryTouching: false },
 ];
 
 /**
@@ -120,7 +133,7 @@ const TASKS = [
  * marks the document as event-sourced, as `init` does, so the action also appends the patch.
  */
 async function seedDelegatingFeature(
-  tasks: readonly (typeof TASKS)[number][] = TASKS,
+  tasks: readonly PlannedTask[] = TASKS,
   document: Readonly<Record<string, unknown>> = {},
 ): Promise<void> {
   await initStateFile(stateDir, STREAM, 'feature', {
@@ -132,7 +145,7 @@ async function seedDelegatingFeature(
   await eventStore.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await eventStore.append(STREAM, {
     type: 'state.patched',
-    data: { patch: { 'synthesis.integrationBranch': 'feature/prepare-settle', tasks } },
+    data: { patch: { 'synthesis.integrationBranch': INTEGRATION_BRANCH, tasks } },
   });
 }
 
@@ -188,22 +201,55 @@ async function settlementRecords(): Promise<ReturnType<typeof ExecutionSettledDa
 }
 
 /**
- * Sends a `settle` call a second time and compares the answer with the first one.
- * A replay returns the receipt that the first call persisted. It appends no row to the stream and
- * writes no blob, so the tail of the stream does not move.
+ * The row types that a `settle` call writes, and the two that `prepare` writes for the capsule of
+ * a batch. A replay of a batch appends none of them.
  */
-async function expectReplayReturnsTheReceiptAndAppendsNothing(
+const SETTLE_OWNED_ROW_TYPES: readonly string[] = [
+  'execution.settled',
+  'deviation.proposed',
+  'deviation.decided',
+  'design.revised',
+  'task.completed',
+  'workflow.prepared',
+  'capsule.recompiled',
+];
+
+/**
+ * Whether a row of the feature stream is a telemetry row. Under the shipped default the telemetry
+ * wrapper of the dispatcher runs the emissions check after each call, and the check appends this
+ * gate row. The row is older than the settlement vocabulary, and it is by design.
+ */
+function isTelemetryRow(event: { readonly type: string; readonly data?: unknown }): boolean {
+  const data: { readonly gateName?: unknown } =
+    typeof event.data === 'object' && event.data !== null ? event.data : {};
+  return event.type === 'gate.executed' && data.gateName === 'event-emissions';
+}
+
+/**
+ * Sends a `settle` call a second time and compares the answer with the first one.
+ * A replay returns the receipt that the first call persisted. The `settle` action appends no row
+ * and writes no blob, so no row of a settle-owned type is new. With telemetry off the tail of the
+ * stream does not move. With the shipped default each new row is a telemetry row.
+ */
+async function expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(
   args: Readonly<Record<string, unknown>>,
   first: { readonly data?: unknown },
+  context: DispatchContext = callerContext(),
 ): Promise<void> {
-  const tail = (await eventStore.query(STREAM)).map((event) => [event.sequence, event.type]);
+  const before = await eventStore.query(STREAM);
+  const owned = (events: readonly { readonly sequence: number; readonly type: string }[]): unknown[] =>
+    events.filter((event) => SETTLE_OWNED_ROW_TYPES.includes(event.type)).map((event) => [event.sequence, event.type]);
   const blobs = await blobCount();
-  expect(tail.length).toBeGreaterThan(0);
+  expect(before.length).toBeGreaterThan(0);
 
-  const replayed = await call('exarchos_orchestrate', { ...args });
+  const replayed = await call('exarchos_orchestrate', { ...args }, context);
   expect(replayed.success, JSON.stringify(replayed)).toBe(true);
   expect(replayed.data).toEqual(first.data);
-  expect((await eventStore.query(STREAM)).map((event) => [event.sequence, event.type])).toEqual(tail);
+  const after = await eventStore.query(STREAM);
+  expect(owned(after)).toEqual(owned(before));
+  const added = after.slice(before.length);
+  expect(added.filter((event) => !isTelemetryRow(event)).map((event) => event.type)).toEqual([]);
+  if (!context.enableTelemetry) expect(added.map((event) => event.type)).toEqual([]);
   expect(await blobCount()).toBe(blobs);
 }
 
@@ -298,6 +344,156 @@ const EARLIER_COMPILER_VERSION = 'exarchos-prepare-1';
  */
 const EARLIER_DESIGN_VERSION_ID = `design-${contentDigest(null).slice(0, 16)}`;
 
+/** Runs one git command in a directory and returns its output. */
+function git(cwd: string, args: readonly string[]): Promise<string> {
+  return execFileAsync('git', [...args], { cwd });
+}
+
+/** Writes one file of a fixture, and makes its directory first. */
+async function writeFixtureFile(root: string, file: string, text: string): Promise<void> {
+  await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+  await writeFile(path.join(root, file), text, 'utf-8');
+}
+
+/** A test file for `node --test` that imports one source module and asserts one thing about it. */
+function nodeTestFile(module: string, assertion: string): string {
+  return (
+    `import { test } from 'node:test';\nimport assert from 'node:assert';\n` +
+    `import { value } from '../src/${module}.js';\n\ntest('${module}', () => {\n  ${assertion}\n});\n`
+  );
+}
+
+/** The scripts of the medium-tier project. The kill probe runs `test:run`, and static analysis runs the other three. */
+const MEDIUM_TIER_SCRIPTS = { 'test:run': 'node --test', lint: OK, typecheck: OK, 'quality-check': OK };
+
+/** The worktree of each task of the medium-tier batch. */
+interface MediumTierWorktrees {
+  /** The first task. Its test fails when its source change is reverted. */
+  readonly passing: string;
+  /** The second task. Its test asserts nothing, so it passes on the reverted source. */
+  readonly vacuous: string;
+}
+
+/**
+ * A real repository whose integration branch holds two source modules, and one git worktree for
+ * each task. Each worktree checks out a task branch that forks from the integration branch. Each
+ * task changes its module and commits a test. The test of the first task asserts the change, and
+ * the test of the second task asserts nothing.
+ */
+async function mediumTierWorktrees(): Promise<MediumTierWorktrees> {
+  const parent = await realpath(await mkdtemp(path.join(tmpdir(), 'prepare-settle-medium-')));
+  scratchDirs.push(parent);
+  const repo = path.join(parent, 'repo');
+  await mkdir(repo);
+  await git(repo, ['init', '-q', '--initial-branch=main']);
+  await git(repo, ['config', 'user.email', 'test@example.com']);
+  await git(repo, ['config', 'user.name', 'Test']);
+  await git(repo, ['config', 'commit.gpgsign', 'false']);
+  const manifest = { name: 'prepare-settle-medium', private: true, type: 'module', scripts: MEDIUM_TIER_SCRIPTS };
+  await writeFixtureFile(repo, 'package.json', JSON.stringify(manifest, null, 2));
+  await writeFixtureFile(repo, 'src/a.js', 'export function value() {\n  return 1;\n}\n');
+  await writeFixtureFile(repo, 'src/b.js', 'export function value() {\n  return 1;\n}\n');
+  await git(repo, ['add', '.']);
+  await git(repo, ['commit', '-q', '-m', 'the integration branch']);
+  await git(repo, ['branch', INTEGRATION_BRANCH]);
+
+  const worktreeOf = async (taskId: string, module: string, assertion: string): Promise<string> => {
+    const worktree = path.join(parent, taskId);
+    await git(repo, ['worktree', 'add', '-q', '-b', taskId, worktree, INTEGRATION_BRANCH]);
+    await writeFixtureFile(worktree, `src/${module}.js`, 'export function value() {\n  return 2;\n}\n');
+    await writeFixtureFile(worktree, `test/${module}.test.js`, nodeTestFile(module, assertion));
+    await git(worktree, ['add', '.']);
+    await git(worktree, ['commit', '-q', '-m', `${taskId}: ${module} returns 2`]);
+    return worktree;
+  };
+  return {
+    passing: await worktreeOf('task-a', 'a', 'assert.strictEqual(value(), 2);'),
+    vacuous: await worktreeOf('task-b', 'b', 'assert.ok(true);'),
+  };
+}
+
+/**
+ * The gate verdicts of the stream for one task, in commit order. Each is the gate name and the verdict
+ * of its row. A gate that policy skips gives the cause of the skip in place of its verdict.
+ */
+async function gateVerdictsOf(taskId: string): Promise<unknown[][]> {
+  const verdicts: unknown[][] = [];
+  for (const event of await eventStore.query(STREAM, { type: 'gate.executed' })) {
+    const data: {
+      readonly gateName?: unknown;
+      readonly details?: { readonly taskId?: unknown; readonly verdict?: unknown; readonly discriminant?: unknown };
+    } = typeof event.data === 'object' && event.data !== null ? event.data : {};
+    if (data.details?.taskId !== taskId) continue;
+    verdicts.push([data.gateName, data.details.discriminant ?? data.details.verdict]);
+  }
+  return verdicts;
+}
+
+/** The form of one request list in a `settle` call: `a` is absent, `e` is empty and `f` holds entries. */
+type ListForm = 'a' | 'e' | 'f';
+
+/** What one cell of the three request lists gives: a mode and its outcome, or a refusal and a part of its message. */
+type CellAnswer =
+  | { readonly mode: 'submission' | 'decision'; readonly outcome: string }
+  | { readonly refusal: string; readonly says: string };
+
+/** A submission with no claim is refused, also when it carries a deviation. */
+const CLAIMLESS: CellAnswer = { refusal: 'INVALID_INPUT', says: 'carries no claim' };
+/** An empty decision list is refused before the other two lists are read. */
+const NO_DECISION: CellAnswer = { refusal: 'INVALID_INPUT', says: 'decisions must name at least one pending deviation' };
+/** A decision round that also carries claims or deviations is refused. */
+const DECISIONS_ONLY: CellAnswer = { refusal: 'INVALID_INPUT', says: 'a decision round carries decisions only' };
+
+/**
+ * The answer of each cell, keyed by the forms of `claims`, `deviations` and `decisions`, in that
+ * order. The table is written here apart from the handler. Three cells adjudicate a submission, one
+ * cell decides a held batch, and the other 23 cells are refused before any effect.
+ */
+const LIST_PRESENCE_CELLS: Readonly<Record<`${ListForm}${ListForm}${ListForm}`, CellAnswer>> = {
+  aaa: CLAIMLESS,
+  aea: CLAIMLESS,
+  afa: CLAIMLESS,
+  eaa: CLAIMLESS,
+  eea: CLAIMLESS,
+  efa: CLAIMLESS,
+  faa: { mode: 'submission', outcome: 'settled' },
+  fea: { mode: 'submission', outcome: 'settled' },
+  ffa: { mode: 'submission', outcome: 'deviation-pending' },
+  aae: NO_DECISION,
+  aee: NO_DECISION,
+  afe: NO_DECISION,
+  eae: NO_DECISION,
+  eee: NO_DECISION,
+  efe: NO_DECISION,
+  fae: NO_DECISION,
+  fee: NO_DECISION,
+  ffe: NO_DECISION,
+  aaf: { mode: 'decision', outcome: 'settled' },
+  aef: DECISIONS_ONLY,
+  aff: DECISIONS_ONLY,
+  eaf: DECISIONS_ONLY,
+  eef: DECISIONS_ONLY,
+  eff: DECISIONS_ONLY,
+  faf: DECISIONS_ONLY,
+  fef: DECISIONS_ONLY,
+  fff: DECISIONS_ONLY,
+};
+
+/** The forms of `claims`, `deviations` and `decisions` that the key of a cell names. */
+function formsOf(cell: string): readonly [ListForm, ListForm, ListForm] {
+  const formAt = (index: number): ListForm => {
+    const letter = cell[index];
+    return letter === 'e' || letter === 'f' ? letter : 'a';
+  };
+  return [formAt(0), formAt(1), formAt(2)];
+}
+
+/** One request list in the given form: no key, an empty list, or the given entries. */
+function listIn(form: ListForm, key: string, entries: readonly unknown[]): Record<string, unknown> {
+  if (form === 'a') return {};
+  return { [key]: form === 'e' ? [] : entries };
+}
+
 describe('prepare then settle, through the dispatcher', () => {
   /**
    * `prepare` announces its tasks with `task.assigned`, and no earlier call does. The capsule
@@ -355,12 +551,43 @@ describe('prepare then settle, through the dispatcher', () => {
     const retried = await call('exarchos_orchestrate', args);
 
     expect(retried.data).toEqual(first.data);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(args, first);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(args, first);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
     expect(await rowsOf('task.assigned')).toHaveLength(3);
     expect(await rowsOf('task.completed')).toHaveLength(3);
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(3);
     expect(await blobCount()).toBe(blobs);
+  });
+
+  /**
+   * The twin of the retry under the shipped telemetry default. The dispatcher then wraps each call.
+   * The wrapper appends its counters to the telemetry stream, and its emissions check appends a gate
+   * row to the feature stream. A retry of a settled batch returns the persisted receipt. The `settle`
+   * action appends no row, so each new row of the feature stream is a telemetry row.
+   */
+  it('PrepareSettle_ARetryUnderTheShippedTelemetryDefault_AddsOnlyTelemetryRows', async () => {
+    await seedDelegatingFeature();
+    const shipped = callerContext({ telemetry: true });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM }, shipped);
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const { capsuleVersion } = prepared.data as PreparedReceipt;
+    const args = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1', claims: completedClaims() };
+    const first = await call('exarchos_orchestrate', args, shipped);
+    expect(first.data).toMatchObject({ outcome: 'settled', acceptedTasks: ['task-a', 'task-b', 'task-c'] });
+
+    const telemetryRowsOf = async (): Promise<number> => (await eventStore.query(STREAM)).filter(isTelemetryRow).length;
+    await vi.waitFor(async () => expect(await telemetryRowsOf()).toBeGreaterThanOrEqual(2), { timeout: 10_000 });
+    const counters = (await eventStore.query(TELEMETRY_STREAM)).length;
+    const emissionRows = await telemetryRowsOf();
+
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(args, first, shipped);
+    expect((await eventStore.query(TELEMETRY_STREAM)).length).toBeGreaterThan(counters);
+    await vi.waitFor(async () => expect(await telemetryRowsOf()).toBeGreaterThan(emissionRows), { timeout: 10_000 });
+    const after = await eventStore.query(STREAM);
+    expect(after.filter((event) => SETTLE_OWNED_ROW_TYPES.includes(event.type)).map((event) => event.type).sort()).toEqual(
+      ['execution.settled', 'task.completed', 'task.completed', 'task.completed', 'workflow.prepared'].sort(),
+    );
+    expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(3);
   });
 
   /**
@@ -450,7 +677,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(heldReceipt.pendingDeviations).toHaveLength(1);
     expect(await rowsOf('deviation.proposed')).toHaveLength(1);
     expect(await rowsOf('task.completed')).toEqual([]);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(heldBatch, held);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(heldBatch, held);
     expect(await rowsOf('deviation.proposed')).toHaveLength(1);
     expect(await rowsOf('orchestrate.intent_executed')).toEqual([]);
 
@@ -476,8 +703,8 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(decided.data).not.toHaveProperty('designRevision');
     const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
     expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(decision, decided);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(heldBatch, held);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(decision, decided);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(heldBatch, held);
 
     const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
     expect(moved.success, JSON.stringify(moved)).toBe(true);
@@ -508,7 +735,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await rowsOf('orchestrate.intent_executed')).toEqual([]);
     expect(await rowsOf('task.completed')).toEqual([]);
 
-    await expectReplayReturnsTheReceiptAndAppendsNothing(wrongBatch, settled);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(wrongBatch, settled);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
     expect(await rowsOf('orchestrate.intent_executed')).toEqual([]);
     expect(await rowsOf('task.completed')).toEqual([]);
@@ -641,7 +868,7 @@ describe('prepare then settle, through the dispatcher', () => {
         { id: 'task-c', status: 'complete' },
       ],
     });
-    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, first);
 
     const early = await call('exarchos_workflow', moveToReview);
     expect(early.success, JSON.stringify(early)).toBe(false);
@@ -681,13 +908,134 @@ describe('prepare then settle, through the dispatcher', () => {
       'gate.executed': 8,
       'task.completed': 1,
     });
-    await expectReplayReturnsTheReceiptAndAppendsNothing(correction, corrected);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(correction, corrected);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, first);
 
     const moved = await call('exarchos_workflow', moveToReview);
     expect(moved.success, JSON.stringify(moved)).toBe(true);
     const transitions = (await eventStore.query(STREAM)).filter((event) => event.type === 'workflow.transition');
     expect(transitions.at(-1)?.data).toMatchObject({ to: 'review' });
+  });
+
+  /**
+   * Two medium-tier tasks in git worktrees go through the shipped runbook. The test of the first task
+   * fails on the reverted source, so its probe passes. The test of the second asserts nothing, so its
+   * probe halts the segment with a gate verdict. The receipt and the record name the halted task, its
+   * cause and its leaf. Only the first task is complete on the stream and on the state document.
+   * The next call is a correction, so the guard refuses the transition until a batch built from the
+   * unresolved list settles.
+   *
+   * Limit: the probe counts each failed run of the test command as a kill. It cannot tell a failed
+   * assertion from a run that collected no test, so this case does not prove the difference.
+   */
+  it('PrepareSettle_AMediumTierBatchThroughTheShippedRunbook_CompletesThePassingTaskAndCorrectsTheHaltedOne', async () => {
+    const [first, second] = TASKS;
+    if (first === undefined || second === undefined) throw new Error('the plan holds two tasks');
+    await seedDelegatingFeature([first, second].map((task): PlannedTask => ({ ...task, riskTier: 'medium' })));
+    const worktrees = await mediumTierWorktrees();
+    await execFileAsync(process.execPath, ['--test', 'test/a.test.js'], { cwd: worktrees.passing });
+    const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const { capsuleVersion, capsule } = prepared.data as PreparedReceipt;
+    const terms = { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH };
+    expect(ExarchosCapsuleV1Schema.parse(capsule).settlementContract.taskVerification).toStrictEqual({
+      [first.id]: terms,
+      [second.id]: terms,
+    });
+
+    const firstBatch = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-medium',
+      claims: [...completedClaims(worktrees.passing, [first.id]), ...completedClaims(worktrees.vacuous, [second.id])],
+    };
+    const halted = await call('exarchos_orchestrate', firstBatch);
+    expect(halted.success, JSON.stringify(halted)).toBe(true);
+    expect(halted.data).toMatchObject({
+      outcome: 'corrective-capsule',
+      acceptedTasks: [first.id],
+      findings: [{ kind: 'verification-failed', subject: second.id }],
+      verification: [
+        { taskId: first.id, outcome: 'verified' },
+        { taskId: second.id, outcome: 'failed', failedLeaf: 'check_test_adequacy' },
+      ],
+      unresolved: [
+        {
+          taskId: second.id,
+          cause: 'verification-failed',
+          failedLeaf: 'check_test_adequacy',
+          operationId: expect.stringMatching(/^settle-task:[0-9a-f]{64}$/),
+        },
+      ],
+    });
+    const receipt = halted.data as { outcome: 'corrective-capsule'; unresolved: { taskId: string }[]; findings: { message: string }[] };
+    expect(receipt.findings[0]?.message).toContain("halted on 'check_test_adequacy'");
+    expect((await settlementRecords()).map((record) => [record.batchId, record.outcome, record.unresolvedTasks])).toEqual([
+      ['batch-medium', 'corrective-capsule', [{ taskId: second.id, cause: 'verification-failed' }]],
+    ]);
+    expect(await gateVerdictsOf(first.id)).toEqual([
+      ['test-adequacy', 'pass'],
+      ['contract-drift', 'skipped-by-policy'],
+      ['mock-boundary', 'skipped-by-policy'],
+      ['static-analysis', 'pass'],
+    ]);
+    expect(await gateVerdictsOf(second.id)).toEqual([['test-adequacy', 'fail']]);
+    expect(((await rowsOf('task.completed')) as { data: { taskId: string } }[]).map((row) => row.data.taskId)).toEqual([first.id]);
+    const partial = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
+    expect(partial.data).toMatchObject({
+      tasks: [
+        { id: first.id, status: 'complete' },
+        { id: second.id, status: 'pending' },
+      ],
+    });
+    expect(SETTLEMENT_OUTCOME_RULES[receipt.outcome].next).toContain('only the `unresolved` tasks');
+    const early = await call('exarchos_workflow', moveToReview);
+    expect(early.success, JSON.stringify(early)).toBe(false);
+    expect(early.error?.code).toBe('GUARD_FAILED');
+    expect(await git(worktrees.passing, ['status', '--porcelain'])).toBe('');
+    expect(await git(worktrees.vacuous, ['status', '--porcelain'])).toBe('');
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, halted);
+
+    await writeFixtureFile(worktrees.vacuous, 'test/b.test.js', nodeTestFile('b', 'assert.strictEqual(value(), 2);'));
+    await git(worktrees.vacuous, ['commit', '-q', '-am', 'task-b: the test asserts the change']);
+    await execFileAsync(process.execPath, ['--test', 'test/b.test.js'], { cwd: worktrees.vacuous });
+    const correction = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-medium-correction',
+      claims: completedClaims(worktrees.vacuous, receipt.unresolved.map((task) => task.taskId)),
+    };
+    const corrected = await call('exarchos_orchestrate', correction);
+    expect(corrected.success, JSON.stringify(corrected)).toBe(true);
+    expect(corrected.data).toMatchObject({
+      outcome: 'settled',
+      acceptedTasks: [second.id],
+      findings: [],
+      verification: [
+        { taskId: first.id, outcome: 'already-complete' },
+        { taskId: second.id, outcome: 'verified' },
+      ],
+    });
+    expect(corrected.data).not.toHaveProperty('unresolved');
+    expect(await gateVerdictsOf(second.id)).toEqual([
+      ['test-adequacy', 'fail'],
+      ['test-adequacy', 'pass'],
+      ['contract-drift', 'skipped-by-policy'],
+      ['mock-boundary', 'skipped-by-policy'],
+      ['static-analysis', 'pass'],
+    ]);
+    expect((await settlementRecords()).map((record) => [record.batchId, record.outcome, record.unresolvedTasks])).toEqual([
+      ['batch-medium', 'corrective-capsule', [{ taskId: second.id, cause: 'verification-failed' }]],
+      ['batch-medium-correction', 'settled', undefined],
+    ]);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(correction, corrected);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, halted);
+
+    const moved = await call('exarchos_workflow', moveToReview);
+    expect(moved.success, JSON.stringify(moved)).toBe(true);
   });
 
   /**
@@ -738,7 +1086,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const reported = countsByType(await workRowsOf(['task-b']));
     expect(reported).not.toHaveProperty('gate.executed');
     expect(reported).not.toHaveProperty('task.completed');
-    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, first);
 
     const tail = (await eventStore.query(STREAM)).length;
     const withFields = await call('exarchos_orchestrate', {
@@ -773,8 +1121,8 @@ describe('prepare then settle, through the dispatcher', () => {
       ],
     });
     expect(await rowsOf('workflow.prepared')).toHaveLength(1);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(correction, corrected);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(correction, corrected);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, first);
 
     const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
     expect(moved.success, JSON.stringify(moved)).toBe(true);
@@ -786,7 +1134,8 @@ describe('prepare then settle, through the dispatcher', () => {
    * `task.failed` row, the plan shows the task as pending, and the guard refuses the transition.
    *
    * A correction that reports the task as failed again needs a correction too, because settlement
-   * sets no limit on corrections. A correction that claims the task as completed settles.
+   * sets no limit on corrections. It levels the two complete tasks, and the plan still shows the
+   * failed task as pending. A correction that claims the task as completed settles.
    * A replay of each of the three `settle` calls returns its receipt and appends no row.
    */
   it('PrepareSettle_AFailedClaim_LeavesNoFailureRowAndSettlesWhenTheTaskIsClaimedAsCompleted', async () => {
@@ -832,7 +1181,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const early = await call('exarchos_workflow', moveToReview);
     expect(early.success, JSON.stringify(early)).toBe(false);
     expect(early.error?.code).toBe('GUARD_FAILED');
-    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, first);
 
     const stillFailed = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1-again', claims: [failed] };
     const again = await call('exarchos_orchestrate', stillFailed);
@@ -848,7 +1197,15 @@ describe('prepare then settle, through the dispatcher', () => {
     });
     expect((again.data as { unresolved?: unknown }).unresolved).toStrictEqual(unresolved);
     expect(await rowsOf('task.failed')).toEqual([]);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(stillFailed, again);
+    const afterAgain = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
+    expect(afterAgain.data).toMatchObject({
+      tasks: [
+        { id: 'task-a', status: 'complete' },
+        { id: 'task-b', status: 'pending' },
+        { id: 'task-c', status: 'complete' },
+      ],
+    });
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(stillFailed, again);
 
     const correction = {
       action: 'settle',
@@ -867,9 +1224,9 @@ describe('prepare then settle, through the dispatcher', () => {
     ]);
     expect(await rowsOf('workflow.prepared')).toHaveLength(1);
     expect(await rowsOf('task.failed')).toEqual([]);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(correction, corrected);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(stillFailed, again);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(correction, corrected);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(stillFailed, again);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(firstBatch, first);
 
     const moved = await call('exarchos_workflow', moveToReview);
     expect(moved.success, JSON.stringify(moved)).toBe(true);
@@ -956,7 +1313,7 @@ describe('prepare then settle, through the dispatcher', () => {
       'complete',
       'complete',
     ]);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(batch, accepted);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(batch, accepted);
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(3);
 
     const outside = {
@@ -978,8 +1335,8 @@ describe('prepare then settle, through the dispatcher', () => {
       ['batch-1', 'accepted-with-rationale', 3],
       ['batch-outside', 'rejected', undefined],
     ]);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(outside, refused);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(batch, accepted);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(outside, refused);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(batch, accepted);
 
     const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
     expect(moved.success, JSON.stringify(moved)).toBe(true);
@@ -1295,7 +1652,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await recompileRows()).toEqual([]);
     expect(refused.data).not.toHaveProperty('unresolved');
     expect((await settlementRecords()).at(-1)).toMatchObject({ batchId: 'batch-2', outcome: 'recompile-required' });
-    await expectReplayReturnsTheReceiptAndAppendsNothing(staleBatch, refused);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(staleBatch, refused);
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(1);
 
     const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -1689,10 +2046,10 @@ describe('prepare then settle, through the dispatcher', () => {
       ['batch-3', undefined, undefined],
     ]);
 
-    await expectReplayReturnsTheReceiptAndAppendsNothing(heldBatch, held);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(decision, decided);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(staleBatch, stale);
-    await expectReplayReturnsTheReceiptAndAppendsNothing(lastBatch, settled);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(heldBatch, held);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(decision, decided);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(staleBatch, stale);
+    await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(lastBatch, settled);
     expect(await rowsOf('design.revised')).toHaveLength(1);
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(2);
 
@@ -1743,6 +2100,54 @@ describe('prepare then settle, through the dispatcher', () => {
     expect((await settlementRecords()).map((record) => [record.batchId, record.outcome])).toEqual([
       ['batch-long-decision-id', 'rejected'],
     ]);
+  });
+
+  /**
+   * The presence of the three request lists selects one mode or one refusal in each of the 27 cells.
+   * The cells run through the dispatcher in the order of the table, so the held cell comes before the
+   * decision. The decision answers the deviation of the held cell. A refused cell appends no row and
+   * writes no blob.
+   */
+  it('PrepareSettle_ThePresenceOfTheThreeRequestLists_SelectsOneModeOrOneRefusalInEachCell', async () => {
+    await seedDelegatingFeature();
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const capsuleVersion = await latestCapsuleVersion();
+    const cells = Object.entries(LIST_PRESENCE_CELLS);
+    expect(cells).toHaveLength(27);
+    expect(new Set(cells.map(([cell]) => cell)).size).toBe(27);
+    const deviation = { deviationKind: 'missing-context', statement: 'the capsule does not say which cache the endpoint reads' };
+    let pendingDeviationId = 'no deviation is held yet';
+
+    const observed: Record<string, CellAnswer> = {};
+    for (const [cell, expected] of cells) {
+      const [claims, deviations, decisions] = formsOf(cell);
+      const decision = { deviationId: pendingDeviationId, decision: 'accepted', actor: 'human:reviewer', rationale: 'the cache is real' };
+      const request = {
+        action: 'settle',
+        featureId: STREAM,
+        capsuleVersion,
+        batchId: decisions === 'f' ? 'cell-ffa' : `cell-${cell}`,
+        ...listIn(claims, 'claims', completedClaims()),
+        ...listIn(deviations, 'deviations', [deviation]),
+        ...listIn(decisions, 'decisions', [decision]),
+      };
+      const tail = (await eventStore.query(STREAM)).length;
+      const blobs = await blobCount();
+      const result = await call('exarchos_orchestrate', request);
+      if (!result.success) {
+        const message = result.error?.message ?? '';
+        const says = 'says' in expected && message.includes(expected.says) ? expected.says : message;
+        observed[cell] = { refusal: result.error?.code ?? '<none>', says };
+        expect((await eventStore.query(STREAM)).length, cell).toBe(tail);
+        expect(await blobCount(), cell).toBe(blobs);
+        continue;
+      }
+      const receipt = result.data as { outcome: string; round: number; pendingDeviations?: { deviationId: string }[] };
+      observed[cell] = { mode: receipt.round === 0 ? 'submission' : 'decision', outcome: receipt.outcome };
+      pendingDeviationId = receipt.pendingDeviations?.[0]?.deviationId ?? pendingDeviationId;
+    }
+    expect(observed).toEqual(LIST_PRESENCE_CELLS);
   });
 
   /**

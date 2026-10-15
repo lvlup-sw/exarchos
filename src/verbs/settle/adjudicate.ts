@@ -51,13 +51,13 @@ export type SettlementFindingKind = (typeof SETTLEMENT_FINDING_KINDS)[number];
 export type SettlementFindingClass = 'stale' | 'refuse' | 'hold' | 'unresolved';
 
 /**
- * The class of each finding kind. The record is exhaustive, so a kind with no class does not compile.
+ * The class of each finding kind. The record is exhaustive, and it keeps each class as a literal type.
  * A deviation inside the envelope is a valid answer to a wrong capsule assumption, so its finding holds the batch.
  * A failed verification leaves its task unresolved, and it does not refuse the tasks that passed.
  * A claim that reports its task as not completed also leaves the task unresolved.
  * A rationale that names a decision that the capsule does not delegate is a request error, so it refuses the batch.
  */
-export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, SettlementFindingClass>> = {
+export const SETTLEMENT_FINDING_CLASSES = Object.freeze({
   'unknown-task': 'refuse',
   'claim-superseded-by-revision': 'stale',
   'undeclared-result-shape': 'refuse',
@@ -78,7 +78,43 @@ export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, 
   'task-failed': 'unresolved',
   'task-blocked': 'unresolved',
   'task-skipped': 'unresolved',
-};
+} satisfies Record<SettlementFindingKind, SettlementFindingClass>);
+
+/** The finding kinds that the class table puts in one of the given classes. */
+type FindingKindOfClass<Class extends SettlementFindingClass> = {
+  readonly [Kind in SettlementFindingKind]: (typeof SETTLEMENT_FINDING_CLASSES)[Kind] extends Class ? Kind : never;
+}[SettlementFindingKind];
+
+/**
+ * A finding kind of the `unresolved` class. The type follows the class table, so an unresolved task
+ * cannot carry the kind of a finding that stops its batch.
+ */
+export type UnresolvedFindingKind = FindingKindOfClass<'unresolved'>;
+
+/** A compile error unless `T` is exactly `true`. */
+type Expect<T extends true> = T;
+
+/**
+ * The unresolved kinds are some of the kinds and not all of them. A class table that loses the
+ * literal class of each kind makes the type empty, and then this alias does not compile.
+ * @proof
+ */
+export type _UnresolvedFindingKindIsAProperPartOfTheKinds = Expect<
+  [UnresolvedFindingKind] extends [never] ? false : [SettlementFindingKind] extends [UnresolvedFindingKind] ? false : true
+>;
+
+/**
+ * The cause of an unresolved task is never a finding kind of the `stale`, `refuse` or `hold` class.
+ * @proof
+ */
+export type _AnUnresolvedCauseIsNoKindOfAnotherClass = Expect<
+  [Extract<UnresolvedTask['cause'], FindingKindOfClass<'stale' | 'refuse' | 'hold'>>] extends [never] ? true : false
+>;
+
+/** Whether a finding kind is of the `unresolved` class. */
+function isUnresolvedFindingKind(kind: SettlementFindingKind): kind is UnresolvedFindingKind {
+  return SETTLEMENT_FINDING_CLASSES[kind] === 'unresolved';
+}
 
 /** A single, path-annotated adjudication finding. */
 export interface SettlementFinding {
@@ -264,7 +300,7 @@ function outcomeOf(findings: readonly SettlementFinding[], recordsChoice: boolea
 /** One task that a batch leaves unresolved. `cause` is the kind of the finding against the task. */
 export interface UnresolvedTask {
   readonly taskId: string;
-  readonly cause: SettlementFindingKind;
+  readonly cause: UnresolvedFindingKind;
 }
 
 /**
@@ -273,10 +309,11 @@ export interface UnresolvedTask {
  * A task is in the list once, with the kind of its first finding.
  */
 function unresolvedTasksOf(findings: readonly SettlementFinding[]): UnresolvedTask[] {
-  const causes = new Map<string, SettlementFindingKind>();
+  const causes = new Map<string, UnresolvedFindingKind>();
   for (const finding of findings) {
-    if (SETTLEMENT_FINDING_CLASSES[finding.kind] !== 'unresolved' || causes.has(finding.subject)) continue;
-    causes.set(finding.subject, finding.kind);
+    const { kind } = finding;
+    if (!isUnresolvedFindingKind(kind) || causes.has(finding.subject)) continue;
+    causes.set(finding.subject, kind);
   }
   return [...causes.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))

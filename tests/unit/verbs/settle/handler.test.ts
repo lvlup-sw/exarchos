@@ -3584,6 +3584,33 @@ describe('settle — a required result that the stream shows complete', () => {
   });
 
   /**
+   * The coordinator builds the correction from the first receipt alone. Each entry of its
+   * `unresolved` list names a task to claim again, and the claims of the first batch give the
+   * result fields. The correction settles. Each required task is then accepted by one of the two
+   * batches and complete on the stream.
+   */
+  it('Settle_ACorrectionBuiltFromTheUnresolvedListOfTheFirstReceipt_Settles', async () => {
+    const claimsByTask = new Map<string, Record<string, unknown>>([
+      ['task-verify', passingClaim()],
+      [SECOND_TASK, secondClaim()],
+    ]);
+    const first = receiptOf(await settle(batch('batch-from-the-list', [...claimsByTask.values()])));
+    expect(first.outcome).toBe('corrective-capsule');
+    expect(SETTLEMENT_OUTCOME_RULES[first.outcome].next).toContain('only the `unresolved` tasks');
+    const unresolved = first.unresolved ?? [];
+    expect(unresolved.map((entry) => [entry.taskId, entry.cause])).toEqual([[SECOND_TASK, 'verification-failed']]);
+
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const correction = unresolved.map((entry) => claimsByTask.get(entry.taskId));
+    const corrected = receiptOf(await settle(batch('batch-from-the-list:correction', correction)));
+    expect(corrected.outcome).toBe('settled');
+    expect(corrected.acceptedTasks).toEqual(unresolved.map((entry) => entry.taskId));
+    expect(corrected).not.toHaveProperty('unresolved');
+    expect([...first.acceptedTasks, ...corrected.acceptedTasks].sort()).toEqual([SECOND_TASK, 'task-verify'].sort());
+    expect((await completionRows()).map((row) => row.data.taskId).sort()).toEqual([SECOND_TASK, 'task-verify'].sort());
+  });
+
+  /**
    * The denominator of the waiver. No task is complete, so the required task that the batch omits
    * is a missing claim. The claim that the batch carries is not verified.
    */
@@ -4839,12 +4866,25 @@ describe('settle — a claim that records a delegated choice', () => {
   const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
   const ACTOR = 'human:reviewer';
 
-  async function prepareDelegatingCapsule(): Promise<void> {
-    const capsule = withBuiltInDelegatedDecisions(capsuleWithTask(SECOND_TASK, RATIONALE_VERSION));
-    await seedPrepared({
+  const MEDIUM_VERSION = RATIONALE_VERSION + 1;
+
+  function delegatingCapsule(capsuleVersion: number, riskTier: 'low' | 'medium'): ExarchosCapsuleV1 {
+    const capsule = withBuiltInDelegatedDecisions(capsuleWithTask(SECOND_TASK, capsuleVersion));
+    const terms = Object.entries(capsule.settlementContract.taskVerification ?? {}).map(
+      ([taskId, term]): [string, typeof term] => [taskId, { ...term, riskTier }],
+    );
+    return {
       ...capsule,
-      settlementContract: { ...capsule.settlementContract, requiredResults: [SECOND_TASK, 'task-verify'] },
-    });
+      settlementContract: {
+        requiredResults: [SECOND_TASK, 'task-verify'],
+        taskVerification: Object.fromEntries(terms),
+      },
+    };
+  }
+
+  async function prepareDelegatingCapsule(): Promise<void> {
+    await seedPrepared(delegatingCapsule(RATIONALE_VERSION, 'low'));
+    await seedPrepared(delegatingCapsule(MEDIUM_VERSION, 'medium'));
   }
 
   beforeEach(prepareDelegatingCapsule);
@@ -4958,6 +4998,9 @@ describe('settle — a claim that records a delegated choice', () => {
    * The first run has no rationale, and the second has a choice on each claim. The first run
    * settles, and the second is accepted with rationale.
    *
+   * The capsule freezes both tasks at the medium tier. A rationale that lowers the tier then
+   * changes the steering and the request digest of each segment. At the low tier no tier is lower.
+   *
    * The verification of each task is the same in both runs. The segment has the same operation,
    * the same request digest over its arguments, the same steering and the same leaves with the
    * same results. The gate rows and the completion facts are the same too.
@@ -4965,7 +5008,9 @@ describe('settle — a claim that records a delegated choice', () => {
   it('Settle_ABatchWithARationaleAndTheSameBatchWithoutIt_RunTheSameGates', async () => {
     const observe = async (claims: readonly unknown[]): Promise<Record<string, unknown>> => {
       await seedPassingStaticAnalysis(SECOND_TASK);
-      const receipt = receiptOf(await settle(batch('batch-same-gates', claims)));
+      const receipt = receiptOf(
+        await settle({ ...batch('batch-same-gates', claims), capsuleVersion: MEDIUM_VERSION }),
+      );
       const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
       const gates = (await rowsOf('gate.executed')).map((row) => row.data as { gateName?: unknown; passed?: unknown });
       return {
@@ -4997,6 +5042,10 @@ describe('settle — a claim that records a delegated choice', () => {
     expect(plain.outcome).toBe('settled');
     expect(chosen.outcome).toBe('accepted-with-rationale');
     expect(plain.segments).toHaveLength(2);
+    expect((plain.segments as { steering?: unknown }[]).map((segment) => segment.steering)).toEqual([
+      { riskTier: 'medium', boundaryTouching: false, source: 'capsule' },
+      { riskTier: 'medium', boundaryTouching: false, source: 'capsule' },
+    ]);
     expect((plain.segments as { leaves: unknown[] }[]).map((segment) => segment.leaves)).toEqual([
       [
         ['check_mock_boundary', 'passed', expect.any(Number)],

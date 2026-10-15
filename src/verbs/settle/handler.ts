@@ -657,6 +657,12 @@ function verificationOperationId(operationId: string, taskId: string): string {
 }
 
 /**
+ * The part of a claim that a verification segment reads: the task and its result fields. The type
+ * holds no rationale, no status and no evidence, so none of them can reach the segment arguments.
+ */
+type SegmentClaim = Pick<SettlementClaim, 'taskId' | 'fields'>;
+
+/**
  * The intent arguments for one accepted claim.
  *
  * The tier, the boundary flag and the base come from the capsule, never from the claim. They choose
@@ -665,7 +671,7 @@ function verificationOperationId(operationId: string, taskId: string): string {
  * The function does not read the rationale of the claim, so a recorded choice changes no gate.
  */
 function verificationArgsOf(
-  claim: SettlementClaim,
+  claim: SegmentClaim,
   terms: { readonly riskTier: string; readonly boundaryTouching: boolean; readonly baseRef: string },
 ): Record<string, unknown> {
   const { worktreePath, branch } = claim.fields;
@@ -1199,7 +1205,7 @@ export async function handleSettle(
     const warnings: string[] = [];
 
     if (verificationRuns(shape.findings)) {
-      const byTask = new Map(claims.map((claim): [string, SettlementClaim] => [claim.taskId, claim]));
+      const byTask = new Map(claims.map((claim): [string, SegmentClaim] => [claim.taskId, claim]));
 
       const compiled: CompiledVerification[] = [];
       const outcomes = new Map<string, TaskVerificationOutcome>();

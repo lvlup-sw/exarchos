@@ -10,6 +10,8 @@
  * - `task_complete` gates on a real event, not on evidence from the caller.
  * - The governed cannot supply governance.
  * - A skipped constituent cannot render as a pass.
+ *
+ * One `settle` case brings the state document level in the `workflow_state` row of the shipped store.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -22,6 +24,7 @@ import {
   type DispatchObservation,
 } from '../_harness.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
+import { initStateFile, readStateFile, writeStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 type Rec = Record<string, unknown>;
@@ -322,4 +325,111 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     expect(harness.reachedActionIds()).toContain('exarchos_orchestrate.task_complete');
     expect(harness.reachedActionIds()).toContain('exarchos_orchestrate.check_static_analysis');
   });
+});
+
+/** The workflow of the `settle` case. It is apart from the workflow of the gate cases. */
+const SETTLE_FEATURE_ID = 'gov-t2-settle-document-row';
+
+/** The status of each task in the state document that the transition guards read. */
+async function documentStatuses(): Promise<unknown[][]> {
+  const state = await readStateFile(path.join(harness.stateDir, `${SETTLE_FEATURE_ID}.state.json`));
+  const tasks: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
+  return tasks.map((task) => {
+    const entry: { readonly id?: unknown; readonly status?: unknown } = typeof task === 'object' && task !== null ? task : {};
+    return [entry.id, entry.status];
+  });
+}
+
+/**
+ * The twin of the levelling cases of `settle` in the row form of the shipped store. The acceptance
+ * and handler cases keep the state document in a JSON file. Here the production composition root
+ * keeps it in the `workflow_state` row of the SQLite backend, with telemetry at its shipped default.
+ */
+describe('settle levels the state document in the workflow_state row', () => {
+  /**
+   * The first batch completes one task and leaves the other unresolved. The test then puts the row
+   * back to an earlier status through the store writer, as after a lost write. A retry of
+   * the batch returns its receipt and brings the complete task level in the row. The correction
+   * claims only the unresolved task and settles, and the guard that reads the row admits the move.
+   */
+  it('Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel', async () => {
+    const green = await makeNodeFixture({ lint: OK, typecheck: OK, 'quality-check': OK });
+    const red = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
+    const tasks = ['task-a', 'task-b'].map((id) => ({
+      id,
+      title: id,
+      status: 'pending',
+      blockedBy: [],
+      riskTier: 'low',
+      boundaryTouching: false,
+    }));
+    await initStateFile(harness.stateDir, SETTLE_FEATURE_ID, 'feature', {
+      phase: 'delegate',
+      tasks: tasks.map(({ id, title, status }) => ({ id, title, status })),
+    });
+    expect(harness.storage.getState(SETTLE_FEATURE_ID)?.phase).toBe('delegate');
+    expect(harness.ctx.enableTelemetry, 'the twin keeps the shipped telemetry default').toBe(true);
+    await harness.appendEvent(SETTLE_FEATURE_ID, {
+      type: 'workflow.started',
+      data: { featureId: SETTLE_FEATURE_ID, workflowType: 'feature' },
+    });
+    await harness.appendEvent(SETTLE_FEATURE_ID, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
+    await harness.appendEvent(SETTLE_FEATURE_ID, {
+      type: 'state.patched',
+      data: { patch: { 'synthesis.integrationBranch': 'feature/settle-row', tasks } },
+    });
+
+    const prepared = await harness.runAction('exarchos_orchestrate', 'prepare', { featureId: SETTLE_FEATURE_ID });
+    expect(prepared.result?.success, JSON.stringify(prepared.result)).toBe(true);
+    const capsuleVersion = (payload(prepared).capsuleVersion ?? 0) as number;
+    const claimOf = (taskId: string, worktreePath: string): Rec => ({ taskId, fields: { worktreePath }, evidence: [] });
+    const firstBatch = {
+      featureId: SETTLE_FEATURE_ID,
+      capsuleVersion,
+      batchId: 'batch-row',
+      claims: [claimOf('task-a', green), claimOf('task-b', red)],
+    };
+    const first = await harness.runAction('exarchos_orchestrate', 'settle', firstBatch, { timeoutMs: 180_000 });
+    expect(first.result?.success, JSON.stringify(first.result)).toBe(true);
+    expect(payload(first)).toMatchObject({ outcome: 'corrective-capsule', acceptedTasks: ['task-a'] });
+    expect(await documentStatuses()).toEqual([
+      ['task-a', 'complete'],
+      ['task-b', 'pending'],
+    ]);
+
+    const stateFile = path.join(harness.stateDir, `${SETTLE_FEATURE_ID}.state.json`);
+    const level = await readStateFile(stateFile);
+    const stale = level.tasks.map((task): typeof task => ({ ...task, status: 'pending' }));
+    await writeStateFile(stateFile, { ...level, tasks: stale }, { expectedVersion: level._version ?? 1 });
+    expect(await documentStatuses()).toEqual([
+      ['task-a', 'pending'],
+      ['task-b', 'pending'],
+    ]);
+
+    const retried = await harness.runAction('exarchos_orchestrate', 'settle', firstBatch, { timeoutMs: 180_000 });
+    expect(retried.result?.success, JSON.stringify(retried.result)).toBe(true);
+    expect(retried.result?.data).toEqual(first.result?.data);
+    expect(await documentStatuses()).toEqual([
+      ['task-a', 'complete'],
+      ['task-b', 'pending'],
+    ]);
+    const early = await harness.runAction('exarchos_workflow', 'transition', { featureId: SETTLE_FEATURE_ID, target: 'review' });
+    expect(early.errorCode).toBe('GUARD_FAILED');
+
+    const corrected = await harness.runAction(
+      'exarchos_orchestrate',
+      'settle',
+      { featureId: SETTLE_FEATURE_ID, capsuleVersion, batchId: 'batch-row-correction', claims: [claimOf('task-b', green)] },
+      { timeoutMs: 180_000 },
+    );
+    expect(corrected.result?.success, JSON.stringify(corrected.result)).toBe(true);
+    expect(payload(corrected)).toMatchObject({ outcome: 'settled', acceptedTasks: ['task-b'] });
+    expect(await documentStatuses()).toEqual([
+      ['task-a', 'complete'],
+      ['task-b', 'complete'],
+    ]);
+    const moved = await harness.runAction('exarchos_workflow', 'transition', { featureId: SETTLE_FEATURE_ID, target: 'review' });
+    expect(moved.result?.success, JSON.stringify(moved.result)).toBe(true);
+    expect(harness.storage.getState(SETTLE_FEATURE_ID)?.phase).toBe('review');
+  }, 400_000);
 });
