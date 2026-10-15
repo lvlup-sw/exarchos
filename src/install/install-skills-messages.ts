@@ -51,6 +51,17 @@ export function ambiguousNonInteractiveThrowMessage(
   );
 }
 
+/**
+ * Emitted before `npx skills add` when the version of this build names no release tag.
+ * The skills then come from the default branch, and they can differ from this build.
+ */
+export function unpinnedSkillsSourceMessage(version: string): string {
+  return (
+    `Exarchos version "${version}" names no release tag. ` +
+    `Installing skills from the default branch, which can differ from this build.`
+  );
+}
+
 /** Question passed to the interactive prompt. */
 export const AMBIGUOUS_INTERACTIVE_QUESTION =
   'Multiple agents detected. Which one should we install skills for?';

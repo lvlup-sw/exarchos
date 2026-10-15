@@ -99,6 +99,9 @@ When done, report:
 1. Files modified
 2. Test results
 3. Summary of fix applied
+4. The result fields of the task, as one JSON object: `worktreePath` (this worktree), `branch`, `files`, `implements` and `tests`. The orchestrator builds the settlement claim of the fixed task from them. Do not send a `status` for a fixed task.
+
+If you could not fix the task, report a `status` and a `reason` in place of item 4, and no result field. The status is `failed` (you attempted the fix, and you have no result that settlement can verify) or `blocked` (the fix cannot proceed until something outside the task changes). Write the reason in at most 280 characters.
 ```
 
 ## Usage Example

@@ -6,6 +6,8 @@
  * that does not use that action. A changed hash input makes each stored event
  * row stop matching the ids that the new code computes. The compiler sees
  * neither, so `tools/audit/registered-actions-snapshot.json` records them.
+ * A store of an earlier build holds the settlement shapes. The snapshot also
+ * holds a digest of each shape and the version decision that admits it.
  *
  * The snapshot is a record and not a rule. A change to the snapshot must be in
  * the same commit as the change that it records.
@@ -14,10 +16,17 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { z } from 'zod';
 
 import { TOOL_REGISTRY } from '../../src/registry.js';
 import { EVENT_ANNOTATIONS } from '../../src/events/event-annotations.js';
 import { allocatePhaseAttemptId } from '../../src/workflow/phase-attempt-id.js';
+import { zodToJsonSchema } from '../../src/utils/json-schema.js';
+import { requestDigest } from '../../src/contract/request-context.js';
+import { SCHEMA_VERSION } from '../../src/storage/sqlite/schema.js';
+import { ExecutionSettledData } from '../../src/events/schemas.js';
+import { SettlementBundleV1Schema } from '../../src/verbs/settle/settlement-bundle.js';
+import { ClaimTraceSchema } from '../../src/verbs/settle/claim-codec.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -31,15 +40,54 @@ interface SnapshotEvent {
   readonly lifecycle: string;
   readonly tier: string;
 }
+/** One version decision for the stored settlement shapes, with the digest of each shape that it admits. */
+interface StoredShapeDecision {
+  readonly date: string;
+  readonly source: string;
+  readonly decision: string;
+  readonly schemaVersion: number;
+  readonly shapes: Readonly<Record<string, string>>;
+}
 interface Snapshot {
   readonly counts: Record<string, number>;
   readonly tools: readonly SnapshotTool[];
   readonly eventTypes: readonly SnapshotEvent[];
+  readonly storedShapes: { readonly decisions: readonly StoredShapeDecision[] };
 }
 
 const snapshot = JSON.parse(
   readFileSync(path.join(REPO_ROOT, 'tools/audit/registered-actions-snapshot.json'), 'utf8'),
 ) as Snapshot;
+
+/** The settlement shapes that a store holds, by the name that the snapshot records. */
+const STORED_SHAPES: Readonly<Record<string, z.ZodType>> = {
+  ClaimTraceSchema,
+  ExecutionSettledData,
+  SettlementBundleV1Schema,
+};
+
+/** A copy of a JSON Schema with each description removed. A description is text for a reader and not part of the stored shape. */
+function withoutDescriptions(node: unknown): unknown {
+  if (Array.isArray(node)) return node.map(withoutDescriptions);
+  if (node === null || typeof node !== 'object') return node;
+  const entries: [string, unknown][] = Object.entries(node);
+  return Object.fromEntries(
+    entries
+      .filter(([key, value]) => !(key === 'description' && typeof value === 'string'))
+      .map(([key, value]) => [key, withoutDescriptions(value)]),
+  );
+}
+
+/** The digest of one stored shape: the sha256 of the canonical JSON of its JSON Schema, with each description removed. */
+function shapeDigest(schema: z.ZodType): string {
+  return requestDigest(withoutDescriptions(zodToJsonSchema(schema)));
+}
+
+function liveShapeDigests(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(STORED_SHAPES).map(([name, schema]) => [name, shapeDigest(schema)]),
+  );
+}
 
 /** The live registry in the shape that the snapshot records. */
 function liveTools(): SnapshotTool[] {
@@ -327,5 +375,70 @@ describe('identifier stability across decomposition', () => {
       snapshot.tools.reduce((n, t) => n + t.actions.length, 0),
     );
     expect(snapshot.counts.eventTypes).toBe(snapshot.eventTypes.length);
+  });
+});
+
+describe('stored settlement shapes carry a version decision', () => {
+  const decisions = snapshot.storedShapes.decisions;
+
+  /**
+   * A store of an earlier build holds these shapes, and the type check does not compare them with that build.
+   * A shape that changes with no new decision ships a store that the earlier build misreads.
+   * The latest decision also names the store version that this build stamps.
+   */
+  it('StoredShapes_OfThisBuild_MatchTheLatestVersionDecision', () => {
+    const latest = decisions.at(-1);
+    expect(latest, 'storedShapes records no version decision').toBeDefined();
+    const live = liveShapeDigests();
+    const changed = Object.keys(live).filter((name) => latest?.shapes[name] !== live[name]);
+
+    expect(
+      changed,
+      `A stored shape changed with no version decision: ${changed.join(', ')}. ` +
+        'Append a decision to storedShapes.decisions in tools/audit/registered-actions-snapshot.json: ' +
+        `a SCHEMA_VERSION step, or a recorded one-way upgrade. The digests of this build are ${JSON.stringify(live)}.`,
+    ).toEqual([]);
+    expect(Object.keys(latest?.shapes ?? {}).sort()).toEqual(Object.keys(live).sort());
+    expect(latest?.schemaVersion, 'the latest version decision names another store version').toBe(
+      SCHEMA_VERSION,
+    );
+  });
+
+  /**
+   * The log starts at the decision that admitted the settlement vocabulary as a one-way upgrade.
+   * Each later entry is dated in order and records a change of a shape or of the store version.
+   */
+  it('StoredShapes_DecisionLog_StartsAtTheOneWayUpgradeAndEachEntryRecordsAChange', () => {
+    const [first] = decisions;
+    expect(first?.date).toBe('2026-10-15');
+    expect(first?.schemaVersion).toBe(6);
+    expect(first?.decision).toContain('One-way upgrade from 2.12 to 3');
+
+    for (const entry of decisions) {
+      expect(entry.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(entry.source.length, `${entry.date} names no source`).toBeGreaterThan(0);
+      expect(entry.decision.length, `${entry.date} records no decision`).toBeGreaterThan(0);
+      expect(Object.keys(entry.shapes).sort()).toEqual(Object.keys(STORED_SHAPES).sort());
+    }
+    decisions.slice(1).forEach((entry, i) => {
+      const previous = decisions[i]!;
+      expect(entry.date >= previous.date, `${entry.date} is earlier than ${previous.date}`).toBe(true);
+      expect(
+        JSON.stringify(entry.shapes) !== JSON.stringify(previous.shapes) ||
+          entry.schemaVersion !== previous.schemaVersion,
+        `the decision of ${entry.date} records no change`,
+      ).toBe(true);
+    });
+  });
+
+  /**
+   * The kill probe for the digest. An optional field is the usual additive change, and it changes the digest.
+   * A description is text for a reader, and it leaves the digest alone.
+   */
+  it('StoredShapes_AnAddedOptionalField_ChangesTheDigestAndADescriptionDoesNot', () => {
+    const recorded = decisions.at(-1)?.shapes.ExecutionSettledData;
+    expect(shapeDigest(ExecutionSettledData)).toBe(recorded);
+    expect(shapeDigest(ExecutionSettledData.extend({ probe: z.string().optional() }))).not.toBe(recorded);
+    expect(shapeDigest(ExecutionSettledData.describe('Another text for a reader'))).toBe(recorded);
   });
 });

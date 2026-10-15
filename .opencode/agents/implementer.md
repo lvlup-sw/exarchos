@@ -162,12 +162,24 @@ Kill-probe: the `check_test_adequacy` gate runs after your tests — it reverts 
 - Keep commits atomic: one logical change per commit.
 
 ## Completion Report
-When done, output a JSON completion report:
+When done, output a JSON completion report. The orchestrator builds the settlement claim of your task from it.
 ```json
 {
-  "status": "complete",
+  "worktreePath": "<absolute worktree path>",
+  "branch": "<branch of your commits>",
   "implements": ["<design requirement IDs>"],
   "tests": [{"name": "<test name>", "file": "<path>"}],
   "files": ["<created/modified files>"]
 }
 ```
+
+If you did not complete the task, report a status and a reason, and no other field:
+```json
+{
+  "status": "blocked",
+  "reason": "<what stopped the work and what must change, in at most 280 characters>"
+}
+```
+- `failed`: you attempted the task, and you have no result that settlement can verify.
+- `blocked`: the task cannot proceed until something outside the task changes.
+- `skipped`: the orchestrator reports it for a task that no worker ran, so do not report it.

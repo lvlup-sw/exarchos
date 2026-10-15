@@ -366,6 +366,8 @@ If a summary omits unresolved entries (`counts.unresolvedOmitted` is more than 0
 
 If the receipt also carries `designRevision`, call `prepare` first (see `designRevision`, below). Then settle under the capsule that `prepare` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is `recompile-required`.
 
+The tasks of `acceptedTasks` are complete, so `prepare` can compile a task that waits on one of them. A worktree forks from the `baseRef` of its task, the integration branch, and that branch holds only landed work. Land each task of `acceptedTasks` (Step 4, item 1) before you create the worktree of a task that waits on it.
+
 **`rejected`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read `findings`:
 - A shape finding (`missing-field`, `undeclared-field`, `field-type-mismatch`, `unknown-task`, `undeclared-result-shape`, `duplicate-claim`, `missing-claim`, `inadmissible-evidence`): correct the claim. `missing-claim` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
 - `rationale-not-delegated`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
@@ -386,7 +388,7 @@ exarchos_orchestrate({
 
 An earlier build also gave `rejected` for a superseded claim and for a failed verification. A replay returns such a receipt as that build stored it, and its `acceptedTasks` can be complete.
 
-**`deviation-pending`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The `pendingDeviations` of the receipt names each deviation by its `deviationId`, and the stream holds one `deviation.proposed` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). Then settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
+**`deviation-pending`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The `pendingDeviations` of the receipt names each deviation by its `deviationId`, and the stream holds one `deviation.proposed` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). A person decides each deviation. You do not decide it, and the worker that proposed it does not decide it. In a run with no person, stop at the held batch: report the held receipt and its pending deviations, and send no decision. When a person has decided, settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
 
 ```typescript
 exarchos_orchestrate({
@@ -409,7 +411,7 @@ Settlement records an `accepted` decision (`deviation.decided`). Then it verifie
 
 **A blocked task that its own deviation names.** The held batch reports the task as `blocked`, and the deviation names that task. After an `accepted` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is `corrective-capsule` with the cause `task-blocked`.
 
-If the deviation kind is material, the receipt also carries `designRevision`, and the revision names the blocked task. Call `prepare` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is `recompile-required`, whether it claims the task, reports it again or omits it.
+If the deviation kind is material, the receipt also carries `designRevision`, and the revision names the blocked task. Call `prepare` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Land each task of `acceptedTasks` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is `recompile-required`, whether it claims the task, reports it again or omits it.
 
 If the deviation kind is not material, the receipt carries no `designRevision`. Remove the block. Then settle the task in a new batch on the same capsule.
 

@@ -2,7 +2,8 @@
  * `installSkills()` is the programmatic entry point for `exarchos install-skills`.
  * It resolves the runtime map for the target agent, or detects the agent.
  * Then it copies the rendered skills from a local source tree, or it runs
- * `npx skills add github:lvlup-sw/exarchos --skill '*' --agent <id> -y -g --copy`.
+ * `npx skills add github:lvlup-sw/exarchos#v<version> --skill '*' --agent <id> -y -g --copy`.
+ * The ref pins the skills to the release of this binary.
  *
  * The upstream `skills` CLI selects skills and agents with `@clack/prompts`.
  * Without `--yes` and explicit `--skill` and `--agent` flags, a closed stdin gives
@@ -29,6 +30,7 @@ import {
   missingGenericFallbackMessage,
   noAgentDetectedFallbackMessage,
   unknownRuntimeMessage,
+  unpinnedSkillsSourceMessage,
 } from './install-skills-messages.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { spawnCommand, type SpawnCommandDeps } from '../utils/process.js';
@@ -139,8 +141,8 @@ export interface InstallSkillsOpts {
    */
   projectRoot?: string;
   /**
-   * Exarchos version for the provenance manifest. Defaults to the root
-   * `package.json` `version`, or `'unknown'` when that file cannot be read.
+   * Exarchos version for the provenance manifest and the git tag of `npx skills add`.
+   * Defaults to {@link readDefaultExarchosVersion}.
    */
   version?: string;
   /**
@@ -422,6 +424,24 @@ export function mapRuntimeToSkillsCliAgent(runtimeName: string): string {
  * a command separator.
  */
 const SKILLS_AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+/** The repository that `npx skills add` installs the skills from. */
+const SKILLS_REPOSITORY = 'github:lvlup-sw/exarchos';
+
+/**
+ * The form of a release version that names a git tag. Each character is safe in a `cmd.exe` argument.
+ */
+const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+
+/**
+ * The source that `npx skills add` installs from. A release version pins the git tag `v<version>`.
+ * The `skills` CLI reads the text after `#` as the ref, and it clones with `--branch <ref>`.
+ * Thus the skills come from the same release as the binary.
+ * Another version, such as `unknown`, gives the repository with no ref, which is its default branch.
+ */
+export function skillsInstallSource(version: string): string {
+  return RELEASE_VERSION.test(version) ? `${SKILLS_REPOSITORY}#v${version}` : SKILLS_REPOSITORY;
+}
 
 /**
  * Install scope for the canonical skill layout and its provenance manifest.
@@ -974,14 +994,25 @@ export function installManifestVouchesForDir(
   return false;
 }
 
+/**
+ * The version that `tools/release/build-binary.ts` inlines into the compiled binary with `--define`.
+ * It is `undefined` when the module runs from source.
+ */
+declare const EXARCHOS_BUILD_VERSION: string | undefined;
+
 let cachedExarchosVersion: string | undefined;
 /**
- * Resolve the Exarchos version for the provenance manifest from the root `package.json`.
- * Return `'unknown'` when the file cannot be read, as in a bundled binary.
- * The result is cached after the first call.
+ * Resolve the Exarchos version for the provenance manifest and the skills ref.
+ * The compiled binary has no `package.json` on disk, so the version inlined at build time comes first.
+ * From source, the version is the one in the root `package.json`.
+ * Return `'unknown'` when neither is available. The result is cached after the first call.
  */
 export function readDefaultExarchosVersion(): string {
   if (cachedExarchosVersion !== undefined) return cachedExarchosVersion;
+  if (typeof EXARCHOS_BUILD_VERSION === 'string' && EXARCHOS_BUILD_VERSION.length > 0) {
+    cachedExarchosVersion = EXARCHOS_BUILD_VERSION;
+    return cachedExarchosVersion;
+  }
   cachedExarchosVersion = 'unknown';
   try {
     if (import.meta.url.startsWith('file:')) {
@@ -1002,7 +1033,7 @@ export function readDefaultExarchosVersion(): string {
  *      use `generic`. If detection is ambiguous, prompt, or throw in non-interactive mode.
  *   2. If `opts.skillsSource` has skills for the runtime, copy them to the native dir,
  *      place the canonical layout, and write the provenance manifest.
- *   3. If not, log and spawn `npx skills add` with `FORCE_COLOR=0` and `CI=true`.
+ *   3. If not, log and spawn `npx skills add` at the tag of {@link skillsInstallSource}, with `FORCE_COLOR=0` and `CI=true`.
  *      `--copy` writes real files, because symlinks into the npm cache break when the cache is cleaned.
  *      A non-zero exit throws an `InstallSkillsError` with `exitCode`.
  *   4. Install the command aliases. For `claude`, register the MCP server. A registration
@@ -1126,12 +1157,15 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
         'Use letters, digits, ".", "_" and "-" only.',
     );
   }
+  const releaseVersion = opts.version ?? readDefaultExarchosVersion();
+  const source = skillsInstallSource(releaseVersion);
+  if (source === SKILLS_REPOSITORY) log(unpinnedSkillsSourceMessage(releaseVersion));
   const cmd = 'npx';
   const args = [
     '--yes',
     'skills',
     'add',
-    'github:lvlup-sw/exarchos',
+    source,
     '--skill',
     '*',
     '--agent',

@@ -277,7 +277,7 @@ Commits should match logical review units, not individual TDD test cycles. Group
 
 ## Provenance Reporting
 
-When completing a task, include structured provenance data in your completion report. **Your report is your claim**: the orchestrator submits it, field for field, to settlement, which verifies the work in your worktree and records the completion. Nothing you report certifies the work — the gates settlement runs do — so report where the work is and what it is, exactly.
+When completing a task, include structured provenance data in your completion report. **Your report is the source of your claim.** The orchestrator builds one claim from it. Your result fields become the `fields` of the claim. A `status` and a `reason` go on the claim in place of the result fields. A `rationale` goes on the claim beside the result fields. A deviation goes into the batch beside the claims, not into the claim. Settlement verifies the work in your worktree and records the completion. Nothing you report certifies the work — the gates settlement runs do — so report where the work is and what it is, exactly.
 
 ### Required Fields
 
@@ -290,7 +290,7 @@ When completing a task, include structured provenance data in your completion re
 
 ### Structured Format
 
-Report provenance as a JSON object in your task completion call:
+Report provenance as a JSON object in your completion report:
 
 ```json
 {
@@ -310,7 +310,7 @@ Report provenance as a JSON object in your task completion call:
 
 The orchestrator submits your report as one claim of the batch to `settle`. Settlement runs the task's gates against `worktreePath` and, when they pass, records the completion carrying these fields — the same `task.completed` the primitive path's `task_complete` records — so the ProvenanceView traces requirements through to implementation. Do not call `task_complete` yourself; on the capsule path there is no per-task governance call for you to make.
 
-If a capsule assumption turned out wrong while you worked, report a **deviation** rather than working around it silently: the `deviationKind` from the envelope you were given, a statement of what did not hold, and the change you propose (`proposedChange`). Report one deviation per failed assumption. Do not name the other tasks the change affects — the orchestrator holds the plan and fills those in. Name your own task only when the assumption is wrong for it (see If Your Own Task Rests on a Wrong Assumption).
+If a capsule assumption turned out wrong while you worked, report a **deviation** rather than working around it silently: the `deviationKind` from the envelope you were given, a statement of what did not hold, and the change you propose (`proposedChange`). Report one deviation per failed assumption. Do not name the other tasks the change affects — the orchestrator holds the plan and fills those in. Name your own task only when the assumption is wrong for it (see If Your Own Task Rests on a Wrong Assumption). Your part ends with the report. Do not call `settle`, and do not decide the deviation. A person decides it.
 
 ### If You Cannot Complete the Task
 
@@ -371,7 +371,7 @@ If a capsule assumption is wrong for your own task, stop the work on the task. D
 }
 ```
 
-A human decides the deviation, and the task stays not complete until then. If the decision accepts a change to the design, the orchestrator dispatches the task again with the new terms.
+Then stop. Do not call `settle`, and do not decide the deviation. A person decides it, and the task stays not complete until then. If the decision accepts a change to the design, the orchestrator dispatches the task again with the new terms.
 
 ## Completion
 

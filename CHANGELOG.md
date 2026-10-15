@@ -2,6 +2,18 @@
 
 All notable changes to Exarchos are documented in this file. Organized by semver release.
 
+## [Unreleased]
+
+### Operator notes
+
+- **The settlement vocabulary is a one-way upgrade, and the store schema stays V6.** This build gives three more settlement outcomes (`recompile-required`, `corrective-capsule`, `accepted-with-rationale`). A claim can carry a `status`, a `reason` and a `rationale`. The `execution.settled` row has two optional fields (`unresolvedTasks`, `rationales`). `SCHEMA_VERSION` stays 6, so no migration runs, and the store records no new version.
+  - After this build settles a batch, a 2.12.x binary cannot read the settlement records of that workflow. It gives false refusals and `INTERNAL_ERROR` on them. Downgrade to 2.12.x is not supported.
+  - This build replays and decides a batch that 2.12.x recorded, with one limit. The retry of a 2.12.x batch whose request repeated a deviation, or held more than sixteen deviations, does not replay its verdict. The decision of such a held batch still works.
+  - The store version moves in a later release, with a step that only stamps the version, after the freshness gate is repaired ([#2106](https://github.com/lvlup-sw/exarchos/issues/2106)).
+  - `tools/audit/registered-actions-snapshot.json` holds a digest of each stored settlement shape and the version decision for it. `tests/architecture/identifier-stability.test.ts` fails when a shape changes and no decision records it.
+
+- **The skills install is pinned to the binary version.** When no local skills tree is found, `exarchos onboard` runs `npx skills add github:lvlup-sw/exarchos#v<version>`, so a binary installs the skills of its own release. A 2.12.1 binary has no ref in that command, and it installs the skills of the default branch until a 3.x binary replaces it.
+
 ## [2.10.0-preview.4] - 2026-05-24
 
 Final feature-work batch of the v2.10.0 line before RC. Ships the substrate that consumes the v2.10.0-preview.3 Wave 0 carrier — Roots-based workspace discovery, three-field correlation, Tasks (SEP-1686) dispatch-core, Elicitation form-mode, quality hints, plus the authoring substrate (`/ideate` first-turn invariants, designs/plans sidecar, handoff lint). The substrate landed first (PRs #1421–#1435), then an immediate post-bundle audit cycle closed three HIGH-severity TaskStore correctness findings, the correlation contract end-to-end (storage + filter layer + consumer wiring), substrate hygiene, elicitation E2E verification (which surfaced and fixed a wired-but-not-invoked Zod-v4 narrowing bug mid-bundle), and an invariants-catalog rewrite (schema v1→v2).

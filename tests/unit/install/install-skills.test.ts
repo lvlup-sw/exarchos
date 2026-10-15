@@ -28,6 +28,7 @@ import {
   loadLegacyHashIndex,
   findLegacyHashManifestPath,
   installManifestVouchesForDir,
+  skillsInstallSource,
   type SkillsProvenanceManifest,
   type LegacySkillRenderManifest,
   type SpawnResult,
@@ -109,7 +110,10 @@ describe('installSkills scaffold (task 019)', () => {
     expect(args[agentIdx + 1]).toBe('claude-code');
   });
 
-  /** The flags make the upstream `skills` CLI install each skill for the agent with no prompt. */
+  /**
+   * The flags make the upstream `skills` CLI install each skill for the agent with no prompt.
+   * The source pins the release tag of the version, so the skills come from the release of the binary.
+   */
   it('InstallSkills_WithAgentFlag_ConstructsCorrectNpxCommand', async () => {
     const spawn = fakeSpawn();
 
@@ -120,6 +124,7 @@ describe('installSkills scaffold (task 019)', () => {
       log: () => {},
       homeDir: () => '/home/tester',
       registerMcp: () => {},
+      version: '3.0.0',
     });
 
     expect(spawn.calls).toHaveLength(1);
@@ -129,7 +134,7 @@ describe('installSkills scaffold (task 019)', () => {
       '--yes',
       'skills',
       'add',
-      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos#v3.0.0',
       '--skill',
       '*',
       '--agent',
@@ -266,13 +271,87 @@ describe('installSkills error handling (task 021)', () => {
         log: () => {},
         errLog: (msg) => errLines.push(msg),
         homeDir: () => '/home/tester',
+        version: '3.0.0',
       });
     } catch {
     }
     const joined = errLines.join('\n');
     expect(joined).toContain(
-      'npx --yes skills add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
+      'npx --yes skills add github:lvlup-sw/exarchos#v3.0.0 --skill * --agent claude-code -y -g --copy',
     );
+  });
+
+  /**
+   * With no version in the options, the source pins the version of this build.
+   * From source, that version is the one in the root `package.json`.
+   */
+  it('InstallSkills_NoVersionOption_PinsTheTagOfThisBuild', async () => {
+    const spawn = fakeSpawn();
+    const rootPackage: unknown = JSON.parse(
+      fs.readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8'),
+    );
+    const version =
+      typeof rootPackage === 'object' && rootPackage !== null && 'version' in rootPackage
+        ? String(rootPackage.version)
+        : '';
+    expect(version, 'the root package.json has no version').toMatch(/^\d+\.\d+\.\d+/);
+
+    await installSkills({
+      agent: 'claude',
+      runtimes: ALL_RUNTIMES,
+      spawn: spawn.fn,
+      log: () => {},
+      homeDir: () => '/home/tester',
+      registerMcp: () => {},
+    });
+
+    expect(spawn.calls.map((call) => call.args[3])).toEqual([`github:lvlup-sw/exarchos#v${version}`]);
+  });
+
+  /**
+   * A version that names no release tag, such as `unknown`, installs from the default branch.
+   * The installer says so before the command, because those skills can differ from the build.
+   */
+  it('InstallSkills_VersionWithNoReleaseTag_InstallsTheDefaultBranchAndSaysSo', async () => {
+    const spawn = fakeSpawn();
+    const logs: string[] = [];
+
+    await installSkills({
+      agent: 'claude',
+      runtimes: ALL_RUNTIMES,
+      spawn: spawn.fn,
+      log: (msg) => logs.push(msg),
+      homeDir: () => '/home/tester',
+      registerMcp: () => {},
+      version: 'unknown',
+    });
+
+    expect(spawn.calls.map((call) => call.args[3])).toEqual(['github:lvlup-sw/exarchos']);
+    expect(logs[0]).toContain('names no release tag');
+    expect(logs[1]).toBe(
+      'Running: npx --yes skills add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
+    );
+  });
+
+  /**
+   * The `skills` CLI reads the text after `#` as a ref and clones with `--branch <ref>`, so a release version pins its tag.
+   * Only a release version gives a ref. A version with a `cmd.exe` metacharacter gives none.
+   */
+  it('SkillsInstallSource_EachVersionForm_GivesTheTagOrTheDefaultBranch', () => {
+    expect(
+      ['2.12.1', '3.0.0', '3.0.0-preview.1', 'unknown', '', '3.0', '3.0.0&calc', '3.0.0+build.1'].map(
+        (version) => skillsInstallSource(version),
+      ),
+    ).toEqual([
+      'github:lvlup-sw/exarchos#v2.12.1',
+      'github:lvlup-sw/exarchos#v3.0.0',
+      'github:lvlup-sw/exarchos#v3.0.0-preview.1',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+    ]);
   });
 
   /**
@@ -1029,12 +1108,13 @@ describe('installSkills default spawn', () => {
       log: () => {},
       homeDir: () => '/home/tester',
       registerMcp: () => {},
+      version: '3.0.0',
     });
 
     expect(recorder.calls).toEqual([
       {
         command: 'npx',
-        args: expect.arrayContaining(['github:lvlup-sw/exarchos']),
+        args: expect.arrayContaining(['github:lvlup-sw/exarchos#v3.0.0']),
         options: expect.objectContaining({
           shell: true,
           stdio: ['inherit', 'inherit', 'pipe'],
@@ -1054,11 +1134,12 @@ describe('installSkills default spawn', () => {
       log: () => {},
       homeDir: () => '/home/tester',
       registerMcp: () => {},
+      version: '3.0.0',
     });
 
     expect(recorder.calls.map((call) => call.command)).toEqual(['npx']);
     expect(recorder.calls.map((call) => call.options.shell)).toEqual([undefined]);
-    expect(recorder.calls.flatMap((call) => call.args)).toContain('github:lvlup-sw/exarchos');
+    expect(recorder.calls.flatMap((call) => call.args)).toContain('github:lvlup-sw/exarchos#v3.0.0');
   });
 
   /**

@@ -9,6 +9,9 @@ import { describe, it, expect } from 'vitest';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from '../../../../src/runtime/agents/definitions.js';
 import type { AgentSpec } from '../../../../src/runtime/agents/types.js';
 import { resolveCapabilities } from '../../../../src/workflow/capabilities/posture-mapping.js';
+import { claimOfRequest } from '../../../../src/verbs/settle/claim-codec.js';
+import { INCOMPLETE_CLAIM_STATUSES } from '../../../../src/verbs/settle/adjudicate.js';
+import { TaskCompletedData } from '../../../../src/events/schemas.js';
 
 describe('AgentSpec capability declarations', () => {
   it('AgentSpec_DeclaresCapabilities_NotClaudeTools', () => {
@@ -185,4 +188,55 @@ describe('AgentSpec capability declarations', () => {
       ).toContain('project test command');
     }
   });
+});
+
+/** The JSON examples in the completion report of one agent prompt, in their order. */
+function completionReportExamples(prompt: string): Record<string, unknown>[] {
+  const report = prompt.slice(prompt.indexOf('## Completion Report'));
+  return [...report.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => {
+    const parsed: unknown = JSON.parse(match[1] ?? '');
+    expect(typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)).toBe(true);
+    return Object.fromEntries(Object.entries(parsed ?? {}));
+  });
+}
+
+/** The fields of the result contract that prepare compiles: the worktree, the branch, and each completion field that settlement does not derive. */
+const RESULT_CONTRACT_FIELDS: readonly string[] = [
+  'worktreePath',
+  'branch',
+  ...Object.keys(TaskCompletedData.shape).filter((name) => !['taskId', 'evidence', 'verified'].includes(name)),
+];
+
+describe('the completion report of a claim-source agent maps onto a claim', () => {
+  /**
+   * The coordinator builds one claim from each report of the implementer, the fixer and the scaffolder.
+   * A completed report holds result fields only, and the claim reader accepts them as the fields of a claim.
+   * A report of a task that is not completed holds a status of the claim tuple and a reason.
+   * A `status` of `complete` is not a claim status, so no report gives it.
+   */
+  it.each([IMPLEMENTER, FIXER, SCAFFOLDER].map((spec): [string, AgentSpec] => [spec.id, spec]))(
+    'ClaimSourceReport_%s_GivesAClaimThatTheReaderAccepts',
+    (_id, spec) => {
+      const [completed, notCompleted, ...rest] = completionReportExamples(spec.systemPrompt);
+      expect(rest).toEqual([]);
+      expect(spec.systemPrompt).not.toContain('"status": "complete"');
+
+      expect(completed).toBeDefined();
+      expect(Object.keys(completed ?? {})).toContain('worktreePath');
+      expect(Object.keys(completed ?? {}).filter((key) => !RESULT_CONTRACT_FIELDS.includes(key))).toEqual([]);
+      expect(claimOfRequest({ taskId: 'task-1', fields: completed, evidence: [] }, 'claims[0]')).toMatchObject({
+        taskId: 'task-1',
+        fields: completed,
+      });
+
+      expect(INCOMPLETE_CLAIM_STATUSES).toContain(notCompleted?.status);
+      expect(Object.keys(notCompleted ?? {})).toEqual(['status', 'reason']);
+      expect(claimOfRequest({ taskId: 'task-1', ...notCompleted }, 'claims[0]')).toMatchObject({
+        status: notCompleted?.status,
+      });
+      for (const status of INCOMPLETE_CLAIM_STATUSES) {
+        expect(spec.systemPrompt, `${spec.id} does not name the status ${status}`).toContain(`\`${status}\``);
+      }
+    },
+  );
 });
