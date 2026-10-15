@@ -66,6 +66,23 @@ const STORED_SHAPES: Readonly<Record<string, z.ZodType>> = {
   SettlementBundleV1Schema,
 };
 
+/**
+ * Each version decision of the stored shapes, in the order of the log, with the store version and the digests that it admits.
+ * The snapshot holds the text of each decision. This list holds the digests, so an edit of a recorded decision fails.
+ * A new decision appends one entry here and one entry in the snapshot. Do not edit a recorded entry.
+ */
+const RECORDED_SHAPE_DECISIONS: readonly Pick<StoredShapeDecision, 'date' | 'schemaVersion' | 'shapes'>[] = [
+  {
+    date: '2026-10-15',
+    schemaVersion: 6,
+    shapes: {
+      ClaimTraceSchema: 'sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1',
+      ExecutionSettledData: 'sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8',
+      SettlementBundleV1Schema: 'sha256:19c123cee6a6488f1d27c5ba32789a3666964f441b3533b97b445215ee7c5758',
+    },
+  },
+];
+
 /** A copy of a JSON Schema with each description removed. A description is text for a reader and not part of the stored shape. */
 function withoutDescriptions(node: unknown): unknown {
   if (Array.isArray(node)) return node.map(withoutDescriptions);
@@ -395,7 +412,8 @@ describe('stored settlement shapes carry a version decision', () => {
     expect(
       changed,
       `A stored shape changed with no version decision: ${changed.join(', ')}. ` +
-        'Append a decision to storedShapes.decisions in tools/audit/registered-actions-snapshot.json: ' +
+        'Append a decision to storedShapes.decisions in tools/audit/registered-actions-snapshot.json ' +
+        'and to RECORDED_SHAPE_DECISIONS in tests/architecture/identifier-stability.test.ts: ' +
         `a SCHEMA_VERSION step, or a recorded one-way upgrade. The digests of this build are ${JSON.stringify(live)}.`,
     ).toEqual([]);
     expect(Object.keys(latest?.shapes ?? {}).sort()).toEqual(Object.keys(live).sort());
@@ -429,6 +447,18 @@ describe('stored settlement shapes carry a version decision', () => {
         `the decision of ${entry.date} records no change`,
       ).toBe(true);
     });
+  });
+
+  /**
+   * A decision is a record, so the log only grows. The digests of each recorded decision are held in this test.
+   * A shape change that rewrites the digests of a recorded decision fails here, and only an appended decision admits the change.
+   */
+  it('StoredShapes_DecisionLog_HoldsEachRecordedDecisionUnchanged', () => {
+    expect(
+      decisions.map(({ date, schemaVersion, shapes }) => ({ date, schemaVersion, shapes })),
+      'The storedShapes decisions differ from RECORDED_SHAPE_DECISIONS. ' +
+        'Do not edit a recorded decision. Append a new decision to the snapshot and to RECORDED_SHAPE_DECISIONS.',
+    ).toEqual(RECORDED_SHAPE_DECISIONS);
   });
 
   /**

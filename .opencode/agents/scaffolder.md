@@ -167,7 +167,7 @@ When done, output a JSON completion report. The orchestrator builds the settleme
 }
 ```
 
-If you did not complete the task, report a status and a reason, and no other field:
+If you did not complete the task, report a status and a reason, and no result field:
 ```json
 {
   "status": "blocked",
@@ -177,3 +177,5 @@ If you did not complete the task, report a status and a reason, and no other fie
 - `failed`: you attempted the task, and you have no result that settlement can verify.
 - `blocked`: the task cannot proceed until something outside the task changes.
 - `skipped`: the orchestrator reports it for a task that no worker ran, so do not report it.
+
+If a capsule assumption is wrong for your own task, report the status `blocked`, the reason, and a `deviations` list beside them. Each deviation holds `deviationKind`, `statement`, `affectedTasks` with your own task id, and `proposedChange`. Then stop: do not call `settle`, and do not decide the deviation.

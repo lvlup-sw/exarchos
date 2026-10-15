@@ -6,6 +6,8 @@
 // resolved set.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from '../../../../src/runtime/agents/definitions.js';
 import type { AgentSpec } from '../../../../src/runtime/agents/types.js';
 import { resolveCapabilities } from '../../../../src/workflow/capabilities/posture-mapping.js';
@@ -190,14 +192,31 @@ describe('AgentSpec capability declarations', () => {
   });
 });
 
-/** The JSON examples in the completion report of one agent prompt, in their order. */
-function completionReportExamples(prompt: string): Record<string, unknown>[] {
-  const report = prompt.slice(prompt.indexOf('## Completion Report'));
-  return [...report.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => {
+/** The JSON examples of a text, in their order. */
+function jsonExamples(text: string): Record<string, unknown>[] {
+  return [...text.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => {
     const parsed: unknown = JSON.parse(match[1] ?? '');
     expect(typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)).toBe(true);
     return Object.fromEntries(Object.entries(parsed ?? {}));
   });
+}
+
+/** The JSON examples in the completion report of one agent prompt, in their order. */
+function completionReportExamples(prompt: string): Record<string, unknown>[] {
+  return jsonExamples(prompt.slice(prompt.indexOf('## Completion Report')));
+}
+
+/** The report of a worker whose own task rests on a wrong assumption, as the implementer task prompt gives it. */
+function ownTaskDeviationReport(): Record<string, unknown> {
+  const taskPrompt = readFileSync(
+    path.resolve(import.meta.dirname, '../../../../content/delivery/skills/delegate/references/implementer-prompt.md'),
+    'utf8',
+  );
+  const heading = '### If Your Own Task Rests on a Wrong Assumption';
+  expect(taskPrompt).toContain(heading);
+  const [report] = jsonExamples(taskPrompt.slice(taskPrompt.indexOf(heading)));
+  expect(report).toBeDefined();
+  return report ?? {};
 }
 
 /** The fields of the result contract that prepare compiles: the worktree, the branch, and each completion field that settlement does not derive. */
@@ -236,6 +255,30 @@ describe('the completion report of a claim-source agent maps onto a claim', () =
       });
       for (const status of INCOMPLETE_CLAIM_STATUSES) {
         expect(spec.systemPrompt, `${spec.id} does not name the status ${status}`).toContain(`\`${status}\``);
+      }
+    },
+  );
+
+  /**
+   * The task prompt gives the own-task deviation form: a status, a reason and a deviation list.
+   * The system prompt of each claim-source agent admits that form and names each field of a deviation.
+   * A system prompt that allows only a status and a reason makes the worker drop the deviation, and no person decides it.
+   */
+  it.each([IMPLEMENTER, FIXER, SCAFFOLDER].map((spec): [string, AgentSpec] => [spec.id, spec]))(
+    'ClaimSourceReport_%s_AdmitsTheOwnTaskDeviationOfTheTaskPrompt',
+    (_id, spec) => {
+      const report = ownTaskDeviationReport();
+      expect(Object.keys(report)).toEqual(['status', 'reason', 'deviations']);
+      expect(INCOMPLETE_CLAIM_STATUSES).toContain(report.status);
+      const deviations = report.deviations;
+      expect(Array.isArray(deviations) && deviations.length > 0).toBe(true);
+      const [deviation]: unknown[] = Array.isArray(deviations) ? deviations : [];
+      const deviationFields = Object.keys(typeof deviation === 'object' && deviation !== null ? deviation : {});
+      expect(deviationFields.length).toBeGreaterThan(0);
+
+      expect(spec.systemPrompt).not.toContain('no other field');
+      for (const field of ['deviations', ...deviationFields]) {
+        expect(spec.systemPrompt, `${spec.id} does not name the deviation field ${field}`).toContain(`\`${field}\``);
       }
     },
   );

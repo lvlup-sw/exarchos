@@ -1208,7 +1208,7 @@
     }
   ],
   "storedShapes": {
-    "note": "The settlement shapes that a store holds. Each digest is the sha256 of the canonical JSON of the JSON Schema of the shape (src/utils/json-schema.ts), with each description removed. The last decision names the shapes of this build. A change of a shape needs a new decision: a SCHEMA_VERSION step, or a recorded one-way upgrade. Append a decision. Do not edit an earlier one.",
+    "note": "The settlement shapes that a store holds. Each digest is the sha256 of the canonical JSON of the JSON Schema of the shape (src/utils/json-schema.ts), with each description removed. The last decision names the shapes of this build. A change of a shape needs a new decision: a SCHEMA_VERSION step, or a recorded one-way upgrade. Append a decision here and to RECORDED_SHAPE_DECISIONS in tests/architecture/identifier-stability.test.ts. Do not edit an earlier one: the test holds the digests of each recorded decision.",
     "decisions": [
       {
         "date": "2026-10-15",

@@ -212,7 +212,8 @@ const EXAMPLE_INCOMPLETE_STATUS: IncompleteClaimStatus = 'blocked';
 /**
  * The completion report of each agent whose report becomes a settlement claim: the implementer, the
  * fixer and the scaffolder. A completed task reports the fields of the result contract. A task that
- * is not completed reports a status from the claim status tuple and a reason, and no other field.
+ * is not completed reports a status from the claim status tuple and a reason, and no result field.
+ * A deviation that names the own task of the worker goes beside the status and the reason.
  */
 const CLAIM_COMPLETION_REPORT = `## Completion Report
 When done, output a JSON completion report. The orchestrator builds the settlement claim of your task from it.
@@ -226,14 +227,16 @@ When done, output a JSON completion report. The orchestrator builds the settleme
 }
 \`\`\`
 
-If you did not complete the task, report a status and a reason, and no other field:
+If you did not complete the task, report a status and a reason, and no result field:
 \`\`\`json
 {
   "status": "${EXAMPLE_INCOMPLETE_STATUS}",
   "reason": "<what stopped the work and what must change, in at most ${MAX_CLAIM_REASON_LENGTH} characters>"
 }
 \`\`\`
-${INCOMPLETE_CLAIM_STATUSES.map((status) => `- \`${status}\`: ${INCOMPLETE_STATUS_GUIDANCE[status]}.`).join('\n')}`;
+${INCOMPLETE_CLAIM_STATUSES.map((status) => `- \`${status}\`: ${INCOMPLETE_STATUS_GUIDANCE[status]}.`).join('\n')}
+
+If a capsule assumption is wrong for your own task, report the status \`blocked\`, the reason, and a \`deviations\` list beside them. Each deviation holds \`deviationKind\`, \`statement\`, \`affectedTasks\` with your own task id, and \`proposedChange\`. Then stop: do not call \`settle\`, and do not decide the deviation.`;
 
 /**
  * The head of the implementer system prompt. The verification note goes

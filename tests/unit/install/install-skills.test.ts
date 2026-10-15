@@ -309,6 +309,35 @@ describe('installSkills error handling (task 021)', () => {
   });
 
   /**
+   * The compiled binary has no `package.json`, and no caller gives a version option.
+   * The version that the build inlines as `EXARCHOS_BUILD_VERSION` comes before the root `package.json`, so the source pins its tag.
+   * A fresh module instance reads the global, because the version is cached after the first read.
+   */
+  it('InstallSkills_NoVersionOptionInTheCompiledBinary_PinsTheBuildTimeVersion', async () => {
+    const spawn = fakeSpawn();
+    vi.stubGlobal('EXARCHOS_BUILD_VERSION', '9.9.9');
+    vi.resetModules();
+    try {
+      const fresh = await import('../../../src/install/install-skills.js');
+
+      await fresh.installSkills({
+        agent: 'claude',
+        runtimes: ALL_RUNTIMES,
+        spawn: spawn.fn,
+        log: () => {},
+        homeDir: () => '/home/tester',
+        registerMcp: () => {},
+      });
+
+      expect(fresh.readDefaultExarchosVersion()).toBe('9.9.9');
+      expect(spawn.calls.map((call) => call.args[3])).toEqual(['github:lvlup-sw/exarchos#v9.9.9']);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
+  /**
    * A version that names no release tag, such as `unknown`, installs from the default branch.
    * The installer says so before the command, because those skills can differ from the build.
    */
