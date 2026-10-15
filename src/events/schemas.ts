@@ -123,8 +123,10 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
 /**
  * The event types that settlement reads as inputs of its verdict. A generic append of one of them
  * can fake a verdict, so each one must be in the reserved append registry. A test holds that rule.
+ * An evidence citation resolves only to an `admission.evidence-recorded` gate row.
  */
 export const SETTLEMENT_VERDICT_INPUT_EVENT_TYPES: readonly EventType[] = [
+  'admission.evidence-recorded',
   'task.completed',
   'workflow.prepared',
   'design.revised',

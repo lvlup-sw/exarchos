@@ -383,7 +383,7 @@ export function verificationRuns(findings: readonly SettlementFinding[]): boolea
 
 /**
  * Whether a batch with this outcome reached verification. Under such an outcome, the tasks that passed are recorded complete.
- * The rule of the outcome gives the answer. A stored outcome of a later build has no rule here, so it did not reach verification.
+ * The rule of the outcome gives the answer. An outcome with no rule in this build is treated as not verified, and its replay writes nothing.
  */
 export function outcomeVerifies(outcome: SettlementOutcome): boolean {
   return Object.hasOwn(SETTLEMENT_OUTCOME_RULES, outcome) && SETTLEMENT_OUTCOME_RULES[outcome].verifies;

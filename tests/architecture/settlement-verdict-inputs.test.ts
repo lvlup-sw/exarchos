@@ -2,10 +2,11 @@
  * Each event type that settlement reads as an input of its verdict is reserved on the generic
  * append surface.
  *
- * Settlement trusts these rows. A prepared record pins a capsule, a decision settles held work, and
- * a completion row stands for the result of a required task. If a caller can append such a row
- * through the generic surface, the caller can fake a verdict. The list of inputs is data beside the
- * reserved lists. This test holds the list against the registry that the append handlers read.
+ * Settlement trusts these rows. A prepared record pins a capsule, and a decision settles held work.
+ * A gate evidence row resolves an evidence citation. A completion row stands for the result of a
+ * required task. If a caller can append such a row through the generic surface, the caller can
+ * fake a verdict. The list of inputs is data beside the reserved lists, and this test holds it
+ * against the registry that the append handlers read.
  *
  * @oracle-sources: ../../src/events/schemas.ts, ../../src/registry/gate-metadata.ts
  */
@@ -17,6 +18,7 @@ import { RESERVED_EVENT_APPEND_REGISTRY } from '../../src/registry/gate-metadata
 
 /** The verdict inputs that settlement reads today. A list that loses one fails here. */
 const KNOWN_VERDICT_INPUTS: readonly string[] = [
+  'admission.evidence-recorded',
   'capsule.recompiled',
   'design.revised',
   'deviation.decided',

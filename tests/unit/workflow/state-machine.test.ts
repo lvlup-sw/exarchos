@@ -439,6 +439,35 @@ describe('Feature workflow merge-pending substate', () => {
     expect(result.errorCode).toBe('GUARD_FAILED');
   });
 
+  /**
+   * The completion row is reserved, so the failure names no state shape for `update`. It names the
+   * gated writer as a call for the next task to complete. A repeat call for the same task is
+   * deduplicated and writes no row.
+   */
+  it('featureHsm_TaskCompletedWithoutWorktree_SuggestsTaskCompleteForTheNextTask', () => {
+    const hsm = getHSMDefinition('feature');
+    const state = {
+      featureId: 'feat-merge',
+      phase: 'delegate',
+      _events: [{ type: 'task.completed', data: { taskId: 'T01' } }],
+    };
+    const result = executeTransition(hsm, state, 'merge-pending');
+    expect(result.success).toBe(false);
+    expect(result.errorCode).toBe('GUARD_FAILED');
+    expect(result.guardExpectedShape).toBeUndefined();
+    expect(result.guardSuggestedFix).toEqual({
+      tool: 'exarchos_orchestrate',
+      params: {
+        action: 'task_complete',
+        featureId: 'feat-merge',
+        taskId: '<next-task-id>',
+        result: { worktree: '<worktree-path>' },
+      },
+    });
+    expect(result.errorMessage).toContain('Give result.worktree when the next task completes.');
+    expect(result.errorMessage).toContain('is deduplicated and writes no row');
+  });
+
   it('featureHsm_MergeCompletedEvent_LeavesMergePendingState', () => {
     const hsm = getHSMDefinition('feature');
     const state = {

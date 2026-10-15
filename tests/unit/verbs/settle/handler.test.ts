@@ -1404,7 +1404,8 @@ describe('settle — the verification a settled batch runs', () => {
    * The gate leaf returns success without the evidence and the rows that its contract promises, so
    * the segment halts on the contract. That halt is not a gate verdict, so the call is refused with
    * no verdict: no settlement row and no completion. The segment record stays, so a retry of the
-   * same batch gets the same halt. The claims settle under a new batch id.
+   * same batch gets the same halt. The claims settle under a new batch id. The refusal gives the
+   * stop rule: one new batch, then a person.
    */
   it('Settle_AGateThatBreaksItsContract_IsRefusedWithNoVerdict', async () => {
     const breaksItsContract: LeafHandler = async () => ({ success: true, data: { passed: true } });
@@ -1416,6 +1417,9 @@ describe('settle — the verification a settled batch runs', () => {
     expect(refused.error?.message).toContain('"task-verify"');
     expect(refused.error?.message).toContain("'check_mock_boundary'");
     expect(refused.error?.message).toContain('not a gate verdict');
+    expect(refused.error?.message).toContain(
+      'settle the claims once under a new batchId. If the same halt comes back, stop and report it to a person.',
+    );
     expect(refused).not.toHaveProperty('data');
     expect(await settledRows()).toEqual([]);
     expect(await completionRows()).toEqual([]);
@@ -1452,6 +1456,7 @@ describe('settle — the verification a settled batch runs', () => {
     expect(refused.error?.code).toBe('INTENT_SEGMENT_FAILED');
     expect(refused.error?.message).toContain("'task_complete'");
     expect(refused.error?.message).toContain('not a gate verdict');
+    expect(refused.error?.message).toContain('If the same halt comes back, stop and report it to a person.');
     expect(refused.error?.message).toContain('the store refused the append');
     expect(await settledRows()).toEqual([]);
     expect(await completionRows()).toEqual([]);
@@ -1681,7 +1686,8 @@ describe('settle — the decision round', () => {
    * A batch that was never submitted has nothing to decide. A settled batch is closed, and nothing waits for a decision.
    * The refusal for a batch that is not held names the call after its outcome, from the outcome rules.
    * No call follows a settled batch, so the refusal names no correction for it.
-   * The settled batch comes last, because a task that the stream shows complete leaves no task unresolved.
+   * The settled batch comes after the first two, because a task that the stream shows complete leaves no task unresolved.
+   * Then a later revision names the task, and the refusal for one more batch must hold the literal call to prepare.
    */
   it('Settle_ADecisionOnABatchThatIsNotHeld_IsRefusedBeforeAnyEffect', async () => {
     const decision = [{ deviationId: 'dev:000000000000000000000000', decision: 'accepted', actor: ACTOR, rationale: RATIONALE }];
@@ -1698,6 +1704,30 @@ describe('settle — the decision round', () => {
     for (const [batchId, claim, outcome] of closedBatches) {
       expect(receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId, claims: [claim] })).outcome).toBe(outcome);
     }
+    const digest = await store.bundleStore.put(Buffer.from('{"note":"a revision written by hand"}\n', 'utf8'));
+    await store.append(STREAM, {
+      type: 'design.revised',
+      data: DesignRevisedData.parse({
+        operationId: 'settle:revised-by-hand',
+        workflowId: baseValidCapsule().identity.workflowId,
+        capsuleVersion: 7,
+        batchId: 'batch-revised-by-hand',
+        priorDesignVersion: 1,
+        nextDesignVersion: 2,
+        deviationIds: ['dev:written-by-hand'],
+        affectedTasks: ['task-verify'],
+        [BUNDLE_REF_FIELD]: [{ artifactId: 'run-bundle:settlement-adjudication:batch-revised-by-hand:7', digest }],
+      }),
+    });
+    const superseded: [string, Record<string, unknown>, SettlementOutcome] = [
+      'batch-closed-superseded',
+      passingClaim(),
+      'recompile-required',
+    ];
+    expect(
+      receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: superseded[0], claims: [superseded[1]] })).outcome,
+    ).toBe(superseded[2]);
+    closedBatches.push(superseded);
     const rows = await settledRows();
     const blobs = await bundleBlobCount();
     for (const [batchId, , outcome] of closedBatches) {
@@ -1708,6 +1738,10 @@ describe('settle — the decision round', () => {
       expect(closed.error?.message).toContain(`The call after \`${outcome}\`: ${SETTLEMENT_OUTCOME_RULES[outcome].next}.`);
       expect(closed.error?.message).not.toContain('A correction goes back');
     }
+    const recompile = await decide(superseded[0], decision);
+    expect(recompile.error?.message).toContain(
+      'The call after `recompile-required`: prepare, then settle under the new capsule.',
+    );
     expect(SETTLEMENT_OUTCOME_RULES.settled.next).toBe('none');
     expect(await settledRows()).toEqual(rows);
     expect(rows).toHaveLength(closedBatches.length);

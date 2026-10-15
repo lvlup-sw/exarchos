@@ -11,7 +11,7 @@
  * returns success with `outcome: 'rejected'` and appends the record.
  *
  * A batch that the shape pass does not stop is verified task by task. Of the halts of a segment,
- * only a gate verdict leaves its task unresolved. A task that the stream records complete is complete.
+ * only one at a gate leaf leaves its task unresolved, also if the gate did not run. Completion wins.
  *
  * A decision round that accepts a material deviation also commits one design
  * revision. The revision takes its number inside the write transaction.
@@ -768,8 +768,8 @@ async function verifyTask(
           `the segment of task ${JSON.stringify(compiled.taskId)} of ${batchLabel} halted on ` +
             `'${failedLeaf}', and the halt is not a gate verdict. Nothing was adjudicated. A retry of ` +
             'this batchId gets the recorded halt again, unless the stream then records the task ' +
-            'complete. Correct the cause, then settle the claims again under a new batchId. The leaf ' +
-            `reported: ${message}`,
+            'complete. Correct the cause, then settle the claims once under a new batchId. If the same ' +
+            `halt comes back, stop and report it to a person. The leaf reported: ${message}`,
         ),
       };
     }
