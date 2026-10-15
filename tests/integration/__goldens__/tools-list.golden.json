@@ -636,7 +636,7 @@
           },
           "capsule": {
             "additionalProperties": {},
-            "description": "Optional: the compiled capsule document, checked against the prepared record by digest",
+            "description": "The compiled capsule, checked against the prepared record by digest",
             "propertyNames": {
               "type": "string"
             },
@@ -690,6 +690,7 @@
                     "additionalProperties": false,
                     "properties": {
                       "delegatedDecision": {
+                        "maxLength": 256,
                         "minLength": 1,
                         "type": "string"
                       },
@@ -821,7 +822,7 @@
             "type": "boolean"
           },
           "deviations": {
-            "description": "Deviations proposed because a capsule assumption did not hold",
+            "description": "Proposed when a capsule assumption did not hold",
             "items": {
               "additionalProperties": false,
               "properties": {
@@ -839,7 +840,6 @@
                   "type": "string"
                 },
                 "proposedChange": {
-                  "description": "The change the worker proposes",
                   "minLength": 1,
                   "type": "string"
                 },

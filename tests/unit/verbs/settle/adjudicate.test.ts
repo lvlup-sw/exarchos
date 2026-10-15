@@ -16,6 +16,7 @@ import {
   INCOMPLETE_CLAIM_STATUSES,
   SETTLEMENT_FINDING_CLASSES,
   SETTLEMENT_FINDING_KINDS,
+  SETTLEMENT_OUTCOME_RULES,
   SETTLEMENT_OUTCOMES,
   acceptedMaterialDeviations,
   adjudicateSettlement,
@@ -1589,6 +1590,45 @@ describe('the findings that stop verification', () => {
       'corrective-capsule',
       'accepted-with-rationale',
     ]);
+  });
+
+  /**
+   * The outcome rules hold each outcome and no other key. Only `deviation-pending` holds its batch.
+   * No call follows the two outcomes that complete each required task, and only `recompile-required` calls `prepare`.
+   * A stored outcome of a later build has no rule, so a replay of it reads as an outcome that verified nothing.
+   */
+  it('OutcomeRules_CoverEachOutcome_AndNameWhichHoldsAndWhatFollows', () => {
+    expect(Object.keys(SETTLEMENT_OUTCOME_RULES).sort()).toEqual([...SETTLEMENT_OUTCOMES].sort());
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => SETTLEMENT_OUTCOME_RULES[outcome].holds)).toEqual(['deviation-pending']);
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => SETTLEMENT_OUTCOME_RULES[outcome].next === 'none')).toEqual([
+      'settled',
+      'accepted-with-rationale',
+    ]);
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => SETTLEMENT_OUTCOME_RULES[outcome].next.startsWith('prepare'))).toEqual([
+      'recompile-required',
+    ]);
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => SETTLEMENT_OUTCOME_RULES[outcome].next.includes('same batchId'))).toEqual([
+      'deviation-pending',
+    ]);
+    for (const outcome of SETTLEMENT_OUTCOMES) {
+      expect(outcomeVerifies(outcome)).toBe(SETTLEMENT_OUTCOME_RULES[outcome].verifies);
+    }
+    expect(outcomeVerifies(JSON.parse('"partly-settled"'))).toBe(false);
+    expect(outcomeVerifies(JSON.parse('"constructor"'))).toBe(false);
+  });
+
+  /**
+   * Each finding class stops verification exactly when the rule of its outcome verifies nothing.
+   * A batch with findings of one class gets the outcome of that class.
+   */
+  it('OutcomeRules_AgreeWithTheEffectOfEachFindingClass', () => {
+    expect(OUTCOME_OF_CLASS).toHaveLength(4);
+    for (const [findingClass, outcome] of OUTCOME_OF_CLASS) {
+      const kind = SETTLEMENT_FINDING_KINDS.find((candidate) => SETTLEMENT_FINDING_CLASSES[candidate] === findingClass);
+      expect(kind, findingClass).toBeDefined();
+      if (kind === undefined) continue;
+      expect(verificationRuns([finding(kind)]), findingClass).toBe(SETTLEMENT_OUTCOME_RULES[outcome].verifies);
+    }
   });
 
   /** The shape pass of a real batch: a clean batch and a held batch, read through the adjudicator. */

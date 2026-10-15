@@ -70,6 +70,8 @@ import {
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementEvidence,
+  type SettlementOutcome,
+  SETTLEMENT_OUTCOME_RULES,
   type TaskStanding,
   type TaskVerificationOutcome,
   type UnresolvedTask,
@@ -346,7 +348,7 @@ type HeldBatchLookup =
       readonly deviations: ProposedDeviation[];
     }
   | { readonly kind: 'not-settled' }
-  | { readonly kind: 'not-held'; readonly outcome: string };
+  | { readonly kind: 'not-held'; readonly outcome: SettlementOutcome };
 
 /**
  * The batch that a decision round adjudicates, read back from the record of the
@@ -377,7 +379,7 @@ async function heldBatch(
     record = settled;
   }
   if (record === undefined) return { kind: 'not-settled' };
-  if (record.outcome !== 'deviation-pending') return { kind: 'not-held', outcome: record.outcome };
+  if (!SETTLEMENT_OUTCOME_RULES[record.outcome].holds) return { kind: 'not-held', outcome: record.outcome };
   const ref = record.bundleRefs[0];
   if (ref === undefined) {
     throw new Error(
@@ -820,16 +822,18 @@ function unresolvedOnReceipt(
 
 /**
  * The refusal of a submitted batch that carries no claim. The message names the next call for each
- * state. A batch claims each required task that is not complete. When every required task is
- * complete, a claim for one of them comes back `already-complete`. A held batch gets its decisions
- * with no claim. The handler checks after the replay lookup, so a batch with no claim that an
- * earlier build recorded still returns its verdict.
+ * state, and what a claim carries. A claim with a task id alone is rejected when the result shape
+ * of its task requires a field. When every required task is complete, a claim with the result
+ * fields of one of them comes back `already-complete`. A held batch gets its decisions with no
+ * claim. The handler checks after the replay lookup, so a batch with no claim that an earlier build
+ * recorded still returns its verdict.
  */
 function claimlessBatch(batchLabel: string): ToolResult {
   return invalid(
-    `${batchLabel} carries no claim, and a submitted batch carries at least one. Claim each ` +
-      'required task that is not complete. When every required task is complete, claim one of ' +
-      'them: settlement runs no gate again for a complete task and returns it as ' +
+    `${batchLabel} carries no claim, and a submitted batch carries at least one. A claim carries ` +
+      'the result fields of its task, or a status and a reason. Claim each required task that is ' +
+      'not complete. When every required task is complete, claim one of them with its result ' +
+      'fields: settlement runs no gate again for a complete task and returns it as ' +
       '`already-complete`. To decide a held batch, send `decisions` only.',
   );
 }
@@ -1136,7 +1140,7 @@ export async function handleSettle(
         return refused(
           'BATCH_NOT_HELD',
           `${batchLabel} is ${held.outcome}, not held, so there is no deviation to decide. ` +
-            'A correction goes back under a new batchId.',
+            `The call after \`${held.outcome}\`: ${SETTLEMENT_OUTCOME_RULES[held.outcome].next}.`,
         );
       }
       claims = held.claims;
@@ -1348,7 +1352,7 @@ export async function handleSettle(
           timestamp: settledAt,
           schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
         });
-        const pending = verdict.outcome === 'deviation-pending' && !deciding
+        const pending = SETTLEMENT_OUTCOME_RULES[verdict.outcome].holds && !deciding
           ? pendingDeviationsOf(identity, deviations)
           : [];
         const settlement: SettlementOfFact = {

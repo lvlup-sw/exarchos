@@ -190,25 +190,55 @@ export const SETTLEMENT_OUTCOMES = closedNames(
 /** How a batch stands after adjudication. */
 export type SettlementOutcome = (typeof SETTLEMENT_OUTCOMES)[number];
 
+/** What one outcome does to its batch, and the call that follows it. */
+export interface SettlementOutcomeRule {
+  /** Whether settlement verified the batch. The tasks that passed are then recorded complete. */
+  readonly verifies: boolean;
+  /** Whether the batch waits on decisions. Only a batch that waits takes a decision round. */
+  readonly holds: boolean;
+  /**
+   * The call that follows the outcome, as a short clause, or `none`.
+   * A receipt with a `designRevision` takes the call of `recompile-required` under each outcome.
+   */
+  readonly next: string;
+}
+
+/**
+ * The rule of each outcome. The record is exhaustive, so an outcome with no rule does not compile.
+ * Each text of the code that names the call after an outcome takes the call from here.
+ * Each finding class takes from here whether its batch still verifies.
+ */
+export const SETTLEMENT_OUTCOME_RULES: Readonly<Record<SettlementOutcome, SettlementOutcomeRule>> = {
+  settled: { verifies: true, holds: false, next: 'none' },
+  rejected: { verifies: false, holds: false, next: 'settle the correction under a new batchId' },
+  'deviation-pending': { verifies: false, holds: true, next: 'settle the same batchId with `decisions` only' },
+  'recompile-required': { verifies: false, holds: false, next: 'prepare, then settle under the new capsule' },
+  'corrective-capsule': {
+    verifies: true,
+    holds: false,
+    next: 'settle a new batchId on the same capsule with only the `unresolved` tasks',
+  },
+  'accepted-with-rationale': { verifies: true, holds: false, next: 'none' },
+};
+
 /** What a finding of one class does to its batch. */
 interface FindingClassEffect {
   /** The place of the class in the order of precedence. The lowest number among the findings of a batch decides its outcome. */
   readonly precedence: number;
   readonly outcome: SettlementOutcome;
-  /** Whether settlement still verifies the clean claims of a batch that has a finding of the class. */
-  readonly verifies: boolean;
 }
 
 /**
  * The effect of each finding class. The record is exhaustive, so a class with no effect does not compile.
+ * The rule of the outcome of a class says whether settlement still verifies the clean claims of its batch.
  * A stale, refused or held batch is stopped before verification, so nothing in it is verified.
  * An unresolved task does not stop its batch, so the other tasks of the batch can still complete.
  */
 const FINDING_CLASS_EFFECTS: Readonly<Record<SettlementFindingClass, FindingClassEffect>> = {
-  stale: { precedence: 0, outcome: 'recompile-required', verifies: false },
-  refuse: { precedence: 1, outcome: 'rejected', verifies: false },
-  hold: { precedence: 2, outcome: 'deviation-pending', verifies: false },
-  unresolved: { precedence: 3, outcome: 'corrective-capsule', verifies: true },
+  stale: { precedence: 0, outcome: 'recompile-required' },
+  refuse: { precedence: 1, outcome: 'rejected' },
+  hold: { precedence: 2, outcome: 'deviation-pending' },
+  unresolved: { precedence: 3, outcome: 'corrective-capsule' },
 };
 
 /** The effect of the class of one finding. */
@@ -311,15 +341,15 @@ function rationaleNotDelegated(
  * It runs when no finding is stale, refuses the batch, or holds it. A finding that leaves a task unresolved does not stop it.
  */
 export function verificationRuns(findings: readonly SettlementFinding[]): boolean {
-  return findings.every((finding) => effectOf(finding).verifies);
+  return findings.every((finding) => outcomeVerifies(effectOf(finding).outcome));
 }
 
 /**
  * Whether a batch with this outcome reached verification. Under such an outcome, the tasks that passed are recorded complete.
- * An outcome did not reach it when it is the outcome of a finding class that stops verification.
+ * The rule of the outcome gives the answer. A stored outcome of a later build has no rule here, so it did not reach verification.
  */
 export function outcomeVerifies(outcome: SettlementOutcome): boolean {
-  return !Object.values(FINDING_CLASS_EFFECTS).some((effect) => effect.outcome === outcome && !effect.verifies);
+  return Object.hasOwn(SETTLEMENT_OUTCOME_RULES, outcome) && SETTLEMENT_OUTCOME_RULES[outcome].verifies;
 }
 
 /**

@@ -37,6 +37,7 @@ import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
 import { lowerBuiltInDefinition } from '../../src/verbs/prepare/lower-definition.js';
 import { commitPreparedCapsule, decodePreparedBundle } from '../../src/verbs/prepare/prepared-record.js';
+import { MAX_DELEGATED_DECISION_ID_LENGTH } from '../../src/verbs/settle/claim-codec.js';
 import { decodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
@@ -1697,6 +1698,51 @@ describe('prepare then settle, through the dispatcher', () => {
 
     const moved = await call('exarchos_workflow', moveToReview);
     expect(moved.success, JSON.stringify(moved)).toBe(true);
+  });
+
+  /**
+   * The registered schema bounds the id of a delegated decision, so the dispatcher refuses a longer
+   * id before the handler runs. The message is the one of the dispatcher, not the one of the claim
+   * codec. The refusal appends no row, writes no blob and spends no batch id. The same batch id then
+   * carries an id at the bound, and the handler adjudicates it. The capsule delegates no decision
+   * with that id, so the batch is rejected and nothing is verified.
+   */
+  it('PrepareSettle_ADecisionIdOverItsBound_IsRefusedByTheDispatcherBeforeAnyEffect', async () => {
+    await seedDelegatingFeature();
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const capsuleVersion = await latestCapsuleVersion();
+    const [first, ...others] = completedClaims();
+    const withIdOf = (length: number): Record<string, unknown> => ({
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-long-decision-id',
+      claims: [{ ...first, rationale: [{ delegatedDecision: 'd'.repeat(length), statement: 'a table drives the parser' }] }, ...others],
+    });
+    const tail = (await eventStore.query(STREAM)).map((event) => [event.sequence, event.type]);
+    const blobs = await blobCount();
+
+    const refused = await call('exarchos_orchestrate', withIdOf(MAX_DELEGATED_DECISION_ID_LENGTH + 1));
+    expect(refused.success, JSON.stringify(refused)).toBe(false);
+    expect(refused.error?.code).toBe('INVALID_INPUT');
+    expect(refused.error?.message).toMatch(/^exarchos_orchestrate\/settle: /);
+    expect(refused.error?.message).toContain('delegatedDecision');
+    expect(refused.error?.message).not.toContain('holds 257 characters');
+    expect((await eventStore.query(STREAM)).map((event) => [event.sequence, event.type])).toEqual(tail);
+    expect(await blobCount()).toBe(blobs);
+
+    const atBound = await call('exarchos_orchestrate', withIdOf(MAX_DELEGATED_DECISION_ID_LENGTH));
+    expect(atBound.success, JSON.stringify(atBound)).toBe(true);
+    expect(atBound.data).toMatchObject({
+      outcome: 'rejected',
+      acceptedTasks: ['task-b', 'task-c'],
+      findings: [{ kind: 'rationale-not-delegated', subject: 'd'.repeat(MAX_DELEGATED_DECISION_ID_LENGTH) }],
+      verification: [],
+    });
+    expect((await settlementRecords()).map((record) => [record.batchId, record.outcome])).toEqual([
+      ['batch-long-decision-id', 'rejected'],
+    ]);
   });
 
   /**

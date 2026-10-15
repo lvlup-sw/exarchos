@@ -353,12 +353,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -1567,12 +1569,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -2744,12 +2748,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -3922,12 +3928,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -5081,12 +5089,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -6258,12 +6268,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 

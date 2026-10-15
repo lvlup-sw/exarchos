@@ -71,6 +71,7 @@ import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-re
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
 import {
   INCOMPLETE_CLAIM_STATUSES,
+  SETTLEMENT_OUTCOME_RULES,
   SETTLEMENT_OUTCOMES,
   outcomeVerifies,
   type SettlementOutcome,
@@ -1635,7 +1636,12 @@ describe('settle — the decision round', () => {
     ]);
   });
 
-  /** A batch that was never submitted has nothing to decide. A settled batch is closed, and nothing waits for a decision. */
+  /**
+   * A batch that was never submitted has nothing to decide. A settled batch is closed, and nothing waits for a decision.
+   * The refusal for a batch that is not held names the call after its outcome, from the outcome rules.
+   * No call follows a settled batch, so the refusal names no correction for it.
+   * The settled batch comes last, because a task that the stream shows complete leaves no task unresolved.
+   */
   it('Settle_ADecisionOnABatchThatIsNotHeld_IsRefusedBeforeAnyEffect', async () => {
     const decision = [{ deviationId: 'dev:000000000000000000000000', decision: 'accepted', actor: ACTOR, rationale: RATIONALE }];
     const unknown = await decide('batch-never-submitted', decision);
@@ -1643,13 +1649,27 @@ describe('settle — the decision round', () => {
     expect(unknown.error?.code).toBe('BATCH_NOT_HELD');
     expect(unknown.error?.message).toContain('has not been settled');
 
-    receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-closed', claims: [passingClaim()] }));
+    const closedBatches: [string, Record<string, unknown>, SettlementOutcome][] = [
+      ['batch-closed-corrective', { taskId: 'task-verify', status: 'blocked', reason: 'the store is down' }, 'corrective-capsule'],
+      ['batch-closed-rejected', failingClaim(), 'rejected'],
+      ['batch-closed', passingClaim(), 'settled'],
+    ];
+    for (const [batchId, claim, outcome] of closedBatches) {
+      expect(receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId, claims: [claim] })).outcome).toBe(outcome);
+    }
+    const rows = await settledRows();
     const blobs = await bundleBlobCount();
-    const closed = await decide('batch-closed', decision);
-    expect(closed.success).toBe(false);
-    expect(closed.error?.code).toBe('BATCH_NOT_HELD');
-    expect(closed.error?.message).toContain('is settled');
-    expect(await settledRows()).toHaveLength(1);
+    for (const [batchId, , outcome] of closedBatches) {
+      const closed = await decide(batchId, decision);
+      expect(closed.success).toBe(false);
+      expect(closed.error?.code).toBe('BATCH_NOT_HELD');
+      expect(closed.error?.message).toContain(`is ${outcome}, not held`);
+      expect(closed.error?.message).toContain(`The call after \`${outcome}\`: ${SETTLEMENT_OUTCOME_RULES[outcome].next}.`);
+      expect(closed.error?.message).not.toContain('A correction goes back');
+    }
+    expect(SETTLEMENT_OUTCOME_RULES.settled.next).toBe('none');
+    expect(await settledRows()).toEqual(rows);
+    expect(rows).toHaveLength(closedBatches.length);
     expect(await rowsOf('deviation.decided')).toEqual([]);
     expect(await bundleBlobCount()).toBe(blobs);
   });
@@ -3542,9 +3562,10 @@ describe('settle — a required result that the stream shows complete', () => {
    * A batch with no claim is refused as invalid input in each spelling, also when it carries a
    * deviation. The refusal leaves no row, no blob and no claim.
    *
-   * The message names the call that works in this state, which is a claim for a complete task.
-   * It also names the call that decides a held batch. The same batch id then carries a claim for
-   * a complete task and settles, with both requirements already complete.
+   * The message names the call that works in this state, which is a claim for a complete task with
+   * its result fields. It says what a claim carries, and it names the call that decides a held
+   * batch. The same batch id then carries a claim for a complete task and settles, with both
+   * requirements already complete.
    */
   it('Settle_ASubmittedBatchWithNoClaim_IsRefusedAsInvalidInput', async () => {
     await recordCompletion('task-verify');
@@ -3558,7 +3579,8 @@ describe('settle — a required result that the stream shows complete', () => {
       expect(result.success, JSON.stringify(body)).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('carries no claim');
-      expect(result.error?.message).toContain('claim one of them');
+      expect(result.error?.message).toContain('A claim carries the result fields of its task, or a status and a reason');
+      expect(result.error?.message).toContain('claim one of them with its result fields');
       expect(result.error?.message).toContain('`already-complete`');
       expect(result.error?.message).toContain('send `decisions` only');
     }
@@ -5355,14 +5377,14 @@ describe('settle — the text of the action', () => {
   /**
    * The description of the action is at its budget, so the output schema states the call that
    * follows each outcome. An outcome that the list gains with no entry in the text fails here.
-   * The text is the one that `describe` returns for the action. It counts twice against the
-   * response budget of `describe`, which a test of the registry measures. The text is short for
-   * that reason, and the delegate skill gives the meaning of each outcome in full.
+   * The text counts twice against the response budget of `describe`, so it is short. The delegate
+   * skill gives each outcome in full.
    *
-   * The text names three outcomes by their position after one sentence, so the entries after that
-   * sentence must be those three. The same sentence says what `acceptedTasks` lists under them.
-   * A claim that reports its task as not completed is not in that list, and it has no shape fault.
-   * The entry of the outcome that a rationale gives does not say that no batch gets it.
+   * Three outcomes follow one sentence, which says that they verify nothing in this build and what
+   * `acceptedTasks` lists under them. A receipt of an earlier build can carry `rejected` after a
+   * verification. A claim with a status has no shape fault. The entry of `accepted-with-rationale`
+   * does not say that no batch gets it. Each call comes from the outcome rules, and the
+   * `designRevision` rule is stated once for all outcomes.
    */
   it('SettleAction_ItsOutputSchema_StatesEachOutcomeAndTheCallThatFollows', () => {
     const guides = descriptionsIn(zodToJsonSchema(settleAction().outputSchema)).filter((text) =>
@@ -5379,13 +5401,32 @@ describe('settle — the text of the action', () => {
     expect(guide).not.toContain('not returned');
     expect(guide).toContain('`corrective-capsule`: the tasks that passed are complete');
     expect(guide).toContain('Settle a new batchId on the same capsule with only the `unresolved` tasks');
-    expect(guide).toContain('With a `designRevision`, prepare first');
+    expect(guide).not.toContain('With a `designRevision`, prepare first');
+    expect(guide.split('`designRevision`')).toHaveLength(2);
+    expect(guide.endsWith('Any outcome with a `designRevision`: as `recompile-required`')).toBe(true);
     expect(guide).toContain('`rejected`: settle the correction under a new batchId');
     expect(guide).toContain('`deviation-pending`: settle the same batchId with `decisions` only');
     expect(guide).toContain('`recompile-required`: prepare, then settle under the new capsule');
+    const entries = new Map(
+      guide.split(/(?=`[a-z-]+`: |In this build |Any outcome )/).map((part) => [part.slice(0, part.indexOf(': ')), part]),
+    );
+    for (const outcome of SETTLEMENT_OUTCOMES) {
+      const entry = entries.get(`\`${outcome}\``) ?? '';
+      const { next } = SETTLEMENT_OUTCOME_RULES[outcome];
+      if (next === 'none') {
+        expect(entry, `the text gives ${outcome} a call`).not.toMatch(/\b(settle|prepare)\b/i);
+        continue;
+      }
+      const sentence = `${next.charAt(0).toUpperCase()}${next.slice(1)}`;
+      expect(
+        entry === `\`${outcome}\`: ${next}. ` || entry.endsWith(`. ${sentence}. `),
+        `the text gives ${outcome} a call that is not its rule: ${entry}`,
+      ).toBe(true);
+    }
 
     expect(guide).not.toContain('no shape fault');
-    const unverified = 'The next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
+    expect(guide).not.toContain('The next three verify nothing');
+    const unverified = 'In this build the next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
     const [verifiedPart, unverifiedPart, ...rest] = guide.split(unverified);
     expect(rest).toEqual([]);
     const entriesIn = (part: string | undefined): SettlementOutcome[] =>
