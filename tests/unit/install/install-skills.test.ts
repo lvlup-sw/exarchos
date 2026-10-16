@@ -422,7 +422,7 @@ describe('installSkills error handling (task 021)', () => {
 
   /**
    * A compiled build pins the tag only when its release define names `v<version>`.
-   * With no build version, the version form alone decides, as from source or from the npm package.
+   * With no build version, the version form alone decides. Only a run from source has no build version.
    */
   it('SkillsInstallSource_EachBuildKind_PinsOnlyAReleaseBuildOrASourceRun', () => {
     expect(

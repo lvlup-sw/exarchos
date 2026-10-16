@@ -462,9 +462,10 @@ function unpinnedSkillsSourceCause(version: string, build: ExarchosBuildFacts): 
  * and it clones with `--branch <ref>`. When the tag is not published, the clone and the install fail.
  *
  * A compiled build pins the tag `v<version>` only when it is a release build, which the release workflow makes at the tag.
+ * The npm package ships the binaries that the release job builds at the tag, so they are release builds and pin their tag.
  * A build of an unreleased head carries the version of the last release, so it pins nothing.
- * From source or from the npm package, `build` holds no version, and a version of release form pins its tag.
- * The published npm package is a release, and a git checkout normally copies its local skills and does not reach this path.
+ * Only a run from source has no version in `build`, so there a version of release form pins its tag.
+ * A git checkout normally copies its local skills and does not reach this path.
  * Any other version, such as `unknown`, gives the repository with no ref, which is its default branch.
  */
 export function skillsInstallSource(version: string, build: ExarchosBuildFacts = {}): string {

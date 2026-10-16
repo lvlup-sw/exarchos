@@ -14,7 +14,8 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 - **The skills install of a release build is pinned to its version.** When no local skills tree is found, `exarchos onboard` runs `npx skills@1 add github:lvlup-sw/exarchos#v<version>`, so a release binary installs the skills of its own release with major version 1 of the `skills` CLI. A release build is a binary that the build made with HEAD at the tag `v<version>`, as the release workflow does. The install fails when that tag is not published.
   - A binary built from another commit carries the version of the last release. It is not a release build, so it installs the default branch, and the installer says so.
-  - From source or from the npm package, a version of release form installs its tag. A version that is not of release form installs the default branch, and the installer says so.
+  - The npm package ships the binaries that the release job builds at the tag. They are release builds, so they install the skills of their tag.
+  - Only a run from source has no build version. There a version of release form installs its tag. A version that is not of release form installs the default branch, and the installer says so.
   - A 2.12.1 binary has no ref in that command, and it installs the skills of the default branch until a 3.x binary replaces it.
 
 ## [2.10.0-preview.4] - 2026-05-24
