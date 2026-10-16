@@ -113,6 +113,7 @@ describe('installSkills scaffold (task 019)', () => {
   /**
    * The flags make the upstream `skills` CLI install each skill for the agent with no prompt.
    * The source pins the release tag of the version, so the skills come from the release of the binary.
+   * The package spec pins the major version 1 of the CLI, and it has no `cmd.exe` metacharacter.
    */
   it('InstallSkills_WithAgentFlag_ConstructsCorrectNpxCommand', async () => {
     const spawn = fakeSpawn();
@@ -132,7 +133,7 @@ describe('installSkills scaffold (task 019)', () => {
     expect(cmd).toBe('npx');
     expect(args).toEqual([
       '--yes',
-      'skills',
+      'skills@1',
       'add',
       'github:lvlup-sw/exarchos#v3.0.0',
       '--skill',
@@ -277,7 +278,7 @@ describe('installSkills error handling (task 021)', () => {
     }
     const joined = errLines.join('\n');
     expect(joined).toContain(
-      'npx --yes skills add github:lvlup-sw/exarchos#v3.0.0 --skill * --agent claude-code -y -g --copy',
+      'npx --yes skills@1 add github:lvlup-sw/exarchos#v3.0.0 --skill * --agent claude-code -y -g --copy',
     );
   });
 
@@ -338,7 +339,7 @@ describe('installSkills error handling (task 021)', () => {
   });
 
   /**
-   * A version that names no release tag, such as `unknown`, installs from the default branch.
+   * A version that is not of release form, such as `unknown`, installs from the default branch.
    * The installer says so before the command, because those skills can differ from the build.
    */
   it('InstallSkills_VersionWithNoReleaseTag_InstallsTheDefaultBranchAndSaysSo', async () => {
@@ -358,13 +359,13 @@ describe('installSkills error handling (task 021)', () => {
     expect(spawn.calls.map((call) => call.args[3])).toEqual(['github:lvlup-sw/exarchos']);
     expect(logs[0]).toContain('names no release tag');
     expect(logs[1]).toBe(
-      'Running: npx --yes skills add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
+      'Running: npx --yes skills@1 add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
     );
   });
 
   /**
    * The `skills` CLI reads the text after `#` as a ref and clones with `--branch <ref>`, so a release version pins its tag.
-   * Only a release version gives a ref. A version with a `cmd.exe` metacharacter gives none.
+   * Only a version of release form gives a ref. A version with a `cmd.exe` metacharacter gives none.
    */
   it('SkillsInstallSource_EachVersionForm_GivesTheTagOrTheDefaultBranch', () => {
     expect(
@@ -1127,6 +1128,10 @@ function recordingChildSpawn(): {
 }
 
 describe('installSkills default spawn', () => {
+  /**
+   * On win32 the `npx` shim runs through `cmd.exe`. No argument holds a `cmd.exe` metacharacter,
+   * so the shell passes each argument unchanged.
+   */
   it('InstallSkills_DefaultSpawnOnWin32_RunsTheNpxShimThroughTheShell', async () => {
     const recorder = recordingChildSpawn();
 
@@ -1151,6 +1156,7 @@ describe('installSkills default spawn', () => {
         }),
       },
     ]);
+    expect(recorder.calls.flatMap((call) => call.args).filter((arg) => /[\^&|<>]/.test(arg))).toEqual([]);
   });
 
   it('InstallSkills_DefaultSpawnOnPosix_RunsNpxWithNoShell', async () => {

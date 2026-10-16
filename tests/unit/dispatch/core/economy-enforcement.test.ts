@@ -412,6 +412,29 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
     }
   });
 
+  /**
+   * An action that declares `fields` and no window gets a `--fields` hint. That hint narrows the next
+   * call, so the reason does not say that a second call returns the same summary.
+   */
+  it('dispatchEconomy_FieldsParamWithNoWindow_HintsTheFieldsAndClaimsNoSameSummary', async () => {
+    const dispose = registerEconomyTool({
+      tool: 'econ_fields_tool',
+      action: 'get',
+      schema: z.object({ fields: z.array(z.string()).optional() }),
+      economy: { budgetTokens: 20 },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_fields_tool', { action: 'get' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.hint).toBe('get --fields <comma,separated>');
+      expect(affordance?.reason).toBe('Showing 10 of 60. get takes no limit or offset.');
+      expect(NextAction.safeParse(affordance).success).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
   /** An action that declares `limit` gets a `--limit` hint that the caller can use, and the narrow reason. */
   it('dispatchEconomy_LimitParam_EmitsAccurateLimitFlagHint', async () => {
     const dispose = registerEconomyTool({
@@ -436,9 +459,12 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
    * Each registered action gets the narrow affordance only when its input declares `limit` or
    * `offset`. A strict parse refuses an undeclared key, so the affordance of any other action names
    * no window parameter. The registry holds actions of both kinds, so neither half is empty.
+   * Only a reason with no narrowing hint says that a second call returns the same summary.
+   * The registry holds a windowless action with a `--fields` hint, `exarchos_workflow get`.
    */
   it('cappedAffordance_EachRegisteredAction_NamesAWindowOnlyWhenItsInputDeclaresOne', () => {
     const seen = { windowed: 0, windowless: 0 };
+    const hintedWindowless: string[] = [];
     for (const tool of getFullRegistry()) {
       for (const action of tool.actions) {
         const keys = Object.keys(action.schema.shape);
@@ -447,15 +473,20 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
         expect(NextAction.safeParse(affordance).success, `${tool.name}.${action.name}`).toBe(true);
         expect(affordance.reason.includes('limit/offset'), `${tool.name}.${action.name}`).toBe(windowed);
         expect(affordance.reason.includes('takes no limit or offset'), `${tool.name}.${action.name}`).toBe(!windowed);
+        expect(affordance.reason.includes('same summary'), `${tool.name}.${action.name}`).toBe(
+          !windowed && affordance.hint === undefined,
+        );
         if (action.economy?.detailRead !== undefined && !windowed) {
           expect(affordance.reason.endsWith(action.economy.detailRead), `${tool.name}.${action.name}`).toBe(true);
         }
         seen.windowed += windowed ? 1 : 0;
         seen.windowless += windowed ? 0 : 1;
+        if (!windowed && affordance.hint !== undefined) hintedWindowless.push(`${tool.name}.${action.name}`);
       }
     }
     expect(seen.windowed).toBeGreaterThan(0);
     expect(seen.windowless).toBeGreaterThan(0);
+    expect(hintedWindowless).toContain('exarchos_workflow.get');
   });
 
   /**

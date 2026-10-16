@@ -343,7 +343,7 @@ A halt at a gate leaf gives `verification-failed` when the leaf kept its contrac
 
 The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. In a summary, an entry holds the `taskId` and the `cause` only, and no finding has a message. The settlement bundle that `bundleRefs` names holds each message.
 
-To read the receipt of a halted segment, send the call that settlement made for the task. Take the `operationId` from the `verification[]` entry or the `unresolved` entry of the task. Take `riskTier`, `boundaryTouching` and `baseRef` from the terms of the task in the capsule (`settlementContract.taskVerification[taskId]`). Take the other arguments from the claim:
+To read the receipt of a halted segment, send the call that settlement made for the task. Take the `operationId` from the `verification[]` entry or the `unresolved` entry of the task. Use only that `operationId`, because another id runs the whole segment again, `task_complete` too, outside settlement. A capped summary keeps no `operationId` on an `unresolved` entry, so then take it from the `verification` list of the settlement bundle that `bundleRefs` names. Take `riskTier`, `boundaryTouching` and `baseRef` from the terms of the task in the capsule (`settlementContract.taskVerification[taskId]`). Take the other arguments from the claim:
 
 ```typescript
 exarchos_orchestrate({
@@ -455,7 +455,7 @@ Call `prepare` again. Then settle under the capsule that `prepare` returns. Clai
 - `OPERATION_DIGEST_MISMATCH`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands.
 - `BATCH_NOT_HELD`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - `DECISION_INCOMPLETE`: the decision answers fewer deviations than the batch waits on.
-- `STATE_SYNC_FAILED`: the write of the state document failed, and the facts on the stream stand. Run `exarchos_workflow reconcile`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, `error.settlementReceipt` holds that verdict.
+- `STATE_SYNC_FAILED`: the write of the state document failed, and the facts on the stream stand. Run `exarchos_workflow reconcile`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, `error.settlementReceipt` holds that verdict. Over the receipt budget, it holds the capped summary.
 - `INTENT_SEGMENT_FAILED` or `INTENT_EMISSION_CONTRACT_VIOLATED`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. `task_complete` then refuses with `GATE_NOT_PASSED`. That is such a halt, and a new batch id gets it again.
 - `INVALID_INPUT`: settlement cannot build the segment from a claim (typically no `worktreePath`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its `status`, `reason` or `rationale` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
@@ -569,7 +569,7 @@ For the full transition table, consult `@skills/checkpoint/references/phase-tran
 
 **Quick reference:** The `delegate` → `review` transition requires guard `all-tasks-complete` — all `tasks[].status` must be `"complete"` in workflow state.
 
-> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call `exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })` returns one row for each settlement round, with its `outcome` and its `unresolvedTasks`. Do not patch `tasks[].status` by hand to get past the guard.
+> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call `exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })` returns one row for each settlement round, with its `outcome` and, under `corrective-capsule`, its `unresolvedTasks`. Do not patch `tasks[].status` by hand to get past the guard.
 
 ### Worktree-Bearing Tasks: Auto-Detour to `merge-pending`
 

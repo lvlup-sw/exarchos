@@ -155,9 +155,9 @@ A task that is not completed gets a claim with a status and a reason, and no fie
 
 **On `corrective-capsule`:** The tasks that passed are complete. Read `unresolved`. Its `cause` says why each task is unresolved: a gate halted (`verification-failed`), or the claim reported the task as `failed`, `blocked` or `skipped`. Fix the task, remove the block, or dispatch the task. Then settle a new batch id on the same capsule, and claim only the unresolved tasks. If the receipt carries `designRevision`, call `prepare` first. Land each task of `acceptedTasks` before you create the worktree of a task that waits on it.
 
-**On `rejected`:** The request or a deviation is in error, and settlement verified nothing. Read the findings, and correct the claim or the deviation. Then settle the corrected request under a new batch id on the same capsule.
+**On `rejected`:** The request or a deviation is in error, and in this build settlement verified nothing. A replayed receipt of an earlier build can name verified tasks (Step 3 of the skill). Read the findings, and correct the claim or the deviation. Then settle the corrected request under a new batch id on the same capsule.
 
-**On `deviation-pending`:** Settlement verified nothing. Get a decision from a person for each pending deviation. In a run with no person, stop at the held batch and report it. Then settle the same batch id with `decisions` and no claims.
+**On `deviation-pending`:** Settlement verified nothing. Get a decision from a person for each pending deviation. In a run with no person, stop at the held batch and report it. When a person has decided, settle the same batch id with `decisions` and no claims.
 
 **On `recompile-required`:** The capsule was stale, and settlement verified nothing. Call `prepare` again, and settle under the capsule that it returns.
 

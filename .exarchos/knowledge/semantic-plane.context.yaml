@@ -647,8 +647,8 @@ measured:
       check: "npx vitest run --project core tests/unit/registry.test.ts -t describeAction_OfOneAction; npm run desc:budget-guard"
     - fact: "the stored settlement shapes (ExecutionSettledData, SettlementBundleV1Schema, ClaimTraceSchema) each have a digest under storedShapes in the registered-actions snapshot, with the version decision of 2026-10-15 (one-way upgrade, SCHEMA_VERSION 6). A changed shape with no new decision fails the check. The test also holds the digests of each recorded decision, so an edit of a recorded decision fails too."
       check: "npx vitest run --project unit tests/architecture/identifier-stability.test.ts; grep -n 'SCHEMA_VERSION =' src/storage/sqlite/schema.ts"
-    - fact: "the npx skills install names the release tag of the binary (github:lvlup-sw/exarchos#v<version>). A version that names no release tag installs the default branch, and the installer says so. The compiled binary reads its version from EXARCHOS_BUILD_VERSION, which the build inlines."
-      check: "grep -n -A3 'export function skillsInstallSource' src/install/install-skills.ts; npx vitest run --project core tests/unit/install/install-skills.test.ts -t 'SkillsInstallSource|CompiledBinary'"
+    - fact: "the npx skills install pins major version 1 of the skills CLI (skills@1) and names the release tag of the binary (github:lvlup-sw/exarchos#v<version>). A version of release form installs its tag, and the install fails when that tag is not published. A version that is not of release form installs the default branch, and the installer says so. The compiled binary reads its version from EXARCHOS_BUILD_VERSION, which the build inlines."
+      check: "grep -n -e 'const SKILLS_CLI' -A3 -e 'export function skillsInstallSource' src/install/install-skills.ts; npx vitest run --project core tests/unit/install/install-skills.test.ts -t 'SkillsInstallSource|CompiledBinary|ConstructsCorrectNpxCommand'"
     - fact: agent-teams workers are told to call Exarchos
       check: "grep -n -A4 'Workflow Intelligence' content/delivery/skills/delegate/references/implementer-prompt.md"
     - fact: run bundles live under the state dir

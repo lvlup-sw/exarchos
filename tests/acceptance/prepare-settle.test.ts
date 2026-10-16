@@ -579,11 +579,13 @@ describe('prepare then settle, through the dispatcher', () => {
     await vi.waitFor(async () => expect(await telemetryRowsOf()).toBeGreaterThanOrEqual(2), { timeout: 10_000 });
     const counters = (await eventStore.query(TELEMETRY_STREAM)).length;
     const emissionRows = await telemetryRowsOf();
+    const snapshot = (await eventStore.query(STREAM)).length;
 
     await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(args, first, shipped);
     expect((await eventStore.query(TELEMETRY_STREAM)).length).toBeGreaterThan(counters);
     await vi.waitFor(async () => expect(await telemetryRowsOf()).toBeGreaterThan(emissionRows), { timeout: 10_000 });
     const after = await eventStore.query(STREAM);
+    expect(after.slice(snapshot).filter((event) => !isTelemetryRow(event)).map((event) => event.type)).toEqual([]);
     expect(after.filter((event) => SETTLE_OWNED_ROW_TYPES.includes(event.type)).map((event) => event.type).sort()).toEqual(
       ['execution.settled', 'task.completed', 'task.completed', 'task.completed', 'workflow.prepared'].sort(),
     );
@@ -920,10 +922,11 @@ describe('prepare then settle, through the dispatcher', () => {
   /**
    * Two medium-tier tasks in git worktrees go through the shipped runbook. The test of the first task
    * fails on the reverted source, so its probe passes. The test of the second asserts nothing, so its
-   * probe halts the segment with a gate verdict. The receipt and the record name the halted task, its
-   * cause and its leaf. Only the first task is complete on the stream and on the state document.
-   * The next call is a correction, so the guard refuses the transition until a batch built from the
-   * unresolved list settles.
+   * probe halts the segment with a gate verdict. The receipt names the halted task, its cause and its
+   * leaf. The `execution.settled` row names the task and its cause only.
+   *
+   * Only the first task is complete on the stream and on the state document. The next call is a
+   * correction, so the guard refuses the transition until a batch built from the unresolved list settles.
    *
    * Limit: the probe counts each failed run of the test command as a kill. It cannot tell a failed
    * assertion from a run that collected no test, so this case does not prove the difference.

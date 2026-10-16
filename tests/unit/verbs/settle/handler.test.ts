@@ -1236,8 +1236,9 @@ describe('settle — the verification a settled batch runs', () => {
   /**
    * The verdict is durable, and the replay cannot write the document. The refusal names the repair,
    * and it carries the verdict on `error.settlementReceipt`, because a failed envelope has no `data`.
-   * The envelope keeps the field, and the output gate of the MCP adapter passes it. The replay
-   * appends no row.
+   * The envelope keeps the field, and the output gate of the MCP adapter does not refuse the envelope.
+   * The gate does not inspect the carrier, because the error object of the envelope schema passes
+   * each key through. The replay appends no row.
    */
   it('Settle_AReplayThatCannotLevelTheDocument_CarriesItsVerdictOnTheError', async () => {
     await initStateFile(stateDir, STREAM, 'feature', {

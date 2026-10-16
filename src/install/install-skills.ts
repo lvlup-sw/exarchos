@@ -2,8 +2,8 @@
  * `installSkills()` is the programmatic entry point for `exarchos install-skills`.
  * It resolves the runtime map for the target agent, or detects the agent.
  * Then it copies the rendered skills from a local source tree, or it runs
- * `npx skills add github:lvlup-sw/exarchos#v<version> --skill '*' --agent <id> -y -g --copy`.
- * The ref pins the skills to the release of this binary.
+ * `npx skills@1 add github:lvlup-sw/exarchos#v<version> --skill '*' --agent <id> -y -g --copy`.
+ * The ref pins the skills to the release of this binary, and `skills@1` pins the major version of the CLI.
  *
  * The upstream `skills` CLI selects skills and agents with `@clack/prompts`.
  * Without `--yes` and explicit `--skill` and `--agent` flags, a closed stdin gives
@@ -429,15 +429,21 @@ const SKILLS_AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 const SKILLS_REPOSITORY = 'github:lvlup-sw/exarchos';
 
 /**
+ * The package spec of the `skills` CLI for `npx`. npm reads the range `1` as `^1`, so a major
+ * release of the CLI does not change the install. The spec has no `^`, which `cmd.exe` reads as an escape.
+ */
+const SKILLS_CLI = 'skills@1';
+
+/**
  * The form of a release version that names a git tag. Each character is safe in a `cmd.exe` argument.
  */
 const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 /**
- * The source that `npx skills add` installs from. A release version pins the git tag `v<version>`.
+ * The source that `npx skills add` installs from. A version of release form pins the git tag `v<version>`.
  * The `skills` CLI reads the text after `#` as the ref, and it clones with `--branch <ref>`.
- * Thus the skills come from the same release as the binary.
- * Another version, such as `unknown`, gives the repository with no ref, which is its default branch.
+ * Thus the skills come from the same release as the binary. When that tag is not published, the clone and the install fail.
+ * A version that is not of release form, such as `unknown`, gives the repository with no ref, which is its default branch.
  */
 export function skillsInstallSource(version: string): string {
   return RELEASE_VERSION.test(version) ? `${SKILLS_REPOSITORY}#v${version}` : SKILLS_REPOSITORY;
@@ -1163,7 +1169,7 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
   const cmd = 'npx';
   const args = [
     '--yes',
-    'skills',
+    SKILLS_CLI,
     'add',
     source,
     '--skill',

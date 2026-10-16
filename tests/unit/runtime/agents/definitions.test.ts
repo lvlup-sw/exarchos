@@ -64,6 +64,16 @@ describe('AgentSpec capability declarations', () => {
     expect(REVIEWER.systemPrompt).not.toContain('exarchos_event append/batch_append');
   });
 
+  /**
+   * The reviewer report gives `"status": "complete"`, which is not a status of the claim tuple.
+   * The report says that it is not a settle claim, so no orchestrator builds a claim from it.
+   */
+  it('REVIEWER_CompletionReport_SaysThatItIsNotASettleClaim', () => {
+    const report = REVIEWER.systemPrompt.slice(REVIEWER.systemPrompt.indexOf('## Completion Report'));
+    expect(report).toContain('"status": "complete"');
+    expect(report).toContain('not a settle claim');
+  });
+
   it('REVIEWER_SystemPrompt_PreservesNonForbiddenSections', () => {
     expect(REVIEWER.systemPrompt).toContain('## Review Scope');
     expect(REVIEWER.systemPrompt).toContain('## Design Requirements');

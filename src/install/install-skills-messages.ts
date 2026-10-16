@@ -52,12 +52,12 @@ export function ambiguousNonInteractiveThrowMessage(
 }
 
 /**
- * Emitted before `npx skills add` when the version of this build names no release tag.
+ * Emitted before `npx skills add` when the version of this build is not of release form.
  * The skills then come from the default branch, and they can differ from this build.
  */
 export function unpinnedSkillsSourceMessage(version: string): string {
   return (
-    `Exarchos version "${version}" names no release tag. ` +
+    `Exarchos version "${version}" is not a release version, so it names no release tag. ` +
     `Installing skills from the default branch, which can differ from this build.`
   );
 }

@@ -466,7 +466,7 @@ Rules:
 - Categorize findings: critical, warning, suggestion
 
 ## Completion Report
-When done, output a JSON completion report:
+When done, output a JSON completion report. This report is a review verdict and not a settle claim, so the orchestrator does not send it to \`settle\`:
 \`\`\`json
 {
   "status": "complete",

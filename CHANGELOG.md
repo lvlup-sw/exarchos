@@ -12,7 +12,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The store version moves in a later release, with a step that only stamps the version, after the freshness gate is repaired ([#2106](https://github.com/lvlup-sw/exarchos/issues/2106)).
   - `tools/audit/registered-actions-snapshot.json` holds a digest of each stored settlement shape and the version decision for it. `tests/architecture/identifier-stability.test.ts` fails when a shape changes and no decision records it.
 
-- **The skills install is pinned to the binary version.** When no local skills tree is found, `exarchos onboard` runs `npx skills add github:lvlup-sw/exarchos#v<version>`, so a binary installs the skills of its own release. A 2.12.1 binary has no ref in that command, and it installs the skills of the default branch until a 3.x binary replaces it.
+- **The skills install is pinned to the binary version.** When no local skills tree is found, `exarchos onboard` runs `npx skills@1 add github:lvlup-sw/exarchos#v<version>`, so a binary installs the skills of its own release with major version 1 of the `skills` CLI. A version of release form installs its tag, and the install fails when that tag is not published. A version that is not of release form installs the default branch, and the installer says so. A 2.12.1 binary has no ref in that command, and it installs the skills of the default branch until a 3.x binary replaces it.
 
 ## [2.10.0-preview.4] - 2026-05-24
 

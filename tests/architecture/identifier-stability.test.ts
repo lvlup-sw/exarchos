@@ -425,6 +425,8 @@ describe('stored settlement shapes carry a version decision', () => {
   /**
    * The log starts at the decision that admitted the settlement vocabulary as a one-way upgrade.
    * Each later entry is dated in order and records a change of a shape or of the store version.
+   * Each entry names at least one shape. Only the latest entry must name each shape of this build.
+   * Thus an earlier entry keeps the shapes that it recorded when a new shape is stored.
    */
   it('StoredShapes_DecisionLog_StartsAtTheOneWayUpgradeAndEachEntryRecordsAChange', () => {
     const [first] = decisions;
@@ -436,8 +438,9 @@ describe('stored settlement shapes carry a version decision', () => {
       expect(entry.date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expect(entry.source.length, `${entry.date} names no source`).toBeGreaterThan(0);
       expect(entry.decision.length, `${entry.date} records no decision`).toBeGreaterThan(0);
-      expect(Object.keys(entry.shapes).sort()).toEqual(Object.keys(STORED_SHAPES).sort());
+      expect(Object.keys(entry.shapes).length, `${entry.date} names no shape`).toBeGreaterThan(0);
     }
+    expect(Object.keys(decisions.at(-1)?.shapes ?? {}).sort()).toEqual(Object.keys(STORED_SHAPES).sort());
     decisions.slice(1).forEach((entry, i) => {
       const previous = decisions[i]!;
       expect(entry.date >= previous.date, `${entry.date} is earlier than ${previous.date}`).toBe(true);

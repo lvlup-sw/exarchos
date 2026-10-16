@@ -63,8 +63,10 @@ export function countBy<T>(items: readonly T[], key: (item: T) => string): Recor
 
 /**
  * The next action after the summary cut the output of an action that takes no `limit` and no
- * `offset`. A second call returns the same summary. Thus the reason names the read that serves the
- * rest, when the action declares one. `verb` is the name of the action itself.
+ * `offset`. The reason names the read that serves the rest, when the action declares one.
+ * With no narrowing hint, a second call returns the same summary, and the reason says so.
+ * A hint such as `--fields` narrows the next call, so the reason then makes no such claim.
+ * `verb` is the name of the action itself.
  */
 export function detailAffordance(
   verb: string,
@@ -76,7 +78,8 @@ export function detailAffordance(
   return {
     verb,
     reason:
-      `Showing ${shown} of ${total}. ${verb} takes no limit or offset, so a second call returns the same summary.` +
+      `Showing ${shown} of ${total}. ${verb} takes no limit or offset` +
+      (cliHint !== undefined ? '.' : ', so a second call returns the same summary.') +
       (detailRead !== undefined ? ` ${detailRead}` : ''),
     ...(cliHint !== undefined ? { hint: cliHint } : {}),
   };
