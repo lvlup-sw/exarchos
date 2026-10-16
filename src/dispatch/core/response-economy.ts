@@ -15,6 +15,7 @@ import { findActionInRegistry, resolveEconomyBudget, type ToolAction } from '../
 import {
   detailAffordance,
   estimateOutputTokens,
+  limitOnlyAffordance,
   narrowAffordance,
   SUMMARY_FIRST_PAGE_ITEMS,
 } from './economy.js';
@@ -86,15 +87,23 @@ function economyNarrowHint(keys: ReadonlySet<string>, actionName: string): strin
   return undefined;
 }
 
-/** True when the input of the action declares a window parameter, `limit` or `offset`. */
-function declaresWindow(keys: ReadonlySet<string>): boolean {
-  return keys.has('limit') || keys.has('offset');
+/**
+ * The sentence of the fallback summary that names the keys the input declares among `limit`,
+ * `offset` and `fields`. Only `offset` pages. With none of the keys, the sentence is empty.
+ */
+function narrowSentence(keys: ReadonlySet<string>): string {
+  const declared = ['limit', 'offset', 'fields'].filter((key) => keys.has(key));
+  if (declared.length === 0) return '';
+  const effect = keys.has('offset') ? 'page the detail' : 'read less detail';
+  return ` Narrow with ${declared.join(' / ')} to ${effect}.`;
 }
 
 /**
- * The next action of a capped response. Only an action whose input declares `limit` or `offset`
- * gets the narrow affordance. A strict parse refuses a key that the input does not declare. Thus
- * any other action gets a reason that names the read it declares in `economy.detailRead`.
+ * The next action of a capped response. A strict parse refuses a key that the input does not
+ * declare, so each reason names only declared keys. Only an input that declares `offset` gets the
+ * paging affordance. An input that declares `limit` and no `offset` cannot page. It gets a reason
+ * that says so and names the read it declares in `economy.detailRead`. Any other action gets
+ * the windowless reason with that read.
  */
 export function cappedAffordance(
   action: Pick<ToolAction, 'schema' | 'economy'>,
@@ -104,9 +113,12 @@ export function cappedAffordance(
 ): NextAction {
   const keys = inputKeysOf(action);
   const hint = economyNarrowHint(keys, actionName);
-  return declaresWindow(keys)
-    ? narrowAffordance(actionName, shown, total, hint)
-    : detailAffordance(actionName, shown, total, action.economy?.detailRead, hint);
+  const detailRead = action.economy?.detailRead;
+  if (keys.has('offset')) {
+    return narrowAffordance(actionName, shown, total, hint, keys.has('limit') ? 'limit/offset' : 'offset');
+  }
+  if (keys.has('limit')) return limitOnlyAffordance(actionName, shown, total, detailRead, hint);
+  return detailAffordance(actionName, shown, total, detailRead, hint);
 }
 
 /**
@@ -192,9 +204,7 @@ export function capResponse(result: ToolResult, tool: string, actionName: string
         `Response exceeded the ${resolveEconomyBudget(action)}-token economy budget ` +
         `(~${tokens} estimated tokens); showing a counts summary and the ` +
         `first ${firstPage.length} of ${total} item(s).` +
-        (declaresWindow(inputKeysOf(action))
-          ? ' Narrow with limit / offset / fields to page the detail.'
-          : ''),
+        narrowSentence(inputKeysOf(action)),
       counts: { total, shown: firstPage.length },
       firstPage,
     };

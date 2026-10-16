@@ -29,6 +29,7 @@ import {
   buildIdentityBanner,
   collectSourceState,
   extractEmbeddedBuildIdentity,
+  readReleaseTag,
   renderSourceStateReport,
   type EmbeddedBuildIdentity,
 } from '../../tools/release/build-release-manifest.js';
@@ -45,6 +46,7 @@ import {
 } from '../../src/runtime/extensions/trust-root.js';
 import { spawnAsync, spawnAsyncBuffer } from '../../tools/test-helpers/spawn.js';
 import { makeRepoSandbox, type RepoSandbox } from '../../tools/test-helpers/repo-sandbox.js';
+import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(__dirname, '../..');
@@ -647,5 +649,39 @@ describe('DR-20 release manifest producer', () => {
           ? files.map((f) => String(f).trim())
           : [];
     expect(fileList).toContain(`dist/release/${RELEASE_MANIFEST_FILENAME}`);
+  });
+});
+
+/**
+ * The release tag decides if a compiled binary pins the skills of its release. Each case runs on a
+ * sandbox git repository, so the verdict does not depend on the live checkout.
+ */
+describe('release tag of a build', () => {
+  /**
+   * HEAD at the tag `v<version>` gives the tag, for an annotated tag and for a lightweight tag. The CI
+   * checkout of a tag can give a lightweight tag. A tag of another version, a commit after the tag,
+   * and a directory that is not a git repository each give the empty string.
+   */
+  it('ReadReleaseTag_EachHeadPosition_NamesTheTagOnlyAtTheTag', async () => {
+    const sandbox = await makeRepoSandbox({ prefix: 'release-tag', files: { 'a.txt': 'a' }, git: true });
+    const outside = mkdtempSync(join(tmpdir(), 'exarchos-release-tag-'));
+    try {
+      expect(readReleaseTag(sandbox.root, '1.2.3')).toBe('');
+      await sandbox.git('tag', '-a', 'v1.2.3', '-m', 'release');
+      expect(readReleaseTag(sandbox.root, '1.2.3')).toBe('v1.2.3');
+      expect(readReleaseTag(sandbox.root, '1.2.4')).toBe('');
+
+      sandbox.write('b.txt', 'b');
+      await sandbox.git('add', '-A');
+      await sandbox.git('commit', '-q', '--no-verify', '-m', 'after the release');
+      expect(readReleaseTag(sandbox.root, '1.2.3')).toBe('');
+      await sandbox.git('tag', 'v1.2.4');
+      expect(readReleaseTag(sandbox.root, '1.2.4')).toBe('v1.2.4');
+
+      expect(readReleaseTag(outside, '1.2.4')).toBe('');
+    } finally {
+      sandbox.remove();
+      rmrf(outside);
+    }
   });
 });

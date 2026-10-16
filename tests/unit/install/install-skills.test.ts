@@ -304,6 +304,7 @@ describe('installSkills error handling (task 021)', () => {
       log: () => {},
       homeDir: () => '/home/tester',
       registerMcp: () => {},
+      build: {},
     });
 
     expect(spawn.calls.map((call) => call.args[3])).toEqual([`github:lvlup-sw/exarchos#v${version}`]);
@@ -311,12 +312,14 @@ describe('installSkills error handling (task 021)', () => {
 
   /**
    * The compiled binary has no `package.json`, and no caller gives a version option.
-   * The version that the build inlines as `EXARCHOS_BUILD_VERSION` comes before the root `package.json`, so the source pins its tag.
-   * A fresh module instance reads the global, because the version is cached after the first read.
+   * The version that the build inlines as `EXARCHOS_BUILD_VERSION` comes before the root `package.json`.
+   * The build ran at the tag, which `EXARCHOS_BUILD_RELEASE_TAG` records, so the source pins that tag.
+   * A fresh module instance reads the globals, because the version is cached after the first read.
    */
   it('InstallSkills_NoVersionOptionInTheCompiledBinary_PinsTheBuildTimeVersion', async () => {
     const spawn = fakeSpawn();
     vi.stubGlobal('EXARCHOS_BUILD_VERSION', '9.9.9');
+    vi.stubGlobal('EXARCHOS_BUILD_RELEASE_TAG', 'v9.9.9');
     vi.resetModules();
     try {
       const fresh = await import('../../../src/install/install-skills.js');
@@ -335,6 +338,39 @@ describe('installSkills error handling (task 021)', () => {
     } finally {
       vi.unstubAllGlobals();
       vi.resetModules();
+    }
+  });
+
+  /**
+   * A compiled binary built from a head that is not at the tag of its version has an empty release define.
+   * A binary with no release define, from an older build script, is not a release build either.
+   * Each one installs the default branch and says that the build is not a release build.
+   */
+  it('InstallSkills_CompiledBinaryThatIsNotAReleaseBuild_InstallsTheDefaultBranchAndSaysSo', async () => {
+    for (const releaseTag of ['', undefined]) {
+      const spawn = fakeSpawn();
+      const logs: string[] = [];
+      vi.stubGlobal('EXARCHOS_BUILD_VERSION', '9.9.9');
+      if (releaseTag !== undefined) vi.stubGlobal('EXARCHOS_BUILD_RELEASE_TAG', releaseTag);
+      vi.resetModules();
+      try {
+        const fresh = await import('../../../src/install/install-skills.js');
+
+        await fresh.installSkills({
+          agent: 'claude',
+          runtimes: ALL_RUNTIMES,
+          spawn: spawn.fn,
+          log: (msg) => logs.push(msg),
+          homeDir: () => '/home/tester',
+          registerMcp: () => {},
+        });
+
+        expect(spawn.calls.map((call) => call.args[3]), String(releaseTag)).toEqual(['github:lvlup-sw/exarchos']);
+        expect(logs[0], String(releaseTag)).toContain('9.9.9 is not a release build');
+      } finally {
+        vi.unstubAllGlobals();
+        vi.resetModules();
+      }
     }
   });
 
@@ -382,6 +418,76 @@ describe('installSkills error handling (task 021)', () => {
       'github:lvlup-sw/exarchos',
       'github:lvlup-sw/exarchos',
     ]);
+  });
+
+  /**
+   * A compiled build pins the tag only when its release define names `v<version>`.
+   * With no build version, the version form alone decides, as from source or from the npm package.
+   */
+  it('SkillsInstallSource_EachBuildKind_PinsOnlyAReleaseBuildOrASourceRun', () => {
+    expect(
+      [
+        skillsInstallSource('2.12.1', { version: '2.12.1', releaseTag: 'v2.12.1' }),
+        skillsInstallSource('2.12.1', { version: '2.12.1', releaseTag: '' }),
+        skillsInstallSource('2.12.1', { version: '2.12.1' }),
+        skillsInstallSource('2.12.1', { version: '2.12.1', releaseTag: 'v2.12.0' }),
+        skillsInstallSource('2.12.1', {}),
+        skillsInstallSource('unknown', { version: 'unknown', releaseTag: 'vunknown' }),
+      ],
+    ).toEqual([
+      'github:lvlup-sw/exarchos#v2.12.1',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos#v2.12.1',
+      'github:lvlup-sw/exarchos',
+    ]);
+  });
+
+  /**
+   * The command of each build kind, with the build facts injected, so the result does not depend on how the test runs.
+   * A release build pins its tag. A compiled build that is not a release build installs the default branch and says so first.
+   * A run from source pins the tag of a release version.
+   */
+  it('InstallSkills_EachBuildKind_RunsThePinnedOrTheDefaultBranchCommand', async () => {
+    const runFor = async (build: { version?: string; releaseTag?: string }) => {
+      const spawn = fakeSpawn();
+      const logs: string[] = [];
+      await installSkills({
+        agent: 'claude',
+        runtimes: ALL_RUNTIMES,
+        spawn: spawn.fn,
+        log: (msg) => logs.push(msg),
+        homeDir: () => '/home/tester',
+        registerMcp: () => {},
+        version: '3.0.0',
+        build,
+      });
+      return { logs: logs.slice(0, 2), args: spawn.calls.map((call) => call.args[3]) };
+    };
+
+    expect(await runFor({ version: '3.0.0', releaseTag: 'v3.0.0' })).toEqual({
+      logs: [
+        'Running: npx --yes skills@1 add github:lvlup-sw/exarchos#v3.0.0 --skill * --agent claude-code -y -g --copy',
+        expect.any(String),
+      ],
+      args: ['github:lvlup-sw/exarchos#v3.0.0'],
+    });
+    expect(await runFor({ version: '3.0.0', releaseTag: '' })).toEqual({
+      logs: [
+        'This build of Exarchos 3.0.0 is not a release build, so it names no release tag. ' +
+          'Installing skills from the default branch, which can differ from this build.',
+        'Running: npx --yes skills@1 add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
+      ],
+      args: ['github:lvlup-sw/exarchos'],
+    });
+    expect(await runFor({})).toEqual({
+      logs: [
+        'Running: npx --yes skills@1 add github:lvlup-sw/exarchos#v3.0.0 --skill * --agent claude-code -y -g --copy',
+        expect.any(String),
+      ],
+      args: ['github:lvlup-sw/exarchos#v3.0.0'],
+    });
   });
 
   /**

@@ -3,7 +3,8 @@
  * It resolves the runtime map for the target agent, or detects the agent.
  * Then it copies the rendered skills from a local source tree, or it runs
  * `npx skills@1 add github:lvlup-sw/exarchos#v<version> --skill '*' --agent <id> -y -g --copy`.
- * The ref pins the skills to the release of this binary, and `skills@1` pins the major version of the CLI.
+ * The ref pins the skills to the release of this build, and `skills@1` pins the major version of the CLI.
+ * A compiled binary that the build did not make at its release tag installs from the default branch.
  *
  * The upstream `skills` CLI selects skills and agents with `@clack/prompts`.
  * Without `--yes` and explicit `--skill` and `--agent` flags, a closed stdin gives
@@ -31,6 +32,7 @@ import {
   noAgentDetectedFallbackMessage,
   unknownRuntimeMessage,
   unpinnedSkillsSourceMessage,
+  type UnpinnedSkillsSourceCause,
 } from './install-skills-messages.js';
 import { atomicWriteFile } from '../utils/atomic-write.js';
 import { spawnCommand, type SpawnCommandDeps } from '../utils/process.js';
@@ -142,9 +144,14 @@ export interface InstallSkillsOpts {
   projectRoot?: string;
   /**
    * Exarchos version for the provenance manifest and the git tag of `npx skills add`.
-   * Defaults to {@link readDefaultExarchosVersion}.
+   * Defaults to the version in `build`, then to {@link readDefaultExarchosVersion}.
    */
   version?: string;
+  /**
+   * The facts that a compiled build inlines, which decide if `npx skills add` pins the release tag.
+   * Defaults to {@link readExarchosBuildFacts}. Tests inject them, so a result does not depend on how the test runs.
+   */
+  build?: ExarchosBuildFacts;
   /**
    * Override case-insensitive-filesystem detection for manifest directory-name
    * key folding. Defaults to a platform heuristic (see {@link defaultCaseInsensitiveFs}).
@@ -440,13 +447,30 @@ const SKILLS_CLI = 'skills@1';
 const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
 
 /**
- * The source that `npx skills add` installs from. A version of release form pins the git tag `v<version>`.
- * The `skills` CLI reads the text after `#` as the ref, and it clones with `--branch <ref>`.
- * Thus the skills come from the same release as the binary. When that tag is not published, the clone and the install fail.
- * A version that is not of release form, such as `unknown`, gives the repository with no ref, which is its default branch.
+ * Why the source of `npx skills add` names no release tag, or `undefined` when it names the tag.
+ * A version that is not of release form names no tag. A compiled build names the tag only when
+ * the build ran at the tag `v<version>`, which its release define records.
  */
-export function skillsInstallSource(version: string): string {
-  return RELEASE_VERSION.test(version) ? `${SKILLS_REPOSITORY}#v${version}` : SKILLS_REPOSITORY;
+function unpinnedSkillsSourceCause(version: string, build: ExarchosBuildFacts): UnpinnedSkillsSourceCause | undefined {
+  if (!RELEASE_VERSION.test(version)) return 'not-a-release-version';
+  if (build.version !== undefined && build.releaseTag !== `v${version}`) return 'not-a-release-build';
+  return undefined;
+}
+
+/**
+ * The source that `npx skills add` installs from. The `skills` CLI reads the text after `#` as the ref,
+ * and it clones with `--branch <ref>`. When the tag is not published, the clone and the install fail.
+ *
+ * A compiled build pins the tag `v<version>` only when it is a release build, which the release workflow makes at the tag.
+ * A build of an unreleased head carries the version of the last release, so it pins nothing.
+ * From source or from the npm package, `build` holds no version, and a version of release form pins its tag.
+ * The published npm package is a release, and a git checkout normally copies its local skills and does not reach this path.
+ * Any other version, such as `unknown`, gives the repository with no ref, which is its default branch.
+ */
+export function skillsInstallSource(version: string, build: ExarchosBuildFacts = {}): string {
+  return unpinnedSkillsSourceCause(version, build) === undefined
+    ? `${SKILLS_REPOSITORY}#v${version}`
+    : SKILLS_REPOSITORY;
 }
 
 /**
@@ -1006,6 +1030,36 @@ export function installManifestVouchesForDir(
  */
 declare const EXARCHOS_BUILD_VERSION: string | undefined;
 
+/**
+ * The release tag that `tools/release/build-binary.ts` inlines into the compiled binary with `--define`.
+ * It is `v<version>` when the build ran at that tag, and empty when it did not. It is `undefined` from source.
+ */
+declare const EXARCHOS_BUILD_RELEASE_TAG: string | undefined;
+
+/** The facts that a compiled build inlines. From source, both fields are absent. */
+export interface ExarchosBuildFacts {
+  /** The version of the build, from `EXARCHOS_BUILD_VERSION`. */
+  readonly version?: string;
+  /** The release tag of the build, from `EXARCHOS_BUILD_RELEASE_TAG`. Empty when the build did not run at the tag. */
+  readonly releaseTag?: string;
+}
+
+/**
+ * Read the facts that the build inlined. A compiled binary that has a version and no release tag
+ * define is not a release build, so it does not pin the skills.
+ */
+export function readExarchosBuildFacts(): ExarchosBuildFacts {
+  const version =
+    typeof EXARCHOS_BUILD_VERSION === 'string' && EXARCHOS_BUILD_VERSION.length > 0
+      ? EXARCHOS_BUILD_VERSION
+      : undefined;
+  const releaseTag = typeof EXARCHOS_BUILD_RELEASE_TAG === 'string' ? EXARCHOS_BUILD_RELEASE_TAG : undefined;
+  return {
+    ...(version !== undefined ? { version } : {}),
+    ...(releaseTag !== undefined ? { releaseTag } : {}),
+  };
+}
+
 let cachedExarchosVersion: string | undefined;
 /**
  * Resolve the Exarchos version for the provenance manifest and the skills ref.
@@ -1015,8 +1069,9 @@ let cachedExarchosVersion: string | undefined;
  */
 export function readDefaultExarchosVersion(): string {
   if (cachedExarchosVersion !== undefined) return cachedExarchosVersion;
-  if (typeof EXARCHOS_BUILD_VERSION === 'string' && EXARCHOS_BUILD_VERSION.length > 0) {
-    cachedExarchosVersion = EXARCHOS_BUILD_VERSION;
+  const builtVersion = readExarchosBuildFacts().version;
+  if (builtVersion !== undefined) {
+    cachedExarchosVersion = builtVersion;
     return cachedExarchosVersion;
   }
   cachedExarchosVersion = 'unknown';
@@ -1039,7 +1094,7 @@ export function readDefaultExarchosVersion(): string {
  *      use `generic`. If detection is ambiguous, prompt, or throw in non-interactive mode.
  *   2. If `opts.skillsSource` has skills for the runtime, copy them to the native dir,
  *      place the canonical layout, and write the provenance manifest.
- *   3. If not, log and spawn `npx skills add` at the tag of {@link skillsInstallSource}, with `FORCE_COLOR=0` and `CI=true`.
+ *   3. If not, log and spawn `npx skills add` from {@link skillsInstallSource}, with `FORCE_COLOR=0` and `CI=true`.
  *      `--copy` writes real files, because symlinks into the npm cache break when the cache is cleaned.
  *      A non-zero exit throws an `InstallSkillsError` with `exitCode`.
  *   4. Install the command aliases. For `claude`, register the MCP server. A registration
@@ -1163,9 +1218,11 @@ export async function installSkills(opts: InstallSkillsOpts): Promise<void> {
         'Use letters, digits, ".", "_" and "-" only.',
     );
   }
-  const releaseVersion = opts.version ?? readDefaultExarchosVersion();
-  const source = skillsInstallSource(releaseVersion);
-  if (source === SKILLS_REPOSITORY) log(unpinnedSkillsSourceMessage(releaseVersion));
+  const build = opts.build ?? readExarchosBuildFacts();
+  const releaseVersion = opts.version ?? build.version ?? readDefaultExarchosVersion();
+  const source = skillsInstallSource(releaseVersion, build);
+  const unpinnedCause = unpinnedSkillsSourceCause(releaseVersion, build);
+  if (unpinnedCause !== undefined) log(unpinnedSkillsSourceMessage(releaseVersion, unpinnedCause));
   const cmd = 'npx';
   const args = [
     '--yes',

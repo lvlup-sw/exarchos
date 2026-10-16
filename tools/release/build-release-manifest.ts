@@ -372,6 +372,26 @@ export function readPackageVersion(repoRoot: string): string {
   return pkg.version;
 }
 
+/**
+ * The release tag of a build: `v<version>` when HEAD is the commit of that tag, or an empty string.
+ * The release workflow builds at the tag, so its binaries name the tag. A git failure gives the
+ * empty string, so a build that git cannot place at the tag is not a release build.
+ */
+export function readReleaseTag(repoRoot: string, version: string): string {
+  const tag = `v${version}`;
+  const commitOf = (rev: string): string =>
+    execFileSync('git', ['-C', repoRoot, 'rev-parse', '--verify', '--quiet', `${rev}^{commit}`], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  try {
+    const head = commitOf('HEAD');
+    return head.length > 0 && head === commitOf(`refs/tags/${tag}`) ? tag : '';
+  } catch {
+    return '';
+  }
+}
+
 /** Event-store schema version, read from its single source of truth. */
 export function readSchemaVersion(repoRoot: string): number {
   const src = readFileSync(join(repoRoot, SCHEMA_VERSION_SOURCE), 'utf8');
