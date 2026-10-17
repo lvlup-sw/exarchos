@@ -249,7 +249,7 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     const gitExec: GitExec = (_repoRoot, args) => {
       calls.push([...args]);
       if (args[0] === 'merge-base') return { stdout: `${sha}\n`, exitCode: 0 };
-      if (args[0] === 'diff') return { stdout: 'src/b.js\ntest/b.test.js\n', exitCode: 0 };
+      if (args[0] === 'diff') return { stdout: 'M\0src/b.js\0A\0test/b.test.js\0D\0test/old.test.js\0', exitCode: 0 };
       return { stdout: `unexpected git ${args.join(' ')}`, exitCode: 1 };
     };
     await handleTestAdequacy(
@@ -268,13 +268,40 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     );
     expect(calls).toEqual([
       ['merge-base', 'feature/x', 'task-2'],
-      ['diff', '--name-only', `${sha}...task-2`],
+      ['diff', '-z', '--no-renames', '--name-status', `${sha}...task-2`],
     ]);
     expect(mockRunProbe).toHaveBeenCalledOnce();
     expect(mockRunProbe.mock.calls[0]?.[0]).toMatchObject({
       baseRef: sha,
-      changedFiles: ['src/b.js', 'test/b.test.js'],
+      changedFiles: ['src/b.js', 'test/b.test.js', 'test/old.test.js'],
+      deletedFiles: ['test/old.test.js'],
     });
+  });
+
+  /** A diff output that is not NUL-separated name-status records is a diff failure, not a list of changed files. */
+  it('CheckTestAdequacy_ADiffThatDoesNotParse_IsADiffFailure', async () => {
+    const ctx = await makeCtx();
+    const sha = 'b'.repeat(40);
+    for (const stdout of ['src/b.js\ntest/b.test.js\n', 'R100\0src/a.js\0src/b.js\0', 'M\0\0']) {
+      const gitExec: GitExec = (_repoRoot, args) =>
+        args[0] === 'merge-base' ? { stdout: `${sha}\n`, exitCode: 0 } : { stdout, exitCode: 0 };
+      await handleTestAdequacy(
+        {
+          featureId: 'feat-unparsed-diff',
+          taskId: 'T-unparsed',
+          branch: 'task-2',
+          baseBranch: 'feature/x',
+          repoRoot: '/fake/repo',
+          riskTier: 'medium',
+          gitExec,
+          runTests: async () => ({ passed: true, output: '' }),
+        },
+        ctx.stateDir,
+        ctx.eventStore,
+      );
+    }
+    expect(mockRunProbe).toHaveBeenCalledTimes(3);
+    for (const [args] of mockRunProbe.mock.calls) expect(args).toMatchObject({ diffFailed: true, changedFiles: [] });
   });
 
   it('CheckTestAdequacy_ARefGitWouldReadAsAnOption_NeverReachesGit', async () => {

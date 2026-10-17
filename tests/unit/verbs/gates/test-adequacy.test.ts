@@ -255,28 +255,38 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
     30_000,
   );
 
-  /** The test reverts, throws, and restores in its own `catch`, so it checks `restoreWorkingTree` and not a `finally` in `runProbe`. */
+  /**
+   * The test runner passes on the task source and throws on the reverted source, so only the second run throws.
+   * `runProbe` must reject and must leave the working tree as it was before the probe. The restore must be in a `finally`.
+   */
   it(
     'Restore_OnProbeError_StillRestores',
     async () => {
-      const { repoRoot, baseRef, sourceFile } = await setupTaskRepo('test-adequacy-restore-err-');
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-restore-err-');
       repos.push(repoRoot);
 
       const before = await workingTreeHash(repoRoot);
-      const snap = snapshotWorkingTree(realGitExec, repoRoot);
-      expect('stashSha' in snap).toBe(true);
-      if (!('stashSha' in snap)) throw new Error('snapshot failed');
+      const sourcesSeen: string[] = [];
+      const runTests: TestRunFn = async ({ repoRoot: rr }) => {
+        const source = readFileSync(path.join(rr, sourceFile), 'utf-8');
+        sourcesSeen.push(source.includes('=> 1') ? 'reverted' : 'task');
+        if (source.includes('=> 1')) throw new Error('injected crash of the post-revert run');
+        return { passed: true };
+      };
 
-      let restored = false;
-      try {
-        revertSourceFiles(realGitExec, repoRoot, baseRef, [sourceFile]);
-        throw new Error('injected test-run failure');
-      } catch {
-        const restore = restoreWorkingTree(realGitExec, repoRoot, snap.stashSha);
-        restored = restore.restored;
-      }
-      expect(restored).toBe(true);
+      await expect(
+        runProbe({
+          gitExec: realGitExec,
+          repoRoot,
+          baseRef,
+          changedFiles: [sourceFile, testFile],
+          runTests,
+        }),
+      ).rejects.toThrow('injected crash of the post-revert run');
+
+      expect(sourcesSeen).toEqual(['task', 'reverted']);
       expect(await workingTreeHash(repoRoot)).toBe(before);
+      expect(readFileSync(path.join(repoRoot, sourceFile), 'utf-8')).toContain('=> 2');
     },
     30_000,
   );
@@ -450,7 +460,9 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       );
       repos.push(repoRoot);
 
-      const runTests: TestRunFn = async () => ({ passed: false });
+      const runTests: TestRunFn = async ({ repoRoot: rr }) => ({
+        passed: !readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1'),
+      });
 
       const result = await runProbe({
         gitExec: realGitExec,
@@ -462,8 +474,198 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
 
       expect(result.probedTests).toEqual([testFile]);
       expect(result.restoredClean).toBe(true);
-      expect(typeof result.passed).toBe('boolean');
-      expect(typeof result.redObserved).toBe('boolean');
+      expect(result.redObserved).toBe(true);
+      expect(result.passed).toBe(true);
+    },
+    30_000,
+  );
+
+  /**
+   * The test command fails on every run, so the tests are red on the task source before any revert.
+   * A red run after the revert then proves nothing. The probe must stop with `baseline-red` and block at every tier.
+   */
+  it(
+    'Probe_TestCommandAlwaysFails_IsBaselineRedAndBlocksAtEveryTier',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
+        'test-adequacy-probe-baseline-red-',
+      );
+      repos.push(repoRoot);
+
+      const before = await workingTreeHash(repoRoot);
+      for (const riskTier of [undefined, 'low', 'medium', 'high'] as const) {
+        const sourcesSeen: string[] = [];
+        const runTests: TestRunFn = async ({ repoRoot: rr }) => {
+          const reverted = readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1');
+          sourcesSeen.push(reverted ? 'reverted' : 'task');
+          return { passed: false, output: 'line one\nError: Cannot find module ./missing.js' };
+        };
+
+        const result = await runProbe({
+          gitExec: realGitExec,
+          repoRoot,
+          baseRef,
+          changedFiles: [sourceFile, testFile],
+          runTests,
+          ...(riskTier === undefined ? {} : { riskTier }),
+        });
+
+        expect(result.verdict.kind, String(riskTier)).toBe('indeterminate');
+        expect(result.discriminant, String(riskTier)).toBe('baseline-red');
+        expect(result.passed, String(riskTier)).toBe(false);
+        expect(result.disposition, String(riskTier)).toBe('blocked');
+        expect(result.skipped, String(riskTier)).toBeUndefined();
+        expect(result.redObserved, String(riskTier)).toBe(false);
+        expect(result.restoredClean, String(riskTier)).toBe(true);
+        expect(result.report, String(riskTier)).toContain('Cannot find module ./missing.js');
+        expect(result.report, String(riskTier)).not.toContain('did not run');
+        expect(sourcesSeen, String(riskTier)).toEqual(['task']);
+        expect(await workingTreeHash(repoRoot), String(riskTier)).toBe(before);
+      }
+    },
+    30_000,
+  );
+
+  /** The detail of a `baseline-red` verdict ends with the tail of the runner output, not with the whole output. */
+  it(
+    'Probe_BaselineRed_DetailEndsWithTheTailOfTheRunnerOutput',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
+        'test-adequacy-probe-baseline-tail-',
+      );
+      repos.push(repoRoot);
+
+      const output = Array.from({ length: 50 }, (_, i) => `output line ${i}`).join('\n');
+      const result = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, testFile],
+        runTests: async () => ({ passed: false, output }),
+      });
+
+      expect(result.discriminant).toBe('baseline-red');
+      expect(result.verdict.kind).toBe('indeterminate');
+      if (result.verdict.kind !== 'indeterminate') return;
+      expect(result.verdict.detail.endsWith('output line 49')).toBe(true);
+      expect(result.verdict.detail).toContain('output line 30');
+      expect(result.verdict.detail).not.toContain('output line 29');
+    },
+    30_000,
+  );
+
+  /**
+   * A task that changes only a test file has no source to revert. The run after the revert is the same run as the first,
+   * so the probe runs the tests once. Green tests give `failed`, and red tests give `baseline-red`. Neither is a kill.
+   */
+  it(
+    'Probe_TestOnlyTask_RunsTheTestsOnceAndNeverPasses',
+    async () => {
+      const { repoRoot, baseRef, testFile } = await setupTaskRepo('test-adequacy-probe-test-only-');
+      repos.push(repoRoot);
+
+      for (const green of [true, false]) {
+        let calls = 0;
+        const result = await runProbe({
+          gitExec: realGitExec,
+          repoRoot,
+          baseRef,
+          changedFiles: [testFile],
+          runTests: async () => {
+            calls += 1;
+            return { passed: green };
+          },
+          riskTier: 'medium',
+        });
+
+        expect(calls, String(green)).toBe(1);
+        expect(result.passed, String(green)).toBe(false);
+        expect(result.redObserved, String(green)).toBe(false);
+        if (green) {
+          expect(result.verdict.kind).toBe('failed');
+          expect(result.report).toContain('changes no source file');
+        } else {
+          expect(result.discriminant).toBe('baseline-red');
+        }
+      }
+    },
+    30_000,
+  );
+
+  /**
+   * A test file that the task deletes is not at the head, so a run of it collects nothing. The probe must not run it.
+   * The remaining test files are probed. With no test file left, the verdict is `no-new-tests`.
+   */
+  it(
+    'Probe_DeletedTestFile_IsNeverProbed',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
+        'test-adequacy-probe-deleted-test-',
+      );
+      repos.push(repoRoot);
+      const deletedTest = 'src/old.test.js';
+
+      const filesSeen: (readonly string[])[] = [];
+      const runTests: TestRunFn = async ({ repoRoot: rr, testFiles }) => {
+        filesSeen.push(testFiles);
+        return { passed: !readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1') };
+      };
+
+      const mixed = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, testFile, deletedTest],
+        deletedFiles: [deletedTest],
+        runTests,
+      });
+      expect(mixed.probedTests).toEqual([testFile]);
+      expect(mixed.passed).toBe(true);
+      expect(filesSeen).toEqual([[testFile], [testFile]]);
+
+      const onlyDeleted = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, deletedTest],
+        deletedFiles: [deletedTest],
+        runTests: () => {
+          throw new Error('the test command must not run for a deleted test file');
+        },
+        riskTier: 'high',
+      });
+      expect(onlyDeleted.discriminant).toBe('no-new-tests');
+      expect(onlyDeleted.passed).toBe(false);
+    },
+    30_000,
+  );
+
+  /** A failed restore wins over `baseline-red`, because a tree that did not restore makes every other fact untrusted. */
+  it(
+    'Probe_RestoreFailsAfterBaselineRed_IsRestoreFailed',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo(
+        'test-adequacy-probe-restore-wins-',
+      );
+      repos.push(repoRoot);
+
+      const restoreRefusingGitExec: GitExec = (root, args) =>
+        args[0] === 'checkout' && args.at(-1) === '.'
+          ? { stdout: 'injected restore failure', exitCode: 1 }
+          : realGitExec(root, args);
+
+      const result = await runProbe({
+        gitExec: restoreRefusingGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, testFile],
+        runTests: async () => ({ passed: false, output: 'red on the task source' }),
+        riskTier: 'low',
+      });
+
+      expect(result.discriminant).toBe('restore-failed');
+      expect(result.restoredClean).toBe(false);
+      expect(result.passed).toBe(false);
     },
     30_000,
   );

@@ -29,6 +29,14 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - **Use one Exarchos build for each store.** Builds that use the same state directory share one store. An earlier build, such as 2.12.x, accepts a generic append of `gate.executed`, and its `task_complete` accepts rows that this build refuses. Thus every MCP registration of `exarchos`, the `exarchos` binary on `PATH` that the hooks of `hooks/hooks.json` run, and the CLI must start the same build. An MCP server keeps its process until its session ends.
   - Recovery: after you change the binary, restart every session, so that no session keeps a server of the earlier build.
 
+- **The kill probe runs the scoped tests on the task source before it reverts the source.** This is a change of behavior. Before this change, the probe read each failed run after the revert as a kill. Thus a test command that failed for any reason passed every medium-tier and high-tier task.
+  - A run that fails before the revert gives the indeterminate cause `baseline-red`. It blocks `check_test_adequacy` at every tier. The report ends with the tail of the runner output.
+  - A task that changes only test files runs its tests once. Green tests give `failed`, as before.
+  - The probe does not run a test file that the task deletes. When no other test file changes, the verdict is `no-new-tests`.
+  - The probe reads the task diff with rename detection off. A renamed source file reverts to its path at the base.
+  - Recovery: make the scoped tests pass on the task source, then run `check_test_adequacy` again.
+  - Limit: the revert of a config file, such as `package.json`, can still make the run after the revert collect no test. The probe reads that run as a kill.
+
 - **The settlement vocabulary is a one-way upgrade, and the store schema stays V6.** This build gives three more settlement outcomes (`recompile-required`, `corrective-capsule`, `accepted-with-rationale`). A claim can carry a `status`, a `reason` and a `rationale`. The `execution.settled` row has two optional fields (`unresolvedTasks`, `rationales`). `SCHEMA_VERSION` stays 6, so no migration runs, and the store records no new version.
   - After this build settles a batch, a 2.12.x binary cannot read the settlement records of that workflow. It gives false refusals and `INTERNAL_ERROR` on them. Downgrade to 2.12.x is not supported.
   - This build replays and decides a batch that 2.12.x recorded, with one limit. The retry of a 2.12.x batch whose request repeated a deviation, or held more than sixteen deviations, does not replay its verdict. The decision of such a held batch still works.

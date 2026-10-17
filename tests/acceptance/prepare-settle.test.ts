@@ -928,8 +928,9 @@ describe('prepare then settle, through the dispatcher', () => {
    * Only the first task is complete on the stream and on the state document. The next call is a
    * correction, so the guard refuses the transition until a batch built from the unresolved list settles.
    *
-   * Limit: the probe counts each failed run of the test command as a kill. It cannot tell a failed
-   * assertion from a run that collected no test, so this case does not prove the difference.
+   * Limit: the probe runs the tests on the task source first. A run that fails or collects no test
+   * there blocks with `baseline-red`. The revert of a config file, such as `package.json`, can still
+   * make the second run collect no test. The probe reads that run as a kill.
    */
   it('PrepareSettle_AMediumTierBatchThroughTheShippedRunbook_CompletesThePassingTaskAndCorrectsTheHaltedOne', async () => {
     const [first, second] = TASKS;

@@ -190,6 +190,7 @@ export interface GradeAdequacyOptions {
  * Measures the test adequacy of a run with the diff-scoped kill probe.
  * A failed setup step or a failed probe gives `score: null` and an `error`, not a throw.
  * A run with no tests gives `no-new-tests` and no score. A revert conflict or a failed restore also gives no score.
+ * Tests that fail on the impl before the revert give `baseline-red` and no score, because the probe observes no kill.
  *
  * The probe needs a diff, so the function builds a throwaway git repo for each run and always removes it.
  * The base commit holds the task stub as `impl.ts`. The working tree holds the impl and the tests of the run.
@@ -257,7 +258,11 @@ export async function gradeAdequacy(
     if (probe.discriminant === 'no-new-tests') {
       return { probed: false, redObserved: false, score: null, discriminant: 'no-new-tests' };
     }
-    if (probe.discriminant === 'revert-conflict' || probe.discriminant === 'restore-failed') {
+    if (
+      probe.discriminant === 'revert-conflict' ||
+      probe.discriminant === 'restore-failed' ||
+      probe.discriminant === 'baseline-red'
+    ) {
       return { probed: false, redObserved: probe.redObserved, score: null, discriminant: probe.discriminant, error: `probe ${probe.discriminant}` };
     }
     return { probed: true, redObserved: probe.redObserved, score: probe.redObserved ? 1 : 0, ...(probe.discriminant ? { discriminant: probe.discriminant } : {}) };

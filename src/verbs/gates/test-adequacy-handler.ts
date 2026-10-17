@@ -91,7 +91,7 @@ export interface TestAdequacyArgs {
  *
  * A missing, blank, or unparseable command counts as a passing run, so the probe reports `redObserved: false` and never a false kill.
  * The runner uses `runCommandSync`, not `execFileSync`. On Windows, `execFile` refuses a `.cmd` shim with EINVAL.
- * With `execFile`, the catch reads that error as a red test and falsely passes the kill probe.
+ * With `execFile`, the catch reads that error as a red test run on every call.
  */
 function buildDefaultRunTests(repoRoot: string): TestRunFn {
   const resolved = resolveTestRuntime(repoRoot);
@@ -134,16 +134,41 @@ function buildDefaultRunTests(repoRoot: string): TestRunFn {
   };
 }
 
-/** The changed files, or the detail of a git failure. */
+/** The changed files and the deleted subset of them, or the detail of a git failure. */
 export type ChangedFilesResult =
-  | { readonly ok: true; readonly files: string[] }
+  | { readonly ok: true; readonly files: string[]; readonly deletedFiles: string[] }
   | { readonly ok: false; readonly detail: string };
 
+/** A status token of `git diff --no-renames --name-status`: one status letter, as no rename or copy record occurs. */
+const NAME_STATUS_TOKEN = /^[ADMTUX]$/;
+
 /**
- * Computes the repo-relative files that the task diff changes.
+ * Parses the NUL-separated output of `git diff -z --no-renames --name-status`. Each record is a status token and one path.
+ * A record that does not parse returns null, so the caller fails closed and does not probe a partial list.
+ */
+function parseNameStatus(stdout: string): { files: string[]; deletedFiles: string[] } | null {
+  const tokens = stdout.split('\0');
+  if (tokens.at(-1) === '') tokens.pop();
+  if (tokens.length % 2 !== 0) return null;
+  const files: string[] = [];
+  const deletedFiles: string[] = [];
+  for (let index = 0; index < tokens.length; index += 2) {
+    const status = tokens[index] ?? '';
+    const file = tokens[index + 1] ?? '';
+    if (!NAME_STATUS_TOKEN.test(status) || file.length === 0) return null;
+    files.push(file);
+    if (status === 'D') deletedFiles.push(file);
+  }
+  return { files, deletedFiles };
+}
+
+/**
+ * Computes the repo-relative files that the task diff changes, and the subset that the head side deletes.
  * The HEAD side is the task `branch` when the caller names one, and the checked-out `HEAD` otherwise.
  * A fixed `HEAD` probes the wrong tree when `repoRoot` is not the task worktree, and gives an empty diff and a vacuous pass.
- * A git failure returns `ok: false`, so the gate fails instead of skipping on an empty diff.
+ * The diff is NUL-separated (`-z`), so git does not quote a path with non-ASCII characters.
+ * Rename detection is off, so a renamed file is a deletion and an addition, whatever the git config of the repository says.
+ * A git failure or an output that does not parse returns `ok: false`, so the gate fails instead of skipping on an empty diff.
  */
 export function changedFilesFor(
   gitExec: GitExec,
@@ -152,20 +177,21 @@ export function changedFilesFor(
   headRef?: string,
 ): ChangedFilesResult {
   const head = headRef && headRef.trim().length > 0 ? headRef.trim() : 'HEAD';
-  const result = gitExec(repoRoot, ['diff', '--name-only', `${baseRef}...${head}`]);
+  const result = gitExec(repoRoot, ['diff', '-z', '--no-renames', '--name-status', `${baseRef}...${head}`]);
   if (result.exitCode !== 0) {
     return {
       ok: false,
       detail: `git diff ${baseRef}...${head} exited ${result.exitCode}: ${result.stdout.trim()}`,
     };
   }
-  return {
-    ok: true,
-    files: result.stdout
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0),
-  };
+  const parsed = parseNameStatus(result.stdout);
+  if (parsed === null) {
+    return {
+      ok: false,
+      detail: `git diff -z --no-renames --name-status ${baseRef}...${head} gave output that does not parse`,
+    };
+  }
+  return { ok: true, files: parsed.files, deletedFiles: parsed.deletedFiles };
 }
 
 /** The merge base that the task diff is measured from, or the reason that git did not resolve it. */
@@ -289,7 +315,7 @@ export async function handleTestAdequacy(
         repoRoot,
         baseRef: mergeBase.ok ? mergeBase.sha : baseBranch,
         changedFiles: changed.ok ? changed.files : [],
-        ...(changed.ok ? {} : { diffFailed: true }),
+        ...(changed.ok ? { deletedFiles: changed.deletedFiles } : { diffFailed: true }),
         ...(args.riskTier ? { riskTier: args.riskTier } : {}),
         runTests,
         testGlobs,

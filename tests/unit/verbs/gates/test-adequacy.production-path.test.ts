@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -232,8 +232,9 @@ describe('check_test_adequacy production path', () => {
   /**
    * The root marker `pyproject.toml` selects python, but the task adds the
    * co-located test `src/calc.test.ts`. The probe must include that file. The
-   * injected `runTests` reports red on the reverted source, so the disposition
-   * is `proved`. The test enters at `handleOrchestrate` to inject `runTests`.
+   * injected `runTests` reports green on the task source and red on the
+   * reverted source, so the disposition is `proved`. The test enters at
+   * `handleOrchestrate` to inject `runTests`.
    */
   it('ProductionPath_ColocatedTestsUnderLayoutToolchain_ResolvesNonEmptyProbedTests', async () => {
     const repoRoot = await initRepo('prodpath-subject-');
@@ -261,7 +262,9 @@ describe('check_test_adequacy production path', () => {
           baseBranch: 'main',
           repoRoot,
           riskTier: 'high',
-          runTests: async () => ({ passed: false, output: 'red on revert' }),
+          runTests: async () => ({
+            passed: readFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'utf-8').includes('=> 2'),
+          }),
         },
         ctx,
       ),
@@ -314,6 +317,8 @@ describe('ProbeVerdict algebra', () => {
     'revert-conflict',
     'restore-failed',
     'diff-failed',
+    'base-missing',
+    'baseline-red',
   ];
 
   it('Indeterminate_AtRequiredTier_NeverPasses', () => {
@@ -348,7 +353,7 @@ describe('ProbeVerdict algebra', () => {
   });
 
   it('ExecutionFailureCauses_BlockOnEveryTier', () => {
-    for (const cause of ['revert-conflict', 'restore-failed', 'diff-failed'] as const) {
+    for (const cause of ['revert-conflict', 'restore-failed', 'diff-failed', 'base-missing', 'baseline-red'] as const) {
       for (const tier of [undefined, 'low', 'medium', 'high']) {
         const interpretation = interpretProbeVerdict(
           { kind: 'indeterminate', cause, detail: 'probe could not execute' },
@@ -358,6 +363,27 @@ describe('ProbeVerdict algebra', () => {
         expect(interpretation.disposition).toBe('blocked');
       }
     }
+  });
+
+  /**
+   * The report states what the probe did for each cause. A probe that stopped on `baseline-red` ran the tests,
+   * so its report must not say that the probe did not run. A probe that never started must say so.
+   */
+  it('Indeterminate_Report_StatesWhatTheProbeDidForEachCause', () => {
+    const neverStarted: readonly AdequacyDiscriminant[] = ['no-new-tests', 'diff-failed', 'base-missing'];
+    for (const cause of ALL_CAUSES) {
+      for (const tier of [undefined, 'low', 'medium', 'high']) {
+        const report = interpretProbeVerdict({ kind: 'indeterminate', cause, detail: 'detail' }, tier).report ?? '';
+        if (neverStarted.includes(cause)) {
+          expect(report, `${cause} at ${String(tier)}`).toContain('the kill probe did not run');
+        } else {
+          expect(report, `${cause} at ${String(tier)}`).not.toContain('did not run');
+        }
+      }
+    }
+    expect(
+      interpretProbeVerdict({ kind: 'indeterminate', cause: 'baseline-red', detail: 'detail' }, 'low').report,
+    ).toContain('before the revert');
   });
 
   it('Failed_IsNeverDowngradedByTier', () => {

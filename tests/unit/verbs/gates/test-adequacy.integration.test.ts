@@ -33,10 +33,13 @@ async function initRepo(prefix: string): Promise<string> {
 
 /**
  * Writes a small node project whose tests run with `node --test`, so the temp repo needs no install.
- * The `test:run` script gives the npm tier of the resolver a runnable command. The base source
- * returns 1, and each task diff changes it to 2.
+ * The `test:run` script gives the npm tier of the resolver a runnable command. A case can replace
+ * the scripts. The base source returns 1, and each task diff changes it to 2.
  */
-async function writeBaseProject(repoRoot: string): Promise<void> {
+async function writeBaseProject(
+  repoRoot: string,
+  scripts: Readonly<Record<string, string>> = { 'test:run': 'node --test', test: 'node --test' },
+): Promise<void> {
   writeFileSync(
     path.join(repoRoot, 'package.json'),
     JSON.stringify(
@@ -44,7 +47,7 @@ async function writeBaseProject(repoRoot: string): Promise<void> {
         name: 'fixture',
         version: '1.0.0',
         private: true,
-        scripts: { 'test:run': 'node --test', test: 'node --test' },
+        scripts,
       },
       null,
       2,
@@ -62,10 +65,12 @@ function makeCtx(stateDir: string, eventStore: EventStore): DispatchContext {
 
 interface AdequacyData {
   passed: boolean;
+  disposition?: string;
   redObserved: boolean;
   restoredClean: boolean;
   probedTests: string[];
   discriminant?: string;
+  report?: string;
 }
 
 /**
@@ -87,6 +92,7 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
   async function dispatch(
     repoRoot: string,
     branch: string,
+    extra: Readonly<Record<string, unknown>> = {},
   ): Promise<{ success: boolean; data: AdequacyData }> {
     const stateDir = mkdtempSync(path.join(os.tmpdir(), 'test-adequacy-state-'));
     cleanups.push(() => rmrf(stateDir));
@@ -101,6 +107,7 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
         branch,
         repoRoot,
         baseBranch: 'main',
+        ...extra,
       },
       ctx,
     );
@@ -125,7 +132,7 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
         [
           "import { test } from 'node:test';",
           "import assert from 'node:assert';",
-          "import { value } from '../../orchestrate/calc.js';",
+          "import { value } from './calc.js';",
           '',
           "test('value is 2', () => {",
           '  assert.strictEqual(value(), 2);',
@@ -182,6 +189,50 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
       expect(data.passed).toBe(false);
       expect(data.redObserved).toBe(false);
       expect(data.restoredClean).toBe(true);
+      expect(data.discriminant).toBeUndefined();
+    },
+    120_000,
+  );
+
+  /**
+   * The test command fails on every run, and the test asserts nothing. The tests are red on the task
+   * source before the revert, so a red run after the revert proves no kill. The probe must give the
+   * indeterminate cause `baseline-red`, which blocks also at the low tier, and must restore the tree.
+   */
+  it(
+    'HandleOrchestrate_CheckTestAdequacy_TestCommandAlwaysFails_IsBaselineRedAndBlocks',
+    async () => {
+      const repoRoot = await initRepo('test-adequacy-baseline-red-');
+      cleanups.push(() => rmrf(repoRoot));
+      await writeBaseProject(repoRoot, { 'test:run': 'node -e "process.exit(1)"' });
+
+      await git(repoRoot, ['checkout', '-b', 'feature/always-red', '-q']);
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
+      writeFileSync(
+        path.join(repoRoot, 'src', 'calc.test.js'),
+        [
+          "import { test } from 'node:test';",
+          "import assert from 'node:assert';",
+          '',
+          "test('vacuous', () => {",
+          '  assert.strictEqual(true, true);',
+          '});',
+          '',
+        ].join('\n'),
+      );
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: bump value to 2 with vacuous test', '-q']);
+
+      const { success, data } = await dispatch(repoRoot, 'feature/always-red', { riskTier: 'low' });
+
+      expect(success).toBe(true);
+      expect(data.passed).toBe(false);
+      expect(data.disposition).toBe('blocked');
+      expect(data.discriminant).toBe('baseline-red');
+      expect(data.redObserved).toBe(false);
+      expect(data.restoredClean).toBe(true);
+      expect(data.report).toContain('before any revert');
+      expect(await git(repoRoot, ['status', '--porcelain'])).toBe('');
     },
     120_000,
   );

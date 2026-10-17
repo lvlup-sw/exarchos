@@ -1,7 +1,9 @@
 /**
  * The kill-probe gate for `check_test_adequacy`. It proves that the tests of a task are not vacuous, with mutation testing at N=1.
- * The probe reverts only the source files of the task and keeps the test files. Then it runs the new or changed tests and expects at least one to go red.
+ * The probe first runs the new or changed tests on the task source, and they must pass.
+ * Then it reverts only the source files of the task and keeps the test files. It runs the same tests again and expects at least one to go red.
  * A test that survives the source revert asserts nothing about the change.
+ *
  * `splitHunks` is exported so the mock-boundary gate can reuse the same classification.
  */
 
@@ -122,7 +124,8 @@ export type AdequacyDiscriminant =
   | 'revert-conflict'
   | 'restore-failed'
   | 'diff-failed'
-  | 'base-missing';
+  | 'base-missing'
+  | 'baseline-red';
 
 /**
  * Risk tiers that require the kill probe to run. On these tiers an indeterminate probe blocks and does not degrade to an advisory skip.
@@ -161,6 +164,7 @@ type IndeterminateHandling =
  * The handling policy for each cause. It is a total `Record`, so a new discriminant without a decision is a compile error, not a silent advisory default.
  * Only `no-new-tests` is advisory, because it means there was nothing to probe.
  * A diff, revert, or restore that fails is an execution failure of a probe that had to run. It fails closed on every tier, including low.
+ * Tests that fail on the task source make a kill impossible to observe, so `baseline-red` also fails closed on every tier.
  */
 const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, IndeterminateHandling>> = {
   'no-new-tests': 'advisory-skippable',
@@ -168,6 +172,21 @@ const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, Indeterminat
   'revert-conflict': 'always-blocking',
   'restore-failed': 'always-blocking',
   'base-missing': 'always-blocking',
+  'baseline-red': 'always-blocking',
+};
+
+/**
+ * What the probe did for each indeterminate cause. The report states it, so the text is true for each cause.
+ * A probe that stopped on `baseline-red` ran the tests, so the report must not say that the probe did not run.
+ */
+const INDETERMINATE_OUTCOME: Readonly<Record<AdequacyDiscriminant, string>> = {
+  'no-new-tests': 'the kill probe did not run',
+  'diff-failed': 'the kill probe did not run',
+  'base-missing': 'the kill probe did not run',
+  'revert-conflict': 'the kill probe could not revert the source, so it observed no kill',
+  'restore-failed': 'the kill probe could not snapshot or restore the working tree, so its result is not trusted',
+  'baseline-red':
+    'the kill probe stopped before the revert, because a red run after the revert proves no kill when the tests are red before it',
 };
 
 /**
@@ -213,15 +232,16 @@ export function interpretProbeVerdict(
     case 'indeterminate': {
       const probeRequired = PROBE_REQUIRED_TIERS.has(riskTier ?? '');
       const handling = INDETERMINATE_HANDLING[verdict.cause];
+      const outcome = INDETERMINATE_OUTCOME[verdict.cause];
       if (probeRequired || handling === 'always-blocking') {
         const tierClause = probeRequired
-          ? ` the ${riskTier} tier requires a kill probe, so adequacy is unproven`
-          : ' the kill probe did not run, so test adequacy is unproven';
+          ? `Adequacy is unproven, because the ${riskTier} tier requires a kill probe.`
+          : 'Test adequacy is unproven.';
         return {
           disposition: 'blocked',
           passed: false,
           skipped: false,
-          report: `${verdict.detail} —${tierClause}`,
+          report: `${verdict.detail} — ${outcome}. ${tierClause}`,
         };
       }
       return {
@@ -229,7 +249,7 @@ export function interpretProbeVerdict(
         passed: true,
         skipped: true,
         report:
-          `${verdict.detail} — the kill probe did not run. This is an advisory ` +
+          `${verdict.detail} — ${outcome}. This is an advisory ` +
           `SKIP, NOT proof of test adequacy.`,
       };
     }
@@ -501,6 +521,11 @@ export interface ProbeArgs {
   readonly baseRef: string;
   /** Repo-relative files changed by the task diff. */
   readonly changedFiles: readonly string[];
+  /**
+   * The changed files that the head side of the diff deletes. They stay in the source revert.
+   * A deleted test file is not at the head, so the probe never runs it.
+   */
+  readonly deletedFiles?: readonly string[];
   /** Runs the scoped test command and returns pass or fail. */
   readonly runTests: TestRunFn;
   /** Optional test-glob override forwarded to {@link splitHunks}. */
@@ -595,17 +620,32 @@ export function probeNotRun(cause: AdequacyDiscriminant, detail: string, riskTie
   );
 }
 
+/** The number of trailing lines of runner output that a `baseline-red` detail keeps. */
+const OUTPUT_TAIL_LINES = 20;
+
+/** The largest number of characters of runner output that a `baseline-red` detail keeps. */
+const OUTPUT_TAIL_CHARS = 2_000;
+
+/** Returns the last lines of the runner output, or a note when the runner gave no output. */
+function outputTail(output: unknown): string {
+  const text = typeof output === 'string' ? output.trimEnd() : '';
+  if (text.length === 0) return '(the runner gave no output)';
+  const lines = text.split('\n').slice(-OUTPUT_TAIL_LINES).join('\n');
+  return lines.length > OUTPUT_TAIL_CHARS ? lines.slice(-OUTPUT_TAIL_CHARS) : lines;
+}
+
 /**
  * Runs the kill probe. The test runner and the changed-file list are injected, so unit tests need no real test command.
  *
- *   1. Split the diff into test and source files (no new or changed test file gives indeterminate `no-new-tests`).
+ *   1. Split the diff into test and source files. A deleted test file is not run. No test file left gives `no-new-tests`.
  *   2. Snapshot the working tree (a failed snapshot stops the probe before any change).
- *   3. Revert the source files to `baseRef` (a conflict gives indeterminate `revert-conflict`).
- *   4. Run the scoped tests (`redObserved` is true when they fail).
- *   5. Restore the working tree in a `finally`, so the restore runs even when the test run throws.
+ *   3. Run the scoped tests on the task source. A red run gives `baseline-red`, because a later red run proves no kill.
+ *   4. Revert the source files to `baseRef` and run the tests again. A task with no source file skips this step and fails.
+ *   5. Restore the working tree in a `finally`, so the restore runs even when a test run throws.
  *
- * Red with a clean restore gives `passed`. Green tests give `failed`. Anything that stops the probe gives `indeterminate`.
- * A failed diff always blocks. {@link interpretProbeVerdict} applies the tier to derive the legacy `passed` boolean.
+ * Red after green gives `passed`, and green after green gives `failed`. A failed revert or restore gives `indeterminate`.
+ * A failed restore wins over `baseline-red`. {@link interpretProbeVerdict} applies the tier to derive the legacy `passed` boolean.
+ * Limit: a reverted config file, such as `package.json`, can make the second run collect no test, and that run reads as a kill.
  */
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   const { gitExec, repoRoot, baseRef, changedFiles, runTests, testGlobs } = args;
@@ -623,7 +663,10 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
     );
   }
 
-  const { testFiles, sourceFiles } = splitHunks(changedFiles, { testGlobs });
+  const deleted = new Set(args.deletedFiles ?? []);
+  const split = splitHunks(changedFiles, { testGlobs });
+  const testFiles = split.testFiles.filter((file) => !deleted.has(file));
+  const sourceFiles = split.sourceFiles;
 
   if (testFiles.length === 0) {
     return toProbeResult(
@@ -653,21 +696,23 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   }
   const stashSha = snap.stashSha;
 
+  let baselineRed: TestRunResult | undefined;
   let redObserved = false;
   let revertDetail: string | undefined;
   let restore: RestoreResult = { restored: false, detail: 'restore did not run' };
 
   try {
-    if (sourceFiles.length > 0) {
+    const baseline = await runTests({ repoRoot, testFiles });
+    if (baseline.passed !== true) {
+      baselineRed = baseline;
+    } else if (sourceFiles.length > 0) {
       const reverted = revertSourceFiles(gitExec, repoRoot, baseRef, sourceFiles);
-      if (!reverted.ok) {
+      if (reverted.ok) {
+        const runResult = await runTests({ repoRoot, testFiles });
+        redObserved = runResult.passed !== true;
+      } else {
         revertDetail = reverted.detail;
       }
-    }
-
-    if (revertDetail === undefined) {
-      const runResult = await runTests({ repoRoot, testFiles });
-      redObserved = !runResult.passed;
     }
   } finally {
     restore = restoreWorkingTree(gitExec, repoRoot, stashSha);
@@ -693,6 +738,34 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
         kind: 'indeterminate',
         cause: 'restore-failed',
         detail: `could not restore the working tree: ${restore.detail ?? 'unknown'}`,
+      },
+      { probedTests: testFiles, redObserved, restoredClean },
+      riskTier,
+    );
+  }
+
+  if (baselineRed !== undefined) {
+    return toProbeResult(
+      {
+        kind: 'indeterminate',
+        cause: 'baseline-red',
+        detail:
+          'the scoped tests failed on the task source, before any revert. ' +
+          `The runner output ends with:\n${outputTail(baselineRed.output)}`,
+      },
+      { probedTests: testFiles, redObserved: false, restoredClean },
+      riskTier,
+    );
+  }
+
+  if (sourceFiles.length === 0) {
+    return toProbeResult(
+      {
+        kind: 'failed',
+        reason:
+          'the task changes no source file, so the probe had nothing to revert — ' +
+          'the scoped tests stay GREEN and no kill is possible',
+        probedTests: testFiles,
       },
       { probedTests: testFiles, redObserved, restoredClean },
       riskTier,

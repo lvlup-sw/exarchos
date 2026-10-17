@@ -33,12 +33,15 @@ const STUB = `export function add(a: number, b: number): number {\n  throw new E
 const IMPL = `export function add(a: number, b: number): number {\n  return a + b;\n}\n`;
 /** Calls `add()` and asserts its result, so it goes red when the implementation reverts to the stub. */
 const GENUINE_TEST = `import assert from 'node:assert/strict';\nimport { add } from './impl.ts';\nassert.equal(add(2, 3), 5);\nassert.equal(add(-1, 1), 0);\nconsole.log('ok');\n`;
+/** Asserts a wrong result, so it is red on the implementation before any revert. */
+const RED_TEST = `import assert from 'node:assert/strict';\nimport { add } from './impl.ts';\nassert.equal(add(2, 3), 6);\n`;
 /** Imports the module and asserts nothing about `add()`, so it stays green when the implementation reverts. */
 const VACUOUS_TEST = `import assert from 'node:assert/strict';\nimport './impl.ts';\nassert.equal(1 + 1, 2);\nconsole.log('ok');\n`;
 
 /**
- * The fixture holds three runs over one implementation: a genuine suite, a vacuous suite, and a
- * run with no test file. The run with no test file must get no score, not a score of 0.
+ * The fixture holds four runs over one implementation. They are a genuine suite, a vacuous suite,
+ * a suite that is red on the implementation, and a run with no test file. The red suite and the
+ * run with no test file must get no score, not a score of 0 or 1.
  */
 describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-4/DR-7)', () => {
   let fixtureRoot: string;
@@ -46,6 +49,7 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
   let genuineRunDir: string;
   let vacuousRunDir: string;
   let notestRunDir: string;
+  let redRunDir: string;
 
   beforeAll(() => {
     fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'qab-grade-test-'));
@@ -57,9 +61,11 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
     genuineRunDir = path.join(runs, 'add__E__r1');
     vacuousRunDir = path.join(runs, 'add__N__r1');
     notestRunDir = path.join(runs, 'add__N__r2');
+    redRunDir = path.join(runs, 'add__N__r3');
     for (const [dir, test] of [
       [genuineRunDir, GENUINE_TEST],
       [vacuousRunDir, VACUOUS_TEST],
+      [redRunDir, RED_TEST],
     ] as const) {
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, 'impl.ts'), IMPL);
@@ -104,6 +110,18 @@ describe.skipIf(WIN32)('gradeAdequacy — mechanical diff-scoped kill-probe (DR-
       const vacuous = await gradeAdequacy(vacuousRunDir, 'add', { tasksDir });
       expect(genuine.score).not.toBe(vacuous.score);
       expect((genuine.score ?? 0) > (vacuous.score ?? 0)).toBe(true);
+    },
+  );
+
+  /** A suite that is red on the implementation proves no kill, so it gets no score and not a score of 1. */
+  it(
+    'leaves NO adequacy score when the suite is red before the revert (baseline-red)',
+    { timeout: SUBPROCESS_TIMEOUT },
+    async () => {
+      const r = await gradeAdequacy(redRunDir, 'add', { tasksDir });
+      expect(r.probed).toBe(false);
+      expect(r.score).toBeNull();
+      expect(r.discriminant).toBe('baseline-red');
     },
   );
 
