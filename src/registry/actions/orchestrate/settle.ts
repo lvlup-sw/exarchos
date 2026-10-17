@@ -10,6 +10,12 @@
 
 import { z } from 'zod';
 import { withCappedShape } from '../../../output-schema-declaration.js';
+import { CLAIM_STATUSES } from '../../../verbs/settle/adjudicate.js';
+import {
+  MAX_CLAIM_REASON_LENGTH,
+  MAX_RATIONALE_ENTRIES_PER_CLAIM,
+  MAX_RATIONALE_STATEMENT_LENGTH,
+} from '../../../verbs/settle/claim-codec.js';
 import { SETTLE_ECONOMY_BUDGET_TOKENS, summarizeSettlementReceipt } from '../../../verbs/settle/economy.js';
 import { SettlementOutputSchema } from '../../../verbs/settle/schemas.js';
 import {
@@ -56,8 +62,8 @@ export const settleActions: readonly BuiltinToolAction[] = [
     /**
      * The text fits the per-action description budget. It names the fact that the schema cannot
      * show: each verdict is a successful call, not an error. A rejected batch is one of them.
-     * The meaning of each outcome and its next call are in the output schema. That text counts
-     * against the response budget of `describe`, which returns the output schema twice.
+     * The call that follows each outcome is in the output schema. That text counts against the
+     * response budget of `describe`, which returns the output schema twice.
      */
     description:
       'Adjudicate ONE batch of claims against a prepared capsule, verify each accepted task, ' +
@@ -65,15 +71,14 @@ export const settleActions: readonly BuiltinToolAction[] = [
       'gives the terms. The verdict also reads the plan\'s task standing and design revisions ' +
       'after the capsule: a revision that names a claimed or unfinished required task gives ' +
       '`recompile-required` (prepare again). Claims are judged by each task\'s result shape, ' +
-      'evidence by recorded rows of admitted kinds, deviations by the envelope. A batch with no ' +
-      'finding RUNS each task\'s task-completion segment (frozen-tier ladder gates, then ' +
-      'task_complete) in the claim\'s `worktreePath`. A halt gives `corrective-capsule`: tasks ' +
-      'that pass are complete. Every verdict is a successful call; findings say what to fix. A ' +
-      'HELD batch names `pendingDeviations`; settle the SAME batch with `decisions` (no ' +
-      'claims). Errors (nothing adjudicated): CAPSULE_INVALID, CAPSULE_NOT_PREPARED, ' +
-      'CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED, BATCH_NOT_HELD, DECISION_INCOMPLETE. Keyed ' +
-      'by (capsuleVersion, `batchId`): a retry returns its verdict; a correction takes a NEW ' +
-      '`batchId`.',
+      'evidence by recorded rows of admitted kinds, deviations by the envelope. A batch not ' +
+      'stale, rejected or held RUNS each completed claim\'s task-completion segment (frozen-tier ' +
+      'ladder gates, then task_complete) in its `worktreePath`. A halt or a claim not ' +
+      '`completed` gives `corrective-capsule`: tasks that pass are complete. Every verdict is a ' +
+      'successful call; findings say what to fix. A HELD batch names `pendingDeviations`; settle ' +
+      'the SAME batch with `decisions`. Errors (nothing adjudicated): CAPSULE_INVALID, ' +
+      'CAPSULE_NOT_PREPARED, CAPSULE_DIGEST_MISMATCH, CAPSULE_UNRESOLVED, BATCH_NOT_HELD, ' +
+      'DECISION_INCOMPLETE. Keyed by (capsuleVersion, `batchId`): a retry returns its verdict.',
     schema: z
       .object({
         capsuleVersion: z
@@ -98,18 +103,47 @@ export const settleActions: readonly BuiltinToolAction[] = [
             z
               .object({
                 taskId: z.string().min(1),
+                status: z
+                  .enum(CLAIM_STATUSES)
+                  .optional()
+                  .describe(
+                    '`failed`: attempted, no result to verify. `blocked`: waits for a change ' +
+                      'outside the task. `skipped`: not attempted in this run. Default `completed`',
+                  ),
+                reason: z
+                  .string()
+                  .min(1)
+                  .max(MAX_CLAIM_REASON_LENGTH)
+                  .optional()
+                  .describe(
+                    'Required unless `completed`: why the task is not completed. A claim with a ' +
+                      'reason has no fields and no evidence',
+                  ),
                 fields: z.record(z.string(), z.unknown()).optional(),
                 evidence: z
                   .array(z.object({ kind: z.string().min(1), ref: z.string().min(1) }).strict())
                   .optional(),
+                rationale: z
+                  .array(
+                    z
+                      .object({
+                        delegatedDecision: z.string().min(1),
+                        statement: z.string().min(1).max(MAX_RATIONALE_STATEMENT_LENGTH),
+                      })
+                      .strict(),
+                  )
+                  .max(MAX_RATIONALE_ENTRIES_PER_CLAIM)
+                  .optional()
+                  .describe(
+                    'Completed claims only: choices under a capsule `delegatedDecisions` id',
+                  ),
               })
               .strict(),
           )
           .optional()
           .describe(
-            'The batch: one entry per task that returned a result. A submitted batch carries at ' +
-              'least one. A required task that the stream shows complete needs no claim, so a ' +
-              'correction after `corrective-capsule` claims only the `unresolved` tasks',
+            'The batch: one entry per task that it reports, and at least one. A required task ' +
+              'that the stream shows complete needs no claim',
           ),
         deviations: z
           .array(
@@ -121,7 +155,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
                   .array(z.string().min(1))
                   .max(MAX_AFFECTED_TASKS_PER_DEVIATION)
                   .optional()
-                  .describe('Unfinished tasks of the current plan that the deviation changes, outside this batch'),
+                  .describe('Unfinished current-plan tasks that the deviation changes, none claimed as completed'),
                 proposedChange: z.string().min(1).optional().describe('The change the worker proposes'),
               })
               .strict(),

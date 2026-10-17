@@ -96,6 +96,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
 | \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
+| \`authority.delegatedDecisions[]\` | The decisions that the capsule leaves to the worker, each with an \`id\`. A claim can record a choice under one of these ids as a \`rationale\`. Paste them into every packet |
 | \`knowledge.rationale[]\` | The design of record and, on a capsule compiled under a revised design (\`design-v2\` or later), the accepted changes after it: one statement per change — who decided it, the change proposed when one was given, and what the deviation stated — for eight changes at most, then one statement that counts the rest |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
 
@@ -161,9 +162,10 @@ For each task:
 Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
-2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
+2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. No evidence field exists to fill: the evidence is what settlement records when it runs the gates. A worker that did not complete its task reports a status and a reason, and no result fields (Build the batch, Step 3).
 3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
-4. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
+4. **The delegated decisions** — \`authority.delegatedDecisions[]\`, each with its \`id\` and its statement. The worker makes these choices and needs no approval for them. It can record a choice in its report as a rationale that names the \`id\`. A rationale cannot name another id: a choice outside the delegated decisions goes in a deviation.
+5. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -279,9 +281,52 @@ const claims = reports.map((r) => ({
 
 **Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
 
+**A task that is not completed gets a status, not a result.** A claim has an optional \`status\`. The default is \`completed\`. When the task has no result that settlement can verify, send one of the other three values:
+
+| \`status\` | Send it when |
+|----------|--------------|
+| \`failed\` | The worker attempted the task and has no result to verify |
+| \`blocked\` | The task cannot proceed until something outside the task changes |
+| \`skipped\` | The task was not attempted in this run |
+
+\`\`\`typescript
+const notCompleted = {
+  taskId: "<taskId>",
+  status: "blocked",                     // or "failed", or "skipped"
+  reason: "<why the task is not completed>",
+}
+\`\`\`
+
+A claim with one of these three values needs a \`reason\` of at most 280 characters. It carries no \`fields\`, no \`evidence\` and no \`rationale\`. A completed claim carries no \`reason\`. Settlement refuses a claim that breaks one of these rules as invalid input (\`INVALID_INPUT\`), and it adjudicates nothing.
+
+Settlement runs no gate for such a claim, and it records no completion from it. The task stays unresolved and is never complete from that claim. Settlement still verifies the completed claims of the batch (see \`corrective-capsule\`, below). The status is on the claim only: settlement records no \`task.failed\` row, and \`tasks[].status\` does not change. If the stream already shows the task complete, the recorded completion stands, and the claim gives no finding.
+
+**A choice inside the delegated freedom goes on the claim as a rationale.** The capsule lists the decisions that it leaves to the worker (\`authority.delegatedDecisions\`), each with an \`id\`. The capsule that \`prepare\` compiles lists two: \`implementation-approach\` and \`execution-order\`. A completed claim can record a choice under one of these ids:
+
+\`\`\`typescript
+const withChoice = {
+  taskId: r.taskId,
+  fields: { worktreePath: r.worktreePath /* and the other fields of the result contract */ },
+  evidence: [],
+  rationale: [
+    { delegatedDecision: "implementation-approach", statement: "<the choice, in the words of the worker>" },
+  ],
+}
+\`\`\`
+
+A claim records at most four choices, and a \`statement\` holds at most 280 characters. A rationale changes no gate: settlement runs the same verification for the task with it and without it. It is not evidence, and it does not accept a claim that has a finding. An id that the capsule does not list is the finding \`rationale-not-delegated\`, and the batch is rejected. A choice outside the delegated decisions is a deviation, so it goes in \`deviations\`.
+
 **A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — a held receipt within its response budget lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides. A receipt that comes back as a summary (Settle, below) lists a deviation by its id and kind only; its statement and affected tasks are in the settlement bundle \`bundleRefs\` names.
 
-\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks. Settlement refuses three kinds of entry, and the batch is then rejected, not held:
+
+- a task that the plan shows finished (\`deviation-names-finished-task\`)
+- a task that this batch claims as completed (\`deviation-names-claimed-task\`)
+- an id that the plan does not hold (\`deviation-unknown-task\`)
+
+Finished work is not reopened — plan its rework as a new task, and name that new task.
+
+**A worker whose own task rests on a wrong assumption reports the task as blocked.** The claim for the task has the status \`blocked\` and a reason, and the deviation names the task in \`affectedTasks\`. A deviation can name a task of its own batch only when the claim reports that task as \`failed\`, \`blocked\` or \`skipped\`. Such a claim returns no result, so the deviation changes work that is still to do. The decision round leaves that task unresolved (see \`deviation-pending\`, below).
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -300,7 +345,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Settlement first reads the shape of each claim against the capsule. If that pass finds no fault, settlement runs the verification of each claimed task through the executor. It does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
+Settlement first reads each claim and each deviation against the capsule. A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
 A receipt over its response budget comes back as a summary. The summary always keeps the round, \`designRevision\`, each pending deviation (id and kind) and each decision (id and decision). Under \`corrective-capsule\` it also keeps the count of the unresolved tasks (\`counts.unresolved\`). It holds the first page of findings (\`firstPage\`, without the messages) and at most four \`verification[]\` outcomes, failures first. Each failure has its \`operationId\` and \`failedLeaf\`. It holds each unresolved task as its \`taskId\` and \`cause\`. To fit the budget, the summary drops the findings page first and the outcomes second. Then it drops unresolved entries from the end, and \`counts.unresolvedOmitted\` says how many. The settlement bundle that \`bundleRefs\` names keeps the full findings and outcomes.
 
@@ -309,20 +354,34 @@ The receipt names one outcome, and each outcome has one next call:
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
 | \`settled\` | Each required task is complete | None. Go to Step 4 |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
 | \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
 | \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
 | \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
 | \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
 
-\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". The recorded names stay, because stored rows, bundles and replayed receipts carry them. The schema also lists \`accepted-with-rationale\`, and no batch gets that outcome in this build.
+\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
 **\`settled\`** — each required task is recorded complete (\`task.completed\`, from the leaf that the primitive path uses). A claimed task passed its gates in this batch, unless the stream already showed it complete. A required task without a claim was complete already. The state document that the transition guard reads is level. Go to Step 4.
 
+**\`accepted-with-rationale\`** — the batch is settled, and an accepted claim records a delegated choice (Build the batch, above). Each required task is recorded complete, as under \`settled\`, and the same gates ran. The \`execution.settled\` row names each choice by its task and its decision id (\`rationales\`). The settlement bundle that \`bundleRefs\` names keeps each statement. The receipt has no field for the choices, because the outcome says that a claim records one. Go to Step 4.
+
+A finding decides the outcome before a rationale does. Thus a batch with an unresolved task is \`corrective-capsule\`, and its row still names the choices of the tasks that passed. The correction of that batch is \`settled\`, unless one of its own claims records a choice.
+
 **\`corrective-capsule\`** — at least one task is unresolved. Settlement verified the batch, and the tasks that passed are complete (\`acceptedTasks\`). They stay complete. The outcome has the name that the design gives it, but \`settle\` compiled nothing.
 
-Read \`unresolved\`. It has one entry for each task to correct: the \`taskId\`, the \`cause\` (the kind of its finding, \`verification-failed\`), and the \`failedLeaf\` and \`operationId\` of the segment that halted. The finding message names the leaf that halted and the reason. To read the receipt of the segment, call \`execute_intent\` with that \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+Read \`unresolved\`. It has one entry for each task to correct, with the \`taskId\` and the \`cause\`. The \`cause\` is the kind of the finding against the task:
 
-Dispatch a fixer to the worktree of each unresolved task (Fix Failed Tasks, below). Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
+| \`cause\` | What it says | Before the correction |
+|---------|--------------|-----------------------|
+| \`verification-failed\` | A gate of the task halted. The entry also has the \`failedLeaf\` and the \`operationId\` of the segment | Dispatch a fixer to the worktree of the task (Fix Failed Tasks, below) |
+| \`task-failed\` | The claim reported the task as \`failed\` | Dispatch a fixer, or dispatch the task again |
+| \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
+| \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -336,12 +395,15 @@ exarchos_orchestrate({
 
 A recorded completion satisfies a required result, so a complete task needs no claim. The receipt of the correction lists each such task in \`verification[]\` as \`already-complete\`.
 
+If a task is still not completed, claim it with its status and reason again. That batch is \`corrective-capsule\` again, and the task stays unresolved. Settlement sets no limit on the number of corrections, so decide when to stop and ask a human.
+
 If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than 0), claim every required task again. Settlement runs no gate again for a complete task, and returns that task as \`already-complete\`.
 
-If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete.
+If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
+- \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
 - A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not held. Correct the deviation. A kind outside the envelope is an escalation. Each of the other three is an \`affectedTasks\` entry that a deviation cannot name (Build the batch, above).
 - \`deviation-rejected\`: the decision refused the deviation (see \`deviation-pending\`, below).
 
@@ -378,7 +440,13 @@ exarchos_orchestrate({
 
 Decide every pending deviation in that one call. Settlement refuses a decision that omits one (\`DECISION_INCOMPLETE\`).
 
-Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the verification gives the outcome: \`settled\` or \`corrective-capsule\`. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the result gives the outcome: \`settled\`, \`accepted-with-rationale\` or \`corrective-capsule\`. The held claims keep each status, reason and rationale. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+
+**A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
+
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+
+If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
 Settlement records a \`rejected\` decision too. The outcome is \`rejected\` with a \`deviation-rejected\` finding, and settlement verifies nothing. The work that stood on the deviation is not accepted. Correct that work, and settle it under a new batch id without the deviation. If the plan holds a rework task for the refused deviation, remove that task. Then \`prepare\` again, and settle under the capsule that \`prepare\` returns.
 
@@ -402,7 +470,7 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
 - \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
-- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. Correct the request and use the **same** batch id.
+- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
 ### Agent Teams Monitoring
@@ -414,11 +482,13 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 
 ### Failure Recovery
 
-When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`, with a \`verification-failed\` finding):
+When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`):
 1. Read the failure output from the runtime's result-collection primitive (\`TaskOutput({ task_id, block: true })\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
 4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+
+A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
 
@@ -546,6 +616,8 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 | \`in_progress\` | Task actively being worked on |
 | \`complete\` | Task finished successfully |
 | \`failed\` | Task encountered an error (requires fix cycle) |
+
+These are the values of \`tasks[].status\` in the workflow state. The \`status\` of a claim (Step 3) is a different field. A claim that reports \`failed\` does not set the task to \`failed\`.
 
 ### Schema Discovery
 
@@ -1257,6 +1329,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
 | \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
+| \`authority.delegatedDecisions[]\` | The decisions that the capsule leaves to the worker, each with an \`id\`. A claim can record a choice under one of these ids as a \`rationale\`. Paste them into every packet |
 | \`knowledge.rationale[]\` | The design of record and, on a capsule compiled under a revised design (\`design-v2\` or later), the accepted changes after it: one statement per change — who decided it, the change proposed when one was given, and what the deviation stated — for eight changes at most, then one statement that counts the rest |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
 
@@ -1322,9 +1395,10 @@ For each task:
 Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
-2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
+2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. No evidence field exists to fill: the evidence is what settlement records when it runs the gates. A worker that did not complete its task reports a status and a reason, and no result fields (Build the batch, Step 3).
 3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
-4. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
+4. **The delegated decisions** — \`authority.delegatedDecisions[]\`, each with its \`id\` and its statement. The worker makes these choices and needs no approval for them. It can record a choice in its report as a rationale that names the \`id\`. A rationale cannot name another id: a choice outside the delegated decisions goes in a deviation.
+5. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -1414,9 +1488,52 @@ const claims = reports.map((r) => ({
 
 **Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
 
+**A task that is not completed gets a status, not a result.** A claim has an optional \`status\`. The default is \`completed\`. When the task has no result that settlement can verify, send one of the other three values:
+
+| \`status\` | Send it when |
+|----------|--------------|
+| \`failed\` | The worker attempted the task and has no result to verify |
+| \`blocked\` | The task cannot proceed until something outside the task changes |
+| \`skipped\` | The task was not attempted in this run |
+
+\`\`\`typescript
+const notCompleted = {
+  taskId: "<taskId>",
+  status: "blocked",                     // or "failed", or "skipped"
+  reason: "<why the task is not completed>",
+}
+\`\`\`
+
+A claim with one of these three values needs a \`reason\` of at most 280 characters. It carries no \`fields\`, no \`evidence\` and no \`rationale\`. A completed claim carries no \`reason\`. Settlement refuses a claim that breaks one of these rules as invalid input (\`INVALID_INPUT\`), and it adjudicates nothing.
+
+Settlement runs no gate for such a claim, and it records no completion from it. The task stays unresolved and is never complete from that claim. Settlement still verifies the completed claims of the batch (see \`corrective-capsule\`, below). The status is on the claim only: settlement records no \`task.failed\` row, and \`tasks[].status\` does not change. If the stream already shows the task complete, the recorded completion stands, and the claim gives no finding.
+
+**A choice inside the delegated freedom goes on the claim as a rationale.** The capsule lists the decisions that it leaves to the worker (\`authority.delegatedDecisions\`), each with an \`id\`. The capsule that \`prepare\` compiles lists two: \`implementation-approach\` and \`execution-order\`. A completed claim can record a choice under one of these ids:
+
+\`\`\`typescript
+const withChoice = {
+  taskId: r.taskId,
+  fields: { worktreePath: r.worktreePath /* and the other fields of the result contract */ },
+  evidence: [],
+  rationale: [
+    { delegatedDecision: "implementation-approach", statement: "<the choice, in the words of the worker>" },
+  ],
+}
+\`\`\`
+
+A claim records at most four choices, and a \`statement\` holds at most 280 characters. A rationale changes no gate: settlement runs the same verification for the task with it and without it. It is not evidence, and it does not accept a claim that has a finding. An id that the capsule does not list is the finding \`rationale-not-delegated\`, and the batch is rejected. A choice outside the delegated decisions is a deviation, so it goes in \`deviations\`.
+
 **A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — a held receipt within its response budget lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides. A receipt that comes back as a summary (Settle, below) lists a deviation by its id and kind only; its statement and affected tasks are in the settlement bundle \`bundleRefs\` names.
 
-\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks. Settlement refuses three kinds of entry, and the batch is then rejected, not held:
+
+- a task that the plan shows finished (\`deviation-names-finished-task\`)
+- a task that this batch claims as completed (\`deviation-names-claimed-task\`)
+- an id that the plan does not hold (\`deviation-unknown-task\`)
+
+Finished work is not reopened — plan its rework as a new task, and name that new task.
+
+**A worker whose own task rests on a wrong assumption reports the task as blocked.** The claim for the task has the status \`blocked\` and a reason, and the deviation names the task in \`affectedTasks\`. A deviation can name a task of its own batch only when the claim reports that task as \`failed\`, \`blocked\` or \`skipped\`. Such a claim returns no result, so the deviation changes work that is still to do. The decision round leaves that task unresolved (see \`deviation-pending\`, below).
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -1435,7 +1552,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Settlement first reads the shape of each claim against the capsule. If that pass finds no fault, settlement runs the verification of each claimed task through the executor. It does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
+Settlement first reads each claim and each deviation against the capsule. A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
 A receipt over its response budget comes back as a summary. The summary always keeps the round, \`designRevision\`, each pending deviation (id and kind) and each decision (id and decision). Under \`corrective-capsule\` it also keeps the count of the unresolved tasks (\`counts.unresolved\`). It holds the first page of findings (\`firstPage\`, without the messages) and at most four \`verification[]\` outcomes, failures first. Each failure has its \`operationId\` and \`failedLeaf\`. It holds each unresolved task as its \`taskId\` and \`cause\`. To fit the budget, the summary drops the findings page first and the outcomes second. Then it drops unresolved entries from the end, and \`counts.unresolvedOmitted\` says how many. The settlement bundle that \`bundleRefs\` names keeps the full findings and outcomes.
 
@@ -1444,20 +1561,34 @@ The receipt names one outcome, and each outcome has one next call:
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
 | \`settled\` | Each required task is complete | None. Go to Step 4 |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
 | \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
 | \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
 | \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
 | \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
 
-\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". The recorded names stay, because stored rows, bundles and replayed receipts carry them. The schema also lists \`accepted-with-rationale\`, and no batch gets that outcome in this build.
+\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
 **\`settled\`** — each required task is recorded complete (\`task.completed\`, from the leaf that the primitive path uses). A claimed task passed its gates in this batch, unless the stream already showed it complete. A required task without a claim was complete already. The state document that the transition guard reads is level. Go to Step 4.
 
+**\`accepted-with-rationale\`** — the batch is settled, and an accepted claim records a delegated choice (Build the batch, above). Each required task is recorded complete, as under \`settled\`, and the same gates ran. The \`execution.settled\` row names each choice by its task and its decision id (\`rationales\`). The settlement bundle that \`bundleRefs\` names keeps each statement. The receipt has no field for the choices, because the outcome says that a claim records one. Go to Step 4.
+
+A finding decides the outcome before a rationale does. Thus a batch with an unresolved task is \`corrective-capsule\`, and its row still names the choices of the tasks that passed. The correction of that batch is \`settled\`, unless one of its own claims records a choice.
+
 **\`corrective-capsule\`** — at least one task is unresolved. Settlement verified the batch, and the tasks that passed are complete (\`acceptedTasks\`). They stay complete. The outcome has the name that the design gives it, but \`settle\` compiled nothing.
 
-Read \`unresolved\`. It has one entry for each task to correct: the \`taskId\`, the \`cause\` (the kind of its finding, \`verification-failed\`), and the \`failedLeaf\` and \`operationId\` of the segment that halted. The finding message names the leaf that halted and the reason. To read the receipt of the segment, call \`execute_intent\` with that \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+Read \`unresolved\`. It has one entry for each task to correct, with the \`taskId\` and the \`cause\`. The \`cause\` is the kind of the finding against the task:
 
-Dispatch a fixer to the worktree of each unresolved task (Fix Failed Tasks, below). Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
+| \`cause\` | What it says | Before the correction |
+|---------|--------------|-----------------------|
+| \`verification-failed\` | A gate of the task halted. The entry also has the \`failedLeaf\` and the \`operationId\` of the segment | Dispatch a fixer to the worktree of the task (Fix Failed Tasks, below) |
+| \`task-failed\` | The claim reported the task as \`failed\` | Dispatch a fixer, or dispatch the task again |
+| \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
+| \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -1471,12 +1602,15 @@ exarchos_orchestrate({
 
 A recorded completion satisfies a required result, so a complete task needs no claim. The receipt of the correction lists each such task in \`verification[]\` as \`already-complete\`.
 
+If a task is still not completed, claim it with its status and reason again. That batch is \`corrective-capsule\` again, and the task stays unresolved. Settlement sets no limit on the number of corrections, so decide when to stop and ask a human.
+
 If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than 0), claim every required task again. Settlement runs no gate again for a complete task, and returns that task as \`already-complete\`.
 
-If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete.
+If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
+- \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
 - A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not held. Correct the deviation. A kind outside the envelope is an escalation. Each of the other three is an \`affectedTasks\` entry that a deviation cannot name (Build the batch, above).
 - \`deviation-rejected\`: the decision refused the deviation (see \`deviation-pending\`, below).
 
@@ -1513,7 +1647,13 @@ exarchos_orchestrate({
 
 Decide every pending deviation in that one call. Settlement refuses a decision that omits one (\`DECISION_INCOMPLETE\`).
 
-Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the verification gives the outcome: \`settled\` or \`corrective-capsule\`. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the result gives the outcome: \`settled\`, \`accepted-with-rationale\` or \`corrective-capsule\`. The held claims keep each status, reason and rationale. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+
+**A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
+
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+
+If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
 Settlement records a \`rejected\` decision too. The outcome is \`rejected\` with a \`deviation-rejected\` finding, and settlement verifies nothing. The work that stood on the deviation is not accepted. Correct that work, and settle it under a new batch id without the deviation. If the plan holds a rework task for the refused deviation, remove that task. Then \`prepare\` again, and settle under the capsule that \`prepare\` returns.
 
@@ -1537,16 +1677,18 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
 - \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
-- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. Correct the request and use the **same** batch id.
+- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
 ### Failure Recovery
 
-When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`, with a \`verification-failed\` finding):
+When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`):
 1. Read the failure output from the runtime's result-collection primitive (\`wait_agent({ task_id })\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
 4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+
+A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
 
@@ -1670,6 +1812,8 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 | \`in_progress\` | Task actively being worked on |
 | \`complete\` | Task finished successfully |
 | \`failed\` | Task encountered an error (requires fix cycle) |
+
+These are the values of \`tasks[].status\` in the workflow state. The \`status\` of a claim (Step 3) is a different field. A claim that reports \`failed\` does not set the task to \`failed\`.
 
 ### Schema Discovery
 
@@ -2359,6 +2503,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
 | \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
+| \`authority.delegatedDecisions[]\` | The decisions that the capsule leaves to the worker, each with an \`id\`. A claim can record a choice under one of these ids as a \`rationale\`. Paste them into every packet |
 | \`knowledge.rationale[]\` | The design of record and, on a capsule compiled under a revised design (\`design-v2\` or later), the accepted changes after it: one statement per change — who decided it, the change proposed when one was given, and what the deviation stated — for eight changes at most, then one statement that counts the rest |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
 
@@ -2424,9 +2569,10 @@ For each task:
 Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
-2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
+2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. No evidence field exists to fill: the evidence is what settlement records when it runs the gates. A worker that did not complete its task reports a status and a reason, and no result fields (Build the batch, Step 3).
 3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
-4. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
+4. **The delegated decisions** — \`authority.delegatedDecisions[]\`, each with its \`id\` and its statement. The worker makes these choices and needs no approval for them. It can record a choice in its report as a rationale that names the \`id\`. A rationale cannot name another id: a choice outside the delegated decisions goes in a deviation.
+5. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -2512,9 +2658,52 @@ const claims = reports.map((r) => ({
 
 **Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
 
+**A task that is not completed gets a status, not a result.** A claim has an optional \`status\`. The default is \`completed\`. When the task has no result that settlement can verify, send one of the other three values:
+
+| \`status\` | Send it when |
+|----------|--------------|
+| \`failed\` | The worker attempted the task and has no result to verify |
+| \`blocked\` | The task cannot proceed until something outside the task changes |
+| \`skipped\` | The task was not attempted in this run |
+
+\`\`\`typescript
+const notCompleted = {
+  taskId: "<taskId>",
+  status: "blocked",                     // or "failed", or "skipped"
+  reason: "<why the task is not completed>",
+}
+\`\`\`
+
+A claim with one of these three values needs a \`reason\` of at most 280 characters. It carries no \`fields\`, no \`evidence\` and no \`rationale\`. A completed claim carries no \`reason\`. Settlement refuses a claim that breaks one of these rules as invalid input (\`INVALID_INPUT\`), and it adjudicates nothing.
+
+Settlement runs no gate for such a claim, and it records no completion from it. The task stays unresolved and is never complete from that claim. Settlement still verifies the completed claims of the batch (see \`corrective-capsule\`, below). The status is on the claim only: settlement records no \`task.failed\` row, and \`tasks[].status\` does not change. If the stream already shows the task complete, the recorded completion stands, and the claim gives no finding.
+
+**A choice inside the delegated freedom goes on the claim as a rationale.** The capsule lists the decisions that it leaves to the worker (\`authority.delegatedDecisions\`), each with an \`id\`. The capsule that \`prepare\` compiles lists two: \`implementation-approach\` and \`execution-order\`. A completed claim can record a choice under one of these ids:
+
+\`\`\`typescript
+const withChoice = {
+  taskId: r.taskId,
+  fields: { worktreePath: r.worktreePath /* and the other fields of the result contract */ },
+  evidence: [],
+  rationale: [
+    { delegatedDecision: "implementation-approach", statement: "<the choice, in the words of the worker>" },
+  ],
+}
+\`\`\`
+
+A claim records at most four choices, and a \`statement\` holds at most 280 characters. A rationale changes no gate: settlement runs the same verification for the task with it and without it. It is not evidence, and it does not accept a claim that has a finding. An id that the capsule does not list is the finding \`rationale-not-delegated\`, and the batch is rejected. A choice outside the delegated decisions is a deviation, so it goes in \`deviations\`.
+
 **A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — a held receipt within its response budget lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides. A receipt that comes back as a summary (Settle, below) lists a deviation by its id and kind only; its statement and affected tasks are in the settlement bundle \`bundleRefs\` names.
 
-\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks. Settlement refuses three kinds of entry, and the batch is then rejected, not held:
+
+- a task that the plan shows finished (\`deviation-names-finished-task\`)
+- a task that this batch claims as completed (\`deviation-names-claimed-task\`)
+- an id that the plan does not hold (\`deviation-unknown-task\`)
+
+Finished work is not reopened — plan its rework as a new task, and name that new task.
+
+**A worker whose own task rests on a wrong assumption reports the task as blocked.** The claim for the task has the status \`blocked\` and a reason, and the deviation names the task in \`affectedTasks\`. A deviation can name a task of its own batch only when the claim reports that task as \`failed\`, \`blocked\` or \`skipped\`. Such a claim returns no result, so the deviation changes work that is still to do. The decision round leaves that task unresolved (see \`deviation-pending\`, below).
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -2533,7 +2722,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Settlement first reads the shape of each claim against the capsule. If that pass finds no fault, settlement runs the verification of each claimed task through the executor. It does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
+Settlement first reads each claim and each deviation against the capsule. A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
 A receipt over its response budget comes back as a summary. The summary always keeps the round, \`designRevision\`, each pending deviation (id and kind) and each decision (id and decision). Under \`corrective-capsule\` it also keeps the count of the unresolved tasks (\`counts.unresolved\`). It holds the first page of findings (\`firstPage\`, without the messages) and at most four \`verification[]\` outcomes, failures first. Each failure has its \`operationId\` and \`failedLeaf\`. It holds each unresolved task as its \`taskId\` and \`cause\`. To fit the budget, the summary drops the findings page first and the outcomes second. Then it drops unresolved entries from the end, and \`counts.unresolvedOmitted\` says how many. The settlement bundle that \`bundleRefs\` names keeps the full findings and outcomes.
 
@@ -2542,20 +2731,34 @@ The receipt names one outcome, and each outcome has one next call:
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
 | \`settled\` | Each required task is complete | None. Go to Step 4 |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
 | \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
 | \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
 | \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
 | \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
 
-\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". The recorded names stay, because stored rows, bundles and replayed receipts carry them. The schema also lists \`accepted-with-rationale\`, and no batch gets that outcome in this build.
+\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
 **\`settled\`** — each required task is recorded complete (\`task.completed\`, from the leaf that the primitive path uses). A claimed task passed its gates in this batch, unless the stream already showed it complete. A required task without a claim was complete already. The state document that the transition guard reads is level. Go to Step 4.
 
+**\`accepted-with-rationale\`** — the batch is settled, and an accepted claim records a delegated choice (Build the batch, above). Each required task is recorded complete, as under \`settled\`, and the same gates ran. The \`execution.settled\` row names each choice by its task and its decision id (\`rationales\`). The settlement bundle that \`bundleRefs\` names keeps each statement. The receipt has no field for the choices, because the outcome says that a claim records one. Go to Step 4.
+
+A finding decides the outcome before a rationale does. Thus a batch with an unresolved task is \`corrective-capsule\`, and its row still names the choices of the tasks that passed. The correction of that batch is \`settled\`, unless one of its own claims records a choice.
+
 **\`corrective-capsule\`** — at least one task is unresolved. Settlement verified the batch, and the tasks that passed are complete (\`acceptedTasks\`). They stay complete. The outcome has the name that the design gives it, but \`settle\` compiled nothing.
 
-Read \`unresolved\`. It has one entry for each task to correct: the \`taskId\`, the \`cause\` (the kind of its finding, \`verification-failed\`), and the \`failedLeaf\` and \`operationId\` of the segment that halted. The finding message names the leaf that halted and the reason. To read the receipt of the segment, call \`execute_intent\` with that \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+Read \`unresolved\`. It has one entry for each task to correct, with the \`taskId\` and the \`cause\`. The \`cause\` is the kind of the finding against the task:
 
-Dispatch a fixer to the worktree of each unresolved task (Fix Failed Tasks, below). Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
+| \`cause\` | What it says | Before the correction |
+|---------|--------------|-----------------------|
+| \`verification-failed\` | A gate of the task halted. The entry also has the \`failedLeaf\` and the \`operationId\` of the segment | Dispatch a fixer to the worktree of the task (Fix Failed Tasks, below) |
+| \`task-failed\` | The claim reported the task as \`failed\` | Dispatch a fixer, or dispatch the task again |
+| \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
+| \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -2569,12 +2772,15 @@ exarchos_orchestrate({
 
 A recorded completion satisfies a required result, so a complete task needs no claim. The receipt of the correction lists each such task in \`verification[]\` as \`already-complete\`.
 
+If a task is still not completed, claim it with its status and reason again. That batch is \`corrective-capsule\` again, and the task stays unresolved. Settlement sets no limit on the number of corrections, so decide when to stop and ask a human.
+
 If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than 0), claim every required task again. Settlement runs no gate again for a complete task, and returns that task as \`already-complete\`.
 
-If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete.
+If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
+- \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
 - A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not held. Correct the deviation. A kind outside the envelope is an escalation. Each of the other three is an \`affectedTasks\` entry that a deviation cannot name (Build the batch, above).
 - \`deviation-rejected\`: the decision refused the deviation (see \`deviation-pending\`, below).
 
@@ -2611,7 +2817,13 @@ exarchos_orchestrate({
 
 Decide every pending deviation in that one call. Settlement refuses a decision that omits one (\`DECISION_INCOMPLETE\`).
 
-Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the verification gives the outcome: \`settled\` or \`corrective-capsule\`. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the result gives the outcome: \`settled\`, \`accepted-with-rationale\` or \`corrective-capsule\`. The held claims keep each status, reason and rationale. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+
+**A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
+
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+
+If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
 Settlement records a \`rejected\` decision too. The outcome is \`rejected\` with a \`deviation-rejected\` finding, and settlement verifies nothing. The work that stood on the deviation is not accepted. Correct that work, and settle it under a new batch id without the deviation. If the plan holds a rework task for the refused deviation, remove that task. Then \`prepare\` again, and settle under the capsule that \`prepare\` returns.
 
@@ -2635,16 +2847,18 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
 - \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
-- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. Correct the request and use the **same** batch id.
+- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
 ### Failure Recovery
 
-When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`, with a \`verification-failed\` finding):
+When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`):
 1. Read the failure output from the runtime's result-collection primitive (\`inline reply from task --agent (no separate collection API)\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
 4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+
+A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
 
@@ -2764,6 +2978,8 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 | \`in_progress\` | Task actively being worked on |
 | \`complete\` | Task finished successfully |
 | \`failed\` | Task encountered an error (requires fix cycle) |
+
+These are the values of \`tasks[].status\` in the workflow state. The \`status\` of a claim (Step 3) is a different field. A claim that reports \`failed\` does not set the task to \`failed\`.
 
 ### Schema Discovery
 
@@ -3453,6 +3669,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
 | \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
+| \`authority.delegatedDecisions[]\` | The decisions that the capsule leaves to the worker, each with an \`id\`. A claim can record a choice under one of these ids as a \`rationale\`. Paste them into every packet |
 | \`knowledge.rationale[]\` | The design of record and, on a capsule compiled under a revised design (\`design-v2\` or later), the accepted changes after it: one statement per change — who decided it, the change proposed when one was given, and what the deviation stated — for eight changes at most, then one statement that counts the rest |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
 
@@ -3518,9 +3735,10 @@ For each task:
 Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
-2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
+2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. No evidence field exists to fill: the evidence is what settlement records when it runs the gates. A worker that did not complete its task reports a status and a reason, and no result fields (Build the batch, Step 3).
 3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
-4. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
+4. **The delegated decisions** — \`authority.delegatedDecisions[]\`, each with its \`id\` and its statement. The worker makes these choices and needs no approval for them. It can record a choice in its report as a rationale that names the \`id\`. A rationale cannot name another id: a choice outside the delegated decisions goes in a deviation.
+5. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -3611,9 +3829,52 @@ const claims = reports.map((r) => ({
 
 **Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
 
+**A task that is not completed gets a status, not a result.** A claim has an optional \`status\`. The default is \`completed\`. When the task has no result that settlement can verify, send one of the other three values:
+
+| \`status\` | Send it when |
+|----------|--------------|
+| \`failed\` | The worker attempted the task and has no result to verify |
+| \`blocked\` | The task cannot proceed until something outside the task changes |
+| \`skipped\` | The task was not attempted in this run |
+
+\`\`\`typescript
+const notCompleted = {
+  taskId: "<taskId>",
+  status: "blocked",                     // or "failed", or "skipped"
+  reason: "<why the task is not completed>",
+}
+\`\`\`
+
+A claim with one of these three values needs a \`reason\` of at most 280 characters. It carries no \`fields\`, no \`evidence\` and no \`rationale\`. A completed claim carries no \`reason\`. Settlement refuses a claim that breaks one of these rules as invalid input (\`INVALID_INPUT\`), and it adjudicates nothing.
+
+Settlement runs no gate for such a claim, and it records no completion from it. The task stays unresolved and is never complete from that claim. Settlement still verifies the completed claims of the batch (see \`corrective-capsule\`, below). The status is on the claim only: settlement records no \`task.failed\` row, and \`tasks[].status\` does not change. If the stream already shows the task complete, the recorded completion stands, and the claim gives no finding.
+
+**A choice inside the delegated freedom goes on the claim as a rationale.** The capsule lists the decisions that it leaves to the worker (\`authority.delegatedDecisions\`), each with an \`id\`. The capsule that \`prepare\` compiles lists two: \`implementation-approach\` and \`execution-order\`. A completed claim can record a choice under one of these ids:
+
+\`\`\`typescript
+const withChoice = {
+  taskId: r.taskId,
+  fields: { worktreePath: r.worktreePath /* and the other fields of the result contract */ },
+  evidence: [],
+  rationale: [
+    { delegatedDecision: "implementation-approach", statement: "<the choice, in the words of the worker>" },
+  ],
+}
+\`\`\`
+
+A claim records at most four choices, and a \`statement\` holds at most 280 characters. A rationale changes no gate: settlement runs the same verification for the task with it and without it. It is not evidence, and it does not accept a claim that has a finding. An id that the capsule does not list is the finding \`rationale-not-delegated\`, and the batch is rejected. A choice outside the delegated decisions is a deviation, so it goes in \`deviations\`.
+
 **A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — a held receipt within its response budget lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides. A receipt that comes back as a summary (Settle, below) lists a deviation by its id and kind only; its statement and affected tasks are in the settlement bundle \`bundleRefs\` names.
 
-\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks. Settlement refuses three kinds of entry, and the batch is then rejected, not held:
+
+- a task that the plan shows finished (\`deviation-names-finished-task\`)
+- a task that this batch claims as completed (\`deviation-names-claimed-task\`)
+- an id that the plan does not hold (\`deviation-unknown-task\`)
+
+Finished work is not reopened — plan its rework as a new task, and name that new task.
+
+**A worker whose own task rests on a wrong assumption reports the task as blocked.** The claim for the task has the status \`blocked\` and a reason, and the deviation names the task in \`affectedTasks\`. A deviation can name a task of its own batch only when the claim reports that task as \`failed\`, \`blocked\` or \`skipped\`. Such a claim returns no result, so the deviation changes work that is still to do. The decision round leaves that task unresolved (see \`deviation-pending\`, below).
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -3632,7 +3893,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Settlement first reads the shape of each claim against the capsule. If that pass finds no fault, settlement runs the verification of each claimed task through the executor. It does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
+Settlement first reads each claim and each deviation against the capsule. A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
 A receipt over its response budget comes back as a summary. The summary always keeps the round, \`designRevision\`, each pending deviation (id and kind) and each decision (id and decision). Under \`corrective-capsule\` it also keeps the count of the unresolved tasks (\`counts.unresolved\`). It holds the first page of findings (\`firstPage\`, without the messages) and at most four \`verification[]\` outcomes, failures first. Each failure has its \`operationId\` and \`failedLeaf\`. It holds each unresolved task as its \`taskId\` and \`cause\`. To fit the budget, the summary drops the findings page first and the outcomes second. Then it drops unresolved entries from the end, and \`counts.unresolvedOmitted\` says how many. The settlement bundle that \`bundleRefs\` names keeps the full findings and outcomes.
 
@@ -3641,20 +3902,34 @@ The receipt names one outcome, and each outcome has one next call:
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
 | \`settled\` | Each required task is complete | None. Go to Step 4 |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
 | \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
 | \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
 | \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
 | \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
 
-\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". The recorded names stay, because stored rows, bundles and replayed receipts carry them. The schema also lists \`accepted-with-rationale\`, and no batch gets that outcome in this build.
+\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
 **\`settled\`** — each required task is recorded complete (\`task.completed\`, from the leaf that the primitive path uses). A claimed task passed its gates in this batch, unless the stream already showed it complete. A required task without a claim was complete already. The state document that the transition guard reads is level. Go to Step 4.
 
+**\`accepted-with-rationale\`** — the batch is settled, and an accepted claim records a delegated choice (Build the batch, above). Each required task is recorded complete, as under \`settled\`, and the same gates ran. The \`execution.settled\` row names each choice by its task and its decision id (\`rationales\`). The settlement bundle that \`bundleRefs\` names keeps each statement. The receipt has no field for the choices, because the outcome says that a claim records one. Go to Step 4.
+
+A finding decides the outcome before a rationale does. Thus a batch with an unresolved task is \`corrective-capsule\`, and its row still names the choices of the tasks that passed. The correction of that batch is \`settled\`, unless one of its own claims records a choice.
+
 **\`corrective-capsule\`** — at least one task is unresolved. Settlement verified the batch, and the tasks that passed are complete (\`acceptedTasks\`). They stay complete. The outcome has the name that the design gives it, but \`settle\` compiled nothing.
 
-Read \`unresolved\`. It has one entry for each task to correct: the \`taskId\`, the \`cause\` (the kind of its finding, \`verification-failed\`), and the \`failedLeaf\` and \`operationId\` of the segment that halted. The finding message names the leaf that halted and the reason. To read the receipt of the segment, call \`execute_intent\` with that \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+Read \`unresolved\`. It has one entry for each task to correct, with the \`taskId\` and the \`cause\`. The \`cause\` is the kind of the finding against the task:
 
-Dispatch a fixer to the worktree of each unresolved task (Fix Failed Tasks, below). Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
+| \`cause\` | What it says | Before the correction |
+|---------|--------------|-----------------------|
+| \`verification-failed\` | A gate of the task halted. The entry also has the \`failedLeaf\` and the \`operationId\` of the segment | Dispatch a fixer to the worktree of the task (Fix Failed Tasks, below) |
+| \`task-failed\` | The claim reported the task as \`failed\` | Dispatch a fixer, or dispatch the task again |
+| \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
+| \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -3668,12 +3943,15 @@ exarchos_orchestrate({
 
 A recorded completion satisfies a required result, so a complete task needs no claim. The receipt of the correction lists each such task in \`verification[]\` as \`already-complete\`.
 
+If a task is still not completed, claim it with its status and reason again. That batch is \`corrective-capsule\` again, and the task stays unresolved. Settlement sets no limit on the number of corrections, so decide when to stop and ask a human.
+
 If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than 0), claim every required task again. Settlement runs no gate again for a complete task, and returns that task as \`already-complete\`.
 
-If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete.
+If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
+- \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
 - A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not held. Correct the deviation. A kind outside the envelope is an escalation. Each of the other three is an \`affectedTasks\` entry that a deviation cannot name (Build the batch, above).
 - \`deviation-rejected\`: the decision refused the deviation (see \`deviation-pending\`, below).
 
@@ -3710,7 +3988,13 @@ exarchos_orchestrate({
 
 Decide every pending deviation in that one call. Settlement refuses a decision that omits one (\`DECISION_INCOMPLETE\`).
 
-Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the verification gives the outcome: \`settled\` or \`corrective-capsule\`. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the result gives the outcome: \`settled\`, \`accepted-with-rationale\` or \`corrective-capsule\`. The held claims keep each status, reason and rationale. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+
+**A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
+
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+
+If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
 Settlement records a \`rejected\` decision too. The outcome is \`rejected\` with a \`deviation-rejected\` finding, and settlement verifies nothing. The work that stood on the deviation is not accepted. Correct that work, and settle it under a new batch id without the deviation. If the plan holds a rework task for the refused deviation, remove that task. Then \`prepare\` again, and settle under the capsule that \`prepare\` returns.
 
@@ -3734,16 +4018,18 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
 - \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
-- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. Correct the request and use the **same** batch id.
+- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
 ### Failure Recovery
 
-When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`, with a \`verification-failed\` finding):
+When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`):
 1. Read the failure output from the runtime's result-collection primitive (\`Task() reply (inline)\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
 4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+
+A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
 
@@ -3868,6 +4154,8 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 | \`in_progress\` | Task actively being worked on |
 | \`complete\` | Task finished successfully |
 | \`failed\` | Task encountered an error (requires fix cycle) |
+
+These are the values of \`tasks[].status\` in the workflow state. The \`status\` of a claim (Step 3) is a different field. A claim that reports \`failed\` does not set the task to \`failed\`.
 
 ### Schema Discovery
 
@@ -4557,6 +4845,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
 | \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
+| \`authority.delegatedDecisions[]\` | The decisions that the capsule leaves to the worker, each with an \`id\`. A claim can record a choice under one of these ids as a \`rationale\`. Paste them into every packet |
 | \`knowledge.rationale[]\` | The design of record and, on a capsule compiled under a revised design (\`design-v2\` or later), the accepted changes after it: one statement per change — who decided it, the change proposed when one was given, and what the deviation stated — for eight changes at most, then one statement that counts the rest |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
 
@@ -4613,9 +4902,10 @@ For each task:
 Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
-2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
+2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. No evidence field exists to fill: the evidence is what settlement records when it runs the gates. A worker that did not complete its task reports a status and a reason, and no result fields (Build the batch, Step 3).
 3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
-4. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
+4. **The delegated decisions** — \`authority.delegatedDecisions[]\`, each with its \`id\` and its statement. The worker makes these choices and needs no approval for them. It can record a choice in its report as a rationale that names the \`id\`. A rationale cannot name another id: a choice outside the delegated decisions goes in a deviation.
+5. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -4691,9 +4981,52 @@ const claims = reports.map((r) => ({
 
 **Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
 
+**A task that is not completed gets a status, not a result.** A claim has an optional \`status\`. The default is \`completed\`. When the task has no result that settlement can verify, send one of the other three values:
+
+| \`status\` | Send it when |
+|----------|--------------|
+| \`failed\` | The worker attempted the task and has no result to verify |
+| \`blocked\` | The task cannot proceed until something outside the task changes |
+| \`skipped\` | The task was not attempted in this run |
+
+\`\`\`typescript
+const notCompleted = {
+  taskId: "<taskId>",
+  status: "blocked",                     // or "failed", or "skipped"
+  reason: "<why the task is not completed>",
+}
+\`\`\`
+
+A claim with one of these three values needs a \`reason\` of at most 280 characters. It carries no \`fields\`, no \`evidence\` and no \`rationale\`. A completed claim carries no \`reason\`. Settlement refuses a claim that breaks one of these rules as invalid input (\`INVALID_INPUT\`), and it adjudicates nothing.
+
+Settlement runs no gate for such a claim, and it records no completion from it. The task stays unresolved and is never complete from that claim. Settlement still verifies the completed claims of the batch (see \`corrective-capsule\`, below). The status is on the claim only: settlement records no \`task.failed\` row, and \`tasks[].status\` does not change. If the stream already shows the task complete, the recorded completion stands, and the claim gives no finding.
+
+**A choice inside the delegated freedom goes on the claim as a rationale.** The capsule lists the decisions that it leaves to the worker (\`authority.delegatedDecisions\`), each with an \`id\`. The capsule that \`prepare\` compiles lists two: \`implementation-approach\` and \`execution-order\`. A completed claim can record a choice under one of these ids:
+
+\`\`\`typescript
+const withChoice = {
+  taskId: r.taskId,
+  fields: { worktreePath: r.worktreePath /* and the other fields of the result contract */ },
+  evidence: [],
+  rationale: [
+    { delegatedDecision: "implementation-approach", statement: "<the choice, in the words of the worker>" },
+  ],
+}
+\`\`\`
+
+A claim records at most four choices, and a \`statement\` holds at most 280 characters. A rationale changes no gate: settlement runs the same verification for the task with it and without it. It is not evidence, and it does not accept a claim that has a finding. An id that the capsule does not list is the finding \`rationale-not-delegated\`, and the batch is rejected. A choice outside the delegated decisions is a deviation, so it goes in \`deviations\`.
+
 **A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — a held receipt within its response budget lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides. A receipt that comes back as a summary (Settle, below) lists a deviation by its id and kind only; its statement and affected tasks are in the settlement bundle \`bundleRefs\` names.
 
-\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks. Settlement refuses three kinds of entry, and the batch is then rejected, not held:
+
+- a task that the plan shows finished (\`deviation-names-finished-task\`)
+- a task that this batch claims as completed (\`deviation-names-claimed-task\`)
+- an id that the plan does not hold (\`deviation-unknown-task\`)
+
+Finished work is not reopened — plan its rework as a new task, and name that new task.
+
+**A worker whose own task rests on a wrong assumption reports the task as blocked.** The claim for the task has the status \`blocked\` and a reason, and the deviation names the task in \`affectedTasks\`. A deviation can name a task of its own batch only when the claim reports that task as \`failed\`, \`blocked\` or \`skipped\`. Such a claim returns no result, so the deviation changes work that is still to do. The decision round leaves that task unresolved (see \`deviation-pending\`, below).
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -4712,7 +5045,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Settlement first reads the shape of each claim against the capsule. If that pass finds no fault, settlement runs the verification of each claimed task through the executor. It does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
+Settlement first reads each claim and each deviation against the capsule. A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
 A receipt over its response budget comes back as a summary. The summary always keeps the round, \`designRevision\`, each pending deviation (id and kind) and each decision (id and decision). Under \`corrective-capsule\` it also keeps the count of the unresolved tasks (\`counts.unresolved\`). It holds the first page of findings (\`firstPage\`, without the messages) and at most four \`verification[]\` outcomes, failures first. Each failure has its \`operationId\` and \`failedLeaf\`. It holds each unresolved task as its \`taskId\` and \`cause\`. To fit the budget, the summary drops the findings page first and the outcomes second. Then it drops unresolved entries from the end, and \`counts.unresolvedOmitted\` says how many. The settlement bundle that \`bundleRefs\` names keeps the full findings and outcomes.
 
@@ -4721,20 +5054,34 @@ The receipt names one outcome, and each outcome has one next call:
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
 | \`settled\` | Each required task is complete | None. Go to Step 4 |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
 | \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
 | \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
 | \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
 | \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
 
-\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". The recorded names stay, because stored rows, bundles and replayed receipts carry them. The schema also lists \`accepted-with-rationale\`, and no batch gets that outcome in this build.
+\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
 **\`settled\`** — each required task is recorded complete (\`task.completed\`, from the leaf that the primitive path uses). A claimed task passed its gates in this batch, unless the stream already showed it complete. A required task without a claim was complete already. The state document that the transition guard reads is level. Go to Step 4.
 
+**\`accepted-with-rationale\`** — the batch is settled, and an accepted claim records a delegated choice (Build the batch, above). Each required task is recorded complete, as under \`settled\`, and the same gates ran. The \`execution.settled\` row names each choice by its task and its decision id (\`rationales\`). The settlement bundle that \`bundleRefs\` names keeps each statement. The receipt has no field for the choices, because the outcome says that a claim records one. Go to Step 4.
+
+A finding decides the outcome before a rationale does. Thus a batch with an unresolved task is \`corrective-capsule\`, and its row still names the choices of the tasks that passed. The correction of that batch is \`settled\`, unless one of its own claims records a choice.
+
 **\`corrective-capsule\`** — at least one task is unresolved. Settlement verified the batch, and the tasks that passed are complete (\`acceptedTasks\`). They stay complete. The outcome has the name that the design gives it, but \`settle\` compiled nothing.
 
-Read \`unresolved\`. It has one entry for each task to correct: the \`taskId\`, the \`cause\` (the kind of its finding, \`verification-failed\`), and the \`failedLeaf\` and \`operationId\` of the segment that halted. The finding message names the leaf that halted and the reason. To read the receipt of the segment, call \`execute_intent\` with that \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+Read \`unresolved\`. It has one entry for each task to correct, with the \`taskId\` and the \`cause\`. The \`cause\` is the kind of the finding against the task:
 
-Dispatch a fixer to the worktree of each unresolved task (Fix Failed Tasks, below). Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
+| \`cause\` | What it says | Before the correction |
+|---------|--------------|-----------------------|
+| \`verification-failed\` | A gate of the task halted. The entry also has the \`failedLeaf\` and the \`operationId\` of the segment | Dispatch a fixer to the worktree of the task (Fix Failed Tasks, below) |
+| \`task-failed\` | The claim reported the task as \`failed\` | Dispatch a fixer, or dispatch the task again |
+| \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
+| \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -4748,12 +5095,15 @@ exarchos_orchestrate({
 
 A recorded completion satisfies a required result, so a complete task needs no claim. The receipt of the correction lists each such task in \`verification[]\` as \`already-complete\`.
 
+If a task is still not completed, claim it with its status and reason again. That batch is \`corrective-capsule\` again, and the task stays unresolved. Settlement sets no limit on the number of corrections, so decide when to stop and ask a human.
+
 If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than 0), claim every required task again. Settlement runs no gate again for a complete task, and returns that task as \`already-complete\`.
 
-If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete.
+If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
+- \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
 - A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not held. Correct the deviation. A kind outside the envelope is an escalation. Each of the other three is an \`affectedTasks\` entry that a deviation cannot name (Build the batch, above).
 - \`deviation-rejected\`: the decision refused the deviation (see \`deviation-pending\`, below).
 
@@ -4790,7 +5140,13 @@ exarchos_orchestrate({
 
 Decide every pending deviation in that one call. Settlement refuses a decision that omits one (\`DECISION_INCOMPLETE\`).
 
-Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the verification gives the outcome: \`settled\` or \`corrective-capsule\`. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the result gives the outcome: \`settled\`, \`accepted-with-rationale\` or \`corrective-capsule\`. The held claims keep each status, reason and rationale. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+
+**A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
+
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+
+If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
 Settlement records a \`rejected\` decision too. The outcome is \`rejected\` with a \`deviation-rejected\` finding, and settlement verifies nothing. The work that stood on the deviation is not accepted. Correct that work, and settle it under a new batch id without the deviation. If the plan holds a rework task for the refused deviation, remove that task. Then \`prepare\` again, and settle under the capsule that \`prepare\` returns.
 
@@ -4814,16 +5170,18 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
 - \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
-- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. Correct the request and use the **same** batch id.
+- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
 ### Failure Recovery
 
-When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`, with a \`verification-failed\` finding):
+When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`):
 1. Read the failure output from the runtime's result-collection primitive (\`[task output is the assistant's next message]\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
 4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+
+A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
 
@@ -4943,6 +5301,8 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 | \`in_progress\` | Task actively being worked on |
 | \`complete\` | Task finished successfully |
 | \`failed\` | Task encountered an error (requires fix cycle) |
+
+These are the values of \`tasks[].status\` in the workflow state. The \`status\` of a claim (Step 3) is a different field. A claim that reports \`failed\` does not set the task to \`failed\`.
 
 ### Schema Discovery
 
@@ -5632,6 +5992,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | \`contracts.taskResults[taskId]\` | What the task must report back: \`worktreePath\` (required), \`branch\`, and its provenance (\`files\`, \`implements\`, \`tests\`, \`acceptanceTestRef\`) |
 | \`contracts.deviationEnvelope\` | What a worker may propose when a capsule assumption turns out wrong (\`invalidated-assumption\`, \`missing-context\`) — instead of guessing — and which of those kinds are material (\`materialDeviationKinds\`: \`invalidated-assumption\`), so that accepting one revises the design |
 | \`authority.invariants[]\`, \`authority.escalationBoundaries[]\` | What the work is judged by and what it must escalate rather than decide — paste into every packet |
+| \`authority.delegatedDecisions[]\` | The decisions that the capsule leaves to the worker, each with an \`id\`. A claim can record a choice under one of these ids as a \`rationale\`. Paste them into every packet |
 | \`knowledge.rationale[]\` | The design of record and, on a capsule compiled under a revised design (\`design-v2\` or later), the accepted changes after it: one statement per change — who decided it, the change proposed when one was given, and what the deviation stated — for eight changes at most, then one statement that counts the rest |
 | \`executionProfile.capabilities\` | What this runtime had to hold to get here; \`prepare\` already refused an unfit one |
 
@@ -5697,9 +6058,10 @@ For each task:
 Every packet carries, from the capsule, verbatim:
 
 1. **The task's verification terms** — its \`riskTier\` and \`boundaryTouching\`, and the \`knowledge.patterns[]\` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
-2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. Nothing else on the report reaches settlement, and no evidence field exists to fill: the evidence is what settlement records when it runs the gates.
+2. **The result contract** — the \`contracts.taskResults[taskId]\` fields. The worker's completion report is the claim: \`worktreePath\`, \`branch\`, \`files\`, \`implements\`, \`tests\`. No evidence field exists to fill: the evidence is what settlement records when it runs the gates. A worker that did not complete its task reports a status and a reason, and no result fields (Build the batch, Step 3).
 3. **The authority** — \`authority.invariants[]\` and \`authority.escalationBoundaries[]\`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (\`deviationKind\` from \`contracts.deviationEnvelope.allowedDeviationKinds\`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
-4. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
+4. **The delegated decisions** — \`authority.delegatedDecisions[]\`, each with its \`id\` and its statement. The worker makes these choices and needs no approval for them. It can record a choice in its report as a rationale that names the \`id\`. A rationale cannot name another id: a choice outside the delegated decisions goes in a deviation.
+5. **The accepted design changes** — on a capsule compiled under a revised design, the \`knowledge.rationale[]\` statements that follow the design of record. A worker starts from a clean context, so its packet is where it sees what changed.
 
 **Dispatch THAT packet — not the static agent default.** The shipped \`agents/implementer.md\` bakes a fixed medium-tier note (a self-contained fallback for runtimes that pre-bind a named agent). Use it verbatim only when no capsule term exists (e.g. a fixer dispatch). The tier is pure data from the capsule; no workflow-type branching is involved.
 
@@ -5789,9 +6151,52 @@ const claims = reports.map((r) => ({
 
 **Do NOT trust the implementer's self-assessment.** The claim says where the work is; settlement decides whether it is done. A worker that reported a deviation goes into \`deviations\` (\`{ deviationKind, statement, affectedTasks?, proposedChange? }\`), not into a fudged claim.
 
+**A task that is not completed gets a status, not a result.** A claim has an optional \`status\`. The default is \`completed\`. When the task has no result that settlement can verify, send one of the other three values:
+
+| \`status\` | Send it when |
+|----------|--------------|
+| \`failed\` | The worker attempted the task and has no result to verify |
+| \`blocked\` | The task cannot proceed until something outside the task changes |
+| \`skipped\` | The task was not attempted in this run |
+
+\`\`\`typescript
+const notCompleted = {
+  taskId: "<taskId>",
+  status: "blocked",                     // or "failed", or "skipped"
+  reason: "<why the task is not completed>",
+}
+\`\`\`
+
+A claim with one of these three values needs a \`reason\` of at most 280 characters. It carries no \`fields\`, no \`evidence\` and no \`rationale\`. A completed claim carries no \`reason\`. Settlement refuses a claim that breaks one of these rules as invalid input (\`INVALID_INPUT\`), and it adjudicates nothing.
+
+Settlement runs no gate for such a claim, and it records no completion from it. The task stays unresolved and is never complete from that claim. Settlement still verifies the completed claims of the batch (see \`corrective-capsule\`, below). The status is on the claim only: settlement records no \`task.failed\` row, and \`tasks[].status\` does not change. If the stream already shows the task complete, the recorded completion stands, and the claim gives no finding.
+
+**A choice inside the delegated freedom goes on the claim as a rationale.** The capsule lists the decisions that it leaves to the worker (\`authority.delegatedDecisions\`), each with an \`id\`. The capsule that \`prepare\` compiles lists two: \`implementation-approach\` and \`execution-order\`. A completed claim can record a choice under one of these ids:
+
+\`\`\`typescript
+const withChoice = {
+  taskId: r.taskId,
+  fields: { worktreePath: r.worktreePath /* and the other fields of the result contract */ },
+  evidence: [],
+  rationale: [
+    { delegatedDecision: "implementation-approach", statement: "<the choice, in the words of the worker>" },
+  ],
+}
+\`\`\`
+
+A claim records at most four choices, and a \`statement\` holds at most 280 characters. A rationale changes no gate: settlement runs the same verification for the task with it and without it. It is not evidence, and it does not accept a claim that has a finding. An id that the capsule does not list is the finding \`rationale-not-delegated\`, and the batch is rejected. A choice outside the delegated decisions is a deviation, so it goes in \`deviations\`.
+
 **A deviation says what changes, and for which tasks.** \`proposedChange\` is the worker's, as reported; the orchestrator fills \`affectedTasks\`, because only it holds the plan. Report one deviation per failed assumption, and merge the reports of the same assumption into one: a batch carries at most sixteen deviations, and one deviation names at most thirty-two tasks. Give two deviations different statements when they differ — a held receipt within its response budget lists a deviation by its id, kind, statement and affected tasks, so two that differ only in the proposed change read alike to whoever decides. A receipt that comes back as a summary (Settle, below) lists a deviation by its id and kind only; its statement and affected tasks are in the settlement bundle \`bundleRefs\` names.
 
-\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks outside the wave being settled. A task the plan shows finished (\`deviation-names-finished-task\`), a task this batch claims (\`deviation-names-claimed-task\`) or an id the plan does not hold (\`deviation-unknown-task\`) is refused: the batch is rejected, not held. Finished work is not reopened — plan its rework as a new task, and name that new task.
+\`affectedTasks\` is what a design revision goes on to name, and a revision names only unfinished tasks. Settlement refuses three kinds of entry, and the batch is then rejected, not held:
+
+- a task that the plan shows finished (\`deviation-names-finished-task\`)
+- a task that this batch claims as completed (\`deviation-names-claimed-task\`)
+- an id that the plan does not hold (\`deviation-unknown-task\`)
+
+Finished work is not reopened — plan its rework as a new task, and name that new task.
+
+**A worker whose own task rests on a wrong assumption reports the task as blocked.** The claim for the task has the status \`blocked\` and a reason, and the deviation names the task in \`affectedTasks\`. A deviation can name a task of its own batch only when the claim reports that task as \`failed\`, \`blocked\` or \`skipped\`. Such a claim returns no result, so the deviation changes work that is still to do. The decision round leaves that task unresolved (see \`deviation-pending\`, below).
 
 **Verify worktree state** before settling — a dirty \`git status\` in a worktree is work the claim does not name.
 
@@ -5810,7 +6215,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-Settlement first reads the shape of each claim against the capsule. If that pass finds no fault, settlement runs the verification of each claimed task through the executor. It does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
+Settlement first reads each claim and each deviation against the capsule. A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: \`findings\` lists each fault, and \`verification[]\` names the segment of each task (\`operationId\`, \`outcome\`, \`failedLeaf\`).
 
 A receipt over its response budget comes back as a summary. The summary always keeps the round, \`designRevision\`, each pending deviation (id and kind) and each decision (id and decision). Under \`corrective-capsule\` it also keeps the count of the unresolved tasks (\`counts.unresolved\`). It holds the first page of findings (\`firstPage\`, without the messages) and at most four \`verification[]\` outcomes, failures first. Each failure has its \`operationId\` and \`failedLeaf\`. It holds each unresolved task as its \`taskId\` and \`cause\`. To fit the budget, the summary drops the findings page first and the outcomes second. Then it drops unresolved entries from the end, and \`counts.unresolvedOmitted\` says how many. The settlement bundle that \`bundleRefs\` names keeps the full findings and outcomes.
 
@@ -5819,20 +6224,34 @@ The receipt names one outcome, and each outcome has one next call:
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
 | \`settled\` | Each required task is complete | None. Go to Step 4 |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
 | \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
 | \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
 | \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
 | \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
 
-\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". The recorded names stay, because stored rows, bundles and replayed receipts carry them. The schema also lists \`accepted-with-rationale\`, and no batch gets that outcome in this build.
+\`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
 **\`settled\`** — each required task is recorded complete (\`task.completed\`, from the leaf that the primitive path uses). A claimed task passed its gates in this batch, unless the stream already showed it complete. A required task without a claim was complete already. The state document that the transition guard reads is level. Go to Step 4.
 
+**\`accepted-with-rationale\`** — the batch is settled, and an accepted claim records a delegated choice (Build the batch, above). Each required task is recorded complete, as under \`settled\`, and the same gates ran. The \`execution.settled\` row names each choice by its task and its decision id (\`rationales\`). The settlement bundle that \`bundleRefs\` names keeps each statement. The receipt has no field for the choices, because the outcome says that a claim records one. Go to Step 4.
+
+A finding decides the outcome before a rationale does. Thus a batch with an unresolved task is \`corrective-capsule\`, and its row still names the choices of the tasks that passed. The correction of that batch is \`settled\`, unless one of its own claims records a choice.
+
 **\`corrective-capsule\`** — at least one task is unresolved. Settlement verified the batch, and the tasks that passed are complete (\`acceptedTasks\`). They stay complete. The outcome has the name that the design gives it, but \`settle\` compiled nothing.
 
-Read \`unresolved\`. It has one entry for each task to correct: the \`taskId\`, the \`cause\` (the kind of its finding, \`verification-failed\`), and the \`failedLeaf\` and \`operationId\` of the segment that halted. The finding message names the leaf that halted and the reason. To read the receipt of the segment, call \`execute_intent\` with that \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+Read \`unresolved\`. It has one entry for each task to correct, with the \`taskId\` and the \`cause\`. The \`cause\` is the kind of the finding against the task:
 
-Dispatch a fixer to the worktree of each unresolved task (Fix Failed Tasks, below). Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
+| \`cause\` | What it says | Before the correction |
+|---------|--------------|-----------------------|
+| \`verification-failed\` | A gate of the task halted. The entry also has the \`failedLeaf\` and the \`operationId\` of the segment | Dispatch a fixer to the worktree of the task (Fix Failed Tasks, below) |
+| \`task-failed\` | The claim reported the task as \`failed\` | Dispatch a fixer, or dispatch the task again |
+| \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
+| \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -5846,12 +6265,15 @@ exarchos_orchestrate({
 
 A recorded completion satisfies a required result, so a complete task needs no claim. The receipt of the correction lists each such task in \`verification[]\` as \`already-complete\`.
 
+If a task is still not completed, claim it with its status and reason again. That batch is \`corrective-capsule\` again, and the task stays unresolved. Settlement sets no limit on the number of corrections, so decide when to stop and ask a human.
+
 If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than 0), claim every required task again. Settlement runs no gate again for a complete task, and returns that task as \`already-complete\`.
 
-If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete.
+If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
-- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim.
+- A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
+- \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
 - A deviation finding (\`deviation-outside-envelope\`, \`deviation-unknown-task\`, \`deviation-names-finished-task\`, \`deviation-names-claimed-task\`): the batch was not held. Correct the deviation. A kind outside the envelope is an escalation. Each of the other three is an \`affectedTasks\` entry that a deviation cannot name (Build the batch, above).
 - \`deviation-rejected\`: the decision refused the deviation (see \`deviation-pending\`, below).
 
@@ -5888,7 +6310,13 @@ exarchos_orchestrate({
 
 Decide every pending deviation in that one call. Settlement refuses a decision that omits one (\`DECISION_INCOMPLETE\`).
 
-Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the verification gives the outcome: \`settled\` or \`corrective-capsule\`. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it verifies the held work, and the result gives the outcome: \`settled\`, \`accepted-with-rationale\` or \`corrective-capsule\`. The held claims keep each status, reason and rationale. If a later design revision names a task of the held batch, the outcome is \`recompile-required\`, and settlement verifies nothing. A correction after an accepted decision does not state the deviation again. The deviation is decided, and a second statement of it is a new proposal that holds the new batch.
+
+**A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
+
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+
+If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
 Settlement records a \`rejected\` decision too. The outcome is \`rejected\` with a \`deviation-rejected\` finding, and settlement verifies nothing. The work that stood on the deviation is not accepted. Correct that work, and settle it under a new batch id without the deviation. If the plan holds a rework task for the refused deviation, remove that task. Then \`prepare\` again, and settle under the capsule that \`prepare\` returns.
 
@@ -5912,16 +6340,18 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
 - \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
-- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. Correct the request and use the **same** batch id.
+- \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
 ### Failure Recovery
 
-When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`, with a \`verification-failed\` finding):
+When a task fails — a subagent reports failure, or settlement leaves the task unresolved (\`corrective-capsule\`):
 1. Read the failure output from the runtime's result-collection primitive (\`Task() reply (inline, no poll)\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
 4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+
+A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
 For the full recovery flow with a concrete example, see \`references/worked-example.md\`.
 
@@ -6045,6 +6475,8 @@ This detour is invisible to the delegation skill itself — the all-tasks-comple
 | \`in_progress\` | Task actively being worked on |
 | \`complete\` | Task finished successfully |
 | \`failed\` | Task encountered an error (requires fix cycle) |
+
+These are the values of \`tasks[].status\` in the workflow state. The \`status\` of a claim (Step 3) is a different field. A claim that reports \`failed\` does not set the task to \`failed\`.
 
 ### Schema Discovery
 

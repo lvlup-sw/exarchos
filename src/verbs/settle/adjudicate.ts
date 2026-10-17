@@ -25,6 +25,7 @@ export const SETTLEMENT_FINDING_KINDS = [
   'field-type-mismatch',
   'undeclared-field',
   'inadmissible-evidence',
+  'rationale-not-delegated',
   'deviation-outside-envelope',
   'deviation-awaiting-approval',
   'deviation-rejected',
@@ -32,6 +33,9 @@ export const SETTLEMENT_FINDING_KINDS = [
   'deviation-names-finished-task',
   'deviation-names-claimed-task',
   'verification-failed',
+  'task-failed',
+  'task-blocked',
+  'task-skipped',
 ] as const;
 
 /** What adjudication found wrong with one claim, one task, or one deviation. */
@@ -50,6 +54,8 @@ export type SettlementFindingClass = 'stale' | 'refuse' | 'hold' | 'unresolved';
  * The class of each finding kind. The record is exhaustive, so a kind with no class does not compile.
  * A deviation inside the envelope is a valid answer to a wrong capsule assumption, so its finding holds the batch.
  * A failed verification leaves its task unresolved, and it does not refuse the tasks that passed.
+ * A claim that reports its task as not completed also leaves the task unresolved.
+ * A rationale that names a decision that the capsule does not delegate is a request error, so it refuses the batch.
  */
 export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, SettlementFindingClass>> = {
   'unknown-task': 'refuse',
@@ -61,6 +67,7 @@ export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, 
   'field-type-mismatch': 'refuse',
   'undeclared-field': 'refuse',
   'inadmissible-evidence': 'refuse',
+  'rationale-not-delegated': 'refuse',
   'deviation-outside-envelope': 'refuse',
   'deviation-awaiting-approval': 'hold',
   'deviation-rejected': 'refuse',
@@ -68,6 +75,9 @@ export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, 
   'deviation-names-finished-task': 'refuse',
   'deviation-names-claimed-task': 'refuse',
   'verification-failed': 'unresolved',
+  'task-failed': 'unresolved',
+  'task-blocked': 'unresolved',
+  'task-skipped': 'unresolved',
 };
 
 /** A single, path-annotated adjudication finding. */
@@ -80,11 +90,51 @@ export interface SettlementFinding {
   readonly message: string;
 }
 
-/** One task's returned result, with its fields and the evidence it cites. */
+/** Returns the listed names as a tuple of literal types, so one list can feed each closed enum. */
+function closedNames<const Names extends readonly [string, ...string[]]>(...names: Names): Names {
+  return names;
+}
+
+/**
+ * The statuses of a claim that reports its task as not completed.
+ * `failed` means that the worker attempted the task and has no result to verify.
+ * `blocked` means that the task cannot proceed until something outside the task changes.
+ * `skipped` means that the task was not attempted in this run.
+ */
+export const INCOMPLETE_CLAIM_STATUSES = closedNames('failed', 'blocked', 'skipped');
+
+/** A status of a claim that reports its task as not completed. */
+export type IncompleteClaimStatus = (typeof INCOMPLETE_CLAIM_STATUSES)[number];
+
+/** Each status that a request can give a claim. `completed` is the default. */
+export const CLAIM_STATUSES = closedNames('completed', ...INCOMPLETE_CLAIM_STATUSES);
+
+/**
+ * One delegated choice that a completed claim records.
+ * `delegatedDecision` is the id of a delegated decision of the capsule. `statement` is the choice, in the words of the worker.
+ * A rationale grants nothing: settlement runs the same gates for a task with one and for a task without one.
+ * It is no evidence, and it does not accept a claim that has a finding or a failed verification.
+ * It changes only the outcome of a batch that has no finding.
+ */
+export interface ClaimRationale {
+  readonly delegatedDecision: string;
+  readonly statement: string;
+}
+
+/**
+ * One claim in its normal form: the result that a task returned, or the reason that the task is not completed.
+ * `status` is absent on a completed claim, so a claim that an earlier build recorded keeps its bytes and its request digest.
+ * A claim with a status has a reason, no fields, no evidence and no rationale. The claim codec gives each claim this form.
+ * Adjudication records no rationale from a claim with a status, so a stored claim outside this form grants nothing.
+ * `rationale` is absent on a claim that records no delegated choice, for the same reason as `status`.
+ */
 export interface SettlementClaim {
   readonly taskId: string;
+  readonly status?: IncompleteClaimStatus | undefined;
+  readonly reason?: string | undefined;
   readonly fields: Readonly<Record<string, unknown>>;
   readonly evidence: readonly SettlementEvidence[];
+  readonly rationale?: readonly ClaimRationale[] | undefined;
 }
 
 /** One piece of evidence a claim cites, by kind and by reference. */
@@ -116,11 +166,6 @@ export type TaskStanding =
   | { readonly kind: 'finished' }
   | { readonly kind: 'unknown'; readonly unreadable?: string };
 
-/** Returns the listed names as a tuple of literal types, so one list can feed each closed enum. */
-function outcomeNames<const Names extends readonly [string, ...string[]]>(...names: Names): Names {
-  return names;
-}
-
 /**
  * Every settlement outcome. Each closed enum of the outcome is built from this list.
  *
@@ -133,7 +178,7 @@ function outcomeNames<const Names extends readonly [string, ...string[]]>(...nam
  * `corrective-capsule` is a batch with a task that is not complete, while the tasks that passed are complete.
  * `accepted-with-rationale` is a complete batch in which a claim records a delegated choice.
  */
-export const SETTLEMENT_OUTCOMES = outcomeNames(
+export const SETTLEMENT_OUTCOMES = closedNames(
   'settled',
   'rejected',
   'deviation-pending',
@@ -171,14 +216,19 @@ function effectOf(finding: SettlementFinding): FindingClassEffect {
   return FINDING_CLASS_EFFECTS[SETTLEMENT_FINDING_CLASSES[finding.kind]];
 }
 
-/** The outcome that a list of findings gives: that of the class first in precedence. No finding gives `settled`. */
-function outcomeOf(findings: readonly SettlementFinding[]): SettlementOutcome {
+/**
+ * The outcome that a list of findings gives: that of the class first in precedence.
+ * A batch with no finding is settled. It is accepted with rationale when an accepted claim records a delegated choice.
+ * A finding of any class decides the outcome before a rationale does.
+ */
+function outcomeOf(findings: readonly SettlementFinding[], recordsChoice: boolean): SettlementOutcome {
   let decided: FindingClassEffect | undefined;
   for (const finding of findings) {
     const effect = effectOf(finding);
     if (decided === undefined || effect.precedence < decided.precedence) decided = effect;
   }
-  return decided === undefined ? 'settled' : decided.outcome;
+  if (decided !== undefined) return decided.outcome;
+  return recordsChoice ? 'accepted-with-rationale' : 'settled';
 }
 
 /** One task that a batch leaves unresolved. `cause` is the kind of the finding against the task. */
@@ -201,6 +251,59 @@ function unresolvedTasksOf(findings: readonly SettlementFinding[]): UnresolvedTa
   return [...causes.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
     .map(([taskId, cause]) => ({ taskId, cause }));
+}
+
+/** One delegated choice as the settlement record names it: the task, and the id of the delegated decision. */
+export interface RecordedRationale {
+  readonly taskId: string;
+  readonly delegatedDecision: string;
+}
+
+/** The pairs in the order of the settlement record: by task id, then by decision id, and each pair once. */
+function sortedOnce(pairs: readonly RecordedRationale[]): RecordedRationale[] {
+  const once = new Map<string, RecordedRationale>();
+  for (const pair of pairs) once.set(JSON.stringify([pair.taskId, pair.delegatedDecision]), pair);
+  const order = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0);
+  return [...once.values()].sort(
+    (a, b) => order(a.taskId, b.taskId) || order(a.delegatedDecision, b.delegatedDecision),
+  );
+}
+
+/**
+ * The ids of the decisions that a capsule delegates. A rationale names a delegated decision by its id.
+ * The id of a capsule statement is optional, and a statement with no id cannot be named.
+ */
+function delegatedDecisionIds(capsule: ExarchosCapsuleV1): Set<string> {
+  const ids = new Set<string>();
+  for (const decision of capsule.authority.delegatedDecisions) {
+    if (decision.id !== undefined) ids.add(decision.id);
+  }
+  return ids;
+}
+
+/**
+ * The finding for a rationale entry that names a decision that the capsule does not delegate.
+ * The subject is the id that the entry gives. The message lists the ids that the capsule delegates.
+ */
+function rationaleNotDelegated(
+  taskId: string,
+  delegatedDecision: string,
+  delegated: ReadonlySet<string>,
+  at: string,
+): SettlementFinding {
+  const ids = [...delegated].sort().map((id) => JSON.stringify(id));
+  return {
+    kind: 'rationale-not-delegated',
+    subject: delegatedDecision,
+    at,
+    message:
+      `the claim for task ${JSON.stringify(taskId)} records a choice under ${JSON.stringify(delegatedDecision)}, ` +
+      'and the capsule delegates no decision with that id. ' +
+      (ids.length > 0
+        ? `The ids of its delegated decisions are ${ids.join(', ')}. `
+        : 'It gives no id to a delegated decision, so no rationale can name one. ') +
+      'A choice outside the delegated decisions is a deviation, and it goes in `deviations`',
+  };
 }
 
 /**
@@ -255,6 +358,7 @@ export interface AdjudicationContext {
   readonly supersedingDesignVersion?: (taskId: string) => number | undefined;
   /**
    * Whether the stream shows a task complete. A required task that it shows complete needs no claim.
+   * A claim that reports such a task as not completed gets no finding, and the task keeps its recorded completion.
    * Without the function, each required task needs a claim.
    */
   readonly taskComplete?: (taskId: string) => boolean;
@@ -278,6 +382,11 @@ export interface SettlementVerdict {
    * Under each outcome that stops verification nothing was verified, so the findings of the batch are not the list of work to do.
    */
   readonly unresolved: readonly UnresolvedTask[];
+  /**
+   * The delegated choices that the accepted claims record, sorted by task id and then by decision id.
+   * The list has entries only under an outcome that reaches verification. The statement of each choice stays on its claim.
+   */
+  readonly rationales: readonly RecordedRationale[];
   /**
    * The counts of what the pass read.
    * An empty pass and a full clean pass both report zero findings, and only these counts tell them apart.
@@ -350,6 +459,47 @@ function unclaimedRequirementFinding(
   };
 }
 
+/** The finding kind for each status of a claim that reports its task as not completed, and what the status says. */
+const INCOMPLETE_CLAIM_FINDINGS: Readonly<
+  Record<IncompleteClaimStatus, { readonly kind: SettlementFindingKind; readonly says: string }>
+> = {
+  failed: { kind: 'task-failed', says: 'was attempted and has no result to verify' },
+  blocked: { kind: 'task-blocked', says: 'cannot proceed until something outside the task changes' },
+  skipped: { kind: 'task-skipped', says: 'was not attempted in this run' },
+};
+
+/**
+ * The finding for a claim that reports its task as not completed. The subject is the task id, so the task is unresolved.
+ * Settlement runs no verification for such a claim and records no completion from it. The message gives the reason of the worker.
+ * A claim for a task that the stream shows complete gets no such finding, because the recorded completion is the result of the task.
+ */
+function incompleteClaimFinding(
+  taskId: string,
+  status: IncompleteClaimStatus,
+  reason: string | undefined,
+  at: string,
+): SettlementFinding {
+  const { kind, says } = INCOMPLETE_CLAIM_FINDINGS[status];
+  return {
+    kind,
+    subject: taskId,
+    at,
+    message:
+      `the claim reports that task ${JSON.stringify(taskId)} ${says}` +
+      `${reason === undefined ? '' : `: ${JSON.stringify(reason)}`}. ` +
+      'Nothing was verified for the task, and it is not complete',
+  };
+}
+
+/**
+ * The tasks that a batch claims as completed. A deviation of the batch cannot name one of them.
+ * It affects work that is still to do, and not a result that the batch returns.
+ * A claim that reports its task as failed, blocked or skipped returns no result, so a deviation can name its task.
+ */
+function tasksClaimedAsCompleted(claims: readonly SettlementClaim[]): Set<string> {
+  return new Set(claims.filter((claim) => claim.status === undefined).map((claim) => claim.taskId));
+}
+
 /** The capsule's own field-type vocabulary, as a runtime test over a value. */
 function typeOfValue(value: unknown): string {
   if (Array.isArray(value)) return 'array';
@@ -370,7 +520,7 @@ function typeOfValue(value: unknown): string {
  * An evidence reference that does not resolve to an intact recorded row is inadmissible, whatever its kind.
  * On the final pass, a claim is accepted only when its verification passed.
  * A rejected deviation refuses the batch, because the decision is made and the next batch is a correction.
- * A deviation inside the envelope can affect only a pending task that the batch does not claim.
+ * A deviation inside the envelope can affect only a pending task that the batch does not claim as completed.
  * Each other task that it names refuses the batch, so the batch is not held.
  *
  * A claim for a task that a later revision names is refused whole, because the capsule holds the earlier terms of the task.
@@ -396,9 +546,19 @@ export function adjudicateSettlement(
   const taskIds = new Set(capsule.graph.tasks.map((task) => task.taskId));
   const admissibleEvidence = new Set(capsule.contracts.evidenceKinds);
   const allowedDeviations = new Set(capsule.contracts.deviationEnvelope.allowedDeviationKinds);
+  const delegated = delegatedDecisionIds(capsule);
 
   const seen = new Set<string>();
+  const claimedAsCompleted = tasksClaimedAsCompleted(claims);
   const accepted = new Set<string>();
+  const recorded: RecordedRationale[] = [];
+  const accept = (claim: SettlementClaim): void => {
+    accepted.add(claim.taskId);
+    if (claim.status !== undefined) return;
+    for (const entry of claim.rationale ?? []) {
+      recorded.push({ taskId: claim.taskId, delegatedDecision: entry.delegatedDecision });
+    }
+  };
 
   claims.forEach((claim, i) => {
     const at = `claims[${i}]`;
@@ -433,83 +593,97 @@ export function adjudicateSettlement(
       return;
     }
 
-    const declared = capsule.contracts.taskResults[claim.taskId];
-    if (declared === undefined) {
-      findings.push({
-        kind: 'undeclared-result-shape',
-        subject: claim.taskId,
-        at: `${at}.fields`,
-        message:
-          `task ${JSON.stringify(claim.taskId)} returned a result and the capsule declares no ` +
-          'shape for it, so there is nothing to adjudicate the result against',
-      });
-      return;
-    }
-
-    const declaredByName = new Map(declared.map((field) => [field.name, field]));
-    for (const field of declared) {
-      census.fields += 1;
-      const present = Object.prototype.hasOwnProperty.call(claim.fields, field.name);
-      if (!present) {
-        if (field.required) {
-          findings.push({
-            kind: 'missing-field',
-            subject: field.name,
-            at: `${at}.fields`,
-            message: `task ${JSON.stringify(claim.taskId)} must return ${JSON.stringify(field.name)}`,
-          });
-        }
-        continue;
+    if (claim.status !== undefined) {
+      if (context.taskComplete?.(claim.taskId) !== true) {
+        findings.push(incompleteClaimFinding(claim.taskId, claim.status, claim.reason, at));
+        return;
       }
-      const actual = typeOfValue(claim.fields[field.name]);
-      if (actual === field.type) continue;
-      findings.push({
-        kind: 'field-type-mismatch',
-        subject: field.name,
-        at: `${at}.fields.${field.name}`,
-        message: `${JSON.stringify(field.name)} is declared ${field.type} and arrived as ${actual}`,
-      });
-    }
-
-    for (const name of Object.keys(claim.fields)) {
-      if (declaredByName.has(name)) continue;
-      findings.push({
-        kind: 'undeclared-field',
-        subject: name,
-        at: `${at}.fields.${name}`,
-        message:
-          `task ${JSON.stringify(claim.taskId)} returned ${JSON.stringify(name)}, which its ` +
-          'result contract does not declare',
-      });
-    }
-
-    claim.evidence.forEach((evidence, j) => {
-      census.evidence += 1;
-      if (!admissibleEvidence.has(evidence.kind)) {
+    } else {
+      const declared = capsule.contracts.taskResults[claim.taskId];
+      if (declared === undefined) {
         findings.push({
-          kind: 'inadmissible-evidence',
-          subject: evidence.kind,
-          at: `${at}.evidence[${j}].kind`,
-          message: `the capsule admits no evidence of kind ${JSON.stringify(evidence.kind)}`,
+          kind: 'undeclared-result-shape',
+          subject: claim.taskId,
+          at: `${at}.fields`,
+          message:
+            `task ${JSON.stringify(claim.taskId)} returned a result and the capsule declares no ` +
+            'shape for it, so there is nothing to adjudicate the result against',
         });
         return;
       }
-      if (context.evidenceResolves(evidence)) return;
-      findings.push({
-        kind: 'inadmissible-evidence',
-        subject: evidence.ref,
-        at: `${at}.evidence[${j}].ref`,
-        message:
-          `the cited ${evidence.kind} evidence ${JSON.stringify(evidence.ref)} does not resolve ` +
-          'to an intact recorded row on the stream',
-      });
-    });
 
-    if (findings.length !== before) return;
+      const declaredByName = new Map(declared.map((field) => [field.name, field]));
+      for (const field of declared) {
+        census.fields += 1;
+        const present = Object.prototype.hasOwnProperty.call(claim.fields, field.name);
+        if (!present) {
+          if (field.required) {
+            findings.push({
+              kind: 'missing-field',
+              subject: field.name,
+              at: `${at}.fields`,
+              message: `task ${JSON.stringify(claim.taskId)} must return ${JSON.stringify(field.name)}`,
+            });
+          }
+          continue;
+        }
+        const actual = typeOfValue(claim.fields[field.name]);
+        if (actual === field.type) continue;
+        findings.push({
+          kind: 'field-type-mismatch',
+          subject: field.name,
+          at: `${at}.fields.${field.name}`,
+          message: `${JSON.stringify(field.name)} is declared ${field.type} and arrived as ${actual}`,
+        });
+      }
+
+      for (const name of Object.keys(claim.fields)) {
+        if (declaredByName.has(name)) continue;
+        findings.push({
+          kind: 'undeclared-field',
+          subject: name,
+          at: `${at}.fields.${name}`,
+          message:
+            `task ${JSON.stringify(claim.taskId)} returned ${JSON.stringify(name)}, which its ` +
+            'result contract does not declare',
+        });
+      }
+
+      claim.evidence.forEach((evidence, j) => {
+        census.evidence += 1;
+        if (!admissibleEvidence.has(evidence.kind)) {
+          findings.push({
+            kind: 'inadmissible-evidence',
+            subject: evidence.kind,
+            at: `${at}.evidence[${j}].kind`,
+            message: `the capsule admits no evidence of kind ${JSON.stringify(evidence.kind)}`,
+          });
+          return;
+        }
+        if (context.evidenceResolves(evidence)) return;
+        findings.push({
+          kind: 'inadmissible-evidence',
+          subject: evidence.ref,
+          at: `${at}.evidence[${j}].ref`,
+          message:
+            `the cited ${evidence.kind} evidence ${JSON.stringify(evidence.ref)} does not resolve ` +
+            'to an intact recorded row on the stream',
+        });
+      });
+
+      (claim.rationale ?? []).forEach((entry, j) => {
+        if (delegated.has(entry.delegatedDecision)) return;
+        findings.push(
+          rationaleNotDelegated(claim.taskId, entry.delegatedDecision, delegated, `${at}.rationale[${j}].delegatedDecision`),
+        );
+      });
+
+      if (findings.length !== before) return;
+    }
 
     const verification = context.verification;
     if (verification === undefined) {
-      accepted.add(claim.taskId);
+      accept(claim);
       return;
     }
     const outcome = verification.get(claim.taskId);
@@ -534,7 +708,7 @@ export function adjudicateSettlement(
       });
       return;
     }
-    accepted.add(claim.taskId);
+    accept(claim);
   });
 
   for (const required of capsule.settlementContract.requiredResults) {
@@ -591,13 +765,13 @@ export function adjudicateSettlement(
               'task is not reopened: plan the rework as a new task, and name the new task',
           });
         }
-        if (seen.has(taskId)) {
+        if (claimedAsCompleted.has(taskId)) {
           findings.push({
             kind: 'deviation-names-claimed-task',
             subject: taskId,
             at: taskAt,
             message:
-              `${named} names task ${task} as affected, and this batch claims that task. A ` +
+              `${named} names task ${task} as affected, and this batch claims that task as completed. A ` +
               'deviation affects work that is still to do, not a result that the batch returns',
           });
         }
@@ -629,13 +803,14 @@ export function adjudicateSettlement(
     });
   });
 
-  const outcome = outcomeOf(findings);
+  const outcome = outcomeOf(findings, recorded.length > 0);
   return {
     outcome,
     capsuleVersion: capsule.identity.capsuleVersion,
     acceptedTasks: [...accepted].sort(),
     findings,
     unresolved: outcome === FINDING_CLASS_EFFECTS.unresolved.outcome ? unresolvedTasksOf(findings) : [],
+    rationales: outcomeVerifies(outcome) ? sortedOnce(recorded) : [],
     adjudicated: census,
   };
 }

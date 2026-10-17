@@ -13,6 +13,7 @@ import {
 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import { baseValidCapsule } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import {
+  INCOMPLETE_CLAIM_STATUSES,
   SETTLEMENT_FINDING_CLASSES,
   SETTLEMENT_FINDING_KINDS,
   SETTLEMENT_OUTCOMES,
@@ -21,6 +22,8 @@ import {
   outcomeVerifies,
   verificationRuns,
   type AdjudicationContext,
+  type ClaimRationale,
+  type IncompleteClaimStatus,
   type ProposedDeviation,
   type SettlementClaim,
   type SettlementFinding,
@@ -41,11 +44,45 @@ function passingClaim(): SettlementClaim {
   };
 }
 
+/** A claim that reports `task-verify` as not completed, in the normal form: a status, a reason, no fields and no evidence. */
+function reporting(status: IncompleteClaimStatus, taskId = 'task-verify'): SettlementClaim {
+  return { taskId, status, reason: `the worker says that the task is ${status}`, fields: {}, evidence: [] };
+}
+
 /**
  * The shape pass's context: every cited reference resolves, and no
  * verification has run. The cases that bend either say so themselves.
  */
 const RESOLVING: AdjudicationContext = { evidenceResolves: () => true };
+
+/**
+ * The capsule with an id on two of its delegated decisions. The two ids are the ones that prepare compiles.
+ * The third decision keeps the text of the fixture and has no id, as the kernel schema allows.
+ */
+function delegating(capsule: ExarchosCapsuleV1 = baseValidCapsule()): ExarchosCapsuleV1 {
+  return {
+    ...capsule,
+    authority: {
+      ...capsule.authority,
+      delegatedDecisions: [
+        { id: 'implementation-approach', statement: 'How a task is implemented, within its declared result shape.' },
+        { id: 'execution-order', statement: 'The order and concurrency of tasks whose dependencies are satisfied.' },
+        { statement: 'field naming inside a task result' },
+      ],
+    },
+  };
+}
+
+/** A delegated choice under a decision that the delegating capsule lists by id. */
+const CHOICE: ClaimRationale = {
+  delegatedDecision: 'implementation-approach',
+  statement: 'a table drives the parser, because the grammar has no recursion',
+};
+
+/** The claim with the given delegated choices. */
+function choosing(claim: SettlementClaim, ...rationale: ClaimRationale[]): SettlementClaim {
+  return { ...claim, rationale };
+}
 
 /** A deviation inside the envelope of the base capsule that names the given tasks as affected. */
 function affecting(...affectedTasks: string[]): ProposedDeviation {
@@ -187,6 +224,14 @@ const CASES: readonly AdjudicationCase[] = [
     { evidenceResolves: () => false },
   ),
   bend(
+    'a rationale that names a decision the capsule does not delegate',
+    'rationale-not-delegated',
+    'refuse',
+    'claims[0].rationale[0].delegatedDecision',
+    [choosing(passingClaim(), { delegatedDecision: 'published-contract-change', statement: 'the event gained a field' })],
+    (b) => delegating(b),
+  ),
+  bend(
     'an accepted claim whose verification halted',
     'verification-failed',
     'unresolved',
@@ -201,6 +246,9 @@ const CASES: readonly AdjudicationCase[] = [
       ]),
     },
   ),
+  bend('a claim that reports its task as failed', 'task-failed', 'unresolved', 'claims[0]', [reporting('failed')]),
+  bend('a claim that reports its task as blocked', 'task-blocked', 'unresolved', 'claims[0]', [reporting('blocked')]),
+  bend('a claim that reports its task as skipped', 'task-skipped', 'unresolved', 'claims[0]', [reporting('skipped')]),
   bend(
     'a deviation outside the envelope',
     'deviation-outside-envelope',
@@ -331,17 +379,18 @@ describe('settlement adjudication', () => {
   });
 
   /**
-   * The class table holds each declared kind and no other key. One kind is stale, one holds, and one
-   * leaves a task unresolved. Each other kind refuses the batch.
+   * The class table holds each declared kind and no other key. One kind is stale, and one holds.
+   * Four leave a task unresolved: a failed verification, and one for each status of a claim that
+   * is not completed. Each other kind refuses the batch.
    */
-  it('Adjudicate_TheClassTable_CoversEachKindAndNamesTheThreeThatDoNotRefuse', () => {
+  it('Adjudicate_TheClassTable_CoversEachKindAndNamesTheSixThatDoNotRefuse', () => {
     expect(Object.keys(SETTLEMENT_FINDING_CLASSES).sort()).toEqual([...SETTLEMENT_FINDING_KINDS].sort());
     const kindsOf = (findingClass: SettlementFindingClass): SettlementFindingKind[] =>
       SETTLEMENT_FINDING_KINDS.filter((kind) => SETTLEMENT_FINDING_CLASSES[kind] === findingClass);
     expect(kindsOf('stale')).toEqual(['claim-superseded-by-revision']);
     expect(kindsOf('hold')).toEqual(['deviation-awaiting-approval']);
-    expect(kindsOf('unresolved')).toEqual(['verification-failed']);
-    expect(kindsOf('refuse')).toHaveLength(SETTLEMENT_FINDING_KINDS.length - 3);
+    expect(kindsOf('unresolved')).toEqual(['verification-failed', 'task-failed', 'task-blocked', 'task-skipped']);
+    expect(kindsOf('refuse')).toHaveLength(SETTLEMENT_FINDING_KINDS.length - 6);
   });
 
   /** The six outcome names. The first three are the names that stored rows, bundles and claims carry. */
@@ -662,18 +711,19 @@ const HALTED: TaskVerificationOutcome = {
  * The stale finding is a claim for a task that a later revision names. The refusing finding is a
  * claim for a task that the graph does not declare. The holding finding is a deviation with no
  * decision. The unresolved finding is the failed verification of the one clean claim.
+ * With `withRationale`, the one clean claim also records a choice that the capsule delegates.
  */
-function verdictWith(classes: readonly SettlementFindingClass[]): SettlementVerdict {
+function verdictWith(classes: readonly SettlementFindingClass[], withRationale = false): SettlementVerdict {
   const stale = classes.includes('stale');
   const claims: SettlementClaim[] = [
-    passingClaim(),
+    withRationale ? choosing(passingClaim(), CHOICE) : passingClaim(),
     ...(stale ? [compileClaim()] : []),
     ...(classes.includes('refuse') ? [{ taskId: 'task-ghost', fields: {}, evidence: [] }] : []),
   ];
   const deviations: ProposedDeviation[] = classes.includes('hold')
     ? [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }]
     : [];
-  return adjudicateSettlement(capsuleWithTwoShapes(), claims, deviations, {
+  return adjudicateSettlement(delegating(capsuleWithTwoShapes()), claims, deviations, {
     evidenceResolves: () => true,
     supersedingDesignVersion: (taskId) => (stale && taskId === 'task-compile' ? 2 : undefined),
     verification: new Map<string, TaskVerificationOutcome>([
@@ -749,10 +799,39 @@ describe('the outcome of a batch with findings of more than one class', () => {
     expect(whole.acceptedTasks).toEqual(['task-compile', 'task-verify']);
   });
 
-  /** No verdict of the adjudicator is the outcome that only a recorded rationale gives. */
-  it('Adjudicate_NoSetOfClasses_GivesAcceptedWithRationale', () => {
+  /** The denominator of the cases below: without a rationale, no row of the matrix gives the outcome that a rationale gives. */
+  it('Adjudicate_WithoutARationale_NoSetOfClassesGivesAcceptedWithRationale', () => {
     expect(SETTLEMENT_OUTCOMES).toContain('accepted-with-rationale');
     expect(PRECEDENCE.map(([classes]) => verdictWith(classes).outcome)).not.toContain('accepted-with-rationale');
+  });
+
+  /**
+   * The same sixteen batches, and the one clean claim of each records a delegated choice. The choice
+   * is one that the capsule delegates, so it adds no finding. The batch with no finding is accepted
+   * with rationale. In each other row a finding class decides, and the outcome is that of the matrix.
+   */
+  it.each(PRECEDENCE)('Adjudicate_ARationaleBesideFindingsOfTheClasses_%j_DoesNotChangeTheOutcome_%s', (classes, outcome) => {
+    const verdict = verdictWith(classes, true);
+    expect(verdict.findings.map((f) => SETTLEMENT_FINDING_CLASSES[f.kind]).sort()).toEqual([...classes].sort());
+    expect(verdict.findings).toEqual(verdictWith(classes).findings);
+    expect(verdict.acceptedTasks).toEqual(verdictWith(classes).acceptedTasks);
+    expect(verdict.outcome).toBe(classes.length === 0 ? 'accepted-with-rationale' : outcome);
+  });
+
+  /**
+   * Only the row with no finding gives the outcome of a rationale, and only its verdict lists the choice.
+   * In the eight rows with an unresolved finding, the claim that records the choice failed its verification.
+   * The claim is not accepted there, so the verdict lists no choice.
+   */
+  it('Adjudicate_ARationale_GivesItsOutcomeOnlyToTheBatchWithNoFinding', () => {
+    const verdicts = PRECEDENCE.map(([classes]) => verdictWith(classes, true));
+    expect(verdicts.filter((verdict) => verdict.outcome === 'accepted-with-rationale')).toHaveLength(1);
+    expect(verdicts[0]?.outcome).toBe('accepted-with-rationale');
+    expect(verdicts[0]?.rationales).toEqual([{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]);
+    expect(verdicts.filter((verdict) => verdict.rationales.length > 0)).toHaveLength(1);
+    for (const [classes] of PRECEDENCE.filter(([row]) => row.includes('unresolved'))) {
+      expect(verdictWith(classes, true).acceptedTasks, classes.join('+')).not.toContain('task-verify');
+    }
   });
 
   /**
@@ -913,6 +992,565 @@ describe('a required result that the batch does not claim', () => {
   });
 });
 
+/**
+ * A claim can report its task as failed, blocked or skipped. Such a claim returns no result, so
+ * nothing of it is read against the result shape and nothing is verified. Its task is unresolved,
+ * and the other claims of the batch are judged apart from it.
+ */
+describe('a claim that reports its task as not completed', () => {
+  function findingsOf(verdict: SettlementVerdict): string[][] {
+    return verdict.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  /** The denominator of the cases below: each status has one finding kind, and the kinds are distinct. */
+  it('Adjudicate_EachIncompleteStatus_HasItsOwnFindingKind', () => {
+    expect(INCOMPLETE_CLAIM_STATUSES).toEqual(['failed', 'blocked', 'skipped']);
+    const kinds = INCOMPLETE_CLAIM_STATUSES.map(
+      (status) => adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], RESOLVING).findings[0]?.kind,
+    );
+    expect(kinds).toEqual(['task-failed', 'task-blocked', 'task-skipped']);
+  });
+
+  /**
+   * The capsule requires `passed` of `task-verify`, and the claim carries no field. The one finding
+   * is the status of the task. The finding names the task as its subject, so the task is unresolved,
+   * and its message gives the reason of the worker. The required result is not a missing claim.
+   */
+  it.each([
+    ['failed', 'task-failed', 'was attempted and has no result to verify'],
+    ['blocked', 'task-blocked', 'cannot proceed until something outside the task changes'],
+    ['skipped', 'task-skipped', 'was not attempted in this run'],
+  ] satisfies [IncompleteClaimStatus, SettlementFindingKind, string][])(
+    'Adjudicate_AClaimWithTheStatus_%s_GivesOneFindingAndLeavesItsTaskUnresolved',
+    (status, kind, meaning) => {
+      const verdict = adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], RESOLVING);
+      expect(findingsOf(verdict)).toEqual([[kind, 'task-verify', 'claims[0]']]);
+      expect(verdict.findings[0]?.message).toContain(meaning);
+      expect(verdict.findings[0]?.message).toContain(`the worker says that the task is ${status}`);
+      expect(verdict.outcome).toBe('corrective-capsule');
+      expect(verdict.unresolved).toEqual([{ taskId: 'task-verify', cause: kind }]);
+      expect(verdict.acceptedTasks).toEqual([]);
+      expect(verdict.adjudicated).toMatchObject({ claims: 1, requiredResults: 1, fields: 0, evidence: 0 });
+      expect(verificationRuns(verdict.findings)).toBe(true);
+    },
+  );
+
+  /**
+   * One claim is blocked and one is completed. The shape pass accepts the completed claim and lets
+   * verification run. On the final pass the completed task is accepted. The blocked task is not,
+   * also when the outcomes hold a passing entry for it, and the census does not count that entry.
+   */
+  it('Adjudicate_ABlockedClaimBesideACompletedClaim_NeedsACorrectionAndKeepsTheCompletedTask', () => {
+    const claims = [reporting('blocked', 'task-compile'), passingClaim()];
+    const shape = adjudicateSettlement(requiringBothTasks(), claims, [], RESOLVING);
+    expect(findingsOf(shape)).toEqual([['task-blocked', 'task-compile', 'claims[0]']]);
+    expect(shape.acceptedTasks).toEqual(['task-verify']);
+    expect(verificationRuns(shape.findings)).toBe(true);
+
+    const final = adjudicateSettlement(requiringBothTasks(), claims, [], {
+      ...RESOLVING,
+      verification: new Map<string, TaskVerificationOutcome>([
+        ['task-verify', { kind: 'verified' }],
+        ['task-compile', { kind: 'verified' }],
+      ]),
+    });
+    expect(findingsOf(final)).toEqual([['task-blocked', 'task-compile', 'claims[0]']]);
+    expect(final.outcome).toBe('corrective-capsule');
+    expect(final.acceptedTasks).toEqual(['task-verify']);
+    expect(final.unresolved).toEqual([{ taskId: 'task-compile', cause: 'task-blocked' }]);
+    expect(final.adjudicated).toMatchObject({ claims: 2, requiredResults: 2, verification: 1 });
+  });
+
+  /**
+   * The stream shows the task complete, so the recorded completion is its result and the report
+   * makes no finding. The shape pass accepts the claim. The final pass accepts it with the outcome
+   * of a task that was complete before the batch. It refuses the claim when no outcome is supplied.
+   */
+  it.each([...INCOMPLETE_CLAIM_STATUSES])(
+    'Adjudicate_AClaimWithTheStatus_%s_ForATaskTheStreamShowsComplete_MakesNoFinding',
+    (status) => {
+      const context = completeOnTheStream('task-verify');
+      const shape = adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], context);
+      expect(shape.findings).toEqual([]);
+      expect(shape.acceptedTasks).toEqual(['task-verify']);
+      expect(shape.adjudicated).toMatchObject({ fields: 0, evidence: 0 });
+
+      const final = adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], {
+        ...context,
+        verification: new Map<string, TaskVerificationOutcome>([['task-verify', { kind: 'already-complete' }]]),
+      });
+      expect(final.findings).toEqual([]);
+      expect(final.outcome).toBe('settled');
+      expect(final.acceptedTasks).toEqual(['task-verify']);
+      expect(final.unresolved).toEqual([]);
+      expect(final.adjudicated.verification).toBe(1);
+
+      const withoutOutcome = adjudicateSettlement(baseValidCapsule(), [reporting(status)], [], {
+        ...context,
+        verification: new Map(),
+      });
+      expect(findingsOf(withoutOutcome)).toEqual([['verification-failed', 'task-verify', 'claims[0]']]);
+    },
+  );
+
+  /**
+   * A stored claim can hold a status and a rationale, although the request reader refuses that form.
+   * The recorded completion accepts the task. The rationale is not recorded, and it is not checked
+   * against the capsule. Thus the batch is settled, and it is not accepted with rationale.
+   */
+  it.each([...INCOMPLETE_CLAIM_STATUSES])(
+    'Adjudicate_AClaimWithTheStatus_%s_ThatAlsoHoldsARationale_RecordsNoDelegatedChoice',
+    (status) => {
+      const undelegated: ClaimRationale = { delegatedDecision: 'published-contract-change', statement: 'the event gained a field' };
+      const claims = [choosing(reporting(status), CHOICE, undelegated)];
+      const verdict = adjudicateSettlement(delegating(), claims, [], {
+        ...completeOnTheStream('task-verify'),
+        verification: new Map<string, TaskVerificationOutcome>([['task-verify', { kind: 'already-complete' }]]),
+      });
+
+      expect(verdict.findings).toEqual([]);
+      expect(verdict.acceptedTasks).toEqual(['task-verify']);
+      expect(verdict.rationales).toEqual([]);
+      expect(verdict.outcome).toBe('settled');
+    },
+  );
+
+  /**
+   * The checks that come before the status keep their place. A later revision that names the task
+   * makes the claim stale, also when the stream shows the task complete. A task that the graph does
+   * not declare is unknown, and a second claim for one task is a duplicate.
+   */
+  it('Adjudicate_AClaimThatIsNotCompleted_IsStillStaleUnknownOrDuplicateFirst', () => {
+    const stale = adjudicateSettlement(baseValidCapsule(), [reporting('blocked')], [], {
+      ...namedByALaterRevision({ 'task-verify': 3 }),
+      taskComplete: () => true,
+    });
+    expect(findingsOf(stale)).toEqual([['claim-superseded-by-revision', 'task-verify', 'claims[0].taskId']]);
+    expect(stale.outcome).toBe('recompile-required');
+
+    const unknown = adjudicateSettlement(baseValidCapsule(), [passingClaim(), reporting('skipped', 'task-ghost')], [], RESOLVING);
+    expect(findingsOf(unknown)).toEqual([['unknown-task', 'task-ghost', 'claims[1].taskId']]);
+    expect(unknown.outcome).toBe('rejected');
+
+    const twice = adjudicateSettlement(baseValidCapsule(), [passingClaim(), reporting('failed')], [], RESOLVING);
+    expect(findingsOf(twice)).toEqual([['duplicate-claim', 'task-verify', 'claims[1].taskId']]);
+    expect(twice.outcome).toBe('rejected');
+  });
+
+  /**
+   * A stale, refusing or holding finding beside the report stops verification, and it decides the
+   * outcome. The verdict then names no unresolved task, because nothing was verified.
+   */
+  it('Adjudicate_ABlockedClaimBesideAFindingOfAnotherClass_IsNotACorrection', () => {
+    const held = adjudicateSettlement(
+      requiringBothTasks(),
+      [reporting('blocked', 'task-compile'), passingClaim()],
+      [{ deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' }],
+      RESOLVING,
+    );
+    expect(held.findings.map((f) => f.kind)).toEqual(['task-blocked', 'deviation-awaiting-approval']);
+    expect(held.outcome).toBe('deviation-pending');
+    expect(held.unresolved).toEqual([]);
+    expect(verificationRuns(held.findings)).toBe(false);
+
+    const refused = adjudicateSettlement(
+      requiringBothTasks(),
+      [reporting('blocked', 'task-compile'), { taskId: 'task-verify', fields: { passed: 'yes' }, evidence: [] }],
+      [],
+      RESOLVING,
+    );
+    expect(refused.findings.map((f) => f.kind)).toEqual(['task-blocked', 'field-type-mismatch']);
+    expect(refused.outcome).toBe('rejected');
+    expect(refused.unresolved).toEqual([]);
+  });
+});
+
+/** The context of a final pass in which the verification of each listed task passed. */
+function verified(...taskIds: string[]): AdjudicationContext {
+  return {
+    evidenceResolves: () => true,
+    verification: new Map(taskIds.map((taskId): [string, TaskVerificationOutcome] => [taskId, { kind: 'verified' }])),
+  };
+}
+
+/**
+ * A completed claim can record a choice under a decision that the capsule delegates.
+ * The choice changes the outcome of a batch with no finding, and it changes nothing else.
+ * Each capsule of these cases gives an id to two delegated decisions.
+ */
+describe('a claim that records a delegated choice', () => {
+  function findingsOf(verdict: SettlementVerdict): string[][] {
+    return verdict.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  const ORDER_CHOICE: ClaimRationale = { delegatedDecision: 'execution-order', statement: 'the two tasks ran in sequence' };
+
+  /**
+   * The denominator. The batch without the choice settles, on the shape pass and on the final pass.
+   * The same batch with the choice is accepted with rationale. It has no finding, the same accepted
+   * task and the same counts, and its verdict names the task and the id of the decision.
+   */
+  it.each([
+    ['the shape pass', RESOLVING],
+    ['the final pass', verified('task-verify')],
+  ] satisfies [string, AdjudicationContext][])(
+    'Adjudicate_OnTheBatchOf_%s_ARecordedChoiceGivesAcceptedWithRationale',
+    (_pass, context) => {
+      const plain = adjudicateSettlement(delegating(), [passingClaim()], [], context);
+      expect(plain.outcome).toBe('settled');
+      expect(plain.rationales).toEqual([]);
+
+      const chosen = adjudicateSettlement(delegating(), [choosing(passingClaim(), CHOICE)], [], context);
+      expect(chosen.findings).toEqual([]);
+      expect(chosen.outcome).toBe('accepted-with-rationale');
+      expect(chosen.rationales).toEqual([{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]);
+      expect(chosen.acceptedTasks).toEqual(plain.acceptedTasks);
+      expect(chosen.adjudicated).toEqual(plain.adjudicated);
+      expect(chosen.unresolved).toEqual([]);
+      expect(outcomeVerifies(chosen.outcome)).toBe(true);
+    },
+  );
+
+  /**
+   * The id is that of an escalation boundary in the capsule that prepare compiles. It is not a delegated decision.
+   * The finding names the id as its subject, and its message lists the ids that the capsule delegates.
+   * The batch is rejected, the claim is not accepted, and nothing is verified.
+   */
+  it('Adjudicate_ARationaleThatNamesADecisionTheCapsuleDoesNotDelegate_RefusesTheBatch', () => {
+    const outside: ClaimRationale = { delegatedDecision: 'published-contract-change', statement: 'the event gained a field' };
+    const verdict = adjudicateSettlement(delegating(), [choosing(passingClaim(), outside)], [], RESOLVING);
+    expect(findingsOf(verdict)).toEqual([
+      ['rationale-not-delegated', 'published-contract-change', 'claims[0].rationale[0].delegatedDecision'],
+    ]);
+    expect(verdict.findings[0]?.message).toContain('the capsule delegates no decision with that id');
+    expect(verdict.findings[0]?.message).toContain('"execution-order", "implementation-approach"');
+    expect(verdict.findings[0]?.message).toContain('`deviations`');
+    expect(verdict.outcome).toBe('rejected');
+    expect(verdict.acceptedTasks).toEqual([]);
+    expect(verdict.rationales).toEqual([]);
+    expect(verificationRuns(verdict.findings)).toBe(false);
+
+    const mixed = adjudicateSettlement(delegating(), [choosing(passingClaim(), CHOICE, outside, ORDER_CHOICE)], [], RESOLVING);
+    expect(findingsOf(mixed)).toEqual([
+      ['rationale-not-delegated', 'published-contract-change', 'claims[0].rationale[1].delegatedDecision'],
+    ]);
+    expect(mixed.outcome).toBe('rejected');
+    expect(mixed.rationales).toEqual([]);
+  });
+
+  /**
+   * The id of a capsule statement is optional. The third delegated decision of the capsule has no id.
+   * A rationale that gives the text of that decision names nothing, and neither does an empty-id guess.
+   * The base capsule gives no id to a delegated decision, so it admits no rationale, and the message says so.
+   */
+  it('Adjudicate_ADelegatedDecisionWithNoId_CannotBeNamed', () => {
+    const byText: ClaimRationale = { delegatedDecision: 'field naming inside a task result', statement: 'the field is `passed`' };
+    const withIds = adjudicateSettlement(delegating(), [choosing(passingClaim(), byText)], [], RESOLVING);
+    expect(findingsOf(withIds)).toEqual([
+      ['rationale-not-delegated', 'field naming inside a task result', 'claims[0].rationale[0].delegatedDecision'],
+    ]);
+    expect(withIds.outcome).toBe('rejected');
+
+    expect(baseValidCapsule().authority.delegatedDecisions.map((decision) => decision.id)).toEqual([undefined]);
+    for (const rationale of [byText, CHOICE]) {
+      const noIds = adjudicateSettlement(baseValidCapsule(), [choosing(passingClaim(), rationale)], [], RESOLVING);
+      expect(findingsOf(noIds).map(([kind]) => kind)).toEqual(['rationale-not-delegated']);
+      expect(noIds.findings[0]?.message).toContain('It gives no id to a delegated decision');
+      expect(noIds.outcome).toBe('rejected');
+    }
+  });
+
+  /**
+   * A rationale is no evidence. The verification of the claim halted, so the claim is not accepted
+   * and its task is unresolved, with the choice or without it. A final pass with no outcome for the
+   * task does not accept the claim. The verdict lists no choice in either case.
+   */
+  it('Adjudicate_ARationaleOnAClaimWhoseVerificationFailed_DoesNotAcceptTheClaim', () => {
+    const finalPass = (claim: SettlementClaim, outcomes: readonly (readonly [string, TaskVerificationOutcome])[]): SettlementVerdict =>
+      adjudicateSettlement(delegating(), [claim], [], { evidenceResolves: () => true, verification: new Map(outcomes) });
+
+    const halted = finalPass(choosing(passingClaim(), CHOICE), [['task-verify', HALTED]]);
+    expect(findingsOf(halted)).toEqual([['verification-failed', 'task-verify', 'claims[0]']]);
+    expect(halted.outcome).toBe('corrective-capsule');
+    expect(halted.acceptedTasks).toEqual([]);
+    expect(halted.unresolved).toEqual([{ taskId: 'task-verify', cause: 'verification-failed' }]);
+    expect(halted.rationales).toEqual([]);
+    expect(halted).toEqual(finalPass(passingClaim(), [['task-verify', HALTED]]));
+
+    const notRun = finalPass(choosing(passingClaim(), CHOICE), []);
+    expect(findingsOf(notRun)).toEqual([['verification-failed', 'task-verify', 'claims[0]']]);
+    expect(notRun.acceptedTasks).toEqual([]);
+    expect(notRun.rationales).toEqual([]);
+  });
+
+  /**
+   * One task passes with a recorded choice, and the other is unresolved. The unresolved task decides
+   * the outcome, so the batch needs a correction. The task that passed is complete, and the verdict
+   * still lists its choice. The cases are a blocked claim and a failed verification.
+   */
+  it('Adjudicate_ARationaleBesideAnUnresolvedTask_IsStillListedAndTheBatchNeedsACorrection', () => {
+    const capsule = delegating(requiringBothTasks());
+    const blocked = adjudicateSettlement(
+      capsule,
+      [choosing(passingClaim(), CHOICE), reporting('blocked', 'task-compile')],
+      [],
+      verified('task-verify'),
+    );
+    expect(blocked.outcome).toBe('corrective-capsule');
+    expect(blocked.acceptedTasks).toEqual(['task-verify']);
+    expect(blocked.unresolved).toEqual([{ taskId: 'task-compile', cause: 'task-blocked' }]);
+    expect(blocked.rationales).toEqual([{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]);
+
+    const halted = adjudicateSettlement(
+      capsule,
+      [choosing(passingClaim(), CHOICE), choosing(compileClaim(), ORDER_CHOICE)],
+      [],
+      {
+        evidenceResolves: () => true,
+        verification: new Map<string, TaskVerificationOutcome>([
+          ['task-verify', { kind: 'verified' }],
+          ['task-compile', HALTED],
+        ]),
+      },
+    );
+    expect(halted.outcome).toBe('corrective-capsule');
+    expect(halted.acceptedTasks).toEqual(['task-verify']);
+    expect(halted.unresolved).toEqual([{ taskId: 'task-compile', cause: 'verification-failed' }]);
+    expect(halted.rationales).toEqual([{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]);
+  });
+
+  /**
+   * The stream shows the task complete before the batch, so nothing runs again for it.
+   * The round still records the task complete, and its claim records a choice. The batch is accepted with rationale.
+   */
+  it('Adjudicate_ARationaleOnATaskThatWasCompleteBeforeTheBatch_IsAcceptedWithRationale', () => {
+    const verdict = adjudicateSettlement(delegating(), [choosing(passingClaim(), CHOICE)], [], {
+      evidenceResolves: () => true,
+      taskComplete: () => true,
+      verification: new Map<string, TaskVerificationOutcome>([['task-verify', { kind: 'already-complete' }]]),
+    });
+    expect(verdict.findings).toEqual([]);
+    expect(verdict.outcome).toBe('accepted-with-rationale');
+    expect(verdict.rationales).toEqual([{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]);
+  });
+
+  /**
+   * The claims come in the order `task-verify`, `task-compile`. The second claim names one decision twice, with two statements.
+   * The list of the verdict is sorted by task id and then by decision id, and it holds each pair once.
+   */
+  it('Adjudicate_TheRationalesOfAVerdict_AreSortedByTaskAndDecisionAndHoldEachPairOnce', () => {
+    const again: ClaimRationale = { delegatedDecision: 'implementation-approach', statement: 'the lexer is a second table' };
+    const verdict = adjudicateSettlement(
+      delegating(requiringBothTasks()),
+      [choosing(passingClaim(), CHOICE), choosing(compileClaim(), CHOICE, ORDER_CHOICE, again)],
+      [],
+      verified('task-verify', 'task-compile'),
+    );
+    expect(verdict.outcome).toBe('accepted-with-rationale');
+    expect(verdict.rationales).toEqual([
+      { taskId: 'task-compile', delegatedDecision: 'execution-order' },
+      { taskId: 'task-compile', delegatedDecision: 'implementation-approach' },
+      { taskId: 'task-verify', delegatedDecision: 'implementation-approach' },
+    ]);
+  });
+
+  /**
+   * Nothing is verified under a held, a refused or a stale batch, so its verdict lists no choice.
+   * The shape pass still finds no fault in the claim. The round that accepts the deviation verifies
+   * the same batch, and that verdict lists the choice.
+   */
+  it('Adjudicate_UnderAnOutcomeThatStopsVerification_TheVerdictListsNoRationale', () => {
+    const claims = [choosing(passingClaim(), CHOICE)];
+    const deviation = { deviationKind: 'invalidated-assumption', statement: 'the store is not SQLite' };
+
+    const held = adjudicateSettlement(delegating(), claims, [deviation], RESOLVING);
+    expect(held.outcome).toBe('deviation-pending');
+    expect(held.acceptedTasks).toEqual(['task-verify']);
+    expect(held.rationales).toEqual([]);
+
+    const refused = adjudicateSettlement(delegating(), claims, [deviation], { ...RESOLVING, decided: () => 'rejected' });
+    expect(refused.outcome).toBe('rejected');
+    expect(refused.rationales).toEqual([]);
+
+    const stale = adjudicateSettlement(delegating(requiringBothTasks()), claims, [], {
+      ...namedByALaterRevision({ 'task-compile': 2 }),
+      taskComplete: () => false,
+    });
+    expect(stale.outcome).toBe('recompile-required');
+    expect(stale.acceptedTasks).toEqual(['task-verify']);
+    expect(stale.rationales).toEqual([]);
+
+    const decided = adjudicateSettlement(delegating(), claims, [deviation], {
+      ...verified('task-verify'),
+      decided: () => 'accepted',
+    });
+    expect(decided.outcome).toBe('accepted-with-rationale');
+    expect(decided.rationales).toEqual([{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]);
+  });
+
+  /**
+   * A rationale grants nothing. Each case of the corpus gets a delegated choice on each of its completed claims.
+   * The findings, the accepted tasks, the counts and the outcome of each case do not change.
+   * The one case that tests a rationale is left out, and the first assertion counts the cases that remain.
+   */
+  it('Adjudicate_ARationaleOnEachCompletedClaim_RemovesNoFindingOfTheCorpus', () => {
+    const corpus = CASES.filter((c) => c.kind !== 'rationale-not-delegated');
+    expect(corpus).toHaveLength(CASES.length - 1);
+    expect(corpus.length).toBeGreaterThanOrEqual(SETTLEMENT_FINDING_KINDS.length - 1);
+    for (const { name, capsule, claims, deviations, context } of corpus) {
+      const without = adjudicateSettlement(delegating(capsule), claims, deviations ?? [], context ?? RESOLVING);
+      const withChoices = adjudicateSettlement(
+        delegating(capsule),
+        claims.map((claim) => (claim.status === undefined ? choosing(claim, CHOICE) : claim)),
+        deviations ?? [],
+        context ?? RESOLVING,
+      );
+      expect(without.findings.length, name).toBeGreaterThan(0);
+      expect(withChoices.findings, name).toEqual(without.findings);
+      expect(withChoices.acceptedTasks, name).toEqual(without.acceptedTasks);
+      expect(withChoices.adjudicated, name).toEqual(without.adjudicated);
+      expect(withChoices.outcome, name).toBe(without.outcome);
+      expect(withChoices.unresolved, name).toEqual(without.unresolved);
+    }
+  });
+});
+
+/**
+ * A deviation cannot name a task that its batch claims as completed, because the batch returns a result for that task.
+ * A claim that reports its task as not completed returns no result, so a deviation of the batch can name that task.
+ * The capsule of these cases requires `task-verify` and `task-compile`.
+ */
+describe('a deviation that names a task of its own batch', () => {
+  function findingsOf(verdict: SettlementVerdict): string[][] {
+    return verdict.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  const PENDING = standing({ 'task-verify': { kind: 'pending' }, 'task-compile': { kind: 'pending' } });
+
+  /**
+   * The denominator of the cases below. The same deviation beside a completed claim for the task refuses the batch.
+   * Thus the status of the claim is what admits the deviation in each case that follows.
+   */
+  it('Adjudicate_ADeviationNamingATaskThatItsBatchClaimsAsCompleted_RefusesTheBatch', () => {
+    const verdict = adjudicateSettlement(
+      requiringBothTasks(),
+      [passingClaim(), compileClaim()],
+      [affecting('task-compile')],
+      PENDING,
+    );
+    expect(findingsOf(verdict)).toEqual([
+      ['deviation-names-claimed-task', 'task-compile', 'deviations[0].affectedTasks[0]'],
+    ]);
+    expect(verdict.findings[0]?.message).toContain('this batch claims that task as completed');
+    expect(verdict.outcome).toBe('rejected');
+  });
+
+  /**
+   * The claim reports the task as not completed, and the deviation names that task. The deviation gets no finding
+   * about the task, so it waits for its decision and the batch is held. The only other finding is that of the status.
+   */
+  it.each([
+    ['failed', 'task-failed'],
+    ['blocked', 'task-blocked'],
+    ['skipped', 'task-skipped'],
+  ] satisfies [IncompleteClaimStatus, SettlementFindingKind][])(
+    'Adjudicate_ADeviationNamingATaskThatItsBatchReportsAs_%s_HoldsTheBatch',
+    (status, kind) => {
+      const verdict = adjudicateSettlement(
+        requiringBothTasks(),
+        [passingClaim(), reporting(status, 'task-compile')],
+        [affecting('task-compile')],
+        PENDING,
+      );
+      expect(findingsOf(verdict)).toEqual([
+        [kind, 'task-compile', 'claims[1]'],
+        ['deviation-awaiting-approval', 'invalidated-assumption', 'deviations[0].deviationKind'],
+      ]);
+      expect(verdict.outcome).toBe('deviation-pending');
+      expect(verdict.acceptedTasks).toEqual(['task-verify']);
+      expect(verdict.unresolved).toEqual([]);
+      expect(verificationRuns(verdict.findings)).toBe(false);
+    },
+  );
+
+  /** The three statuses of the cases above are each status that is not `completed`. */
+  it('Adjudicate_TheStatusesThatAdmitAnOwnTaskDeviation_AreEachIncompleteStatus', () => {
+    expect([...INCOMPLETE_CLAIM_STATUSES]).toEqual(['failed', 'blocked', 'skipped']);
+  });
+
+  /**
+   * One deviation names both tasks of the batch. The finding is for the task that the batch claims as completed,
+   * and the blocked task gets none. The batch is refused, so the deviation asks for no approval.
+   */
+  it('Adjudicate_ADeviationNamingACompletedTaskAndABlockedTask_RefusesOnlyForTheCompletedTask', () => {
+    const verdict = adjudicateSettlement(
+      requiringBothTasks(),
+      [passingClaim(), reporting('blocked', 'task-compile')],
+      [affecting('task-compile', 'task-verify')],
+      PENDING,
+    );
+    expect(findingsOf(verdict)).toEqual([
+      ['task-blocked', 'task-compile', 'claims[1]'],
+      ['deviation-names-claimed-task', 'task-verify', 'deviations[0].affectedTasks[1]'],
+    ]);
+    expect(verdict.outcome).toBe('rejected');
+  });
+
+  /**
+   * The other two checks on an affected task do not read the status of the claim.
+   * A blocked task that the plan shows finished is still a finished task, and one that the plan does not hold is unknown.
+   * Neither gets the finding for a claimed task.
+   */
+  it('Adjudicate_ABlockedTaskThatIsFinishedOrUnknown_StillRefusesTheDeviationThatNamesIt', () => {
+    const claims = [passingClaim(), reporting('blocked', 'task-compile')];
+    const finished = adjudicateSettlement(
+      requiringBothTasks(),
+      claims,
+      [affecting('task-compile')],
+      standing({ 'task-compile': { kind: 'finished' } }),
+    );
+    expect(findingsOf(finished)).toEqual([
+      ['task-blocked', 'task-compile', 'claims[1]'],
+      ['deviation-names-finished-task', 'task-compile', 'deviations[0].affectedTasks[0]'],
+    ]);
+    expect(finished.outcome).toBe('rejected');
+
+    const unknown = adjudicateSettlement(requiringBothTasks(), claims, [affecting('task-compile')], standing({}));
+    expect(findingsOf(unknown)).toEqual([
+      ['task-blocked', 'task-compile', 'claims[1]'],
+      ['deviation-unknown-task', 'task-compile', 'deviations[0].affectedTasks[0]'],
+    ]);
+    expect(unknown.outcome).toBe('rejected');
+  });
+
+  /**
+   * The decision round reads the same batch with a decision and no standing. An accepted deviation leaves only the
+   * finding of the status, so verification runs and the batch needs a correction for the blocked task.
+   * A rejected deviation refuses the batch, so nothing is verified and the verdict names no unresolved task.
+   */
+  it('Adjudicate_TheDecisionOnAnOwnTaskDeviation_NeedsACorrectionWhenAcceptedAndRefusesWhenRejected', () => {
+    const claims = [passingClaim(), reporting('blocked', 'task-compile')];
+    const decide = (decision: 'accepted' | 'rejected'): SettlementVerdict =>
+      adjudicateSettlement(requiringBothTasks(), claims, [affecting('task-compile')], {
+        evidenceResolves: () => true,
+        decided: () => decision,
+      });
+
+    const accepted = decide('accepted');
+    expect(findingsOf(accepted)).toEqual([['task-blocked', 'task-compile', 'claims[1]']]);
+    expect(accepted.outcome).toBe('corrective-capsule');
+    expect(accepted.acceptedTasks).toEqual(['task-verify']);
+    expect(accepted.unresolved).toEqual([{ taskId: 'task-compile', cause: 'task-blocked' }]);
+    expect(verificationRuns(accepted.findings)).toBe(true);
+
+    const rejected = decide('rejected');
+    expect(rejected.findings.map((f) => f.kind)).toEqual(['task-blocked', 'deviation-rejected']);
+    expect(rejected.outcome).toBe('rejected');
+    expect(rejected.unresolved).toEqual([]);
+    expect(verificationRuns(rejected.findings)).toBe(false);
+  });
+});
+
 /** Whether verification runs after a shape pass, as the handler asks it. */
 describe('the findings that stop verification', () => {
   function finding(kind: SettlementFindingKind): SettlementFinding {
@@ -923,6 +1561,7 @@ describe('the findings that stop verification', () => {
   it('VerificationRuns_WithNoFindingOrOnlyAnUnresolvedTask_IsTrue', () => {
     expect(verificationRuns([])).toBe(true);
     expect(verificationRuns([finding('verification-failed')])).toBe(true);
+    expect(verificationRuns([finding('task-blocked'), finding('task-failed'), finding('task-skipped')])).toBe(true);
   });
 
   /** One finding of a stale, refusing or holding kind stops verification, alone or beside an unresolved task. */
@@ -934,10 +1573,10 @@ describe('the findings that stop verification', () => {
     },
   );
 
-  /** Each declared kind but the one that leaves a task unresolved stops verification. */
-  it('VerificationRuns_ForEachDeclaredKind_IsTrueOnlyForAFailedVerification', () => {
+  /** Each declared kind but the four that leave a task unresolved stops verification. */
+  it('VerificationRuns_ForEachDeclaredKind_IsTrueOnlyForAKindThatLeavesATaskUnresolved', () => {
     const letsItRun = SETTLEMENT_FINDING_KINDS.filter((kind) => verificationRuns([finding(kind)]));
-    expect(letsItRun).toEqual(['verification-failed']);
+    expect(letsItRun).toEqual(['verification-failed', 'task-failed', 'task-blocked', 'task-skipped']);
   });
 
   /**

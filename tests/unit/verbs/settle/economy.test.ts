@@ -906,6 +906,42 @@ describe('the capped settle receipt', () => {
   );
 
   /**
+   * A batch at the input bounds in which each of the forty tasks passed and a claim records a
+   * delegated choice. Its receipt has no field for the choice, so its summary has the shape of a
+   * settled summary. The text of the summary names the outcome, and the outcome field keeps it.
+   * The summary names no unresolved task, because each task is complete.
+   */
+  it('SettleEconomy_ACappedReceiptAcceptedWithRationale_NamesItsOutcomeAndIsWithinTheBudget', () => {
+    const tasks = tasksOf(Array.from({ length: MAX_TASKS }, () => 'verified'), MAX_TASK_ID_LENGTH);
+    const bounds = { workflowId: 'w'.repeat(MAX_STABLE_ID_LENGTH), batchId: 'b'.repeat(MAX_STABLE_ID_LENGTH), magnitude: 9 };
+    const receipt = receiptOf({ ...bounds, outcome: 'accepted-with-rationale', round: 0, tasks, findings: [] });
+    const settled = receiptOf({ ...bounds, outcome: 'settled', round: 0, tasks, findings: [] });
+    expect(receipt.acceptedTasks).toHaveLength(MAX_TASKS);
+    expect(Object.keys(receipt)).toStrictEqual(Object.keys(settled));
+
+    const summary = cappedSummaryOf(receipt);
+
+    expect(estimateOutputTokens(summary)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
+    expect(summary.outcome).toBe('accepted-with-rationale');
+    expect(summary.summary).toBe(
+      `batch '${bounds.batchId}' of capsule v9 accepted-with-rationale — ${MAX_TASKS} task(s) accepted, ` +
+        `0 finding(s); ${OUTCOMES_SHOWN} of ${MAX_TASKS} verification outcome(s) shown`,
+    );
+    expect(summary.counts).toStrictEqual({
+      findings: 0,
+      shown: 0,
+      acceptedTasks: MAX_TASKS,
+      verification: MAX_TASKS,
+      verificationOmitted: MAX_TASKS - OUTCOMES_SHOWN,
+    });
+    expect(Object.keys(summary)).not.toContain('unresolved');
+    expect({ ...summary, summary: '', outcome: '' }).toStrictEqual({ ...summarizeSettlementReceipt(settled), summary: '', outcome: '' });
+    expect(declaredSettleOutputSchema().safeParse(wireEnvelopeOf(summary)).success).toBe(true);
+    const dispatched = enforceResponseEconomy({ success: true, data: receipt }, 'exarchos_orchestrate', 'settle');
+    expect(dispatched.data).toStrictEqual(summary);
+  });
+
+  /**
    * A claim of an earlier build holds a receipt with fewer fields, so the reducer reads each field as optional.
    * The first receipt holds only the fields that each build wrote. It has no round, no verification,
    * no pending deviation, no decision and no design revision. The second holds its findings alone,

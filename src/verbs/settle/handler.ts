@@ -73,6 +73,7 @@ import {
   type UnresolvedTask,
   verificationRuns,
 } from './adjudicate.js';
+import { claimOfRequest, claimOfTrace, claimTraceOf } from './claim-codec.js';
 import {
   decodeSettlementBundle,
   encodeSettlementBundle,
@@ -317,6 +318,7 @@ type HeldBatchLookup =
  * The batch that a decision round adjudicates, read back from the record of the
  * submitting round and its bundle. A decision carries no claims, so nothing can
  * replace the held claims. The submitting record is the one with no round.
+ * The claim codec gives each held claim back whole, so a claim that is not completed stays so.
  */
 async function heldBatch(
   ctx: DispatchContext,
@@ -353,11 +355,7 @@ async function heldBatch(
   const bundle = decodeSettlementBundle(await bundles.resolve(ref.digest));
   return {
     kind: 'held',
-    claims: bundle.claims.map((claim) => ({
-      taskId: claim.taskId,
-      fields: claim.fields,
-      evidence: claim.evidence,
-    })),
+    claims: bundle.claims.map(claimOfTrace),
     deviations: bundle.deviations.map((held) =>
       normalDeviation(held.deviationKind, held.statement, held.affectedTasks, held.proposedChange),
     ),
@@ -589,6 +587,7 @@ function verificationOperationId(operationId: string, taskId: string): string {
  * The tier, the boundary flag and the base come from the capsule, never from the claim. They choose
  * the gates and the start of the diff. The worktree and the branch come from the claim. The claim
  * fields are the completion `result`, as on the `task_complete` path.
+ * The function does not read the rationale of the claim, so a recorded choice changes no gate.
  */
 function verificationArgsOf(
   claim: SettlementClaim,
@@ -744,30 +743,20 @@ function claimlessBatch(batchLabel: string): ToolResult {
   );
 }
 
-/** Claims as the request carries them, refused as a whole if any entry is malformed. */
+/**
+ * Claims as the request carries them, refused as a whole if any entry is malformed.
+ * The claim codec reads each entry into the normal form that the request digest and the bundle hold.
+ */
 function readClaims(raw: unknown): SettlementClaim[] | string {
   if (raw === undefined) return [];
-  if (!Array.isArray(raw)) return 'claims must be an array of { taskId, fields, evidence }';
+  if (!Array.isArray(raw)) {
+    return 'claims must be an array of { taskId, fields, evidence, rationale? } or { taskId, status, reason }';
+  }
   const claims: SettlementClaim[] = [];
   for (const [i, entry] of raw.entries()) {
-    if (!isRecord(entry)) return `claims[${i}] must be an object`;
-    const taskId = readString(entry, 'taskId');
-    if (taskId === undefined) return `claims[${i}].taskId is required`;
-    const fields = entry.fields ?? {};
-    if (!isRecord(fields)) return `claims[${i}].fields must be an object of returned result fields`;
-    const rawEvidence = entry.evidence ?? [];
-    if (!Array.isArray(rawEvidence)) return `claims[${i}].evidence must be an array`;
-    const evidence: { kind: string; ref: string }[] = [];
-    for (const [j, item] of rawEvidence.entries()) {
-      if (!isRecord(item)) return `claims[${i}].evidence[${j}] must be an object`;
-      const kind = readString(item, 'kind');
-      const ref = readString(item, 'ref');
-      if (kind === undefined || ref === undefined) {
-        return `claims[${i}].evidence[${j}] requires both kind and ref`;
-      }
-      evidence.push({ kind, ref });
-    }
-    claims.push({ taskId, fields, evidence });
+    const claim = claimOfRequest(entry, `claims[${i}]`);
+    if (typeof claim === 'string') return claim;
+    claims.push(claim);
   }
   return claims;
 }
@@ -1160,7 +1149,7 @@ export async function handleSettle(
       outcome: verdict.outcome,
       acceptedTasks: [...verdict.acceptedTasks],
       findings: [...verdict.findings],
-      claims: claims.map((c) => ({ taskId: c.taskId, fields: c.fields, evidence: [...c.evidence] })),
+      claims: claims.map(claimTraceOf),
       deviations: deviations.map((deviation) => ({
         deviationKind: deviation.deviationKind,
         statement: deviation.statement,
@@ -1199,6 +1188,7 @@ export async function handleSettle(
         ...(round > 0 ? { round } : {}),
         acceptedTasks: verdict.acceptedTasks,
         ...(verdict.unresolved.length > 0 ? { unresolvedTasks: verdict.unresolved } : {}),
+        ...(verdict.rationales.length > 0 ? { rationales: verdict.rationales } : {}),
         findingCounts,
         adjudicated: verdict.adjudicated,
         requestDigest,

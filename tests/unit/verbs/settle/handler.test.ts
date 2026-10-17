@@ -46,6 +46,7 @@ import {
   DeviationDecidedData,
   DeviationProposedData,
   ExecutionSettledData,
+  OrchestrateIntentExecutedData,
   WorkflowPreparedData,
   type DesignRevised,
 } from '../../../../src/events/schemas.js';
@@ -59,9 +60,21 @@ import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js';
 import { INTENT_EXECUTED_EVENT, type ExecuteIntentDeps } from '../../../../src/verbs/execute/executor.js';
 import { ladderRequirementId } from '../../../../src/verbs/gates/durable-gate-producer.js';
+import { builtInWorkflowAuthority } from '../../../../src/verbs/prepare/built-in-authority.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
-import { SETTLEMENT_OUTCOMES } from '../../../../src/verbs/settle/adjudicate.js';
+import {
+  INCOMPLETE_CLAIM_STATUSES,
+  SETTLEMENT_OUTCOMES,
+  outcomeVerifies,
+  type SettlementOutcome,
+} from '../../../../src/verbs/settle/adjudicate.js';
+import {
+  ClaimTraceSchema,
+  MAX_CLAIM_REASON_LENGTH,
+  MAX_RATIONALE_ENTRIES_PER_CLAIM,
+  MAX_RATIONALE_STATEMENT_LENGTH,
+} from '../../../../src/verbs/settle/claim-codec.js';
 import { deviationIdOf, handleSettle } from '../../../../src/verbs/settle/handler.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
 import {
@@ -151,7 +164,19 @@ function withVersion(capsule: ExarchosCapsuleV1, capsuleVersion: number): Exarch
   return { ...capsule, identity: { ...capsule.identity, capsuleVersion } };
 }
 
-beforeEach(async () => {
+/**
+ * The capsule with the delegated decisions that prepare compiles into each capsule. Each of them
+ * has an id, so a rationale can name it. The fixture capsule gives no id to its delegated decision.
+ */
+function withBuiltInDelegatedDecisions(capsule: ExarchosCapsuleV1): ExarchosCapsuleV1 {
+  return {
+    ...capsule,
+    authority: { ...capsule.authority, delegatedDecisions: builtInWorkflowAuthority().delegatedDecisions },
+  };
+}
+
+/** Opens a new store in a new directory, with the seeded workflow, the seeded gate and the base capsule. */
+async function openSeededStore(): Promise<void> {
   stateDir = await mkdtemp(path.join(tmpdir(), 'settle-unit-'));
   store = new EventStore(stateDir);
   await store.initialize();
@@ -159,12 +184,17 @@ beforeEach(async () => {
   await seedPassingStaticAnalysis('task-verify');
   await seedPrepared();
   seededBlobs = await bundleBlobCount();
-});
+}
 
-afterEach(async () => {
+/** Closes the open store and removes its directory. */
+async function closeStore(): Promise<void> {
   store.close();
   await rmrfAsync(stateDir);
-});
+}
+
+beforeEach(openSeededStore);
+
+afterEach(closeStore);
 
 function passingClaim(): Record<string, unknown> {
   return { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
@@ -3617,6 +3647,1418 @@ describe('settle — a required result that the stream shows complete', () => {
   });
 });
 
+/**
+ * A claim can report its task as failed, blocked or skipped. Settlement verifies nothing for such
+ * a claim and records no completion from it. The task is unresolved, and the completed claims of
+ * the batch are verified apart from it.
+ *
+ * The capsule of these tests requires `task-verify` and a second task, and it delegates the
+ * decisions that prepare compiles. `recordCompletion` leaves the completion fact of a task on the
+ * stream. `storedText` gives the bytes of the settlement bundle of a receipt as text.
+ */
+describe('settle — a claim that reports the status of its task', () => {
+  const STATUS_VERSION = 60;
+  const SECOND_TASK = 'task-second';
+  const REASON = 'the schema migration is not merged';
+  const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
+  const ACTOR = 'human:reviewer';
+  const RATIONALE = 'the assumption was wrong and the workaround is sound';
+
+  beforeEach(async () => {
+    const capsule = withBuiltInDelegatedDecisions(capsuleWithTask(SECOND_TASK, STATUS_VERSION));
+    await seedPrepared({
+      ...capsule,
+      settlementContract: { ...capsule.settlementContract, requiredResults: [SECOND_TASK, 'task-verify'] },
+    });
+  });
+
+  function reporting(status: string, taskId = SECOND_TASK): Record<string, unknown> {
+    return { taskId, status, reason: REASON };
+  }
+
+  function secondClaim(): Record<string, unknown> {
+    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  }
+
+  function batch(batchId: string, claims: readonly unknown[]): Record<string, unknown> {
+    return { featureId: STREAM, capsuleVersion: STATUS_VERSION, batchId, claims };
+  }
+
+  function findingsOf(receipt: SettlementReceipt): string[][] {
+    return receipt.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  function tracesOf(receipt: SettlementReceipt): string[][] {
+    return (receipt.verification ?? []).map((trace) => [trace.taskId, trace.outcome]);
+  }
+
+  function accepting(held: SettlementReceipt): Record<string, unknown>[] {
+    return (held.pendingDeviations ?? []).map((pending) => ({
+      deviationId: pending.deviationId,
+      decision: 'accepted',
+      actor: ACTOR,
+      rationale: RATIONALE,
+    }));
+  }
+
+  async function recordCompletion(taskId: string): Promise<void> {
+    await store.append(STREAM, { type: 'task.completed', data: { taskId, verified: false } });
+  }
+
+  async function storedText(receipt: SettlementReceipt): Promise<string> {
+    const digest = receipt.bundleRefs?.[0]?.digest;
+    if (digest === undefined) throw new Error('the receipt references no bundle');
+    return Buffer.from(await store.bundleStore.resolve(digest)).toString('utf8');
+  }
+
+  /**
+   * One claim is not completed and one is completed, so the shape pass leaves one finding that
+   * does not stop verification. The completed task is verified and recorded complete. The gate
+   * of the second task is seeded, so a segment for it commits if one runs. No segment runs for
+   * it, and it has no completion.
+   *
+   * The receipt names the second task as unresolved, with the kind of its status as the cause.
+   * The entry has no halted leaf and no operation, because no segment ran. The record and the
+   * bundle agree, and a retry returns the same receipt.
+   */
+  it.each([
+    ['failed', 'task-failed'],
+    ['blocked', 'task-blocked'],
+    ['skipped', 'task-skipped'],
+  ])(
+    'Settle_AClaimWithTheStatus_%s_BesideACompletedClaim_VerifiesTheCompletedTaskAndNeedsACorrection',
+    async (status, cause) => {
+      await seedPassingStaticAnalysis(SECOND_TASK);
+      const args = batch(`batch-${status}`, [passingClaim(), reporting(status)]);
+      const receipt = receiptOf(await settle(args));
+      expect(receipt.outcome).toBe('corrective-capsule');
+      expect(findingsOf(receipt)).toEqual([[cause, SECOND_TASK, 'claims[1]']]);
+      expect(receipt.findings[0]?.message).toContain(REASON);
+      expect(receipt.acceptedTasks).toEqual(['task-verify']);
+      expect(receipt.unresolved).toStrictEqual([{ taskId: SECOND_TASK, cause }]);
+      expect(receipt.adjudicated).toMatchObject({ claims: 2, requiredResults: 2, fields: 2, verification: 1 });
+
+      expect(receipt.verification).toEqual([expect.objectContaining({ taskId: 'task-verify', outcome: 'verified' })]);
+      const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => row.data as { operationId?: unknown });
+      expect(segments.map((segment) => segment.operationId)).toEqual([receipt.verification?.[0]?.operationId]);
+      expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify']);
+
+      const rows = await settledRows();
+      expect(rows).toHaveLength(1);
+      const record = ExecutionSettledData.parse(rows[0]?.data);
+      expect(record.outcome).toBe('corrective-capsule');
+      expect(record.acceptedTasks).toEqual(['task-verify']);
+      expect(record.unresolvedTasks).toStrictEqual([{ taskId: SECOND_TASK, cause }]);
+      expect(record.findingCounts).toEqual([{ kind: cause, count: 1 }]);
+      expect((await bundleOf(receipt)).claims).toStrictEqual([
+        { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+        { taskId: SECOND_TASK, status, reason: REASON, fields: {}, evidence: [] },
+      ]);
+
+      const tail = (await store.query(STREAM)).length;
+      expect(receiptOf(await settle(args))).toEqual(receipt);
+      expect(await store.query(STREAM)).toHaveLength(tail);
+    },
+  );
+
+  /**
+   * The denominator of the statuses: the three cases above are each status that is not `completed`.
+   */
+  it('Settle_TheStatusesOfAClaimThatIsNotCompleted_AreTheThreeThatTheCasesCover', () => {
+    expect([...INCOMPLETE_CLAIM_STATUSES]).toEqual(['failed', 'blocked', 'skipped']);
+  });
+
+  /**
+   * The block is removed after the first batch. The correction is a new batch on the same capsule
+   * that claims the task as completed. Its segment commits, and the other requirement has its
+   * recorded completion.
+   */
+  it('Settle_ACorrectionAfterABlockedClaim_ClaimsTheTaskAsCompletedAndSettles', async () => {
+    const first = receiptOf(await settle(batch('batch-blocked-first', [passingClaim(), reporting('blocked')])));
+    expect(first.outcome).toBe('corrective-capsule');
+    expect(first.unresolved?.map((task) => task.taskId)).toEqual([SECOND_TASK]);
+
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const corrected = receiptOf(await settle(batch('batch-blocked-correction', [secondClaim()])));
+    expect(corrected.outcome).toBe('settled');
+    expect(corrected).not.toHaveProperty('unresolved');
+    expect(tracesOf(corrected)).toEqual([
+      ['task-verify', 'already-complete'],
+      [SECOND_TASK, 'verified'],
+    ]);
+    expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify', SECOND_TASK]);
+  });
+
+  /**
+   * The stream shows the second task complete, so the recorded completion wins over the report.
+   * The claim makes no finding, and the task gets the outcome and the trace of a task that was
+   * complete before the batch. No segment runs for it, and its completion row does not change.
+   *
+   * A second batch then holds only a claim that is not completed, for a task that is complete.
+   * It settles, and no segment runs.
+   */
+  it('Settle_AClaimThatIsNotCompleted_ForATaskTheStreamShowsComplete_GetsTheRecordedCompletion', async () => {
+    await recordCompletion(SECOND_TASK);
+    const recordedBefore = await completionRows();
+    expect(recordedBefore.map((row) => row.data.taskId)).toEqual([SECOND_TASK]);
+
+    const receipt = receiptOf(await settle(batch('batch-completion-wins', [passingClaim(), reporting('blocked')])));
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.findings).toEqual([]);
+    expect(receipt).not.toHaveProperty('unresolved');
+    expect(receipt.acceptedTasks).toEqual([SECOND_TASK, 'task-verify']);
+    expect(receipt.verification).toEqual([
+      { taskId: SECOND_TASK, outcome: 'already-complete' },
+      expect.objectContaining({ taskId: 'task-verify', outcome: 'verified' }),
+    ]);
+    expect(receipt.adjudicated).toMatchObject({ claims: 2, requiredResults: 2, verification: 2 });
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    const recordedAfter = await completionRows();
+    expect(recordedAfter.filter((row) => row.data.taskId === SECOND_TASK)).toEqual(recordedBefore);
+    expect(recordedAfter.map((row) => row.data.taskId)).toEqual([SECOND_TASK, 'task-verify']);
+
+    const alone = receiptOf(await settle(batch('batch-completion-wins-alone', [reporting('skipped', 'task-verify')])));
+    expect(alone.outcome).toBe('settled');
+    expect(alone.findings).toEqual([]);
+    expect(alone.acceptedTasks).toEqual(['task-verify']);
+    expect(alone.verification).toEqual([
+      { taskId: SECOND_TASK, outcome: 'already-complete' },
+      { taskId: 'task-verify', outcome: 'already-complete' },
+    ]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    expect(await completionRows()).toEqual(recordedAfter);
+  });
+
+  /**
+   * The stale check comes before the status. The revision row is written by hand, and it names
+   * the second task after the capsule. The stream also shows that task complete. The claim for it
+   * is stale all the same, and nothing is verified.
+   */
+  it('Settle_AClaimThatIsNotCompleted_ForATaskALaterRevisionNamed_NeedsARecompile', async () => {
+    await recordCompletion(SECOND_TASK);
+    const digest = await store.bundleStore.put(Buffer.from('{"note":"a revision written by hand"}\n', 'utf8'));
+    await store.append(STREAM, {
+      type: 'design.revised',
+      data: DesignRevisedData.parse({
+        operationId: 'settle:revised-by-hand',
+        workflowId: baseValidCapsule().identity.workflowId,
+        capsuleVersion: 7,
+        batchId: 'batch-revised-by-hand',
+        priorDesignVersion: 1,
+        nextDesignVersion: 2,
+        deviationIds: ['dev:written-by-hand'],
+        affectedTasks: [SECOND_TASK],
+        [BUNDLE_REF_FIELD]: [{ artifactId: 'run-bundle:settlement-adjudication:batch-revised-by-hand:7', digest }],
+      }),
+    });
+
+    const receipt = receiptOf(await settle(batch('batch-stale-report', [passingClaim(), reporting('blocked')])));
+    expect(receipt.outcome).toBe('recompile-required');
+    expect(findingsOf(receipt)).toEqual([['claim-superseded-by-revision', SECOND_TASK, 'claims[1].taskId']]);
+    expect(receipt.verification).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+  });
+
+  /**
+   * The held batch carries one blocked claim and one completed claim. The hold decides the outcome
+   * of the first round, so nothing is verified and the receipt names no unresolved task.
+   *
+   * The decision round reads the claims back from the bundle of the first round. The blocked
+   * claim is still blocked: no segment runs for it, although its gate is seeded. The completed
+   * claim is verified, and the batch needs a correction for the blocked task.
+   */
+  it('Settle_ADecisionOnAHeldBatchWithABlockedClaim_VerifiesTheCompletedClaimAndNeedsACorrection', async () => {
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const held = receiptOf(
+      await settle({ ...batch('batch-held-blocked', [passingClaim(), reporting('blocked')]), deviations: [DEVIATION] }),
+    );
+    expect(held.outcome).toBe('deviation-pending');
+    expect(findingsOf(held).map(([kind]) => kind)).toEqual(['task-blocked', 'deviation-awaiting-approval']);
+    expect(held.acceptedTasks).toEqual(['task-verify']);
+    expect(held).not.toHaveProperty('unresolved');
+    expect(held.verification).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+
+    const decided = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: STATUS_VERSION,
+        batchId: 'batch-held-blocked',
+        decisions: accepting(held),
+      }),
+    );
+    expect(decided.outcome).toBe('corrective-capsule');
+    expect(decided.round).toBe(1);
+    expect(findingsOf(decided)).toEqual([['task-blocked', SECOND_TASK, 'claims[1]']]);
+    expect(decided.acceptedTasks).toEqual(['task-verify']);
+    expect(decided.unresolved).toStrictEqual([{ taskId: SECOND_TASK, cause: 'task-blocked' }]);
+    expect(tracesOf(decided)).toEqual([['task-verify', 'verified']]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify']);
+
+    const records = (await settledRows()).map((row) => ExecutionSettledData.parse(row.data));
+    expect(records.map((record) => [record.outcome, record.round])).toEqual([
+      ['deviation-pending', undefined],
+      ['corrective-capsule', 1],
+    ]);
+    expect(records[0]).not.toHaveProperty('unresolvedTasks');
+    expect(records[1]?.unresolvedTasks).toStrictEqual([{ taskId: SECOND_TASK, cause: 'task-blocked' }]);
+  });
+
+  /**
+   * The two claims are the maximal claims: between them they set each key that a stored claim
+   * has. The completed claim cites a recorded evidence row, records a delegated choice, and spells
+   * out the default status. The blocked claim spells out its empty fields and its empty evidence.
+   *
+   * The batch is held, so its claims go to the bundle of the first round. The decision round
+   * reads them back and writes them to its own bundle. Both bundles hold the same two claims in
+   * the normal form. The decision round judged the fields, the evidence, the status and the choice.
+   * Its record names the choice, and the record of the held round names none.
+   */
+  it('Settle_AMaximalClaim_SurvivesTheRequestTheBundleAndTheDecisionRoundUnchanged', async () => {
+    const evidenceId = await seedGateEvidence(store, {
+      streamId: STREAM,
+      requirementId: ladderRequirementId('test'),
+      phaseAttemptId,
+    });
+    const choice = { delegatedDecision: 'implementation-approach', statement: 'a table drives the parser' };
+    const completed = {
+      taskId: 'task-verify',
+      status: 'completed',
+      fields: { worktreePath: WORKTREE, passed: true },
+      evidence: [{ kind: 'test', ref: evidenceId }],
+      rationale: [choice],
+    };
+    const blocked = { taskId: SECOND_TASK, status: 'blocked', reason: REASON, fields: {}, evidence: [], rationale: [] };
+    const normal = [
+      {
+        taskId: 'task-verify',
+        fields: { passed: true, worktreePath: WORKTREE },
+        evidence: [{ kind: 'test', ref: evidenceId }],
+        rationale: [choice],
+      },
+      { taskId: SECOND_TASK, status: 'blocked', reason: REASON, fields: {}, evidence: [] },
+    ];
+    const keysSet = new Set(normal.flatMap((claim) => Object.keys(claim)));
+    expect([...keysSet].sort()).toEqual(Object.keys(ClaimTraceSchema.shape).sort());
+    const registered = settleActions.find((action) => action.name === 'settle');
+    expect(registered?.schema.safeParse(batch('batch-maximal', [completed, blocked])).success).toBe(true);
+
+    const held = receiptOf(
+      await settle({ ...batch('batch-maximal', [completed, blocked]), deviations: [DEVIATION] }),
+    );
+    expect(held.outcome).toBe('deviation-pending');
+    const heldClaims = (await bundleOf(held)).claims;
+    expect(heldClaims).toStrictEqual(normal);
+
+    const decided = receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: STATUS_VERSION, batchId: 'batch-maximal', decisions: accepting(held) }),
+    );
+    expect(decided.round).toBe(1);
+    const decidedClaims = (await bundleOf(decided)).claims;
+    expect(decidedClaims).toStrictEqual(heldClaims);
+    expect(decidedClaims).toStrictEqual(normal);
+
+    expect(decided.outcome).toBe('corrective-capsule');
+    expect(decided.adjudicated).toMatchObject({ claims: 2, fields: 2, evidence: 1, verification: 1, decisions: 1 });
+    expect(decided.unresolved).toStrictEqual([{ taskId: SECOND_TASK, cause: 'task-blocked' }]);
+    expect(decided.findings[0]?.message).toContain(REASON);
+    expect((await completionRows()).map((row) => row.data)).toEqual([
+      { taskId: 'task-verify', verified: false, worktreePath: WORKTREE },
+    ]);
+    const records = (await settledRows()).map((row) => ExecutionSettledData.parse(row.data));
+    expect(records.map((record) => [record.outcome, record.rationales])).toStrictEqual([
+      ['deviation-pending', undefined],
+      ['corrective-capsule', [{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]],
+    ]);
+  });
+
+  /**
+   * The bundle and the held record are written by hand, in the shape of the build before a claim
+   * had a status. The stored claims have no status key. The decision round reads them back as
+   * completed claims, verifies both, and settles. Its own bundle stores them with no status key.
+   */
+  it('Settle_AHeldBundleWrittenBeforeAClaimHadAStatus_IsReadBackAndDecided', async () => {
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const EARLIER_BATCH = 'batch-held-before-status';
+    const compiled = baseValidCapsule().identity;
+    const capsule = {
+      workflowId: compiled.workflowId,
+      definitionVersion: compiled.definitionVersion,
+      designVersion: compiled.designVersion,
+      capsuleVersion: STATUS_VERSION,
+      batchId: EARLIER_BATCH,
+    };
+    const operationId = 'settle:held-before-a-claim-had-a-status';
+    const requestDigest = 'sha256:held-before-a-claim-had-a-status';
+    const earlierClaims = [
+      { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+      { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+    ];
+    const adjudicated = { claims: 2, requiredResults: 2, fields: 4, evidence: 0, deviations: 1, verification: 0, decisions: 0 };
+    const earlierText = `${JSON.stringify({
+      bundleVersion: '1.0',
+      kind: 'settlement-adjudication',
+      operationId,
+      streamId: STREAM,
+      requestDigest,
+      capsule,
+      outcome: 'deviation-pending',
+      acceptedTasks: [SECOND_TASK, 'task-verify'],
+      findings: [
+        {
+          kind: 'deviation-awaiting-approval',
+          subject: 'invalidated-assumption',
+          at: 'deviations[0].deviationKind',
+          message: 'held for approval',
+        },
+      ],
+      claims: earlierClaims,
+      deviations: [DEVIATION],
+      decisions: [],
+      adjudicated,
+      verification: [],
+      settledAt: '2026-01-01T00:00:00.000Z',
+    })}\n`;
+    expect(earlierText).not.toContain('"status"');
+    expect(earlierText).not.toContain('"reason"');
+    const digest = await store.bundleStore.put(Buffer.from(earlierText, 'utf8'));
+    await store.append(STREAM, {
+      type: 'execution.settled',
+      data: ExecutionSettledData.parse({
+        operationId,
+        workflowId: capsule.workflowId,
+        capsuleVersion: STATUS_VERSION,
+        batchId: EARLIER_BATCH,
+        definitionVersion: capsule.definitionVersion,
+        outcome: 'deviation-pending',
+        acceptedTasks: [SECOND_TASK, 'task-verify'],
+        findingCounts: [{ kind: 'deviation-awaiting-approval', count: 1 }],
+        adjudicated,
+        requestDigest,
+        [BUNDLE_REF_FIELD]: [{ artifactId: `run-bundle:settlement-adjudication:${EARLIER_BATCH}:${STATUS_VERSION}`, digest }],
+      }),
+    });
+
+    const decided = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: STATUS_VERSION,
+        batchId: EARLIER_BATCH,
+        decisions: [
+          { deviationId: deviationIdOf(capsule, DEVIATION), decision: 'accepted', actor: ACTOR, rationale: RATIONALE },
+        ],
+      }),
+    );
+    expect(decided.outcome).toBe('settled');
+    expect(decided.round).toBe(1);
+    expect(decided.findings).toEqual([]);
+    expect(decided.acceptedTasks).toEqual([SECOND_TASK, 'task-verify']);
+    expect(tracesOf(decided)).toEqual([
+      [SECOND_TASK, 'verified'],
+      ['task-verify', 'verified'],
+    ]);
+    expect((await completionRows()).map((row) => row.data.taskId)).toEqual([SECOND_TASK, 'task-verify']);
+    expect((await bundleOf(decided)).claims).toStrictEqual(earlierClaims);
+    expect(await storedText(decided)).not.toContain('"status"');
+  });
+
+  /**
+   * The two digests and the two stored texts come from the build before a claim had a status.
+   * That build settled these two batches on the base capsule. A batch that an earlier build
+   * recorded is found by its digest on a retry, so the digest of a completed claim must not move.
+   *
+   * The first batch carries no status, and its retry spells out the default status. A second
+   * retry spells out an empty rationale list. The second batch spells out the status on its first
+   * submission. Each gives the digest and the stored claim of the earlier build, and no stored
+   * claim holds a status or a rationale.
+   */
+  it('Settle_ACompletedClaim_KeepsTheRequestDigestAndTheStoredBytesOfTheEarlierBuild', async () => {
+    const PLAIN_DIGEST = 'sha256:b036ac603029ecd636aeae6583b95f95214a600aec2323ae410f686577bd50a5';
+    const PLAIN_STORED =
+      '"claims":[{"evidence":[],"fields":{"passed":true,"worktreePath":"/nonexistent-settle-worktree"},"taskId":"task-verify"}]';
+    const CITING_DIGEST = 'sha256:2d8b27aa10446c38fb630cb4843a240a6e76902521db244ab5f117982c2e04ef';
+    const CITING_STORED =
+      '"claims":[{"evidence":[{"kind":"test","ref":"run-1"}],"fields":{"passed":true,"worktreePath":"/nonexistent-settle-worktree"},"taskId":"task-verify"}]';
+    const onTheBaseCapsule = (batchId: string, claims: readonly unknown[]): Record<string, unknown> => ({
+      featureId: STREAM,
+      capsuleVersion: 7,
+      batchId,
+      claims,
+    });
+
+    const plain = receiptOf(await settle(onTheBaseCapsule('batch-pinned-claim', [passingClaim()])));
+    expect(plain.outcome).toBe('settled');
+    expect(plain.requestDigest).toBe(PLAIN_DIGEST);
+    expect(await storedText(plain)).toContain(PLAIN_STORED);
+
+    const tail = (await store.query(STREAM)).length;
+    const spelledOut = receiptOf(
+      await settle(onTheBaseCapsule('batch-pinned-claim', [{ ...passingClaim(), status: 'completed' }])),
+    );
+    expect(spelledOut).toEqual(plain);
+    expect(receiptOf(await settle(onTheBaseCapsule('batch-pinned-claim', [{ ...passingClaim(), rationale: [] }])))).toEqual(plain);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+
+    const citing = receiptOf(
+      await settle(
+        onTheBaseCapsule('batch-pinned-citing', [
+          { ...passingClaim(), status: 'completed', evidence: [{ kind: 'test', ref: 'run-1' }] },
+        ]),
+      ),
+    );
+    expect(citing.outcome).toBe('rejected');
+    expect(citing.requestDigest).toBe(CITING_DIGEST);
+    expect(await storedText(citing)).toContain(CITING_STORED);
+    expect(await storedText(plain)).not.toContain('"status"');
+    expect(await storedText(citing)).not.toContain('"status"');
+    expect(await storedText(plain)).not.toContain('"rationale"');
+    expect(await storedText(citing)).not.toContain('"rationale"');
+  });
+
+  /**
+   * The status and the reason are part of the request. A retry in another spelling of the same
+   * claims gets the first receipt. A claim with another reason, another status or a result is a
+   * different request for the batch, and it is refused.
+   */
+  it('Settle_TheStatusAndTheReasonOfAClaim_ArePartOfTheRequest', async () => {
+    const first = receiptOf(await settle(batch('batch-status-request', [passingClaim(), reporting('blocked')])));
+    expect(first.outcome).toBe('corrective-capsule');
+
+    const spelledOut = receiptOf(
+      await settle(
+        batch('batch-status-request', [
+          { ...passingClaim(), status: 'completed' },
+          { ...reporting('blocked'), fields: {}, evidence: [] },
+        ]),
+      ),
+    );
+    expect(spelledOut).toEqual(first);
+
+    const changes = [{ ...reporting('blocked'), reason: 'another reason' }, reporting('failed'), secondClaim()];
+    for (const changed of changes) {
+      const result = await settle(batch('batch-status-request', [passingClaim(), changed]));
+      expect(result.success, JSON.stringify(changed)).toBe(false);
+      expect(result.error?.code).toBe('OPERATION_DIGEST_MISMATCH');
+    }
+    expect(await settledRows()).toHaveLength(1);
+  });
+
+  /**
+   * The rules between the status, the reason, the fields and the evidence. A claim that breaks
+   * one makes the request invalid, and the call fails before any effect. It leaves no row, no
+   * blob and no claim on the batch id. The same batch id then takes a well-formed batch.
+   */
+  it('Settle_AClaimThatBreaksAStatusRule_IsRefusedAsInvalidInputBeforeAnyEffect', async () => {
+    const tail = (await store.query(STREAM)).length;
+    const blobs = await bundleBlobCount();
+    const broken: [Record<string, unknown>, string][] = [
+      [{ taskId: SECOND_TASK, status: 'blocked' }, "claims[1].reason is required with the status 'blocked'"],
+      [{ ...secondClaim(), reason: REASON }, 'claims[1].reason is given only with the status'],
+      [{ ...secondClaim(), status: 'completed', reason: REASON }, 'claims[1].reason is given only with the status'],
+      [{ ...reporting('failed'), fields: { passed: false } }, 'so it carries no fields and no evidence'],
+      [{ ...reporting('skipped'), evidence: [{ kind: 'test', ref: 'run-1' }] }, 'so it carries no fields and no evidence'],
+      [
+        { ...reporting('blocked'), reason: 'x'.repeat(MAX_CLAIM_REASON_LENGTH + 1) },
+        'claims[1].reason must be text of 1 to 280 characters',
+      ],
+      [reporting('done'), 'claims[1].status must be one of'],
+    ];
+    for (const [claim, reason] of broken) {
+      const result = await settle(batch('batch-broken-status', [passingClaim(), claim]));
+      expect(result.success, JSON.stringify(claim)).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain(reason);
+    }
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+
+    const wellFormed = receiptOf(await settle(batch('batch-broken-status', [passingClaim(), reporting('blocked')])));
+    expect(wellFormed.outcome).toBe('corrective-capsule');
+  });
+
+  /**
+   * The registered schema is the one that dispatch parses before the handler runs. It admits each
+   * status and a reason of 280 characters. It refuses an unknown status, a longer reason, and a
+   * claim key that it does not declare. The description of the status states each meaning.
+   */
+  it('Settle_TheRegisteredSchema_AdmitsTheStatusAndBoundsTheReason', () => {
+    const registered = settleActions.find((action) => action.name === 'settle');
+    if (registered === undefined) throw new Error('the settle action is not registered');
+    const admits = (claim: Record<string, unknown>): boolean =>
+      registered.schema.safeParse(batch('batch-schema', [claim])).success;
+
+    expect(admits(passingClaim())).toBe(true);
+    expect(admits({ ...passingClaim(), status: 'completed' })).toBe(true);
+    for (const status of INCOMPLETE_CLAIM_STATUSES) expect(admits(reporting(status)), status).toBe(true);
+    expect(admits({ ...reporting('blocked'), reason: 'x'.repeat(MAX_CLAIM_REASON_LENGTH) })).toBe(true);
+
+    expect(admits(reporting('done'))).toBe(false);
+    expect(admits({ ...reporting('blocked'), reason: 'x'.repeat(MAX_CLAIM_REASON_LENGTH + 1) })).toBe(false);
+    expect(admits({ ...reporting('blocked'), reason: '' })).toBe(false);
+    expect(admits({ ...reporting('blocked'), because: REASON })).toBe(false);
+
+    const texts = descriptionsIn(zodToJsonSchema(registered.schema));
+    const statusText = texts.find((text) => text.includes('Default `completed`')) ?? '';
+    for (const status of INCOMPLETE_CLAIM_STATUSES) {
+      expect(statusText, `the text states no meaning for ${status}`).toContain(`\`${status}\`: `);
+    }
+    expect(texts.filter((text) => text.includes('no fields and no evidence'))).toHaveLength(1);
+  });
+});
+
+/**
+ * A worker can report its task as blocked and name that task in a deviation of the same batch.
+ * The batch returns no result for the task, so the deviation affects work that is still to do.
+ *
+ * The capsule of these tests requires `task-verify` and a second task, and it lists one kind as material.
+ * Each held batch claims `task-verify` as completed and reports the second task as blocked.
+ * Its one deviation names the second task. The gate of the second task is seeded.
+ * Thus a segment for that task commits if one runs, and the tests show that none runs.
+ */
+describe('settle — a deviation that names a task of its own batch', () => {
+  const OWN_TASK_VERSION = 70;
+  const NAMED_TASK = 'task-named';
+  const REASON = 'the migration cannot run on the store that the capsule assumes';
+  const MATERIAL = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
+  const CONTEXT = { deviationKind: 'missing-context', statement: 'the capsule did not name the port' };
+  const ACTOR = 'human:reviewer';
+  const RATIONALE = 'the assumption was wrong and the change is sound';
+
+  type Answer = 'accepted' | 'rejected';
+
+  beforeEach(async () => {
+    const capsule = withMaterialEnvelope(capsuleWithTask(NAMED_TASK, OWN_TASK_VERSION));
+    await seedPrepared({
+      ...capsule,
+      settlementContract: { ...capsule.settlementContract, requiredResults: [NAMED_TASK, 'task-verify'] },
+    });
+    await seedPlan([...PLAN, { id: NAMED_TASK, title: 'the named work', status: 'pending' }]);
+    await seedPassingStaticAnalysis(NAMED_TASK);
+  });
+
+  function blocked(): Record<string, unknown> {
+    return { taskId: NAMED_TASK, status: 'blocked', reason: REASON };
+  }
+
+  function namedClaim(): Record<string, unknown> {
+    return { taskId: NAMED_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  }
+
+  function batch(batchId: string, claims: readonly unknown[]): Record<string, unknown> {
+    return { featureId: STREAM, capsuleVersion: OWN_TASK_VERSION, batchId, claims };
+  }
+
+  function heldArgs(batchId: string, deviation: Record<string, unknown>): Record<string, unknown> {
+    return {
+      ...batch(batchId, [passingClaim(), blocked()]),
+      deviations: [{ ...deviation, affectedTasks: [NAMED_TASK] }],
+    };
+  }
+
+  function decisionArgs(batchId: string, held: SettlementReceipt, decision: Answer): Record<string, unknown> {
+    return {
+      featureId: STREAM,
+      capsuleVersion: OWN_TASK_VERSION,
+      batchId,
+      decisions: (held.pendingDeviations ?? []).map((pending) => ({
+        deviationId: pending.deviationId,
+        decision,
+        actor: ACTOR,
+        rationale: RATIONALE,
+      })),
+    };
+  }
+
+  async function hold(batchId: string, deviation: Record<string, unknown>): Promise<SettlementReceipt> {
+    const held = receiptOf(await settle(heldArgs(batchId, deviation)));
+    expect(held.outcome).toBe('deviation-pending');
+    return held;
+  }
+
+  function findingsOf(receipt: SettlementReceipt): string[][] {
+    return receipt.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  function tracesOf(receipt: SettlementReceipt): string[][] {
+    return (receipt.verification ?? []).map((trace) => [trace.taskId, trace.outcome]);
+  }
+
+  async function completedTasks(): Promise<unknown[]> {
+    return (await completionRows()).map((row) => row.data.taskId);
+  }
+
+  /**
+   * The first round. The deviation gets no finding about the task that it names, so it waits for its decision.
+   * The hold decides the outcome: nothing is verified, and the receipt names no unresolved task.
+   * The proposal row and the receipt name the task, and the bundle holds the blocked claim.
+   */
+  it('Settle_ABlockedClaimNamedByItsOwnDeviation_HoldsTheBatchAndVerifiesNothing', async () => {
+    const held = await hold('batch-own-task-held', MATERIAL);
+    expect(findingsOf(held)).toEqual([
+      ['task-blocked', NAMED_TASK, 'claims[1]'],
+      ['deviation-awaiting-approval', 'invalidated-assumption', 'deviations[0].deviationKind'],
+    ]);
+    expect(held.round).toBe(0);
+    expect(held.acceptedTasks).toEqual(['task-verify']);
+    expect(held).not.toHaveProperty('unresolved');
+    expect(held).not.toHaveProperty('designRevision');
+    expect(held.verification).toEqual([]);
+    expect(held.pendingDeviations).toHaveLength(1);
+    expect(held.pendingDeviations?.[0]).toMatchObject({ ...MATERIAL, affectedTasks: [NAMED_TASK] });
+
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+    expect(await completedTasks()).toEqual([]);
+    expect(await rowsOf('design.revised')).toEqual([]);
+    const proposals = (await rowsOf('deviation.proposed')).map((row) => DeviationProposedData.parse(row.data));
+    expect(proposals.map((row) => [row.deviationId, row.affectedTasks])).toEqual([
+      [held.pendingDeviations?.[0]?.deviationId, [NAMED_TASK]],
+    ]);
+    expect((await bundleOf(held)).claims).toStrictEqual([
+      { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+      { taskId: NAMED_TASK, status: 'blocked', reason: REASON, fields: {}, evidence: [] },
+    ]);
+  });
+
+  /**
+   * The denominator of the hold. The same deviation beside a completed claim for the named task refuses the batch.
+   * A blocked claim for a task that the stream shows complete gets the recorded completion, and its deviation
+   * names a finished task. Neither batch is held, and neither leaves a proposal row.
+   */
+  it('Settle_ADeviationThatNamesItsOwnTask_IsRefusedWhenTheClaimIsCompletedOrTheTaskIsFinished', async () => {
+    const claimed = receiptOf(
+      await settle({
+        ...batch('batch-own-task-completed', [passingClaim(), namedClaim()]),
+        deviations: [{ ...MATERIAL, affectedTasks: [NAMED_TASK] }],
+      }),
+    );
+    expect(claimed.outcome).toBe('rejected');
+    expect(findingsOf(claimed)).toEqual([
+      ['deviation-names-claimed-task', NAMED_TASK, 'deviations[0].affectedTasks[0]'],
+    ]);
+    expect(claimed.findings[0]?.message).toContain('this batch claims that task as completed');
+    expect(claimed.pendingDeviations).toBeUndefined();
+
+    await store.append(STREAM, { type: 'task.completed', data: { taskId: NAMED_TASK, verified: false } });
+    const finished = receiptOf(await settle(heldArgs('batch-own-task-finished', MATERIAL)));
+    expect(finished.outcome).toBe('rejected');
+    expect(findingsOf(finished)).toEqual([
+      ['deviation-names-finished-task', NAMED_TASK, 'deviations[0].affectedTasks[0]'],
+    ]);
+    expect(finished.pendingDeviations).toBeUndefined();
+
+    expect(await rowsOf('deviation.proposed')).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+  });
+
+  /**
+   * The decision accepts a material deviation. The round records one revision that names the blocked task.
+   * It verifies the completed claim and records that task complete. The blocked task stays unresolved,
+   * so the batch needs a correction, and the receipt carries the revision. No segment runs for the blocked task.
+   */
+  it('Settle_AnAcceptedMaterialDeviationThatNamesItsOwnBlockedTask_RevisesTheDesignAndNeedsACorrection', async () => {
+    const held = await hold('batch-own-task-material', MATERIAL);
+    const deviationId = held.pendingDeviations?.[0]?.deviationId;
+
+    const decided = receiptOf(await settle(decisionArgs('batch-own-task-material', held, 'accepted')));
+    expect(decided.outcome).toBe('corrective-capsule');
+    expect(decided.round).toBe(1);
+    expect(findingsOf(decided)).toEqual([['task-blocked', NAMED_TASK, 'claims[1]']]);
+    expect(decided.acceptedTasks).toEqual(['task-verify']);
+    expect(decided.unresolved).toStrictEqual([{ taskId: NAMED_TASK, cause: 'task-blocked' }]);
+    expect(decided.adjudicated).toMatchObject({ claims: 2, requiredResults: 2, verification: 1, decisions: 1 });
+    expect(tracesOf(decided)).toEqual([['task-verify', 'verified']]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    expect(await completedTasks()).toEqual(['task-verify']);
+
+    expect(decided.designRevision).toStrictEqual({
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: [deviationId],
+    });
+    const rows = await revisions();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.data).toMatchObject({
+      operationId: decided.operationId,
+      batchId: 'batch-own-task-material',
+      capsuleVersion: OWN_TASK_VERSION,
+      priorDesignVersion: 1,
+      nextDesignVersion: 2,
+      deviationIds: [deviationId],
+      affectedTasks: [NAMED_TASK],
+    });
+
+    const records = await rowsOf('execution.settled');
+    expect(
+      records.map((row) => ExecutionSettledData.parse(row.data)).map((record) => [
+        record.outcome,
+        record.round,
+        record.unresolvedTasks,
+      ]),
+    ).toEqual([
+      ['deviation-pending', undefined, undefined],
+      ['corrective-capsule', 1, [{ taskId: NAMED_TASK, cause: 'task-blocked' }]],
+    ]);
+    expect(records[1]?.sequence).toBe((rows[0]?.sequence ?? Number.NaN) + 1);
+    expect(decided.tailSequence).toBe(records[1]?.sequence);
+  });
+
+  /**
+   * The revision names the blocked task after the capsule of the batch, so that capsule holds the earlier terms.
+   * A later batch on it needs a recompile when it claims the task or reports the task again.
+   * It also needs one when it leaves the task out. Nothing is verified in the three batches, and the task has no completion.
+   */
+  it('Settle_ALaterBatchOnTheCapsuleOfAnOwnTaskRevision_NeedsARecompileWhetherItClaimsTheTaskOrNot', async () => {
+    const held = await hold('batch-own-task-revising', MATERIAL);
+    const decided = receiptOf(await settle(decisionArgs('batch-own-task-revising', held, 'accepted')));
+    expect(decided.designRevision).toMatchObject({ nextDesignVersion: 2 });
+    const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).length;
+    expect(segments).toBe(1);
+
+    const later: readonly (readonly [string, readonly unknown[], string])[] = [
+      ['batch-later-claims-the-task', [namedClaim()], 'claims[0].taskId'],
+      ['batch-later-reports-the-task', [blocked()], 'claims[0].taskId'],
+      ['batch-later-omits-the-task', [passingClaim()], 'claims'],
+    ];
+    for (const [batchId, claims, at] of later) {
+      const receipt = receiptOf(await settle(batch(batchId, claims)));
+      expect(receipt.outcome, batchId).toBe('recompile-required');
+      expect(findingsOf(receipt), batchId).toEqual([['claim-superseded-by-revision', NAMED_TASK, at]]);
+      expect(receipt.findings[0]?.message, batchId).toContain('design version 2');
+      expect(receipt.findings[0]?.message, batchId).toContain('prepare again');
+      expect(receipt.verification, batchId).toEqual([]);
+      expect(receipt, batchId).not.toHaveProperty('unresolved');
+      expect(receipt, batchId).not.toHaveProperty('designRevision');
+    }
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(segments);
+    expect(await completedTasks()).toEqual(['task-verify']);
+    expect(await revisions()).toHaveLength(1);
+  });
+
+  /**
+   * The kind of the deviation is not material, so the accepted decision revises nothing.
+   * The blocked task is unresolved, and the receipt carries no revision. No revision names the task,
+   * so a correction on the same capsule claims the task as completed and settles.
+   */
+  it('Settle_AnAcceptedDeviationThatIsNotMaterialAndNamesItsOwnBlockedTask_IsCorrectedUnderTheSameCapsule', async () => {
+    const held = await hold('batch-own-task-context', CONTEXT);
+    const decided = receiptOf(await settle(decisionArgs('batch-own-task-context', held, 'accepted')));
+    expect(decided.outcome).toBe('corrective-capsule');
+    expect(findingsOf(decided)).toEqual([['task-blocked', NAMED_TASK, 'claims[1]']]);
+    expect(decided.acceptedTasks).toEqual(['task-verify']);
+    expect(decided.unresolved).toStrictEqual([{ taskId: NAMED_TASK, cause: 'task-blocked' }]);
+    expect(decided.adjudicated.decisions).toBe(1);
+    expect(decided).not.toHaveProperty('designRevision');
+    expect(await rowsOf('deviation.decided')).toHaveLength(1);
+    expect(await rowsOf('design.revised')).toEqual([]);
+    expect(await completedTasks()).toEqual(['task-verify']);
+
+    const corrected = receiptOf(await settle(batch('batch-own-task-context-correction', [namedClaim()])));
+    expect(corrected.outcome).toBe('settled');
+    expect(corrected.findings).toEqual([]);
+    expect(corrected.capsule.capsuleVersion).toBe(OWN_TASK_VERSION);
+    expect(corrected).not.toHaveProperty('unresolved');
+    expect(tracesOf(corrected)).toEqual([
+      ['task-verify', 'already-complete'],
+      [NAMED_TASK, 'verified'],
+    ]);
+    expect(await completedTasks()).toEqual(['task-verify', NAMED_TASK]);
+    expect(await rowsOf('design.revised')).toEqual([]);
+  });
+
+  /**
+   * The decision refuses the deviation, so the batch is rejected. Nothing is verified: the completed claim
+   * has no segment and no completion, and the receipt names no unresolved task. The kind is material,
+   * and a refused deviation revises nothing.
+   */
+  it('Settle_ARejectedDeviationThatNamesItsOwnBlockedTask_RejectsTheBatchAndVerifiesNothing', async () => {
+    const held = await hold('batch-own-task-refused', MATERIAL);
+    const decided = receiptOf(await settle(decisionArgs('batch-own-task-refused', held, 'rejected')));
+    expect(decided.outcome).toBe('rejected');
+    expect(decided.round).toBe(1);
+    expect(decided.findings.map((finding) => finding.kind)).toEqual(['task-blocked', 'deviation-rejected']);
+    expect(decided).not.toHaveProperty('unresolved');
+    expect(decided).not.toHaveProperty('designRevision');
+    expect(decided.verification).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+    expect(await completedTasks()).toEqual([]);
+    expect(await rowsOf('design.revised')).toEqual([]);
+    expect((await rowsOf('deviation.decided')).map((row) => DeviationDecidedData.parse(row.data).decision)).toEqual([
+      'rejected',
+    ]);
+    expect((await settledRows()).map((row) => [row.data.outcome, row.data.round])).toEqual([
+      ['deviation-pending', undefined],
+      ['rejected', 1],
+    ]);
+  });
+
+  /**
+   * Each round has its own claim. A retry of the held call returns the held receipt, before the decision
+   * and after it. A retry of the decision returns the decided receipt with the same revision.
+   * No retry appends a row, runs a segment or puts a blob in custody.
+   */
+  it('Settle_ARetryOfEitherRoundOfAnOwnTaskDeviation_ReturnsItsReceiptAndAppendsNothing', async () => {
+    const submission = heldArgs('batch-own-task-replayed', MATERIAL);
+    const held = receiptOf(await settle(submission));
+    expect(held.outcome).toBe('deviation-pending');
+    const heldTail = (await store.query(STREAM)).length;
+    expect(receiptOf(await settle(submission))).toEqual(held);
+    expect(await store.query(STREAM)).toHaveLength(heldTail);
+
+    const decision = decisionArgs('batch-own-task-replayed', held, 'accepted');
+    const decided = receiptOf(await settle(decision));
+    expect(decided.outcome).toBe('corrective-capsule');
+    expect(decided.designRevision).toMatchObject({ priorDesignVersion: 1, nextDesignVersion: 2 });
+    const tail = (await store.query(STREAM)).length;
+    const blobs = await bundleBlobCount();
+    expect(tail).toBeGreaterThan(heldTail);
+
+    expect(receiptOf(await settle(decision))).toEqual(decided);
+    expect(receiptOf(await settle(submission))).toEqual(held);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+    expect(await rowsOf('design.revised')).toHaveLength(1);
+    expect(await rowsOf('deviation.decided')).toHaveLength(1);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    expect(await completedTasks()).toEqual(['task-verify']);
+  });
+});
+
+/**
+ * A completed claim can record a choice under a decision that the capsule delegates. The batch is
+ * then accepted with rationale when it has no finding. The record names each choice, and the
+ * bundle keeps the statement. A rationale grants nothing: the gates of the task do not change.
+ *
+ * The capsule of these tests requires `task-verify` and a second task, and it delegates the
+ * decisions that prepare compiles. The gate of `task-verify` is seeded, and a test seeds the gate
+ * of the second task when the segment of that task must commit.
+ */
+describe('settle — a claim that records a delegated choice', () => {
+  const RATIONALE_VERSION = 80;
+  const SECOND_TASK = 'task-second';
+  const CHOICE = {
+    delegatedDecision: 'implementation-approach',
+    statement: 'a table drives the parser, because the grammar has no recursion',
+  };
+  const ORDER_CHOICE = { delegatedDecision: 'execution-order', statement: 'the two tasks ran in sequence' };
+  const OUTSIDE_CHOICE = { delegatedDecision: 'published-contract-change', statement: 'the event gained a field' };
+  const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
+  const ACTOR = 'human:reviewer';
+
+  async function prepareDelegatingCapsule(): Promise<void> {
+    const capsule = withBuiltInDelegatedDecisions(capsuleWithTask(SECOND_TASK, RATIONALE_VERSION));
+    await seedPrepared({
+      ...capsule,
+      settlementContract: { ...capsule.settlementContract, requiredResults: [SECOND_TASK, 'task-verify'] },
+    });
+  }
+
+  beforeEach(prepareDelegatingCapsule);
+
+  function secondClaim(): Record<string, unknown> {
+    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  }
+
+  function choosing(claim: Record<string, unknown>, ...rationale: unknown[]): Record<string, unknown> {
+    return { ...claim, rationale };
+  }
+
+  function batch(batchId: string, claims: readonly unknown[]): Record<string, unknown> {
+    return { featureId: STREAM, capsuleVersion: RATIONALE_VERSION, batchId, claims };
+  }
+
+  function findingsOf(receipt: SettlementReceipt): string[][] {
+    return receipt.findings.map((finding) => [finding.kind, finding.subject, finding.at]);
+  }
+
+  function tracesOf(receipt: SettlementReceipt): string[][] {
+    return (receipt.verification ?? []).map((trace) => [trace.taskId, trace.outcome]);
+  }
+
+  async function records(): Promise<ReturnType<typeof ExecutionSettledData.parse>[]> {
+    return (await settledRows()).map((row) => ExecutionSettledData.parse(row.data));
+  }
+
+  /**
+   * The denominator of the positive cases. The ids are the ones that prepare compiles today, and
+   * each delegated decision of the capsule has one. The id of the refused choice is an escalation
+   * boundary of the same authority, and not a delegated decision.
+   */
+  it('Settle_TheDelegatedDecisionsOfTheCapsule_AreTheTwoThatPrepareCompiles', () => {
+    const authority = builtInWorkflowAuthority();
+    expect(authority.delegatedDecisions.map((decision) => decision.id)).toEqual([CHOICE.delegatedDecision, ORDER_CHOICE.delegatedDecision]);
+    expect(authority.escalationBoundaries.map((boundary) => boundary.id)).toContain(OUTSIDE_CHOICE.delegatedDecision);
+    expect(baseValidCapsule().authority.delegatedDecisions.map((decision) => decision.id)).toEqual([undefined]);
+  });
+
+  /**
+   * Both tasks pass their gates, and both claims record a choice. The batch has no finding, so it
+   * is accepted with rationale. The receipt has the fields of a settled receipt and no other.
+   *
+   * The record names each choice as the task and the id of the decision, sorted, and it holds no
+   * statement. The bundle keeps each claim whole, with the statement of each choice. A retry
+   * returns the same receipt, and it appends no row and stores no blob.
+   */
+  it('Settle_ABatchWithNoFindingAndARecordedChoice_IsAcceptedWithRationale', async () => {
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const args = batch('batch-rationale', [choosing(passingClaim(), CHOICE), choosing(secondClaim(), ORDER_CHOICE, CHOICE)]);
+    const receipt = receiptOf(await settle(args));
+    expect(receipt.outcome).toBe('accepted-with-rationale');
+    expect(receipt.findings).toEqual([]);
+    expect(receipt.acceptedTasks).toEqual([SECOND_TASK, 'task-verify']);
+    expect(tracesOf(receipt)).toEqual([
+      [SECOND_TASK, 'verified'],
+      ['task-verify', 'verified'],
+    ]);
+    expect(receipt.adjudicated).toMatchObject({ claims: 2, requiredResults: 2, verification: 2 });
+    expect(Object.keys(receipt).sort()).toEqual(
+      [
+        'acceptedTasks',
+        'adjudicated',
+        'bundleRefs',
+        'capsule',
+        'findings',
+        'operationId',
+        'outcome',
+        'requestDigest',
+        'round',
+        'streamId',
+        'tailSequence',
+        'verification',
+      ].sort(),
+    );
+    expect((await completionRows()).map((row) => row.data.taskId).sort()).toEqual([SECOND_TASK, 'task-verify']);
+
+    const rows = await records();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.outcome).toBe('accepted-with-rationale');
+    expect(rows[0]?.acceptedTasks).toEqual([SECOND_TASK, 'task-verify']);
+    expect(rows[0]?.rationales).toStrictEqual([
+      { taskId: SECOND_TASK, delegatedDecision: 'execution-order' },
+      { taskId: SECOND_TASK, delegatedDecision: 'implementation-approach' },
+      { taskId: 'task-verify', delegatedDecision: 'implementation-approach' },
+    ]);
+    expect(rows[0]).not.toHaveProperty('unresolvedTasks');
+    expect(rows[0]?.findingCounts).toEqual([]);
+    const rowText = JSON.stringify((await settledRows())[0]?.data);
+    expect(rowText).not.toContain(CHOICE.statement);
+    expect(rowText).not.toContain(ORDER_CHOICE.statement);
+
+    const bundle = await bundleOf(receipt);
+    expect(bundle.outcome).toBe('accepted-with-rationale');
+    expect(bundle.claims).toStrictEqual([
+      { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [], rationale: [CHOICE] },
+      { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [], rationale: [ORDER_CHOICE, CHOICE] },
+    ]);
+
+    const tail = (await store.query(STREAM)).length;
+    const blobs = await bundleBlobCount();
+    expect(receiptOf(await settle(args))).toEqual(receipt);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(2);
+  });
+
+  /**
+   * A rationale grants nothing. The batch runs twice, each time on a new store with the same seed.
+   * The first run has no rationale, and the second has a choice on each claim. The first run
+   * settles, and the second is accepted with rationale.
+   *
+   * The verification of each task is the same in both runs. The segment has the same operation,
+   * the same request digest over its arguments, the same steering and the same leaves with the
+   * same results. The gate rows and the completion facts are the same too.
+   */
+  it('Settle_ABatchWithARationaleAndTheSameBatchWithoutIt_RunTheSameGates', async () => {
+    const observe = async (claims: readonly unknown[]): Promise<Record<string, unknown>> => {
+      await seedPassingStaticAnalysis(SECOND_TASK);
+      const receipt = receiptOf(await settle(batch('batch-same-gates', claims)));
+      const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
+      const gates = (await rowsOf('gate.executed')).map((row) => row.data as { gateName?: unknown; passed?: unknown });
+      return {
+        outcome: receipt.outcome,
+        operationId: receipt.operationId,
+        acceptedTasks: receipt.acceptedTasks,
+        findings: receipt.findings,
+        adjudicated: receipt.adjudicated,
+        traces: (receipt.verification ?? []).map((trace) => [trace.taskId, trace.outcome, trace.operationId]),
+        segments: segments.map((segment) => ({
+          operationId: segment.operationId,
+          intent: segment.intent,
+          outcome: segment.outcome,
+          requestDigest: segment.requestDigest,
+          steering: segment.steering,
+          leaves: segment.leaves.map((leaf) => [leaf.action, leaf.status, leaf.sequences.length]),
+        })),
+        gates: gates.map((gate) => [gate.gateName, gate.passed]),
+        completions: (await completionRows()).map((row) => row.data),
+      };
+    };
+
+    const plain = await observe([passingClaim(), secondClaim()]);
+    await closeStore();
+    await openSeededStore();
+    await prepareDelegatingCapsule();
+    const chosen = await observe([choosing(passingClaim(), CHOICE), choosing(secondClaim(), ORDER_CHOICE)]);
+
+    expect(plain.outcome).toBe('settled');
+    expect(chosen.outcome).toBe('accepted-with-rationale');
+    expect(plain.segments).toHaveLength(2);
+    expect((plain.segments as { leaves: unknown[] }[]).map((segment) => segment.leaves)).toEqual([
+      [
+        ['check_mock_boundary', 'passed', expect.any(Number)],
+        ['task_complete', 'passed', expect.any(Number)],
+      ],
+      [
+        ['check_mock_boundary', 'passed', expect.any(Number)],
+        ['task_complete', 'passed', expect.any(Number)],
+      ],
+    ]);
+    expect(plain.completions).toHaveLength(2);
+    expect({ ...chosen, outcome: plain.outcome }).toEqual(plain);
+  });
+
+  /**
+   * The second task has no seeded gate, so its completion leaf refuses and its segment halts.
+   * Its claim records a choice, and the choice does not complete the task. The batch needs a
+   * correction, and the task that passed is complete.
+   *
+   * The record names the choice of the task that passed, and not that of the unresolved task.
+   * The bundle keeps both. The correction claims the unresolved task after its gate passes. Its
+   * record names the choice of that task alone.
+   */
+  it('Settle_ARationaleOnATaskWhoseVerificationFails_DoesNotCompleteTheTask', async () => {
+    const receipt = receiptOf(
+      await settle(batch('batch-rationale-halt', [choosing(passingClaim(), CHOICE), choosing(secondClaim(), ORDER_CHOICE)])),
+    );
+    expect(receipt.outcome).toBe('corrective-capsule');
+    expect(findingsOf(receipt)).toEqual([['verification-failed', SECOND_TASK, 'claims[1]']]);
+    expect(receipt.acceptedTasks).toEqual(['task-verify']);
+    expect(receipt.unresolved?.map((task) => [task.taskId, task.cause, task.failedLeaf])).toEqual([
+      [SECOND_TASK, 'verification-failed', 'task_complete'],
+    ]);
+    expect(tracesOf(receipt)).toEqual([
+      [SECOND_TASK, 'failed'],
+      ['task-verify', 'verified'],
+    ]);
+    expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify']);
+
+    const [first] = await records();
+    expect(first?.outcome).toBe('corrective-capsule');
+    expect(first?.unresolvedTasks).toStrictEqual([{ taskId: SECOND_TASK, cause: 'verification-failed' }]);
+    expect(first?.rationales).toStrictEqual([{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]);
+    expect((await bundleOf(receipt)).claims.map((claim) => claim.rationale)).toStrictEqual([[CHOICE], [ORDER_CHOICE]]);
+
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const corrected = receiptOf(await settle(batch('batch-rationale-halt:correction', [choosing(secondClaim(), ORDER_CHOICE)])));
+    expect(corrected.outcome).toBe('accepted-with-rationale');
+    expect(tracesOf(corrected)).toEqual([
+      ['task-verify', 'already-complete'],
+      [SECOND_TASK, 'verified'],
+    ]);
+    expect((await records())[1]?.rationales).toStrictEqual([{ taskId: SECOND_TASK, delegatedDecision: 'execution-order' }]);
+    expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify', SECOND_TASK]);
+  });
+
+  /**
+   * One claim records a choice and the other reports its task as blocked. The blocked task
+   * decides the outcome, and the choice of the task that passed is still on the record.
+   * A correction with no rationale then settles, because its batch records no choice.
+   */
+  it('Settle_ARationaleBesideABlockedTask_NeedsACorrectionAndTheRecordStillNamesTheChoice', async () => {
+    const receipt = receiptOf(
+      await settle(
+        batch('batch-rationale-blocked', [
+          choosing(passingClaim(), CHOICE),
+          { taskId: SECOND_TASK, status: 'blocked', reason: 'the schema migration is not merged' },
+        ]),
+      ),
+    );
+    expect(receipt.outcome).toBe('corrective-capsule');
+    expect(receipt.acceptedTasks).toEqual(['task-verify']);
+    expect(receipt.unresolved).toStrictEqual([{ taskId: SECOND_TASK, cause: 'task-blocked' }]);
+    expect((await records())[0]?.rationales).toStrictEqual([
+      { taskId: 'task-verify', delegatedDecision: 'implementation-approach' },
+    ]);
+
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const corrected = receiptOf(await settle(batch('batch-rationale-blocked:correction', [secondClaim()])));
+    expect(corrected.outcome).toBe('settled');
+    expect((await records())[1]).not.toHaveProperty('rationales');
+  });
+
+  /**
+   * The choice names an escalation boundary of the capsule, which is not a delegated decision.
+   * The batch is rejected with one finding that has the id as its subject. Nothing is verified,
+   * no task completes, and the record names no choice. The bundle keeps the claim as it came.
+   *
+   * The base capsule gives no id to its delegated decision, so it admits no rationale at all.
+   * A new batch that names a delegated decision is accepted with rationale.
+   */
+  it('Settle_ARationaleThatNamesADecisionTheCapsuleDoesNotDelegate_RejectsTheBatchAndVerifiesNothing', async () => {
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const receipt = receiptOf(
+      await settle(batch('batch-not-delegated', [choosing(passingClaim(), CHOICE, OUTSIDE_CHOICE), secondClaim()])),
+    );
+    expect(receipt.outcome).toBe('rejected');
+    expect(findingsOf(receipt)).toEqual([
+      ['rationale-not-delegated', 'published-contract-change', 'claims[0].rationale[1].delegatedDecision'],
+    ]);
+    expect(receipt.findings[0]?.message).toContain('"execution-order", "implementation-approach"');
+    expect(receipt.acceptedTasks).toEqual([SECOND_TASK]);
+    expect(receipt.verification).toEqual([]);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+    expect(await completionRows()).toEqual([]);
+
+    const [row] = await records();
+    expect(row?.outcome).toBe('rejected');
+    expect(row?.findingCounts).toEqual([{ kind: 'rationale-not-delegated', count: 1 }]);
+    expect(row).not.toHaveProperty('rationales');
+    expect((await bundleOf(receipt)).claims[0]?.rationale).toStrictEqual([CHOICE, OUTSIDE_CHOICE]);
+
+    const onTheBaseCapsule = receiptOf(
+      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-no-ids', claims: [choosing(passingClaim(), CHOICE)] }),
+    );
+    expect(onTheBaseCapsule.outcome).toBe('rejected');
+    expect(findingsOf(onTheBaseCapsule)).toEqual([
+      ['rationale-not-delegated', 'implementation-approach', 'claims[0].rationale[0].delegatedDecision'],
+    ]);
+    expect(onTheBaseCapsule.findings[0]?.message).toContain('It gives no id to a delegated decision');
+    expect(await completionRows()).toEqual([]);
+
+    const corrected = receiptOf(
+      await settle(batch('batch-not-delegated:correction', [choosing(passingClaim(), CHOICE), secondClaim()])),
+    );
+    expect(corrected.outcome).toBe('accepted-with-rationale');
+  });
+
+  /**
+   * The outcome of a rationale is one that reached verification, so its replay levels the state
+   * document. The document goes stale after the first call. The retry returns the same receipt,
+   * appends nothing, runs no segment again, and writes both tasks as complete.
+   */
+  it('Settle_AReplayOfABatchAcceptedWithRationale_ReturnsItsReceiptAndBringsTheDocumentLevel', async () => {
+    expect(outcomeVerifies('accepted-with-rationale')).toBe(true);
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const inProgress = [
+      { id: 'task-verify', title: 'verify', status: 'in_progress' },
+      { id: SECOND_TASK, title: 'second', status: 'in_progress' },
+    ];
+    await initStateFile(stateDir, STREAM, 'feature', { tasks: inProgress });
+    const stateFile = path.join(stateDir, `${STREAM}.state.json`);
+    const statuses = async (): Promise<string[][]> =>
+      ((await readStateFile(stateFile)).tasks as { id: string; status: string }[]).map((task) => [task.id, task.status]);
+
+    const args = batch('batch-rationale-replay', [choosing(passingClaim(), CHOICE), secondClaim()]);
+    const first = receiptOf(await settle(args));
+    expect(first.outcome).toBe('accepted-with-rationale');
+    expect(await statuses()).toEqual([
+      ['task-verify', 'complete'],
+      [SECOND_TASK, 'complete'],
+    ]);
+
+    await writeFile(stateFile, JSON.stringify({ ...(await readStateFile(stateFile)), tasks: inProgress }), 'utf-8');
+    expect((await statuses()).map(([, status]) => status)).toEqual(['in_progress', 'in_progress']);
+    const tail = (await store.query(STREAM)).length;
+    const blobs = await bundleBlobCount();
+
+    const again = receiptOf(await settle(args));
+    expect(again).toEqual(first);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(2);
+    expect(await records()).toHaveLength(1);
+    expect(await statuses()).toEqual([
+      ['task-verify', 'complete'],
+      [SECOND_TASK, 'complete'],
+    ]);
+  });
+
+  /**
+   * The held round verifies nothing, so its record names no choice, and its bundle keeps the
+   * claim with the choice. The decision round reads the claim back with its rationale.
+   * An accepted decision verifies the batch, and the batch is accepted with rationale.
+   * A rejected decision refuses a second batch, and the record of that round names no choice.
+   */
+  it('Settle_AHeldBatchWithARecordedChoice_IsAcceptedWithRationaleByTheDecisionThatAcceptsIt', async () => {
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const claims = [choosing(passingClaim(), CHOICE), secondClaim()];
+    const deciding = (batchId: string, held: SettlementReceipt, decision: string): Record<string, unknown> => ({
+      featureId: STREAM,
+      capsuleVersion: RATIONALE_VERSION,
+      batchId,
+      decisions: (held.pendingDeviations ?? []).map((pending) => ({
+        deviationId: pending.deviationId,
+        decision,
+        actor: ACTOR,
+        rationale: 'the decision of the reviewer',
+      })),
+    });
+
+    const refusedHeld = receiptOf(await settle({ ...batch('batch-held-refused', claims), deviations: [DEVIATION] }));
+    expect(refusedHeld.outcome).toBe('deviation-pending');
+    const refused = receiptOf(await settle(deciding('batch-held-refused', refusedHeld, 'rejected')));
+    expect(refused.outcome).toBe('rejected');
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toEqual([]);
+
+    const held = receiptOf(await settle({ ...batch('batch-held-choice', claims), deviations: [DEVIATION] }));
+    expect(held.outcome).toBe('deviation-pending');
+    expect(held.acceptedTasks).toEqual([SECOND_TASK, 'task-verify']);
+    expect(held.verification).toEqual([]);
+    expect((await bundleOf(held)).claims[0]?.rationale).toStrictEqual([CHOICE]);
+
+    const decided = receiptOf(await settle(deciding('batch-held-choice', held, 'accepted')));
+    expect(decided.outcome).toBe('accepted-with-rationale');
+    expect(decided.round).toBe(1);
+    expect(decided.findings).toEqual([]);
+    expect(tracesOf(decided)).toEqual([
+      [SECOND_TASK, 'verified'],
+      ['task-verify', 'verified'],
+    ]);
+    expect((await bundleOf(decided)).claims).toStrictEqual((await bundleOf(held)).claims);
+
+    expect((await records()).map((record) => [record.batchId, record.outcome, record.round, record.rationales])).toStrictEqual([
+      ['batch-held-refused', 'deviation-pending', undefined, undefined],
+      ['batch-held-refused', 'rejected', 1, undefined],
+      ['batch-held-choice', 'deviation-pending', undefined, undefined],
+      ['batch-held-choice', 'accepted-with-rationale', 1, [{ taskId: 'task-verify', delegatedDecision: 'implementation-approach' }]],
+    ]);
+
+    const tail = (await store.query(STREAM)).length;
+    expect(receiptOf(await settle(deciding('batch-held-choice', held, 'accepted')))).toEqual(decided);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+  });
+
+  /**
+   * The rationale is part of the request when the claim carries one. A retry with the same
+   * rationale gets the first receipt. The same batch id with another statement, another decision,
+   * one more choice or no rationale is a different request, and it is refused.
+   *
+   * A batch that records no choice has the request digest of the same batch with an empty list.
+   */
+  it('Settle_TheRationaleOfAClaim_IsPartOfTheRequestOnlyWhenTheClaimCarriesOne', async () => {
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const first = receiptOf(await settle(batch('batch-rationale-request', [choosing(passingClaim(), CHOICE), secondClaim()])));
+    expect(first.outcome).toBe('accepted-with-rationale');
+    const retry = receiptOf(
+      await settle(batch('batch-rationale-request', [{ ...choosing(passingClaim(), { ...CHOICE }), status: 'completed' }, secondClaim()])),
+    );
+    expect(retry).toEqual(first);
+
+    const changes = [
+      choosing(passingClaim(), { ...CHOICE, statement: 'another statement' }),
+      choosing(passingClaim(), { ...CHOICE, delegatedDecision: 'execution-order' }),
+      choosing(passingClaim(), CHOICE, ORDER_CHOICE),
+      choosing(passingClaim()),
+      passingClaim(),
+    ];
+    for (const changed of changes) {
+      const result = await settle(batch('batch-rationale-request', [changed, secondClaim()]));
+      expect(result.success, JSON.stringify(changed)).toBe(false);
+      expect(result.error?.code).toBe('OPERATION_DIGEST_MISMATCH');
+    }
+    expect(await records()).toHaveLength(1);
+
+    const plain = receiptOf(await settle(batch('batch-no-rationale-request', [passingClaim(), secondClaim()])));
+    expect(plain.outcome).toBe('settled');
+    const spelledOut = receiptOf(
+      await settle(batch('batch-no-rationale-request', [choosing(passingClaim()), choosing(secondClaim())])),
+    );
+    expect(spelledOut).toEqual(plain);
+    expect(spelledOut.requestDigest).toBe(plain.requestDigest);
+    expect(await records()).toHaveLength(2);
+    expect((await records())[1]).not.toHaveProperty('rationales');
+  });
+
+  /**
+   * The rules of a rationale. A claim that breaks one makes the request invalid, and the call
+   * fails before any effect. It leaves no row, no blob and no claim on the batch id. The same
+   * batch id then takes a well-formed batch.
+   */
+  it('Settle_AClaimThatBreaksARationaleRule_IsRefusedAsInvalidInputBeforeAnyEffect', async () => {
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const tail = (await store.query(STREAM)).length;
+    const blobs = await bundleBlobCount();
+    const five = Array.from({ length: MAX_RATIONALE_ENTRIES_PER_CLAIM + 1 }, () => CHOICE);
+    const broken: [Record<string, unknown>, string][] = [
+      [{ ...secondClaim(), rationale: CHOICE }, 'claims[1].rationale must be an array of { delegatedDecision, statement }'],
+      [choosing(secondClaim(), ...five), 'claims[1].rationale holds 5 entries, and a claim records at most 4 delegated choices'],
+      [choosing(secondClaim(), 'implementation-approach'), 'claims[1].rationale[0] must be an object'],
+      [choosing(secondClaim(), { statement: CHOICE.statement }), 'claims[1].rationale[0].delegatedDecision is required'],
+      [
+        choosing(secondClaim(), CHOICE, { delegatedDecision: 'execution-order' }),
+        'claims[1].rationale[1].statement must be text of 1 to 280 characters',
+      ],
+      [
+        choosing(secondClaim(), { ...CHOICE, statement: 'x'.repeat(MAX_RATIONALE_STATEMENT_LENGTH + 1) }),
+        'claims[1].rationale[0].statement must be text of 1 to 280 characters',
+      ],
+      [
+        { taskId: SECOND_TASK, status: 'blocked', reason: 'the migration is not merged', rationale: [CHOICE] },
+        "claims[1] has the status 'blocked', so it carries no rationale",
+      ],
+      [
+        { taskId: SECOND_TASK, status: 'failed', reason: 'the build broke', rationale: [CHOICE] },
+        "claims[1] has the status 'failed', so it carries no rationale",
+      ],
+      [
+        { taskId: SECOND_TASK, status: 'skipped', reason: 'no time', rationale: [CHOICE] },
+        "claims[1] has the status 'skipped', so it carries no rationale",
+      ],
+    ];
+    for (const [claim, reason] of broken) {
+      const result = await settle(batch('batch-broken-rationale', [passingClaim(), claim]));
+      expect(result.success, JSON.stringify(claim)).toBe(false);
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(result.error?.message).toContain(reason);
+    }
+    expect(await store.query(STREAM)).toHaveLength(tail);
+    expect(await bundleBlobCount()).toBe(blobs);
+
+    const most = Array.from({ length: MAX_RATIONALE_ENTRIES_PER_CLAIM }, () => ({
+      ...CHOICE,
+      statement: 'x'.repeat(MAX_RATIONALE_STATEMENT_LENGTH),
+    }));
+    const wellFormed = receiptOf(
+      await settle(batch('batch-broken-rationale', [passingClaim(), choosing(secondClaim(), ...most)])),
+    );
+    expect(wellFormed.outcome).toBe('accepted-with-rationale');
+    expect((await records())[0]?.rationales).toStrictEqual([{ taskId: SECOND_TASK, delegatedDecision: 'implementation-approach' }]);
+  });
+
+  /**
+   * The registered schema is the one that dispatch parses before the handler runs. It admits a
+   * list of up to four choices on a claim, each with a statement of up to 280 characters. It
+   * refuses a fifth choice, a longer statement, an empty text, and an entry key that it does not
+   * declare. One description says where the rationale goes and what it names.
+   */
+  it('Settle_TheRegisteredSchema_AdmitsARationaleAndBoundsIt', () => {
+    const registered = settleActions.find((action) => action.name === 'settle');
+    if (registered === undefined) throw new Error('the settle action is not registered');
+    const admits = (claim: Record<string, unknown>): boolean =>
+      registered.schema.safeParse(batch('batch-schema', [claim])).success;
+    const longest = { ...CHOICE, statement: 'x'.repeat(MAX_RATIONALE_STATEMENT_LENGTH) };
+    const repeated = (count: number): unknown[] => Array.from({ length: count }, () => longest);
+
+    expect(admits(passingClaim())).toBe(true);
+    expect(admits(choosing(passingClaim()))).toBe(true);
+    expect(admits(choosing(passingClaim(), CHOICE, ORDER_CHOICE))).toBe(true);
+    expect(admits(choosing(passingClaim(), ...repeated(MAX_RATIONALE_ENTRIES_PER_CLAIM)))).toBe(true);
+
+    expect(admits(choosing(passingClaim(), ...repeated(MAX_RATIONALE_ENTRIES_PER_CLAIM + 1)))).toBe(false);
+    expect(admits(choosing(passingClaim(), { ...CHOICE, statement: `${longest.statement}x` }))).toBe(false);
+    expect(admits(choosing(passingClaim(), { ...CHOICE, statement: '' }))).toBe(false);
+    expect(admits(choosing(passingClaim(), { ...CHOICE, delegatedDecision: '' }))).toBe(false);
+    expect(admits(choosing(passingClaim(), { delegatedDecision: 'execution-order' }))).toBe(false);
+    expect(admits(choosing(passingClaim(), { ...CHOICE, grants: 'a waiver' }))).toBe(false);
+    expect(admits({ ...passingClaim(), rationale: CHOICE })).toBe(false);
+
+    const texts = descriptionsIn(zodToJsonSchema(registered.schema));
+    const rationaleTexts = texts.filter((text) => text.includes('`delegatedDecisions`'));
+    expect(rationaleTexts).toHaveLength(1);
+    expect(rationaleTexts[0]).toContain('Completed claims only');
+  });
+});
+
 /** Each `description` text of a JSON schema, at any depth. */
 function descriptionsIn(node: unknown, found: string[] = []): string[] {
   if (Array.isArray(node)) {
@@ -3647,6 +5089,10 @@ describe('settle — the text of the action', () => {
    * The earlier text said that the terms never come from current state, which hid the two reads.
    * A later text said that a claim that a revision names rejects the batch. That batch is stale,
    * not rejected, and a failed verification no longer rejects the tasks that passed.
+   *
+   * A third text said that a batch with no finding runs the segments, and that a halt needs a
+   * correction. A claim that reports its task as not completed is a finding, and the segments of
+   * the completed claims still run. Such a claim needs a correction too.
    */
   it('SettleAction_ItsDescription_SaysTheVerdictReadsTaskStandingAndLaterRevisions', () => {
     const { description } = settleAction();
@@ -3660,45 +5106,59 @@ describe('settle — the text of the action', () => {
       'a revision that names a claimed or unfinished required task gives `recompile-required`',
     );
     expect(description).toContain('prepare again');
-    expect(description).toContain('A halt gives `corrective-capsule`: tasks that pass are complete');
+    expect(description).not.toContain('A batch with no finding RUNS');
+    expect(description).not.toContain('A halt gives');
+    expect(description).toContain(
+      "A batch not stale, rejected or held RUNS each completed claim's task-completion segment",
+    );
+    expect(description).toContain(
+      'A halt or a claim not `completed` gives `corrective-capsule`: tasks that pass are complete',
+    );
     expect(description).toContain('Every verdict is a successful call');
   });
 
   /**
-   * The description of the action is at its budget, so the output schema states the meaning of
-   * each outcome and the call that follows it. An outcome that the list gains with no entry in
-   * the text fails here. The text is the one that `describe` returns for the action. It counts
-   * twice against the response budget of `describe`, which a test of the registry measures.
+   * The description of the action is at its budget, so the output schema states the call that
+   * follows each outcome. An outcome that the list gains with no entry in the text fails here.
+   * The text is the one that `describe` returns for the action. It counts twice against the
+   * response budget of `describe`, which a test of the registry measures. The text is short for
+   * that reason, and the delegate skill gives the meaning of each outcome in full.
    *
    * The text names three outcomes by their position after one sentence, so the entries after that
-   * sentence must be those three.
+   * sentence must be those three. The same sentence says what `acceptedTasks` lists under them.
+   * A claim that reports its task as not completed is not in that list, and it has no shape fault.
+   * The entry of the outcome that a rationale gives does not say that no batch gets it.
    */
   it('SettleAction_ItsOutputSchema_StatesEachOutcomeAndTheCallThatFollows', () => {
     const guides = descriptionsIn(zodToJsonSchema(settleAction().outputSchema)).filter((text) =>
-      text.startsWith('How the batch stands'),
+      text.includes('`settled`: '),
     );
     expect(guides).toHaveLength(1);
     const guide = guides[0] ?? '';
     expect(SETTLEMENT_OUTCOMES).toHaveLength(6);
     for (const outcome of SETTLEMENT_OUTCOMES) {
-      expect(guide, `the text states no meaning for ${outcome}`).toContain(`\`${outcome}\`: `);
+      expect(guide, `the text states no entry for ${outcome}`).toContain(`\`${outcome}\`: `);
     }
-    expect(guide).toContain('Settle the corrected request under a new batchId');
-    expect(guide).toContain('Settle the same batchId with `decisions` and no claims');
-    expect(guide).toContain('Settle a new batchId on the same capsule that claims only the `unresolved` tasks');
-    expect(guide).toContain('If the receipt has `designRevision`, prepare first');
-    expect(guide).toContain('Prepare again, then settle under the new capsule');
-    expect(guide).toContain('No outcome compiles a capsule');
+    expect(guide).toContain('`settled`: each required task is complete');
+    expect(guide).toContain('`accepted-with-rationale`: `settled`, and a claim records a delegated choice');
+    expect(guide).not.toContain('not returned');
+    expect(guide).toContain('`corrective-capsule`: the tasks that passed are complete');
+    expect(guide).toContain('Settle a new batchId on the same capsule with only the `unresolved` tasks');
+    expect(guide).toContain('With a `designRevision`, prepare first');
+    expect(guide).toContain('`rejected`: settle the correction under a new batchId');
+    expect(guide).toContain('`deviation-pending`: settle the same batchId with `decisions` only');
+    expect(guide).toContain('`recompile-required`: prepare, then settle under the new capsule');
 
-    const unverified =
-      'Under each of the next three outcomes this build verifies nothing, and `acceptedTasks` ' +
-      'lists tasks whose claims have no shape fault. ';
+    expect(guide).not.toContain('no shape fault');
+    const unverified = 'The next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
     const [verifiedPart, unverifiedPart, ...rest] = guide.split(unverified);
     expect(rest).toEqual([]);
-    const entriesIn = (part: string | undefined): string[] =>
+    const entriesIn = (part: string | undefined): SettlementOutcome[] =>
       SETTLEMENT_OUTCOMES.filter((outcome) => part?.includes(`\`${outcome}\`: `) === true);
     expect(entriesIn(verifiedPart)).toEqual(['settled', 'corrective-capsule', 'accepted-with-rationale']);
     expect(entriesIn(unverifiedPart)).toEqual(['rejected', 'deviation-pending', 'recompile-required']);
+    expect(entriesIn(verifiedPart).every((outcome) => outcomeVerifies(outcome))).toBe(true);
+    expect(entriesIn(unverifiedPart).some((outcome) => outcomeVerifies(outcome))).toBe(false);
   });
 
   /** The earlier reason called a read at settlement the dependency that a capsule removes. */
