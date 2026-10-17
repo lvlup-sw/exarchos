@@ -21,6 +21,7 @@ import {
   type ProbeResult,
   type TestRunFn,
 } from '../../../../src/verbs/gates/test-adequacy.js';
+import { changedFilesFor } from '../../../../src/verbs/gates/test-adequacy-handler.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
@@ -636,6 +637,72 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       });
       expect(onlyDeleted.discriminant).toBe('no-new-tests');
       expect(onlyDeleted.passed).toBe(false);
+    },
+    30_000,
+  );
+
+  /**
+   * The task renames one source file and deletes another. The diff marks both base paths deleted, so the revert brings them back.
+   * The restore must remove them again, so the tree hash and the git status after the probe equal those before it.
+   */
+  it(
+    'Probe_RenamedAndDeletedSource_RestoresTheTreeAndTheIndexExactly',
+    async () => {
+      const repoRoot = await initRepo('test-adequacy-probe-rename-');
+      repos.push(repoRoot);
+      mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+      const sharedLines = Array.from({ length: 12 }, (_, i) => `// shared line ${i}\n`).join('');
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 1;\n');
+      writeFileSync(path.join(repoRoot, 'src', 'old.js'), `${sharedLines}export const name = 'old';\n`);
+      writeFileSync(path.join(repoRoot, 'src', 'dead.js'), 'export const dead = true;\n');
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'base', '-q']);
+      const baseRef = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+
+      await git(repoRoot, ['checkout', '-b', 'feature/rename', '-q']);
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const value = () => 2;\n');
+      await git(repoRoot, ['mv', 'src/old.js', 'src/new.js']);
+      await git(repoRoot, ['rm', '-q', 'src/dead.js']);
+      writeFileSync(path.join(repoRoot, 'src', 'calc.test.js'), '// pins value()===2\n');
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'task: rename, delete and bump', '-q']);
+
+      const detected = await git(repoRoot, ['diff', '-M', '--name-status', `${baseRef}...HEAD`]);
+      expect(detected).toMatch(/^R\d*\tsrc\/old\.js\tsrc\/new\.js$/m);
+
+      const changed = changedFilesFor(realGitExec, repoRoot, baseRef);
+      expect(changed.ok).toBe(true);
+      if (!changed.ok) return;
+      expect([...changed.deletedFiles].sort()).toEqual(['src/dead.js', 'src/old.js']);
+
+      const statusBefore = await git(repoRoot, ['status', '--porcelain']);
+      const hashBefore = await workingTreeHash(repoRoot);
+      const treesSeen: string[] = [];
+      const runTests: TestRunFn = async ({ repoRoot: rr }) => {
+        const present = ['src/new.js', 'src/old.js', 'src/dead.js'].filter((file) =>
+          existsSync(path.join(rr, file)),
+        );
+        treesSeen.push(present.join(','));
+        return { passed: existsSync(path.join(rr, 'src', 'new.js')) };
+      };
+
+      const result = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: changed.files,
+        deletedFiles: changed.deletedFiles,
+        runTests,
+        riskTier: 'high',
+      });
+
+      expect(treesSeen).toEqual(['src/new.js', 'src/old.js,src/dead.js']);
+      expect(result.passed).toBe(true);
+      expect(result.restoredClean).toBe(true);
+      expect(await git(repoRoot, ['status', '--porcelain'])).toBe(statusBefore);
+      expect(await workingTreeHash(repoRoot)).toBe(hashBefore);
+      expect(existsSync(path.join(repoRoot, 'src', 'old.js'))).toBe(false);
+      expect(existsSync(path.join(repoRoot, 'src', 'dead.js'))).toBe(false);
     },
     30_000,
   );

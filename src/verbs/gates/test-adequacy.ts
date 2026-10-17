@@ -472,12 +472,10 @@ export function revertSourceFiles(
 }
 
 /**
- * Restore the working tree to the snapshot captured by
- * {@link snapshotWorkingTree}. Re-checks-out every tracked path from the
- * snapshot commit's tree (`git checkout <stashSha> -- .`), undoing the targeted
- * source revert. Total: returns `{ restored: false, detail }` on any git
- * failure so the orchestrator can fold a restore failure into a
- * `restore-failed` discriminant rather than crashing the gate.
+ * Restores the index and the tracked files to the tree of the snapshot from {@link snapshotWorkingTree}. It does not throw.
+ * The checkout is `--no-overlay`, so it also removes a tracked path that the snapshot does not hold.
+ * The revert brings back each deleted or renamed source path of the base, and the default overlay checkout leaves that path staged.
+ * A file that git does not track stays as it is. A git failure returns `restored: false`, and the probe reports `restore-failed`.
  */
 export function restoreWorkingTree(
   gitExec: GitExec,
@@ -485,11 +483,11 @@ export function restoreWorkingTree(
   stashSha: string,
 ): RestoreResult {
   try {
-    const result = gitExec(repoRoot, ['checkout', stashSha, '--', '.']);
+    const result = gitExec(repoRoot, ['checkout', '--no-overlay', stashSha, '--', '.']);
     if (result.exitCode !== 0) {
       return {
         restored: false,
-        detail: `git checkout ${stashSha} -- . exited ${result.exitCode}: ${result.stdout.trim()}`,
+        detail: `git checkout --no-overlay ${stashSha} -- . exited ${result.exitCode}: ${result.stdout.trim()}`,
       };
     }
     return { restored: true };
@@ -522,7 +520,8 @@ export interface ProbeArgs {
   /** Repo-relative files changed by the task diff. */
   readonly changedFiles: readonly string[];
   /**
-   * The changed files that the head side of the diff deletes. They stay in the source revert.
+   * The changed files that the head side of the diff deletes. A renamed file gives its base path here.
+   * They stay in the source revert, so the run after the revert sees them, and the restore removes them again.
    * A deleted test file is not at the head, so the probe never runs it.
    */
   readonly deletedFiles?: readonly string[];
