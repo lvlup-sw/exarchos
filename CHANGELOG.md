@@ -35,6 +35,8 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The probe does not run a test file that the task deletes. When no other test file changes, the verdict is `no-new-tests`.
   - The probe reads the task diff with rename detection off. A renamed source file reverts to its path at the base for the run after the revert. A deleted source file comes back for that run too.
   - The restore after the probe removes a tracked path that the snapshot does not hold. Before this change, a deleted source file that the revert brought back stayed in the task worktree as a staged addition.
+  - The probe runs the `test:files` script of `package.json` when it exists, as `npm run test:files -- <files>`. A pnpm, yarn or bun project uses its own `run test:files` form. The script must run only the files that it gets. Without the script, the probe runs the resolved test command with `-- <files>`, as before.
+  - This repository adds that script. Its `npm run test:run` runs only the `unit` project, so it collects no file under `tests/unit`. `npm run test:files` refuses to start without a file argument.
   - Recovery: make the scoped tests pass on the task source, then run `check_test_adequacy` again.
   - Limit: the revert of a config file, such as `package.json`, can still make the run after the revert collect no test. The probe reads that run as a kill.
 

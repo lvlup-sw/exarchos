@@ -10,6 +10,7 @@ agents working **on the Exarchos codebase**.
 ```bash
 npm run build          # tsc + bun → dist/ (MCP server + CLI bundles)
 npm run test:run       # the `unit` project ONLY — not the whole root suite
+npm run test:files -- <files>   # only these test files, each in its own vitest project (refuses with no file)
 npx vitest run         # every root project (unit + process + outcome + conformance)
 npm run test:conformance   # just the extracted conformance suite (tools/conformance/)
 npm run typecheck      # tsc --noEmit, root AND tools/conformance

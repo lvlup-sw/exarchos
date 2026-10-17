@@ -3,6 +3,8 @@
  * The layer order, highest first: override > `.exarchos.yml` direct > user `toolchains:` > task runner > built-in registry > unresolved.
  * Toolchain identity and markers come from `./toolchains.ts`. The task-runner layer comes from `./task-runners.ts`.
  * The result is a {@link ResolvedRuntime} with the commands and the highest layer that supplied one.
+ *
+ * {@link resolveScopedTestCommand} resolves the test command of the kill probe. It is not a field of that result.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -201,13 +203,22 @@ function isYarnBerry(repoRoot: string, pkg: PackageJsonShape | null): boolean {
 }
 
 /**
+ * The scoped test script of a Node package manager. The kill probe runs `scopedTest -- <files>` when the `scopedTestScript` script exists.
+ * The script must run only the test files that it gets as arguments.
+ */
+interface ScopedTestProfile {
+  scopedTestScript: string;
+  scopedTest: string;
+}
+
+/**
  * Script profiles for pnpm, yarn and npm. `detect` handles bun separately, because `bun test` needs no `scripts.test` entry.
  * `testScript` is the script that must exist for a runnable `test` command. `install` is a function, so yarn can select the flag for Berry or Classic.
  * These commands refine the package-manager-blind node entry in `toolchains.ts`. They are not a second toolchain list.
  */
 const NODE_SCRIPT_PROFILES: Record<
   'pnpm' | 'yarn' | 'npm',
-  {
+  ScopedTestProfile & {
     testScript: string;
     test: string;
     typecheck: string;
@@ -217,12 +228,16 @@ const NODE_SCRIPT_PROFILES: Record<
   pnpm: {
     testScript: 'test',
     test: 'pnpm test',
+    scopedTestScript: 'test:files',
+    scopedTest: 'pnpm run test:files',
     typecheck: 'pnpm run typecheck',
     install: () => 'pnpm install --frozen-lockfile',
   },
   yarn: {
     testScript: 'test',
     test: 'yarn test',
+    scopedTestScript: 'test:files',
+    scopedTest: 'yarn run test:files',
     typecheck: 'yarn run typecheck',
     install: (repoRoot, pkg) =>
       isYarnBerry(repoRoot, pkg) ? 'yarn install --immutable' : 'yarn install --frozen-lockfile',
@@ -230,10 +245,41 @@ const NODE_SCRIPT_PROFILES: Record<
   npm: {
     testScript: 'test:run',
     test: 'npm run test:run',
+    scopedTestScript: 'test:files',
+    scopedTest: 'npm run test:files',
     typecheck: 'npm run typecheck',
     install: () => 'npm install',
   },
 };
+
+/** The scoped test script of bun. `detect` handles bun outside the profile table, so bun has its own entry. */
+const BUN_SCOPED_TEST_PROFILE: ScopedTestProfile = {
+  scopedTestScript: 'test:files',
+  scopedTest: 'bun run test:files',
+};
+
+/**
+ * Returns the scoped test command of a Node project, or null. The result is null when no Node package manager is found,
+ * when `package.json` does not parse, or when the scoped test script does not exist.
+ */
+function detectScopedTest(repoRoot: string): string | null {
+  const pm = detectNodePackageManager(repoRoot);
+  if (pm === null) return null;
+  const { json: pkg, malformed } = readPackageJson(repoRoot);
+  if (malformed) return null;
+  const profile = pm === 'bun' ? BUN_SCOPED_TEST_PROFILE : NODE_SCRIPT_PROFILES[pm];
+  return hasScript(pkg, profile.scopedTestScript) ? profile.scopedTest : null;
+}
+
+/**
+ * Resolves the command that the kill probe runs on a list of test files. The probe adds `-- <files>` to it.
+ * A `test:files` package script comes first, because it runs only the files that it gets.
+ * Without that script, the result is the `test` field of {@link resolveTestRuntime}.
+ * The command is not a field of {@link ResolvedRuntime}. It has no source layer and no `command.resolved` event.
+ */
+export function resolveScopedTestCommand(repoRoot: string): string | null {
+  return detectScopedTest(repoRoot) ?? resolveTestRuntime(repoRoot).test;
+}
 
 /**
  * Runs the built-in detection. Node comes first, with package-manager and script checks. Then the registry detects the other toolchains in priority order.

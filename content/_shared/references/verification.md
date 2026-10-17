@@ -61,6 +61,14 @@ When no `.exarchos.yml` is present and detection cannot resolve a command (e.g.,
 an npm project missing a `test:run` script), the relevant gate is skipped with
 remediation text rather than failed.
 
+The `check_test_adequacy` kill probe runs only the changed test files of the task.
+When `package.json` has a `test:files` script, the probe runs
+`npm run test:files -- <files>`. A pnpm, yarn or bun project uses its own
+`run test:files` form. The script must run only the files that it gets. Without
+the script, the probe runs the resolved `test` command with `-- <files>` after it.
+Add the script when that command does not run each file that it gets, for example
+a vitest command with a `--project` filter.
+
 For test code patterns and examples, see `@skills/delegate/references/testing-patterns.md`.
 For property-based testing templates, see `@skills/delegate/references/pbt-patterns.md`.
 

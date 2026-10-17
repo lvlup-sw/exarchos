@@ -236,6 +236,49 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
     },
     120_000,
   );
+
+  /**
+   * The project has a `test:files` script, and its `test:run` script fails on every run. The probe
+   * must run `npm run test:files -- <files>`. The real test then goes red only after the revert, and the
+   * probe passes. A probe on `test:run` gives `baseline-red`.
+   */
+  it(
+    'HandleOrchestrate_CheckTestAdequacy_TestFilesScript_IsTheCommandTheProbeRuns',
+    async () => {
+      const repoRoot = await initRepo('test-adequacy-test-files-');
+      cleanups.push(() => rmrf(repoRoot));
+      await writeBaseProject(repoRoot, { 'test:run': 'node -e "process.exit(1)"', 'test:files': 'node --test' });
+
+      await git(repoRoot, ['checkout', '-b', 'feature/test-files', '-q']);
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
+      writeFileSync(
+        path.join(repoRoot, 'src', 'calc.test.js'),
+        [
+          "import { test } from 'node:test';",
+          "import assert from 'node:assert';",
+          "import { value } from './calc.js';",
+          '',
+          "test('value is 2', () => {",
+          '  assert.strictEqual(value(), 2);',
+          '});',
+          '',
+        ].join('\n'),
+      );
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: bump value to 2 with test', '-q']);
+
+      const { success, data } = await dispatch(repoRoot, 'feature/test-files', { riskTier: 'medium' });
+
+      expect(success).toBe(true);
+      expect(data.discriminant).toBeUndefined();
+      expect(data.passed).toBe(true);
+      expect(data.redObserved).toBe(true);
+      expect(data.restoredClean).toBe(true);
+      expect(data.probedTests).toEqual(['src/calc.test.js']);
+      expect(await git(repoRoot, ['status', '--porcelain'])).toBe('');
+    },
+    120_000,
+  );
 });
 
 /** One key for each state directory and feature id, so each new store gets one seed. */

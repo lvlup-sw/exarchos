@@ -4,7 +4,7 @@
  *
  * It resolves `repoRoot`, with the worktree-aware `auto` mode. It resolves the merge base of the task base and the head once, as a SHA.
  * The changed-file diff and the revert both use that SHA.
- * It resolves the test command with `resolveTestRuntime` and runs it on the changed test files.
+ * It resolves the test command with `resolveScopedTestCommand` and runs it on the changed test files.
  *
  * Evidence persistence is idempotent on the trusted operation id.
  * The result is an advisory carrier: `success: true`, with `data.passed` set from the probe verdict. A failed probe is a finding, not a tool error.
@@ -16,7 +16,7 @@ import type { EventStore } from '../../events/store.js';
 import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
-import { resolveTestRuntime } from '../../config/test-runtime-resolver.js';
+import { resolveScopedTestCommand } from '../../config/test-runtime-resolver.js';
 import { splitCommand } from '../../config/tokenize-command.js';
 import { detectToolchain, testGlobsForToolchain } from '../../config/toolchains.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
@@ -80,22 +80,21 @@ export interface TestAdequacyArgs {
   readonly projectConfig?: ResolvedProjectConfig;
   /** Git executor. Defaults to a 30s-ceiling shell-out. */
   readonly gitExec?: GitExec;
-  /** Test runner. Defaults to the resolveTestRuntime-backed shell-out. */
+  /** Test runner. Defaults to a shell-out of the command that `resolveScopedTestCommand` gives. */
   readonly runTests?: TestRunFn;
 }
 
 /**
- * Builds the production test runner from the resolved test command.
+ * Builds the production test runner from the scoped test command. A `test:files` package script comes first, and the resolved test command is the fallback.
  * `splitCommand` tokenizes the command with quoted arguments, and the runner appends the scoped test files after `--`.
- * vitest, jest, `node --test`, and pytest accept path arguments in this form.
+ * A package script gets the files as its arguments. vitest, jest, `node --test`, and pytest accept path arguments in this form.
  *
  * A missing, blank, or unparseable command counts as a passing run, so the probe reports `redObserved: false` and never a false kill.
  * The runner uses `runCommandSync`, not `execFileSync`. On Windows, `execFile` refuses a `.cmd` shim with EINVAL.
  * With `execFile`, the catch reads that error as a red test run on every call.
  */
 function buildDefaultRunTests(repoRoot: string): TestRunFn {
-  const resolved = resolveTestRuntime(repoRoot);
-  const testCmd = resolved.test;
+  const testCmd = resolveScopedTestCommand(repoRoot);
   return async ({ testFiles }) => {
     if (!testCmd) {
       return { passed: true, output: 'no resolvable test command' };
