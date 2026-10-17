@@ -176,11 +176,19 @@ exarchos_orchestrate({
 **Settlement decides:**
 - Every claim is read against the task's declared result shape
 - Each accepted task's verification runs — the ladder gates under the tier the capsule froze, then the completion — against the worktree the claim names
-- A settled batch leaves every accepted task complete; a rejected one names every finding at once
+- A settled batch leaves every required task complete. Each other outcome names every finding at once
 
 **On `settled`:** All delegation results verified. Update TodoWrite status, land the worktrees, run the wave backstop, then check if schema sync is needed (Step 7) and proceed to review phase.
 
-**On `rejected`:** Read the findings. Fix the claim or the task (a fixer dispatch to its worktree), then resubmit every required task under a new batch id.
+**On `corrective-capsule`:** The tasks that passed are complete. Read `unresolved`, and dispatch a fixer to the worktree of each task in it. Then settle a new batch id on the same capsule, and claim only the unresolved tasks.
+
+**On `rejected`:** The request or a deviation is in error, and settlement verified nothing. Read the findings, and correct the claim or the deviation. Then settle the corrected request under a new batch id on the same capsule.
+
+**On `deviation-pending`:** Settlement verified nothing. Get a decision for each pending deviation. Then settle the same batch id with `decisions` and no claims.
+
+**On `recompile-required`:** The capsule was stale, and settlement verified nothing. Call `prepare` again, and settle under the capsule that it returns.
+
+Step 3 of the skill gives each outcome in full.
 
 
 ### Agent Teams Collection (enhanced)

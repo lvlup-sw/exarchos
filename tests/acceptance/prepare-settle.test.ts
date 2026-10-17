@@ -10,7 +10,7 @@
 // To settle a batch, `settle` runs the production static-analysis gate on a real project and
 // persists the verdict. The tasks are then complete on the stream, in the projection and on the
 // state document, so the guards admit the next transition. When the lint of the project fails,
-// the same call rejects the batch and names the halt.
+// the same call leaves the task unresolved and names the halt.
 //
 // The tasks are low-risk and off the boundary, so the ladder runs static analysis only. Policy
 // skips the kill probe, the contract-drift gate and the mock-boundary gate. No test needs a git
@@ -27,7 +27,12 @@ import { contentDigest } from '../../src/contract/capsule/capsule-digest.js';
 import { ExarchosCapsuleV1Schema } from '../../src/contract/capsule/exarchos-capsule.js';
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
-import { CapsuleRecompiledData, DesignRevisedData, WorkflowPreparedData } from '../../src/events/schemas.js';
+import {
+  CapsuleRecompiledData,
+  DesignRevisedData,
+  ExecutionSettledData,
+  WorkflowPreparedData,
+} from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
 import { lowerBuiltInDefinition } from '../../src/verbs/prepare/lower-definition.js';
@@ -167,6 +172,39 @@ async function blobCount(): Promise<number> {
   return count;
 }
 
+/** The version of the capsule that the latest `prepare` recorded on the stream. */
+async function latestCapsuleVersion(): Promise<number> {
+  const records = (await eventStore.query(STREAM)).filter((event) => event.type === 'workflow.prepared');
+  return WorkflowPreparedData.parse(records.at(-1)?.data).capsuleVersion;
+}
+
+/** The settlement records of the stream in commit order, each parsed through the row schema. */
+async function settlementRecords(): Promise<ReturnType<typeof ExecutionSettledData.parse>[]> {
+  return (await eventStore.query(STREAM))
+    .filter((event) => event.type === 'execution.settled')
+    .map((event) => ExecutionSettledData.parse(event.data));
+}
+
+/**
+ * Sends a `settle` call a second time and compares the answer with the first one.
+ * A replay returns the receipt that the first call persisted. It appends no row to the stream and
+ * writes no blob, so the tail of the stream does not move.
+ */
+async function expectReplayReturnsTheReceiptAndAppendsNothing(
+  args: Readonly<Record<string, unknown>>,
+  first: { readonly data?: unknown },
+): Promise<void> {
+  const tail = (await eventStore.query(STREAM)).map((event) => [event.sequence, event.type]);
+  const blobs = await blobCount();
+  expect(tail.length).toBeGreaterThan(0);
+
+  const replayed = await call('exarchos_orchestrate', { ...args });
+  expect(replayed.success, JSON.stringify(replayed)).toBe(true);
+  expect(replayed.data).toEqual(first.data);
+  expect((await eventStore.query(STREAM)).map((event) => [event.sequence, event.type])).toEqual(tail);
+  expect(await blobCount()).toBe(blobs);
+}
+
 interface PreparedReceipt {
   readonly capsuleVersion: number;
   readonly capsuleDigest: string;
@@ -268,8 +306,8 @@ describe('prepare then settle, through the dispatcher', () => {
   });
 
   /**
-   * The retry returns the first answer. It appends no row, verifies nothing a second time and
-   * writes no blob.
+   * The replay of a `settled` batch. The retry returns the first answer. It appends no row,
+   * verifies nothing a second time and writes no blob.
    */
   it('PrepareSettle_ARetriedBatch_IsAnsweredFromTheClaim', async () => {
     await seedDelegatingFeature();
@@ -278,10 +316,12 @@ describe('prepare then settle, through the dispatcher', () => {
     const args = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1', claims: completedClaims() };
 
     const first = await call('exarchos_orchestrate', args);
+    expect(first.data).toMatchObject({ outcome: 'settled', acceptedTasks: ['task-a', 'task-b', 'task-c'] });
     const blobs = await blobCount();
     const retried = await call('exarchos_orchestrate', args);
 
     expect(retried.data).toEqual(first.data);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(args, first);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
     expect(await rowsOf('task.assigned')).toHaveLength(3);
     expect(await rowsOf('task.completed')).toHaveLength(3);
@@ -345,6 +385,9 @@ describe('prepare then settle, through the dispatcher', () => {
    * fact next to the proposal. The guards then admit the transition, as after any settled batch.
    *
    * The compiled envelope does not list this kind as material, so the acceptance revises nothing.
+   *
+   * A replay of the held call returns the held receipt before the decision and after it. It
+   * proposes nothing a second time. A replay of the decision returns the decided receipt.
    */
   it('PrepareSettle_AHeldBatchDecided_IsThreeCallsAndCompletesItsTasks', async () => {
     await seedDelegatingFeature();
@@ -356,7 +399,7 @@ describe('prepare then settle, through the dispatcher', () => {
       requiresApproval: true,
     });
 
-    const held = await call('exarchos_orchestrate', {
+    const heldBatch = {
       action: 'settle',
       featureId: STREAM,
       capsuleVersion,
@@ -365,15 +408,19 @@ describe('prepare then settle, through the dispatcher', () => {
       deviations: [
         { deviationKind: 'missing-context', statement: 'the capsule does not say which cache the endpoint reads' },
       ],
-    });
+    };
+    const held = await call('exarchos_orchestrate', heldBatch);
     expect(held.success, JSON.stringify(held)).toBe(true);
     const heldReceipt = held.data as { outcome: string; pendingDeviations?: { deviationId: string }[] };
     expect(heldReceipt.outcome).toBe('deviation-pending');
     expect(heldReceipt.pendingDeviations).toHaveLength(1);
     expect(await rowsOf('deviation.proposed')).toHaveLength(1);
     expect(await rowsOf('task.completed')).toEqual([]);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(heldBatch, held);
+    expect(await rowsOf('deviation.proposed')).toHaveLength(1);
+    expect(await rowsOf('orchestrate.intent_executed')).toEqual([]);
 
-    const decided = await call('exarchos_orchestrate', {
+    const decision = {
       action: 'settle',
       featureId: STREAM,
       capsuleVersion,
@@ -384,7 +431,8 @@ describe('prepare then settle, through the dispatcher', () => {
         actor: 'human:reviewer',
         rationale: 'the capsule really does not name the cache',
       })),
-    });
+    };
+    const decided = await call('exarchos_orchestrate', decision);
     expect(decided.success, JSON.stringify(decided)).toBe(true);
     expect((decided.data as { outcome: string; round: number }).outcome).toBe('settled');
     expect((decided.data as { outcome: string; round: number }).round).toBe(1);
@@ -394,6 +442,8 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(decided.data).not.toHaveProperty('designRevision');
     const completions = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
     expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(decision, decided);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(heldBatch, held);
 
     const moved = await call('exarchos_workflow', { action: 'transition', featureId: STREAM, target: 'review' });
     expect(moved.success, JSON.stringify(moved)).toBe(true);
@@ -403,6 +453,7 @@ describe('prepare then settle, through the dispatcher', () => {
    * The capsule declares `worktreePath` as a string. A number on one claim is a field-type
    * mismatch. The mismatch rejects the batch, although `settle` admits the other two claims. A
    * rejected batch is a settlement but not progress: `settle` verifies none of its tasks.
+   * A replay returns the same receipt, appends no row and verifies nothing.
    */
   it('PrepareSettle_ABatchRejectedOnShape_VerifiesNothingAndLeavesNoCompletion', async () => {
     await seedDelegatingFeature();
@@ -411,18 +462,19 @@ describe('prepare then settle, through the dispatcher', () => {
     const claims = completedClaims().map((claim, i) =>
       i === 0 ? { ...claim, fields: { worktreePath: 42 } } : claim,
     );
-    const settled = await call('exarchos_orchestrate', {
-      action: 'settle',
-      featureId: STREAM,
-      capsuleVersion,
-      batchId: 'batch-wrong',
-      claims,
-    });
+    const wrongBatch = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-wrong', claims };
+    const settled = await call('exarchos_orchestrate', wrongBatch);
     expect(settled.success, JSON.stringify(settled)).toBe(true);
     const receipt = settled.data as { outcome: string; acceptedTasks: string[]; verification: unknown[] };
     expect(receipt.outcome).toBe('rejected');
     expect(receipt.acceptedTasks).toEqual(['task-b', 'task-c']);
     expect(receipt.verification).toEqual([]);
+    expect(settled.data).not.toHaveProperty('unresolved');
+    expect(await rowsOf('execution.settled')).toHaveLength(1);
+    expect(await rowsOf('orchestrate.intent_executed')).toEqual([]);
+    expect(await rowsOf('task.completed')).toEqual([]);
+
+    await expectReplayReturnsTheReceiptAndAppendsNothing(wrongBatch, settled);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
     expect(await rowsOf('orchestrate.intent_executed')).toEqual([]);
     expect(await rowsOf('task.completed')).toEqual([]);
@@ -430,11 +482,12 @@ describe('prepare then settle, through the dispatcher', () => {
 
   /**
    * The negative twin of the normal path: the same call against a project whose lint fails. The
-   * production gate records its failing verdict and halts the segment. `settle` rejects the batch
-   * and names the halt of each task. The failing verdict is durable once for each task, no
-   * completion is durable, and the tasks stay pending.
+   * production gate records its failing verdict and halts the segment. `settle` leaves each task
+   * unresolved and names its halt. The receipt and the settlement record list the three tasks.
+   * The failing verdict is durable once for each task, no completion is durable, and the tasks
+   * stay pending.
    */
-  it('PrepareSettle_ABatchWhoseVerificationFails_IsRejectedWithTheHaltNamed', async () => {
+  it('PrepareSettle_ABatchWhoseVerificationFails_NeedsACorrectionWithTheHaltNamed', async () => {
     await seedDelegatingFeature();
     const redWorktree = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
@@ -451,9 +504,10 @@ describe('prepare then settle, through the dispatcher', () => {
       outcome: string;
       acceptedTasks: string[];
       findings: { kind: string; subject: string; message: string }[];
-      verification: { taskId: string; outcome: string; failedLeaf?: string }[];
+      verification: { taskId: string; outcome: string; failedLeaf?: string; operationId?: string }[];
+      unresolved?: { taskId: string; cause: string; failedLeaf?: string; operationId?: string }[];
     };
-    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.outcome).toBe('corrective-capsule');
     expect(receipt.acceptedTasks).toEqual([]);
     expect(receipt.findings.map((f) => [f.kind, f.subject])).toEqual([
       ['verification-failed', 'task-a'],
@@ -466,12 +520,140 @@ describe('prepare then settle, through the dispatcher', () => {
       ['task-b', 'failed', 'check_static_analysis'],
       ['task-c', 'failed', 'check_static_analysis'],
     ]);
+    expect(receipt.unresolved).toStrictEqual(
+      receipt.verification.map((trace) => ({
+        taskId: trace.taskId,
+        cause: 'verification-failed',
+        failedLeaf: 'check_static_analysis',
+        operationId: trace.operationId,
+      })),
+    );
+    expect(receipt.unresolved?.map((task) => task.operationId).every((id) => /^settle-task:[0-9a-f]{64}$/.test(id ?? ''))).toBe(true);
+    const [record] = (await rowsOf('execution.settled')) as { data: { unresolvedTasks?: unknown } }[];
+    expect(record?.data.unresolvedTasks).toStrictEqual([
+      { taskId: 'task-a', cause: 'verification-failed' },
+      { taskId: 'task-b', cause: 'verification-failed' },
+      { taskId: 'task-c', cause: 'verification-failed' },
+    ]);
     const gates = (await rowsOf('gate.executed')) as { data: { gateName: string; passed: boolean } }[];
     expect(gates.filter((g) => g.data.gateName === 'static-analysis' && !g.data.passed)).toHaveLength(3);
     expect(await rowsOf('task.completed')).toEqual([]);
     const got = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
     const tasks = (got.data as { tasks: { status: string }[] }).tasks;
     expect(tasks.map((t) => t.status)).toEqual(['pending', 'pending', 'pending']);
+  });
+
+  /**
+   * The corrective path: one `prepare` and two `settle` calls. The lint of one worktree fails, so
+   * the first batch completes two tasks and leaves the third unresolved. The receipt and the
+   * settlement record name that task, and the guard refuses the transition.
+   *
+   * The correction is a new batch on the same capsule that claims only the unresolved task. The
+   * recorded completions satisfy the other two required results, so the batch settles with no
+   * second `prepare`. The guards then admit the transition.
+   *
+   * A replay of each of the two `settle` calls returns its receipt and appends no row.
+   */
+  it('PrepareSettle_ACorrectiveBatch_CompletesWhatPassedAndSettlesTheUnresolvedTaskAlone', async () => {
+    await seedDelegatingFeature();
+    const redWorktree = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
+    const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const capsuleVersion = await latestCapsuleVersion();
+
+    const firstBatch = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-1',
+      claims: [
+        ...completedClaims(greenWorktree, ['task-a']),
+        ...completedClaims(redWorktree, ['task-b']),
+        ...completedClaims(greenWorktree, ['task-c']),
+      ],
+    };
+    const first = await call('exarchos_orchestrate', firstBatch);
+    expect(first.success, JSON.stringify(first)).toBe(true);
+    expect(first.data).toMatchObject({
+      outcome: 'corrective-capsule',
+      acceptedTasks: ['task-a', 'task-c'],
+      unresolved: [
+        {
+          taskId: 'task-b',
+          cause: 'verification-failed',
+          failedLeaf: 'check_static_analysis',
+          operationId: expect.stringMatching(/^settle-task:[0-9a-f]{64}$/),
+        },
+      ],
+      findings: [{ kind: 'verification-failed', subject: 'task-b' }],
+      verification: [
+        { taskId: 'task-a', outcome: 'verified' },
+        { taskId: 'task-b', outcome: 'failed', failedLeaf: 'check_static_analysis' },
+        { taskId: 'task-c', outcome: 'verified' },
+      ],
+    });
+    expect((await settlementRecords()).map((record) => [record.batchId, record.outcome, record.unresolvedTasks])).toEqual([
+      ['batch-1', 'corrective-capsule', [{ taskId: 'task-b', cause: 'verification-failed' }]],
+    ]);
+    const passed = await workRowsOf(['task-a', 'task-c']);
+    expect(countsByType(passed)).toEqual({ 'task.assigned': 2, 'gate.executed': 8, 'task.completed': 2 });
+    expect(countsByType(await workRowsOf(['task-b']))).toEqual({ 'task.assigned': 1, 'gate.executed': 4 });
+    const partial = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
+    expect(partial.data).toMatchObject({
+      tasks: [
+        { id: 'task-a', status: 'complete' },
+        { id: 'task-b', status: 'pending' },
+        { id: 'task-c', status: 'complete' },
+      ],
+    });
+    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+
+    const early = await call('exarchos_workflow', moveToReview);
+    expect(early.success, JSON.stringify(early)).toBe(false);
+    expect(early.error?.code).toBe('GUARD_FAILED');
+    expect(early.error?.message).toContain('1 task(s) incomplete');
+
+    const correction = {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'batch-1-correction',
+      claims: completedClaims(greenWorktree, ['task-b']),
+    };
+    const corrected = await call('exarchos_orchestrate', correction);
+    expect(corrected.success, JSON.stringify(corrected)).toBe(true);
+    expect(corrected.data).toMatchObject({
+      outcome: 'settled',
+      acceptedTasks: ['task-b'],
+      findings: [],
+      capsule: { capsuleVersion },
+      adjudicated: { claims: 1, requiredResults: 3, verification: 3 },
+      verification: [
+        { taskId: 'task-a', outcome: 'already-complete' },
+        { taskId: 'task-c', outcome: 'already-complete' },
+        { taskId: 'task-b', outcome: 'verified' },
+      ],
+    });
+    expect(corrected.data).not.toHaveProperty('unresolved');
+    expect((await settlementRecords()).map((record) => [record.batchId, record.outcome, record.unresolvedTasks])).toEqual([
+      ['batch-1', 'corrective-capsule', [{ taskId: 'task-b', cause: 'verification-failed' }]],
+      ['batch-1-correction', 'settled', undefined],
+    ]);
+    expect(await rowsOf('workflow.prepared')).toHaveLength(1);
+    expect(await workRowsOf(['task-a', 'task-c'])).toEqual(passed);
+    expect(countsByType(await workRowsOf(['task-b']))).toEqual({
+      'task.assigned': 1,
+      'gate.executed': 8,
+      'task.completed': 1,
+    });
+    await expectReplayReturnsTheReceiptAndAppendsNothing(correction, corrected);
+    await expectReplayReturnsTheReceiptAndAppendsNothing(firstBatch, first);
+
+    const moved = await call('exarchos_workflow', moveToReview);
+    expect(moved.success, JSON.stringify(moved)).toBe(true);
+    const transitions = (await eventStore.query(STREAM)).filter((event) => event.type === 'workflow.transition');
+    expect(transitions.at(-1)?.data).toMatchObject({ to: 'review' });
   });
 
   /**
@@ -676,13 +858,15 @@ describe('prepare then settle, through the dispatcher', () => {
    * the deviation of the first batch names one of them. The second `prepare` runs before the
    * decision, so its capsule holds the named task under the terms that the revision changes.
    *
-   * The accepted decision records the revision after the second capsule. A batch on that capsule is
-   * rejected for the named task, and the unfinished sibling in it stays unfinished. The third
+   * The accepted decision records the revision after the second capsule. A batch on that capsule
+   * needs a recompile for the named task, and the unfinished sibling in it stays unfinished. The third
    * `prepare` compiles a new capsule under the next design version, and both tasks settle under it.
    *
    * The second `prepare` comes before the revision, so it records no recompile. The third is the
    * continuation. Its recompile row names the second capsule as the prior one, and it invalidates
    * the named task and not the sibling.
+   *
+   * A replay of the stale batch returns the same receipt, appends no row and verifies nothing.
    */
   it('PrepareSettle_AClaimRefusedForALaterRevision_SettlesAfterTheNextPrepare', async () => {
     const [first, sibling, named] = TASKS;
@@ -755,20 +939,21 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(WorkflowPreparedData.parse(secondRecord?.data).capsuleVersion).toBe(2);
     expect(secondRecord?.sequence ?? Number.NaN).toBeLessThan(revisionRows[0]?.sequence ?? Number.NaN);
 
-    const refused = await call('exarchos_orchestrate', {
+    const staleBatch = {
       action: 'settle',
       featureId: STREAM,
       capsuleVersion: second.capsuleVersion,
       batchId: 'batch-2',
       claims: completedClaims(),
-    });
+    };
+    const refused = await call('exarchos_orchestrate', staleBatch);
     expect(refused.success, JSON.stringify(refused)).toBe(true);
     const refusedReceipt = refused.data as {
       outcome: string;
       findings: { kind: string; subject: string; message: string }[];
       verification: unknown[];
     };
-    expect(refusedReceipt.outcome).toBe('rejected');
+    expect(refusedReceipt.outcome).toBe('recompile-required');
     expect(refusedReceipt.findings.map((f) => [f.kind, f.subject])).toEqual([
       ['claim-superseded-by-revision', named.id],
     ]);
@@ -779,6 +964,10 @@ describe('prepare then settle, through the dispatcher', () => {
     const completedBefore = (await rowsOf('task.completed')) as { data: { taskId: string } }[];
     expect(completedBefore.map((e) => e.data.taskId)).toEqual([first.id]);
     expect(await recompileRows()).toEqual([]);
+    expect(refused.data).not.toHaveProperty('unresolved');
+    expect((await settlementRecords()).at(-1)).toMatchObject({ batchId: 'batch-2', outcome: 'recompile-required' });
+    await expectReplayReturnsTheReceiptAndAppendsNothing(staleBatch, refused);
+    expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(1);
 
     const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);

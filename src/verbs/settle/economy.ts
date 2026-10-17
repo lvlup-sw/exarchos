@@ -34,6 +34,12 @@ interface SummaryVerificationOutcome {
   readonly failedLeaf?: unknown;
 }
 
+/** One unresolved task in a summary: the task, and the kind of the finding against it. */
+interface SummaryUnresolvedTask {
+  readonly taskId: unknown;
+  readonly cause: unknown;
+}
+
 /**
  * The part of a summary that no trim removes. A decision round answers each pending deviation by
  * its id, so a held batch is decided from this part alone.
@@ -67,6 +73,10 @@ export interface SettlementReceiptSummary extends SettlementSummaryCore {
   /**
    * `shown` counts the findings on the first page. `verification` counts the outcomes of the
    * receipt, and `verificationOmitted` counts the outcomes that the summary does not list.
+   *
+   * `unresolved` counts the unresolved tasks of the receipt, and no trim removes it.
+   * `unresolvedOmitted` counts the tasks that the summary does not list. The two counts are
+   * present only when the receipt names its unresolved tasks.
    */
   readonly counts: {
     readonly findings: number;
@@ -74,6 +84,8 @@ export interface SettlementReceiptSummary extends SettlementSummaryCore {
     readonly acceptedTasks: number;
     readonly verification: number;
     readonly verificationOmitted: number;
+    readonly unresolved?: number;
+    readonly unresolvedOmitted?: number;
   };
   /** The first page of findings. A trim empties it, and it stays an array as the capped shape requires. */
   readonly firstPage: ReadonlyArray<SummaryFinding>;
@@ -84,9 +96,14 @@ export interface SettlementReceiptSummary extends SettlementSummaryCore {
   readonly tailSequence: unknown;
   /**
    * At most four verification outcomes, with the failures first. A trim empties the list.
-   * A caller of a rejected batch needs the operation id of a halted segment to read its receipt.
+   * A caller that corrects a batch needs the operation id of a halted segment to read its receipt.
    */
   readonly verification: ReadonlyArray<SummaryVerificationOutcome>;
+  /**
+   * The unresolved tasks of the receipt, from the first, as many as the budget holds. The list is
+   * present only when the receipt names its unresolved tasks. The `execution.settled` row holds each one.
+   */
+  readonly unresolved?: ReadonlyArray<SummaryUnresolvedTask>;
   /** The custody reference survives the cap: it is the only pointer to the interior. */
   readonly bundleRefs: unknown;
 }
@@ -104,6 +121,7 @@ interface CappableReceipt {
   readonly bundleRefs?: unknown;
   readonly round?: unknown;
   readonly acceptedTasks?: ReadonlyArray<unknown>;
+  readonly unresolved?: ReadonlyArray<{ readonly taskId?: unknown; readonly cause?: unknown }>;
   readonly findings?: ReadonlyArray<{
     readonly kind?: unknown;
     readonly subject?: unknown;
@@ -175,11 +193,28 @@ function summaryCoreOf(receipt: CappableReceipt): SettlementSummaryCore {
 }
 
 /**
+ * The largest count below `limit` for which `fits` holds, or zero when it holds for none.
+ * `fits` must hold for each count below a count for which it holds.
+ */
+function largestFittingCount(limit: number, fits: (count: number) => boolean): number {
+  let fitting = 0;
+  let tooMany = limit;
+  while (tooMany - fitting > 1) {
+    const middle = Math.floor((fitting + tooMany) / 2);
+    if (fits(middle)) fitting = middle;
+    else tooMany = middle;
+  }
+  return fitting;
+}
+
+/**
  * Reduce a receipt to a summary that is within the budget.
  *
  * The summary holds a core, the first page of findings, and at most four verification outcomes.
+ * For a receipt that names its unresolved tasks, it also holds their count and their entries.
  * A summary over the budget first loses its findings page, and then its verification outcomes.
- * No trim removes the core. The full findings and outcomes stay in the referenced bundle.
+ * It then loses unresolved entries from the end, and it says how many it omits.
+ * No trim removes the core or the count. The full findings and outcomes stay in the referenced bundle.
  *
  * `adjudicated` stays whole, because the census tells zero findings apart from the first page of many.
  * The fields after `firstPage` pass through `CappedDataSchema`, which is `.passthrough()`.
@@ -189,6 +224,11 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
   const findings = listOrUndefined(receipt.findings) ?? [];
   const accepted = listOrUndefined(receipt.acceptedTasks) ?? [];
   const traces = listOrUndefined(receipt.verification) ?? [];
+  const named = listOrUndefined(receipt.unresolved);
+  const unresolved: ReadonlyArray<SummaryUnresolvedTask> = (named ?? []).map((task) => ({
+    taskId: task.taskId,
+    cause: task.cause,
+  }));
   const core = summaryCoreOf(receipt);
 
   const firstPage: ReadonlyArray<SummaryFinding> = findings
@@ -214,20 +254,27 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
   const assemble = (
     page: ReadonlyArray<SummaryFinding>,
     shown: ReadonlyArray<SummaryVerificationOutcome>,
+    listed: number,
   ): SettlementReceiptSummary => ({
     summary:
       `batch '${String(receipt.capsule?.batchId)}' of capsule v${String(receipt.capsule?.capsuleVersion)} ` +
-      `${String(receipt.outcome)} — ${accepted.length} task(s) accepted, ${findings.length} finding(s)` +
+      `${String(receipt.outcome)} — ${accepted.length} task(s) accepted, ` +
+      (named !== undefined ? `${unresolved.length} task(s) unresolved, ` : '') +
+      `${findings.length} finding(s)` +
       (findings.length > page.length ? `; ${page.length} shown` : '') +
       (traces.length > shown.length
         ? `; ${shown.length} of ${traces.length} verification outcome(s) shown`
-        : ''),
+        : '') +
+      (unresolved.length > listed ? `; ${listed} of ${unresolved.length} unresolved task(s) shown` : ''),
     counts: {
       findings: findings.length,
       shown: page.length,
       acceptedTasks: accepted.length,
       verification: traces.length,
       verificationOmitted: traces.length - shown.length,
+      ...(named !== undefined
+        ? { unresolved: unresolved.length, unresolvedOmitted: unresolved.length - listed }
+        : {}),
     },
     firstPage: page,
     operationId: receipt.operationId,
@@ -236,15 +283,19 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
     adjudicated: receipt.adjudicated,
     tailSequence: receipt.tailSequence,
     verification: shown,
+    ...(named !== undefined ? { unresolved: unresolved.slice(0, listed) } : {}),
     bundleRefs: receipt.bundleRefs,
     ...core,
   });
   const fits = (candidate: SettlementReceiptSummary): boolean =>
     estimateOutputTokens(candidate) <= SETTLE_ECONOMY_BUDGET_TOKENS;
 
-  const whole = assemble(firstPage, outcomes);
+  const every = unresolved.length;
+  const whole = assemble(firstPage, outcomes, every);
   if (fits(whole)) return whole;
-  const withoutFindingsPage = assemble([], outcomes);
+  const withoutFindingsPage = assemble([], outcomes, every);
   if (fits(withoutFindingsPage)) return withoutFindingsPage;
-  return assemble([], []);
+  const withoutOutcomes = assemble([], [], every);
+  if (every === 0 || fits(withoutOutcomes)) return withoutOutcomes;
+  return assemble([], [], largestFittingCount(every, (listed) => fits(assemble([], [], listed))));
 }

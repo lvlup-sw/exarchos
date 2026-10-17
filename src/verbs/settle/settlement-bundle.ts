@@ -15,7 +15,7 @@ import { z } from 'zod';
 import { canonicalJson } from '../../contract/request-context.js';
 import { BundleRefV1Schema } from '../../events/bundle/digest-references.js';
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
-import { SETTLEMENT_FINDING_KINDS } from './adjudicate.js';
+import { SETTLEMENT_FINDING_KINDS, SETTLEMENT_OUTCOMES } from './adjudicate.js';
 
 /** The `kind` discriminator every settlement bundle carries. */
 export const SETTLEMENT_BUNDLE_KIND = 'settlement-adjudication';
@@ -91,9 +91,10 @@ const CensusSchema = z
   .strict();
 
 /**
- * How the verification of one accepted claim ran. The segment detail is in its
- * own bundle, named by `bundleRefs`. This trace records only how the
- * settlement read it.
+ * How settlement read the completion of one task. The task is one with an
+ * accepted claim, or a required task that the stream already showed complete.
+ * The segment detail is in its own bundle, named by `bundleRefs`. This trace
+ * records only how the settlement read it.
  */
 const VerificationTraceSchema = z
   .object({
@@ -123,7 +124,7 @@ export const SettlementBundleV1Schema = z
         batchId: z.string().min(1),
       })
       .strict(),
-    outcome: z.enum(['settled', 'rejected', 'deviation-pending']),
+    outcome: z.enum(SETTLEMENT_OUTCOMES),
     acceptedTasks: z.array(z.string().min(1)),
     findings: z.array(FindingSchema),
     claims: z.array(ClaimTraceSchema),
@@ -139,8 +140,8 @@ export const SettlementBundleV1Schema = z
     adjudicated: CensusSchema,
     /**
      * Optional only for a bundle written before settlement verified anything.
-     * This build always writes the list. It is empty when adjudication refused
-     * or held the batch before verification ran.
+     * This build always writes the list. It is empty when adjudication stopped
+     * the batch before verification ran.
      */
     verification: z.array(VerificationTraceSchema).optional(),
     settledAt: z.iso.datetime({ offset: true }),

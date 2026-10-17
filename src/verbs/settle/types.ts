@@ -5,7 +5,7 @@
  */
 
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
-import type { SettlementFinding, SettlementCensus, SettlementOutcome } from './adjudicate.js';
+import type { SettlementFinding, SettlementCensus, SettlementOutcome, UnresolvedTask } from './adjudicate.js';
 
 /** The settlement key: which compilation, and which batch of it. */
 export interface SettledCapsuleIdentity {
@@ -17,9 +17,12 @@ export interface SettledCapsuleIdentity {
 }
 
 /**
- * How the verification of one accepted claim ran. `operationId` names the task-completion segment,
- * so a caller can read its receipt through `execute_intent`. It is absent when the stream already
- * showed the task complete. `bundleRefs` is the run bundle of a segment that committed a record.
+ * How settlement read the completion of one task. A task has a trace when the shape pass accepts
+ * its claim, or when the capsule requires it and the stream already shows it complete.
+ *
+ * `operationId` names the task-completion segment, so a caller can read its receipt through
+ * `execute_intent`. It is absent under `already-complete`, where no segment ran. `bundleRefs` is
+ * the run bundle of a segment that committed a record.
  */
 export interface SettlementVerificationTrace {
   readonly taskId: string;
@@ -28,6 +31,15 @@ export interface SettlementVerificationTrace {
   readonly failedLeaf?: string;
   readonly message?: string;
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
+}
+
+/**
+ * One unresolved task as the receipt names it for the correction. `failedLeaf` and `operationId`
+ * are those of the verification segment of the task. They are absent when no segment ran.
+ */
+export interface SettlementUnresolvedTask extends UnresolvedTask {
+  readonly failedLeaf?: string;
+  readonly operationId?: string;
 }
 
 /** A decision a settlement round carries for one deviation the batch waits on. */
@@ -75,14 +87,30 @@ export interface SettlementReceipt {
   readonly streamId: string;
   readonly capsule: SettledCapsuleIdentity;
   readonly outcome: SettlementOutcome;
+  /**
+   * Under `settled`, `accepted-with-rationale` and `corrective-capsule`, the claimed tasks that
+   * are recorded complete. Under each other outcome this build verifies nothing, and the list
+   * holds the tasks whose claims the shape pass found no fault in.
+   *
+   * A replay can return a `rejected` receipt that an earlier build stored after a failed
+   * verification. The list of that receipt holds the tasks that are recorded complete.
+   */
   readonly acceptedTasks: readonly string[];
+  /**
+   * Under `corrective-capsule`, the tasks that the correction claims, sorted by task id. Each has
+   * one entry, and the list is not empty. Each other outcome has no list. Under such an outcome,
+   * either each task is complete or nothing was verified.
+   */
+  readonly unresolved?: readonly SettlementUnresolvedTask[];
   readonly findings: readonly SettlementFinding[];
   readonly adjudicated: SettlementCensus;
   readonly requestDigest: string;
   readonly tailSequence: number;
   /**
-   * How each accepted claim was verified. It is empty when adjudication refused or held the batch
-   * before verification. It is optional for the same reason as `bundleRefs`.
+   * How each accepted claim was verified. It also holds an `already-complete` entry for each
+   * required task that the batch does not claim and the stream shows complete. It is empty when
+   * adjudication stopped the batch before verification. It is optional for the same reason as
+   * `bundleRefs`.
    */
   readonly verification?: readonly SettlementVerificationTrace[];
   /**

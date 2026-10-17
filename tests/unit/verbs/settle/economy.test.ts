@@ -6,6 +6,7 @@
  * Each receipt has one of the two forms that the handler returns. A submitting round can carry
  * pending deviations. A decision round carries decisions, and it can carry a design revision.
  * The handler returns no receipt with pending deviations and decisions together.
+ * A `corrective-capsule` receipt of each form names its unresolved tasks, and no other receipt does.
  *
  * @oracle-sources: ../../../../src/verbs/settle/economy.ts, the receipts that this file writes by hand and generates inside the input bounds of settle
  */
@@ -20,6 +21,7 @@ import { findActionInRegistry } from '../../../../src/registry.js';
 import { DELEGATION_DEVIATION_KINDS } from '../../../../src/verbs/prepare/compile-capsule.js';
 import {
   SETTLEMENT_FINDING_KINDS,
+  SETTLEMENT_OUTCOMES,
   type SettlementFinding,
   type SettlementOutcome,
 } from '../../../../src/verbs/settle/adjudicate.js';
@@ -34,6 +36,7 @@ import {
   type PendingDeviation,
   type SettlementDecision,
   type SettlementDesignRevision,
+  type SettlementUnresolvedTask,
 } from '../../../../src/verbs/settle/types.js';
 
 /** The most tasks in one batch of the input bounds. */
@@ -58,6 +61,9 @@ const WITHHELD_TEXT = {
 };
 
 type TaskOutcome = 'verified' | 'already-complete' | 'failed';
+
+/** The outcomes under which the handler verifies. Their receipts list the tasks that are complete. */
+const VERIFIED_OUTCOMES: readonly SettlementOutcome[] = ['settled', 'accepted-with-rationale', 'corrective-capsule'];
 
 /** One task of a batch and how its verification ended. */
 interface TaskSpec {
@@ -93,6 +99,7 @@ interface WireReceipt {
   };
   readonly outcome: SettlementOutcome;
   readonly acceptedTasks: readonly string[];
+  readonly unresolved?: readonly SettlementUnresolvedTask[];
   readonly findings: readonly SettlementFinding[];
   readonly adjudicated: Readonly<Record<string, number>>;
   readonly requestDigest: string;
@@ -209,7 +216,32 @@ function traceOf(task: TaskSpec, index: number, ref: WireBundleRef): WireTrace {
   };
 }
 
-/** The receipt of one settlement round, in the shape that the handler returns. */
+/**
+ * The unresolved list of a corrective receipt: one entry for each failed task, sorted by task id.
+ * An entry names the halted leaf and the operation of the verification segment of its task.
+ */
+function unresolvedOf(tasks: readonly TaskSpec[]): SettlementUnresolvedTask[] {
+  return tasks
+    .map((task, index) => ({ task, index }))
+    .filter(({ task }) => task.outcome === 'failed')
+    .sort((a, b) => (a.task.taskId < b.task.taskId ? -1 : a.task.taskId > b.task.taskId ? 1 : 0))
+    .map(({ task, index }) => ({
+      taskId: task.taskId,
+      cause: 'verification-failed',
+      failedLeaf: FAILED_LEAF,
+      operationId: verificationOperationIdOf(index),
+    }));
+}
+
+/** The entries of an unresolved list as a summary holds them: the task and the cause alone. */
+function summaryEntriesOf(unresolved: readonly SettlementUnresolvedTask[]): unknown[] {
+  return unresolved.map((task) => ({ taskId: task.taskId, cause: task.cause }));
+}
+
+/**
+ * The receipt of one settlement round, in the shape that the handler returns. A corrective receipt
+ * names its unresolved tasks, and a receipt with each other outcome has no such list.
+ */
 function receiptOf(spec: ReceiptSpec): WireReceipt {
   const ref: WireBundleRef = {
     artifactId: `run-bundle:settlement-adjudication:${spec.batchId}:${spec.magnitude}`,
@@ -226,7 +258,10 @@ function receiptOf(spec: ReceiptSpec): WireReceipt {
       batchId: spec.batchId,
     },
     outcome: spec.outcome,
-    acceptedTasks: spec.outcome === 'settled' ? spec.tasks.map((task) => task.taskId) : [],
+    acceptedTasks: VERIFIED_OUTCOMES.includes(spec.outcome)
+      ? spec.tasks.filter((task) => task.outcome !== 'failed').map((task) => task.taskId)
+      : [],
+    ...(spec.outcome === 'corrective-capsule' ? { unresolved: unresolvedOf(spec.tasks) } : {}),
     findings: spec.findings,
     adjudicated: {
       claims: spec.magnitude,
@@ -275,20 +310,57 @@ function maximalHeldReceipt(): WireReceipt {
 
 /**
  * A decided receipt with each input bound at its maximum. It carries sixteen decisions, and its
- * design revision names all sixteen deviations.
+ * design revision names all sixteen deviations. Each decision accepts and each verification
+ * failed, so the outcome is `corrective-capsule` and the receipt names forty unresolved tasks.
+ * With `revises` false, the round revised nothing and the receipt carries no design revision.
  */
-function maximalDecidedReceipt(): WireReceipt {
+function maximalDecidedReceipt(revises = true): WireReceipt {
   const decisions = decisionsOf(MAX_DEVIATIONS_PER_BATCH).map(
     (decision): SettlementDecision => ({ ...decision, decision: 'accepted' }),
   );
   return receiptOf({
     ...maximalBatch(),
-    outcome: 'rejected',
+    outcome: 'corrective-capsule',
     round: 1,
     decisions,
+    ...(revises
+      ? {
+          designRevision: {
+            priorDesignVersion: Number.MAX_SAFE_INTEGER - 1,
+            nextDesignVersion: Number.MAX_SAFE_INTEGER,
+            deviationIds: decisions.map((decision) => decision.deviationId),
+          },
+        }
+      : {}),
+  });
+}
+
+/**
+ * The corrective receipt of a submitting round with each input bound at its maximum. Each of its
+ * forty verifications failed, so it names forty unresolved tasks. Its core is the round alone.
+ */
+function maximalSubmittedCorrectiveReceipt(): WireReceipt {
+  return receiptOf({ ...maximalBatch(), outcome: 'corrective-capsule', round: 0 });
+}
+
+/**
+ * A decided corrective receipt of the small batch, with `taskCount` failed tasks that have ids of
+ * `idLength` characters. It carries one finding for each task, sixteen decisions, and a design
+ * revision that names each of the sixteen deviations.
+ */
+function decidedCorrectiveReceiptOf(taskCount: number, idLength: number): WireReceipt {
+  const tasks = tasksOf(Array.from({ length: taskCount }, () => 'failed'), idLength);
+  const decisions = decisionsOf(MAX_DEVIATIONS_PER_BATCH);
+  return receiptOf({
+    ...SMALL_BATCH,
+    outcome: 'corrective-capsule',
+    round: 1,
+    tasks,
+    findings: findingsOf(taskCount, tasks),
+    decisions,
     designRevision: {
-      priorDesignVersion: Number.MAX_SAFE_INTEGER - 1,
-      nextDesignVersion: Number.MAX_SAFE_INTEGER,
+      priorDesignVersion: 3,
+      nextDesignVersion: 4,
       deviationIds: decisions.map((decision) => decision.deviationId),
     },
   });
@@ -337,6 +409,16 @@ function firstPageOf(receipt: WireReceipt): unknown[] {
     .map((finding) => ({ kind: finding.kind, subject: finding.subject, at: finding.at }));
 }
 
+/** The outcomes that a summary lists for a receipt in which each verification failed. */
+function failedOutcomesOf(receipt: WireReceipt): unknown[] {
+  return receipt.verification.slice(0, OUTCOMES_SHOWN).map((trace) => ({
+    taskId: trace.taskId,
+    outcome: trace.outcome,
+    operationId: trace.operationId,
+    failedLeaf: trace.failedLeaf,
+  }));
+}
+
 /** The success envelope of one response, after a trip through JSON as the carrier sends it. */
 function wireEnvelopeOf(data: unknown): unknown {
   return JSON.parse(
@@ -382,6 +464,15 @@ function markedTextArb(mark: string): fc.Arbitrary<string> {
   return fc.string({ maxLength: 300, size: 'max' }).map((text) => `${mark} ${text}`);
 }
 
+/**
+ * The tasks of a generated corrective batch. The handler gives that outcome only to a batch with
+ * an unresolved task. Thus the first task fails here, and a batch with no task gets one.
+ */
+function withAFailedTask(tasks: readonly TaskSpec[]): TaskSpec[] {
+  const [first, ...rest] = tasks;
+  return [{ taskId: first?.taskId ?? 'task-unresolved', outcome: 'failed' }, ...rest];
+}
+
 /** The parts that both receipt forms share: the ids, the numbers, the tasks and the findings. */
 const batchArb = fc.record({
   workflowId: stableIdArb(MAX_STABLE_ID_LENGTH),
@@ -405,11 +496,14 @@ const batchArb = fc.record({
   ),
 });
 
-/** The receipt of a submitting round. A held batch names up to sixteen pending deviations. */
+/**
+ * The receipt of a submitting round, with each of the six outcomes. A held batch names up to
+ * sixteen pending deviations, and a corrective batch names each task that failed.
+ */
 const submittingReceiptArb: fc.Arbitrary<WireReceipt> = fc
   .tuple(
     batchArb,
-    fc.constantFrom<SettlementOutcome>('settled', 'rejected', 'deviation-pending'),
+    fc.constantFrom<SettlementOutcome>(...SETTLEMENT_OUTCOMES),
     fc.array(
       fc.record({
         deviationKind: fc.constantFrom(...DELEGATION_DEVIATION_KINDS),
@@ -427,6 +521,7 @@ const submittingReceiptArb: fc.Arbitrary<WireReceipt> = fc
   .map(([batch, outcome, deviations]) =>
     receiptOf({
       ...batch,
+      ...(outcome === 'corrective-capsule' ? { tasks: withAFailedTask(batch.tasks) } : {}),
       outcome,
       round: 0,
       ...(outcome === 'deviation-pending'
@@ -443,13 +538,14 @@ const submittingReceiptArb: fc.Arbitrary<WireReceipt> = fc
   );
 
 /**
- * The receipt of a decision round, with up to sixteen decisions. When `revises` is true and a
- * decision accepts, the receipt carries a design revision that names each accepted deviation.
+ * The receipt of a decision round, with up to sixteen decisions. A decided batch is not held again,
+ * so the round has each outcome but `deviation-pending`. When `revises` is true and a decision
+ * accepts, the receipt carries a design revision that names each accepted deviation.
  */
 const decisionReceiptArb: fc.Arbitrary<WireReceipt> = fc
   .tuple(
     batchArb,
-    fc.constantFrom<SettlementOutcome>('settled', 'rejected'),
+    fc.constantFrom<SettlementOutcome>(...SETTLEMENT_OUTCOMES.filter((outcome) => outcome !== 'deviation-pending')),
     fc.array(
       fc.record({
         decision: fc.constantFrom<SettlementDecision['decision']>('accepted', 'rejected'),
@@ -468,6 +564,7 @@ const decisionReceiptArb: fc.Arbitrary<WireReceipt> = fc
       .map((decision) => decision.deviationId);
     return receiptOf({
       ...batch,
+      ...(outcome === 'corrective-capsule' ? { tasks: withAFailedTask(batch.tasks) } : {}),
       outcome,
       round: 1,
       decisions,
@@ -527,6 +624,7 @@ describe('the capped settle receipt', () => {
     expect(text).not.toContain('statement');
     expect(text).not.toContain('affectedTasks');
     expect(text).not.toContain('proposedChange');
+    expect(text).not.toContain('unresolved');
     expect(estimateOutputTokens(summary)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
 
     const dispatched = enforceResponseEconomy(
@@ -610,19 +708,25 @@ describe('the capped settle receipt', () => {
   /**
    * The summary lists four outcomes with the failures first. A failure keeps the operation id and
    * the leaf of its halted segment, and it drops the message and the bundle reference. The counts
-   * give the outcomes that the list leaves out.
+   * give the outcomes that the list leaves out, and the tasks that passed and are complete.
+   *
+   * The summary also names each unresolved task with its cause. An entry drops the operation id
+   * and the leaf, which the outcome of the task carries.
    */
-  it('SettleEconomy_ACappedRejectedReceipt_KeepsTheOperationAndLeafOfItsFirstFailures', () => {
+  it('SettleEconomy_ACappedCorrectiveReceipt_KeepsTheOperationAndLeafOfItsFirstFailures', () => {
     const twoFailures = tasksOf(['verified', 'failed', 'verified', 'already-complete', 'failed', 'verified'], 6);
-    const few = cappedSummaryOf(
-      receiptOf({
-        ...SMALL_BATCH,
-        outcome: 'rejected',
-        round: 0,
-        tasks: twoFailures,
-        findings: findingsOf(24, twoFailures),
-      }),
-    );
+    const receipt = receiptOf({
+      ...SMALL_BATCH,
+      outcome: 'corrective-capsule',
+      round: 0,
+      tasks: twoFailures,
+      findings: findingsOf(24, twoFailures),
+    });
+    expect(receipt.unresolved).toStrictEqual([
+      { taskId: 'task-01', cause: 'verification-failed', failedLeaf: FAILED_LEAF, operationId: verificationOperationIdOf(1) },
+      { taskId: 'task-04', cause: 'verification-failed', failedLeaf: FAILED_LEAF, operationId: verificationOperationIdOf(4) },
+    ]);
+    const few = cappedSummaryOf(receipt);
 
     expect(few.verification).toStrictEqual([
       { taskId: 'task-01', outcome: 'failed', operationId: verificationOperationIdOf(1), failedLeaf: FAILED_LEAF },
@@ -630,6 +734,19 @@ describe('the capped settle receipt', () => {
       { taskId: 'task-00', outcome: 'verified' },
       { taskId: 'task-02', outcome: 'verified' },
     ]);
+    expect(few.unresolved).toStrictEqual([
+      { taskId: 'task-01', cause: 'verification-failed' },
+      { taskId: 'task-04', cause: 'verification-failed' },
+    ]);
+    expect(few.counts.unresolved).toBe(2);
+    expect(few.counts.unresolvedOmitted).toBe(0);
+    expect(few.summary).toBe(
+      `batch '${SMALL_BATCH.batchId}' of capsule v${SMALL_BATCH.magnitude} corrective-capsule — ` +
+        `4 task(s) accepted, 2 task(s) unresolved, 24 finding(s); ${SUMMARY_FIRST_PAGE_ITEMS} shown; ` +
+        '4 of 6 verification outcome(s) shown',
+    );
+    expect(few.outcome).toBe('corrective-capsule');
+    expect(few.counts.acceptedTasks).toBe(4);
     expect(few.counts.verification).toBe(6);
     expect(few.counts.verificationOmitted).toBe(2);
     expect(few.firstPage).toHaveLength(SUMMARY_FIRST_PAGE_ITEMS);
@@ -645,7 +762,7 @@ describe('the capped settle receipt', () => {
     const many = cappedSummaryOf(
       receiptOf({
         ...SMALL_BATCH,
-        outcome: 'rejected',
+        outcome: 'corrective-capsule',
         round: 0,
         tasks: sixFailures,
         findings: findingsOf(24, sixFailures),
@@ -663,54 +780,130 @@ describe('the capped settle receipt', () => {
   });
 
   /**
-   * The first receipt fits when only its findings page is empty, so it keeps its outcomes. The
-   * second receipt is at the input bounds, and it loses its outcomes too. Each summary goes over
-   * the budget when the test puts the trimmed part back, and each keeps its whole core.
+   * The first receipt fits when only its findings page is empty, so it keeps its outcomes and each
+   * of its eight unresolved entries. The second receipt has twelve tasks with the longest ids. It
+   * loses its outcomes too, and it keeps each of its twelve entries. Each summary goes over the
+   * budget when the test puts the trimmed part back, and each keeps its whole core.
    */
   it('SettleEconomy_ASummaryOverTheBudget_DropsTheFindingsPageThenTheOutcomesAndNeverTheCore', () => {
-    const tasks = tasksOf(Array.from({ length: 12 }, () => 'failed'), MAX_TASK_ID_LENGTH);
-    const decisions = decisionsOf(MAX_DEVIATIONS_PER_BATCH);
-    const smaller = receiptOf({
-      ...SMALL_BATCH,
-      outcome: 'rejected',
-      round: 1,
-      tasks,
-      findings: findingsOf(12, tasks),
-      decisions,
-      designRevision: {
-        priorDesignVersion: 3,
-        nextDesignVersion: 4,
-        deviationIds: decisions.map((decision) => decision.deviationId),
-      },
-    });
+    const smaller = decidedCorrectiveReceiptOf(8, 6);
 
     const withoutPage = cappedSummaryOf(smaller);
 
     expect(withoutPage.firstPage).toStrictEqual([]);
-    expect(withoutPage.counts.findings).toBe(12);
+    expect(withoutPage.counts.findings).toBe(8);
     expect(withoutPage.counts.shown).toBe(0);
+    expect(withoutPage.verification).toStrictEqual(failedOutcomesOf(smaller));
     expect(withoutPage.verification).toHaveLength(OUTCOMES_SHOWN);
-    expect(withoutPage.counts.verificationOmitted).toBe(8);
+    expect(withoutPage.counts.verificationOmitted).toBe(4);
+    expect(withoutPage.unresolved).toStrictEqual(summaryEntriesOf(smaller.unresolved ?? []));
+    expect(withoutPage.unresolved).toHaveLength(8);
+    expect(withoutPage.counts.unresolvedOmitted).toBe(0);
     expect(coreOf(withoutPage)).toStrictEqual(requiredCoreOf(smaller));
     expect(estimateOutputTokens(withoutPage)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
     expect(estimateOutputTokens({ ...withoutPage, firstPage: firstPageOf(smaller) })).toBeGreaterThan(
       SETTLE_ECONOMY_BUDGET_TOKENS,
     );
 
-    const larger = maximalDecidedReceipt();
+    const larger = decidedCorrectiveReceiptOf(12, MAX_TASK_ID_LENGTH);
     const withoutOutcomes = cappedSummaryOf(larger);
 
     expect(withoutOutcomes.firstPage).toStrictEqual([]);
     expect(withoutOutcomes.counts.shown).toBe(0);
     expect(withoutOutcomes.verification).toStrictEqual([]);
-    expect(withoutOutcomes.counts.verification).toBe(MAX_TASKS);
-    expect(withoutOutcomes.counts.verificationOmitted).toBe(MAX_TASKS);
+    expect(withoutOutcomes.counts.verification).toBe(12);
+    expect(withoutOutcomes.counts.verificationOmitted).toBe(12);
+    expect(withoutOutcomes.unresolved).toStrictEqual(summaryEntriesOf(larger.unresolved ?? []));
+    expect(withoutOutcomes.unresolved).toHaveLength(12);
+    expect(withoutOutcomes.counts.unresolved).toBe(12);
+    expect(withoutOutcomes.counts.unresolvedOmitted).toBe(0);
+    expect(withoutOutcomes.summary).not.toContain('unresolved task(s) shown');
     expect(coreOf(withoutOutcomes)).toStrictEqual(requiredCoreOf(larger));
     expect(estimateOutputTokens(withoutOutcomes)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
     expect(
-      estimateOutputTokens({ ...withoutOutcomes, verification: withoutPage.verification }),
+      estimateOutputTokens({ ...withoutOutcomes, verification: failedOutcomesOf(larger) }),
     ).toBeGreaterThan(SETTLE_ECONOMY_BUDGET_TOKENS);
   });
+
+  /**
+   * The unresolved entries are the last part that a trim removes, and the trim takes them from the
+   * end. This receipt has sixteen unresolved tasks with the longest ids. Its summary has no
+   * findings page and no outcome, and it lists the first thirteen tasks. It counts all sixteen,
+   * and it says that it omits three. One more entry puts the summary over the budget.
+   */
+  it('SettleEconomy_ASummaryStillOverTheBudget_DropsUnresolvedEntriesFromTheEndAndNeverTheCount', () => {
+    const receipt = decidedCorrectiveReceiptOf(16, MAX_TASK_ID_LENGTH);
+    const named = summaryEntriesOf(receipt.unresolved ?? []);
+    expect(named).toHaveLength(16);
+
+    const summary = cappedSummaryOf(receipt);
+
+    expect(summary.firstPage).toStrictEqual([]);
+    expect(summary.verification).toStrictEqual([]);
+    expect(summary.unresolved).toStrictEqual(named.slice(0, 13));
+    expect(summary.unresolved?.[12]).toStrictEqual({
+      taskId: taskIdOf(12, MAX_TASK_ID_LENGTH),
+      cause: 'verification-failed',
+    });
+    expect(summary.counts.unresolved).toBe(16);
+    expect(summary.counts.unresolvedOmitted).toBe(3);
+    expect(summary.summary).toBe(
+      `batch '${SMALL_BATCH.batchId}' of capsule v${SMALL_BATCH.magnitude} corrective-capsule — ` +
+        '0 task(s) accepted, 16 task(s) unresolved, 16 finding(s); 0 shown; ' +
+        '0 of 16 verification outcome(s) shown; 13 of 16 unresolved task(s) shown',
+    );
+    expect(coreOf(summary)).toStrictEqual(requiredCoreOf(receipt));
+    expect(JSON.stringify(summary)).not.toContain('settle-task:');
+    expect(JSON.stringify(summary)).not.toContain(FAILED_LEAF);
+    expect(estimateOutputTokens(summary)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
+    expect(estimateOutputTokens({ ...summary, unresolved: named.slice(0, 14) })).toBeGreaterThan(
+      SETTLE_ECONOMY_BUDGET_TOKENS,
+    );
+
+    const dispatched = enforceResponseEconomy({ success: true, data: receipt }, 'exarchos_orchestrate', 'settle');
+    expect(dispatched.data).toStrictEqual(summary);
+  });
+
+  /**
+   * The number of unresolved entries that a summary lists for a corrective receipt at the input
+   * bounds, as measured. Each receipt names forty unresolved tasks with ids of 48 characters. It
+   * has a full findings page, and its batch id and its workflow id have 256 characters.
+   *
+   * The count is whole in each form, and so is the core. The core of a round that revised the
+   * design leaves room for no entry. Each summary goes over the budget with one more entry.
+   */
+  it.each([
+    ['ADecisionRoundThatRevisedTheDesign', maximalDecidedReceipt(), 0],
+    ['ADecisionRoundThatRevisedNothing', maximalDecidedReceipt(false), 7],
+    ['ASubmittingRound', maximalSubmittedCorrectiveReceipt(), 19],
+  ] satisfies [string, WireReceipt, number][])(
+    'SettleEconomy_TheCorrectiveReceiptOf_%s_AtTheInputBounds_KeepsTheCountAndListsTheEntriesThatFit',
+    (_form, receipt, listed) => {
+      const named = summaryEntriesOf(receipt.unresolved ?? []);
+      expect(named).toHaveLength(MAX_TASKS);
+      expect(receipt.unresolved?.map((task) => task.taskId.length)).toStrictEqual(
+        Array.from({ length: MAX_TASKS }, () => MAX_TASK_ID_LENGTH),
+      );
+      expect(receipt.capsule.workflowId).toHaveLength(MAX_STABLE_ID_LENGTH);
+      expect(receipt.capsule.batchId).toHaveLength(MAX_STABLE_ID_LENGTH);
+      expect(receipt.findings.length).toBeGreaterThanOrEqual(SUMMARY_FIRST_PAGE_ITEMS);
+
+      const summary = cappedSummaryOf(receipt);
+
+      expect(estimateOutputTokens(summary)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
+      expect(coreOf(summary)).toStrictEqual(requiredCoreOf(receipt));
+      expect(summary.counts.unresolved).toBe(MAX_TASKS);
+      expect(summary.counts.unresolvedOmitted).toBe(MAX_TASKS - listed);
+      expect(summary.unresolved).toStrictEqual(named.slice(0, listed));
+      expect(summary.summary).toContain(`${MAX_TASKS} task(s) unresolved`);
+      expect(summary.summary).toContain(`${listed} of ${MAX_TASKS} unresolved task(s) shown`);
+      expect(summary.firstPage).toStrictEqual([]);
+      expect(summary.verification).toStrictEqual([]);
+      expect(estimateOutputTokens({ ...summary, unresolved: named.slice(0, listed + 1) })).toBeGreaterThan(
+        SETTLE_ECONOMY_BUDGET_TOKENS,
+      );
+    },
+  );
 
   /**
    * A claim of an earlier build holds a receipt with fewer fields, so the reducer reads each field as optional.
@@ -761,6 +954,7 @@ describe('the capped settle receipt', () => {
       expect(summary.verification).toStrictEqual([]);
       expect(summary.round).toBeUndefined();
       expect(Object.keys(summary).filter((key) => ['pendingDeviations', 'decisions', 'designRevision'].includes(key))).toEqual([]);
+      expect(Object.keys(summary)).not.toContain('unresolved');
       expect(CappedDataSchema.safeParse(JSON.parse(JSON.stringify(summary))).success).toBe(true);
       const dispatched = enforceResponseEconomy({ success: true, data: sparse }, 'exarchos_orchestrate', 'settle');
       expect(dispatched.data).toStrictEqual(summary);
@@ -779,22 +973,30 @@ describe('the capped settle receipt', () => {
 
   /**
    * Each generated receipt is inside the input bounds: sixteen deviations, forty tasks, task ids
-   * of 48 characters, and batch and workflow ids of 256 characters. The two maximal receipts hold
-   * each bound at its maximum at once, and they run as explicit examples of the property.
+   * of 48 characters, and batch and workflow ids of 256 characters. The three maximal receipts
+   * hold each bound at its maximum at once, and they run as explicit examples of the property.
    *
    * The summary is within the budget by the estimator of the dispatcher, and its core is whole.
    * It parses against the output schema that the registry declares. The response that the
    * dispatcher returns for the receipt is within the budget too.
+   *
+   * Only a corrective receipt names its unresolved tasks. Its summary counts each one, and it
+   * lists them from the first. A summary that omits one has no findings page and no outcome.
    */
   it('SettleEconomy_AnyReceiptWithinTheInputBounds_SummarisesUnderTheSettleBudget', () => {
     const declared = declaredSettleOutputSchema();
     const held = maximalHeldReceipt();
     const decided = maximalDecidedReceipt();
+    const corrective = maximalSubmittedCorrectiveReceipt();
+    const seen = { named: 0, trimmed: 0 };
 
     expect(held.pendingDeviations).toHaveLength(MAX_DEVIATIONS_PER_BATCH);
     expect(decided.decisions).toHaveLength(MAX_DEVIATIONS_PER_BATCH);
     expect(decided.designRevision?.deviationIds).toHaveLength(MAX_DEVIATIONS_PER_BATCH);
-    for (const maximal of [held, decided]) {
+    expect(held.unresolved).toBeUndefined();
+    expect(decided.unresolved).toHaveLength(MAX_TASKS);
+    expect(corrective.unresolved).toHaveLength(MAX_TASKS);
+    for (const maximal of [held, decided, corrective]) {
       expect(maximal.capsule.workflowId).toHaveLength(MAX_STABLE_ID_LENGTH);
       expect(maximal.capsule.batchId).toHaveLength(MAX_STABLE_ID_LENGTH);
       expect(maximal.verification).toHaveLength(MAX_TASKS);
@@ -814,6 +1016,22 @@ describe('the capped settle receipt', () => {
         expect(Array.isArray(summary.firstPage)).toBe(true);
         expect(summary.verification.length).toBeLessThanOrEqual(OUTCOMES_SHOWN);
 
+        expect(receipt.unresolved !== undefined).toBe(receipt.outcome === 'corrective-capsule');
+        expect(summary.unresolved !== undefined).toBe(receipt.unresolved !== undefined);
+        expect('unresolved' in summary.counts).toBe(receipt.unresolved !== undefined);
+        expect('unresolvedOmitted' in summary.counts).toBe(receipt.unresolved !== undefined);
+        const named = summaryEntriesOf(receipt.unresolved ?? []);
+        const listed = summary.unresolved ?? [];
+        expect(listed).toStrictEqual(named.slice(0, listed.length));
+        expect(summary.counts.unresolved ?? 0).toBe(named.length);
+        expect(summary.counts.unresolvedOmitted ?? 0).toBe(named.length - listed.length);
+        if (listed.length < named.length) {
+          expect(summary.firstPage).toStrictEqual([]);
+          expect(summary.verification).toStrictEqual([]);
+        }
+        seen.named += receipt.unresolved !== undefined ? 1 : 0;
+        seen.trimmed += listed.length < named.length ? 1 : 0;
+
         const text = JSON.stringify(summary);
         expect(text).not.toContain(WITHHELD_TEXT.statement);
         expect(text).not.toContain(WITHHELD_TEXT.affectedTask);
@@ -829,7 +1047,9 @@ describe('the capped settle receipt', () => {
         );
         expect(estimateOutputTokens(dispatched.data)).toBeLessThanOrEqual(SETTLE_ECONOMY_BUDGET_TOKENS);
       }),
-      { numRuns: 300, examples: [[held], [decided]] },
+      { numRuns: 300, examples: [[held], [decided], [corrective]] },
     );
+    expect(seen.named).toBeGreaterThanOrEqual(2);
+    expect(seen.trimmed).toBeGreaterThanOrEqual(2);
   });
 });

@@ -4,7 +4,8 @@
  *
  * This module is pure: no store, no filesystem, no clock. The handler records the verdict.
  * The context supplies the facts that the module cannot compute.
- * They are whether an evidence reference resolves, how a named task stands, which later revision names a claimed task, and each task verification outcome.
+ * They are whether an evidence reference resolves, how a named task stands, and which later revision names a task.
+ * They are also whether the stream shows a task complete, and each task verification outcome.
  *
  * The capsule parts that decide the verdict are `contracts.taskResults`, `contracts.evidenceKinds`, `contracts.deviationEnvelope`,
  * `settlementContract.requiredResults` and `settlementContract.taskVerification`.
@@ -37,11 +38,37 @@ export const SETTLEMENT_FINDING_KINDS = [
 export type SettlementFindingKind = (typeof SETTLEMENT_FINDING_KINDS)[number];
 
 /**
- * The findings that refuse a batch, as opposed to holding it.
- * `deviation-awaiting-approval` is absent on purpose. A deviation inside the envelope is a valid answer to a wrong capsule assumption, so it holds the batch.
+ * How a finding acts on its batch.
+ * `stale` means that a later revision replaced the terms of the capsule before the batch arrived.
+ * `refuse` means that the request or a deviation is in error.
+ * `hold` means that a deviation waits for its decision.
+ * `unresolved` means that one task is not complete. The other tasks are judged apart from it.
  */
-export const BLOCKING_SETTLEMENT_FINDING_KINDS: readonly SettlementFindingKind[] =
-  SETTLEMENT_FINDING_KINDS.filter((kind) => kind !== 'deviation-awaiting-approval');
+export type SettlementFindingClass = 'stale' | 'refuse' | 'hold' | 'unresolved';
+
+/**
+ * The class of each finding kind. The record is exhaustive, so a kind with no class does not compile.
+ * A deviation inside the envelope is a valid answer to a wrong capsule assumption, so its finding holds the batch.
+ * A failed verification leaves its task unresolved, and it does not refuse the tasks that passed.
+ */
+export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, SettlementFindingClass>> = {
+  'unknown-task': 'refuse',
+  'claim-superseded-by-revision': 'stale',
+  'undeclared-result-shape': 'refuse',
+  'duplicate-claim': 'refuse',
+  'missing-claim': 'refuse',
+  'missing-field': 'refuse',
+  'field-type-mismatch': 'refuse',
+  'undeclared-field': 'refuse',
+  'inadmissible-evidence': 'refuse',
+  'deviation-outside-envelope': 'refuse',
+  'deviation-awaiting-approval': 'hold',
+  'deviation-rejected': 'refuse',
+  'deviation-unknown-task': 'refuse',
+  'deviation-names-finished-task': 'refuse',
+  'deviation-names-claimed-task': 'refuse',
+  'verification-failed': 'unresolved',
+};
 
 /** A single, path-annotated adjudication finding. */
 export interface SettlementFinding {
@@ -89,8 +116,108 @@ export type TaskStanding =
   | { readonly kind: 'finished' }
   | { readonly kind: 'unknown'; readonly unreadable?: string };
 
+/** Returns the listed names as a tuple of literal types, so one list can feed each closed enum. */
+function outcomeNames<const Names extends readonly [string, ...string[]]>(...names: Names): Names {
+  return names;
+}
+
+/**
+ * Every settlement outcome. Each closed enum of the outcome is built from this list.
+ *
+ * The first three names are the ones that stored rows, bundles and replayed claims carry.
+ * `settled` and `deviation-pending` keep their meaning. `rejected` is narrower than in an earlier build.
+ * A `rejected` row, bundle or claim of an earlier build can also record a superseded claim.
+ * It can also record a failed verification, and the tasks that passed are then recorded complete.
+ *
+ * `recompile-required` is a batch on a capsule that a later revision replaced.
+ * `corrective-capsule` is a batch with a task that is not complete, while the tasks that passed are complete.
+ * `accepted-with-rationale` is a complete batch in which a claim records a delegated choice.
+ */
+export const SETTLEMENT_OUTCOMES = outcomeNames(
+  'settled',
+  'rejected',
+  'deviation-pending',
+  'recompile-required',
+  'corrective-capsule',
+  'accepted-with-rationale',
+);
+
 /** How a batch stands after adjudication. */
-export type SettlementOutcome = 'settled' | 'rejected' | 'deviation-pending';
+export type SettlementOutcome = (typeof SETTLEMENT_OUTCOMES)[number];
+
+/** What a finding of one class does to its batch. */
+interface FindingClassEffect {
+  /** The place of the class in the order of precedence. The lowest number among the findings of a batch decides its outcome. */
+  readonly precedence: number;
+  readonly outcome: SettlementOutcome;
+  /** Whether settlement still verifies the clean claims of a batch that has a finding of the class. */
+  readonly verifies: boolean;
+}
+
+/**
+ * The effect of each finding class. The record is exhaustive, so a class with no effect does not compile.
+ * A stale, refused or held batch is stopped before verification, so nothing in it is verified.
+ * An unresolved task does not stop its batch, so the other tasks of the batch can still complete.
+ */
+const FINDING_CLASS_EFFECTS: Readonly<Record<SettlementFindingClass, FindingClassEffect>> = {
+  stale: { precedence: 0, outcome: 'recompile-required', verifies: false },
+  refuse: { precedence: 1, outcome: 'rejected', verifies: false },
+  hold: { precedence: 2, outcome: 'deviation-pending', verifies: false },
+  unresolved: { precedence: 3, outcome: 'corrective-capsule', verifies: true },
+};
+
+/** The effect of the class of one finding. */
+function effectOf(finding: SettlementFinding): FindingClassEffect {
+  return FINDING_CLASS_EFFECTS[SETTLEMENT_FINDING_CLASSES[finding.kind]];
+}
+
+/** The outcome that a list of findings gives: that of the class first in precedence. No finding gives `settled`. */
+function outcomeOf(findings: readonly SettlementFinding[]): SettlementOutcome {
+  let decided: FindingClassEffect | undefined;
+  for (const finding of findings) {
+    const effect = effectOf(finding);
+    if (decided === undefined || effect.precedence < decided.precedence) decided = effect;
+  }
+  return decided === undefined ? 'settled' : decided.outcome;
+}
+
+/** One task that a batch leaves unresolved. `cause` is the kind of the finding against the task. */
+export interface UnresolvedTask {
+  readonly taskId: string;
+  readonly cause: SettlementFindingKind;
+}
+
+/**
+ * The tasks that a list of findings leaves unresolved, sorted by task id.
+ * The subject of a finding of the `unresolved` class is the id of its task.
+ * A task is in the list once, with the kind of its first finding.
+ */
+function unresolvedTasksOf(findings: readonly SettlementFinding[]): UnresolvedTask[] {
+  const causes = new Map<string, SettlementFindingKind>();
+  for (const finding of findings) {
+    if (SETTLEMENT_FINDING_CLASSES[finding.kind] !== 'unresolved' || causes.has(finding.subject)) continue;
+    causes.set(finding.subject, finding.kind);
+  }
+  return [...causes.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([taskId, cause]) => ({ taskId, cause }));
+}
+
+/**
+ * Whether verification runs after the shape pass that gave these findings.
+ * It runs when no finding is stale, refuses the batch, or holds it. A finding that leaves a task unresolved does not stop it.
+ */
+export function verificationRuns(findings: readonly SettlementFinding[]): boolean {
+  return findings.every((finding) => effectOf(finding).verifies);
+}
+
+/**
+ * Whether a batch with this outcome reached verification. Under such an outcome, the tasks that passed are recorded complete.
+ * An outcome did not reach it when it is the outcome of a finding class that stops verification.
+ */
+export function outcomeVerifies(outcome: SettlementOutcome): boolean {
+  return !Object.values(FINDING_CLASS_EFFECTS).some((effect) => effect.outcome === outcome && !effect.verifies);
+}
 
 /**
  * The verification outcome of one task, as the handler reports it.
@@ -123,12 +250,18 @@ export interface AdjudicationContext {
   readonly taskStanding?: (taskId: string) => TaskStanding;
   /**
    * The design version of the latest revision that names a task, among the revisions that the stream recorded after the capsule.
-   * It returns undefined for a task that no such revision names. Without the function, no claim gets the check.
+   * It returns undefined for a task that no such revision names. Without the function, no task gets the check.
    */
   readonly supersedingDesignVersion?: (taskId: string) => number | undefined;
   /**
-   * The verification outcome per claimed task. It is absent on the shape pass, which decides whether verification runs.
+   * Whether the stream shows a task complete. A required task that it shows complete needs no claim.
+   * Without the function, each required task needs a claim.
+   */
+  readonly taskComplete?: (taskId: string) => boolean;
+  /**
+   * The verification outcome per task. It is absent on the shape pass, which decides whether verification runs.
    * On the final pass, a claim without a passing entry is not accepted.
+   * It also holds the outcome of each required task that the stream shows complete and the batch does not claim.
    */
   readonly verification?: ReadonlyMap<string, TaskVerificationOutcome>;
 }
@@ -140,6 +273,11 @@ export interface SettlementVerdict {
   /** Task ids whose claims were adjudicated with no finding against them. */
   readonly acceptedTasks: readonly string[];
   readonly findings: readonly SettlementFinding[];
+  /**
+   * The tasks to correct, sorted by task id. The list has entries only when an unresolved task decides the outcome.
+   * Under each outcome that stops verification nothing was verified, so the findings of the batch are not the list of work to do.
+   */
+  readonly unresolved: readonly UnresolvedTask[];
   /**
    * The counts of what the pass read.
    * An empty pass and a full clean pass both report zero findings, and only these counts tell them apart.
@@ -158,6 +296,58 @@ export interface SettlementCensus {
   readonly verification: number;
   /** Decisions read for proposed deviations. It is zero on a round with no decisions. */
   readonly decisions: number;
+}
+
+/**
+ * The stale finding for a task that a later revision names. `met` says how the batch meets the task.
+ * The message names the design version of the revision and the next call.
+ */
+function supersededByRevision(
+  capsule: ExarchosCapsuleV1,
+  taskId: string,
+  revisedTo: number,
+  at: string,
+  met: string,
+): SettlementFinding {
+  return {
+    kind: 'claim-superseded-by-revision',
+    subject: taskId,
+    at,
+    message:
+      `${met} is named by the revision to design version ${revisedTo}, ` +
+      `which the stream recorded after capsule v${capsule.identity.capsuleVersion} was compiled. This ` +
+      'capsule holds the earlier terms of the task: prepare again, and settle the batch under the new capsule',
+  };
+}
+
+/**
+ * The finding for a required task that the batch does not claim, or undefined when the task needs no claim.
+ * A task that the stream shows complete needs no claim, because the recorded completion is its result.
+ * An incomplete task that a later revision names is stale, so its capsule can settle no new batch.
+ * Each other task is a missing claim.
+ */
+function unclaimedRequirementFinding(
+  capsule: ExarchosCapsuleV1,
+  required: string,
+  context: AdjudicationContext,
+): SettlementFinding | undefined {
+  if (context.taskComplete?.(required) === true) return undefined;
+  const revisedTo = context.supersedingDesignVersion?.(required);
+  if (revisedTo !== undefined) {
+    return supersededByRevision(
+      capsule,
+      required,
+      revisedTo,
+      'claims',
+      `settlement requires a result from task ${JSON.stringify(required)} and the batch carries none, and the task`,
+    );
+  }
+  return {
+    kind: 'missing-claim',
+    subject: required,
+    at: 'claims',
+    message: `settlement requires a result from task ${JSON.stringify(required)} and the batch carries none`,
+  };
 }
 
 /** The capsule's own field-type vocabulary, as a runtime test over a value. */
@@ -184,7 +374,7 @@ function typeOfValue(value: unknown): string {
  * Each other task that it names refuses the batch, so the batch is not held.
  *
  * A claim for a task that a later revision names is refused whole, because the capsule holds the earlier terms of the task.
- * The finding blocks, so the whole batch waits for the capsule that the next preparation compiles.
+ * The finding is stale, so the whole batch waits for the capsule that the next preparation compiles.
  */
 export function adjudicateSettlement(
   capsule: ExarchosCapsuleV1,
@@ -237,15 +427,9 @@ export function adjudicateSettlement(
 
     const revisedTo = context.supersedingDesignVersion?.(claim.taskId);
     if (revisedTo !== undefined) {
-      findings.push({
-        kind: 'claim-superseded-by-revision',
-        subject: claim.taskId,
-        at: `${at}.taskId`,
-        message:
-          `task ${JSON.stringify(claim.taskId)} is named by the revision to design version ${revisedTo}, ` +
-          `which the stream recorded after capsule v${capsule.identity.capsuleVersion} was compiled. This ` +
-          'capsule holds the earlier terms of the task: prepare again, and settle the batch under the new capsule',
-      });
+      findings.push(
+        supersededByRevision(capsule, claim.taskId, revisedTo, `${at}.taskId`, `task ${JSON.stringify(claim.taskId)}`),
+      );
       return;
     }
 
@@ -356,12 +540,12 @@ export function adjudicateSettlement(
   for (const required of capsule.settlementContract.requiredResults) {
     census.requiredResults += 1;
     if (seen.has(required)) continue;
-    findings.push({
-      kind: 'missing-claim',
-      subject: required,
-      at: 'claims',
-      message: `settlement requires a result from task ${JSON.stringify(required)} and the batch carries none`,
-    });
+    const finding = unclaimedRequirementFinding(capsule, required, context);
+    if (finding !== undefined) {
+      findings.push(finding);
+      continue;
+    }
+    if (context.verification?.has(required) === true) census.verification += 1;
   }
 
   deviations.forEach((deviation, i) => {
@@ -445,20 +629,13 @@ export function adjudicateSettlement(
     });
   });
 
-  const blocking = findings.some((finding) =>
-    BLOCKING_SETTLEMENT_FINDING_KINDS.includes(finding.kind),
-  );
-  const outcome: SettlementOutcome = blocking
-    ? 'rejected'
-    : findings.length > 0
-      ? 'deviation-pending'
-      : 'settled';
-
+  const outcome = outcomeOf(findings);
   return {
     outcome,
     capsuleVersion: capsule.identity.capsuleVersion,
     acceptedTasks: [...accepted].sort(),
     findings,
+    unresolved: outcome === FINDING_CLASS_EFFECTS.unresolved.outcome ? unresolvedTasksOf(findings) : [],
     adjudicated: census,
   };
 }

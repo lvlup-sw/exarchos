@@ -10,7 +10,7 @@
 //
 // Every call goes through the real dispatcher. `prepare` freezes the base from
 // `synthesis.integrationBranch`, and the claim names no base. `settle` runs the gate under the
-// frozen base, so the blocked probe rejects the batch.
+// frozen base, so the blocked probe leaves the task unresolved and the batch needs a correction.
 //
 // @oracle-sources: ../../src/verbs/gates/test-adequacy-handler.ts, a real git repository and `node --test` run under the real npm script, read back through the gate rows and evidence the event store persisted
 
@@ -192,7 +192,7 @@ describe('the kill probe measures a task from the branch it forked from', () => 
     expect(await git(repo, ['status', '--porcelain'])).toBe('');
   });
 
-  it('KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndRejectsTheBatch', async () => {
+  it('KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndLeavesTheTaskUnresolved', async () => {
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const receipt = prepared.data as {
@@ -218,7 +218,7 @@ describe('the kill probe measures a task from the branch it forked from', () => 
       readonly acceptedTasks: readonly string[];
       readonly verification: readonly { readonly taskId: string; readonly operationId: string }[];
     };
-    expect(verdict.outcome).toBe('rejected');
+    expect(verdict.outcome).toBe('corrective-capsule');
     expect(verdict.acceptedTasks).toEqual([]);
     expect(verdict.verification.map((v) => v.taskId)).toEqual(['task-2']);
     expect(await rowsOf('task.completed')).toEqual([]);

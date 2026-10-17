@@ -6,6 +6,7 @@
 
 import { describe, it, expect } from 'vitest';
 
+import { SETTLEMENT_OUTCOMES } from '../../../../src/verbs/settle/adjudicate.js';
 import {
   SETTLEMENT_BUNDLE_KIND,
   SETTLEMENT_BUNDLE_VERSION,
@@ -77,6 +78,40 @@ describe('the settlement bundle', () => {
     expect(() =>
       encodeSettlementBundle({ ...bundle(), smuggled: true } as unknown as SettlementBundleV1),
     ).toThrow();
+  });
+
+  /**
+   * A bundle that an earlier build wrote carries one of these three names, and no verification
+   * list and no decision list. The bytes are written here by hand, and each one still decodes.
+   */
+  it.each(['settled', 'rejected', 'deviation-pending'])(
+    'SettlementBundle_AStoredBundleWithTheOutcome_%s_StillDecodes',
+    (outcome) => {
+      const stored = { ...bundle(), outcome };
+      expect(stored).not.toHaveProperty('verification');
+      expect(stored).not.toHaveProperty('decisions');
+      const bytes = Buffer.from(`${JSON.stringify(stored)}\n`, 'utf8');
+      expect(decodeSettlementBundle(bytes).outcome).toBe(outcome);
+    },
+  );
+
+  /** The three names that this build adds. Each one encodes, and the bytes give the same document. */
+  it.each(['recompile-required', 'corrective-capsule', 'accepted-with-rationale'] satisfies SettlementBundleV1['outcome'][])(
+    'SettlementBundle_TheAddedOutcome_%s_RoundTrips',
+    (outcome) => {
+      const document = bundle({ outcome });
+      expect(decodeSettlementBundle(encodeSettlementBundle(document))).toEqual(document);
+    },
+  );
+
+  /** The enum of the bundle is the one outcome list, so the two cannot name different outcomes. */
+  it('SettlementBundle_ItsOutcomeEnum_IsTheSharedOutcomeList', () => {
+    expect(SETTLEMENT_OUTCOMES).toHaveLength(6);
+    for (const outcome of SETTLEMENT_OUTCOMES) {
+      expect(decodeSettlementBundle(encodeSettlementBundle(bundle({ outcome }))).outcome).toBe(outcome);
+    }
+    const unknown = Buffer.from(`${JSON.stringify({ ...bundle(), outcome: 'mostly-fine' })}\n`, 'utf8');
+    expect(() => decodeSettlementBundle(unknown)).toThrow();
   });
 
   /** A reader that accepts a partial document reports facts that the producer did not write. */

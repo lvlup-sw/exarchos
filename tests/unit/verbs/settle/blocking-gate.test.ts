@@ -3,11 +3,11 @@
 // The kill probe is the first gate of that runbook, and it runs for real here.
 // The capsule stamps the task medium-tier. The claimed worktree is a git repository whose branch ships a test that does not read the change.
 // The probe reverts the source, the test stays green, and the gate blocks on a success carrier.
-// The batch must be rejected with the halt named, and the stream must hold no completion.
+// The batch must need a correction with the halt named, and the stream must hold no completion.
 //
 // The fixture also passes lint, typecheck, and the quality check.
 // A segment that lets the verdict through thus runs on to a completion that static analysis admits.
-// A rejection here can only come from the kill probe.
+// An unresolved task here can only come from the kill probe.
 //
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the rows a real event store holds after the batch, read back by type rather than off the receipt
 
@@ -167,7 +167,7 @@ afterEach(async () => {
 });
 
 describe('settle — a blocking gate that blocks', () => {
-  it('Settle_AKillProbeThatBlocks_RejectsTheBatchAndLeavesNoCompletion', async () => {
+  it('Settle_AKillProbeThatBlocks_LeavesTheTaskUnresolvedAndLeavesNoCompletion', async () => {
     const worktreePath = await vacuousTaskWorktree();
     const receipt = receiptOf(
       await settle({
@@ -178,7 +178,7 @@ describe('settle — a blocking gate that blocks', () => {
       }),
     );
 
-    expect(receipt.outcome).toBe('rejected');
+    expect(receipt.outcome).toBe('corrective-capsule');
     expect(receipt.acceptedTasks).toEqual([]);
     expect(receipt.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
       ['verification-failed', 'task-verify', 'claims[0]'],
@@ -196,6 +196,7 @@ describe('settle — a blocking gate that blocks', () => {
     expect(gates.map((row) => [row.gateName, row.passed])).toEqual([['test-adequacy', false]]);
 
     const [settled] = await rowsOf('execution.settled');
+    expect(ExecutionSettledData.parse(settled).outcome).toBe('corrective-capsule');
     expect(ExecutionSettledData.parse(settled).findingCounts).toEqual([
       { kind: 'verification-failed', count: 1 },
     ]);

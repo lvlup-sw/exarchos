@@ -215,25 +215,60 @@ const DELEGATION: IntentModel = {
   ],
   exceptions: [
     {
-      id: 'settlement-rejected',
-      label: 'settlement rejects a task, so a fixer is dispatched and the batch is resubmitted',
-      trigger: { source: 'delegate', needle: '`verification-failed`: the task\'s segment halted on the named leaf' },
+      id: 'corrective-capsule',
+      label: 'a task fails its verification, so a fixer is dispatched and the unresolved task is settled in a new batch on the same capsule',
+      trigger: { source: 'delegate', needle: '**`corrective-capsule`** — at least one task is unresolved.' },
       through: `${O}.settle`,
       extra: [
-        { kind: 'site', ref: at('delegate', 'native:SPAWN_AGENT_CALL', 'agent="fixer"'), why: 'fresh fixer dispatch to the rejected task\'s worktree' },
+        { kind: 'site', ref: at('delegate', 'native:SPAWN_AGENT_CALL', 'agent="fixer"'), why: 'fresh fixer dispatch to the worktree of the unresolved task' },
         {
           kind: 'site',
-          ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1:retry-1",'),
-          why: 'the corrected batch, resubmitted under a new id; tasks already complete are accepted without running again',
+          ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1:correction-1",'),
+          why: 'the correction: a new batch id on the same capsule that claims only the unresolved tasks. A recorded completion satisfies a required result, so the tasks that passed need no claim',
         },
       ],
       reentersNormalPath: false,
-      why: 'Counted to the resubmission that settles. Landing, the backstop and the transition then follow as on the normal path; reading the halted segment\'s receipt names no call.',
+      why: 'The corrective path: prepare, the settle that leaves a task unresolved, and the settle of the correction. Counted to the correction that settles. Settlement compiles no capsule on this path, so no prepare follows. Landing, the backstop and the transition then follow as on the normal path. Reading the receipt of the halted segment names no call. A summary that omits unresolved entries claims every required task in the same call. A receipt that also carries a design revision prepares first, which is the material-revision path. A second correction is a re-run that the prose does not name, so the count is a lower bound.',
+    },
+    {
+      id: 'settlement-rejected',
+      label: 'settlement rejects the request for an error in a claim or a deviation, so the corrected request is settled in a new batch',
+      trigger: { source: 'delegate', needle: '**`rejected`** — the request or a deviation is in error.' },
+      through: `${O}.settle`,
+      extra: [
+        {
+          kind: 'site',
+          ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1:retry-1",'),
+          why: 'the corrected request, settled under a new batch id on the same capsule. Nothing was verified under the rejected batch',
+        },
+      ],
+      reentersNormalPath: false,
+      why: 'A request error only: a fault in the shape of a claim, a deviation that cannot be held, or a refused deviation. Counted to the corrected request that settles. The correction is to the request, so no fixer is dispatched: a task that fails its verification is the corrective-capsule path. A refused deviation whose rework task leaves the plan prepares again first, which is the normal path. Landing, the backstop and the transition follow as on the normal path.',
+    },
+    {
+      id: 'recompile-required',
+      label: 'the capsule was stale when the batch arrived, so prepare runs again and the batch is settled under the capsule it returns',
+      trigger: { source: 'delegate', needle: '**`recompile-required`** — the capsule was stale when the batch arrived.' },
+      through: `${O}.settle`,
+      extra: [
+        {
+          kind: 'site',
+          ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>" })'),
+          why: 'the same prepare call, made again after the stale verdict. It compiles under the design version that the later revision recorded',
+        },
+        {
+          kind: 'site',
+          ref: at('delegate', `${O}.settle`, 'batchId: "<featureId>:wave-1",'),
+          why: 'the settle under the capsule that prepare returned: the same settle call, under the new capsule version',
+        },
+      ],
+      reentersNormalPath: false,
+      why: 'The stale path: prepare, the settle that finds the capsule stale, the second prepare, and the settle under its capsule. Nothing was verified under the stale batch. The second prepare and its settle have no call site of their own, because each is the call that the normal path already shows, so each is counted at that site. Dispatching a named task again from the new packet is a harness call that the branch does not name, so the harness count is a lower bound. The revision that made the capsule stale belongs to another batch, and its calls are not counted here. Landing, the backstop and the transition follow as on the normal path.',
     },
     {
       id: 'deviation-pending',
       label: 'a worker proposed a deviation, so the batch is held for a decision and settled again with it',
-      trigger: { source: 'delegate', needle: '**`deviation-pending`** — a worker proposed a deviation' },
+      trigger: { source: 'delegate', needle: '**`deviation-pending`** — a deviation waits for its decision.' },
       through: `${O}.settle`,
       extra: [
         {
@@ -243,7 +278,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing and the transition follow as on the normal path. A rejected one rejects the batch; revising the plan and preparing again is the normal path. An accepted deviation of a material kind also records a design revision on that call. The design-revised path counts to that call, and the material-revision path counts the continuation that follows it.',
+      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing and the transition follow as on the normal path. An accepted one whose verification leaves a task unresolved goes on to the correction of the corrective-capsule path, one call more. A rejected one rejects the batch, and the settle of the corrected work is the settlement-rejected path. An accepted deviation of a material kind also records a design revision on that call. The design-revised path counts to that call, and the material-revision path counts the continuation that follows it.',
     },
     {
       id: 'design-revised',
@@ -258,7 +293,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'Counted to the call that records the revision. The revision is recorded on the decision call, so this path adds that call and no other. A revision names only unfinished tasks outside the batch, and those wait for the next capsule version whatever the round\'s verdict. What follows the revision, the continuation prepare and the settle of the capsule it compiles, is the material-revision path and is counted there, not here. A claim that a later revision supersedes prepares a second time for the same tasks; the skill names that remedy and no call site of its own, so neither path counts it.',
+      why: 'Counted to the call that records the revision. The revision is recorded on the decision call, so this path adds that call and no other. A revision names only unfinished tasks outside the batch, and those wait for the next capsule version whatever the round\'s verdict. What follows the revision, the continuation prepare and the settle of the capsule it compiles, is the material-revision path and is counted there, not here. A batch that arrives on a capsule that a later revision made stale prepares a second time. The recompile-required path counts that, not this one.',
     },
     {
       id: 'material-revision',
@@ -327,7 +362,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'Marking the task failed names no call and is not counted. The fixer dispatch it leads to is the settlement-rejected path.',
+      why: 'Marking the task failed names no call and is not counted. The fixer dispatch it leads to is the corrective-capsule path.',
     },
   ],
   conditional: [

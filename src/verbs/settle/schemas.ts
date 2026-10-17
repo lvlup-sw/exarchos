@@ -6,6 +6,7 @@
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
+import { SETTLEMENT_OUTCOMES } from './adjudicate.js';
 
 const ReceiptBundleRefSchema = z
   .object({
@@ -59,13 +60,48 @@ const ReceiptVerificationSchema = z
   })
   .passthrough();
 
+/**
+ * One task that a `corrective-capsule` batch leaves unresolved. `cause` is the kind of the finding
+ * against the task. The two optional fields name the verification segment of the task that halted.
+ */
+const ReceiptUnresolvedTaskSchema = z
+  .object({
+    taskId: z.string().min(1),
+    cause: z.string().min(1),
+    failedLeaf: z.string().min(1).optional(),
+    operationId: z.string().min(1).optional(),
+  })
+  .passthrough();
+
+/**
+ * The meaning of each outcome and the call that follows it. An agent reads this text through `describe`.
+ * `describe` returns the output schema twice, so each character here counts twice against the
+ * response budget of `describe` (`DESCRIBE_ECONOMY_BUDGET_TOKENS`). The text is short for that
+ * reason, and it also says what `acceptedTasks` lists. The delegate skill gives the full guidance.
+ */
+const OUTCOME_GUIDE =
+  'How the batch stands, and the next call. No outcome compiles a capsule. ' +
+  '`settled`: each required task is complete. ' +
+  '`corrective-capsule`: the tasks that passed are complete. Settle a new batchId on the same ' +
+  'capsule that claims only the `unresolved` tasks. If the receipt has `designRevision`, ' +
+  'prepare first. ' +
+  '`accepted-with-rationale`: not returned in this build. ' +
+  'Under each of the next three outcomes this build verifies nothing, and `acceptedTasks` ' +
+  'lists tasks whose claims have no shape fault. ' +
+  '`rejected`: a request or deviation error. Settle the corrected request under a new batchId. ' +
+  '`deviation-pending`: a deviation waits for its decision. Settle the same batchId with ' +
+  '`decisions` and no claims. ' +
+  '`recompile-required`: a later design revision made the capsule stale. Prepare again, then ' +
+  'settle under the new capsule';
+
 const SettlementReceiptData = z
   .object({
     operationId: z.string().min(1),
     streamId: z.string().min(1),
     capsule: ReceiptCapsuleSchema,
-    outcome: z.enum(['settled', 'rejected', 'deviation-pending']),
+    outcome: z.enum(SETTLEMENT_OUTCOMES).describe(OUTCOME_GUIDE),
     acceptedTasks: z.array(z.string().min(1)),
+    unresolved: z.array(ReceiptUnresolvedTaskSchema).optional(),
     findings: z.array(ReceiptFindingSchema),
     adjudicated: ReceiptCensusSchema,
     requestDigest: z.string().min(1),

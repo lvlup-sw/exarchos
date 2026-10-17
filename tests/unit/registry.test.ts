@@ -41,6 +41,8 @@ import {
 } from '../../src/registry/describe-actions.js';
 import { envelopeDataSchemaIsTyped } from '../../src/verbs/worktree/schemas.js';
 import { handleDescribe } from '../../src/describe/handler.js';
+import { estimateOutputTokens } from '../../src/dispatch/core/economy.js';
+import { enforceResponseEconomy } from '../../src/dispatch/core/response-economy.js';
 import { wrap, wrapError } from '../../src/format.js';
 import { zodToJsonSchema } from '../../src/utils/json-schema.js';
 import { ConcurrencyError } from '../../src/events/concurrency-error.js';
@@ -3001,6 +3003,48 @@ describe('registry economy budgets (DR-1)', () => {
     const taskClaim = orchestrate.actions.find((a) => a.name === 'task_claim')!;
     expect(data.task_claim.economyBudgetTokens).toBe(resolveEconomyBudget(taskClaim));
   });
+
+  /**
+   * A `describe` call for one action is a normal call, so its response must fit the budget that
+   * workflow, orchestrate and view share. The dispatch seam returns such a response unchanged, and
+   * it stamps a larger one as degraded.
+   *
+   * `describe` returns the output schema of an action twice, so each description in an output
+   * schema counts twice here. The description budget of an action does not measure that text.
+   * The last assertion shows that the measurement saw the full schemas of `settle`, the largest action.
+   */
+  it('describeAction_OfOneAction_FitsTheSharedDescribeBudget', async () => {
+    const tools = TOOL_REGISTRY.filter((tool) =>
+      tool.actions.some(
+        (a) => a.name === 'describe' && a.economy?.budgetTokens === DESCRIBE_ECONOMY_BUDGET_TOKENS,
+      ),
+    );
+    expect(tools.map((tool) => tool.name).sort()).toEqual(
+      ['exarchos_orchestrate', 'exarchos_view', 'exarchos_workflow'].sort(),
+    );
+
+    const measured = new Map<string, number>();
+    for (const tool of tools) {
+      for (const action of tool.actions) {
+        const key = `${tool.name}.${action.name}`;
+        const result = await handleDescribe({ actions: [action.name] }, tool.actions);
+        expect(result.success, `describe of ${key} failed`).toBe(true);
+        const tokens = estimateOutputTokens(result.data);
+        expect(
+          tokens,
+          `describe of ${key} is ${tokens} estimated tokens, over the describe budget`,
+        ).toBeLessThanOrEqual(DESCRIBE_ECONOMY_BUDGET_TOKENS);
+        expect(
+          enforceResponseEconomy(result, tool.name, 'describe'),
+          `the dispatch seam changed the describe response of ${key}`,
+        ).toBe(result);
+        measured.set(key, tokens);
+      }
+    }
+
+    expect(measured.size).toBe(tools.reduce((count, tool) => count + tool.actions.length, 0));
+    expect(measured.get('exarchos_orchestrate.settle')).toBeGreaterThan(DEFAULT_ECONOMY_BUDGET_TOKENS);
+  });
 });
 
 /**
@@ -3338,6 +3382,62 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
           }`,
         ).toBe(true);
       }
+    });
+
+    /**
+     * The receipt of `settle` names its outcome from a closed list. The schema admits the three names
+     * that a replayed claim of an earlier build carries and the three that this build adds.
+     * A name outside the list is refused, so the list stays closed.
+     */
+    it('the settle output schema admits each of the six outcomes and refuses an unknown one', () => {
+      const settle = findAction('exarchos_orchestrate', 'settle');
+      const baseline = baselineDataByAction['exarchos_orchestrate.settle'];
+      expect(baseline).toBeDefined();
+      const outcomes = [
+        'settled',
+        'rejected',
+        'deviation-pending',
+        'recompile-required',
+        'corrective-capsule',
+        'accepted-with-rationale',
+      ];
+      for (const outcome of outcomes) {
+        const parsed = settle.outputSchema.safeParse(baselineEnvelope({ ...baseline, outcome }));
+        expect(parsed.success, `${outcome}: ${parsed.success ? '' : JSON.stringify(parsed.error.issues)}`).toBe(true);
+      }
+      expect(settle.outputSchema.safeParse(baselineEnvelope({ ...baseline, outcome: 'mostly-fine' })).success).toBe(false);
+    });
+
+    /**
+     * A receipt that needs a correction names its unresolved tasks. The schema admits an entry with
+     * the task and the cause, with or without the halted leaf and the operation id. A receipt with
+     * no list parses too, as a replayed claim of an earlier build carries none.
+     * The receipt object passes unknown fields through. Thus the refused lists prove that the
+     * schema declares the field.
+     */
+    it('the settle output schema admits a list of unresolved tasks and refuses a malformed one', () => {
+      const settle = findAction('exarchos_orchestrate', 'settle');
+      const baseline = baselineDataByAction['exarchos_orchestrate.settle'];
+      expect(baseline).toBeDefined();
+      expect(baseline).not.toHaveProperty('unresolved');
+      const withList = (unresolved: unknown): boolean =>
+        settle.outputSchema.safeParse(baselineEnvelope({ ...baseline, outcome: 'corrective-capsule', unresolved }))
+          .success;
+
+      expect(withList([{ taskId: 'task-a', cause: 'verification-failed' }])).toBe(true);
+      expect(
+        withList([
+          { taskId: 'task-a', cause: 'verification-failed', failedLeaf: 'task_complete', operationId: 'settle-task:1' },
+          { taskId: 'task-b', cause: 'a-cause-of-a-later-build' },
+        ]),
+      ).toBe(true);
+      expect(settle.outputSchema.safeParse(baselineEnvelope({ ...baseline, outcome: 'corrective-capsule' })).success).toBe(true);
+
+      expect(withList([{ taskId: 'task-a' }])).toBe(false);
+      expect(withList([{ cause: 'verification-failed' }])).toBe(false);
+      expect(withList([{ taskId: 'task-a', cause: 'verification-failed', failedLeaf: '' }])).toBe(false);
+      expect(withList(['task-a'])).toBe(false);
+      expect(withList('task-a')).toBe(false);
     });
   });
 

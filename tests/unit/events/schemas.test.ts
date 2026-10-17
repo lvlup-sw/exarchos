@@ -96,8 +96,10 @@ import {
   PromotionExecutedData,
   EmissionViolatedData,
   AdmissionCutoverReadyData,
+  ExecutionSettledData,
   type WorkflowEvent,
 } from '../../../src/events/schemas.js';
+import { SETTLEMENT_OUTCOMES } from '../../../src/verbs/settle/adjudicate.js';
 import * as mutationOwner from '../../../src/vcs/mutation-owner.js';
 import { promoteTree, promotionPlan, defaultPromotionIo } from '../../../src/install/atomic-promotion.js';
 import { digestTree } from '../../../src/install/install-identity.js';
@@ -4427,5 +4429,107 @@ describe('Export event contract (DR-6, lifecycle-verbs task 012)', () => {
       const roundTripped = JSON.parse(JSON.stringify(c.payload));
       expect(c.schema.safeParse(roundTripped).success, c.label).toBe(false);
     }
+  });
+});
+
+/** An `execution.settled` row with the given outcome and the fields that each build wrote. */
+function settledRow(outcome: string): Record<string, unknown> {
+  return {
+    operationId: 'settle:op-1',
+    workflowId: 'wf-1',
+    capsuleVersion: 3,
+    batchId: 'batch-0001',
+    definitionVersion: 'b'.repeat(64),
+    outcome,
+    acceptedTasks: ['task-verify'],
+    findingCounts: [],
+    adjudicated: { claims: 1, requiredResults: 1, fields: 1, evidence: 0, deviations: 0, verification: 1 },
+    requestDigest: `sha256:${'a'.repeat(64)}`,
+    bundleRefs: [
+      {
+        artifactId: 'run-bundle:settlement-adjudication:batch-0001:3',
+        digest: { algorithm: 'sha256', value: 'c'.repeat(64) },
+      },
+    ],
+  };
+}
+
+/**
+ * The outcome of the `execution.settled` row is a closed enum. Its names only grow, so a row that
+ * an earlier build stored still parses.
+ */
+describe('ExecutionSettledData outcome', () => {
+  /** The three names of the earlier builds. A stored row goes through JSON before the parse. */
+  it.each(['settled', 'rejected', 'deviation-pending'])(
+    'ExecutionSettledData_AStoredRowWithTheOutcome_%s_StillParses',
+    (outcome) => {
+      const stored: unknown = JSON.parse(JSON.stringify(settledRow(outcome)));
+      const parsed = ExecutionSettledData.safeParse(stored);
+      expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
+      expect(parsed.data?.outcome).toBe(outcome);
+    },
+  );
+
+  /** The three names that this build adds. */
+  it.each(['recompile-required', 'corrective-capsule', 'accepted-with-rationale'])(
+    'ExecutionSettledData_ARowWithTheAddedOutcome_%s_Parses',
+    (outcome) => {
+      const parsed = ExecutionSettledData.safeParse(settledRow(outcome));
+      expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
+      expect(parsed.data?.outcome).toBe(outcome);
+    },
+  );
+
+  /** The enum of the row is the one outcome list, and a name outside the list is refused. */
+  it('ExecutionSettledData_ItsOutcomeEnum_IsTheSharedOutcomeListAndRefusesAnUnknownName', () => {
+    expect(SETTLEMENT_OUTCOMES).toHaveLength(6);
+    for (const outcome of SETTLEMENT_OUTCOMES) {
+      expect(ExecutionSettledData.safeParse(settledRow(outcome)).success, outcome).toBe(true);
+    }
+    expect(ExecutionSettledData.safeParse(settledRow('mostly-fine')).success).toBe(false);
+    expect(ExecutionSettledData.safeParse(settledRow('accepted')).success).toBe(false);
+  });
+});
+
+/**
+ * The `execution.settled` row names the unresolved tasks of a batch in an optional field.
+ * The schema of the row is strict, so the field must be optional for a stored row to parse.
+ */
+describe('ExecutionSettledData unresolved tasks', () => {
+  /** A row that an earlier build stored has no such field. It goes through JSON before the parse. */
+  it('ExecutionSettledData_AStoredRowWithoutUnresolvedTasks_StillParses', () => {
+    const stored: unknown = JSON.parse(JSON.stringify(settledRow('rejected')));
+    expect(stored).not.toHaveProperty('unresolvedTasks');
+    const parsed = ExecutionSettledData.safeParse(stored);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
+    expect(parsed.data).not.toHaveProperty('unresolvedTasks');
+  });
+
+  /** The row keeps each entry as the task and the cause, in the order that the handler wrote. */
+  it('ExecutionSettledData_ARowWithUnresolvedTasks_ParsesAndKeepsEachEntry', () => {
+    const unresolvedTasks = [
+      { taskId: 'task-compile', cause: 'verification-failed' },
+      { taskId: 'task-verify', cause: 'verification-failed' },
+    ];
+    const stored: unknown = JSON.parse(JSON.stringify({ ...settledRow('corrective-capsule'), unresolvedTasks }));
+    const parsed = ExecutionSettledData.safeParse(stored);
+    expect(parsed.success, JSON.stringify(parsed.error?.issues ?? [])).toBe(true);
+    expect(parsed.data?.unresolvedTasks).toEqual(unresolvedTasks);
+  });
+
+  /**
+   * The row holds the task and the cause alone. The halted leaf and the operation id stay on the
+   * receipt, so an entry that carries one is refused. A list is absent, and never empty.
+   */
+  it.each([
+    ['an entry with a field of the receipt', [{ taskId: 'task-verify', cause: 'verification-failed', failedLeaf: 'task_complete' }]],
+    ['an entry with no cause', [{ taskId: 'task-verify' }]],
+    ['an entry with an empty task id', [{ taskId: '', cause: 'verification-failed' }]],
+    ['an empty list', []],
+    ['a list of task ids', ['task-verify']],
+  ] satisfies [string, unknown[]][])('ExecutionSettledData_UnresolvedTasksWith_%s_AreRefused', (_name, unresolvedTasks) => {
+    const row = { ...settledRow('corrective-capsule'), unresolvedTasks };
+    expect(ExecutionSettledData.safeParse(row).success).toBe(false);
+    expect(ExecutionSettledData.safeParse(settledRow('corrective-capsule')).success).toBe(true);
   });
 });
