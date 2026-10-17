@@ -150,7 +150,7 @@ describe('handleEvent — hook runner wiring (R7)', () => {
       stream: 'test-feature',
       events: [
         { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
-        { type: 'task.completed', data: { taskId: 't1' } },
+        { type: 'task.progressed', data: { taskId: 't1', tddPhase: 'green' } },
       ],
     }, ctx);
 
@@ -165,7 +165,7 @@ describe('handleEvent — hook runner wiring (R7)', () => {
     );
     expect(hookRunner).toHaveBeenCalledWith(
       expect.objectContaining({
-        type: 'task.completed',
+        type: 'task.progressed',
         featureId: 'test-feature',
       }),
     );

@@ -10,6 +10,8 @@
 // so no second producer of that record can drift from the real one. Verification uses the live
 // orchestrate handler table over the shipped task-completion runbook, cut to `check_mock_boundary`
 // and `task_complete`. The setup seeds the gate that `task_complete` demands for `task-verify`.
+// The mock-boundary leaf stops its segment, and it refuses a task with no seeded gate. Thus such a
+// task halts on a gate leaf, as the shipped static-analysis step halts it.
 //
 // @oracle-sources: ../../../../src/verbs/settle/handler.ts, the persisted operation claim the SQLite appender hands back on a replay which is read out of the store rather than rebuilt in process
 
@@ -50,21 +52,29 @@ import {
   WorkflowPreparedData,
   type DesignRevised,
 } from '../../../../src/events/schemas.js';
-import type { ToolResult } from '../../../../src/format.js';
+import { toEnvelope, type ToolResult } from '../../../../src/format.js';
+import { validateAgainstActionSchema } from '../../../../src/adapters/mcp/mcp.js';
+import { capResponse } from '../../../../src/dispatch/core/response-economy.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
 import { settleActions } from '../../../../src/registry/actions/orchestrate/settle.js';
 import { ALL_RUNBOOKS } from '../../../../src/runbooks/definitions.js';
-import type { RunbookDefinition } from '../../../../src/runbooks/types.js';
+import type { RunbookDefinition, RunbookStep } from '../../../../src/runbooks/types.js';
 import { zodToJsonSchema } from '../../../../src/utils/json-schema.js';
 import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js';
-import { INTENT_EXECUTED_EVENT, type ExecuteIntentDeps } from '../../../../src/verbs/execute/executor.js';
+import {
+  INTENT_EXECUTED_EVENT,
+  handleExecuteIntent,
+  type ExecuteIntentDeps,
+  type LeafHandler,
+} from '../../../../src/verbs/execute/executor.js';
 import { ladderRequirementId } from '../../../../src/verbs/gates/durable-gate-producer.js';
 import { builtInWorkflowAuthority } from '../../../../src/verbs/prepare/built-in-authority.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
 import {
   INCOMPLETE_CLAIM_STATUSES,
+  SETTLEMENT_OUTCOME_RULES,
   SETTLEMENT_OUTCOMES,
   outcomeVerifies,
   type SettlementOutcome,
@@ -75,7 +85,12 @@ import {
   MAX_RATIONALE_ENTRIES_PER_CLAIM,
   MAX_RATIONALE_STATEMENT_LENGTH,
 } from '../../../../src/verbs/settle/claim-codec.js';
-import { deviationIdOf, handleSettle } from '../../../../src/verbs/settle/handler.js';
+import {
+  deviationIdOf,
+  handleSettle,
+  TASK_COMPLETION_LEAF_CLASSES,
+} from '../../../../src/verbs/settle/handler.js';
+import { summarizeSettlementReceipt } from '../../../../src/verbs/settle/economy.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
 import {
   MAX_AFFECTED_TASKS_PER_DEVIATION,
@@ -114,23 +129,62 @@ function correlation(): ReturnType<typeof mintDispatchContext> {
   );
 }
 
+/** The cut runbook. The mock-boundary step stops its segment, so it can stand in for a blocking gate. */
 function noShellTaskCompletion(): RunbookDefinition {
   const shipped = ALL_RUNBOOKS.find((entry) => entry.id === 'task-completion');
   if (shipped === undefined) throw new Error('the task-completion runbook is missing');
-  const steps = shipped.steps.filter((step) => NO_SHELL_LEAVES.includes(step.action));
+  const steps = shipped.steps
+    .filter((step) => NO_SHELL_LEAVES.includes(step.action))
+    .map((step): RunbookStep => (step.action === 'check_mock_boundary' ? { ...step, onFail: 'stop' } : step));
   expect(steps.map((step) => step.action)).toEqual(NO_SHELL_LEAVES);
   return { ...shipped, steps };
 }
 
-/** The executor's collaborators, as the composite hands them to settle — the live table, the cut runbook. */
-function executeDeps(): ExecuteIntentDeps {
+/** The live handler of one leaf of the orchestrate table. */
+function liveHandler(action: string): LeafHandler {
+  const handler = ACTION_HANDLERS[action];
+  if (handler === undefined) throw new Error(`the orchestrate table has no ${action}`);
+  return handler;
+}
+
+/** Whether the stream holds a passing static-analysis gate for the task, as the setup seeds one. */
+async function hasPassingStaticAnalysis(taskId: unknown): Promise<boolean> {
+  const gates = await store.query(STREAM, { type: 'gate.executed' });
+  return gates.some((event) => {
+    const data = event.data as { gateName?: unknown; passed?: unknown; details?: { taskId?: unknown } };
+    return data.gateName === 'static-analysis' && data.passed === true && data.details?.taskId === taskId;
+  });
+}
+
+/**
+ * The mock-boundary leaf as a blocking gate. It refuses a task with no passing static-analysis gate
+ * on the stream, and the live leaf runs for each other task.
+ */
+const gateStandIn: LeafHandler = async (args, leafStateDir, ctx) => {
+  if (!(await hasPassingStaticAnalysis(args.taskId))) {
+    return {
+      success: false,
+      error: {
+        code: 'GATE_BLOCKED',
+        message: `no passing static-analysis gate covers task ${JSON.stringify(args.taskId)}`,
+      },
+    };
+  }
+  return liveHandler('check_mock_boundary')(args, leafStateDir, ctx);
+};
+
+/**
+ * The executor's collaborators, as the composite hands them to settle: the live table with the
+ * gate stand-in, the cut runbook. `overrides` replaces the handler of a leaf for one call.
+ */
+function executeDeps(overrides: Readonly<Record<string, LeafHandler>> = {}): ExecuteIntentDeps {
   const schema = INTENT_ARG_SCHEMAS['task-completion'];
   if (schema === undefined) throw new Error('no argument schema for task-completion');
   return {
     runbookTable: [noShellTaskCompletion()],
     findAction: findActionInRegistry,
     argSchemas: { 'task-completion': schema },
-    handlers: ACTION_HANDLERS,
+    handlers: { ...ACTION_HANDLERS, check_mock_boundary: gateStandIn, ...overrides },
     handlerTool: 'exarchos_orchestrate',
   };
 }
@@ -204,9 +258,12 @@ function failingClaim(): Record<string, unknown> {
   return { taskId: 'task-verify', fields: { passed: 'yes', worktreePath: WORKTREE }, evidence: [] };
 }
 
-async function settle(raw: Record<string, unknown>): Promise<ToolResult> {
+async function settle(
+  raw: Record<string, unknown>,
+  overrides: Readonly<Record<string, LeafHandler>> = {},
+): Promise<ToolResult> {
   return runWithDispatchContext(correlation(), () =>
-    handleSettle(raw, stateDir, wiring(), { execute: executeDeps() }),
+    handleSettle(raw, stateDir, wiring(), { execute: executeDeps(overrides) }),
   );
 }
 
@@ -779,7 +836,7 @@ describe('settle — the verification a settled batch runs', () => {
   });
 
   /**
-   * The seeded gate does not cover this task, so its completion leaf refuses and the segment halts.
+   * The seeded gate does not cover this task, so its gate leaf refuses and the segment halts.
    * The batch needs a correction, and a finding names the halt. The segment record agrees, and the
    * settlement record holds the outcome and the finding count.
    */
@@ -798,9 +855,9 @@ describe('settle — the verification a settled batch runs', () => {
     expect(receipt.findings.map((f) => [f.kind, f.subject, f.at])).toEqual([
       ['verification-failed', 'task-unverified', 'claims[0]'],
     ]);
-    expect(receipt.findings[0]?.message).toContain('task_complete');
+    expect(receipt.findings[0]?.message).toContain('check_mock_boundary');
     expect(receipt.verification).toEqual([
-      expect.objectContaining({ taskId: 'task-unverified', outcome: 'failed', failedLeaf: 'task_complete' }),
+      expect.objectContaining({ taskId: 'task-unverified', outcome: 'failed', failedLeaf: 'check_mock_boundary' }),
     ]);
     const records = await rowsOf(INTENT_EXECUTED_EVENT);
     expect(records.map((r) => (r.data as { outcome: string }).outcome)).toEqual(['failed']);
@@ -890,7 +947,7 @@ describe('settle — the verification a settled batch runs', () => {
       {
         taskId: 'task-unverified',
         cause: 'verification-failed',
-        failedLeaf: 'task_complete',
+        failedLeaf: 'check_mock_boundary',
         operationId: halted?.operationId,
       },
     ]);
@@ -947,8 +1004,8 @@ describe('settle — the verification a settled batch runs', () => {
     expect(receipt.acceptedTasks).toEqual([]);
     expect(receipt.findings.map((finding) => finding.subject)).toEqual(['task-zeta', 'task-alpha']);
     expect(receipt.unresolved?.map((task) => [task.taskId, task.cause, task.failedLeaf])).toEqual([
-      ['task-alpha', 'verification-failed', 'task_complete'],
-      ['task-zeta', 'verification-failed', 'task_complete'],
+      ['task-alpha', 'verification-failed', 'check_mock_boundary'],
+      ['task-zeta', 'verification-failed', 'check_mock_boundary'],
     ]);
     const operationOf = (taskId: string): string | undefined =>
       receipt.verification?.find((trace) => trace.taskId === taskId)?.operationId;
@@ -1177,6 +1234,44 @@ describe('settle — the verification a settled batch runs', () => {
   });
 
   /**
+   * The verdict is durable, and the replay cannot write the document. The refusal names the repair,
+   * and it carries the verdict on `error.settlementReceipt`, because a failed envelope has no `data`.
+   * The envelope keeps the field, and the output gate of the MCP adapter does not refuse the envelope.
+   * The gate does not inspect the carrier, because the error object of the envelope schema passes
+   * each key through. The replay appends no row.
+   */
+  it('Settle_AReplayThatCannotLevelTheDocument_CarriesItsVerdictOnTheError', async () => {
+    await initStateFile(stateDir, STREAM, 'feature', {
+      tasks: [{ id: 'task-verify', title: 'verify', status: 'in_progress' }],
+    });
+    const stateFile = path.join(stateDir, `${STREAM}.state.json`);
+    const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-replay-unwritable', claims: [passingClaim()] };
+    const first = receiptOf(await settle(args));
+    await writeFile(stateFile, '{ not a document', 'utf-8');
+    const tail = (await store.query(STREAM)).length;
+
+    const refused = await settle(args);
+
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('STATE_SYNC_FAILED');
+    expect(refused.error?.message).toContain('`error.settlementReceipt`');
+    expect(refused.error?.message).toContain('exarchos_workflow reconcile');
+    expect(refused.error?.settlementReceipt).toStrictEqual(first);
+    expect(refused).not.toHaveProperty('data');
+    expect(await store.query(STREAM)).toHaveLength(tail);
+
+    const envelope = toEnvelope(refused);
+    expect(envelope.success).toBe(false);
+    if (envelope.success) throw new Error('unreachable');
+    expect(envelope.error.settlementReceipt).toStrictEqual(first);
+    const settleAction = findActionInRegistry('exarchos_orchestrate', 'settle');
+    if (settleAction === undefined) throw new Error('the settle action is not registered');
+    expect(validateAgainstActionSchema('exarchos_orchestrate', [settleAction], { action: 'settle' }, envelope)).toBe(
+      envelope,
+    );
+  });
+
+  /**
    * The task is complete on the stream before the batch, from `task_complete` or from a batch whose
    * leaf did not write the document. Settle accepts the task, and the document follows.
    */
@@ -1196,45 +1291,207 @@ describe('settle — the verification a settled batch runs', () => {
   });
 
   /**
-   * The leaf leaves the fact but cannot write the document, so the segment halts and the batch
-   * needs a correction. The fact stays durable on the stream. While the document is corrupt, the next batch
-   * gets a refusal before any effect and stays open. After the repair, that batch finds the task
-   * complete, updates the document, and leaves no second fact.
+   * The completion leaf leaves the fact and cannot write the document, so the segment halts. The
+   * stream records the task complete, so completion wins and the round must bring the document
+   * level. It cannot, so the call is refused with no verdict and names the repair. While the document
+   * is corrupt, a retry of the same batch is refused before any segment. After the repair, the same
+   * batch finds the task complete, updates the document, and leaves no second fact.
    */
-  it('Settle_ADocumentThatCannotBeWritten_HaltsTheCompletionLeafAndTheNextBatchRepairsIt', async () => {
+  it('Settle_ACompletionLeafThatCannotWriteTheDocument_RecordsNoVerdictAndTheSameBatchSettlesAfterTheRepair', async () => {
     await initStateFile(stateDir, STREAM, 'feature', {
       tasks: [{ id: 'task-verify', title: 'verify', status: 'in_progress' }],
     });
     const stateFile = path.join(stateDir, `${STREAM}.state.json`);
     const intact = await readFile(stateFile, 'utf-8');
     await writeFile(stateFile, '{ not a document', 'utf-8');
+    const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-unwritable-document', claims: [passingClaim()] };
 
-    const halted = receiptOf(
-      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-unwritable-document', claims: [passingClaim()] }),
-    );
-    expect(halted.outcome).toBe('corrective-capsule');
-    expect(halted.findings.map((f) => f.kind)).toEqual(['verification-failed']);
-    expect(halted.verification?.map((t) => [t.outcome, t.failedLeaf])).toEqual([['failed', 'task_complete']]);
-    expect(halted.findings[0]?.message).toContain('state document');
+    const halted = await settle(args);
+    expect(halted.success).toBe(false);
+    expect(halted.error?.code).toBe('STATE_SYNC_FAILED');
+    expect(halted.error?.message).toContain('"task-verify"');
+    expect(halted.error?.message).toContain('exarchos_workflow reconcile');
+    expect(halted.error?.message).toContain('stop and report it to a person');
+    expect(halted).not.toHaveProperty('data');
+    const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
+    expect(segments.map((segment) => [segment.outcome, segment.failedLeaf])).toEqual([['failed', 'task_complete']]);
     expect(await completionRows()).toHaveLength(1);
+    expect(await settledRows()).toEqual([]);
 
-    const stillCorrupt = await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-retry-1', claims: [passingClaim()] });
+    const stillCorrupt = await settle(args);
     expect(stillCorrupt.success).toBe(false);
     expect(stillCorrupt.error?.code).toBe('STATE_SYNC_FAILED');
-    expect(await settledRows()).toHaveLength(1);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    expect(await settledRows()).toEqual([]);
 
     await writeFile(stateFile, intact, 'utf-8');
-    const repaired = receiptOf(
-      await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-retry-1', claims: [passingClaim()] }),
-    );
+    const repaired = receiptOf(await settle(args));
     expect(repaired.outcome).toBe('settled');
+    expect(repaired.acceptedTasks).toEqual(['task-verify']);
     expect(repaired.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
-    expect(await settledRows()).toHaveLength(2);
+    expect(repaired).not.toHaveProperty('unresolved');
+    expect(await settledRows()).toHaveLength(1);
     expect(await completionRows()).toHaveLength(1);
     const state = await readStateFile(stateFile);
     expect((state.tasks as { id: string; status: string }[]).map((t) => [t.id, t.status])).toEqual([
       ['task-verify', 'complete'],
     ]);
+  });
+
+  /**
+   * The completion leaf appends the fact and then reports a failure, as a failed document write
+   * does. The segment halts after the fact. The round reads the completion rows again after the
+   * segments, so the task is complete and not unresolved. Nothing else is unresolved, so the batch
+   * settles. The record lists no unresolved task. The workflow has no state document, so the result
+   * carries no warning.
+   */
+  it('Settle_ASegmentThatHaltsAfterTheCompletionFact_IsAlreadyCompleteAndTheBatchSettles', async () => {
+    const appendsThenFails: LeafHandler = async (leafArgs, leafStateDir, ctx) => {
+      const appended = await liveHandler('task_complete')(leafArgs, leafStateDir, ctx);
+      expect(appended.success).toBe(true);
+      return { success: false, error: { code: 'STATE_SYNC_FAILED', message: 'the document write failed' } };
+    };
+    const result = await settle(
+      { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-halts-after-the-fact', claims: [passingClaim()] },
+      { task_complete: appendsThenFails },
+    );
+    expect(result).not.toHaveProperty('warnings');
+    const receipt = receiptOf(result);
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.acceptedTasks).toEqual(['task-verify']);
+    expect(receipt.findings).toEqual([]);
+    expect(receipt.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
+    expect(receipt).not.toHaveProperty('unresolved');
+    const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
+    expect(segments.map((segment) => [segment.outcome, segment.failedLeaf])).toEqual([['failed', 'task_complete']]);
+    expect(await completionRows()).toHaveLength(1);
+    const [row] = await settledRows();
+    const record = ExecutionSettledData.parse(row?.data);
+    expect(record.outcome).toBe('settled');
+    expect(record.acceptedTasks).toEqual(['task-verify']);
+    expect(row?.data).not.toHaveProperty('unresolvedTasks');
+  });
+
+  /**
+   * Another call completes the task while its segment runs. The completion leaf of the segment
+   * then finds the fact under another operation, so it breaks its postcondition and the segment
+   * halts. The stream records the task complete, so completion wins, and the batch settles.
+   */
+  it('Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsAlreadyComplete', async () => {
+    const completesFirst: LeafHandler = async (leafArgs, leafStateDir, ctx) => {
+      const completed = await liveHandler('task_complete')(
+        { taskId: leafArgs.taskId, featureId: leafArgs.featureId },
+        leafStateDir,
+        ctx,
+      );
+      expect(completed.success).toBe(true);
+      return gateStandIn(leafArgs, leafStateDir, ctx);
+    };
+    const receipt = receiptOf(
+      await settle(
+        { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-completed-meanwhile', claims: [passingClaim()] },
+        { check_mock_boundary: completesFirst },
+      ),
+    );
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
+    expect(receipt).not.toHaveProperty('unresolved');
+    const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
+    expect(segments.map((segment) => [segment.outcome, segment.failedLeaf])).toEqual([['failed', 'task_complete']]);
+    expect(await completionRows()).toHaveLength(1);
+  });
+
+  /**
+   * The gate leaf returns success without the evidence and the rows that its contract promises, so
+   * the segment halts on the contract. That halt is not a gate verdict, so the call is refused with
+   * no verdict: no settlement row and no completion. The segment record stays, so a retry of the
+   * same batch gets the same halt. The claims settle under a new batch id. The refusal gives the
+   * stop rule: one new batch, then a person.
+   */
+  it('Settle_AGateThatBreaksItsContract_IsRefusedWithNoVerdict', async () => {
+    const breaksItsContract: LeafHandler = async () => ({ success: true, data: { passed: true } });
+    const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-broken-contract', claims: [passingClaim()] };
+
+    const refused = await settle(args, { check_mock_boundary: breaksItsContract });
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
+    expect(refused.error?.message).toContain('"task-verify"');
+    expect(refused.error?.message).toContain("'check_mock_boundary'");
+    expect(refused.error?.message).toContain('not a gate verdict');
+    expect(refused.error?.message).toContain(
+      'settle the claims once under a new batchId. If the same halt comes back, stop and report it to a person.',
+    );
+    expect(refused).not.toHaveProperty('data');
+    expect(await settledRows()).toEqual([]);
+    expect(await completionRows()).toEqual([]);
+    const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
+    expect(segments.map((segment) => [segment.outcome, segment.failedLeaf])).toEqual([['failed', 'check_mock_boundary']]);
+
+    const retried = await settle(args);
+    expect(retried.success).toBe(false);
+    expect(retried.error).toEqual(refused.error);
+    expect(await rowsOf(INTENT_EXECUTED_EVENT)).toHaveLength(1);
+    expect(await settledRows()).toEqual([]);
+
+    const settled = receiptOf(await settle({ ...args, batchId: 'batch-broken-contract:again' }));
+    expect(settled.outcome).toBe('settled');
+    expect(settled.verification?.map((trace) => [trace.taskId, trace.outcome])).toEqual([['task-verify', 'verified']]);
+    expect(await settledRows()).toHaveLength(1);
+  });
+
+  /**
+   * The completion leaf refuses before it appends the fact. That leaf is not a gate, so its halt
+   * is not a verdict about the work, and the call is refused with no verdict. The batch id stays
+   * unsettled. After the task completes on the primitive path, a retry of the same batch finds the
+   * completion and settles.
+   */
+  it('Settle_AHaltOnALeafThatIsNotAGate_IsRefusedAndTheSameBatchSettlesLater', async () => {
+    const refusesTheAppend: LeafHandler = async () => ({
+      success: false,
+      error: { code: 'COMPLETE_FAILED', message: 'the store refused the append' },
+    });
+    const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-not-a-gate', claims: [passingClaim()] };
+
+    const refused = await settle(args, { task_complete: refusesTheAppend });
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('INTENT_SEGMENT_FAILED');
+    expect(refused.error?.message).toContain("'task_complete'");
+    expect(refused.error?.message).toContain('not a gate verdict');
+    expect(refused.error?.message).toContain('If the same halt comes back, stop and report it to a person.');
+    expect(refused.error?.message).toContain('the store refused the append');
+    expect(await settledRows()).toEqual([]);
+    expect(await completionRows()).toEqual([]);
+
+    const completed = await runWithDispatchContext(correlation(), () =>
+      liveHandler('task_complete')({ taskId: 'task-verify', featureId: STREAM }, stateDir, wiring()),
+    );
+    expect(completed.success).toBe(true);
+    const settled = receiptOf(await settle(args));
+    expect(settled.outcome).toBe('settled');
+    expect(settled.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
+    const rows = await settledRows();
+    expect(rows).toHaveLength(1);
+    expect(ExecutionSettledData.parse(rows[0]?.data).batchId).toBe('batch-not-a-gate');
+  });
+
+  /**
+   * Each leaf of the shipped task-completion runbook has a class, and the class is `gate` exactly
+   * when the registry declares the action a gate. The completion leaf is the one leaf that is not.
+   */
+  it('TaskCompletionLeafClasses_MatchTheGateDeclarationOfEachLeaf', () => {
+    const shipped = ALL_RUNBOOKS.find((entry) => entry.id === 'task-completion');
+    if (shipped === undefined) throw new Error('the task-completion runbook is missing');
+    const classes: Readonly<Record<string, string>> = TASK_COMPLETION_LEAF_CLASSES;
+    expect(Object.keys(classes).sort()).toEqual(shipped.steps.map((step) => step.action).sort());
+    for (const step of shipped.steps) {
+      const declared = findActionInRegistry(step.tool, step.action);
+      expect(declared, step.action).toBeDefined();
+      expect([step.action, classes[step.action]]).toEqual([
+        step.action,
+        declared?.gate !== undefined ? 'gate' : 'completion',
+      ]);
+    }
+    expect(Object.values(classes).filter((leafClass) => leafClass === 'completion')).toHaveLength(1);
   });
 });
 
@@ -1426,7 +1683,13 @@ describe('settle — the decision round', () => {
     ]);
   });
 
-  /** A batch that was never submitted has nothing to decide. A settled batch is closed, and nothing waits for a decision. */
+  /**
+   * A batch that was never submitted has nothing to decide. A settled batch is closed, and nothing waits for a decision.
+   * The refusal for a batch that is not held names the call after its outcome, from the outcome rules.
+   * No call follows a settled batch, so the refusal names no correction for it.
+   * The settled batch comes after the first two, because a task that the stream shows complete leaves no task unresolved.
+   * Then a later revision names the task, and the refusal for one more batch must hold the literal call to prepare.
+   */
   it('Settle_ADecisionOnABatchThatIsNotHeld_IsRefusedBeforeAnyEffect', async () => {
     const decision = [{ deviationId: 'dev:000000000000000000000000', decision: 'accepted', actor: ACTOR, rationale: RATIONALE }];
     const unknown = await decide('batch-never-submitted', decision);
@@ -1434,13 +1697,55 @@ describe('settle — the decision round', () => {
     expect(unknown.error?.code).toBe('BATCH_NOT_HELD');
     expect(unknown.error?.message).toContain('has not been settled');
 
-    receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-closed', claims: [passingClaim()] }));
+    const closedBatches: [string, Record<string, unknown>, SettlementOutcome][] = [
+      ['batch-closed-corrective', { taskId: 'task-verify', status: 'blocked', reason: 'the store is down' }, 'corrective-capsule'],
+      ['batch-closed-rejected', failingClaim(), 'rejected'],
+      ['batch-closed', passingClaim(), 'settled'],
+    ];
+    for (const [batchId, claim, outcome] of closedBatches) {
+      expect(receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId, claims: [claim] })).outcome).toBe(outcome);
+    }
+    const digest = await store.bundleStore.put(Buffer.from('{"note":"a revision written by hand"}\n', 'utf8'));
+    await store.append(STREAM, {
+      type: 'design.revised',
+      data: DesignRevisedData.parse({
+        operationId: 'settle:revised-by-hand',
+        workflowId: baseValidCapsule().identity.workflowId,
+        capsuleVersion: 7,
+        batchId: 'batch-revised-by-hand',
+        priorDesignVersion: 1,
+        nextDesignVersion: 2,
+        deviationIds: ['dev:written-by-hand'],
+        affectedTasks: ['task-verify'],
+        [BUNDLE_REF_FIELD]: [{ artifactId: 'run-bundle:settlement-adjudication:batch-revised-by-hand:7', digest }],
+      }),
+    });
+    const superseded: [string, Record<string, unknown>, SettlementOutcome] = [
+      'batch-closed-superseded',
+      passingClaim(),
+      'recompile-required',
+    ];
+    expect(
+      receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: superseded[0], claims: [superseded[1]] })).outcome,
+    ).toBe(superseded[2]);
+    closedBatches.push(superseded);
+    const rows = await settledRows();
     const blobs = await bundleBlobCount();
-    const closed = await decide('batch-closed', decision);
-    expect(closed.success).toBe(false);
-    expect(closed.error?.code).toBe('BATCH_NOT_HELD');
-    expect(closed.error?.message).toContain('is settled');
-    expect(await settledRows()).toHaveLength(1);
+    for (const [batchId, , outcome] of closedBatches) {
+      const closed = await decide(batchId, decision);
+      expect(closed.success).toBe(false);
+      expect(closed.error?.code).toBe('BATCH_NOT_HELD');
+      expect(closed.error?.message).toContain(`is ${outcome}, not held`);
+      expect(closed.error?.message).toContain(`The call after \`${outcome}\`: ${SETTLEMENT_OUTCOME_RULES[outcome].next}.`);
+      expect(closed.error?.message).not.toContain('A correction goes back');
+    }
+    const recompile = await decide(superseded[0], decision);
+    expect(recompile.error?.message).toContain(
+      'The call after `recompile-required`: prepare, then settle under the new capsule.',
+    );
+    expect(SETTLEMENT_OUTCOME_RULES.settled.next).toBe('none');
+    expect(await settledRows()).toEqual(rows);
+    expect(rows).toHaveLength(closedBatches.length);
     expect(await rowsOf('deviation.decided')).toEqual([]);
     expect(await bundleBlobCount()).toBe(blobs);
   });
@@ -2512,7 +2817,7 @@ describe('settle — the design revision a decision round records', () => {
   });
 
   /**
-   * No gate is seeded for the claimed task, so its completion leaf refuses and the segment halts.
+   * No gate is seeded for the claimed task, so its gate leaf refuses and the segment halts.
    * The halt leaves the task unresolved. The acceptance is the recorded fact, so the row stands.
    */
   it('Settle_AnAcceptedMaterialDeviationWhoseVerificationFails_StillRevisesTheDesign', async () => {
@@ -2531,13 +2836,13 @@ describe('settle — the design revision a decision round records', () => {
       ['verification-failed', 'task-unverified'],
     ]);
     expect(decided.verification?.map((trace) => [trace.outcome, trace.failedLeaf])).toEqual([
-      ['failed', 'task_complete'],
+      ['failed', 'check_mock_boundary'],
     ]);
     expect(decided.unresolved).toStrictEqual([
       {
         taskId: 'task-unverified',
         cause: 'verification-failed',
-        failedLeaf: 'task_complete',
+        failedLeaf: 'check_mock_boundary',
         operationId: decided.verification?.[0]?.operationId,
       },
     ]);
@@ -3314,6 +3619,33 @@ describe('settle — a required result that the stream shows complete', () => {
   });
 
   /**
+   * The coordinator builds the correction from the first receipt alone. Each entry of its
+   * `unresolved` list names a task to claim again, and the claims of the first batch give the
+   * result fields. The correction settles. Each required task is then accepted by one of the two
+   * batches and complete on the stream.
+   */
+  it('Settle_ACorrectionBuiltFromTheUnresolvedListOfTheFirstReceipt_Settles', async () => {
+    const claimsByTask = new Map<string, Record<string, unknown>>([
+      ['task-verify', passingClaim()],
+      [SECOND_TASK, secondClaim()],
+    ]);
+    const first = receiptOf(await settle(batch('batch-from-the-list', [...claimsByTask.values()])));
+    expect(first.outcome).toBe('corrective-capsule');
+    expect(SETTLEMENT_OUTCOME_RULES[first.outcome].next).toContain('only the `unresolved` tasks');
+    const unresolved = first.unresolved ?? [];
+    expect(unresolved.map((entry) => [entry.taskId, entry.cause])).toEqual([[SECOND_TASK, 'verification-failed']]);
+
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const correction = unresolved.map((entry) => claimsByTask.get(entry.taskId));
+    const corrected = receiptOf(await settle(batch('batch-from-the-list:correction', correction)));
+    expect(corrected.outcome).toBe('settled');
+    expect(corrected.acceptedTasks).toEqual(unresolved.map((entry) => entry.taskId));
+    expect(corrected).not.toHaveProperty('unresolved');
+    expect([...first.acceptedTasks, ...corrected.acceptedTasks].sort()).toEqual([SECOND_TASK, 'task-verify'].sort());
+    expect((await completionRows()).map((row) => row.data.taskId).sort()).toEqual([SECOND_TASK, 'task-verify'].sort());
+  });
+
+  /**
    * The denominator of the waiver. No task is complete, so the required task that the batch omits
    * is a missing claim. The claim that the batch carries is not verified.
    */
@@ -3333,9 +3665,10 @@ describe('settle — a required result that the stream shows complete', () => {
    * A batch with no claim is refused as invalid input in each spelling, also when it carries a
    * deviation. The refusal leaves no row, no blob and no claim.
    *
-   * The message names the call that works in this state, which is a claim for a complete task.
-   * It also names the call that decides a held batch. The same batch id then carries a claim for
-   * a complete task and settles, with both requirements already complete.
+   * The message names the call that works in this state, which is a claim for a complete task with
+   * its result fields. It says what a claim carries, and it names the call that decides a held
+   * batch. The same batch id then carries a claim for a complete task and settles, with both
+   * requirements already complete.
    */
   it('Settle_ASubmittedBatchWithNoClaim_IsRefusedAsInvalidInput', async () => {
     await recordCompletion('task-verify');
@@ -3349,7 +3682,8 @@ describe('settle — a required result that the stream shows complete', () => {
       expect(result.success, JSON.stringify(body)).toBe(false);
       expect(result.error?.code).toBe('INVALID_INPUT');
       expect(result.error?.message).toContain('carries no claim');
-      expect(result.error?.message).toContain('claim one of them');
+      expect(result.error?.message).toContain('A claim carries the result fields of its task, or a status and a reason');
+      expect(result.error?.message).toContain('claim one of them with its result fields');
       expect(result.error?.message).toContain('`already-complete`');
       expect(result.error?.message).toContain('send `decisions` only');
     }
@@ -3644,6 +3978,28 @@ describe('settle — a required result that the stream shows complete', () => {
     expect(repaired.outcome).toBe('settled');
     expect(await documentStatuses(stateFile)).toEqual(COMPLETE);
     expect((await completionRows()).map((row) => row.data.taskId)).toEqual(['task-verify', SECOND_TASK]);
+  });
+  /**
+   * The stream shows `task-verify` complete, and the document lists only the second task. The round
+   * cannot mark a task that the document does not list, so the result carries a warning that names
+   * it. A replay of the batch names it again. A task that the document lists gets no warning.
+   */
+  it('Settle_ACompleteTaskThatTheDocumentDoesNotList_IsNamedInTheWarnings', async () => {
+    await initStateFile(stateDir, STREAM, 'feature', {
+      tasks: [{ id: SECOND_TASK, title: 'second', status: 'in_progress' }],
+    });
+    await recordCompletion('task-verify');
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    const args = batch('batch-unlisted', [secondClaim()]);
+
+    const first = await settle(args);
+    expect(receiptOf(first).outcome).toBe('settled');
+    expect(first.warnings).toEqual([expect.stringContaining('"task-verify"')]);
+    expect(first.warnings?.join(' ')).not.toContain(SECOND_TASK);
+
+    const again = await settle(args);
+    expect(receiptOf(again)).toEqual(receiptOf(first));
+    expect(again.warnings).toEqual(first.warnings);
   });
 });
 
@@ -4545,12 +4901,25 @@ describe('settle — a claim that records a delegated choice', () => {
   const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
   const ACTOR = 'human:reviewer';
 
-  async function prepareDelegatingCapsule(): Promise<void> {
-    const capsule = withBuiltInDelegatedDecisions(capsuleWithTask(SECOND_TASK, RATIONALE_VERSION));
-    await seedPrepared({
+  const MEDIUM_VERSION = RATIONALE_VERSION + 1;
+
+  function delegatingCapsule(capsuleVersion: number, riskTier: 'low' | 'medium'): ExarchosCapsuleV1 {
+    const capsule = withBuiltInDelegatedDecisions(capsuleWithTask(SECOND_TASK, capsuleVersion));
+    const terms = Object.entries(capsule.settlementContract.taskVerification ?? {}).map(
+      ([taskId, term]): [string, typeof term] => [taskId, { ...term, riskTier }],
+    );
+    return {
       ...capsule,
-      settlementContract: { ...capsule.settlementContract, requiredResults: [SECOND_TASK, 'task-verify'] },
-    });
+      settlementContract: {
+        requiredResults: [SECOND_TASK, 'task-verify'],
+        taskVerification: Object.fromEntries(terms),
+      },
+    };
+  }
+
+  async function prepareDelegatingCapsule(): Promise<void> {
+    await seedPrepared(delegatingCapsule(RATIONALE_VERSION, 'low'));
+    await seedPrepared(delegatingCapsule(MEDIUM_VERSION, 'medium'));
   }
 
   beforeEach(prepareDelegatingCapsule);
@@ -4664,6 +5033,9 @@ describe('settle — a claim that records a delegated choice', () => {
    * The first run has no rationale, and the second has a choice on each claim. The first run
    * settles, and the second is accepted with rationale.
    *
+   * The capsule freezes both tasks at the medium tier. A rationale that lowers the tier then
+   * changes the steering and the request digest of each segment. At the low tier no tier is lower.
+   *
    * The verification of each task is the same in both runs. The segment has the same operation,
    * the same request digest over its arguments, the same steering and the same leaves with the
    * same results. The gate rows and the completion facts are the same too.
@@ -4671,7 +5043,9 @@ describe('settle — a claim that records a delegated choice', () => {
   it('Settle_ABatchWithARationaleAndTheSameBatchWithoutIt_RunTheSameGates', async () => {
     const observe = async (claims: readonly unknown[]): Promise<Record<string, unknown>> => {
       await seedPassingStaticAnalysis(SECOND_TASK);
-      const receipt = receiptOf(await settle(batch('batch-same-gates', claims)));
+      const receipt = receiptOf(
+        await settle({ ...batch('batch-same-gates', claims), capsuleVersion: MEDIUM_VERSION }),
+      );
       const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
       const gates = (await rowsOf('gate.executed')).map((row) => row.data as { gateName?: unknown; passed?: unknown });
       return {
@@ -4703,6 +5077,10 @@ describe('settle — a claim that records a delegated choice', () => {
     expect(plain.outcome).toBe('settled');
     expect(chosen.outcome).toBe('accepted-with-rationale');
     expect(plain.segments).toHaveLength(2);
+    expect((plain.segments as { steering?: unknown }[]).map((segment) => segment.steering)).toEqual([
+      { riskTier: 'medium', boundaryTouching: false, source: 'capsule' },
+      { riskTier: 'medium', boundaryTouching: false, source: 'capsule' },
+    ]);
     expect((plain.segments as { leaves: unknown[] }[]).map((segment) => segment.leaves)).toEqual([
       [
         ['check_mock_boundary', 'passed', expect.any(Number)],
@@ -4718,7 +5096,7 @@ describe('settle — a claim that records a delegated choice', () => {
   });
 
   /**
-   * The second task has no seeded gate, so its completion leaf refuses and its segment halts.
+   * The second task has no seeded gate, so its gate leaf refuses and its segment halts.
    * Its claim records a choice, and the choice does not complete the task. The batch needs a
    * correction, and the task that passed is complete.
    *
@@ -4734,7 +5112,7 @@ describe('settle — a claim that records a delegated choice', () => {
     expect(findingsOf(receipt)).toEqual([['verification-failed', SECOND_TASK, 'claims[1]']]);
     expect(receipt.acceptedTasks).toEqual(['task-verify']);
     expect(receipt.unresolved?.map((task) => [task.taskId, task.cause, task.failedLeaf])).toEqual([
-      [SECOND_TASK, 'verification-failed', 'task_complete'],
+      [SECOND_TASK, 'verification-failed', 'check_mock_boundary'],
     ]);
     expect(tracesOf(receipt)).toEqual([
       [SECOND_TASK, 'failed'],
@@ -5059,6 +5437,178 @@ describe('settle — a claim that records a delegated choice', () => {
   });
 });
 
+/**
+ * Each receipt that the handler returns crosses the output gate of the MCP adapter. The adapter
+ * parses each envelope against the registered output schema, and it replaces a miss with
+ * `INTERNAL_ERROR`. One stream gets a receipt of each of the six outcomes. Each receipt crosses the
+ * gate on the first call and on the replay. It crosses whole, and in the capped form of the cap.
+ * The gate returns its input when the envelope passes.
+ */
+describe('settle — the receipts that the MCP output gate admits', () => {
+  const DELEGATING_VERSION = 110;
+  const REVISING_VERSION = 120;
+  const STALE_VERSION = 130;
+  const SECOND_TASK = 'task-second';
+  const REVISING_TASK = 'task-revising';
+  const LATER_TASK = 'task-later';
+  const CHOICE = {
+    delegatedDecision: 'implementation-approach',
+    statement: 'a table drives the parser, because the grammar has no recursion',
+  };
+  const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
+
+  function claimFor(taskId: string): Record<string, unknown> {
+    return { taskId, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  }
+
+  function accepting(held: SettlementReceipt): Record<string, unknown>[] {
+    return (held.pendingDeviations ?? []).map((pending) => ({
+      deviationId: pending.deviationId,
+      decision: 'accepted',
+      actor: 'human:reviewer',
+      rationale: 'the assumption was wrong and the change is sound',
+    }));
+  }
+
+  function settleAction(): NonNullable<ReturnType<typeof findActionInRegistry>> {
+    const action = findActionInRegistry('exarchos_orchestrate', 'settle');
+    if (action === undefined) throw new Error('the settle action is not registered');
+    return action;
+  }
+
+  function throughTheGate(result: ToolResult): void {
+    const envelope = toEnvelope(result);
+    expect(envelope.success, JSON.stringify(envelope)).toBe(true);
+    expect(validateAgainstActionSchema('exarchos_orchestrate', [settleAction()], { action: 'settle' }, envelope)).toBe(
+      envelope,
+    );
+  }
+
+  async function settleTwice(args: Record<string, unknown>, outcome: SettlementOutcome): Promise<SettlementReceipt> {
+    const first = await settle(args);
+    const receipt = receiptOf(first);
+    expect(receipt.outcome).toBe(outcome);
+    const replay = await settle(args);
+    expect(receiptOf(replay)).toEqual(receipt);
+    for (const result of [first, replay]) {
+      throughTheGate(result);
+      const capped = capResponse(result, 'exarchos_orchestrate', 'settle');
+      expect((capped._meta as { truncated?: unknown }).truncated).toBe(true);
+      expect(capped.data).toStrictEqual(summarizeSettlementReceipt(receipt));
+      throughTheGate(capped);
+    }
+    return receipt;
+  }
+
+  /**
+   * The six outcomes come in order on one stream. Each request is settled twice, and the replay
+   * returns the receipt of the first call. A batch with a field of the wrong type is rejected. A
+   * passing claim settles. A deviation holds a batch, and its decision settles it.
+   *
+   * A halted gate needs a correction. A recorded choice is accepted with rationale. A revision that
+   * names a task makes the capsule of that task stale.
+   *
+   * The corrective receipt names the operation of the halted segment. The call that the skill
+   * states reads the recorded receipt of that segment, with the message of its leaf, and runs
+   * nothing. The keys of `result` in another order make a different request.
+   */
+  it('Settle_AReceiptOfEachOutcome_CrossesTheOutputGateWholeAndCappedOnTheFirstCallAndTheReplay', async () => {
+    await seedPlan();
+    const delegating = withBuiltInDelegatedDecisions(capsuleWithTask(SECOND_TASK, DELEGATING_VERSION));
+    await seedPrepared({
+      ...delegating,
+      settlementContract: { ...delegating.settlementContract, requiredResults: [SECOND_TASK, 'task-verify'] },
+    });
+    await seedPrepared(capsuleWithTask(LATER_TASK, STALE_VERSION));
+    await seedPrepared(withMaterialEnvelope(capsuleWithTask(REVISING_TASK, REVISING_VERSION)));
+    const outcomes = new Set<string>();
+    const settled = async (args: Record<string, unknown>, outcome: SettlementOutcome): Promise<SettlementReceipt> => {
+      const receipt = await settleTwice(args, outcome);
+      outcomes.add(receipt.outcome);
+      return receipt;
+    };
+
+    await settled({ featureId: STREAM, capsuleVersion: 7, batchId: 'gate-rejected', claims: [failingClaim()] }, 'rejected');
+    await settled({ featureId: STREAM, capsuleVersion: 7, batchId: 'gate-settled', claims: [passingClaim()] }, 'settled');
+    const held = await settled(
+      { featureId: STREAM, capsuleVersion: 7, batchId: 'gate-held', claims: [passingClaim()], deviations: [DEVIATION] },
+      'deviation-pending',
+    );
+    await settled({ featureId: STREAM, capsuleVersion: 7, batchId: 'gate-held', decisions: accepting(held) }, 'settled');
+
+    const correctiveArgs = { featureId: STREAM, capsuleVersion: DELEGATING_VERSION, batchId: 'gate-corrective', claims: [claimFor(SECOND_TASK)] };
+    const corrective = await settled(correctiveArgs, 'corrective-capsule');
+    const [unresolved] = corrective.unresolved ?? [];
+    expect(unresolved).toMatchObject({ taskId: SECOND_TASK, cause: 'verification-failed' });
+    const terms = delegating.settlementContract.taskVerification?.[SECOND_TASK];
+    if (unresolved?.operationId === undefined || terms === undefined) throw new Error('the halted segment is not named');
+    const read = (result: Record<string, unknown>): Promise<ToolResult> =>
+      runWithDispatchContext(correlation(), () =>
+        handleExecuteIntent(
+          {
+            intent: 'task-completion',
+            featureId: STREAM,
+            operationId: unresolved.operationId,
+            args: {
+              taskId: SECOND_TASK,
+              worktreePath: WORKTREE,
+              riskTier: terms.riskTier,
+              boundaryTouching: terms.boundaryTouching,
+              baseRef: terms.baseRef,
+              result,
+            },
+          },
+          stateDir,
+          wiring(),
+          executeDeps(),
+        ),
+      );
+    const tail = (await store.query(STREAM)).length;
+    const recorded = await read({ passed: true, worktreePath: WORKTREE });
+    expect(recorded.error?.code).toBe('INTENT_SEGMENT_FAILED');
+    expect(recorded.error?.intentReceipt?.failedLeaf).toBe(unresolved.failedLeaf);
+    expect(recorded.error?.intentReceipt?.operationId).toBe(unresolved.operationId);
+    expect(recorded.error?.message).toBe(corrective.verification?.find((trace) => trace.taskId === SECOND_TASK)?.message);
+    const reordered = await read({ worktreePath: WORKTREE, passed: true });
+    expect(reordered.error?.code).toBe('INTENT_REPLAY_DIGEST_MISMATCH');
+    expect(await store.query(STREAM)).toHaveLength(tail);
+
+    await seedPassingStaticAnalysis(SECOND_TASK);
+    await settled(
+      {
+        featureId: STREAM,
+        capsuleVersion: DELEGATING_VERSION,
+        batchId: 'gate-rationale',
+        claims: [{ ...claimFor(SECOND_TASK), rationale: [CHOICE] }],
+      },
+      'accepted-with-rationale',
+    );
+
+    await seedPassingStaticAnalysis(REVISING_TASK);
+    const revising = await settled(
+      {
+        featureId: STREAM,
+        capsuleVersion: REVISING_VERSION,
+        batchId: 'gate-revising',
+        claims: [claimFor(REVISING_TASK)],
+        deviations: [{ ...DEVIATION, affectedTasks: [LATER_TASK] }],
+      },
+      'deviation-pending',
+    );
+    const revised = await settled(
+      { featureId: STREAM, capsuleVersion: REVISING_VERSION, batchId: 'gate-revising', decisions: accepting(revising) },
+      'settled',
+    );
+    expect(revised.designRevision?.deviationIds).toHaveLength(1);
+    await settled(
+      { featureId: STREAM, capsuleVersion: STALE_VERSION, batchId: 'gate-stale', claims: [claimFor(LATER_TASK)] },
+      'recompile-required',
+    );
+
+    expect([...outcomes].sort()).toStrictEqual([...SETTLEMENT_OUTCOMES].sort());
+  });
+});
+
 /** Each `description` text of a JSON schema, at any depth. */
 function descriptionsIn(node: unknown, found: string[] = []): string[] {
   if (Array.isArray(node)) {
@@ -5093,6 +5643,9 @@ describe('settle — the text of the action', () => {
    * A third text said that a batch with no finding runs the segments, and that a halt needs a
    * correction. A claim that reports its task as not completed is a finding, and the segments of
    * the completed claims still run. Such a claim needs a correction too.
+   *
+   * A fourth text said that each halt needs a correction. Only a gate halt does. A halt that is not
+   * a gate verdict fails the call with no verdict.
    */
   it('SettleAction_ItsDescription_SaysTheVerdictReadsTaskStandingAndLaterRevisions', () => {
     const { description } = settleAction();
@@ -5111,8 +5664,9 @@ describe('settle — the text of the action', () => {
     expect(description).toContain(
       "A batch not stale, rejected or held RUNS each completed claim's task-completion segment",
     );
+    expect(description).not.toContain('A halt or a claim');
     expect(description).toContain(
-      'A halt or a claim not `completed` gives `corrective-capsule`: tasks that pass are complete',
+      'A gate halt or a claim not `completed` gives `corrective-capsule`: tasks that pass are complete',
     );
     expect(description).toContain('Every verdict is a successful call');
   });
@@ -5120,14 +5674,14 @@ describe('settle — the text of the action', () => {
   /**
    * The description of the action is at its budget, so the output schema states the call that
    * follows each outcome. An outcome that the list gains with no entry in the text fails here.
-   * The text is the one that `describe` returns for the action. It counts twice against the
-   * response budget of `describe`, which a test of the registry measures. The text is short for
-   * that reason, and the delegate skill gives the meaning of each outcome in full.
+   * The text counts twice against the response budget of `describe`, so it is short. The delegate
+   * skill gives each outcome in full.
    *
-   * The text names three outcomes by their position after one sentence, so the entries after that
-   * sentence must be those three. The same sentence says what `acceptedTasks` lists under them.
-   * A claim that reports its task as not completed is not in that list, and it has no shape fault.
-   * The entry of the outcome that a rationale gives does not say that no batch gets it.
+   * Three outcomes follow one sentence, which says that they verify nothing in this build and what
+   * `acceptedTasks` lists under them. A receipt of an earlier build can carry `rejected` after a
+   * verification. A claim with a status has no shape fault. The entry of `accepted-with-rationale`
+   * does not say that no batch gets it. Each call comes from the outcome rules, and the
+   * `designRevision` rule is stated once for all outcomes.
    */
   it('SettleAction_ItsOutputSchema_StatesEachOutcomeAndTheCallThatFollows', () => {
     const guides = descriptionsIn(zodToJsonSchema(settleAction().outputSchema)).filter((text) =>
@@ -5144,13 +5698,32 @@ describe('settle — the text of the action', () => {
     expect(guide).not.toContain('not returned');
     expect(guide).toContain('`corrective-capsule`: the tasks that passed are complete');
     expect(guide).toContain('Settle a new batchId on the same capsule with only the `unresolved` tasks');
-    expect(guide).toContain('With a `designRevision`, prepare first');
+    expect(guide).not.toContain('With a `designRevision`, prepare first');
+    expect(guide.split('`designRevision`')).toHaveLength(2);
+    expect(guide.endsWith('Any outcome with a `designRevision`: as `recompile-required`')).toBe(true);
     expect(guide).toContain('`rejected`: settle the correction under a new batchId');
     expect(guide).toContain('`deviation-pending`: settle the same batchId with `decisions` only');
     expect(guide).toContain('`recompile-required`: prepare, then settle under the new capsule');
+    const entries = new Map(
+      guide.split(/(?=`[a-z-]+`: |In this build |Any outcome )/).map((part) => [part.slice(0, part.indexOf(': ')), part]),
+    );
+    for (const outcome of SETTLEMENT_OUTCOMES) {
+      const entry = entries.get(`\`${outcome}\``) ?? '';
+      const { next } = SETTLEMENT_OUTCOME_RULES[outcome];
+      if (next === 'none') {
+        expect(entry, `the text gives ${outcome} a call`).not.toMatch(/\b(settle|prepare)\b/i);
+        continue;
+      }
+      const sentence = `${next.charAt(0).toUpperCase()}${next.slice(1)}`;
+      expect(
+        entry === `\`${outcome}\`: ${next}. ` || entry.endsWith(`. ${sentence}. `),
+        `the text gives ${outcome} a call that is not its rule: ${entry}`,
+      ).toBe(true);
+    }
 
     expect(guide).not.toContain('no shape fault');
-    const unverified = 'The next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
+    expect(guide).not.toContain('The next three verify nothing');
+    const unverified = 'In this build the next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
     const [verifiedPart, unverifiedPart, ...rest] = guide.split(unverified);
     expect(rest).toEqual([]);
     const entriesIn = (part: string | undefined): SettlementOutcome[] =>

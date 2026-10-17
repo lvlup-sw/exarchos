@@ -106,5 +106,158 @@
       "standsInFor": "src/verbs/doctor/probes.ts",
       "why": "the probe factory as it stood while the oracle was dormant, verbatim. Run as hop 1 of the chain above it must be reported as broken — a scanner that passes it has gone blind to the defect this roster exists for."
     }
+  },
+  "shippedDefaultTwins": {
+    "class": "a test context that turns a shipped default off, so its cases prove a composition that the product does not ship while no case proves the shipped one",
+    "history": "The replay cases of settle said that a replay leaves the tail of the stream where it was. Every case ran with telemetry off. Under the shipped default the dispatcher appends a telemetry gate row for each call, so the statement was false in the shipped composition, and no case showed it. The levelling cases of settle also kept the state document in a JSON file, and the shipped store keeps it in the `workflow_state` row.",
+    "rule": "Each acceptance or settle test file that turns a shipped default off has a twin case that keeps the default, or a reason recorded here with an owner. A twin names its file, its case and a literal that the body of the case holds to keep the default. A record for a file that no longer turns the default off is stale and fails the guard.",
+    "scannedRoots": [
+      "tests/acceptance",
+      "tests/unit/verbs/settle"
+    ],
+    "defaults": [
+      {
+        "id": "telemetry",
+        "shipped": "`initializeContext` sets `enableTelemetry` unless EXARCHOS_TELEMETRY is `false`, so the dispatcher wraps each call in the telemetry wrapper",
+        "offPattern": "\\benableTelemetry\\s*:[^,}\\n]*\\bfalse\\b"
+      },
+      {
+        "id": "state-document-file",
+        "shipped": "the composition root configures the SQLite backend, so the state document is the `workflow_state` row and not a `.state.json` file",
+        "offPattern": "\\binitStateFile\\s*\\(|\\.state\\.json\\b"
+      }
+    ],
+    "contexts": [
+      {
+        "file": "tests/acceptance/action-admission-parity.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases prove that admission refuses a call before its handler and lets an admitted call reach it. Admission runs before the telemetry wrapper, so the flag cannot change a refusal. No twin runs the admitted calls with the default, and the wrapper then appends an emissions gate row to the subject stream. Not a settle context. The twin is owed, and this record keeps the gap visible."
+      },
+      {
+        "file": "tests/acceptance/action-admission-parity.test.ts",
+        "default": "state-document-file",
+        "owner": "@rsalus",
+        "reason": "The cases seed each workflow by hand in the JSON file form. No twin runs them on the `workflow_state` row. Not a settle context. The twin is owed, and this record keeps the gap visible."
+      },
+      {
+        "file": "tests/acceptance/action-contract-closure.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases prove that an advertised action dispatches, that changed evidence fails before the handler, that a missing ensure blocks success and that the HSM guard stays the authority. No twin runs them with the default, and the wrapper can append an emissions gate row before an ensure is observed. Not a settle context. The twin is owed, and this record keeps the gap visible."
+      },
+      {
+        "file": "tests/acceptance/action-contract-closure.test.ts",
+        "default": "state-document-file",
+        "owner": "@rsalus",
+        "reason": "The cases seed each workflow by hand in the JSON file form. No twin runs them on the `workflow_state` row. Not a settle context. The twin is owed, and this record keeps the gap visible."
+      },
+      {
+        "file": "tests/acceptance/action-contract-observation.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The case registers a probe tool and reads the emission verdict of dispatch over the rows of the subject stream. With the default the wrapper can append an emissions gate row to that stream before the verdict, and no twin shows that the row changes no verdict. Not a settle context. The twin is owed, and this record keeps the gap visible."
+      },
+      {
+        "file": "tests/acceptance/action-postconditions.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases register probe tools and prove that dispatch gates success on an observed ensure. With the default the wrapper can append an emissions gate row to the subject stream before the ensure is observed, and no twin shows that the row satisfies no ensure. Not a settle context. The twin is owed, and this record keeps the gap visible."
+      },
+      {
+        "file": "tests/acceptance/host-obligation-execution.test.ts",
+        "default": "telemetry",
+        "twin": {
+          "file": "tests/acceptance/host-obligation-execution.test.ts",
+          "test": "HostObligations_UnderTheShippedTelemetryDefault_RunOrReturnTheObligationAsBefore",
+          "keeps": "enableTelemetry: true"
+        }
+      },
+      {
+        "file": "tests/acceptance/kill-probe-base.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases read the carrier of the kill probe, the receipt of settle and the rows of the gate `test-adequacy`. With the default the wrapper also runs the emissions check, which appends its own gate rows. Each case filters the rows that it reads by the gate `test-adequacy` or by its requirement, so those rows change no assertion. No twin runs the probe with the default."
+      },
+      {
+        "file": "tests/acceptance/kill-probe-base.test.ts",
+        "default": "state-document-file",
+        "owner": "@rsalus",
+        "reason": "The seed writes the state document in the JSON file form, and no case reads the document after a call, so the form changes no assertion. The row form of settle levelling has its twin in the governance tier."
+      },
+      {
+        "file": "tests/acceptance/prepare-settle.test.ts",
+        "default": "telemetry",
+        "twin": {
+          "file": "tests/acceptance/prepare-settle.test.ts",
+          "test": "PrepareSettle_ARetryUnderTheShippedTelemetryDefault_AddsOnlyTelemetryRows",
+          "keeps": "callerContext({ telemetry: true })"
+        }
+      },
+      {
+        "file": "tests/acceptance/prepare-settle.test.ts",
+        "default": "state-document-file",
+        "twin": {
+          "file": "tests/core/integration/governance/gate-before-completion.test.ts",
+          "test": "Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel",
+          "keeps": "harness.storage.getState(SETTLE_FEATURE_ID)"
+        }
+      },
+      {
+        "file": "tests/unit/verbs/settle/blocking-gate.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The case calls `handleSettle` directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/handler.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases call `handleSettle` directly. Only `dispatch` reads the flag, so the flag has no effect here. The dispatch twin of the replay under the default is in the acceptance tier."
+      },
+      {
+        "file": "tests/unit/verbs/settle/handler.test.ts",
+        "default": "state-document-file",
+        "twin": {
+          "file": "tests/core/integration/governance/gate-before-completion.test.ts",
+          "test": "Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel",
+          "keeps": "harness.storage.getState(SETTLE_FEATURE_ID)"
+        }
+      },
+      {
+        "file": "tests/unit/verbs/settle/settlement-facts-parity.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases call `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settlement-facts-parity.test.ts",
+        "default": "state-document-file",
+        "owner": "@rsalus",
+        "reason": "The parity compares the documents of two stores that both use the JSON file form, so the form is the same on both sides. No case compares the two paths in the row form. The row form of settle levelling has its twin in the governance tier."
+      }
+    ],
+    "contextSchema": {
+      "file": "repo-relative path of the test file that turns the default off",
+      "default": "the id of the shipped default",
+      "twin": "a case that keeps the default: its file, its name, and a literal that its body holds",
+      "reason": "why the file needs no twin, or the gap that stays open, when there is no twin",
+      "owner": "who accepts the record of a reason"
+    },
+    "minimumScannedFiles": 20,
+    "minimumContexts": 16,
+    "killFixture": {
+      "drops": [
+        {
+          "file": "tests/acceptance/prepare-settle.test.ts",
+          "default": "telemetry"
+        },
+        {
+          "file": "tests/unit/verbs/settle/handler.test.ts",
+          "default": "telemetry"
+        }
+      ],
+      "why": "The first record names a twin and the second records a reason. A policy without either record must leave its context unaccounted for. A checker that passes it has gone blind to the defect this rule exists for."
+    }
   }
 }

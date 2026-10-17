@@ -18,6 +18,8 @@ import {
   type DispatchContext,
 } from '../../src/dispatch/core/dispatch.js';
 import { deriveLocalOperatorIdentity } from '../../src/dispatch/caller-identity.js';
+import { TELEMETRY_STREAM } from '../../src/dispatch/core/infra-streams.js';
+import { EventStore } from '../../src/events/store.js';
 import { buildDefaultProcessResolver } from '../../src/workflow/capabilities/resolver.js';
 import { getFullRegistry } from '../../src/registry.js';
 import {
@@ -178,5 +180,55 @@ describe('host-owned actions — execute vs return the obligation', () => {
     expect(data.agent).toBe('implementer');
     expect(typeof data.systemPrompt).toBe('string');
     expect((data.systemPrompt as string).length).toBeGreaterThan(0);
+  });
+
+  /**
+   * The twin of the cases above in the shipped composition, which has an event store and telemetry
+   * on. The context of the cases above has no event store. With telemetry on, each call there that
+   * reaches its handler fails with `INTERNAL_ERROR`. Here an agent-spawn action runs its handler
+   * once, and the wrapper records the call. A blocking action returns its obligation before the
+   * wrapper, so it runs nothing and records nothing.
+   */
+  it('HostObligations_UnderTheShippedTelemetryDefault_RunOrReturnTheObligationAsBefore', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await eventStore.initialize();
+    const shipped: DispatchContext = { ...ctx(), eventStore, enableTelemetry: true };
+    const rows = hostOwnedActions();
+    expect(rows.filter((r) => r.blocking).length).toBeGreaterThan(0);
+    expect(rows.filter((r) => !r.blocking).length).toBeGreaterThan(0);
+
+    try {
+      for (const row of rows) {
+        let handlerCalls = 0;
+        const restore = stubCompositeHandler('exarchos_orchestrate', async () => {
+          handlerCalls += 1;
+          return { success: true, data: { ran: true } };
+        });
+        try {
+          const before = (await eventStore.query(TELEMETRY_STREAM)).length;
+          const result = await dispatch(
+            'exarchos_orchestrate',
+            { action: row.action, ...ARGS[row.action] },
+            shipped,
+          );
+          const recorded = (await eventStore.query(TELEMETRY_STREAM)).slice(before).map((event) => event.type);
+
+          expect(result.success, `${row.action}: ${result.error?.message}`).toBe(true);
+          if (row.blocking) {
+            expect(result.data).toEqual({ obligation: row.obligation });
+            expect(handlerCalls, `${row.action} (${row.obligation}) must not run`).toBe(0);
+            expect(recorded).toEqual([]);
+          } else {
+            expect(result.data).toEqual({ ran: true });
+            expect(handlerCalls, `${row.action} (${row.obligation}) must reach its handler`).toBe(1);
+            expect(recorded).toEqual(['tool.invoked', 'tool.completed']);
+          }
+        } finally {
+          restore();
+        }
+      }
+    } finally {
+      eventStore.close();
+    }
   });
 });

@@ -1,6 +1,14 @@
 import type { RunbookDefinition } from './types.js';
 
-export const TASK_COMPLETION: RunbookDefinition = {
+/**
+ * Returns the runbook unchanged. The `const` type parameter keeps each step action as a literal type,
+ * so a reader can name the closed set of leaves of the runbook.
+ */
+function literalRunbook<const Runbook extends RunbookDefinition>(runbook: Runbook): Runbook {
+  return runbook;
+}
+
+export const TASK_COMPLETION = literalRunbook({
   id: 'task-completion',
   phase: 'delegate',
   description: 'Complete a task after every blocking per-task gate has passed.',
@@ -56,7 +64,7 @@ export const TASK_COMPLETION: RunbookDefinition = {
    * `gate.executed` from the `admission.evidence-recorded` record that it writes.
    */
   autoEmits: ['admission.evidence-recorded', 'gate.executed', 'task.completed'],
-};
+});
 
 export const QUALITY_EVALUATION: RunbookDefinition = {
   id: 'quality-evaluation',

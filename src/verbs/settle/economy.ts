@@ -10,8 +10,17 @@
  */
 
 import { estimateOutputTokens, SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/core/economy.js';
+import type { SettlementReceipt } from './types.js';
 
 export const SETTLE_ECONOMY_BUDGET_TOKENS = 1000;
+
+/**
+ * The reads that serve what a summary of `settle` drops. The next action of a capped response
+ * names them, because the action takes no `limit` and no `offset`.
+ */
+export const SETTLE_DETAIL_READ =
+  'The settlement bundle that bundleRefs names holds each finding and outcome. exarchos_event query ' +
+  'with filter.type execution.settled returns the record of the batch.';
 
 /** The most verification outcomes that a summary lists. */
 const SUMMARY_VERIFICATION_OUTCOMES = 4;
@@ -298,4 +307,14 @@ export function summarizeSettlementReceipt(data: unknown): SettlementReceiptSumm
   const withoutOutcomes = assemble([], [], every);
   if (every === 0 || fits(withoutOutcomes)) return withoutOutcomes;
   return assemble([], [], largestFittingCount(every, (listed) => fits(assemble([], [], listed))));
+}
+
+/**
+ * The receipt as a refusal carries it on its error. An error is never capped, so a receipt over
+ * the budget goes as its summary, and a receipt within the budget goes whole.
+ */
+export function settlementReceiptWithinBudget(
+  receipt: SettlementReceipt,
+): SettlementReceipt | SettlementReceiptSummary {
+  return estimateOutputTokens(receipt) <= SETTLE_ECONOMY_BUDGET_TOKENS ? receipt : summarizeSettlementReceipt(receipt);
 }

@@ -12,8 +12,11 @@
  * or `wireX`, and each one must have a use under `src/`. An allowlist entry
  * answers a false positive. A control with an unconventional name is a false
  * negative.
+ *
+ * A second rule holds the shipped defaults. A settle or acceptance test that turns
+ * one off needs a twin case that keeps it, or a recorded reason.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +51,31 @@ interface Policy {
     }[];
     readonly killFixture: { readonly path: string; readonly standsInFor: string };
   };
+  readonly shippedDefaultTwins: ShippedDefaultTwinsPolicy;
+}
+
+/** One shipped default that a test context can turn off, and the pattern that finds such a context. */
+interface ShippedDefault {
+  readonly id: string;
+  readonly offPattern: string;
+}
+
+/** The record of one context that turns a default off: a twin that keeps the default, or a reason. */
+interface DefaultContext {
+  readonly file: string;
+  readonly default: string;
+  readonly twin?: { readonly file: string; readonly test: string; readonly keeps: string };
+  readonly reason?: string;
+  readonly owner?: string;
+}
+
+interface ShippedDefaultTwinsPolicy {
+  readonly scannedRoots: readonly string[];
+  readonly defaults: readonly ShippedDefault[];
+  readonly contexts: readonly DefaultContext[];
+  readonly minimumScannedFiles: number;
+  readonly minimumContexts: number;
+  readonly killFixture: { readonly drops: readonly { readonly file: string; readonly default: string }[] };
 }
 
 const POLICY: Policy = JSON.parse(
@@ -270,5 +298,141 @@ describe('reachable oracles', () => {
     const sourceOf = (file: string): string =>
       file === killFixture.standsInFor ? executableSourceOf(fixture, file) : executableSource(file);
     expect(brokenHops(entry.chain, sourceOf).map((hop) => hop.file)).toEqual([killFixture.standsInFor]);
+  });
+});
+
+/** The key of a context: the test file and the id of the default that it turns off. */
+function contextKey(file: string, defaultId: string): string {
+  return `${file} :: ${defaultId}`;
+}
+
+/** The source of a tracked file with its comments blanked, or undefined when the file does not exist. */
+function commentlessSource(relativePath: string): string | undefined {
+  const absolute = path.join(REPO_ROOT, relativePath);
+  if (!existsSync(absolute)) return undefined;
+  return lexModule(readFileSync(absolute, 'utf8'), path.basename(relativePath)).commentMaskedSource;
+}
+
+/** Each scanned test file, and the key of each context in it that turns a shipped default off. */
+async function contextsThatTurnADefaultOff(): Promise<{ readonly scanned: number; readonly keys: readonly string[] }> {
+  const { scannedRoots, defaults } = POLICY.shippedDefaultTwins;
+  const files = await listTrackedFiles(REPO_ROOT, {
+    extensions: ['.ts'],
+    exclude: (relative) =>
+      !scannedRoots.some((root) => relative.startsWith(`${root}/`)) || !relative.endsWith('.test.ts'),
+  });
+  const keys: string[] = [];
+  for (const file of files) {
+    const source = commentlessSource(file) ?? '';
+    for (const shipped of defaults) {
+      if (new RegExp(shipped.offPattern).test(source)) keys.push(contextKey(file, shipped.id));
+    }
+  }
+  return { scanned: files.length, keys };
+}
+
+/**
+ * The body of one case of a test file, from its declaration to the next case or the end of its
+ * block. It is undefined when the file declares no case with that name.
+ */
+function caseBody(source: string, test: string): string | undefined {
+  const escaped = test.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const declaration = new RegExp(`\\bit\\(\\s*['"\`]${escaped}['"\`]`).exec(source);
+  if (declaration === null) return undefined;
+  const rest = source.slice(declaration.index + declaration[0].length);
+  const end = /\n\s*it(?:\.each)?\(|\n\}\);/.exec(rest);
+  return rest.slice(0, end === null ? rest.length : end.index);
+}
+
+/** The fault of one record, or undefined when the record accounts for its context. */
+function recordFault(record: DefaultContext): string | undefined {
+  if (record.twin === undefined) {
+    return record.reason !== undefined && record.reason.length > 0 && record.owner !== undefined && record.owner.length > 0
+      ? undefined
+      : 'it names no twin and no reason with an owner';
+  }
+  const source = commentlessSource(record.twin.file);
+  if (source === undefined) return `its twin file ${record.twin.file} does not exist`;
+  const body = caseBody(source, record.twin.test);
+  if (body === undefined) return `${record.twin.file} declares no case ${record.twin.test}`;
+  if (!body.includes(record.twin.keeps)) return `the twin case does not hold ${JSON.stringify(record.twin.keeps)}`;
+  return undefined;
+}
+
+/**
+ * The faults of a set of records against the contexts that the scan found. A context needs exactly
+ * one record, and the record must account for it. A record for a context that the scan did not find
+ * is stale.
+ */
+function twinFaults(records: readonly DefaultContext[], found: readonly string[]): string[] {
+  const byKey = new Map<string, DefaultContext[]>();
+  for (const record of records) {
+    const key = contextKey(record.file, record.default);
+    byKey.set(key, [...(byKey.get(key) ?? []), record]);
+  }
+  const faults: string[] = [];
+  for (const key of found) {
+    const matching = byKey.get(key) ?? [];
+    const [only] = matching;
+    if (matching.length !== 1 || only === undefined) {
+      faults.push(`${key}: ${matching.length} records, and the rule needs exactly one`);
+      continue;
+    }
+    const fault = recordFault(only);
+    if (fault !== undefined) faults.push(`${key}: ${fault}`);
+  }
+  for (const key of byKey.keys()) {
+    if (!found.includes(key)) faults.push(`${key}: a stale record, because the file does not turn the default off`);
+  }
+  return faults;
+}
+
+/**
+ * A test that turns a shipped default off proves a composition that the product does not ship.
+ * The policy records, for each such test file, a twin case that keeps the default or a reason.
+ */
+describe('shipped defaults kept by a twin', () => {
+  /**
+   * The first assertions are denominators. An empty walk or a stale pattern finds no context, and
+   * then the last assertion is true for nothing.
+   */
+  it('ShippedDefaultTwins_EachContextThatTurnsADefaultOff_HasATwinOrAReason', async () => {
+    const policy = POLICY.shippedDefaultTwins;
+    const { scanned, keys } = await contextsThatTurnADefaultOff();
+    expect(scanned, 'the scan read too few test files, so the walk is broken').toBeGreaterThanOrEqual(
+      policy.minimumScannedFiles,
+    );
+    expect(keys.length, 'the patterns found too few contexts, so a pattern is stale').toBeGreaterThanOrEqual(
+      policy.minimumContexts,
+    );
+    for (const shipped of policy.defaults) {
+      expect(keys.some((key) => key.endsWith(` :: ${shipped.id}`)), `no context turns ${shipped.id} off`).toBe(true);
+    }
+    expect(
+      twinFaults(policy.contexts, keys),
+      'each context that turns a shipped default off needs a twin case that keeps it, or a reason ' +
+        'with an owner in tools/audit/reachable-controls.json',
+    ).toEqual([]);
+  });
+
+  /**
+   * The self-test. Without the record of a twin, or without the record of a reason, the checker
+   * must report the context. A twin that names a case the file does not declare is a fault too.
+   */
+  it('ShippedDefaultTwins_KillFixture_ARecordDroppedOrATwinMissing_IsReported', async () => {
+    const policy = POLICY.shippedDefaultTwins;
+    const { keys } = await contextsThatTurnADefaultOff();
+    expect(policy.killFixture.drops.length).toBeGreaterThan(0);
+    for (const drop of policy.killFixture.drops) {
+      const key = contextKey(drop.file, drop.default);
+      expect(keys, `the scan does not find ${key}`).toContain(key);
+      const kept = policy.contexts.filter((record) => contextKey(record.file, record.default) !== key);
+      expect(kept).toHaveLength(policy.contexts.length - 1);
+      expect(twinFaults(kept, keys)).toEqual([`${key}: 0 records, and the rule needs exactly one`]);
+    }
+    const missingTwin = policy.contexts.map((record) =>
+      record.twin === undefined ? record : { ...record, twin: { ...record.twin, test: 'NoSuchCase_IsDeclared' } },
+    );
+    expect(twinFaults(missingTwin, keys).length).toBe(policy.contexts.filter((record) => record.twin !== undefined).length);
   });
 });

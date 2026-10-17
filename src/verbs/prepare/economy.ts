@@ -12,6 +12,14 @@ import { estimateOutputTokens, SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/c
 
 export const PREPARE_ECONOMY_BUDGET_TOKENS = 8000;
 
+/**
+ * The reads that serve what a summary of `prepare` drops. The next action of a capped response
+ * names them, because the action takes no `limit` and no `offset`.
+ */
+export const PREPARE_DETAIL_READ =
+  'The capsule in custody under bundleRefs holds each task and its verification terms. ' +
+  'exarchos_event query with filter.type workflow.prepared returns the record of the compilation.';
+
 /** The list limit of a summary that no trim cut. */
 const WHOLE_LIST = Number.POSITIVE_INFINITY;
 

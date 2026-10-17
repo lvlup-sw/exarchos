@@ -88,17 +88,17 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
 ] = ['vcs.requested', 'vcs.executed', 'vcs.compensated'];
 
 /**
- * Server-owned execution-ledger facts. Each type is reserved, so that its only writer is the
- * handler that owns the evidence:
+ * Server-owned execution-ledger facts. Each type is reserved, so its only writer owns the evidence:
  * - `orchestrate.intent_executed`: the bounded executor commits it after the run bundle is in custody.
  * - `execution.settled`: the settle handler commits it after capsule parse, adjudication and custody.
  * - `workflow.prepared`: settlement adjudicates a capsule only when this record pins its digest.
- * - `deviation.proposed` and `deviation.decided`: the settle handler commits them for a held batch.
- * - `design.revised`: the settle handler commits it when a decision accepts a material deviation.
+ * - `deviation.proposed`, `deviation.decided` and `design.revised`: the settle handler commits them.
  * - `capsule.recompiled`: the prepare handler commits it with the first capsule after a revision.
+ * - `task.completed`: `task_complete`, directly or as a settle leaf. A direct call accepts a
+ *   `gate.executed` row that the generic append can write (lvlup-sw/exarchos#1886).
  *
- * A caller that can append these types can fake a settlement, pin any capsule, move the design
- * version, or fake a recompile.
+ * A caller that can append these types can fake a settlement or a recompile, or move the design
+ * version. It can also pin any capsule, or write a completion row without `task_complete`.
  */
 export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'orchestrate.intent_executed',
@@ -108,6 +108,7 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'deviation.decided',
   'design.revised',
   'capsule.recompiled',
+  'task.completed',
 ] = [
   'orchestrate.intent_executed',
   'execution.settled',
@@ -115,6 +116,23 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
   'deviation.proposed',
   'deviation.decided',
   'design.revised',
+  'capsule.recompiled',
+  'task.completed',
+];
+
+/**
+ * The event types that settlement reads as inputs of its verdict. A generic append of one of them
+ * can fake a verdict, so each one must be in the reserved append registry. A test holds that rule.
+ * An evidence citation resolves only to an `admission.evidence-recorded` gate row.
+ */
+export const SETTLEMENT_VERDICT_INPUT_EVENT_TYPES: readonly EventType[] = [
+  'admission.evidence-recorded',
+  'task.completed',
+  'workflow.prepared',
+  'design.revised',
+  'deviation.proposed',
+  'deviation.decided',
+  'execution.settled',
   'capsule.recompiled',
 ];
 

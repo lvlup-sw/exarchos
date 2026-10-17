@@ -24,11 +24,13 @@ import {
   ECONOMY_CARRIER_KEYS,
   type DispatchContext,
 } from '../../../../src/dispatch/core/dispatch.js';
+import { cappedAffordance } from '../../../../src/dispatch/core/response-economy.js';
 import {
   registerCustomTool,
   unregisterCustomTool,
   setCustomToolActionHandler,
   findActionInRegistry,
+  getFullRegistry,
   withCappedShape,
   type ActionAnnotations,
   type CompositeTool,
@@ -360,8 +362,9 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
 
   /**
    * The default schema `z.object({})` declares no `limit`, `offset` or `fields`. A `.strict()`
-   * action rejects an undeclared `--limit` with INVALID_INPUT, so the affordance must carry no
-   * CLI hint.
+   * action rejects an undeclared `--limit` with INVALID_INPUT. Thus the affordance carries no CLI
+   * hint, and its reason names no `limit` or `offset`. A second call returns the same summary, and
+   * the reason says so. The capped summary names no window either.
    */
   it('dispatchEconomy_NoWindowingParam_OmitsCliFlagHint', async () => {
     const dispose = registerEconomyTool({
@@ -375,13 +378,72 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
       const affordance = (result.next_actions ?? [])[0];
       expect(affordance?.verb).toBe('list');
       expect(affordance?.hint).toBeUndefined();
+      expect(affordance?.reason).not.toContain('limit/offset');
+      expect(affordance?.reason).toContain('list takes no limit or offset, so a second call returns the same summary.');
+      expect((result.data as { summary?: string }).summary).not.toContain('limit');
       expect(NextAction.safeParse(affordance).success).toBe(true);
     } finally {
       dispose();
     }
   });
 
-  /** An action that declares `limit` gets a `--limit` hint that the caller can use. */
+  /**
+   * An action with no window parameter declares the read that serves what its summary drops. The
+   * reason of the affordance names that read, and it names no window parameter.
+   */
+  it('dispatchEconomy_NoWindowingParamWithADeclaredRead_NamesTheRead', async () => {
+    const detailRead = 'exarchos_event query with filter.type probe.recorded returns each row.';
+    const dispose = registerEconomyTool({
+      tool: 'econ_detail_read_tool',
+      action: 'list',
+      economy: { budgetTokens: 20, detailRead },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_detail_read_tool', { action: 'list' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.reason).toBe(
+        `Showing 10 of 60. list takes no limit or offset, so a second call returns the same summary. ${detailRead}`,
+      );
+      expect(affordance?.hint).toBeUndefined();
+      expect(NextAction.safeParse(affordance).success).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  /**
+   * An action that declares `fields` and no window gets a `--fields` hint. That hint narrows the next
+   * call, so the reason does not say that a second call returns the same summary. The capped summary
+   * names `fields` and no window, because `fields` cuts the detail and does not page.
+   */
+  it('dispatchEconomy_FieldsParamWithNoWindow_HintsTheFieldsAndClaimsNoSameSummary', async () => {
+    const dispose = registerEconomyTool({
+      tool: 'econ_fields_tool',
+      action: 'get',
+      schema: z.object({ fields: z.array(z.string()).optional() }),
+      economy: { budgetTokens: 20 },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_fields_tool', { action: 'get' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.hint).toBe('get --fields <comma,separated>');
+      expect(affordance?.reason).toBe('Showing 10 of 60. get takes no limit or offset.');
+      expect(NextAction.safeParse(affordance).success).toBe(true);
+      const summary = (result.data as { summary?: string }).summary ?? '';
+      expect(summary.endsWith(' item(s). Narrow with fields to read less detail.')).toBe(true);
+      expect(summary).not.toContain('limit');
+      expect(summary).not.toContain('offset');
+    } finally {
+      dispose();
+    }
+  });
+
+  /**
+   * An action that declares `limit` gets a `--limit` hint that the caller can use. It declares no
+   * `offset`, so no text offers paging or names `offset`.
+   */
   it('dispatchEconomy_LimitParam_EmitsAccurateLimitFlagHint', async () => {
     const dispose = registerEconomyTool({
       tool: 'econ_limit_tool',
@@ -394,9 +456,160 @@ describe('response-economy enforcement (DR-1, Task 003)', () => {
       const result = await dispatch('econ_limit_tool', { action: 'list' }, ctx);
       const affordance = (result.next_actions ?? [])[0];
       expect(affordance?.hint).toBe('list --limit 10');
+      expect(affordance?.reason).not.toContain('offset (or a filter)');
+      expect(affordance?.reason).not.toContain('page through the rest');
+      const summary = (result.data as { summary?: string }).summary ?? '';
+      expect(summary.endsWith(' item(s). Narrow with limit to read less detail.')).toBe(true);
+      expect(summary).not.toContain('offset');
     } finally {
       dispose();
     }
+  });
+
+  /**
+   * A larger `limit` is capped again, so an input with `limit` and no `offset` cannot reach the
+   * items past the cap. The reason says that the call cannot page, and it names the declared read.
+   * The `--limit` hint narrows the next call, so the reason does not say that it returns the same summary.
+   */
+  it('dispatchEconomy_LimitWithNoOffset_SaysTheCallCannotPageAndNamesTheRead', async () => {
+    const detailRead = 'exarchos_event query with filter.type probe.recorded returns each row.';
+    const dispose = registerEconomyTool({
+      tool: 'econ_limit_only_tool',
+      action: 'list',
+      schema: z.object({ limit: z.number().int().positive().optional() }),
+      economy: { budgetTokens: 20, detailRead },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_limit_only_tool', { action: 'list' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.reason).toBe(
+        `Showing 10 of 60. list takes limit and no offset, so it cannot page to the rest. ${detailRead}`,
+      );
+      expect(affordance?.hint).toBe('list --limit 10');
+      expect(NextAction.safeParse(affordance).success).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  /**
+   * An input that declares `offset` can page. With `offset` and no `limit`, the reason and the
+   * summary name `offset` only, and the hint is the `--offset` flag.
+   */
+  it('dispatchEconomy_OffsetWithNoLimit_OffersPagingByOffsetOnly', async () => {
+    const dispose = registerEconomyTool({
+      tool: 'econ_offset_only_tool',
+      action: 'list',
+      schema: z.object({ offset: z.number().int().nonnegative().optional() }),
+      economy: { budgetTokens: 20, detailRead: 'a read that the paging affordance does not name' },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_offset_only_tool', { action: 'list' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.reason).toBe('Showing 10 of 60 — narrow with offset (or a filter) to page through the rest.');
+      expect(affordance?.hint).toBe('list --offset <n>');
+      const summary = (result.data as { summary?: string }).summary ?? '';
+      expect(summary.endsWith(' item(s). Narrow with offset to page the detail.')).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  /**
+   * An input that declares `limit`, `offset` and `fields` gets the paging reason and a summary
+   * sentence that names all three keys.
+   */
+  it('dispatchEconomy_LimitOffsetAndFields_NamesEachKeyAndPages', async () => {
+    const dispose = registerEconomyTool({
+      tool: 'econ_full_window_tool',
+      action: 'list',
+      schema: z.object({
+        limit: z.number().int().positive().optional(),
+        offset: z.number().int().nonnegative().optional(),
+        fields: z.array(z.string()).optional(),
+      }),
+      economy: { budgetTokens: 20 },
+      handlerResult: { success: true, data: bigArray() } satisfies ToolResult,
+    });
+    try {
+      const result = await dispatch('econ_full_window_tool', { action: 'list' }, ctx);
+      const affordance = (result.next_actions ?? [])[0];
+      expect(affordance?.reason).toBe('Showing 10 of 60 — narrow with limit/offset (or a filter) to page through the rest.');
+      expect(affordance?.hint).toBe('list --limit 10');
+      const summary = (result.data as { summary?: string }).summary ?? '';
+      expect(summary.endsWith(' item(s). Narrow with limit / offset / fields to page the detail.')).toBe(true);
+    } finally {
+      dispose();
+    }
+  });
+
+  /**
+   * Each registered action gets the paging affordance only when its input declares `offset`. A
+   * strict parse refuses an undeclared key, so each reason names only the keys that the input
+   * declares. An input with `limit` and no `offset` gets a reason that says it cannot page.
+   * The registry holds actions of all three kinds, so no kind is empty.
+   * Only a reason with no narrowing hint says that a second call returns the same summary.
+   * The registry holds a windowless action with a `--fields` hint, `exarchos_workflow get`.
+   */
+  it('cappedAffordance_EachRegisteredAction_NamesAWindowOnlyWhenItsInputDeclaresOne', () => {
+    const seen = { paging: 0, limitOnly: 0, windowless: 0 };
+    const hintedWindowless: string[] = [];
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const id = `${tool.name}.${action.name}`;
+        const keys = Object.keys(action.schema.shape);
+        const paging = keys.includes('offset');
+        const limitOnly = keys.includes('limit') && !paging;
+        const windowless = !paging && !limitOnly;
+        const affordance = cappedAffordance(action, action.name, 1, 2);
+        expect(NextAction.safeParse(affordance).success, id).toBe(true);
+        expect(affordance.reason.includes('page through the rest'), id).toBe(paging);
+        expect(affordance.reason.includes('limit/offset'), id).toBe(paging && keys.includes('limit'));
+        expect(affordance.reason.includes('cannot page'), id).toBe(limitOnly);
+        expect(affordance.reason.includes('takes no limit or offset'), id).toBe(windowless);
+        expect(affordance.reason.includes('same summary'), id).toBe(windowless && affordance.hint === undefined);
+        if (action.economy?.detailRead !== undefined && !paging) {
+          expect(affordance.reason.endsWith(action.economy.detailRead), id).toBe(true);
+        }
+        seen.paging += paging ? 1 : 0;
+        seen.limitOnly += limitOnly ? 1 : 0;
+        seen.windowless += windowless ? 1 : 0;
+        if (windowless && affordance.hint !== undefined) hintedWindowless.push(id);
+      }
+    }
+    expect(seen.paging).toBeGreaterThan(0);
+    expect(seen.limitOnly).toBeGreaterThan(0);
+    expect(seen.windowless).toBeGreaterThan(0);
+    expect(hintedWindowless).toContain('exarchos_workflow.get');
+  });
+
+  /**
+   * A registered action with a declared summarizer and no window parameter declares the read that
+   * serves what its summary drops. A second call returns the same summary, so the reason of its
+   * capped next action names that read. The census holds `prepare`, `settle` and `execute_intent`.
+   */
+  it('cappedAffordance_EachWindowlessActionWithASummarizer_NamesItsDetailRead', () => {
+    const summarized: string[] = [];
+    for (const tool of getFullRegistry()) {
+      for (const action of tool.actions) {
+        const keys = Object.keys(action.schema.shape);
+        if (keys.includes('limit') || keys.includes('offset') || action.economy?.summarize === undefined) continue;
+        const id = `${tool.name}.${action.name}`;
+        const detailRead = action.economy.detailRead ?? '';
+        summarized.push(id);
+        expect(detailRead.trim().length, id).toBeGreaterThan(0);
+        expect(cappedAffordance(action, action.name, 1, 2).reason.endsWith(` ${detailRead}`), id).toBe(true);
+      }
+    }
+    expect(summarized).toEqual(
+      expect.arrayContaining([
+        'exarchos_orchestrate.prepare',
+        'exarchos_orchestrate.settle',
+        'exarchos_orchestrate.execute_intent',
+      ]),
+    );
   });
 
   /**

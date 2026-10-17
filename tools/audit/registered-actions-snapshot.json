@@ -1206,5 +1206,21 @@
       "lifecycle": "active",
       "tier": "capability"
     }
-  ]
+  ],
+  "storedShapes": {
+    "note": "The settlement shapes that a store holds. Each digest is the sha256 of the canonical JSON of the JSON Schema of the shape (src/utils/json-schema.ts), with each description removed. The last decision names the shapes of this build. A change of a shape needs a new decision: a SCHEMA_VERSION step, or a recorded one-way upgrade. Append a decision here and to RECORDED_SHAPE_DECISIONS in tests/architecture/identifier-stability.test.ts. Do not edit an earlier one: the test holds the digests of each recorded decision.",
+    "decisions": [
+      {
+        "date": "2026-10-15",
+        "source": "Reed (#1926, settlement vocabulary, verification review)",
+        "decision": "One-way upgrade from 2.12 to 3. SCHEMA_VERSION stays 6, and no migration runs. After this build settles a batch, a 2.12.x binary cannot read the settlement records of that workflow (false refusals and INTERNAL_ERROR), and downgrade is not supported. A step that only stamps the version follows when the freshness gate of #2106 is repaired.",
+        "schemaVersion": 6,
+        "shapes": {
+          "ClaimTraceSchema": "sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1",
+          "ExecutionSettledData": "sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8",
+          "SettlementBundleV1Schema": "sha256:19c123cee6a6488f1d27c5ba32789a3666964f441b3533b97b445215ee7c5758"
+        }
+      }
+    ]
+  }
 }

@@ -7,6 +7,8 @@
 
 import type { AgentSpec } from './types.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
+import { INCOMPLETE_CLAIM_STATUSES, type IncompleteClaimStatus } from '../../verbs/settle/adjudicate.js';
+import { MAX_CLAIM_REASON_LENGTH } from '../../verbs/settle/claim-codec.js';
 
 /**
  * The post-test command. The agent files ship static, so this command must not
@@ -195,6 +197,48 @@ export function buildVerificationNote(ctx: ImplementerVerificationContext): stri
 }
 
 /**
+ * What each status of a task that is not completed means to a worker. The record covers the claim
+ * status tuple, so a new status does not compile until it has a line here.
+ */
+const INCOMPLETE_STATUS_GUIDANCE = {
+  failed: 'you attempted the task, and you have no result that settlement can verify',
+  blocked: 'the task cannot proceed until something outside the task changes',
+  skipped: 'the orchestrator reports it for a task that no worker ran, so do not report it',
+} satisfies Record<IncompleteClaimStatus, string>;
+
+/** The status in the example report of a task that is not completed. */
+const EXAMPLE_INCOMPLETE_STATUS: IncompleteClaimStatus = 'blocked';
+
+/**
+ * The completion report of each agent whose report becomes a settlement claim: the implementer, the
+ * fixer and the scaffolder. A completed task reports the fields of the result contract. A task that
+ * is not completed reports a status from the claim status tuple and a reason, and no result field.
+ * A deviation that names the own task of the worker goes beside the status and the reason.
+ */
+const CLAIM_COMPLETION_REPORT = `## Completion Report
+When done, output a JSON completion report. The orchestrator builds the settlement claim of your task from it.
+\`\`\`json
+{
+  "worktreePath": "<absolute worktree path>",
+  "branch": "<branch of your commits>",
+  "implements": ["<design requirement IDs>"],
+  "tests": [{"name": "<test name>", "file": "<path>"}],
+  "files": ["<created/modified files>"]
+}
+\`\`\`
+
+If you did not complete the task, report a status and a reason, and no result field:
+\`\`\`json
+{
+  "status": "${EXAMPLE_INCOMPLETE_STATUS}",
+  "reason": "<what stopped the work and what must change, in at most ${MAX_CLAIM_REASON_LENGTH} characters>"
+}
+\`\`\`
+${INCOMPLETE_CLAIM_STATUSES.map((status) => `- \`${status}\`: ${INCOMPLETE_STATUS_GUIDANCE[status]}.`).join('\n')}
+
+If a capsule assumption is wrong for your own task, report the status \`blocked\`, the reason, and a \`deviations\` list beside them. Each deviation holds \`deviationKind\`, \`statement\`, \`affectedTasks\` with your own task id, and \`proposedChange\`. Then stop: do not call \`settle\`, and do not decide the deviation.`;
+
+/**
  * The head of the implementer system prompt. The verification note goes
  * between the head and the tail, so that dispatch can select it by tier. The
  * static `IMPLEMENTER.systemPrompt` uses the medium-tier note, because the
@@ -222,16 +266,7 @@ const IMPLEMENTER_PROMPT_TAIL = `
 - Run verification after each change to confirm state.
 - Keep commits atomic: one logical change per commit.
 
-## Completion Report
-When done, output a JSON completion report:
-\`\`\`json
-{
-  "status": "complete",
-  "implements": ["<design requirement IDs>"],
-  "tests": [{"name": "<test name>", "file": "<path>"}],
-  "files": ["<created/modified files>"]
-}
-\`\`\``;
+${CLAIM_COMPLETION_REPORT}`;
 
 /** The default verification note baked into the shipped (tier-less) artifact. */
 const DEFAULT_VERIFICATION_NOTE = buildVerificationNote({
@@ -382,16 +417,7 @@ Rules:
 - Prefer targeted fixes over broad changes
 - Document what caused the failure and why the fix works
 
-## Completion Report
-When done, output a JSON completion report:
-\`\`\`json
-{
-  "status": "complete",
-  "implements": ["<design requirement IDs>"],
-  "tests": [{"name": "<test name>", "file": "<path>"}],
-  "files": ["<created/modified files>"]
-}
-\`\`\``,
+${CLAIM_COMPLETION_REPORT}`,
   disallowedTools: ['Agent'],
   model: 'inherit',
   isolation: 'worktree',
@@ -440,7 +466,7 @@ Rules:
 - Categorize findings: critical, warning, suggestion
 
 ## Completion Report
-When done, output a JSON completion report:
+When done, output a JSON completion report. This report is a review verdict and not a settle claim, so the orchestrator does not send it to \`settle\`:
 \`\`\`json
 {
   "status": "complete",
@@ -499,16 +525,7 @@ Rules:
 - Follow existing project conventions and patterns
 - Verify generated files are syntactically valid
 
-## Completion Report
-When done, output a JSON completion report:
-\`\`\`json
-{
-  "status": "complete",
-  "implements": ["<design requirement IDs>"],
-  "tests": [{"name": "<test name>", "file": "<path>"}],
-  "files": ["<created/modified files>"]
-}
-\`\`\``,
+${CLAIM_COMPLETION_REPORT}`,
   disallowedTools: ['Agent'],
   /**
    * `inherit`, not a pinned model id. A pin outranks the `agents.tier-models`

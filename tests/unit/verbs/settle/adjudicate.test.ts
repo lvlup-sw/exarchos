@@ -6,6 +6,7 @@
 // @oracle-sources: ../../../../src/contract/capsule/exarchos-capsule-fixtures.ts, the capsule contract's own corpus which is authored for the schema round trip and not for this module, so a case here cannot be tuned to the assertion it feeds
 
 import { describe, it, expect } from 'vitest';
+import * as fc from 'fast-check';
 
 import {
   ExarchosCapsuleV1Schema,
@@ -16,6 +17,7 @@ import {
   INCOMPLETE_CLAIM_STATUSES,
   SETTLEMENT_FINDING_CLASSES,
   SETTLEMENT_FINDING_KINDS,
+  SETTLEMENT_OUTCOME_RULES,
   SETTLEMENT_OUTCOMES,
   acceptedMaterialDeviations,
   adjudicateSettlement,
@@ -1591,6 +1593,45 @@ describe('the findings that stop verification', () => {
     ]);
   });
 
+  /**
+   * The outcome rules hold each outcome and no other key. Only `deviation-pending` holds its batch.
+   * No call follows the two outcomes that complete each required task, and only `recompile-required` calls `prepare`.
+   * A stored outcome of a later build has no rule, so a replay of it reads as an outcome that verified nothing.
+   */
+  it('OutcomeRules_CoverEachOutcome_AndNameWhichHoldsAndWhatFollows', () => {
+    expect(Object.keys(SETTLEMENT_OUTCOME_RULES).sort()).toEqual([...SETTLEMENT_OUTCOMES].sort());
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => SETTLEMENT_OUTCOME_RULES[outcome].holds)).toEqual(['deviation-pending']);
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => SETTLEMENT_OUTCOME_RULES[outcome].next === 'none')).toEqual([
+      'settled',
+      'accepted-with-rationale',
+    ]);
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => SETTLEMENT_OUTCOME_RULES[outcome].next.startsWith('prepare'))).toEqual([
+      'recompile-required',
+    ]);
+    expect(SETTLEMENT_OUTCOMES.filter((outcome) => SETTLEMENT_OUTCOME_RULES[outcome].next.includes('same batchId'))).toEqual([
+      'deviation-pending',
+    ]);
+    for (const outcome of SETTLEMENT_OUTCOMES) {
+      expect(outcomeVerifies(outcome)).toBe(SETTLEMENT_OUTCOME_RULES[outcome].verifies);
+    }
+    expect(outcomeVerifies(JSON.parse('"partly-settled"'))).toBe(false);
+    expect(outcomeVerifies(JSON.parse('"constructor"'))).toBe(false);
+  });
+
+  /**
+   * Each finding class stops verification exactly when the rule of its outcome verifies nothing.
+   * A batch with findings of one class gets the outcome of that class.
+   */
+  it('OutcomeRules_AgreeWithTheEffectOfEachFindingClass', () => {
+    expect(OUTCOME_OF_CLASS).toHaveLength(4);
+    for (const [findingClass, outcome] of OUTCOME_OF_CLASS) {
+      const kind = SETTLEMENT_FINDING_KINDS.find((candidate) => SETTLEMENT_FINDING_CLASSES[candidate] === findingClass);
+      expect(kind, findingClass).toBeDefined();
+      if (kind === undefined) continue;
+      expect(verificationRuns([finding(kind)]), findingClass).toBe(SETTLEMENT_OUTCOME_RULES[outcome].verifies);
+    }
+  });
+
   /** The shape pass of a real batch: a clean batch and a held batch, read through the adjudicator. */
   it('VerificationRuns_OnTheShapePassOfABatch_FollowsItsFindings', () => {
     const clean = adjudicateSettlement(baseValidCapsule(), [passingClaim()], [], RESOLVING);
@@ -1678,5 +1719,114 @@ describe('the accepted material deviations of a round', () => {
     expect(acceptedMaterialDeviations(withMaterialKinds(['invalidated-assumption']), [deviation], acceptEach)).toEqual([
       deviation,
     ]);
+  });
+});
+
+/** How a generated batch reports one task. `none` is a task that the batch does not claim. */
+type Report = 'none' | 'completed' | IncompleteClaimStatus;
+
+/** One generated task: its report, its completion on the stream before the batch, and its gate. */
+interface GeneratedTask {
+  readonly report: Report;
+  readonly completeBefore: boolean;
+  readonly gatePasses: boolean;
+}
+
+/** The base capsule with the given tasks, each required, each with the result shape of `task-verify`. */
+function capsuleRequiring(taskIds: readonly string[]): ExarchosCapsuleV1 {
+  const base = baseValidCapsule();
+  const shape = base.contracts.taskResults['task-verify'] ?? [];
+  return {
+    ...base,
+    graph: { ...base.graph, tasks: taskIds.map((taskId) => ({ taskId, title: taskId })), dependencies: [], joins: [] },
+    contracts: { ...base.contracts, taskResults: Object.fromEntries(taskIds.map((taskId) => [taskId, shape])) },
+    settlementContract: {
+      requiredResults: [...taskIds],
+      taskVerification: Object.fromEntries(
+        taskIds.map((taskId) => [taskId, { riskTier: 'low', boundaryTouching: false, baseRef: 'feature/capsule-corpus' }]),
+      ),
+    },
+  };
+}
+
+/**
+ * The verdict of the two passes, as the handler runs them. The shape pass decides whether
+ * verification runs. A task complete before the batch is `already-complete`, and each other
+ * accepted task passes or halts on its gate.
+ */
+function twoPassVerdict(
+  capsule: ExarchosCapsuleV1,
+  claims: readonly SettlementClaim[],
+  tasks: ReadonlyMap<string, GeneratedTask>,
+): SettlementVerdict {
+  const context: AdjudicationContext = {
+    evidenceResolves: () => true,
+    taskComplete: (taskId) => tasks.get(taskId)?.completeBefore === true,
+  };
+  const shape = adjudicateSettlement(capsule, claims, [], context);
+  if (!verificationRuns(shape.findings)) return shape;
+  const verification = new Map<string, TaskVerificationOutcome>();
+  for (const taskId of new Set([...capsule.settlementContract.requiredResults, ...shape.acceptedTasks])) {
+    if (tasks.get(taskId)?.completeBefore === true) verification.set(taskId, { kind: 'already-complete' });
+  }
+  for (const taskId of shape.acceptedTasks) {
+    const task = tasks.get(taskId);
+    if (task === undefined || task.completeBefore) continue;
+    verification.set(
+      taskId,
+      task.gatePasses ? { kind: 'verified' } : { kind: 'failed', failedLeaf: 'check_static_analysis', message: 'the lint failed' },
+    );
+  }
+  return adjudicateSettlement(capsule, claims, [], { ...context, verification });
+}
+
+/** The claims of a generated batch, in task order. A task reported as `none` has no claim. */
+function claimsOf(tasks: ReadonlyMap<string, GeneratedTask>): SettlementClaim[] {
+  const claims: SettlementClaim[] = [];
+  for (const [taskId, task] of tasks) {
+    if (task.report === 'none') continue;
+    claims.push(task.report === 'completed' ? { taskId, fields: { passed: true }, evidence: [] } : reporting(task.report, taskId));
+  }
+  return claims;
+}
+
+/** A generated task with each report, each completion and each gate verdict. */
+const GENERATED_TASK: fc.Arbitrary<GeneratedTask> = fc.record({
+  report: fc.constantFrom<Report>('none', 'completed', ...INCOMPLETE_CLAIM_STATUSES),
+  completeBefore: fc.boolean(),
+  gatePasses: fc.boolean(),
+});
+
+/**
+ * A corrective verdict names the work that is left. A correction claims only the tasks of its
+ * `unresolved` list, so each other required task needs its result from the batch or from the stream.
+ */
+describe('the account of a corrective verdict', () => {
+  /**
+   * For each corrective verdict, each required task is accepted, complete before the batch, or unresolved.
+   * An unresolved task is in no other of the three, and its entry carries a kind of the unresolved class.
+   * The generator must reach a corrective verdict, so the property is not vacuous.
+   */
+  it('Adjudicate_ACorrectiveVerdict_AccountsForEachRequiredTask', () => {
+    let corrective = 0;
+    fc.assert(
+      fc.property(fc.array(GENERATED_TASK, { minLength: 1, maxLength: 5 }), (generated) => {
+        const tasks = new Map(generated.map((task, i): [string, GeneratedTask] => [`task-${i}`, task]));
+        const verdict = twoPassVerdict(capsuleRequiring([...tasks.keys()]), claimsOf(tasks), tasks);
+        if (verdict.outcome !== 'corrective-capsule') return;
+        corrective += 1;
+        const unresolved = new Set(verdict.unresolved.map((entry) => entry.taskId));
+        expect(unresolved.size).toBeGreaterThan(0);
+        for (const [taskId, task] of tasks) {
+          const accounts = [verdict.acceptedTasks.includes(taskId), task.completeBefore, unresolved.has(taskId)];
+          const count = accounts.filter(Boolean).length;
+          if (unresolved.has(taskId)) expect(count, taskId).toBe(1);
+          else expect(count, taskId).toBeGreaterThanOrEqual(1);
+        }
+        for (const entry of verdict.unresolved) expect(SETTLEMENT_FINDING_CLASSES[entry.cause]).toBe('unresolved');
+      }),
+      { numRuns: 300 },
+    );
+    expect(corrective).toBeGreaterThan(0);
   });
 });

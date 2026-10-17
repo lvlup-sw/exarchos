@@ -12,6 +12,8 @@ import { STABLE_PREFIX_KEYS } from './projections/rehydration/serialize.js';
 import { UNSPECIFIED_FAILURE_CODE } from './contract/error-families.js';
 import { ConcurrencyError } from './events/concurrency-error.js';
 import type { BundleRefV1 } from './events/bundle/digest-references.js';
+import type { SettlementReceipt } from './verbs/settle/types.js';
+import type { SettlementReceiptSummary } from './verbs/settle/economy.js';
 import { StorageBusyError } from './events/storage-busy-error.js';
 
 export interface PerfMetrics {
@@ -108,6 +110,12 @@ export interface ToolResult {
      * caller must read the result from the failure, as with `intentReceipt`.
      */
     mergeResult?: { readonly merged: boolean; readonly sha?: string; readonly error?: string };
+    /**
+     * The verdict of a `settle` refusal that follows a recorded verdict. A failed envelope has no
+     * `data`, so the receipt goes inside the error, as with `intentReceipt`. An error is never
+     * capped, so a receipt over the budget of `settle` goes as its summary.
+     */
+    settlementReceipt?: SettlementReceipt | SettlementReceiptSummary;
   };
   readonly warnings?: readonly string[];
   readonly _meta?: unknown;
@@ -362,6 +370,33 @@ export function wrapError(
   };
 }
 
+/** The error block of a {@link ToolResult}. */
+type ToolResultError = NonNullable<ToolResult['error']>;
+
+/** The error fields that `toEnvelope` builds itself and does not copy. */
+type BuiltErrorKey = 'code' | 'message' | 'validTargets';
+
+/**
+ * The error fields that `toEnvelope` copies, in envelope order. The record is total over the
+ * carrier keys of the error type. Thus a carrier that the type declares and the copy omits does
+ * not compile.
+ */
+const ERROR_CARRIER_KEYS: { readonly [K in Exclude<keyof ToolResultError, BuiltErrorKey>]: K } = {
+  suggestedFix: 'suggestedFix',
+  expectedShape: 'expectedShape',
+  unmetGates: 'unmetGates',
+  gate: 'gate',
+  operationsSince: 'operationsSince',
+  threshold: 'threshold',
+  tool: 'tool',
+  action: 'action',
+  validActions: 'validActions',
+  projectionDegraded: 'projectionDegraded',
+  intentReceipt: 'intentReceipt',
+  mergeResult: 'mergeResult',
+  settlementReceipt: 'settlementReceipt',
+};
+
 /**
  * Converts a dispatch-core {@link ToolResult} to an {@link Envelope} or an {@link ErrorEnvelope}.
  * The MCP and CLI adapters call it on the result from the dispatch core. It does not use
@@ -369,9 +404,9 @@ export function wrapError(
  *
  *   - On success, it delegates to {@link wrap} and keeps `next_actions`, `warnings`,
  *     `_corrections`, `_eventHints` and `_cacheHints`, which `envelopeWrap` already set.
- *   - On failure, it builds the error block from a named set of `result.error` fields. A field
- *     that the set does not name does not reach the caller. Object `validTargets` become their
- *     phase strings, because `ErrorEnvelope` declares strings.
+ *   - On failure, it builds the error block from the code, the message and each carrier that
+ *     `ERROR_CARRIER_KEYS` names. That record covers each field of the error type. Object
+ *     `validTargets` become their phase strings, because `ErrorEnvelope` declares strings.
  */
 export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelope {
   const _perf: PerfMetrics = {
@@ -406,20 +441,16 @@ export function toEnvelope(result: ToolResult): Envelope<unknown> | ErrorEnvelop
   const narrowedValidTargets = sourceError.validTargets?.map(
     t => (typeof t === 'string' ? t : t.phase),
   );
+  const carried: Record<string, unknown> = {};
+  for (const key of Object.values(ERROR_CARRIER_KEYS)) {
+    const value = sourceError[key];
+    if (value !== undefined) carried[key] = value;
+  }
   const error: ErrorEnvelope['error'] = {
     code: sourceError.code,
     message: sourceError.message,
     ...(narrowedValidTargets !== undefined ? { validTargets: narrowedValidTargets } : {}),
-    ...(sourceError.suggestedFix !== undefined ? { suggestedFix: sourceError.suggestedFix } : {}),
-    ...(sourceError.expectedShape !== undefined ? { expectedShape: sourceError.expectedShape } : {}),
-    ...(sourceError.unmetGates !== undefined ? { unmetGates: sourceError.unmetGates } : {}),
-    ...(sourceError.gate !== undefined ? { gate: sourceError.gate } : {}),
-    ...(sourceError.operationsSince !== undefined ? { operationsSince: sourceError.operationsSince } : {}),
-    ...(sourceError.threshold !== undefined ? { threshold: sourceError.threshold } : {}),
-    ...(sourceError.tool !== undefined ? { tool: sourceError.tool } : {}),
-    ...(sourceError.action !== undefined ? { action: sourceError.action } : {}),
-    ...(sourceError.validActions !== undefined ? { validActions: sourceError.validActions } : {}),
-    ...(sourceError.intentReceipt !== undefined ? { intentReceipt: sourceError.intentReceipt } : {}),
+    ...carried,
   };
   const failure: ErrorEnvelope = {
     success: false,

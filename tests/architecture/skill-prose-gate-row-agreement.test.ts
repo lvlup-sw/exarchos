@@ -1,13 +1,14 @@
 /**
  * The "checked by `check-event-emissions`" passage of a skill names exactly the
- * expectation row of the gate for its phase.
+ * expectation row of the gate for its phase. The outcome table of the delegate skill names each
+ * settlement outcome, which outcomes verify, and the next call of each, as the outcome rules state.
  *
- * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts, ../../content/synthesis/skills/synthesize/SKILL.md
+ * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts, ../../content/synthesis/skills/synthesize/SKILL.md, ../../src/verbs/settle/adjudicate.ts
  *
- * The model reads the prose, and the gate checks the row. No generator joins them: the skills
+ * The model reads the prose, and the code checks the row. No generator joins them: the skills
  * renderer is in `src/install`, which must not import `src/verbs`. Each passage has a
- * machine-readable shape, a line or a table. This test reads the passage and compares the two
- * sets. It fails when the prose and the row disagree.
+ * machine-readable shape, a line or a table. This test reads the passage and compares it with the
+ * code table. It fails when the prose and the code disagree.
  *
  * The test reads only the content source. `render:guard` pins `rendered/` to `content/`.
  */
@@ -18,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
 import { PHASE_EXPECTED_EVENTS } from '../../src/verbs/gates/check-event-emissions.js';
+import { SETTLEMENT_OUTCOME_RULES, SETTLEMENT_OUTCOMES } from '../../src/verbs/settle/adjudicate.js';
 import { PHASE_EVENT_CONTRACTS } from '../../src/workflow/topology/phase-events.js';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -31,14 +33,16 @@ interface ProseSite {
    * `line`: one "Checked by …" sentence naming the types. `table`: the
    * delegate skill's event-contract table, one `| \`type\` | when | emitter |`
    * row per expected type, whose emitter column is compared too.
+   * `outcome-table`: the delegate skill's outcome table, one row per settlement outcome, compared with the outcome rules.
    */
-  readonly shape: 'line' | 'table';
+  readonly shape: 'line' | 'table' | 'outcome-table';
 }
 
 /** Every skill passage that claims to name what the gate checks. */
 const SITES: readonly ProseSite[] = [
   { skill: 'content/synthesis/skills/synthesize/SKILL.md', phase: 'synthesize', shape: 'line' },
   { skill: 'content/delivery/skills/delegate/SKILL.md', phase: 'delegate', shape: 'table' },
+  { skill: 'content/delivery/skills/delegate/SKILL.md', phase: 'delegate', shape: 'outcome-table' },
 ];
 
 /**
@@ -102,9 +106,60 @@ function checkedTypesInTable(
 
 function checkedTypesIn(
   markdown: string,
-  shape: ProseSite['shape'],
+  shape: 'line' | 'table',
 ): { readonly types: readonly NamedType[] } | { readonly problem: string } {
   return shape === 'line' ? checkedTypesInLine(markdown) : checkedTypesInTable(markdown);
+}
+
+/** The heading row of the outcome table. The rows under it name one outcome each. */
+const OUTCOME_TABLE_HEADING = '| Outcome | What settlement verified | Next call |';
+
+/** One row of the outcome table: the outcome, what settlement verified, and the next call. */
+const OUTCOME_ROW = /^\| `([a-z][a-z-]*)` \| ([^|]+) \| ([^|]+) \|$/;
+
+/** The next call of an outcome rule as a cell of the table: the rule text, with a capital first letter. */
+function nextCallCell(next: string): string {
+  return `${next.charAt(0).toUpperCase()}${next.slice(1)}`;
+}
+
+/**
+ * How the outcome table disagrees with the outcome rules. The table names each outcome once.
+ * The verified cell is `Nothing` exactly for an outcome that verifies nothing. The next-call cell is the next call of the rule.
+ */
+function outcomeTableDisagreements(markdown: string): readonly string[] {
+  const lines = markdown.split('\n');
+  const heading = lines.indexOf(OUTCOME_TABLE_HEADING);
+  if (heading < 0) return ['no outcome table'];
+  const rows: RegExpExecArray[] = [];
+  for (const line of lines.slice(heading + 2)) {
+    const row = OUTCOME_ROW.exec(line);
+    if (row === null) break;
+    rows.push(row);
+  }
+  const named = rows.map((row) => row[1] ?? '');
+  const problems: string[] = [
+    ...SETTLEMENT_OUTCOMES.filter((outcome) => !named.includes(outcome)).map(
+      (outcome) => `the outcome table does not name ${outcome}`,
+    ),
+    ...named
+      .filter((outcome) => !SETTLEMENT_OUTCOMES.some((known) => known === outcome))
+      .map((outcome) => `the outcome table names ${outcome}, which is not an outcome`),
+    ...named
+      .filter((outcome, i) => named.indexOf(outcome) !== i)
+      .map((outcome) => `the outcome table names ${outcome} more than once`),
+  ];
+  for (const [, outcome = '', verified = '', next = ''] of rows) {
+    const rule = SETTLEMENT_OUTCOMES.find((known) => known === outcome);
+    if (rule === undefined) continue;
+    const { verifies, next: ruleNext } = SETTLEMENT_OUTCOME_RULES[rule];
+    if ((verified === 'Nothing') === verifies) {
+      problems.push(`the outcome table says ${outcome} verified "${verified}", and the rule says verifies=${String(verifies)}`);
+    }
+    if (next !== nextCallCell(ruleNext)) {
+      problems.push(`the outcome table gives ${outcome} the next call "${next}", and the rule gives "${nextCallCell(ruleNext)}"`);
+    }
+  }
+  return problems.sort();
 }
 
 /**
@@ -117,6 +172,7 @@ function disagreements(
   phase: string,
   shape: ProseSite['shape'],
 ): readonly string[] {
+  if (shape === 'outcome-table') return outcomeTableDisagreements(markdown);
   const read = checkedTypesIn(markdown, shape);
   if ('problem' in read) return [read.problem];
   const rows = PHASE_EVENT_CONTRACTS[phase]?.expects ?? [];
@@ -215,5 +271,39 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     expect(disagreements(silent, site.phase, site.shape)).toEqual([
       'no passage says it is checked by `check-event-emissions`',
     ]);
+  });
+
+  /**
+   * The test seeds four defects in the outcome table. They are a changed next call, a wrong
+   * verified cell, a dropped row, and no table. Each one is named.
+   */
+  it('SkillProse_SeededOutcomeTableDisagreement_NamesTheOutcome', () => {
+    const site = SITES.find((s) => s.shape === 'outcome-table');
+    expect(site).toBeDefined();
+    if (site === undefined) return;
+    const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
+    expect(disagreements(markdown, site.phase, site.shape)).toEqual([]);
+
+    const wrongCall = markdown.replace(
+      /^(\| `rejected` \| Nothing \|) Settle the correction under a new batchId \|$/m,
+      '$1 Prepare, then settle under the new capsule |',
+    );
+    expect(wrongCall).not.toBe(markdown);
+    expect(disagreements(wrongCall, site.phase, site.shape)).toEqual([
+      'the outcome table gives rejected the next call "Prepare, then settle under the new capsule", and the rule gives "Settle the correction under a new batchId"',
+    ]);
+
+    const wrongVerified = markdown.replace(/^(\| `settled` \|) Each required task is complete (\|)/m, '$1 Nothing $2');
+    expect(wrongVerified).not.toBe(markdown);
+    expect(disagreements(wrongVerified, site.phase, site.shape)).toEqual([
+      'the outcome table says settled verified "Nothing", and the rule says verifies=true',
+    ]);
+
+    const dropped = markdown.replace(/^\| `deviation-pending` \| .+ \|\n/m, '');
+    expect(dropped).not.toBe(markdown);
+    expect(disagreements(dropped, site.phase, site.shape)).toEqual(['the outcome table does not name deviation-pending']);
+
+    const silent = markdown.replace(OUTCOME_TABLE_HEADING, '| Outcome | Next call |');
+    expect(disagreements(silent, site.phase, site.shape)).toEqual(['no outcome table']);
   });
 });

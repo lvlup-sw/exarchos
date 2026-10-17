@@ -9,6 +9,14 @@ import { SUMMARY_FIRST_PAGE_ITEMS } from '../../dispatch/core/economy.js';
 
 export const EXECUTE_INTENT_ECONOMY_BUDGET_TOKENS = 1000;
 
+/**
+ * The reads that serve the leaves that a summary of `execute_intent` drops. The next action of a
+ * capped response names them, because the action takes no `limit` and no `offset`.
+ */
+export const EXECUTE_INTENT_DETAIL_READ =
+  'The run bundle that bundleRefs names holds each leaf. exarchos_event query with filter.type ' +
+  'orchestrate.intent_executed returns the record of the run, with each leaf.';
+
 /** The capped receipt shape. As the declared return type, it makes each field a compile-time obligation of the reducer. */
 export interface IntentReceiptSummary {
   readonly summary: string;

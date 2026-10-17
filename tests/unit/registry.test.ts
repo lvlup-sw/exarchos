@@ -40,6 +40,7 @@ import {
   makeWorkflowDescribeAction,
 } from '../../src/registry/describe-actions.js';
 import { envelopeDataSchemaIsTyped } from '../../src/verbs/worktree/schemas.js';
+import * as claimCodec from '../../src/verbs/settle/claim-codec.js';
 import { handleDescribe } from '../../src/describe/handler.js';
 import { estimateOutputTokens } from '../../src/dispatch/core/economy.js';
 import { enforceResponseEconomy } from '../../src/dispatch/core/response-economy.js';
@@ -3704,5 +3705,131 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         'the canonical state-mutation surface must be the primary edge',
       ).toBe('update');
     });
+  });
+});
+
+/**
+ * One bound that the request reader of `settle` applies to the claims, as JSON Schema states it.
+ * `path` leads from the `properties` of the input schema to the field.
+ * `value` is the number, or the name of the export of the claim codec that holds it.
+ */
+interface ClaimRequestBound {
+  readonly path: readonly string[];
+  readonly keyword: 'minLength' | 'maxLength' | 'minItems' | 'maxItems';
+  readonly value: number | { readonly constant: string };
+}
+
+const CLAIM_FIELD = ['claims', 'items', 'properties'];
+const EVIDENCE_FIELD = [...CLAIM_FIELD, 'evidence', 'items', 'properties'];
+const RATIONALE_FIELD = [...CLAIM_FIELD, 'rationale', 'items', 'properties'];
+
+/**
+ * Each string or array bound that the request reader of `settle` applies to the claims. The claim codec applies each of them but the first.
+ * The handler refuses a submitted batch with no claim.
+ */
+const CLAIM_REQUEST_BOUNDS: readonly ClaimRequestBound[] = [
+  { path: ['claims'], keyword: 'minItems', value: 1 },
+  { path: [...CLAIM_FIELD, 'taskId'], keyword: 'minLength', value: 1 },
+  { path: [...CLAIM_FIELD, 'reason'], keyword: 'minLength', value: 1 },
+  { path: [...CLAIM_FIELD, 'reason'], keyword: 'maxLength', value: { constant: 'MAX_CLAIM_REASON_LENGTH' } },
+  { path: [...EVIDENCE_FIELD, 'kind'], keyword: 'minLength', value: 1 },
+  { path: [...EVIDENCE_FIELD, 'ref'], keyword: 'minLength', value: 1 },
+  { path: [...CLAIM_FIELD, 'rationale'], keyword: 'maxItems', value: { constant: 'MAX_RATIONALE_ENTRIES_PER_CLAIM' } },
+  { path: [...RATIONALE_FIELD, 'delegatedDecision'], keyword: 'minLength', value: 1 },
+  {
+    path: [...RATIONALE_FIELD, 'delegatedDecision'],
+    keyword: 'maxLength',
+    value: { constant: 'MAX_DELEGATED_DECISION_ID_LENGTH' },
+  },
+  { path: [...RATIONALE_FIELD, 'statement'], keyword: 'minLength', value: 1 },
+  { path: [...RATIONALE_FIELD, 'statement'], keyword: 'maxLength', value: { constant: 'MAX_RATIONALE_STATEMENT_LENGTH' } },
+];
+
+/**
+ * The bounds that the published schema cannot carry yet, each with its reason. The key is the path and the keyword.
+ * The handler refuses a batch with no claim after the replay lookup, so a batch with no claim that an earlier build recorded still replays.
+ * A minimum in the schema refuses that replay at dispatch, and a decision round carries no claim.
+ */
+const UNPUBLISHED_CLAIM_BOUNDS: ReadonlyMap<string, string> = new Map([
+  [
+    'claims minItems',
+    'a batch with no claim that an earlier build recorded still replays, and a decision round carries no claim',
+  ],
+]);
+
+/** The key of a bound in the waiver list. */
+function boundKey(bound: ClaimRequestBound): string {
+  return `${bound.path.join('.')} ${bound.keyword}`;
+}
+
+/** The value of a bound: the number, or the value of the codec export that it names. */
+function boundValue(bound: ClaimRequestBound): unknown {
+  return typeof bound.value === 'number' ? bound.value : Object.entries(claimCodec).find(([name]) => name === bound.value.constant)?.[1];
+}
+
+/** The value under each key in turn, or undefined where a step is not an object. */
+function valueAt(value: unknown, keys: readonly string[]): unknown {
+  let node = value;
+  for (const key of keys) {
+    if (typeof node !== 'object' || node === null) return undefined;
+    node = Reflect.get(node, key);
+  }
+  return node;
+}
+
+/** The node of a JSON schema at a path under its `properties`, or undefined. */
+function schemaNodeAt(schema: unknown, path: readonly string[]): Record<string, unknown> | undefined {
+  const node = valueAt(schema, ['properties', ...path]);
+  return typeof node === 'object' && node !== null ? Object.fromEntries(Object.entries(node)) : undefined;
+}
+
+/**
+ * The published input schema of `settle` states each bound that its request reader applies to the claims.
+ * The two published forms are the schema that `describe` returns and the registration schema of the MCP tool.
+ * Each numeric bound that the claim codec exports is in the table, so a new bound with no entry fails here.
+ * A bound in the waiver list is absent from the published schema, so a waiver ends when the bound is published.
+ */
+describe('settle — the published input schema and the request reader', () => {
+  it('SettleInputSchema_DeclaresEachBoundThatTheRequestReaderAppliesToTheClaims', async () => {
+    const exportedBounds = Object.entries(claimCodec)
+      .filter(([name, value]) => name.startsWith('MAX_') && typeof value === 'number')
+      .map(([name]) => name)
+      .sort();
+    expect(exportedBounds).toEqual([
+      'MAX_CLAIM_REASON_LENGTH',
+      'MAX_DELEGATED_DECISION_ID_LENGTH',
+      'MAX_RATIONALE_ENTRIES_PER_CLAIM',
+      'MAX_RATIONALE_STATEMENT_LENGTH',
+    ]);
+    const tabled = CLAIM_REQUEST_BOUNDS.flatMap((bound) => (typeof bound.value === 'number' ? [] : [bound.value.constant]));
+    expect([...tabled].sort()).toEqual(exportedBounds);
+    expect(claimCodec.MAX_DELEGATED_DECISION_ID_LENGTH).toBe(256);
+
+    const orchestrate = TOOL_REGISTRY.find((tool) => tool.name === 'exarchos_orchestrate');
+    if (orchestrate === undefined) throw new Error('exarchos_orchestrate is not registered');
+    const described = await handleDescribe({ actions: ['settle'] }, orchestrate.actions);
+    expect(described.success).toBe(true);
+    const publishedForms: [string, unknown][] = [
+      ['describe', valueAt(described.data, ['settle', 'schema'])],
+      ['tools/list', zodToJsonSchema(buildRegistrationSchema(orchestrate.actions))],
+    ];
+
+    for (const key of UNPUBLISHED_CLAIM_BOUNDS.keys()) {
+      expect(CLAIM_REQUEST_BOUNDS.map(boundKey), `the waiver names no bound: ${key}`).toContain(key);
+    }
+    for (const [form, schema] of publishedForms) {
+      for (const bound of CLAIM_REQUEST_BOUNDS) {
+        const value = boundValue(bound);
+        expect(typeof value, `${boundKey(bound)} has no value`).toBe('number');
+        const node = schemaNodeAt(schema, bound.path);
+        expect(node, `${form} publishes no field at ${bound.path.join('.')}`).toBeDefined();
+        const published = node?.[bound.keyword];
+        if (UNPUBLISHED_CLAIM_BOUNDS.has(boundKey(bound))) {
+          expect(published, `${form} publishes the waived bound ${boundKey(bound)}`).toBeUndefined();
+        } else {
+          expect(published, `${form} does not publish ${boundKey(bound)} = ${String(value)}`).toBe(value);
+        }
+      }
+    }
   });
 });

@@ -51,13 +51,13 @@ export type SettlementFindingKind = (typeof SETTLEMENT_FINDING_KINDS)[number];
 export type SettlementFindingClass = 'stale' | 'refuse' | 'hold' | 'unresolved';
 
 /**
- * The class of each finding kind. The record is exhaustive, so a kind with no class does not compile.
+ * The class of each finding kind. The record is exhaustive, and it keeps each class as a literal type.
  * A deviation inside the envelope is a valid answer to a wrong capsule assumption, so its finding holds the batch.
  * A failed verification leaves its task unresolved, and it does not refuse the tasks that passed.
  * A claim that reports its task as not completed also leaves the task unresolved.
  * A rationale that names a decision that the capsule does not delegate is a request error, so it refuses the batch.
  */
-export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, SettlementFindingClass>> = {
+export const SETTLEMENT_FINDING_CLASSES = Object.freeze({
   'unknown-task': 'refuse',
   'claim-superseded-by-revision': 'stale',
   'undeclared-result-shape': 'refuse',
@@ -78,7 +78,43 @@ export const SETTLEMENT_FINDING_CLASSES: Readonly<Record<SettlementFindingKind, 
   'task-failed': 'unresolved',
   'task-blocked': 'unresolved',
   'task-skipped': 'unresolved',
-};
+} satisfies Record<SettlementFindingKind, SettlementFindingClass>);
+
+/** The finding kinds that the class table puts in one of the given classes. */
+type FindingKindOfClass<Class extends SettlementFindingClass> = {
+  readonly [Kind in SettlementFindingKind]: (typeof SETTLEMENT_FINDING_CLASSES)[Kind] extends Class ? Kind : never;
+}[SettlementFindingKind];
+
+/**
+ * A finding kind of the `unresolved` class. The type follows the class table, so an unresolved task
+ * cannot carry the kind of a finding that stops its batch.
+ */
+export type UnresolvedFindingKind = FindingKindOfClass<'unresolved'>;
+
+/** A compile error unless `T` is exactly `true`. */
+type Expect<T extends true> = T;
+
+/**
+ * The unresolved kinds are some of the kinds and not all of them. A class table that loses the
+ * literal class of each kind makes the type empty, and then this alias does not compile.
+ * @proof
+ */
+export type _UnresolvedFindingKindIsAProperPartOfTheKinds = Expect<
+  [UnresolvedFindingKind] extends [never] ? false : [SettlementFindingKind] extends [UnresolvedFindingKind] ? false : true
+>;
+
+/**
+ * The cause of an unresolved task is never a finding kind of the `stale`, `refuse` or `hold` class.
+ * @proof
+ */
+export type _AnUnresolvedCauseIsNoKindOfAnotherClass = Expect<
+  [Extract<UnresolvedTask['cause'], FindingKindOfClass<'stale' | 'refuse' | 'hold'>>] extends [never] ? true : false
+>;
+
+/** Whether a finding kind is of the `unresolved` class. */
+function isUnresolvedFindingKind(kind: SettlementFindingKind): kind is UnresolvedFindingKind {
+  return SETTLEMENT_FINDING_CLASSES[kind] === 'unresolved';
+}
 
 /** A single, path-annotated adjudication finding. */
 export interface SettlementFinding {
@@ -190,25 +226,55 @@ export const SETTLEMENT_OUTCOMES = closedNames(
 /** How a batch stands after adjudication. */
 export type SettlementOutcome = (typeof SETTLEMENT_OUTCOMES)[number];
 
+/** What one outcome does to its batch, and the call that follows it. */
+export interface SettlementOutcomeRule {
+  /** Whether settlement verified the batch. The tasks that passed are then recorded complete. */
+  readonly verifies: boolean;
+  /** Whether the batch waits on decisions. Only a batch that waits takes a decision round. */
+  readonly holds: boolean;
+  /**
+   * The call that follows the outcome, as a short clause, or `none`.
+   * A receipt with a `designRevision` takes the call of `recompile-required` under each outcome.
+   */
+  readonly next: string;
+}
+
+/**
+ * The rule of each outcome. The record is exhaustive, so an outcome with no rule does not compile.
+ * Each text of the code that names the call after an outcome takes the call from here.
+ * Each finding class takes from here whether its batch still verifies.
+ */
+export const SETTLEMENT_OUTCOME_RULES: Readonly<Record<SettlementOutcome, SettlementOutcomeRule>> = {
+  settled: { verifies: true, holds: false, next: 'none' },
+  rejected: { verifies: false, holds: false, next: 'settle the correction under a new batchId' },
+  'deviation-pending': { verifies: false, holds: true, next: 'settle the same batchId with `decisions` only' },
+  'recompile-required': { verifies: false, holds: false, next: 'prepare, then settle under the new capsule' },
+  'corrective-capsule': {
+    verifies: true,
+    holds: false,
+    next: 'settle a new batchId on the same capsule with only the `unresolved` tasks',
+  },
+  'accepted-with-rationale': { verifies: true, holds: false, next: 'none' },
+};
+
 /** What a finding of one class does to its batch. */
 interface FindingClassEffect {
   /** The place of the class in the order of precedence. The lowest number among the findings of a batch decides its outcome. */
   readonly precedence: number;
   readonly outcome: SettlementOutcome;
-  /** Whether settlement still verifies the clean claims of a batch that has a finding of the class. */
-  readonly verifies: boolean;
 }
 
 /**
  * The effect of each finding class. The record is exhaustive, so a class with no effect does not compile.
+ * The rule of the outcome of a class says whether settlement still verifies the clean claims of its batch.
  * A stale, refused or held batch is stopped before verification, so nothing in it is verified.
  * An unresolved task does not stop its batch, so the other tasks of the batch can still complete.
  */
 const FINDING_CLASS_EFFECTS: Readonly<Record<SettlementFindingClass, FindingClassEffect>> = {
-  stale: { precedence: 0, outcome: 'recompile-required', verifies: false },
-  refuse: { precedence: 1, outcome: 'rejected', verifies: false },
-  hold: { precedence: 2, outcome: 'deviation-pending', verifies: false },
-  unresolved: { precedence: 3, outcome: 'corrective-capsule', verifies: true },
+  stale: { precedence: 0, outcome: 'recompile-required' },
+  refuse: { precedence: 1, outcome: 'rejected' },
+  hold: { precedence: 2, outcome: 'deviation-pending' },
+  unresolved: { precedence: 3, outcome: 'corrective-capsule' },
 };
 
 /** The effect of the class of one finding. */
@@ -234,7 +300,7 @@ function outcomeOf(findings: readonly SettlementFinding[], recordsChoice: boolea
 /** One task that a batch leaves unresolved. `cause` is the kind of the finding against the task. */
 export interface UnresolvedTask {
   readonly taskId: string;
-  readonly cause: SettlementFindingKind;
+  readonly cause: UnresolvedFindingKind;
 }
 
 /**
@@ -243,10 +309,11 @@ export interface UnresolvedTask {
  * A task is in the list once, with the kind of its first finding.
  */
 function unresolvedTasksOf(findings: readonly SettlementFinding[]): UnresolvedTask[] {
-  const causes = new Map<string, SettlementFindingKind>();
+  const causes = new Map<string, UnresolvedFindingKind>();
   for (const finding of findings) {
-    if (SETTLEMENT_FINDING_CLASSES[finding.kind] !== 'unresolved' || causes.has(finding.subject)) continue;
-    causes.set(finding.subject, finding.kind);
+    const { kind } = finding;
+    if (!isUnresolvedFindingKind(kind) || causes.has(finding.subject)) continue;
+    causes.set(finding.subject, kind);
   }
   return [...causes.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
@@ -311,22 +378,23 @@ function rationaleNotDelegated(
  * It runs when no finding is stale, refuses the batch, or holds it. A finding that leaves a task unresolved does not stop it.
  */
 export function verificationRuns(findings: readonly SettlementFinding[]): boolean {
-  return findings.every((finding) => effectOf(finding).verifies);
+  return findings.every((finding) => outcomeVerifies(effectOf(finding).outcome));
 }
 
 /**
  * Whether a batch with this outcome reached verification. Under such an outcome, the tasks that passed are recorded complete.
- * An outcome did not reach it when it is the outcome of a finding class that stops verification.
+ * The rule of the outcome gives the answer. An outcome with no rule in this build is treated as not verified, and its replay writes nothing.
  */
 export function outcomeVerifies(outcome: SettlementOutcome): boolean {
-  return !Object.values(FINDING_CLASS_EFFECTS).some((effect) => effect.outcome === outcome && !effect.verifies);
+  return Object.hasOwn(SETTLEMENT_OUTCOME_RULES, outcome) && SETTLEMENT_OUTCOME_RULES[outcome].verifies;
 }
 
 /**
  * The verification outcome of one task, as the handler reports it.
  * `verified` is a segment that ran to its terminal leaf and committed.
  * `already-complete` is a task that the stream showed complete before the batch, so nothing ran again.
- * `failed` names the leaf where the segment halted and the message of that leaf.
+ * It is also a task whose segment halted after the stream recorded its completion.
+ * `failed` names the gate leaf whose verdict halted the segment, and the message of that leaf.
  */
 export type TaskVerificationOutcome =
   | { readonly kind: 'verified' }

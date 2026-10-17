@@ -28,6 +28,7 @@ import {
   loadLegacyHashIndex,
   findLegacyHashManifestPath,
   installManifestVouchesForDir,
+  skillsInstallSource,
   type SkillsProvenanceManifest,
   type LegacySkillRenderManifest,
   type SpawnResult,
@@ -109,7 +110,11 @@ describe('installSkills scaffold (task 019)', () => {
     expect(args[agentIdx + 1]).toBe('claude-code');
   });
 
-  /** The flags make the upstream `skills` CLI install each skill for the agent with no prompt. */
+  /**
+   * The flags make the upstream `skills` CLI install each skill for the agent with no prompt.
+   * The source pins the release tag of the version, so the skills come from the release of the binary.
+   * The package spec pins the major version 1 of the CLI, and it has no `cmd.exe` metacharacter.
+   */
   it('InstallSkills_WithAgentFlag_ConstructsCorrectNpxCommand', async () => {
     const spawn = fakeSpawn();
 
@@ -120,6 +125,7 @@ describe('installSkills scaffold (task 019)', () => {
       log: () => {},
       homeDir: () => '/home/tester',
       registerMcp: () => {},
+      version: '3.0.0',
     });
 
     expect(spawn.calls).toHaveLength(1);
@@ -127,9 +133,9 @@ describe('installSkills scaffold (task 019)', () => {
     expect(cmd).toBe('npx');
     expect(args).toEqual([
       '--yes',
-      'skills',
+      'skills@1',
       'add',
-      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos#v3.0.0',
       '--skill',
       '*',
       '--agent',
@@ -266,13 +272,222 @@ describe('installSkills error handling (task 021)', () => {
         log: () => {},
         errLog: (msg) => errLines.push(msg),
         homeDir: () => '/home/tester',
+        version: '3.0.0',
       });
     } catch {
     }
     const joined = errLines.join('\n');
     expect(joined).toContain(
-      'npx --yes skills add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
+      'npx --yes skills@1 add github:lvlup-sw/exarchos#v3.0.0 --skill * --agent claude-code -y -g --copy',
     );
+  });
+
+  /**
+   * With no version in the options, the source pins the version of this build.
+   * From source, that version is the one in the root `package.json`.
+   */
+  it('InstallSkills_NoVersionOption_PinsTheTagOfThisBuild', async () => {
+    const spawn = fakeSpawn();
+    const rootPackage: unknown = JSON.parse(
+      fs.readFileSync(path.resolve(import.meta.dirname, '../../../package.json'), 'utf8'),
+    );
+    const version =
+      typeof rootPackage === 'object' && rootPackage !== null && 'version' in rootPackage
+        ? String(rootPackage.version)
+        : '';
+    expect(version, 'the root package.json has no version').toMatch(/^\d+\.\d+\.\d+/);
+
+    await installSkills({
+      agent: 'claude',
+      runtimes: ALL_RUNTIMES,
+      spawn: spawn.fn,
+      log: () => {},
+      homeDir: () => '/home/tester',
+      registerMcp: () => {},
+      build: {},
+    });
+
+    expect(spawn.calls.map((call) => call.args[3])).toEqual([`github:lvlup-sw/exarchos#v${version}`]);
+  });
+
+  /**
+   * The compiled binary has no `package.json`, and no caller gives a version option.
+   * The version that the build inlines as `EXARCHOS_BUILD_VERSION` comes before the root `package.json`.
+   * The build ran at the tag, which `EXARCHOS_BUILD_RELEASE_TAG` records, so the source pins that tag.
+   * A fresh module instance reads the globals, because the version is cached after the first read.
+   */
+  it('InstallSkills_NoVersionOptionInTheCompiledBinary_PinsTheBuildTimeVersion', async () => {
+    const spawn = fakeSpawn();
+    vi.stubGlobal('EXARCHOS_BUILD_VERSION', '9.9.9');
+    vi.stubGlobal('EXARCHOS_BUILD_RELEASE_TAG', 'v9.9.9');
+    vi.resetModules();
+    try {
+      const fresh = await import('../../../src/install/install-skills.js');
+
+      await fresh.installSkills({
+        agent: 'claude',
+        runtimes: ALL_RUNTIMES,
+        spawn: spawn.fn,
+        log: () => {},
+        homeDir: () => '/home/tester',
+        registerMcp: () => {},
+      });
+
+      expect(fresh.readDefaultExarchosVersion()).toBe('9.9.9');
+      expect(spawn.calls.map((call) => call.args[3])).toEqual(['github:lvlup-sw/exarchos#v9.9.9']);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.resetModules();
+    }
+  });
+
+  /**
+   * A compiled binary built from a head that is not at the tag of its version has an empty release define.
+   * A binary with no release define, from an older build script, is not a release build either.
+   * Each one installs the default branch and says that the build is not a release build.
+   */
+  it('InstallSkills_CompiledBinaryThatIsNotAReleaseBuild_InstallsTheDefaultBranchAndSaysSo', async () => {
+    for (const releaseTag of ['', undefined]) {
+      const spawn = fakeSpawn();
+      const logs: string[] = [];
+      vi.stubGlobal('EXARCHOS_BUILD_VERSION', '9.9.9');
+      if (releaseTag !== undefined) vi.stubGlobal('EXARCHOS_BUILD_RELEASE_TAG', releaseTag);
+      vi.resetModules();
+      try {
+        const fresh = await import('../../../src/install/install-skills.js');
+
+        await fresh.installSkills({
+          agent: 'claude',
+          runtimes: ALL_RUNTIMES,
+          spawn: spawn.fn,
+          log: (msg) => logs.push(msg),
+          homeDir: () => '/home/tester',
+          registerMcp: () => {},
+        });
+
+        expect(spawn.calls.map((call) => call.args[3]), String(releaseTag)).toEqual(['github:lvlup-sw/exarchos']);
+        expect(logs[0], String(releaseTag)).toContain('9.9.9 is not a release build');
+      } finally {
+        vi.unstubAllGlobals();
+        vi.resetModules();
+      }
+    }
+  });
+
+  /**
+   * A version that is not of release form, such as `unknown`, installs from the default branch.
+   * The installer says so before the command, because those skills can differ from the build.
+   */
+  it('InstallSkills_VersionWithNoReleaseTag_InstallsTheDefaultBranchAndSaysSo', async () => {
+    const spawn = fakeSpawn();
+    const logs: string[] = [];
+
+    await installSkills({
+      agent: 'claude',
+      runtimes: ALL_RUNTIMES,
+      spawn: spawn.fn,
+      log: (msg) => logs.push(msg),
+      homeDir: () => '/home/tester',
+      registerMcp: () => {},
+      version: 'unknown',
+    });
+
+    expect(spawn.calls.map((call) => call.args[3])).toEqual(['github:lvlup-sw/exarchos']);
+    expect(logs[0]).toContain('names no release tag');
+    expect(logs[1]).toBe(
+      'Running: npx --yes skills@1 add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
+    );
+  });
+
+  /**
+   * The `skills` CLI reads the text after `#` as a ref and clones with `--branch <ref>`, so a release version pins its tag.
+   * Only a version of release form gives a ref. A version with a `cmd.exe` metacharacter gives none.
+   */
+  it('SkillsInstallSource_EachVersionForm_GivesTheTagOrTheDefaultBranch', () => {
+    expect(
+      ['2.12.1', '3.0.0', '3.0.0-preview.1', 'unknown', '', '3.0', '3.0.0&calc', '3.0.0+build.1'].map(
+        (version) => skillsInstallSource(version),
+      ),
+    ).toEqual([
+      'github:lvlup-sw/exarchos#v2.12.1',
+      'github:lvlup-sw/exarchos#v3.0.0',
+      'github:lvlup-sw/exarchos#v3.0.0-preview.1',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+    ]);
+  });
+
+  /**
+   * A compiled build pins the tag only when its release define names `v<version>`.
+   * With no build version, the version form alone decides. Only a run from source has no build version.
+   */
+  it('SkillsInstallSource_EachBuildKind_PinsOnlyAReleaseBuildOrASourceRun', () => {
+    expect(
+      [
+        skillsInstallSource('2.12.1', { version: '2.12.1', releaseTag: 'v2.12.1' }),
+        skillsInstallSource('2.12.1', { version: '2.12.1', releaseTag: '' }),
+        skillsInstallSource('2.12.1', { version: '2.12.1' }),
+        skillsInstallSource('2.12.1', { version: '2.12.1', releaseTag: 'v2.12.0' }),
+        skillsInstallSource('2.12.1', {}),
+        skillsInstallSource('unknown', { version: 'unknown', releaseTag: 'vunknown' }),
+      ],
+    ).toEqual([
+      'github:lvlup-sw/exarchos#v2.12.1',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos',
+      'github:lvlup-sw/exarchos#v2.12.1',
+      'github:lvlup-sw/exarchos',
+    ]);
+  });
+
+  /**
+   * The command of each build kind, with the build facts injected, so the result does not depend on how the test runs.
+   * A release build pins its tag. A compiled build that is not a release build installs the default branch and says so first.
+   * A run from source pins the tag of a release version.
+   */
+  it('InstallSkills_EachBuildKind_RunsThePinnedOrTheDefaultBranchCommand', async () => {
+    const runFor = async (build: { version?: string; releaseTag?: string }) => {
+      const spawn = fakeSpawn();
+      const logs: string[] = [];
+      await installSkills({
+        agent: 'claude',
+        runtimes: ALL_RUNTIMES,
+        spawn: spawn.fn,
+        log: (msg) => logs.push(msg),
+        homeDir: () => '/home/tester',
+        registerMcp: () => {},
+        version: '3.0.0',
+        build,
+      });
+      return { logs: logs.slice(0, 2), args: spawn.calls.map((call) => call.args[3]) };
+    };
+
+    expect(await runFor({ version: '3.0.0', releaseTag: 'v3.0.0' })).toEqual({
+      logs: [
+        'Running: npx --yes skills@1 add github:lvlup-sw/exarchos#v3.0.0 --skill * --agent claude-code -y -g --copy',
+        expect.any(String),
+      ],
+      args: ['github:lvlup-sw/exarchos#v3.0.0'],
+    });
+    expect(await runFor({ version: '3.0.0', releaseTag: '' })).toEqual({
+      logs: [
+        'This build of Exarchos 3.0.0 is not a release build, so it names no release tag. ' +
+          'Installing skills from the default branch, which can differ from this build.',
+        'Running: npx --yes skills@1 add github:lvlup-sw/exarchos --skill * --agent claude-code -y -g --copy',
+      ],
+      args: ['github:lvlup-sw/exarchos'],
+    });
+    expect(await runFor({})).toEqual({
+      logs: [
+        'Running: npx --yes skills@1 add github:lvlup-sw/exarchos#v3.0.0 --skill * --agent claude-code -y -g --copy',
+        expect.any(String),
+      ],
+      args: ['github:lvlup-sw/exarchos#v3.0.0'],
+    });
   });
 
   /**
@@ -1019,6 +1234,10 @@ function recordingChildSpawn(): {
 }
 
 describe('installSkills default spawn', () => {
+  /**
+   * On win32 the `npx` shim runs through `cmd.exe`. No argument holds a `cmd.exe` metacharacter,
+   * so the shell passes each argument unchanged.
+   */
   it('InstallSkills_DefaultSpawnOnWin32_RunsTheNpxShimThroughTheShell', async () => {
     const recorder = recordingChildSpawn();
 
@@ -1029,12 +1248,13 @@ describe('installSkills default spawn', () => {
       log: () => {},
       homeDir: () => '/home/tester',
       registerMcp: () => {},
+      version: '3.0.0',
     });
 
     expect(recorder.calls).toEqual([
       {
         command: 'npx',
-        args: expect.arrayContaining(['github:lvlup-sw/exarchos']),
+        args: expect.arrayContaining(['github:lvlup-sw/exarchos#v3.0.0']),
         options: expect.objectContaining({
           shell: true,
           stdio: ['inherit', 'inherit', 'pipe'],
@@ -1042,6 +1262,7 @@ describe('installSkills default spawn', () => {
         }),
       },
     ]);
+    expect(recorder.calls.flatMap((call) => call.args).filter((arg) => /[\^&|<>]/.test(arg))).toEqual([]);
   });
 
   it('InstallSkills_DefaultSpawnOnPosix_RunsNpxWithNoShell', async () => {
@@ -1054,11 +1275,12 @@ describe('installSkills default spawn', () => {
       log: () => {},
       homeDir: () => '/home/tester',
       registerMcp: () => {},
+      version: '3.0.0',
     });
 
     expect(recorder.calls.map((call) => call.command)).toEqual(['npx']);
     expect(recorder.calls.map((call) => call.options.shell)).toEqual([undefined]);
-    expect(recorder.calls.flatMap((call) => call.args)).toContain('github:lvlup-sw/exarchos');
+    expect(recorder.calls.flatMap((call) => call.args)).toContain('github:lvlup-sw/exarchos#v3.0.0');
   });
 
   /**

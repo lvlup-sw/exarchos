@@ -6,7 +6,8 @@
 
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
-import { SETTLEMENT_OUTCOMES } from './adjudicate.js';
+import { SETTLEMENT_OUTCOME_RULES, SETTLEMENT_OUTCOMES, type SettlementOutcome } from './adjudicate.js';
+import type { SettlementReceipt } from './types.js';
 
 const ReceiptBundleRefSchema = z
   .object({
@@ -73,24 +74,37 @@ const ReceiptUnresolvedTaskSchema = z
   })
   .passthrough();
 
+/** The call after one outcome, from the rule of the outcome, as the start of a sentence. */
+function nextCallSentence(outcome: SettlementOutcome): string {
+  const { next } = SETTLEMENT_OUTCOME_RULES[outcome];
+  return `${next.charAt(0).toUpperCase()}${next.slice(1)}`;
+}
+
+/**
+ * The outcomes that verify nothing in this build, each with the call that follows it.
+ * The rule of each outcome gives both facts, so the text follows the record.
+ */
+const UNVERIFIED_ENTRIES = SETTLEMENT_OUTCOMES.filter((outcome) => !SETTLEMENT_OUTCOME_RULES[outcome].verifies)
+  .map((outcome) => `\`${outcome}\`: ${SETTLEMENT_OUTCOME_RULES[outcome].next}. `)
+  .join('');
+
 /**
  * The call that follows each outcome. An agent reads this text through `describe`.
  * `describe` returns the output schema twice, so each character here counts twice against the
  * response budget of `describe` (`DESCRIBE_ECONOMY_BUDGET_TOKENS`). The text is short for that
- * reason: the name of an outcome gives its meaning. The text also says what `acceptedTasks` lists
- * under an outcome that verifies nothing.
+ * reason: the name of an outcome gives its meaning. Each call comes from the outcome rules.
  *
- * The delegate skill gives the full guidance. It also says that no outcome compiles a capsule.
+ * The text also says what `acceptedTasks` lists under an outcome that verifies nothing. A receipt of
+ * an earlier build can carry `rejected` after a verification, so the text says "in this build".
+ * The `designRevision` rule is stated once, for all outcomes.
  */
 const OUTCOME_GUIDE =
   '`settled`: each required task is complete. ' +
   '`accepted-with-rationale`: `settled`, and a claim records a delegated choice. ' +
-  '`corrective-capsule`: the tasks that passed are complete. Settle a new batchId on the same ' +
-  'capsule with only the `unresolved` tasks. With a `designRevision`, prepare first. ' +
-  'The next three verify nothing, and `acceptedTasks` lists claims with no finding. ' +
-  '`rejected`: settle the correction under a new batchId. ' +
-  '`deviation-pending`: settle the same batchId with `decisions` only. ' +
-  '`recompile-required`: prepare, then settle under the new capsule';
+  `\`corrective-capsule\`: the tasks that passed are complete. ${nextCallSentence('corrective-capsule')}. ` +
+  'In this build the next three verify nothing, and `acceptedTasks` lists claims with no finding. ' +
+  UNVERIFIED_ENTRIES +
+  'Any outcome with a `designRevision`: as `recompile-required`';
 
 const SettlementReceiptData = z
   .object({
@@ -143,3 +157,38 @@ const SettlementReceiptData = z
   .passthrough();
 
 export const SettlementOutputSchema = EnvelopeSchema(SettlementReceiptData);
+
+/** A compile error unless `T` is exactly `true`. */
+type Expect<T extends true> = T;
+
+/**
+ * The type with each index signature removed at each depth, and each array read-only. A
+ * `.passthrough()` object infers an index signature, and the receipt interface has none.
+ */
+type Closed<T> = T extends readonly (infer Item)[]
+  ? readonly Closed<Item>[]
+  : T extends object
+    ? { [K in keyof T as string extends K ? never : number extends K ? never : K]: Closed<T[K]> }
+    : T;
+
+/** The receipt that the output schema admits, with no index signature. */
+type ReceiptOfOutputSchema = Closed<z.output<typeof SettlementReceiptData>>;
+
+/**
+ * Each receipt that this build writes is a value of the output schema. Each field type and each
+ * enum member of the receipt type is one that the schema admits.
+ * @proof
+ */
+export type _SettlementReceiptIsAValueOfItsOutputSchema = Expect<
+  SettlementReceipt extends ReceiptOfOutputSchema ? true : false
+>;
+
+/**
+ * The receipt type and the output schema name the same fields.
+ * @proof
+ */
+export type _SettlementReceiptAndItsOutputSchemaNameTheSameFields = Expect<
+  [Exclude<keyof ReceiptOfOutputSchema, keyof SettlementReceipt>, Exclude<keyof SettlementReceipt, keyof ReceiptOfOutputSchema>] extends [never, never]
+    ? true
+    : false
+>;

@@ -22,7 +22,7 @@ export const eventActions: readonly BuiltinToolAction[] = [
       phases: ALL_PHASES,
       roles: ROLE_ANY,
       cli: {
-        examples: ['exarchos ev append --stream my-feature --event \'{"type":"task.completed","data":{"taskId":"t1"}}\''],
+        examples: ['exarchos ev append --stream my-feature --event \'{"type":"task.progressed","data":{"taskId":"t1","tddPhase":"green"}}\''],
       },
       outputSchema: vacuityWaiver('exarchos_event.append'),
       annotations: LOCAL_MUTATION,

@@ -62,19 +62,73 @@ export function countBy<T>(items: readonly T[], key: (item: T) => string): Recor
 }
 
 /**
+ * The next action after the summary cut the output of an action that takes no `limit` and no
+ * `offset`. The reason names the read that serves the rest, when the action declares one.
+ * With no narrowing hint, a second call returns the same summary, and the reason says so.
+ * A hint such as `--fields` narrows the next call, so the reason then makes no such claim.
+ * `verb` is the name of the action itself.
+ */
+export function detailAffordance(
+  verb: string,
+  shown: number,
+  total: number,
+  detailRead?: string,
+  cliHint?: string,
+): NextAction {
+  return {
+    verb,
+    reason:
+      `Showing ${shown} of ${total}. ${verb} takes no limit or offset` +
+      (cliHint !== undefined ? '.' : ', so a second call returns the same summary.') +
+      (detailRead !== undefined ? ` ${detailRead}` : ''),
+    ...(cliHint !== undefined ? { hint: cliHint } : {}),
+  };
+}
+
+/**
+ * The window parameters that the input of a paging action declares. Each value is also the text
+ * of the reason. Only an input that declares `offset` can page.
+ */
+export type PagingWindow = 'limit/offset' | 'offset';
+
+/**
  * The next action that tells the caller to narrow the query, after the item cap or the summary cut
- * the output. `verb` is the name of the action itself. The CLI hint is added only when the caller
- * gives one, because a `.strict()` action without a window parameter rejects `--limit`.
+ * the output. `verb` is the name of the action itself. `window` names the window parameters that
+ * the input declares, and it must include `offset`. The CLI hint is added only when the caller
+ * gives one, because a `.strict()` action rejects an undeclared flag.
  */
 export function narrowAffordance(
   verb: string,
   shown: number,
   total: number,
   cliHint?: string,
+  window: PagingWindow = 'limit/offset',
 ): NextAction {
   return {
     verb,
-    reason: `Showing ${shown} of ${total} — narrow with limit/offset (or a filter) to page through the rest.`,
+    reason: `Showing ${shown} of ${total} — narrow with ${window} (or a filter) to page through the rest.`,
+    ...(cliHint !== undefined ? { hint: cliHint } : {}),
+  };
+}
+
+/**
+ * The next action after the cap cut the output of an action that takes `limit` and no `offset`.
+ * A larger `limit` is capped again, so the call cannot page to the rest, and the reason says so.
+ * The reason names the read that serves the rest, when the action declares one. A `--limit` hint
+ * gives fewer items in full detail.
+ */
+export function limitOnlyAffordance(
+  verb: string,
+  shown: number,
+  total: number,
+  detailRead?: string,
+  cliHint?: string,
+): NextAction {
+  return {
+    verb,
+    reason:
+      `Showing ${shown} of ${total}. ${verb} takes limit and no offset, so it cannot page to the rest.` +
+      (detailRead !== undefined ? ` ${detailRead}` : ''),
     ...(cliHint !== undefined ? { hint: cliHint } : {}),
   };
 }

@@ -178,6 +178,30 @@ describe('Release workflow (task 2.7)', () => {
   });
 
   /**
+   * The npm package ships the compiled binaries of `dist/bin`. The `release` job checks out the pushed tag
+   * with no other ref, and it runs the root build, which compiles the binaries, before it publishes.
+   * Thus the binaries in the npm package are release builds, and they pin the skills of their tag.
+   */
+  it('ReleaseWorkflow_NpmPublish_ShipsTheBinariesThatItBuildsAtTheTag', () => {
+    const steps = loadReleaseWorkflow().jobs?.['release']?.steps ?? [];
+    const checkouts = steps.filter((s) => (s.uses ?? '').startsWith('actions/checkout@'));
+    const buildIndex = steps.findIndex((s) => s.run?.trim() === 'npm run build');
+    const publishIndex = steps.findIndex((s) => (s.run ?? '').includes('npm publish'));
+    const pkg = JSON.parse(readFileSync(join(REPO_ROOT, 'package.json'), 'utf-8')) as {
+      files?: string[];
+      scripts?: Record<string, string>;
+    };
+
+    expect(checkouts).toHaveLength(1);
+    expect(checkouts[0]?.with?.['ref']).toBeUndefined();
+    expect(buildIndex).toBeGreaterThanOrEqual(0);
+    expect(publishIndex).toBeGreaterThan(buildIndex);
+    expect(pkg.scripts?.['build']).toContain('npm run build:binary');
+    expect(pkg.scripts?.['build:binary']).toContain('tools/release/build-binary.ts');
+    expect(pkg.files).toContain('dist/bin');
+  });
+
+  /**
    * The release body must give the install command for each installer script. The check
    * only searches the full workflow text for the two script names, and that text includes
    * comments.

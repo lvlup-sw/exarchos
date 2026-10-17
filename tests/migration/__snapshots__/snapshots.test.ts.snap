@@ -353,12 +353,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -379,7 +381,31 @@ Read \`unresolved\`. It has one entry for each task to correct, with the \`taskI
 | \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
 | \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
 
-The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+A halt at a gate leaf gives \`verification-failed\` when the leaf kept its contract. A gate that did not run to a verdict is also \`verification-failed\`: its admission was refused, it had no handler, or its handler failed. A segment can also halt at the completion leaf, at a leaf that the runbook does not name, or because a leaf broke its contract (\`INTENT_EMISSION_CONTRACT_VIOLATED\`), also at a gate leaf. Such a halt is not a gate verdict. After the segments, settlement reads the completion rows again. If the stream now records a halted task complete, completion wins: the task is complete, and \`verification[]\` lists it as \`already-complete\`. Otherwise a halt that is not a gate verdict fails the call with no verdict (Errors, below).
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+To read the receipt of a halted segment, send the call that settlement made for the task. Take the \`operationId\` from the \`verification[]\` entry or the \`unresolved\` entry of the task. Use only that \`operationId\`, because another id runs the whole segment again, \`task_complete\` too, outside settlement. A capped summary keeps no \`operationId\` on an \`unresolved\` entry, so then take it from the \`verification\` list of the settlement bundle that \`bundleRefs\` names. Take \`riskTier\`, \`boundaryTouching\` and \`baseRef\` from the terms of the task in the capsule (\`settlementContract.taskVerification[taskId]\`). Take the other arguments from the claim:
+
+\`\`\`typescript
+exarchos_orchestrate({
+  action: "execute_intent",
+  intent: "task-completion",
+  featureId: "<featureId>",
+  operationId: "<operationId>",          // of the segment of the task
+  args: {
+    taskId: "<taskId>",
+    worktreePath: "<worktreePath>",      // from the claim
+    branch: "<branch>",                  // from the claim, only when the claim has one
+    riskTier: "<riskTier>",              // from the capsule terms of the task
+    boundaryTouching: <boundaryTouching>,
+    baseRef: "<baseRef>",
+    result: claimFields,                 // each field of the claim, in the key order of the claim
+  },
+})
+\`\`\`
+
+The call runs nothing again. It returns the recorded receipt. For a halted segment, that is the code \`INTENT_SEGMENT_FAILED\`, the message of the leaf, and \`error.intentReceipt\`. Other arguments, or the keys of \`result\` in another order, make a different request. The call then fails with \`INTENT_REPLAY_DIGEST_MISMATCH\`, and nothing runs.
 
 Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
@@ -401,6 +427,8 @@ If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than
 
 If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
+The tasks of \`acceptedTasks\` are complete, so \`prepare\` can compile a task that waits on one of them. A worktree forks from the \`baseRef\` of its task, the integration branch, and that branch holds only landed work. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it.
+
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
 - A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
 - \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
@@ -421,7 +449,7 @@ exarchos_orchestrate({
 
 An earlier build also gave \`rejected\` for a superseded claim and for a failed verification. A replay returns such a receipt as that build stored it, and its \`acceptedTasks\` can be complete.
 
-**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). Then settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
+**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). A person decides each deviation. You do not decide it, and the worker that proposed it does not decide it. In a run with no person, stop at the held batch: report the held receipt and its pending deviations, and send no decision. When a person has decided, settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -444,7 +472,7 @@ Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it ver
 
 **A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
 
-If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
 
 If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
@@ -469,7 +497,8 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`OPERATION_DIGEST_MISMATCH\`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands.
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
-- \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
+- \`STATE_SYNC_FAILED\`: the write of the state document failed, and the facts on the stream stand. Run \`exarchos_workflow reconcile\`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, \`error.settlementReceipt\` holds that verdict. Over the receipt budget, it holds the capped summary.
+- \`INTENT_SEGMENT_FAILED\` or \`INTENT_EMISSION_CONTRACT_VIOLATED\`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. \`task_complete\` then refuses with \`GATE_NOT_PASSED\`. That is such a halt, and a new batch id gets it again.
 - \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
@@ -486,7 +515,7 @@ When a task fails — a subagent reports failure, or settlement leaves the task 
 1. Read the failure output from the runtime's result-collection primitive (\`TaskOutput({ task_id, block: true })\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
-4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, unless the stream already shows it complete. Such a task comes back \`already-complete\`, and no gate runs again. A complete task needs no claim. To rework a complete task, plan a new task (Rollback procedure, below)
 
 A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
@@ -561,9 +590,10 @@ For detailed fix-mode process, see \`references/fix-mode.md\`.
 
 If context compaction occurs during delegation:
 1. Query workflow state: \`exarchos_workflow get\` with \`fields: ["tasks"]\`
-2. Check active worktrees: \`ls .worktrees/\` and verify branch state
-3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
-4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+2. Read the settlement record of each batch: \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\`. Each row names its \`batchId\`, \`capsuleVersion\`, \`outcome\` and \`acceptedTasks\`, and under \`corrective-capsule\` its \`unresolvedTasks\`
+3. Check active worktrees: \`ls .worktrees/\` and verify branch state
+4. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state
+5. Do NOT re-create branches or re-dispatch agents until confirmed lost
 
 ### Worktree State Schema
 
@@ -596,7 +626,7 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement receipt, not the task list. Do not patch \`tasks[].status\` by hand to get past the guard.
+> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\` returns one row for each settlement round, with its \`outcome\` and, under \`corrective-capsule\`, its \`unresolvedTasks\`. Do not patch \`tasks[].status\` by hand to get past the guard.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -758,9 +788,13 @@ still fails after rebase:
    git reset --hard "$(cat /tmp/rollback.sha)"
    \`\`\`
 
-2. **Mark the task \`failed\`** in workflow state and dispatch a fixer (see
-   the Failure Recovery section above). Do **not** delete the worktree —
-   the fixer needs the original branch state to diagnose the conflict.
+2. **Plan the rework as a new task.** The task is already complete on the
+   stream: its completion row started this merge. A claim on it comes back
+   \`already-complete\`, and no gate runs again. Finished work is not
+   reopened. Add a new task for the rework to the plan, run \`prepare\`, and
+   dispatch a fixer for the new task (see the Failure Recovery section
+   above). Do **not** delete the worktree — the fixer needs the original
+   branch state to diagnose the conflict.
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
@@ -1560,12 +1594,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -1586,7 +1622,31 @@ Read \`unresolved\`. It has one entry for each task to correct, with the \`taskI
 | \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
 | \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
 
-The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+A halt at a gate leaf gives \`verification-failed\` when the leaf kept its contract. A gate that did not run to a verdict is also \`verification-failed\`: its admission was refused, it had no handler, or its handler failed. A segment can also halt at the completion leaf, at a leaf that the runbook does not name, or because a leaf broke its contract (\`INTENT_EMISSION_CONTRACT_VIOLATED\`), also at a gate leaf. Such a halt is not a gate verdict. After the segments, settlement reads the completion rows again. If the stream now records a halted task complete, completion wins: the task is complete, and \`verification[]\` lists it as \`already-complete\`. Otherwise a halt that is not a gate verdict fails the call with no verdict (Errors, below).
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+To read the receipt of a halted segment, send the call that settlement made for the task. Take the \`operationId\` from the \`verification[]\` entry or the \`unresolved\` entry of the task. Use only that \`operationId\`, because another id runs the whole segment again, \`task_complete\` too, outside settlement. A capped summary keeps no \`operationId\` on an \`unresolved\` entry, so then take it from the \`verification\` list of the settlement bundle that \`bundleRefs\` names. Take \`riskTier\`, \`boundaryTouching\` and \`baseRef\` from the terms of the task in the capsule (\`settlementContract.taskVerification[taskId]\`). Take the other arguments from the claim:
+
+\`\`\`typescript
+exarchos_orchestrate({
+  action: "execute_intent",
+  intent: "task-completion",
+  featureId: "<featureId>",
+  operationId: "<operationId>",          // of the segment of the task
+  args: {
+    taskId: "<taskId>",
+    worktreePath: "<worktreePath>",      // from the claim
+    branch: "<branch>",                  // from the claim, only when the claim has one
+    riskTier: "<riskTier>",              // from the capsule terms of the task
+    boundaryTouching: <boundaryTouching>,
+    baseRef: "<baseRef>",
+    result: claimFields,                 // each field of the claim, in the key order of the claim
+  },
+})
+\`\`\`
+
+The call runs nothing again. It returns the recorded receipt. For a halted segment, that is the code \`INTENT_SEGMENT_FAILED\`, the message of the leaf, and \`error.intentReceipt\`. Other arguments, or the keys of \`result\` in another order, make a different request. The call then fails with \`INTENT_REPLAY_DIGEST_MISMATCH\`, and nothing runs.
 
 Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
@@ -1608,6 +1668,8 @@ If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than
 
 If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
+The tasks of \`acceptedTasks\` are complete, so \`prepare\` can compile a task that waits on one of them. A worktree forks from the \`baseRef\` of its task, the integration branch, and that branch holds only landed work. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it.
+
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
 - A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
 - \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
@@ -1628,7 +1690,7 @@ exarchos_orchestrate({
 
 An earlier build also gave \`rejected\` for a superseded claim and for a failed verification. A replay returns such a receipt as that build stored it, and its \`acceptedTasks\` can be complete.
 
-**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). Then settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
+**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). A person decides each deviation. You do not decide it, and the worker that proposed it does not decide it. In a run with no person, stop at the held batch: report the held receipt and its pending deviations, and send no decision. When a person has decided, settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -1651,7 +1713,7 @@ Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it ver
 
 **A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
 
-If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
 
 If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
@@ -1676,7 +1738,8 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`OPERATION_DIGEST_MISMATCH\`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands.
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
-- \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
+- \`STATE_SYNC_FAILED\`: the write of the state document failed, and the facts on the stream stand. Run \`exarchos_workflow reconcile\`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, \`error.settlementReceipt\` holds that verdict. Over the receipt budget, it holds the capped summary.
+- \`INTENT_SEGMENT_FAILED\` or \`INTENT_EMISSION_CONTRACT_VIOLATED\`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. \`task_complete\` then refuses with \`GATE_NOT_PASSED\`. That is such a halt, and a new batch id gets it again.
 - \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
@@ -1686,7 +1749,7 @@ When a task fails — a subagent reports failure, or settlement leaves the task 
 1. Read the failure output from the runtime's result-collection primitive (\`wait_agent({ task_id })\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
-4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, unless the stream already shows it complete. Such a task comes back \`already-complete\`, and no gate runs again. A complete task needs no claim. To rework a complete task, plan a new task (Rollback procedure, below)
 
 A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
@@ -1757,9 +1820,10 @@ For detailed fix-mode process, see \`references/fix-mode.md\`.
 
 If context compaction occurs during delegation:
 1. Query workflow state: \`exarchos_workflow get\` with \`fields: ["tasks"]\`
-2. Check active worktrees: \`ls .worktrees/\` and verify branch state
-3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
-4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+2. Read the settlement record of each batch: \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\`. Each row names its \`batchId\`, \`capsuleVersion\`, \`outcome\` and \`acceptedTasks\`, and under \`corrective-capsule\` its \`unresolvedTasks\`
+3. Check active worktrees: \`ls .worktrees/\` and verify branch state
+4. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state
+5. Do NOT re-create branches or re-dispatch agents until confirmed lost
 
 ### Worktree State Schema
 
@@ -1792,7 +1856,7 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement receipt, not the task list. Do not patch \`tasks[].status\` by hand to get past the guard.
+> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\` returns one row for each settlement round, with its \`outcome\` and, under \`corrective-capsule\`, its \`unresolvedTasks\`. Do not patch \`tasks[].status\` by hand to get past the guard.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -1934,9 +1998,13 @@ still fails after rebase:
    git reset --hard "$(cat /tmp/rollback.sha)"
    \`\`\`
 
-2. **Mark the task \`failed\`** in workflow state and dispatch a fixer (see
-   the Failure Recovery section above). Do **not** delete the worktree —
-   the fixer needs the original branch state to diagnose the conflict.
+2. **Plan the rework as a new task.** The task is already complete on the
+   stream: its completion row started this merge. A claim on it comes back
+   \`already-complete\`, and no gate runs again. Finished work is not
+   reopened. Add a new task for the rework to the plan, run \`prepare\`, and
+   dispatch a fixer for the new task (see the Failure Recovery section
+   above). Do **not** delete the worktree — the fixer needs the original
+   branch state to diagnose the conflict.
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
@@ -2730,12 +2798,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -2756,7 +2826,31 @@ Read \`unresolved\`. It has one entry for each task to correct, with the \`taskI
 | \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
 | \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
 
-The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+A halt at a gate leaf gives \`verification-failed\` when the leaf kept its contract. A gate that did not run to a verdict is also \`verification-failed\`: its admission was refused, it had no handler, or its handler failed. A segment can also halt at the completion leaf, at a leaf that the runbook does not name, or because a leaf broke its contract (\`INTENT_EMISSION_CONTRACT_VIOLATED\`), also at a gate leaf. Such a halt is not a gate verdict. After the segments, settlement reads the completion rows again. If the stream now records a halted task complete, completion wins: the task is complete, and \`verification[]\` lists it as \`already-complete\`. Otherwise a halt that is not a gate verdict fails the call with no verdict (Errors, below).
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+To read the receipt of a halted segment, send the call that settlement made for the task. Take the \`operationId\` from the \`verification[]\` entry or the \`unresolved\` entry of the task. Use only that \`operationId\`, because another id runs the whole segment again, \`task_complete\` too, outside settlement. A capped summary keeps no \`operationId\` on an \`unresolved\` entry, so then take it from the \`verification\` list of the settlement bundle that \`bundleRefs\` names. Take \`riskTier\`, \`boundaryTouching\` and \`baseRef\` from the terms of the task in the capsule (\`settlementContract.taskVerification[taskId]\`). Take the other arguments from the claim:
+
+\`\`\`typescript
+exarchos_orchestrate({
+  action: "execute_intent",
+  intent: "task-completion",
+  featureId: "<featureId>",
+  operationId: "<operationId>",          // of the segment of the task
+  args: {
+    taskId: "<taskId>",
+    worktreePath: "<worktreePath>",      // from the claim
+    branch: "<branch>",                  // from the claim, only when the claim has one
+    riskTier: "<riskTier>",              // from the capsule terms of the task
+    boundaryTouching: <boundaryTouching>,
+    baseRef: "<baseRef>",
+    result: claimFields,                 // each field of the claim, in the key order of the claim
+  },
+})
+\`\`\`
+
+The call runs nothing again. It returns the recorded receipt. For a halted segment, that is the code \`INTENT_SEGMENT_FAILED\`, the message of the leaf, and \`error.intentReceipt\`. Other arguments, or the keys of \`result\` in another order, make a different request. The call then fails with \`INTENT_REPLAY_DIGEST_MISMATCH\`, and nothing runs.
 
 Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
@@ -2778,6 +2872,8 @@ If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than
 
 If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
+The tasks of \`acceptedTasks\` are complete, so \`prepare\` can compile a task that waits on one of them. A worktree forks from the \`baseRef\` of its task, the integration branch, and that branch holds only landed work. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it.
+
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
 - A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
 - \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
@@ -2798,7 +2894,7 @@ exarchos_orchestrate({
 
 An earlier build also gave \`rejected\` for a superseded claim and for a failed verification. A replay returns such a receipt as that build stored it, and its \`acceptedTasks\` can be complete.
 
-**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). Then settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
+**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). A person decides each deviation. You do not decide it, and the worker that proposed it does not decide it. In a run with no person, stop at the held batch: report the held receipt and its pending deviations, and send no decision. When a person has decided, settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -2821,7 +2917,7 @@ Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it ver
 
 **A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
 
-If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
 
 If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
@@ -2846,7 +2942,8 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`OPERATION_DIGEST_MISMATCH\`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands.
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
-- \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
+- \`STATE_SYNC_FAILED\`: the write of the state document failed, and the facts on the stream stand. Run \`exarchos_workflow reconcile\`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, \`error.settlementReceipt\` holds that verdict. Over the receipt budget, it holds the capped summary.
+- \`INTENT_SEGMENT_FAILED\` or \`INTENT_EMISSION_CONTRACT_VIOLATED\`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. \`task_complete\` then refuses with \`GATE_NOT_PASSED\`. That is such a halt, and a new batch id gets it again.
 - \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
@@ -2856,7 +2953,7 @@ When a task fails — a subagent reports failure, or settlement leaves the task 
 1. Read the failure output from the runtime's result-collection primitive (\`inline reply from task --agent (no separate collection API)\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
-4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, unless the stream already shows it complete. Such a task comes back \`already-complete\`, and no gate runs again. A complete task needs no claim. To rework a complete task, plan a new task (Rollback procedure, below)
 
 A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
@@ -2923,9 +3020,10 @@ For detailed fix-mode process, see \`references/fix-mode.md\`.
 
 If context compaction occurs during delegation:
 1. Query workflow state: \`exarchos_workflow get\` with \`fields: ["tasks"]\`
-2. Check active worktrees: \`ls .worktrees/\` and verify branch state
-3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
-4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+2. Read the settlement record of each batch: \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\`. Each row names its \`batchId\`, \`capsuleVersion\`, \`outcome\` and \`acceptedTasks\`, and under \`corrective-capsule\` its \`unresolvedTasks\`
+3. Check active worktrees: \`ls .worktrees/\` and verify branch state
+4. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state
+5. Do NOT re-create branches or re-dispatch agents until confirmed lost
 
 ### Worktree State Schema
 
@@ -2958,7 +3056,7 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement receipt, not the task list. Do not patch \`tasks[].status\` by hand to get past the guard.
+> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\` returns one row for each settlement round, with its \`outcome\` and, under \`corrective-capsule\`, its \`unresolvedTasks\`. Do not patch \`tasks[].status\` by hand to get past the guard.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -3100,9 +3198,13 @@ still fails after rebase:
    git reset --hard "$(cat /tmp/rollback.sha)"
    \`\`\`
 
-2. **Mark the task \`failed\`** in workflow state and dispatch a fixer (see
-   the Failure Recovery section above). Do **not** delete the worktree —
-   the fixer needs the original branch state to diagnose the conflict.
+2. **Plan the rework as a new task.** The task is already complete on the
+   stream: its completion row started this merge. A claim on it comes back
+   \`already-complete\`, and no gate runs again. Finished work is not
+   reopened. Add a new task for the rework to the plan, run \`prepare\`, and
+   dispatch a fixer for the new task (see the Failure Recovery section
+   above). Do **not** delete the worktree — the fixer needs the original
+   branch state to diagnose the conflict.
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
@@ -3901,12 +4003,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -3927,7 +4031,31 @@ Read \`unresolved\`. It has one entry for each task to correct, with the \`taskI
 | \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
 | \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
 
-The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+A halt at a gate leaf gives \`verification-failed\` when the leaf kept its contract. A gate that did not run to a verdict is also \`verification-failed\`: its admission was refused, it had no handler, or its handler failed. A segment can also halt at the completion leaf, at a leaf that the runbook does not name, or because a leaf broke its contract (\`INTENT_EMISSION_CONTRACT_VIOLATED\`), also at a gate leaf. Such a halt is not a gate verdict. After the segments, settlement reads the completion rows again. If the stream now records a halted task complete, completion wins: the task is complete, and \`verification[]\` lists it as \`already-complete\`. Otherwise a halt that is not a gate verdict fails the call with no verdict (Errors, below).
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+To read the receipt of a halted segment, send the call that settlement made for the task. Take the \`operationId\` from the \`verification[]\` entry or the \`unresolved\` entry of the task. Use only that \`operationId\`, because another id runs the whole segment again, \`task_complete\` too, outside settlement. A capped summary keeps no \`operationId\` on an \`unresolved\` entry, so then take it from the \`verification\` list of the settlement bundle that \`bundleRefs\` names. Take \`riskTier\`, \`boundaryTouching\` and \`baseRef\` from the terms of the task in the capsule (\`settlementContract.taskVerification[taskId]\`). Take the other arguments from the claim:
+
+\`\`\`typescript
+exarchos_orchestrate({
+  action: "execute_intent",
+  intent: "task-completion",
+  featureId: "<featureId>",
+  operationId: "<operationId>",          // of the segment of the task
+  args: {
+    taskId: "<taskId>",
+    worktreePath: "<worktreePath>",      // from the claim
+    branch: "<branch>",                  // from the claim, only when the claim has one
+    riskTier: "<riskTier>",              // from the capsule terms of the task
+    boundaryTouching: <boundaryTouching>,
+    baseRef: "<baseRef>",
+    result: claimFields,                 // each field of the claim, in the key order of the claim
+  },
+})
+\`\`\`
+
+The call runs nothing again. It returns the recorded receipt. For a halted segment, that is the code \`INTENT_SEGMENT_FAILED\`, the message of the leaf, and \`error.intentReceipt\`. Other arguments, or the keys of \`result\` in another order, make a different request. The call then fails with \`INTENT_REPLAY_DIGEST_MISMATCH\`, and nothing runs.
 
 Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
@@ -3949,6 +4077,8 @@ If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than
 
 If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
+The tasks of \`acceptedTasks\` are complete, so \`prepare\` can compile a task that waits on one of them. A worktree forks from the \`baseRef\` of its task, the integration branch, and that branch holds only landed work. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it.
+
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
 - A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
 - \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
@@ -3969,7 +4099,7 @@ exarchos_orchestrate({
 
 An earlier build also gave \`rejected\` for a superseded claim and for a failed verification. A replay returns such a receipt as that build stored it, and its \`acceptedTasks\` can be complete.
 
-**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). Then settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
+**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). A person decides each deviation. You do not decide it, and the worker that proposed it does not decide it. In a run with no person, stop at the held batch: report the held receipt and its pending deviations, and send no decision. When a person has decided, settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -3992,7 +4122,7 @@ Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it ver
 
 **A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
 
-If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
 
 If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
@@ -4017,7 +4147,8 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`OPERATION_DIGEST_MISMATCH\`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands.
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
-- \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
+- \`STATE_SYNC_FAILED\`: the write of the state document failed, and the facts on the stream stand. Run \`exarchos_workflow reconcile\`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, \`error.settlementReceipt\` holds that verdict. Over the receipt budget, it holds the capped summary.
+- \`INTENT_SEGMENT_FAILED\` or \`INTENT_EMISSION_CONTRACT_VIOLATED\`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. \`task_complete\` then refuses with \`GATE_NOT_PASSED\`. That is such a halt, and a new batch id gets it again.
 - \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
@@ -4027,7 +4158,7 @@ When a task fails — a subagent reports failure, or settlement leaves the task 
 1. Read the failure output from the runtime's result-collection primitive (\`Task() reply (inline)\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
-4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, unless the stream already shows it complete. Such a task comes back \`already-complete\`, and no gate runs again. A complete task needs no claim. To rework a complete task, plan a new task (Rollback procedure, below)
 
 A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
@@ -4099,9 +4230,10 @@ For detailed fix-mode process, see \`references/fix-mode.md\`.
 
 If context compaction occurs during delegation:
 1. Query workflow state: \`exarchos_workflow get\` with \`fields: ["tasks"]\`
-2. Check active worktrees: \`ls .worktrees/\` and verify branch state
-3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
-4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+2. Read the settlement record of each batch: \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\`. Each row names its \`batchId\`, \`capsuleVersion\`, \`outcome\` and \`acceptedTasks\`, and under \`corrective-capsule\` its \`unresolvedTasks\`
+3. Check active worktrees: \`ls .worktrees/\` and verify branch state
+4. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state
+5. Do NOT re-create branches or re-dispatch agents until confirmed lost
 
 ### Worktree State Schema
 
@@ -4134,7 +4266,7 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement receipt, not the task list. Do not patch \`tasks[].status\` by hand to get past the guard.
+> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\` returns one row for each settlement round, with its \`outcome\` and, under \`corrective-capsule\`, its \`unresolvedTasks\`. Do not patch \`tasks[].status\` by hand to get past the guard.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -4276,9 +4408,13 @@ still fails after rebase:
    git reset --hard "$(cat /tmp/rollback.sha)"
    \`\`\`
 
-2. **Mark the task \`failed\`** in workflow state and dispatch a fixer (see
-   the Failure Recovery section above). Do **not** delete the worktree —
-   the fixer needs the original branch state to diagnose the conflict.
+2. **Plan the rework as a new task.** The task is already complete on the
+   stream: its completion row started this merge. A claim on it comes back
+   \`already-complete\`, and no gate runs again. Finished work is not
+   reopened. Add a new task for the rework to the plan, run \`prepare\`, and
+   dispatch a fixer for the new task (see the Failure Recovery section
+   above). Do **not** delete the worktree — the fixer needs the original
+   branch state to diagnose the conflict.
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
@@ -5053,12 +5189,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -5079,7 +5217,31 @@ Read \`unresolved\`. It has one entry for each task to correct, with the \`taskI
 | \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
 | \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
 
-The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+A halt at a gate leaf gives \`verification-failed\` when the leaf kept its contract. A gate that did not run to a verdict is also \`verification-failed\`: its admission was refused, it had no handler, or its handler failed. A segment can also halt at the completion leaf, at a leaf that the runbook does not name, or because a leaf broke its contract (\`INTENT_EMISSION_CONTRACT_VIOLATED\`), also at a gate leaf. Such a halt is not a gate verdict. After the segments, settlement reads the completion rows again. If the stream now records a halted task complete, completion wins: the task is complete, and \`verification[]\` lists it as \`already-complete\`. Otherwise a halt that is not a gate verdict fails the call with no verdict (Errors, below).
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+To read the receipt of a halted segment, send the call that settlement made for the task. Take the \`operationId\` from the \`verification[]\` entry or the \`unresolved\` entry of the task. Use only that \`operationId\`, because another id runs the whole segment again, \`task_complete\` too, outside settlement. A capped summary keeps no \`operationId\` on an \`unresolved\` entry, so then take it from the \`verification\` list of the settlement bundle that \`bundleRefs\` names. Take \`riskTier\`, \`boundaryTouching\` and \`baseRef\` from the terms of the task in the capsule (\`settlementContract.taskVerification[taskId]\`). Take the other arguments from the claim:
+
+\`\`\`typescript
+exarchos_orchestrate({
+  action: "execute_intent",
+  intent: "task-completion",
+  featureId: "<featureId>",
+  operationId: "<operationId>",          // of the segment of the task
+  args: {
+    taskId: "<taskId>",
+    worktreePath: "<worktreePath>",      // from the claim
+    branch: "<branch>",                  // from the claim, only when the claim has one
+    riskTier: "<riskTier>",              // from the capsule terms of the task
+    boundaryTouching: <boundaryTouching>,
+    baseRef: "<baseRef>",
+    result: claimFields,                 // each field of the claim, in the key order of the claim
+  },
+})
+\`\`\`
+
+The call runs nothing again. It returns the recorded receipt. For a halted segment, that is the code \`INTENT_SEGMENT_FAILED\`, the message of the leaf, and \`error.intentReceipt\`. Other arguments, or the keys of \`result\` in another order, make a different request. The call then fails with \`INTENT_REPLAY_DIGEST_MISMATCH\`, and nothing runs.
 
 Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
@@ -5101,6 +5263,8 @@ If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than
 
 If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
+The tasks of \`acceptedTasks\` are complete, so \`prepare\` can compile a task that waits on one of them. A worktree forks from the \`baseRef\` of its task, the integration branch, and that branch holds only landed work. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it.
+
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
 - A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
 - \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
@@ -5121,7 +5285,7 @@ exarchos_orchestrate({
 
 An earlier build also gave \`rejected\` for a superseded claim and for a failed verification. A replay returns such a receipt as that build stored it, and its \`acceptedTasks\` can be complete.
 
-**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). Then settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
+**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). A person decides each deviation. You do not decide it, and the worker that proposed it does not decide it. In a run with no person, stop at the held batch: report the held receipt and its pending deviations, and send no decision. When a person has decided, settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -5144,7 +5308,7 @@ Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it ver
 
 **A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
 
-If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
 
 If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
@@ -5169,7 +5333,8 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`OPERATION_DIGEST_MISMATCH\`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands.
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
-- \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
+- \`STATE_SYNC_FAILED\`: the write of the state document failed, and the facts on the stream stand. Run \`exarchos_workflow reconcile\`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, \`error.settlementReceipt\` holds that verdict. Over the receipt budget, it holds the capped summary.
+- \`INTENT_SEGMENT_FAILED\` or \`INTENT_EMISSION_CONTRACT_VIOLATED\`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. \`task_complete\` then refuses with \`GATE_NOT_PASSED\`. That is such a halt, and a new batch id gets it again.
 - \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
@@ -5179,7 +5344,7 @@ When a task fails — a subagent reports failure, or settlement leaves the task 
 1. Read the failure output from the runtime's result-collection primitive (\`[task output is the assistant's next message]\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
-4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, unless the stream already shows it complete. Such a task comes back \`already-complete\`, and no gate runs again. A complete task needs no claim. To rework a complete task, plan a new task (Rollback procedure, below)
 
 A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
@@ -5246,9 +5411,10 @@ For detailed fix-mode process, see \`references/fix-mode.md\`.
 
 If context compaction occurs during delegation:
 1. Query workflow state: \`exarchos_workflow get\` with \`fields: ["tasks"]\`
-2. Check active worktrees: \`ls .worktrees/\` and verify branch state
-3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
-4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+2. Read the settlement record of each batch: \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\`. Each row names its \`batchId\`, \`capsuleVersion\`, \`outcome\` and \`acceptedTasks\`, and under \`corrective-capsule\` its \`unresolvedTasks\`
+3. Check active worktrees: \`ls .worktrees/\` and verify branch state
+4. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state
+5. Do NOT re-create branches or re-dispatch agents until confirmed lost
 
 ### Worktree State Schema
 
@@ -5281,7 +5447,7 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement receipt, not the task list. Do not patch \`tasks[].status\` by hand to get past the guard.
+> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\` returns one row for each settlement round, with its \`outcome\` and, under \`corrective-capsule\`, its \`unresolvedTasks\`. Do not patch \`tasks[].status\` by hand to get past the guard.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -5423,9 +5589,13 @@ still fails after rebase:
    git reset --hard "$(cat /tmp/rollback.sha)"
    \`\`\`
 
-2. **Mark the task \`failed\`** in workflow state and dispatch a fixer (see
-   the Failure Recovery section above). Do **not** delete the worktree —
-   the fixer needs the original branch state to diagnose the conflict.
+2. **Plan the rework as a new task.** The task is already complete on the
+   stream: its completion row started this merge. A claim on it comes back
+   \`already-complete\`, and no gate runs again. Finished work is not
+   reopened. Add a new task for the rework to the plan, run \`prepare\`, and
+   dispatch a fixer for the new task (see the Failure Recovery section
+   above). Do **not** delete the worktree — the fixer needs the original
+   branch state to diagnose the conflict.
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase
@@ -6223,12 +6393,14 @@ The receipt names one outcome, and each outcome has one next call:
 
 | Outcome | What settlement verified | Next call |
 |---------|--------------------------|-----------|
-| \`settled\` | Each required task is complete | None. Go to Step 4 |
-| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None. Go to Step 4 |
-| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | \`settle\`: a new batch id, the same capsule, the unresolved tasks only |
-| \`rejected\` | Nothing | \`settle\`: a new batch id, the same capsule, the corrected request |
-| \`deviation-pending\` | Nothing | \`settle\`: the same batch id, \`decisions\` only |
-| \`recompile-required\` | Nothing | \`prepare\`, then \`settle\` under the capsule that it returns |
+| \`settled\` | Each required task is complete | None |
+| \`accepted-with-rationale\` | Each required task is complete, and a claim records a delegated choice | None |
+| \`corrective-capsule\` | The tasks that passed are complete, and at least one task is unresolved | Settle a new batchId on the same capsule with only the \`unresolved\` tasks |
+| \`rejected\` | Nothing | Settle the correction under a new batchId |
+| \`deviation-pending\` | Nothing | Settle the same batchId with \`decisions\` only |
+| \`recompile-required\` | Nothing | Prepare, then settle under the new capsule |
+
+After \`settled\` or \`accepted-with-rationale\`, go to Step 4. A receipt with a \`designRevision\` takes the next call of \`recompile-required\` under each outcome (see \`designRevision\`, below).
 
 \`settle\` compiles no capsule under any outcome. Only \`prepare\` compiles. The design calls \`settled\` "accepted" and \`deviation-pending\` "decision-required". It calls the choice that \`accepted-with-rationale\` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
@@ -6249,7 +6421,31 @@ Read \`unresolved\`. It has one entry for each task to correct, with the \`taskI
 | \`task-blocked\` | The claim reported the task as \`blocked\` | Remove the block. If a deviation named the task, the receipt can carry \`designRevision\` (below) |
 | \`task-skipped\` | The claim reported the task as \`skipped\` | Dispatch the task |
 
-The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. To read the receipt of a segment, call \`execute_intent\` with its \`operationId\`. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+A halt at a gate leaf gives \`verification-failed\` when the leaf kept its contract. A gate that did not run to a verdict is also \`verification-failed\`: its admission was refused, it had no handler, or its handler failed. A segment can also halt at the completion leaf, at a leaf that the runbook does not name, or because a leaf broke its contract (\`INTENT_EMISSION_CONTRACT_VIOLATED\`), also at a gate leaf. Such a halt is not a gate verdict. After the segments, settlement reads the completion rows again. If the stream now records a halted task complete, completion wins: the task is complete, and \`verification[]\` lists it as \`already-complete\`. Otherwise a halt that is not a gate verdict fails the call with no verdict (Errors, below).
+
+The finding message of a halted segment names the leaf and the reason. The finding message of a reported status gives the reason of the worker. In a summary, an entry holds the \`taskId\` and the \`cause\` only, and no finding has a message. The settlement bundle that \`bundleRefs\` names holds each message.
+
+To read the receipt of a halted segment, send the call that settlement made for the task. Take the \`operationId\` from the \`verification[]\` entry or the \`unresolved\` entry of the task. Use only that \`operationId\`, because another id runs the whole segment again, \`task_complete\` too, outside settlement. A capped summary keeps no \`operationId\` on an \`unresolved\` entry, so then take it from the \`verification\` list of the settlement bundle that \`bundleRefs\` names. Take \`riskTier\`, \`boundaryTouching\` and \`baseRef\` from the terms of the task in the capsule (\`settlementContract.taskVerification[taskId]\`). Take the other arguments from the claim:
+
+\`\`\`typescript
+exarchos_orchestrate({
+  action: "execute_intent",
+  intent: "task-completion",
+  featureId: "<featureId>",
+  operationId: "<operationId>",          // of the segment of the task
+  args: {
+    taskId: "<taskId>",
+    worktreePath: "<worktreePath>",      // from the claim
+    branch: "<branch>",                  // from the claim, only when the claim has one
+    riskTier: "<riskTier>",              // from the capsule terms of the task
+    boundaryTouching: <boundaryTouching>,
+    baseRef: "<baseRef>",
+    result: claimFields,                 // each field of the claim, in the key order of the claim
+  },
+})
+\`\`\`
+
+The call runs nothing again. It returns the recorded receipt. For a halted segment, that is the code \`INTENT_SEGMENT_FAILED\`, the message of the leaf, and \`error.intentReceipt\`. Other arguments, or the keys of \`result\` in another order, make a different request. The call then fails with \`INTENT_REPLAY_DIGEST_MISMATCH\`, and nothing runs.
 
 Then settle a **new** batch id on the **same** capsule, and claim only the unresolved tasks:
 
@@ -6271,6 +6467,8 @@ If a summary omits unresolved entries (\`counts.unresolvedOmitted\` is more than
 
 If the receipt also carries \`designRevision\`, call \`prepare\` first (see \`designRevision\`, below). Then settle under the capsule that \`prepare\` returns. Claim each task that this capsule requires and that is not complete. A blocked task that its own deviation named takes this path. The revision names the task, so a new batch on the earlier capsule is \`recompile-required\`.
 
+The tasks of \`acceptedTasks\` are complete, so \`prepare\` can compile a task that waits on one of them. A worktree forks from the \`baseRef\` of its task, the integration branch, and that branch holds only landed work. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it.
+
 **\`rejected\`** — the request or a deviation is in error. Settlement verified nothing, so the batch completed no task. Read \`findings\`:
 - A shape finding (\`missing-field\`, \`undeclared-field\`, \`field-type-mismatch\`, \`unknown-task\`, \`undeclared-result-shape\`, \`duplicate-claim\`, \`missing-claim\`, \`inadmissible-evidence\`): correct the claim. \`missing-claim\` names a required task that is not complete and has no claim. A claim with a status and a reason is a claim. Send one for a task that is not completed.
 - \`rationale-not-delegated\`: a rationale names a decision id that the capsule does not list. The finding message lists the ids of the capsule. Remove the entry, or report the choice as a deviation.
@@ -6291,7 +6489,7 @@ exarchos_orchestrate({
 
 An earlier build also gave \`rejected\` for a superseded claim and for a failed verification. A replay returns such a receipt as that build stored it, and its \`acceptedTasks\` can be complete.
 
-**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). Then settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
+**\`deviation-pending\`** — a deviation waits for its decision. A worker proposed a deviation inside the envelope, and the envelope requires approval. Settlement verified nothing, and the batch completed no task. The \`pendingDeviations\` of the receipt names each deviation by its \`deviationId\`, and the stream holds one \`deviation.proposed\` row for each entry. **Human checkpoint**: show each deviation with the change that it proposes (the receipt does not carry the change). A person decides each deviation. You do not decide it, and the worker that proposed it does not decide it. In a run with no person, stop at the held batch: report the held receipt and its pending deviations, and send no decision. When a person has decided, settle the **same** batch again with the decisions and **no claims**. Settlement reads the held batch back from its record:
 
 \`\`\`typescript
 exarchos_orchestrate({
@@ -6314,7 +6512,7 @@ Settlement records an \`accepted\` decision (\`deviation.decided\`). Then it ver
 
 **A blocked task that its own deviation names.** The held batch reports the task as \`blocked\`, and the deviation names that task. After an \`accepted\` decision, settlement verifies the completed claims of the batch. The blocked task is unresolved, so the outcome is \`corrective-capsule\` with the cause \`task-blocked\`.
 
-If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
+If the deviation kind is material, the receipt also carries \`designRevision\`, and the revision names the blocked task. Call \`prepare\` first. The continuation compiles the task under the new design version, and its capsule states the accepted change. Land each task of \`acceptedTasks\` (Step 4, item 1) before you create the worktree of a task that waits on it. Dispatch the task from the new packet, and settle it under the new capsule. A batch on the earlier capsule is \`recompile-required\`, whether it claims the task, reports it again or omits it.
 
 If the deviation kind is not material, the receipt carries no \`designRevision\`. Remove the block. Then settle the task in a new batch on the same capsule.
 
@@ -6339,7 +6537,8 @@ Call \`prepare\` again. Then settle under the capsule that \`prepare\` returns. 
 - \`OPERATION_DIGEST_MISMATCH\`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands.
 - \`BATCH_NOT_HELD\`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - \`DECISION_INCOMPLETE\`: the decision answers fewer deviations than the batch waits on.
-- \`STATE_SYNC_FAILED\`: the write of the state document failed. Settle the same batch again.
+- \`STATE_SYNC_FAILED\`: the write of the state document failed, and the facts on the stream stand. Run \`exarchos_workflow reconcile\`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, \`error.settlementReceipt\` holds that verdict. Over the receipt budget, it holds the capped summary.
+- \`INTENT_SEGMENT_FAILED\` or \`INTENT_EMISSION_CONTRACT_VIOLATED\`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. \`task_complete\` then refuses with \`GATE_NOT_PASSED\`. That is such a halt, and a new batch id gets it again.
 - \`INVALID_INPUT\`: settlement cannot build the segment from a claim (typically no \`worktreePath\`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its \`status\`, \`reason\` or \`rationale\` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 
@@ -6349,7 +6548,7 @@ When a task fails — a subagent reports failure, or settlement leaves the task 
 1. Read the failure output from the runtime's result-collection primitive (\`Task() reply (inline, no poll)\`) and the settlement finding's message
 2. Diagnose root cause — do NOT trust the implementer's self-assessment (see R3 adversarial posture)
 3. Fix the task using the fixer flow below
-4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, and a complete task needs no claim
+4. Settle a new batch id on the same capsule that claims the fixed task (Step 3). Settlement verifies that task, unless the stream already shows it complete. Such a task comes back \`already-complete\`, and no gate runs again. A complete task needs no claim. To rework a complete task, plan a new task (Rollback procedure, below)
 
 A worker that reports failure before the batch is settled does not stop the batch. There are two correct paths. Fix the task first, and claim it as completed in the same batch. Or claim the task with the status \`failed\` and its reason, and settle the batch now. The second path completes the other tasks at once, and it costs one more \`settle\` call for the correction. Use the status \`blocked\` or \`skipped\` in the same way for a task that waits or that no worker ran.
 
@@ -6420,9 +6619,10 @@ For detailed fix-mode process, see \`references/fix-mode.md\`.
 
 If context compaction occurs during delegation:
 1. Query workflow state: \`exarchos_workflow get\` with \`fields: ["tasks"]\`
-2. Check active worktrees: \`ls .worktrees/\` and verify branch state
-3. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state (CAS-protected)
-4. Do NOT re-create branches or re-dispatch agents until confirmed lost
+2. Read the settlement record of each batch: \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\`. Each row names its \`batchId\`, \`capsuleVersion\`, \`outcome\` and \`acceptedTasks\`, and under \`corrective-capsule\` its \`unresolvedTasks\`
+3. Check active worktrees: \`ls .worktrees/\` and verify branch state
+4. Reconcile: \`exarchos_workflow reconcile\` replays the event stream and patches stale task state
+5. Do NOT re-create branches or re-dispatch agents until confirmed lost
 
 ### Worktree State Schema
 
@@ -6455,7 +6655,7 @@ For the full transition table, consult \`@skills/checkpoint/references/phase-tra
 
 **Quick reference:** The \`delegate\` → \`review\` transition requires guard \`all-tasks-complete\` — all \`tasks[].status\` must be \`"complete"\` in workflow state.
 
-> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement receipt, not the task list. Do not patch \`tasks[].status\` by hand to get past the guard.
+> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call \`exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })\` returns one row for each settlement round, with its \`outcome\` and, under \`corrective-capsule\`, its \`unresolvedTasks\`. Do not patch \`tasks[].status\` by hand to get past the guard.
 
 ### Worktree-Bearing Tasks: Auto-Detour to \`merge-pending\`
 
@@ -6597,9 +6797,13 @@ still fails after rebase:
    git reset --hard "$(cat /tmp/rollback.sha)"
    \`\`\`
 
-2. **Mark the task \`failed\`** in workflow state and dispatch a fixer (see
-   the Failure Recovery section above). Do **not** delete the worktree —
-   the fixer needs the original branch state to diagnose the conflict.
+2. **Plan the rework as a new task.** The task is already complete on the
+   stream: its completion row started this merge. A claim on it comes back
+   \`already-complete\`, and no gate runs again. Finished work is not
+   reopened. Add a new task for the rework to the plan, run \`prepare\`, and
+   dispatch a fixer for the new task (see the Failure Recovery section
+   above). Do **not** delete the worktree — the fixer needs the original
+   branch state to diagnose the conflict.
 
 3. **Record the incident** by emitting a \`merge.aborted\` event with
    \`reason: "ancestry-rebase-conflict"\` and the failing branch's pre-rebase

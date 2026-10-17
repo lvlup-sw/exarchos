@@ -184,7 +184,7 @@ function aggregateToolAnnotations(
  * planned switch is an `EXARCHOS_OUTPUT_VALIDATE` env var. Doctor recognizes that name, but no
  * code reads it yet.
  */
-function validateAgainstActionSchema(
+export function validateAgainstActionSchema(
   toolName: string,
   actions: readonly ToolAction[],
   args: Record<string, unknown>,

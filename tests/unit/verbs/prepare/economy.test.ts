@@ -15,8 +15,9 @@ import { describe, expect, it } from 'vitest';
 import { capsuleDigest } from '../../../../src/contract/capsule/capsule-digest.js';
 import { estimateOutputTokens, SUMMARY_FIRST_PAGE_ITEMS } from '../../../../src/dispatch/core/economy.js';
 import { enforceResponseEconomy } from '../../../../src/dispatch/core/response-economy.js';
-import { BundleRefV1Schema } from '../../../../src/events/bundle/digest-references.js';
-import { ECONOMY_META_TRUNCATED } from '../../../../src/format.js';
+import { BUNDLE_REF_FIELD, BundleRefV1Schema } from '../../../../src/events/bundle/digest-references.js';
+import { WorkflowPreparedData } from '../../../../src/events/schemas.js';
+import { ECONOMY_META_TRUNCATED, toEnvelope } from '../../../../src/format.js';
 import { CappedDataSchema } from '../../../../src/output-schema-declaration.js';
 import { findActionInRegistry } from '../../../../src/registry.js';
 import {
@@ -24,6 +25,7 @@ import {
   PREPARE_COMPILER_VERSION,
 } from '../../../../src/verbs/prepare/compile-capsule.js';
 import {
+  PREPARE_DETAIL_READ,
   PREPARE_ECONOMY_BUDGET_TOKENS,
   summarizePreparedCapsuleReceipt,
   type PreparedCapsuleReceiptSummary,
@@ -301,5 +303,44 @@ describe('the capped prepare receipt', () => {
     expect(summary.firstPage).toStrictEqual([]);
     expect(summary.summary).toContain('512 task(s) declared and 640 invalidated');
     expect(summary.summary).toContain(`the first ${SUMMARY_FIRST_PAGE_ITEMS} of each recompile list shown`);
+  });
+
+  /**
+   * `prepare` takes no `limit` and no `offset`, so a strict parse refuses both keys. The next action
+   * of a capped response names no window. It names two reads of what the summary drops. The capsule
+   * in custody holds the verification terms of each task. The registered `exarchos_event` query
+   * returns the `workflow.prepared` record. The capped response parses against the declared output
+   * schema.
+   */
+  it('PrepareEconomy_ACappedResponse_NamesTheReadsOfTheDetailAndNoWindow', () => {
+    const prepare = findActionInRegistry('exarchos_orchestrate', 'prepare');
+    const query = findActionInRegistry('exarchos_event', 'query');
+    expect(Object.keys(prepare?.schema.shape ?? {})).not.toContain('limit');
+    expect(Object.keys(prepare?.schema.shape ?? {})).not.toContain('offset');
+    expect(Object.keys(query?.schema.shape ?? {})).toEqual(expect.arrayContaining(['stream', 'filter']));
+    expect(Object.keys(WorkflowPreparedData.shape)).toContain(BUNDLE_REF_FIELD);
+    expect(prepare?.economy?.detailRead).toBe(PREPARE_DETAIL_READ);
+    expect(PREPARE_DETAIL_READ).toContain('exarchos_event query with filter.type workflow.prepared');
+    expect(PREPARE_DETAIL_READ).toContain('bundleRefs');
+
+    const receipt = receiptOf();
+    const taskIds = receipt.capsule.graph.tasks.map((task) => task.taskId);
+    expect(taskIds).toHaveLength(LARGE_BATCH);
+    expect(Object.keys(receipt.capsule.settlementContract.taskVerification ?? {}).sort()).toStrictEqual(
+      [...taskIds].sort(),
+    );
+
+    const dispatched = enforceResponseEconomy({ success: true, data: receipt }, 'exarchos_orchestrate', 'prepare');
+    expect(dispatched._meta).toMatchObject({ [ECONOMY_META_TRUNCATED]: true });
+    const [affordance, ...others] = dispatched.next_actions ?? [];
+    expect(others).toStrictEqual([]);
+    expect(affordance?.verb).toBe('prepare');
+    expect(affordance?.hint).toBeUndefined();
+    expect(affordance?.reason).not.toContain('limit/offset');
+    expect(affordance?.reason).toContain('prepare takes no limit or offset, so a second call returns the same summary.');
+    expect(affordance?.reason.endsWith(PREPARE_DETAIL_READ)).toBe(true);
+    const declared = prepare?.outputSchema;
+    if (declared === undefined) throw new Error('the registry declares no output schema for prepare');
+    expect(declared.safeParse(JSON.parse(JSON.stringify(toEnvelope(dispatched)))).success).toBe(true);
   });
 });

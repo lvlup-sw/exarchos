@@ -8,9 +8,14 @@ import {
   type DrainResult,
   type PeriodicMergeHandle,
 } from '../../../src/storage/sidecar-scheduler.js';
+import { getReservedEventAppendRegistration } from '../../../src/registry.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 const SIDECAR_SUFFIX = '.hook-events.jsonl';
+
+/** The check that the production caller passes: a type in the reserved append registry. */
+const isReservedType = (eventType: string): boolean =>
+  getReservedEventAppendRegistration(eventType) !== undefined;
 
 /** Appends one raw JSONL line to the sidecar file of a stream. */
 async function writeSidecarLine(
@@ -49,7 +54,7 @@ describe('startPeriodicMerge', () => {
   });
 
   it('startPeriodicMerge_ReturnsCleanupHandle', async () => {
-    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000);
+    const handle = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000);
     try {
       expect(handle).toBeDefined();
       expect(typeof handle.stop).toBe('function');
@@ -66,7 +71,7 @@ describe('startPeriodicMerge', () => {
       idempotencyKey: 'imm-stream:team.task.completed:task-imm-1',
     });
 
-    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000, { immediate: true });
     try {
       const events = await eventStore.query('imm-stream');
       expect(events).toHaveLength(1);
@@ -93,7 +98,7 @@ describe('startPeriodicMerge', () => {
     const beforeFiles = await listFiles(tempDir, SIDECAR_SUFFIX);
     expect(beforeFiles).toHaveLength(1);
 
-    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000, { immediate: true });
     try {
       const afterSidecar = await listFiles(tempDir, SIDECAR_SUFFIX);
       expect(afterSidecar).toHaveLength(0);
@@ -115,7 +120,7 @@ describe('startPeriodicMerge', () => {
   it('startPeriodicMerge_CleanupStopsInterval', async () => {
     vi.useFakeTimers();
     try {
-      const handle = await startPeriodicMerge(tempDir, eventStore, 1000);
+      const handle = await startPeriodicMerge(tempDir, eventStore, isReservedType, 1000);
 
       await writeSidecarLine(tempDir, 'stop-stream', {
         type: 'team.task.completed',
@@ -148,7 +153,7 @@ describe('startPeriodicMerge', () => {
       });
     }
 
-    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000, { immediate: true });
 
     const additionalEvents = 5;
     for (let i = totalEvents; i < totalEvents + additionalEvents; i++) {
@@ -160,7 +165,7 @@ describe('startPeriodicMerge', () => {
     }
 
     handle.stop();
-    const handle2 = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle2 = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000, { immediate: true });
     handle2.stop();
 
     const events = await eventStore.query('concurrent-stream');
@@ -183,7 +188,7 @@ describe('startPeriodicMerge', () => {
       });
     }
 
-    const handle1 = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle1 = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000, { immediate: true });
     handle1.stop();
 
     for (let i = 0; i < eventCount; i++) {
@@ -194,7 +199,7 @@ describe('startPeriodicMerge', () => {
       });
     }
 
-    const handle2 = await startPeriodicMerge(tempDir, eventStore, 60_000, { immediate: true });
+    const handle2 = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000, { immediate: true });
     handle2.stop();
 
     const events = await eventStore.query('dedup-stream');
@@ -205,6 +210,38 @@ describe('startPeriodicMerge', () => {
       .filter(Boolean);
     const uniqueKeys = new Set(keys);
     expect(uniqueKeys.size).toBe(eventCount);
+  });
+
+  /**
+   * A sidecar line is a generic write. A line of a reserved type appends no row and counts as an
+   * error. The other lines of the file still drain, and no sidecar file or drain file remains.
+   */
+  it('startPeriodicMerge_ReservedType_AppendsNoRowAndCountsAnError', async () => {
+    await writeSidecarLine(tempDir, 'reserved-stream', {
+      type: 'task.completed',
+      data: { taskId: 'task-forged' },
+    });
+    await writeSidecarLine(tempDir, 'reserved-stream', {
+      type: 'workflow.prepared',
+      data: { capsuleVersion: 'forged' },
+    });
+    await writeSidecarLine(tempDir, 'reserved-stream', {
+      type: 'team.task.completed',
+      data: { taskId: 'task-ok' },
+    });
+
+    let drainResult: DrainResult | undefined;
+    const handle = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000, {
+      immediate: true,
+      onDrain: (result) => { drainResult = result; },
+    });
+    handle.stop();
+
+    expect(drainResult).toMatchObject({ merged: 1, skipped: 0, errors: 2 });
+    const events = await eventStore.query('reserved-stream');
+    expect(events.map((e) => e.type)).toEqual(['team.task.completed']);
+    const leftovers = (await fs.readdir(tempDir)).filter((f) => f.includes('.hook-events.'));
+    expect(leftovers).toEqual([]);
   });
 
   /** The store already holds the first event, so the drain merges one event and skips one. */
@@ -227,7 +264,7 @@ describe('startPeriodicMerge', () => {
     );
 
     let drainResult: DrainResult | undefined;
-    const handle = await startPeriodicMerge(tempDir, eventStore, 60_000, {
+    const handle = await startPeriodicMerge(tempDir, eventStore, isReservedType, 60_000, {
       immediate: true,
       onDrain: (result) => { drainResult = result; },
     });

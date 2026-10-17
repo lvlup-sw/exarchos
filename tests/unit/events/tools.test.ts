@@ -415,9 +415,9 @@ describe('handleBatchAppend', () => {
       {
         stream: 'my-workflow',
         events: [
-          { type: 'task.completed', data: { taskId: 'b1' } },
-          { type: 'task.completed', data: { taskId: 'b2' } },
-          { type: 'task.completed', data: { taskId: 'b3' } },
+          { type: 'task.progressed', data: { taskId: 'b1', tddPhase: 'red' } },
+          { type: 'task.progressed', data: { taskId: 'b2', tddPhase: 'green' } },
+          { type: 'task.progressed', data: { taskId: 'b3', tddPhase: 'refactor' } },
         ],
       },
       tempDir,
@@ -895,6 +895,7 @@ describe('handleEventQuery DR-5 default limit + page metadata', () => {
  * of the team and stores that count as `tasksCompleted`. It discards the value
  * from the caller, because the tally of an agent is often wrong.
  * `readStreamJsonl` reads through `EventStore.query`, not from a JSONL file.
+ * The completion row is reserved on the generic surface, so the store seeds it.
  */
 describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
   async function seedTaskCompleted(
@@ -903,20 +904,7 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
     taskIds: string[],
   ): Promise<void> {
     for (const taskId of taskIds) {
-      const result = await handleEventAppend(
-        {
-          stream,
-          event: {
-            type: 'task.completed',
-            data: { taskId, teamId },
-          },
-        },
-        tempDir,
-        eventStore,
-      );
-      if (!result.success) {
-        throw new Error(`seed task.completed failed: ${JSON.stringify(result.error)}`);
-      }
+      await eventStore.append(stream, { type: 'task.completed', data: { taskId, teamId } });
     }
   }
 
@@ -1011,8 +999,8 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
       {
         stream,
         event: {
-          type: 'task.completed',
-          data: { taskId: 'pinning-task', verified: true },
+          type: 'task.progressed',
+          data: { taskId: 'pinning-task', tddPhase: 'green', detail: 'pinned' },
         },
       },
       tempDir,
@@ -1034,10 +1022,10 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
     expect(wfRes.success).toBe(true);
 
     const events = await readStreamJsonl(stream);
-    const taskCompleted = events.find((e) => e.type === 'task.completed');
-    expect(taskCompleted).toBeDefined();
-    const taskData = taskCompleted!.data as Record<string, unknown>;
-    expect(taskData.verified).toBe(true);
+    const taskProgressed = events.find((e) => e.type === 'task.progressed');
+    expect(taskProgressed).toBeDefined();
+    const taskData = taskProgressed!.data as Record<string, unknown>;
+    expect(taskData.detail).toBe('pinned');
 
     const workflowStarted = events.find((e) => e.type === 'workflow.started');
     expect(workflowStarted).toBeDefined();

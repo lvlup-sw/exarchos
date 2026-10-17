@@ -8,10 +8,11 @@ import { handleEventAppend } from '../../../src/events/tools.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 /**
- * Acceptance test for cross-stream propagation. Two subagents append `task.completed` events
- * to child streams named `<feature-id>/<subagent-id>`. The parent feature stream then receives
- * `team.disbanded`. The persisted `tasksCompleted` must equal the number of `task.completed`
- * events that the two subagents appended. `cross-stream.bundle.test.ts` uses the same fixture.
+ * Acceptance test for cross-stream propagation. Two child streams named `<feature-id>/<subagent-id>`
+ * each hold a `task.completed` row. The parent feature stream then receives `team.disbanded`. The
+ * persisted `tasksCompleted` must equal the number of those rows. The completion row is reserved,
+ * so the store seeds it, as for the other reserved rows. `cross-stream.bundle.test.ts` uses the
+ * same fixture.
  */
 describe('CrossStream acceptance (DR-3, T23)', () => {
   let tempDir: string;
@@ -38,28 +39,8 @@ describe('CrossStream acceptance (DR-3, T23)', () => {
     const teamId = 'team-cross-stream-1';
 
     await Promise.all([
-      handleEventAppend(
-        {
-          stream: subagentA,
-          event: {
-            type: 'task.completed',
-            data: { taskId: 'task-a-1', teamId },
-          },
-        },
-        tempDir,
-        eventStore,
-      ),
-      handleEventAppend(
-        {
-          stream: subagentB,
-          event: {
-            type: 'task.completed',
-            data: { taskId: 'task-b-1', teamId },
-          },
-        },
-        tempDir,
-        eventStore,
-      ),
+      eventStore.append(subagentA, { type: 'task.completed', data: { taskId: 'task-a-1', teamId } }),
+      eventStore.append(subagentB, { type: 'task.completed', data: { taskId: 'task-b-1', teamId } }),
     ]);
 
     const result = await handleEventAppend(

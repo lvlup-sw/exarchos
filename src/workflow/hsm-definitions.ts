@@ -63,6 +63,11 @@ function mergeOrchestratorPhaseNotExcluded(state: Record<string, unknown>): bool
  * Guard for `delegate → merge-pending`: fires when the most recent
  * `task.completed` carries a worktree association AND the merge orchestrator
  * has not already terminated for this feature.
+ *
+ * The completion row is reserved, so no state update can satisfy the guard. The
+ * failure thus names no state shape. Its suggested fix is the gated writer,
+ * `task_complete` with the worktree in its result. The call applies to the next
+ * task to complete, because a repeat call for the same task is deduplicated.
  */
 const mergePendingEntry: Guard = {
   id: 'merge-pending-entry',
@@ -70,12 +75,21 @@ const mergePendingEntry: Guard = {
     'Most recent task.completed must carry a worktree association and mergeOrchestrator must not already be in a terminal phase',
   evaluate: (state: Record<string, unknown>): GuardResult => {
     if (!latestTaskCompletedHasWorktree(state)) {
+      const featureId = typeof state.featureId === 'string' ? state.featureId : '<featureId>';
       return {
         passed: false,
         reason:
-          'merge-pending-entry not satisfied: latest task.completed event lacks data.worktree / data.worktreePath',
-        expectedShape: {
-          _events: [{ type: 'task.completed', data: { worktree: '<worktree-path>' } }],
+          'merge-pending-entry not satisfied: latest task.completed event lacks data.worktree / data.worktreePath. ' +
+          'Only task_complete writes task.completed. Give result.worktree when the next task completes. ' +
+          'A repeat task_complete for a task that is complete is deduplicated and writes no row.',
+        suggestedFix: {
+          tool: 'exarchos_orchestrate',
+          params: {
+            action: 'task_complete',
+            featureId,
+            taskId: '<next-task-id>',
+            result: { worktree: '<worktree-path>' },
+          },
         },
       };
     }

@@ -12,6 +12,7 @@ import type { DoctorProbes } from '../probes.js';
  */
 const KNOWN: ReadonlySet<string> = new Set([
   'EXARCHOS_ALLOW_STORE_DIVERGENCE',
+  'EXARCHOS_BUILD_RELEASE_TAG',
   'EXARCHOS_BUILD_VERSION',
   'EXARCHOS_CACHE_DIR',
   'EXARCHOS_CLI_ENVELOPE',

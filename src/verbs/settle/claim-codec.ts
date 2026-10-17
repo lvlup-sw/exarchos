@@ -31,10 +31,10 @@ export const MAX_RATIONALE_ENTRIES_PER_CLAIM = 4;
 export const MAX_RATIONALE_STATEMENT_LENGTH = 280;
 
 /**
- * The most characters that the delegated decision id of one submitted rationale entry holds.
- * A capsule gives no longer id to a statement. The bound is on the request only.
+ * The most characters that the delegated decision id of one submitted rationale entry holds. The bound is on the request only.
+ * The capsule contract sets no maximum for the id. The ids that this build compiles are much shorter.
  */
-const MAX_DELEGATED_DECISION_ID_LENGTH = 256;
+export const MAX_DELEGATED_DECISION_ID_LENGTH = 256;
 
 const EvidenceTraceSchema = z.object({ kind: z.string().min(1), ref: z.string().min(1) }).strict();
 

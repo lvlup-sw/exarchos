@@ -24,6 +24,7 @@ import { generateEmbeddedRuntimesModule } from './codegen-runtimes.js';
 import {
   buildIdentityBanner,
   collectEmbeddedBuildIdentity,
+  readReleaseTag,
   renderSourceStateReport,
   repoRootFromHere,
 } from './build-release-manifest.js';
@@ -122,9 +123,27 @@ function identityBanner(): string {
 }
 
 /**
+ * The release tag of this build, read once per process like the identity banner. It is
+ * `v<version>` when HEAD is at that tag, and empty when it is not or when git cannot answer.
+ * `installSkills` pins the skills of that tag only when the tag is present.
+ */
+let cachedReleaseTag: string | undefined;
+function buildReleaseTag(version: string): string {
+  if (cachedReleaseTag === undefined) {
+    cachedReleaseTag = readReleaseTag(repoRootFromHere(), version);
+    console.log(
+      cachedReleaseTag.length > 0
+        ? `Release build: HEAD is at ${cachedReleaseTag}, so the binary pins the skills of that tag.`
+        : `Not a release build: HEAD is not at v${version}, so the binary installs skills from the default branch.`,
+    );
+  }
+  return cachedReleaseTag;
+}
+
+/**
  * Builds one target. It generates the embedded runtimes module first, so the binary cannot ship a
- * stale copy. `--target` selects the Bun runtime to embed, `--define` inlines the version, and
- * `--banner` stamps the build identity into the artifact.
+ * stale copy. `--target` selects the Bun runtime to embed. `--define` inlines the version and the
+ * release tag, and `--banner` stamps the build identity into the artifact.
  */
 async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR): Promise<void> {
   codegenEmbeddedRuntimes();
@@ -133,9 +152,11 @@ async function buildOne(target: Target, outdir: string = DEFAULT_OUTDIR): Promis
   const outfile = join(outdir, `exarchos-${target.os}-${target.arch}${ext}`);
   mkdirSync(outdir, { recursive: true });
 
-  const versionDefine = `EXARCHOS_BUILD_VERSION="${readBuildVersion()}"`;
+  const version = readBuildVersion();
+  const versionDefine = `EXARCHOS_BUILD_VERSION=${JSON.stringify(version)}`;
+  const releaseTagDefine = `EXARCHOS_BUILD_RELEASE_TAG=${JSON.stringify(buildReleaseTag(version))}`;
   const banner = identityBanner();
-  await $`bun build src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --banner ${banner} --outfile ${outfile}`;
+  await $`bun build src/index.ts --compile --target=${target.bunTarget} --define ${versionDefine} --define ${releaseTagDefine} --banner ${banner} --outfile ${outfile}`;
 
   console.log(`Built ${outfile}`);
 }

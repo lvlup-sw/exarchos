@@ -29,7 +29,8 @@ describe('CrossStream bundle (DR-3, T28)', () => {
   /**
    * Each subagent stream serializes independently, so the two writes can interleave.
    * The caller sends a wrong `tasksCompleted` on purpose. The handler must replace it with 2:
-   * one `task.completed` on each subagent stream, both for this team.
+   * one `task.completed` on each subagent stream, both for this team. The completion row is
+   * reserved, so the store seeds it.
    */
   it('CrossStream_TwoSubagentsAppend_ParentDisbandedReflectsBoth_Bundle', async () => {
     const featureId = 'feat-bundle-1';
@@ -38,32 +39,10 @@ describe('CrossStream bundle (DR-3, T28)', () => {
     const teamId = 'team-bundle';
 
     const appends = await Promise.all([
-      handleEventAppend(
-        {
-          stream: subA,
-          event: {
-            type: 'task.completed',
-            data: { taskId: 'task-a', teamId },
-          },
-        },
-        stateDir,
-        eventStore,
-      ),
-      handleEventAppend(
-        {
-          stream: subB,
-          event: {
-            type: 'task.completed',
-            data: { taskId: 'task-b', teamId },
-          },
-        },
-        stateDir,
-        eventStore,
-      ),
+      eventStore.append(subA, { type: 'task.completed', data: { taskId: 'task-a', teamId } }),
+      eventStore.append(subB, { type: 'task.completed', data: { taskId: 'task-b', teamId } }),
     ]);
-    for (const result of appends) {
-      expect(result.success).toBe(true);
-    }
+    expect(appends.map((event) => event.streamId)).toEqual([subA, subB]);
 
     const disbandedResult = await handleEventAppend(
       {

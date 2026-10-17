@@ -262,7 +262,14 @@ async function main() {
 
     {
       const { startPeriodicMerge } = await import('./storage/sidecar-scheduler.js');
-      const drainHandle = await startPeriodicMerge(stateDir, ctx.eventStore, undefined, { immediate: true });
+      const { getReservedEventAppendRegistration } = await import('./registry.js');
+      const drainHandle = await startPeriodicMerge(
+        stateDir,
+        ctx.eventStore,
+        (type) => getReservedEventAppendRegistration(type) !== undefined,
+        undefined,
+        { immediate: true },
+      );
       process.on('exit', () => drainHandle.stop());
     }
 

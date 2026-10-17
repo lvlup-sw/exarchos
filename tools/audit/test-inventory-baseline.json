@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1319,
-    "parsedFiles": 1273,
+    "testFiles": 1320,
+    "parsedFiles": 1274,
     "shellFiles": 46,
-    "cases": 14538,
+    "cases": 14539,
     "dynamicTitles": 162,
     "unparseableFiles": 0
   },
@@ -85091,6 +85091,17 @@
         {
           "suite": "phase gates resolve their test command",
           "name": "PhaseGateGuard_Matcher_IgnoresCommentsAndOtherPrograms",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/settlement-verdict-inputs.test.ts": {
+      "file": "tests/architecture/settlement-verdict-inputs.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settlement verdict inputs",
+          "name": "SettlementVerdictInputs_EachOne_IsInTheReservedAppendRegistry",
           "dynamic": false
         }
       ]

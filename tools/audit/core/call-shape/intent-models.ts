@@ -327,10 +327,11 @@ const DELEGATION: IntentModel = {
       through: null,
       extra: [
         { kind: 'site', ref: at('delegate', `${W}.get`, '`exarchos_workflow get`') },
-        { kind: 'site', ref: at('delegate', `${W}.reconcile`, '`exarchos_workflow reconcile`') },
+        { kind: 'site', ref: at('delegate', `${E}.query`, '2. Read the settlement record of each batch:') },
+        { kind: 'site', ref: at('delegate', `${W}.reconcile`, '4. Reconcile: `exarchos_workflow reconcile`') },
       ],
       reentersNormalPath: false,
-      why: 'Counted as recovery calls added to a delegation that otherwise completes. Listing the worktrees is an unfenced shell step and is not counted.',
+      why: 'Counted as recovery calls added to a delegation that otherwise completes. The settlement record replaces the receipts that the compaction lost. Listing the worktrees is an unfenced shell step and is not counted.',
     },
     {
       id: 'integration-advanced',
@@ -382,6 +383,21 @@ const DELEGATION: IntentModel = {
       kind: 'site',
       ref: at('delegate', `${W}.update`, '"synthesis.integrationBranch": "<branch the tasks fork from>"'),
       why: 'the remedy for a BASE_UNRESOLVED refusal: made once, when the workflow records no integration branch, then prepare runs again',
+    },
+    {
+      kind: 'site',
+      ref: at('delegate', `${O}.execute_intent`, 'action: "execute_intent",'),
+      why: 'a read of the recorded receipt of a halted segment, for the message of its leaf: the call that settlement made, sent again. It runs nothing again',
+    },
+    {
+      kind: 'site',
+      ref: at('delegate', `${E}.query`, 'The call `exarchos_event({ action: "query"'),
+      why: 'a read of the settlement record when the transition to review is refused, to find the task that is not complete',
+    },
+    {
+      kind: 'site',
+      ref: at('delegate', `${W}.reconcile`, 'Run `exarchos_workflow reconcile`, then settle the same batch again.'),
+      why: 'the remedy for a STATE_SYNC_FAILED refusal: made when the state document cannot be written, then the same batch is settled again. A refusal that comes back stops the run for a person',
     },
   ],
   excluded: [

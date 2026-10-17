@@ -46,11 +46,14 @@ export interface DispatchHints {
  * - `budgetTokens`: the response ceiling in estimated output tokens.
  * - `compactByDefault`: an advisory marker for a compact default rendering.
  * - `summarize`: the reducer for an over-budget response. Without it, the seam uses a generic fallback.
+ * - `detailRead`: the read that serves what a summary drops, for an action that takes no `limit`
+ *   and no `offset`. The next action of a capped response names it.
  */
 export interface EconomyHints {
   readonly budgetTokens?: number;
   readonly compactByDefault?: boolean;
   readonly summarize?: (data: unknown) => unknown;
+  readonly detailRead?: string;
 }
 
 /**

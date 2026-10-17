@@ -6,9 +6,14 @@
 // resolved set.
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { IMPLEMENTER, FIXER, REVIEWER, SCAFFOLDER, ALL_AGENT_SPECS } from '../../../../src/runtime/agents/definitions.js';
 import type { AgentSpec } from '../../../../src/runtime/agents/types.js';
 import { resolveCapabilities } from '../../../../src/workflow/capabilities/posture-mapping.js';
+import { claimOfRequest } from '../../../../src/verbs/settle/claim-codec.js';
+import { INCOMPLETE_CLAIM_STATUSES } from '../../../../src/verbs/settle/adjudicate.js';
+import { TaskCompletedData } from '../../../../src/events/schemas.js';
 
 describe('AgentSpec capability declarations', () => {
   it('AgentSpec_DeclaresCapabilities_NotClaudeTools', () => {
@@ -57,6 +62,16 @@ describe('AgentSpec capability declarations', () => {
     expect(REVIEWER.systemPrompt).not.toContain('Forbidden MCP Actions');
     expect(REVIEWER.systemPrompt).not.toContain('You MUST NOT call any other MCP action');
     expect(REVIEWER.systemPrompt).not.toContain('exarchos_event append/batch_append');
+  });
+
+  /**
+   * The reviewer report gives `"status": "complete"`, which is not a status of the claim tuple.
+   * The report says that it is not a settle claim, so no orchestrator builds a claim from it.
+   */
+  it('REVIEWER_CompletionReport_SaysThatItIsNotASettleClaim', () => {
+    const report = REVIEWER.systemPrompt.slice(REVIEWER.systemPrompt.indexOf('## Completion Report'));
+    expect(report).toContain('"status": "complete"');
+    expect(report).toContain('not a settle claim');
   });
 
   it('REVIEWER_SystemPrompt_PreservesNonForbiddenSections', () => {
@@ -185,4 +200,96 @@ describe('AgentSpec capability declarations', () => {
       ).toContain('project test command');
     }
   });
+});
+
+/** The JSON examples of a text, in their order. */
+function jsonExamples(text: string): Record<string, unknown>[] {
+  return [...text.matchAll(/```json\n([\s\S]*?)\n```/g)].map((match) => {
+    const parsed: unknown = JSON.parse(match[1] ?? '');
+    expect(typeof parsed === 'object' && parsed !== null && !Array.isArray(parsed)).toBe(true);
+    return Object.fromEntries(Object.entries(parsed ?? {}));
+  });
+}
+
+/** The JSON examples in the completion report of one agent prompt, in their order. */
+function completionReportExamples(prompt: string): Record<string, unknown>[] {
+  return jsonExamples(prompt.slice(prompt.indexOf('## Completion Report')));
+}
+
+/** The report of a worker whose own task rests on a wrong assumption, as the implementer task prompt gives it. */
+function ownTaskDeviationReport(): Record<string, unknown> {
+  const taskPrompt = readFileSync(
+    path.resolve(import.meta.dirname, '../../../../content/delivery/skills/delegate/references/implementer-prompt.md'),
+    'utf8',
+  );
+  const heading = '### If Your Own Task Rests on a Wrong Assumption';
+  expect(taskPrompt).toContain(heading);
+  const [report] = jsonExamples(taskPrompt.slice(taskPrompt.indexOf(heading)));
+  expect(report).toBeDefined();
+  return report ?? {};
+}
+
+/** The fields of the result contract that prepare compiles: the worktree, the branch, and each completion field that settlement does not derive. */
+const RESULT_CONTRACT_FIELDS: readonly string[] = [
+  'worktreePath',
+  'branch',
+  ...Object.keys(TaskCompletedData.shape).filter((name) => !['taskId', 'evidence', 'verified'].includes(name)),
+];
+
+describe('the completion report of a claim-source agent maps onto a claim', () => {
+  /**
+   * The coordinator builds one claim from each report of the implementer, the fixer and the scaffolder.
+   * A completed report holds result fields only, and the claim reader accepts them as the fields of a claim.
+   * A report of a task that is not completed holds a status of the claim tuple and a reason.
+   * A `status` of `complete` is not a claim status, so no report gives it.
+   */
+  it.each([IMPLEMENTER, FIXER, SCAFFOLDER].map((spec): [string, AgentSpec] => [spec.id, spec]))(
+    'ClaimSourceReport_%s_GivesAClaimThatTheReaderAccepts',
+    (_id, spec) => {
+      const [completed, notCompleted, ...rest] = completionReportExamples(spec.systemPrompt);
+      expect(rest).toEqual([]);
+      expect(spec.systemPrompt).not.toContain('"status": "complete"');
+
+      expect(completed).toBeDefined();
+      expect(Object.keys(completed ?? {})).toContain('worktreePath');
+      expect(Object.keys(completed ?? {}).filter((key) => !RESULT_CONTRACT_FIELDS.includes(key))).toEqual([]);
+      expect(claimOfRequest({ taskId: 'task-1', fields: completed, evidence: [] }, 'claims[0]')).toMatchObject({
+        taskId: 'task-1',
+        fields: completed,
+      });
+
+      expect(INCOMPLETE_CLAIM_STATUSES).toContain(notCompleted?.status);
+      expect(Object.keys(notCompleted ?? {})).toEqual(['status', 'reason']);
+      expect(claimOfRequest({ taskId: 'task-1', ...notCompleted }, 'claims[0]')).toMatchObject({
+        status: notCompleted?.status,
+      });
+      for (const status of INCOMPLETE_CLAIM_STATUSES) {
+        expect(spec.systemPrompt, `${spec.id} does not name the status ${status}`).toContain(`\`${status}\``);
+      }
+    },
+  );
+
+  /**
+   * The task prompt gives the own-task deviation form: a status, a reason and a deviation list.
+   * The system prompt of each claim-source agent admits that form and names each field of a deviation.
+   * A system prompt that allows only a status and a reason makes the worker drop the deviation, and no person decides it.
+   */
+  it.each([IMPLEMENTER, FIXER, SCAFFOLDER].map((spec): [string, AgentSpec] => [spec.id, spec]))(
+    'ClaimSourceReport_%s_AdmitsTheOwnTaskDeviationOfTheTaskPrompt',
+    (_id, spec) => {
+      const report = ownTaskDeviationReport();
+      expect(Object.keys(report)).toEqual(['status', 'reason', 'deviations']);
+      expect(INCOMPLETE_CLAIM_STATUSES).toContain(report.status);
+      const deviations = report.deviations;
+      expect(Array.isArray(deviations) && deviations.length > 0).toBe(true);
+      const [deviation]: unknown[] = Array.isArray(deviations) ? deviations : [];
+      const deviationFields = Object.keys(typeof deviation === 'object' && deviation !== null ? deviation : {});
+      expect(deviationFields.length).toBeGreaterThan(0);
+
+      expect(spec.systemPrompt).not.toContain('no other field');
+      for (const field of ['deviations', ...deviationFields]) {
+        expect(spec.systemPrompt, `${spec.id} does not name the deviation field ${field}`).toContain(`\`${field}\``);
+      }
+    },
+  );
 });

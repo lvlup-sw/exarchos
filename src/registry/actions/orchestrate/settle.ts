@@ -13,10 +13,15 @@ import { withCappedShape } from '../../../output-schema-declaration.js';
 import { CLAIM_STATUSES } from '../../../verbs/settle/adjudicate.js';
 import {
   MAX_CLAIM_REASON_LENGTH,
+  MAX_DELEGATED_DECISION_ID_LENGTH,
   MAX_RATIONALE_ENTRIES_PER_CLAIM,
   MAX_RATIONALE_STATEMENT_LENGTH,
 } from '../../../verbs/settle/claim-codec.js';
-import { SETTLE_ECONOMY_BUDGET_TOKENS, summarizeSettlementReceipt } from '../../../verbs/settle/economy.js';
+import {
+  SETTLE_DETAIL_READ,
+  SETTLE_ECONOMY_BUDGET_TOKENS,
+  summarizeSettlementReceipt,
+} from '../../../verbs/settle/economy.js';
 import { SettlementOutputSchema } from '../../../verbs/settle/schemas.js';
 import {
   MAX_AFFECTED_TASKS_PER_DEVIATION,
@@ -73,7 +78,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
       '`recompile-required` (prepare again). Claims are judged by each task\'s result shape, ' +
       'evidence by recorded rows of admitted kinds, deviations by the envelope. A batch not ' +
       'stale, rejected or held RUNS each completed claim\'s task-completion segment (frozen-tier ' +
-      'ladder gates, then task_complete) in its `worktreePath`. A halt or a claim not ' +
+      'ladder gates, then task_complete) in its `worktreePath`. A gate halt or a claim not ' +
       '`completed` gives `corrective-capsule`: tasks that pass are complete. Every verdict is a ' +
       'successful call; findings say what to fix. A HELD batch names `pendingDeviations`; settle ' +
       'the SAME batch with `decisions`. Errors (nothing adjudicated): CAPSULE_INVALID, ' +
@@ -90,7 +95,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
         capsule: z
           .record(z.string(), z.unknown())
           .optional()
-          .describe('Optional: the compiled capsule document, checked against the prepared record by digest'),
+          .describe('The compiled capsule, checked against the prepared record by digest'),
         batchId: z
           .string()
           .min(1)
@@ -127,7 +132,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
                   .array(
                     z
                       .object({
-                        delegatedDecision: z.string().min(1),
+                        delegatedDecision: z.string().min(1).max(MAX_DELEGATED_DECISION_ID_LENGTH),
                         statement: z.string().min(1).max(MAX_RATIONALE_STATEMENT_LENGTH),
                       })
                       .strict(),
@@ -156,13 +161,13 @@ export const settleActions: readonly BuiltinToolAction[] = [
                   .max(MAX_AFFECTED_TASKS_PER_DEVIATION)
                   .optional()
                   .describe('Unfinished current-plan tasks that the deviation changes, none claimed as completed'),
-                proposedChange: z.string().min(1).optional().describe('The change the worker proposes'),
+                proposedChange: z.string().min(1).optional(),
               })
               .strict(),
           )
           .max(MAX_DEVIATIONS_PER_BATCH)
           .optional()
-          .describe("Deviations proposed because a capsule assumption did not hold"),
+          .describe('Proposed when a capsule assumption did not hold'),
         decisions: z
           .array(
             z
@@ -202,6 +207,7 @@ export const settleActions: readonly BuiltinToolAction[] = [
     economy: {
       budgetTokens: SETTLE_ECONOMY_BUDGET_TOKENS,
       summarize: summarizeSettlementReceipt,
+      detailRead: SETTLE_DETAIL_READ,
     },
     annotations: LOCAL_MUTATION,
   }, {

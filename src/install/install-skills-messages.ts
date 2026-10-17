@@ -51,6 +51,24 @@ export function ambiguousNonInteractiveThrowMessage(
   );
 }
 
+/**
+ * Why `npx skills add` names no release tag. The version is not of release form, or the compiled
+ * build did not run at the tag of its version.
+ */
+export type UnpinnedSkillsSourceCause = 'not-a-release-version' | 'not-a-release-build';
+
+/**
+ * Emitted before `npx skills add` when the source names no release tag, with the cause.
+ * The skills then come from the default branch, and they can differ from this build.
+ */
+export function unpinnedSkillsSourceMessage(version: string, cause: UnpinnedSkillsSourceCause): string {
+  const why =
+    cause === 'not-a-release-build'
+      ? `This build of Exarchos ${version} is not a release build, so it names no release tag. `
+      : `Exarchos version "${version}" is not a release version, so it names no release tag. `;
+  return why + `Installing skills from the default branch, which can differ from this build.`;
+}
+
 /** Question passed to the interactive prompt. */
 export const AMBIGUOUS_INTERACTIVE_QUESTION =
   'Multiple agents detected. Which one should we install skills for?';

@@ -71,15 +71,21 @@ describe('narrowAffordance (DR-1 widened verb type)', () => {
     );
   });
 
-  /** The verbs include action names other than the view names `pipeline` and `worktrees`. */
+  /**
+   * The verbs include action names other than the view names `pipeline` and `worktrees`. The views
+   * declare `limit` and `offset`, and with no window argument the reason names both.
+   */
   it('narrowAffordance_RealActionNames_ValidateAndCarryNarrowSteering', () => {
     for (const verb of ['pipeline', 'worktrees', 'event query', 'describe', 'assess_stack']) {
       const action = narrowAffordance(verb, 10, 55, 'exarchos pipeline --limit 20');
       const parsed = NextAction.safeParse(action);
       expect(parsed.success).toBe(true);
       expect(action.verb).toBe(verb);
-      expect(action.reason).toContain('Showing 10 of 55');
+      expect(action.reason).toBe('Showing 10 of 55 — narrow with limit/offset (or a filter) to page through the rest.');
       expect(action.hint).toBe('exarchos pipeline --limit 20');
     }
+    expect(narrowAffordance('list', 10, 55, undefined, 'offset').reason).toBe(
+      'Showing 10 of 55 — narrow with offset (or a filter) to page through the rest.',
+    );
   });
 });
