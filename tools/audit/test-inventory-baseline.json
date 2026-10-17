@@ -7,8 +7,8 @@
     "testFiles": 1324,
     "parsedFiles": 1278,
     "shellFiles": 46,
-    "cases": 14873,
-    "dynamicTitles": 170,
+    "cases": 14900,
+    "dynamicTitles": 172,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -58179,8 +58179,68 @@
           "dynamic": false
         },
         {
+          "suite": "handleStaticAnalysis > advisory skips and first-party globs",
+          "name": "handleStaticAnalysis_AdvisorySkip_PassedAndDegradedButNotSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis > advisory skips and first-party globs",
+          "name": "handleStaticAnalysis_ProjectConfig_PassesItsFirstPartyGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis > advisory skips and first-party globs",
+          "name": "handleStaticAnalysis_NoProjectConfig_PassesNoGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "execCommandRunner — the production runner of the static-analysis legs",
+          "name": "ExecCommandRunner_NonZeroExit_KeepsTheStatusAndTheOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "execCommandRunner — the production runner of the static-analysis legs",
+          "name": "ExecCommandRunner_CleanExit_GivesExitZeroAndTheOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "execCommandRunner — the production runner of the static-analysis legs",
+          "name": "ExecCommandRunner_SignalDeath_CarriesTheSignal",
+          "dynamic": false
+        },
+        {
+          "suite": "execCommandRunner — the production runner of the static-analysis legs",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "execCommandRunner — the production runner of the static-analysis legs",
+          "name": "ExecCommandRunner_MissingCommand_CarriesTheSpawnError",
+          "dynamic": false
+        },
+        {
+          "suite": "execCommandRunner — the production runner of the static-analysis legs",
+          "name": "ExecCommandRunner_ReportOfSeveralMegabytes_IsReadInFull",
+          "dynamic": false
+        },
+        {
+          "suite": "execCommandRunner — the production runner of the static-analysis legs",
+          "name": "ExecCommandRunner_OutputPastTheLimit_CarriesENOBUFS",
+          "dynamic": false
+        },
+        {
           "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
           "name": "StaticAnalysis_CoreImportsIOAdapter_BoundaryRuleFails",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_ErrorCountInReport_FailsWhateverTheExitCode",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_ZeroErrorsInReport_PassesEvenWithANonZeroExit",
           "dynamic": false
         },
         {
@@ -58195,7 +58255,52 @@
         },
         {
           "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_NoVerdict_DegradedSkipNotFail [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_RunnerThrows_DegradedSkipNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_DefaultGlobs_ScanOnlyTheExistingFirstPartyRoots",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_ConfiguredGlobs_ScanTheirRootsWithoutNestedDuplicates",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_NoFirstPartyRootExists_DegradedSkipWithoutARun",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_RealDependencyCruiser_ReadsTheVerdictFromTheJsonReport",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
           "name": "StaticAnalysis_BoundaryConfigPresent_FoldsLegIntoFullReport",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "StaticAnalysis_BoundaryGaveNoVerdict_PassesWithAVisibleDegradedSkip",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "StaticAnalysis_BoundaryViolationInReport_FailsTheResult",
           "dynamic": false
         },
         {
@@ -58230,7 +58335,12 @@
         },
         {
           "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
-          "name": "RawIoTaint_SignalDeathNegativeExit_SkipsNotFail",
+          "name": "RawIoTaint_SignalDeath_SkipsNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "RawIoTaint_EngineErrorWithoutStderr_SkipsWithTheExitStatus",
           "dynamic": false
         },
         {
@@ -60279,6 +60389,11 @@
           "suite": "migrated ladder gate durable evidence",
           "name": "<dynamic-case-4>",
           "dynamic": true
+        },
+        {
+          "suite": "migrated ladder gate durable evidence",
+          "name": "LadderGate_StaticAnalysisAdvisorySkip_RecordsPassEvidenceAndAPassedRow",
+          "dynamic": false
         },
         {
           "suite": "migrated ladder gate durable evidence",
@@ -62805,6 +62920,26 @@
         {
           "suite": "runStaticAnalysis > DR-7a FAIL-detail cap",
           "name": "checkStaticAnalysis_ManyFailingFiles_CapsBreakdownWithElidedCount",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > advisory boundary skip",
+          "name": "StaticAnalysis_AdvisorySkipBesideAFailure_StaysFailAndNamesTheSkip",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > advisory boundary skip",
+          "name": "StaticAnalysis_AdvisorySkipBesideAConstituentSkip_StaysInconclusive",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > advisory boundary skip",
+          "name": "StaticAnalysis_NoBoundaryConfig_AddsNoAdvisorySkip",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > advisory boundary skip",
+          "name": "StaticAnalysis_FirstPartyGlobs_ReachTheBoundaryScan",
           "dynamic": false
         }
       ]

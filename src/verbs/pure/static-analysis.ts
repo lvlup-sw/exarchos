@@ -10,11 +10,15 @@
  *     no supported project type is found, or `constituent-skipped` when a
  *     check did not run and no check failed.
  *   - `error`: a usage error, such as a missing or invalid repo root.
+ *
+ * An advisory check that gives no verdict does not change the status. The
+ * report names it and marks the result degraded.
  */
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { detectToolchain, BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
+import { DEFAULT_FIRST_PARTY_GLOBS } from '../../config/exarchos-config-schema.js';
 
 /** Result of running an external command. */
 export interface CommandResult {
@@ -22,11 +26,18 @@ export interface CommandResult {
   readonly stdout: string;
   readonly stderr: string;
   /**
-   * Set when the command did not start (ENOENT, EACCES). The process did not
-   * run, so `exitCode` and `stdout` are not authoritative. The integration-suite
-   * gate uses it to tell a spawn error from a JSON-shape mismatch.
+   * The error code of the process runner. The command did not start (ENOENT,
+   * EACCES), or the runner stopped it (ENOBUFS when the output passed the
+   * buffer limit). Then `exitCode` and `stdout` are not authoritative. The
+   * integration-suite gate uses it to tell a spawn error from a JSON-shape
+   * mismatch.
    */
   readonly spawnError?: string;
+  /**
+   * The signal that stopped the process, such as `SIGKILL`. Then `exitCode` is
+   * not the exit status of the tool.
+   */
+  readonly signal?: string;
 }
 
 /** Signature of the external command runner, so that tests can inject a fake. */
@@ -43,8 +54,23 @@ export interface StaticAnalysisInput {
   readonly skipLint?: boolean | undefined;
   /** Skip typecheck. */
   readonly skipTypecheck?: boolean | undefined;
+  /**
+   * The `ownership.firstParty` globs of the project. The import-boundary leg
+   * scans only these source trees. When absent, the leg uses the schema default.
+   */
+  readonly firstPartyGlobs?: readonly string[] | undefined;
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
+}
+
+/**
+ * An advisory check that applies to the repository but gave no verdict. An
+ * example is an import-boundary scan that ran out of memory.
+ */
+export interface AdvisorySkip {
+  readonly name: string;
+  /** The cause, for the report and the reviewer. */
+  readonly detail: string;
 }
 
 /**
@@ -93,6 +119,12 @@ export interface StaticAnalysisResult {
   readonly skipCount: number;
   /** Detected project type (undefined if no recognized project). */
   readonly projectType?: string | undefined;
+  /**
+   * The advisory checks that apply but gave no verdict. They do not change
+   * `status` and are not in `skipCount`. The report lists each one and marks
+   * the result degraded. The field is absent when the list is empty.
+   */
+  readonly advisorySkips?: readonly AdvisorySkip[];
 }
 
 /** Candidate config filenames for the boundary lint, in resolution order. */
@@ -112,10 +144,11 @@ export interface BoundaryLintInput {
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
   /**
-   * Source paths to validate. The default is `['.']`, because the `from` and
-   * `to` rules in the config narrow the real surface.
+   * The `ownership.firstParty` globs. The leg scans the source root of each
+   * glob that exists, not the whole checkout. When absent, the leg uses the
+   * schema default.
    */
-  readonly sources?: readonly string[];
+  readonly firstPartyGlobs?: readonly string[] | undefined;
 }
 
 /** Verdict of the import-boundary leg. `SKIP` is advisory and does not block. */
@@ -123,6 +156,13 @@ export interface BoundaryLintResult {
   readonly status: 'PASS' | 'FAIL' | 'SKIP';
   /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
   readonly detail?: string;
+  /**
+   * True on a `SKIP` when the leg applies but gave no verdict. The scan did not
+   * finish, or no first-party source root exists. The report lists such a skip
+   * and marks the result degraded. A `SKIP` without it means that the
+   * repository has no boundary config.
+   */
+  readonly degraded?: boolean;
 }
 
 /**
@@ -141,17 +181,187 @@ function findBoundaryConfig(repoRoot: string): string | null {
   return BOUNDARY_CONFIG_FILENAMES.find((name) => present.has(name)) ?? null;
 }
 
+/** Glob syntax in one path segment. */
+const GLOB_SEGMENT = /[*?[\]{}()!]/;
+
+/** Glob syntax that the segment matcher does not read. The matcher reads only `*` and `?`. */
+const UNREAD_GLOB_SEGMENT = /[[\]{}()!]/;
+
+/** The kind of a path in the repository, or `undefined` when the path does not exist. */
+function pathKind(repoRoot: string, rel: string): 'directory' | 'file' | undefined {
+  try {
+    return fs.statSync(path.join(repoRoot, rel)).isDirectory() ? 'directory' : 'file';
+  } catch {
+    return undefined;
+  }
+}
+
+/** The entry names of a directory in the repository, or an empty list when it cannot be read. */
+function directoryEntries(repoRoot: string, rel: string): string[] {
+  try {
+    return fs.readdirSync(path.join(repoRoot, rel));
+  } catch {
+    return [];
+  }
+}
+
+/** Compiles a glob segment that holds only `*` and `?` to an anchored matcher for one entry name. */
+function segmentMatcher(segment: string): RegExp {
+  let source = '';
+  for (const ch of segment) {
+    if (ch === '*') source += '[^/]*';
+    else if (ch === '?') source += '[^/]';
+    else source += ch.replace(/[.+^$|\\]/g, '\\$&');
+  }
+  return new RegExp(`^${source}$`);
+}
+
 /**
- * Runs the import-boundary lint with `npx depcruise --validate` over
- * `repoRoot`. The leg checks the module import graph against the rules in a
- * committed dependency-cruiser config.
+ * Resolves one `ownership.firstParty` glob to the existing repository paths
+ * that hold its files. The walk stops at the first `**` segment, or at glob
+ * syntax that the matcher does not read. Thus a root can be wider than its
+ * glob. A negated, absolute or parent-relative glob gives no root.
+ */
+function scanRootsOfGlob(repoRoot: string, glob: string): string[] {
+  const trimmed = glob.trim();
+  if (trimmed.startsWith('!') || path.isAbsolute(trimmed)) return [];
+  const segments = trimmed.split('/').filter((segment) => segment.length > 0 && segment !== '.');
+  if (segments.includes('..')) return [];
+
+  let candidates: string[] = [''];
+  for (const [index, segment] of segments.entries()) {
+    if (segment === '**' || UNREAD_GLOB_SEGMENT.test(segment)) break;
+    const last = index === segments.length - 1;
+    const matcher = GLOB_SEGMENT.test(segment) ? segmentMatcher(segment) : undefined;
+    candidates = candidates.flatMap((parent) =>
+      (matcher === undefined
+        ? [segment]
+        : directoryEntries(repoRoot, parent).filter((name) => matcher.test(name))
+      )
+        .map((name) => path.posix.join(parent, name))
+        .filter((rel) => {
+          const kind = pathKind(repoRoot, rel);
+          return kind === 'directory' || (last && kind === 'file');
+        }),
+    );
+  }
+  return candidates.map((rel) => (rel === '' ? '.' : rel));
+}
+
+/**
+ * The scan roots of the import-boundary leg: the existing roots of the
+ * `ownership.firstParty` globs, sorted. The list holds no duplicate and no
+ * root inside another root. A root of `.` replaces all other roots.
+ */
+function firstPartyScanRoots(repoRoot: string, globs: readonly string[]): string[] {
+  const roots = [...new Set(globs.flatMap((glob) => scanRootsOfGlob(repoRoot, glob)))].sort();
+  if (roots.includes('.')) return ['.'];
+  return roots.filter(
+    (root) => !roots.some((other) => other !== root && root.startsWith(`${other}/`)),
+  );
+}
+
+/** The parts of a dependency-cruiser JSON report that the leg reads. */
+interface CruiseSummary {
+  /** The number of violations of `error` severity, from `summary.error`. */
+  readonly errorCount: number;
+  /** One line for each `error` violation, in the form of the text reporter. */
+  readonly errorLines: readonly string[];
+}
+
+/** Formats one violation of a JSON report as a text-reporter line, or gives none for another severity. */
+function errorViolationLine(violation: unknown): string[] {
+  if (typeof violation !== 'object' || violation === null) return [];
+  if (!('rule' in violation) || !('from' in violation) || !('to' in violation)) return [];
+  const { rule, from, to } = violation;
+  if (typeof rule !== 'object' || rule === null) return [];
+  if (!('name' in rule) || !('severity' in rule) || rule.severity !== 'error') return [];
+  if (typeof rule.name !== 'string' || typeof from !== 'string' || typeof to !== 'string') return [];
+  return [`error ${rule.name}: ${from} → ${to}`];
+}
+
+/**
+ * Reads `summary.error` and the `error` violations from the stdout of
+ * `depcruise --output-type json`. Output that is not a complete report gives
+ * `undefined`, because a partial or absent report is not a verdict.
+ */
+function readCruiseSummary(stdout: string): CruiseSummary | undefined {
+  let report: unknown;
+  try {
+    report = JSON.parse(stdout);
+  } catch {
+    return undefined;
+  }
+  if (typeof report !== 'object' || report === null || !('summary' in report)) return undefined;
+  const summary = report.summary;
+  if (typeof summary !== 'object' || summary === null || !('error' in summary)) return undefined;
+  const errorCount = summary.error;
+  if (typeof errorCount !== 'number' || !Number.isInteger(errorCount) || errorCount < 0) {
+    return undefined;
+  }
+  const violations: unknown = 'violations' in summary ? summary.violations : undefined;
+  const errorLines = Array.isArray(violations)
+    ? violations.flatMap((violation: unknown) => errorViolationLine(violation))
+    : [];
+  return { errorCount, errorLines };
+}
+
+/** Text on stderr that shows that the Node heap was exhausted. */
+const OUT_OF_MEMORY = /heap out of memory|allocation failed/i;
+
+/** The most stderr lines that the detail of a degraded skip quotes. */
+const SKIP_DETAIL_STDERR_LINES = 3;
+
+/** A shell gives the exit status 128 plus the signal number for a process that a signal stopped. */
+const SIGNAL_EXIT_BASE = 128;
+
+/** The highest signal number that the exit-status hint names. */
+const MAX_SIGNAL_NUMBER = 64;
+
+/**
+ * Names the cause when a depcruise run gave no verdict. The cause is the runner
+ * error, a heap exhaustion, the signal, or the exit status with stderr.
+ */
+function noVerdictCause(result: CommandResult): string {
+  if (result.spawnError === 'ENOBUFS') {
+    return 'its JSON report passed the output limit of the runner (ENOBUFS)';
+  }
+  if (result.spawnError) return `the runner reported ${result.spawnError}`;
+  if (OUT_OF_MEMORY.test(result.stderr)) return 'it ran out of memory';
+  if (result.signal) return `it was stopped by ${result.signal}`;
+  const code = result.exitCode;
+  const signalNumber = code - SIGNAL_EXIT_BASE;
+  const status =
+    signalNumber > 0 && signalNumber <= MAX_SIGNAL_NUMBER
+      ? `exit ${code}, the status of a process stopped by signal ${signalNumber}`
+      : `exit ${code}`;
+  const stderr = result.stderr
+    .trim()
+    .split('\n')
+    .slice(0, SKIP_DETAIL_STDERR_LINES)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+    .join(' ');
+  return `it gave no JSON report (${status})${stderr ? `: ${stderr}` : ''}`;
+}
+
+/** A degraded `SKIP` of the boundary leg, with the cause in its detail. */
+function boundaryNoVerdict(cause: string): BoundaryLintResult {
+  return { status: 'SKIP', degraded: true, detail: `dependency-cruiser gave no verdict: ${cause}` };
+}
+
+/**
+ * Runs `npx depcruise --validate <config> --output-type json` over the roots of
+ * `ownership.firstParty`, so nested worktrees and build output stay out. The
+ * verdict is `summary.error` of the JSON report. The leg does not read the
+ * exit code, because 256 errors wrap to exit 0.
  * - No config: `SKIP`, and depcruise does not run.
- * - Exit 0: `PASS`.
- * - Non-zero exit: `FAIL`, with the violation summary in `detail`.
- * - The runner throws: `SKIP`, because a missing tool is not a failure.
+ * - `summary.error` is 0: `PASS`. Above 0: `FAIL`, with the violations in `detail`.
+ * - No first-party root, a throw, a runner error, a signal, or no complete
+ *   report: a degraded `SKIP` that names the cause.
  */
 export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
-  const { repoRoot, runCommand, sources = ['.'] } = input;
+  const { repoRoot, runCommand, firstPartyGlobs = DEFAULT_FIRST_PARTY_GLOBS } = input;
 
   const configName = findBoundaryConfig(repoRoot);
   if (configName === null) {
@@ -161,25 +371,36 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
     };
   }
 
+  const roots = firstPartyScanRoots(repoRoot, firstPartyGlobs);
+  if (roots.length === 0) {
+    return boundaryNoVerdict(
+      `no ownership.firstParty source root exists (${firstPartyGlobs.join(', ')})`,
+    );
+  }
+
   let result: CommandResult;
   try {
     result = runCommand(
       'npx',
-      ['depcruise', '--validate', configName, ...sources],
+      ['depcruise', '--validate', configName, '--output-type', 'json', ...roots],
       { cwd: repoRoot },
     );
-  } catch {
-    return { status: 'SKIP', detail: 'dependency-cruiser not available' };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return boundaryNoVerdict(`the tool is not available (${message})`);
   }
 
-  if (result.exitCode === 0) {
-    return { status: 'PASS' };
-  }
+  if (result.spawnError || result.signal) return boundaryNoVerdict(noVerdictCause(result));
+  const summary = readCruiseSummary(result.stdout);
+  if (summary === undefined) return boundaryNoVerdict(noVerdictCause(result));
+  if (summary.errorCount === 0) return { status: 'PASS' };
 
-  const detail =
-    result.stderr.trim() ||
-    result.stdout.trim() ||
-    'dependency-cruiser reported a boundary violation';
+  const count = summary.errorCount;
+  const header = `dependency-cruiser found ${count} ${count === 1 ? 'violation' : 'violations'} of error severity`;
+  const detail = capFailDetail(
+    [header, ...summary.errorLines].join('\n'),
+    `npx depcruise --validate ${configName} ${roots.join(' ')}`,
+  );
   return { status: 'FAIL', detail };
 }
 
@@ -236,8 +457,8 @@ function findTaintRuleset(repoRoot: string): string | null {
  * core. Import rules cannot see value flow, so this leg uses a dataflow engine.
  * - No ruleset: `SKIP`, and the engine does not run.
  * - Exit 0: `PASS`. Exit 1: `FAIL`, with the findings in `detail`.
- * - A throw, a `spawnError`, or any other exit code: `SKIP`. An engine error
- *   or a killed process is not evidence of a violation.
+ * - A throw, a `spawnError`, a `signal`, or any other exit code: `SKIP`. An
+ *   engine error or a killed process is not evidence of a violation.
  */
 export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
   const { repoRoot, runCommand, coreSources = ['.'] } = input;
@@ -266,6 +487,10 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
       status: 'SKIP',
       detail: result.spawnError.trim() || 'semgrep not available',
     };
+  }
+
+  if (result.signal) {
+    return { status: 'SKIP', detail: `semgrep was stopped by ${result.signal}` };
   }
 
   if (result.exitCode === 0) {
@@ -547,11 +772,23 @@ function runRustChecks(
 }
 
 /**
+ * The note that the result line gets when advisory checks gave no verdict.
+ * It is empty when every advisory check that applies gave a verdict.
+ */
+function advisorySkipNote(advisorySkips: readonly AdvisorySkip[]): string {
+  const count = advisorySkips.length;
+  if (count === 0) return '';
+  return `, degraded: ${count} advisory ${count === 1 ? 'check' : 'checks'} gave no verdict`;
+}
+
+/**
  * Runs the checks for the detected project type and builds the report. The
  * boundary-lint and taint legs join the checks only when they do not give
- * `SKIP`, so a repo without their config sees no change. A skipped check
- * counts as a result. The precedence is FAIL, then DEGRADED (`skip`), then
- * PASS, so PASS needs every check to run and pass.
+ * `SKIP`, so a repo without their config sees no change. A degraded boundary
+ * `SKIP` goes to `advisorySkips`: the report lists it and marks the result
+ * degraded, and the status does not change. A skipped check counts as a
+ * result. The precedence is FAIL, then DEGRADED (`skip`), then PASS, so PASS
+ * needs every check to run and pass.
  */
 export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisResult {
   const { repoRoot, skipLint = false, skipTypecheck = false, runCommand } = input;
@@ -632,12 +869,22 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       break;
   }
 
-  const boundary = runBoundaryLint({ repoRoot, runCommand });
+  const advisorySkips: AdvisorySkip[] = [];
+  const boundary = runBoundaryLint({
+    repoRoot,
+    runCommand,
+    firstPartyGlobs: input.firstPartyGlobs,
+  });
   if (boundary.status !== 'SKIP') {
     checks.push({
       name: BOUNDARY_LINT_NAME,
       status: boundary.status,
       ...(boundary.detail ? { detail: boundary.detail } : {}),
+    });
+  } else if (boundary.degraded === true) {
+    advisorySkips.push({
+      name: BOUNDARY_LINT_NAME,
+      detail: boundary.detail ?? 'dependency-cruiser gave no verdict',
     });
   }
 
@@ -676,6 +923,12 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     }
   }
 
+  for (const skip of advisorySkips) {
+    outputLines.push(
+      `- **SKIP**: ${skip.name} — ${skip.detail} (advisory: the gate does not fail on it)`,
+    );
+  }
+
   outputLines.push('');
 
   const total = passCount + failCount;
@@ -683,15 +936,16 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   outputLines.push('---');
   outputLines.push('');
 
+  const note = advisorySkipNote(advisorySkips);
   if (failCount > 0) {
-    outputLines.push(`**Result: FAIL** (${failCount}/${total} checks failed)`);
+    outputLines.push(`**Result: FAIL** (${failCount}/${total} checks failed${note})`);
   } else if (skipCount > 0) {
     outputLines.push(
       `**Result: DEGRADED** (${passCount}/${total} checks passed, ` +
-        `${skipCount} skipped — inconclusive, not a pass)`,
+        `${skipCount} skipped — inconclusive, not a pass${note})`,
     );
   } else {
-    outputLines.push(`**Result: PASS** (${passCount}/${total} checks passed)`);
+    outputLines.push(`**Result: PASS** (${passCount}/${total} checks passed${note})`);
   }
 
   const output = outputLines.join('\n');
@@ -711,5 +965,6 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     failCount,
     skipCount,
     projectType,
+    ...(advisorySkips.length > 0 ? { advisorySkips } : {}),
   };
 }

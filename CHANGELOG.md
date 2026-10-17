@@ -52,6 +52,16 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - Limit: when the revert makes a `conftest.py` fail to load, `pytest` exits 4, and the probe gives `run-no-verdict`.
   - Limit: `cargo test -- <path>` and `ctest -- <files>` can give a green run that tests nothing, so the probe gives `failed`. This limit is older than this change.
 
+- **The import-boundary check of `check_static_analysis` scans only the first-party sources, and a run with no verdict does not fail the gate.** This is a change of behavior. Before this change, the check scanned the whole checkout, with nested worktrees and build output. It read each non-zero exit as a FAIL, so a run that ran out of memory failed the gate.
+  - The check scans the roots of the `ownership.firstParty` globs in `.exarchos.yml`. The default globs are `src/**` and `servers/*/src/**`. The check does not scan a root that does not exist. A module outside the roots is checked only when a first-party file imports it.
+  - The verdict is `summary.error` in the JSON report of dependency-cruiser, not the exit code. Before this change, 256 error violations gave exit 0 and a false PASS.
+  - A run with no verdict is a visible skip. The causes are a tool that did not start, a signal, a heap exhaustion, output past the buffer limit, a report that is not complete, and no first-party root. The report lists the skip with its cause, and the result line says `degraded`.
+  - Such a skip does not fail the gate. When the other checks pass, the result has `passed: true`, `degraded: true`, and `advisorySkips` with the cause. The evidence verdict is `pass`.
+  - A repository without a `.dependency-cruiser.*` config sees no change.
+  - The runner of the static-analysis checks accepts 64 MiB of output, not 1 MiB. Before this change, a check with more output than 1 MiB failed. Now it gives its real verdict.
+  - The boundary-parse taint check reads a run that a signal stopped as a skip, not as a FAIL.
+  - Recovery: when the report shows a degraded boundary skip, read its cause. Set `ownership.firstParty` when the sources are not under `src/`.
+
 - **The settlement vocabulary is a one-way upgrade, and the store schema stays V6.** This build gives three more settlement outcomes (`recompile-required`, `corrective-capsule`, `accepted-with-rationale`). A claim can carry a `status`, a `reason` and a `rationale`. The `execution.settled` row has two optional fields (`unresolvedTasks`, `rationales`). `SCHEMA_VERSION` stays 6, so no migration runs, and the store records no new version.
   - After this build settles a batch, a 2.12.x binary cannot read the settlement records of that workflow. It gives false refusals and `INTERNAL_ERROR` on them. Downgrade to 2.12.x is not supported.
   - This build replays and decides a batch that 2.12.x recorded, with one limit. The retry of a 2.12.x batch whose request repeated a deviation, or held more than sixteen deviations, does not replay its verdict. The decision of such a held batch still works.

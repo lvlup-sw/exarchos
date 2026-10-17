@@ -655,4 +655,84 @@ describe('runStaticAnalysis', () => {
       expect(result.output).not.toContain('src/file30.ts');
     });
   });
+
+  /**
+   * An import-boundary scan that gives no verdict is an advisory skip. It does not change the status
+   * that the other checks give, and the result line marks it as degraded.
+   */
+  describe('advisory boundary skip', () => {
+    function withBoundaryConfig(repoRoot: string): string {
+      fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoRoot, '.dependency-cruiser.cjs'), 'module.exports = { forbidden: [] };\n', 'utf-8');
+      return repoRoot;
+    }
+
+    function stoppedDepcruiseRunner(npmExit: Record<string, number>): RunCommandFn {
+      return vi.fn((_cmd: string, args: readonly string[]) => {
+        if (args.includes('depcruise')) {
+          return { exitCode: 1, stdout: '', stderr: '', signal: 'SIGKILL' };
+        }
+        const exitCode = npmExit[args[1] ?? ''] ?? 0;
+        return { exitCode, stdout: '', stderr: exitCode === 0 ? '' : `${args[1]} failed` };
+      });
+    }
+
+    it('StaticAnalysis_AdvisorySkipBesideAFailure_StaysFailAndNamesTheSkip', () => {
+      const repoRoot = withBoundaryConfig(
+        createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' }),
+      );
+
+      const result = runStaticAnalysis({ repoRoot, runCommand: stoppedDepcruiseRunner({ lint: 1 }) });
+
+      expect(result.status).toBe('fail');
+      expect(result.failCount).toBe(1);
+      expect(result.advisorySkips).toEqual([
+        { name: 'Import boundaries', detail: 'dependency-cruiser gave no verdict: it was stopped by SIGKILL' },
+      ]);
+      expect(result.output).toContain(
+        '**Result: FAIL** (1/3 checks failed, degraded: 1 advisory check gave no verdict)',
+      );
+    });
+
+    it('StaticAnalysis_AdvisorySkipBesideAConstituentSkip_StaysInconclusive', () => {
+      const repoRoot = withBoundaryConfig(createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit' }));
+
+      const result = runStaticAnalysis({ repoRoot, runCommand: stoppedDepcruiseRunner({}) });
+
+      expect(result.status).toBe('skip');
+      expect(result.skipReason).toBe('constituent-skipped');
+      expect(result.skipCount).toBe(1);
+      expect(result.advisorySkips).toHaveLength(1);
+      expect(result.output).toContain(
+        '**Result: DEGRADED** (2/2 checks passed, 1 skipped — inconclusive, not a pass, ' +
+          'degraded: 1 advisory check gave no verdict)',
+      );
+    });
+
+    /** A repository without a boundary config is not subject to the leg, so nothing about it shows. */
+    it('StaticAnalysis_NoBoundaryConfig_AddsNoAdvisorySkip', () => {
+      const repoRoot = createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' });
+
+      const result = runStaticAnalysis({ repoRoot, runCommand: stoppedDepcruiseRunner({}) });
+
+      expect(result.status).toBe('pass');
+      expect(result.advisorySkips).toBeUndefined();
+      expect(result.output).not.toContain('Import boundaries');
+      expect(result.output).toContain('**Result: PASS** (3/3 checks passed)');
+    });
+
+    /** The handler passes the project globs through, so the leg scans the configured roots. */
+    it('StaticAnalysis_FirstPartyGlobs_ReachTheBoundaryScan', () => {
+      const repoRoot = withBoundaryConfig(
+        createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' }),
+      );
+      fs.mkdirSync(path.join(repoRoot, 'lib'), { recursive: true });
+      const runner = stoppedDepcruiseRunner({});
+
+      runStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['lib/**'] });
+
+      const depcruiseCall = vi.mocked(runner).mock.calls.find(([, args]) => args.includes('depcruise'));
+      expect(depcruiseCall?.[1].slice(5)).toEqual(['lib']);
+    });
+  });
 });

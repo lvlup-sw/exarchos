@@ -232,7 +232,7 @@ export type ToolchainConfig = z.infer<typeof ToolchainConfigSchema>;
  * Ownership has no opt-in, so an absent block gets these globs. The default is not empty, because an empty scope silently turns off every ownership-aware check.
  * The default is on the field and on the block, so `ownership` absent and `ownership: {}` give the same globs.
  */
-const DEFAULT_FIRST_PARTY_GLOBS: readonly string[] = ['src/**', 'servers/*/src/**'];
+export const DEFAULT_FIRST_PARTY_GLOBS: readonly string[] = ['src/**', 'servers/*/src/**'];
 
 const OwnershipConfigSchema = z
   .object({

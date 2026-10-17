@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const controls = vi.hoisted(() => ({
   staticStatus: 'pass' as 'pass' | 'fail' | 'skip',
+  staticAdvisorySkip: false,
   probePassed: true,
   probeDiscriminant: undefined as string | undefined,
   contractPassed: true,
@@ -44,6 +45,13 @@ vi.mock('../../../src/verbs/pure/static-analysis.js', async (importActual) => {
             passCount: controls.staticStatus === 'pass' ? 2 : 1,
             failCount: controls.staticStatus === 'pass' ? 0 : 1,
             skipCount: 0,
+            ...(controls.staticAdvisorySkip
+              ? {
+                  advisorySkips: [
+                    { name: 'Import boundaries', detail: 'dependency-cruiser gave no verdict: it ran out of memory' },
+                  ],
+                }
+              : {}),
           },
   };
 });
@@ -200,6 +208,7 @@ describe('migrated ladder gate durable evidence', () => {
     roots.push(root);
     store = new RecordingStore(featureId, 'phase-attempt:implement-008');
     controls.staticStatus = 'pass';
+    controls.staticAdvisorySkip = false;
     controls.probePassed = true;
     controls.probeDiscriminant = undefined;
     controls.contractPassed = true;
@@ -380,6 +389,32 @@ describe('migrated ladder gate durable evidence', () => {
       });
     }
     expect(evidenceEvents()).toHaveLength(1);
+  });
+
+  /**
+   * A static-analysis run whose boundary check gave no verdict is degraded but not a skip. Its evidence
+   * verdict is `pass`, and the `gate.executed` row of the runner says passed.
+   */
+  it('LadderGate_StaticAnalysisAdvisorySkip_RecordsPassEvidenceAndAPassedRow', async () => {
+    controls.staticAdvisorySkip = true;
+
+    const result = await invoke('static-analysis');
+
+    expect(result.data).toMatchObject({
+      passed: true,
+      degraded: true,
+      advisorySkips: [{ name: 'Import boundaries' }],
+    });
+    expect(result.data).not.toHaveProperty('skipped');
+    expect(evidenceEvents()[0]?.data).toMatchObject({ evidence: { verdict: 'pass' } });
+    const signals = store.events.filter((event) => event.type === 'gate.executed');
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.data).toMatchObject({
+      gateName: 'static-analysis',
+      passed: true,
+      details: { taskId, verdict: 'pass' },
+    });
+    expect(signals[0]?.data).not.toMatchObject({ details: { skipped: true } });
   });
 
   it('LadderGate_SameOperationIsIdempotent_NewOperationSupersedes', async () => {

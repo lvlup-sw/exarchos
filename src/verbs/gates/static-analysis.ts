@@ -2,13 +2,15 @@
  * Static analysis gate. It runs lint and typecheck through the durable gate producer, which records the gate evidence.
  */
 
-import { runCommandSync } from '../../utils/process.js';
+import { runCommandSync, execFailureFields, outputText } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
+import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
 import { runDurableGateProducer, type GateSubjectScope } from './durable-gate-producer.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runStaticAnalysis } from '../pure/static-analysis.js';
 import type {
+  AdvisorySkip,
   RunCommandFn,
   CommandResult,
   StaticAnalysisResult as StaticAnalysisRun,
@@ -56,34 +58,47 @@ interface StaticAnalysisResult {
   /** The cause of a skip as text. It names each check that did not run, or the missing toolchain. */
   readonly reason?: string;
   /**
-   * True when the gate detected a toolchain but one or more constituent checks did not run.
-   * It is distinct from a no-toolchain skip, and it is never a pass.
+   * True when a check did not run or gave no verdict.
+   * With `skipped: true`, a constituent check did not run. That is distinct from a no-toolchain skip, and it is never a pass.
+   * Without `skipped`, an advisory check gave no verdict. `advisorySkips` names it, and `passed` is the verdict of the other checks.
    */
   readonly degraded?: boolean;
+  /** The advisory checks that gave no verdict, each with its cause. The report lists them too. */
+  readonly advisorySkips?: readonly AdvisorySkip[];
 }
+
+/** The output limit of one command. A boundary JSON report of this repository is about 2 MB, more than the default of 1 MiB. */
+const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024 * 1024;
 
 /**
  * Adapts `runCommandSync` to the `RunCommandFn` signature of `runStaticAnalysis`.
  * A command that exits with an error gives its status and output, not a throw.
+ * A process with no exit status, because it did not start or a signal stopped it, gives exit 1.
+ * The result also carries the signal, and the error code of the runner as `spawnError`, such as `ENOENT` or `ENOBUFS`.
+ *
+ * @internal Exported so that a test can run real processes through it.
  */
-const execCommandRunner: RunCommandFn = (
+export const execCommandRunner: RunCommandFn = (
   cmd: string,
   args: readonly string[],
   options?: { cwd?: string },
 ): CommandResult => {
   try {
-    const output = runCommandSync(cmd, args as string[], {
+    const output = runCommandSync(cmd, args, {
       encoding: 'utf-8',
       cwd: options?.cwd,
       stdio: ['pipe', 'pipe', 'pipe'],
-    }) as string;
-    return { exitCode: 0, stdout: output, stderr: '' };
+      maxBuffer: MAX_COMMAND_OUTPUT_BYTES,
+    });
+    return { exitCode: 0, stdout: outputText(output), stderr: '' };
   } catch (err: unknown) {
-    const execErr = err as { status?: number; stdout?: string; stderr?: string };
+    const failure = execFailureFields(err);
     return {
-      exitCode: execErr.status ?? 1,
-      stdout: execErr.stdout ?? '',
-      stderr: execErr.stderr ?? '',
+      exitCode: typeof failure.status === 'number' ? failure.status : 1,
+      stdout: outputText(failure.stdout),
+      stderr: outputText(failure.stderr),
+      ...(typeof failure.signal === 'string' ? { signal: failure.signal } : {}),
+      ...(typeof failure.code === 'string' ? { spawnError: failure.code } : {}),
     };
   }
 };
@@ -138,8 +153,8 @@ export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolRe
   const skipped = analysisResult.status === 'skip';
   const passed = analysisResult.status === 'pass';
   const skipReason = analysisResult.skipReason ?? 'no-toolchain';
-  const degraded = skipped && skipReason === 'constituent-skipped';
-  const { passCount, failCount, skipCount, output } = analysisResult;
+  const { passCount, failCount, skipCount, output, advisorySkips } = analysisResult;
+  const degraded = (skipped && skipReason === 'constituent-skipped') || advisorySkips !== undefined;
 
   const result: StaticAnalysisResult = {
     passed,
@@ -151,8 +166,21 @@ export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolRe
       ? { skipped: true, skipReason, discriminant: skipReason, reason: skipCauseText(skipReason, analysisResult) }
       : {}),
     ...(degraded ? { degraded: true } : {}),
+    ...(advisorySkips !== undefined ? { advisorySkips } : {}),
   };
   return { success: true, data: result };
+}
+
+/**
+ * Reads the `ownership.firstParty` globs of the project at `repoRoot`.
+ * No `.exarchos.yml`, or a file that does not load, gives `undefined`, and the boundary leg then uses the schema default.
+ */
+function readFirstPartyGlobs(repoRoot: string): readonly string[] | undefined {
+  try {
+    return loadExarchosConfig(repoRoot)?.config.ownership?.firstParty;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -185,6 +213,7 @@ export async function handleStaticAnalysis(
           repoRoot,
           skipLint: args.skipLint,
           skipTypecheck: args.skipTypecheck,
+          firstPartyGlobs: readFirstPartyGlobs(repoRoot),
           runCommand: execCommandRunner,
         }),
       ),
