@@ -62,7 +62,7 @@ After the fix completes, run the `task-fix` runbook:
 exarchos_orchestrate({ action: "runbook", id: "task-fix" })
 ```
 
-This executes the gate chain: kill-probe adequacy (`check_test_adequacy`) → static analysis → mark task complete if all pass. Bind the `<baseRef>` template variable to the branch the task forked from (the workflow's integration branch, `synthesis.integrationBranch`): the kill probe measures the fix from it, and blocks with `base-missing` without it. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`
+This executes the gate chain: kill-probe adequacy (`check_test_adequacy`) → static analysis for the task (`check_static_analysis` with `taskId`) → mark task complete if all pass. Bind the `<baseRef>` template variable to the branch the task forked from (the workflow's integration branch, `synthesis.integrationBranch`): the kill probe measures the fix from it, and blocks with `base-missing` without it. Bind `<taskId>` and `<worktreePath>` to the fixed task: static analysis runs per task in its worktree, and `task_complete` accepts only a passing run for the same task. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`
 
 ## Fix Task Structure
 

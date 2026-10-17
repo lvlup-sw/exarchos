@@ -3055,7 +3055,7 @@
     "inputs": [
       {
         "file": "content/delivery/skills/delegate/SKILL.md",
-        "sha256": "5a1060ebd6724d6319812390ddb9919ba008845f621d7cdc9c18560d7f4a9779"
+        "sha256": "2e7099905c7032f8960eff2cc9ad02004c1a2ddacc991bc6b7092f1db25a1e73"
       },
       {
         "file": "content/design/skills/plan/SKILL.md",
@@ -3071,7 +3071,7 @@
       },
       {
         "file": "src/runbooks/definitions.ts",
-        "sha256": "6839ecc8c24757bc2a7cded5df51e8e7108b820756b60707ea0fc6f18df3c7d4"
+        "sha256": "b843746820209392d32eccd814ecabc46dc76ea96bea0be1ff88ab9703d7cb49"
       }
     ],
     "registry": {

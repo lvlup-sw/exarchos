@@ -55,6 +55,25 @@ function payload(obs: DispatchObservation): Rec {
   return (obs.result?.data ?? {}) as Rec;
 }
 
+/** The placeholder form of a runbook step param. The intent compiler reads the same form. */
+const PLACEHOLDER = /^<([A-Za-z0-9_]+)>$/;
+
+/**
+ * Binds the `<var>` placeholders of a step to values, as an agent does when it follows a runbook directly.
+ * A placeholder with no value throws, so the test cannot run a step with a missing variable.
+ */
+function bindStepParams(params: Rec, bindings: Readonly<Record<string, string>>): Rec {
+  return Object.fromEntries(
+    Object.entries(params).map(([key, value]) => {
+      const variable = typeof value === 'string' ? PLACEHOLDER.exec(value)?.[1] : undefined;
+      if (variable === undefined) return [key, value];
+      const bound = bindings[variable];
+      if (bound === undefined) throw new Error(`no value for the runbook variable <${variable}>`);
+      return [key, bound];
+    }),
+  );
+}
+
 /**
  * Reads the durable `gate.executed` rows for one task from the real event store.
  * The gate check of `task_complete` reads only `gate.executed` events.
@@ -268,6 +287,47 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     const twinSignals = await gateSignalsFor('T-noskip');
     expect(twinSignals[0]?.passed).toBe(true);
     expect((twinSignals[0]?.details as Rec | undefined)?.verdict).toBe('pass');
+  }, 400_000);
+
+  /**
+   * The documented direct path completes a task.
+   * The agent reads each completion runbook through the `runbook` action and binds its variables.
+   * Then it runs the static-analysis step and `task_complete` for the same task, with no other params.
+   * The step must bind the worktree, so the gate runs on the fixture and not in the process directory.
+   * The step must bind the task, because `task_complete` refuses a gate record that names no task.
+   */
+  it('Governance_DocumentedRunbookPath_StaticAnalysisStepCompletesTheTask', async () => {
+    const repo = await makeNodeFixture({ lint: OK, typecheck: OK, 'quality-check': OK });
+    const paths: ReadonlyArray<{ readonly runbookId: string; readonly taskId: string }> = [
+      { runbookId: 'task-completion', taskId: 'T-runbook-complete' },
+      { runbookId: 'task-fix', taskId: 'T-runbook-fix' },
+    ];
+    for (const { runbookId, taskId } of paths) {
+      const resolved = await harness.runAction('exarchos_orchestrate', 'runbook', { id: runbookId });
+      expect(resolved.result?.success, runbookId).toBe(true);
+      const steps = (payload(resolved).steps ?? []) as readonly Rec[];
+      const step = steps.find((s) => s.action === 'check_static_analysis');
+      expect(step, `${runbookId} must have a check_static_analysis step`).toBeDefined();
+      const params = bindStepParams((step?.params ?? {}) as Rec, { taskId, worktreePath: repo });
+      expect(params, runbookId).toMatchObject({ repoRoot: 'auto', worktreePath: repo });
+
+      const gate = await harness.runAction(
+        'exarchos_orchestrate',
+        'check_static_analysis',
+        { featureId: FEATURE_ID, ...params },
+        { timeoutMs: 180_000 },
+      );
+      expect(gate.result?.success, runbookId).toBe(true);
+      expect(payload(gate).passed, runbookId).toBe(true);
+
+      const completed = await harness.runAction('exarchos_orchestrate', 'task_complete', {
+        taskId,
+        streamId: FEATURE_ID,
+      });
+      expect(completed.errorCode, runbookId).toBeUndefined();
+      expect(completed.result?.success, runbookId).toBe(true);
+      expect((completed.result?.data as Rec | undefined)?.type, runbookId).toBe('task.completed');
+    }
   }, 400_000);
 
   /**

@@ -230,7 +230,7 @@ register({
   validationScripts: ['post_delegation_check'],
   humanCheckpoint: false,
   compactGuidance:
-    'Dispatch implementation tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow update only for metadata/phase transitions. Before task_complete, run check_test_adequacy (per-task, tier-scaled — the outcome-based kill probe, test-after not test-first) and check_static_analysis (once, mandatory). Run post-delegation-check.sh when all tasks finish. Transition to review when complete. Call exarchos_event describe(eventTypes: [...]) before first emission of any event type. Parallel vs sequential dispatch; self-contained subagent prompts. Anti-pattern: referencing plan without pasting context. Escalate: same task fails 3x or scope exceeds declared module. Build context packages via runbook(task-classification). ' +
+    'Dispatch implementation tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow update only for metadata/phase transitions. Before task_complete, run check_test_adequacy (per-task, tier-scaled — the outcome-based kill probe, test-after not test-first) and check_static_analysis (per task, with taskId). Run post-delegation-check.sh when all tasks finish. Transition to review when complete. Call exarchos_event describe(eventTypes: [...]) before first emission of any event type. Parallel vs sequential dispatch; self-contained subagent prompts. Anti-pattern: referencing plan without pasting context. Escalate: same task fails 3x or scope exceeds declared module. Build context packages via runbook(task-classification). ' +
     verificationLadderGuidance(),
 });
 
@@ -835,7 +835,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'Dispatch overhaul tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow update only for metadata/phase transitions. Before task_complete, run check_test_adequacy (per-task, tier-scaled — the outcome-based kill probe, test-after not test-first) and check_static_analysis (once, mandatory). Transition to overhaul-review when complete. Parallel dispatch: each agent gets own worktree and self-contained prompt. Anti-pattern: sharing worktrees or referencing shared state without explicit context. Escalate: 3 failures on same task.',
+    'Dispatch overhaul tasks. Emit task.assigned via exarchos_event per dispatch. Complete tasks via exarchos_orchestrate task_complete (emits event, syncs state). Use exarchos_workflow update only for metadata/phase transitions. Before task_complete, run check_test_adequacy (per-task, tier-scaled — the outcome-based kill probe, test-after not test-first) and check_static_analysis (per task, with taskId). Transition to overhaul-review when complete. Parallel dispatch: each agent gets own worktree and self-contained prompt. Anti-pattern: sharing worktrees or referencing shared state without explicit context. Escalate: 3 failures on same task.',
 });
 
 register({

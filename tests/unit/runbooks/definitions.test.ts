@@ -262,6 +262,27 @@ describe('Runbook definitions', () => {
   });
 
   /**
+   * `task_complete` accepts only a passing gate runner record that names the task.
+   * Thus the static-analysis step of each completion runbook binds `<taskId>` and runs
+   * in the agent worktree. Without the binding, an agent that follows the runbook runs
+   * the gate for no task, and `task_complete` then refuses the task.
+   */
+  it('CompletionRunbooks_StaticAnalysisStep_BindsTheTaskAndTheWorktree', () => {
+    for (const runbook of [TASK_COMPLETION, TASK_FIX]) {
+      expect(runbook.templateVars, runbook.id).toEqual(
+        expect.arrayContaining(['taskId', 'worktreePath']),
+      );
+      const step = runbook.steps.find((s) => s.action === 'check_static_analysis');
+      expect(step, `${runbook.id} must have a check_static_analysis step`).toBeDefined();
+      expect(step?.params, runbook.id).toMatchObject({
+        repoRoot: 'auto',
+        worktreePath: '<worktreePath>',
+        taskId: '<taskId>',
+      });
+    }
+  });
+
+  /**
    * `task_complete` must be the last step. If a blocking gate follows it, the record
    * can show a complete task that then fails that gate.
    */
