@@ -14,7 +14,7 @@
  *
  * The exit code is the exit code of vitest. A refusal or a vitest that does not start exits 2.
  */
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
@@ -41,31 +41,32 @@ function isFile(candidate) {
 }
 
 /**
- * Splits the arguments into vitest options and test files. A bare `--` separator is dropped, because
- * some package managers pass it on to the script.
+ * Sorts the arguments into test files and arguments that are not files, and keeps the order of the
+ * arguments for vitest. A bare `--` separator is dropped, because some package managers pass it on.
  * @param {readonly string[]} argv
- * @returns {{ files: string[]; options: string[]; notFiles: string[] }}
+ * @returns {{ forwarded: string[]; files: string[]; notFiles: string[] }}
  */
 function splitArguments(argv) {
+  const forwarded = [];
   const files = [];
-  const options = [];
   const notFiles = [];
   for (const arg of argv) {
     if (arg === '--') continue;
-    if (arg.startsWith('-')) options.push(arg);
-    else if (isFile(arg)) files.push(arg);
+    forwarded.push(arg);
+    if (arg.startsWith('-')) continue;
+    if (isFile(arg)) files.push(arg);
     else notFiles.push(arg);
   }
-  return { files, options, notFiles };
+  return { forwarded, files, notFiles };
 }
 
 /**
- * Checks the arguments, then runs vitest with inherited stdio. It returns the exit code for the process.
+ * Checks the arguments, then runs vitest with inherited stdio. It resolves to the exit code for the process.
  * @param {readonly string[]} argv
- * @returns {number}
+ * @returns {Promise<number>}
  */
-function main(argv) {
-  const { files, options, notFiles } = splitArguments(argv);
+async function main(argv) {
+  const { forwarded, files, notFiles } = splitArguments(argv);
   if (notFiles.length > 0) {
     process.stderr.write(
       `test:files: refused. These arguments are not files: ${notFiles.join(', ')}. ` +
@@ -85,18 +86,21 @@ function main(argv) {
     process.stderr.write(`test:files: the local vitest is missing at ${VITEST_ENTRY}. Run npm install.\n`);
     return REFUSED;
   }
-  const result = spawnSync(process.execPath, [VITEST_ENTRY, 'run', ...options, ...files], {
-    stdio: 'inherit',
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, [VITEST_ENTRY, 'run', ...forwarded], { stdio: 'inherit' });
+    child.on('error', (error) => {
+      process.stderr.write(`test:files: vitest did not start: ${error.message}\n`);
+      resolve(REFUSED);
+    });
+    child.on('exit', (code, signal) => {
+      if (code === null) {
+        process.stderr.write(`test:files: vitest stopped on signal ${String(signal)}.\n`);
+        resolve(REFUSED);
+        return;
+      }
+      resolve(code);
+    });
   });
-  if (result.error) {
-    process.stderr.write(`test:files: vitest did not start: ${result.error.message}\n`);
-    return REFUSED;
-  }
-  if (result.status === null) {
-    process.stderr.write(`test:files: vitest stopped on signal ${String(result.signal)}.\n`);
-    return REFUSED;
-  }
-  return result.status;
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));

@@ -120,7 +120,10 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
     const changed = changedFilesFor(realGitExec, repoRoot, baseRef, 'feature/replace');
     expect(changed.ok).toBe(true);
     if (!changed.ok) return;
-    expect([...changed.files].sort()).toEqual(['src/kept.js', 'src/old.test.js', 'src/räkna.test.js']);
+    expect(changed.files).toHaveLength(3);
+    for (const file of ['src/kept.js', 'src/old.test.js', 'src/räkna.test.js']) {
+      expect(changed.files).toContain(file);
+    }
     expect(changed.deletedFiles).toEqual(['src/old.test.js']);
 
     const result = await runProbe({
