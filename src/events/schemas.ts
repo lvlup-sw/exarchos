@@ -94,8 +94,8 @@ export const INTERNAL_VCS_LEDGER_EVENT_TYPES: readonly [
  * - `workflow.prepared`: settlement adjudicates a capsule only when this record pins its digest.
  * - `deviation.proposed`, `deviation.decided` and `design.revised`: the settle handler commits them.
  * - `capsule.recompiled`: the prepare handler commits it with the first capsule after a revision.
- * - `task.completed`: `task_complete`, directly or as a settle leaf. A direct call accepts a
- *   `gate.executed` row that the generic append can write (lvlup-sw/exarchos#1886).
+ * - `task.completed`: `task_complete`, directly or as a settle leaf. It needs a passing
+ *   static-analysis `gate.executed` row, and only a gate handler writes that row.
  *
  * A caller that can append these types can fake a settlement or a recompile, or move the design
  * version. It can also pin any capsule, or write a completion row without `task_complete`.
@@ -121,12 +121,21 @@ export const INTERNAL_EXECUTION_LEDGER_EVENT_TYPES: readonly [
 ];
 
 /**
+ * Server-owned gate signals. The gate handlers write `gate.executed` through the store, and
+ * `task_complete` reads it as proof that a gate ran. A generic append of it can fake a gate run.
+ * The type is already in `EventTypes`, so this list only reserves it.
+ */
+export const INTERNAL_GATE_SIGNAL_EVENT_TYPES: readonly ['gate.executed'] = ['gate.executed'];
+
+/**
  * The event types that settlement reads as inputs of its verdict. A generic append of one of them
  * can fake a verdict, so each one must be in the reserved append registry. A test holds that rule.
- * An evidence citation resolves only to an `admission.evidence-recorded` gate row.
+ * An evidence citation resolves only to an `admission.evidence-recorded` gate row. `task_complete`
+ * reads `gate.executed` inside the segment that settle runs.
  */
 export const SETTLEMENT_VERDICT_INPUT_EVENT_TYPES: readonly EventType[] = [
   'admission.evidence-recorded',
+  'gate.executed',
   'task.completed',
   'workflow.prepared',
   'design.revised',

@@ -4,6 +4,7 @@
  * A runtime that reads `next_actions` can then start the worktree merge with no operator step.
  * `content/delivery/skills/delegate/SKILL.md` documents this contract.
  */
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
@@ -34,12 +35,23 @@ interface NextActionShape {
 
 describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending', () => {
   /**
-   * `task_complete` needs a passing `gate.executed` event for the blocking `static-analysis` gate.
-   * Caller evidence cannot replace that event, so the saga appends it with a top-level `taskId`.
+   * `task_complete` needs a passing `gate.executed` row for the blocking `static-analysis` gate.
+   * Caller evidence cannot replace that row, and the generic append refuses it. Thus the saga runs
+   * `check_static_analysis` for the task on a Node project whose npm scripts exit with 0.
    * A thrown transport error in the saga fails the test and names the step.
    */
   it('next_actions surfaces merge_orchestrate after worktree-bearing task.completed', async () => {
     await withHermeticEnv(async (env) => {
+      await fs.writeFile(
+        path.join(env.gitDir, 'package.json'),
+        JSON.stringify({
+          name: 'p2-detour-fixture',
+          version: '1.0.0',
+          private: true,
+          scripts: { lint: 'node -e ""', typecheck: 'node -e ""', 'quality-check': 'node -e ""' },
+        }),
+        'utf-8',
+      );
       const mcp = await spawnMcpClient({
         command: WORKTREE_BINARY,
         args: ['mcp'],
@@ -75,19 +87,12 @@ describe('#1208 — task.completed{worktreePath} auto-detours to merge-pending',
             },
           },
           {
-            tool: 'exarchos_event',
+            tool: 'exarchos_orchestrate',
             arguments: {
-              action: 'append',
-              stream: 'p2-detour',
-              event: {
-                type: 'gate.executed',
-                data: {
-                  gateName: 'static-analysis',
-                  layer: 'validation',
-                  passed: true,
-                  taskId: '001',
-                },
-              },
+              action: 'check_static_analysis',
+              featureId: 'p2-detour',
+              taskId: '001',
+              repoRoot: env.gitDir,
             },
           },
           {

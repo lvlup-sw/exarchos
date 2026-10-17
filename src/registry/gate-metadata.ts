@@ -2,6 +2,7 @@ import {
   INTERNAL_ADMISSION_EVENT_TYPES,
   INTERNAL_CANCELLATION_EVENT_TYPES,
   INTERNAL_EXECUTION_LEDGER_EVENT_TYPES,
+  INTERNAL_GATE_SIGNAL_EVENT_TYPES,
   INTERNAL_VCS_LEDGER_EVENT_TYPES,
 } from '../events/schemas.js';
 import type { SupportedGateClass } from '../verbs/gates/gate-provider-registry.js';
@@ -84,6 +85,11 @@ export function validateAutoEmission(
 export interface ReservedEventAppendRegistration {
   readonly eventType: string;
   readonly typedHandler?: string;
+  /**
+   * The next step that the refusal of a generic append gives, when the type has no single typed
+   * handler. Without it, the refusal calls the type an admission fact.
+   */
+  readonly guidance?: string;
 }
 
 /**
@@ -94,6 +100,16 @@ const TYPED_APPEND_HANDLERS: ReadonlyMap<string, string> = new Map([
   ['admission.disagreement-disposition', 'handleAdmissionDisagreementDisposition'],
   ['task.completed', 'task_complete'],
 ]);
+
+/**
+ * The refusal guidance of a gate signal. Many gate handlers write the row, so no single typed
+ * handler exists. The caller runs the gate instead, and the gate handler records the row.
+ */
+const GATE_SIGNAL_APPEND_GUIDANCE =
+  'Run the gate through exarchos_orchestrate check_*, for example check_static_analysis with taskId. ' +
+  'The gate handler records this row.';
+
+const GATE_SIGNAL_TYPES: ReadonlySet<string> = new Set(INTERNAL_GATE_SIGNAL_EVENT_TYPES);
 
 /**
  * The server-owned catalog of reserved admission event types. It controls which untrusted write
@@ -112,9 +128,17 @@ export const RESERVED_EVENT_APPEND_REGISTRY: ReadonlyMap<
     ...INTERNAL_CANCELLATION_EVENT_TYPES,
     ...INTERNAL_VCS_LEDGER_EVENT_TYPES,
     ...INTERNAL_EXECUTION_LEDGER_EVENT_TYPES,
+    ...INTERNAL_GATE_SIGNAL_EVENT_TYPES,
   ].map((eventType) => {
     const typedHandler = TYPED_APPEND_HANDLERS.get(eventType);
-    return [eventType, { eventType, ...(typedHandler !== undefined ? { typedHandler } : {}) }];
+    return [
+      eventType,
+      {
+        eventType,
+        ...(typedHandler !== undefined ? { typedHandler } : {}),
+        ...(GATE_SIGNAL_TYPES.has(eventType) ? { guidance: GATE_SIGNAL_APPEND_GUIDANCE } : {}),
+      },
+    ];
   }),
 );
 

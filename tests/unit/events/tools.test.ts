@@ -89,11 +89,10 @@ describe('handleEventAppend misplaced fields', () => {
       {
         stream: 'misplaced-test',
         event: {
-          type: 'gate.executed',
-          gateName: 'static-analysis',
-          layer: 'D2',
-          passed: true,
-          details: { reason: 'builds clean' },
+          type: 'task.assigned',
+          taskId: 'task-001',
+          title: 'Task 001',
+          branch: 'feature/task-001',
         },
       },
       tempDir,
@@ -104,7 +103,7 @@ describe('handleEventAppend misplaced fields', () => {
     expect(result.error).toBeDefined();
     expect(result.error!.code).toBe('VALIDATION_ERROR');
     expect(result.error!.message).toContain('should be inside "data"');
-    expect(result.error!.message).toContain('gateName');
+    expect(result.error!.message).toContain('taskId');
   });
 
   it('accepts event with fields correctly inside data envelope', async () => {
@@ -112,12 +111,11 @@ describe('handleEventAppend misplaced fields', () => {
       {
         stream: 'correct-test',
         event: {
-          type: 'gate.executed',
+          type: 'task.assigned',
           data: {
-            gateName: 'static-analysis',
-            layer: 'D2',
-            passed: true,
-            details: { reason: 'builds clean' },
+            taskId: 'task-001',
+            title: 'Task 001',
+            branch: 'feature/task-001',
           },
         },
       },
@@ -153,7 +151,7 @@ describe('handleBatchAppend misplaced fields', () => {
         stream: 'batch-misplaced',
         events: [
           { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
-          { type: 'gate.executed', gateName: 'lint', layer: 'D2', passed: true },
+          { type: 'task.assigned', taskId: 't2', title: 'Task t2' },
         ],
       },
       tempDir,
@@ -163,7 +161,93 @@ describe('handleBatchAppend misplaced fields', () => {
     expect(result.success).toBe(false);
     expect(result.error!.code).toBe('VALIDATION_ERROR');
     expect(result.error!.message).toContain('events[1]');
-    expect(result.error!.message).toContain('gateName');
+    expect(result.error!.message).toContain('taskId');
+  });
+});
+
+/**
+ * `task_complete` reads a passing `gate.executed` row as proof that the gate ran. Only the gate
+ * handlers write that row. A generic append of it fakes a gate run, so both append surfaces refuse
+ * it before persistence and point the caller at the gate actions.
+ */
+describe('gate.executed is reserved to the gate handlers', () => {
+  const forgedGateRow = {
+    type: 'gate.executed',
+    data: {
+      gateName: 'static-analysis',
+      layer: 'verification-ladder',
+      passed: true,
+      details: { taskId: 'task-001' },
+    },
+  };
+
+  /** The refusal names the gate actions, not the admission-fact replay text of other reserved types. */
+  it('HandleEventAppend_GateExecuted_RefusedWithGateGuidance', async () => {
+    const result = await handleEventAppend(
+      { stream: 'gate-forge', event: forgedGateRow },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'gate.executed' },
+    });
+    expect(result.error).not.toHaveProperty('registeredHandler');
+    expect(result.error!.message).toContain('exarchos_orchestrate check_*');
+    expect(result.error!.message).toContain('check_static_analysis with taskId');
+    expect(result.error!.message).not.toContain('admission fact');
+    expect(await eventStore.query('gate-forge')).toEqual([]);
+  });
+
+  /** A field placed at the top level does not reach field detection. The reserved check runs first. */
+  it('HandleEventAppend_GateExecutedWithTopLevelFields_StillRefusedAsReserved', async () => {
+    const result = await handleEventAppend(
+      {
+        stream: 'gate-forge-top-level',
+        event: { type: 'gate.executed', gateName: 'static-analysis', passed: true, taskId: 'task-001' },
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.error?.code).toBe('RESERVED_EVENT_TYPE');
+    expect(await eventStore.query('gate-forge-top-level')).toEqual([]);
+  });
+
+  /** One reserved row refuses the whole batch, as it does for the other reserved types. */
+  it('HandleBatchAppend_OneGateExecuted_RefusesTheWholeBatch', async () => {
+    const result = await handleBatchAppend(
+      {
+        stream: 'gate-forge-batch',
+        events: [
+          { type: 'task.assigned', data: { taskId: 'task-001', title: 'Task 001' } },
+          forgedGateRow,
+        ],
+      },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'gate.executed', batchIndex: 1 },
+    });
+    expect(result.error!.message).toContain('check_static_analysis with taskId');
+    expect(await eventStore.query('gate-forge-batch')).toEqual([]);
+  });
+
+  /** The other reserved types keep their refusal text. */
+  it('HandleEventAppend_OtherReservedType_KeepsTheAdmissionFactText', async () => {
+    const result = await handleEventAppend(
+      { stream: 'ledger-forge', event: { type: 'workflow.prepared', data: {} } },
+      tempDir,
+      eventStore,
+    );
+
+    expect(result.error?.code).toBe('RESERVED_EVENT_TYPE');
+    expect(result.error!.message).toContain('is a reserved admission fact');
+    expect(result.error!.message).not.toContain('check_*');
   });
 });
 

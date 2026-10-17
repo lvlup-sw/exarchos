@@ -64,11 +64,14 @@ function reservedEventAppendError(
   const handlerGuidance = registration.typedHandler === undefined
     ? 'No typed action is registered in this release; replay it only through internal projection loading.'
     : `Use the registered typed handler "${registration.typedHandler}" instead.`;
+  const message = registration.guidance === undefined
+    ? `Event type "${eventType}" is a reserved admission fact and cannot be created through generic event append. ${handlerGuidance}`
+    : `Event type "${eventType}" is reserved and cannot be created through generic event append. ${registration.guidance}`;
   return {
     success: false,
     error: {
       code: 'RESERVED_EVENT_TYPE',
-      message: `Event type "${eventType}" is a reserved admission fact and cannot be created through generic event append. ${handlerGuidance}`,
+      message,
       eventType,
       ...(registration.typedHandler !== undefined
         ? { registeredHandler: registration.typedHandler }

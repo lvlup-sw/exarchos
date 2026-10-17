@@ -136,8 +136,8 @@ describe('mergeSidecarEvents', () => {
   });
 
   /**
-   * A sidecar line is a generic write. A line of a reserved type, such as a completion row or a
-   * settlement row, appends no row and counts as an error. The other lines of the file still merge.
+   * A sidecar line is a generic write. A completion row, a settlement row and a gate signal are
+   * reserved types. Such a line appends no row and counts as an error. The other lines still merge.
    */
   it('mergeSidecarEvents_ReservedType_AppendsNoRowAndCountsAnError', async () => {
     await writeSidecarLine(tempDir, 'reserved-stream', {
@@ -149,13 +149,17 @@ describe('mergeSidecarEvents', () => {
       data: { batchId: 'batch-forged' },
     });
     await writeSidecarLine(tempDir, 'reserved-stream', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'verification-ladder', passed: true, details: { taskId: 'task-forged' } },
+    });
+    await writeSidecarLine(tempDir, 'reserved-stream', {
       type: 'team.task.completed',
       data: { taskId: 'task-ok' },
     });
 
     const result = await mergeSidecarEvents(tempDir, eventStore, isReservedType);
 
-    expect(result).toEqual({ merged: 1, skipped: 0, errors: 2 });
+    expect(result).toEqual({ merged: 1, skipped: 0, errors: 3 });
     const events = await eventStore.query('reserved-stream');
     expect(events.map((e) => e.type)).toEqual(['team.task.completed']);
     await expect(

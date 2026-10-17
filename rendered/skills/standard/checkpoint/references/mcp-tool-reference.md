@@ -36,7 +36,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 
 | Action | When to Use |
 |--------|-------------|
-| `append` | Recording workflow events (task.assigned, gate.executed, etc.). Use `expectedSequence` for optimistic concurrency |
+| `append` | Recording workflow events, for example `task.progressed`. The append refuses reserved types, such as gate signals and completion rows: run the gate or `task_complete` instead. Use `expectedSequence` for optimistic concurrency |
 | `query` | Reading event history. Use `filter` for type/time filtering, `limit`/`offset` for pagination |
 
 ### Orchestrate Tool Actions
