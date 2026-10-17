@@ -9,6 +9,10 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - **`task_complete` accepts only the static-analysis verdict that the gate runner recorded for that task.** This is a change of behavior. The handler reads the latest `gate.executed` row that the gate runner wrote for the task at `details.taskId`. That row must pass. The evidence record that the row cites must be a passing static-analysis record for the same task. A later failing run wins over an earlier pass.
   - These rows no longer complete a task: a `gate.executed` row appended through `exarchos_event` (the generic append now refuses the type), a runner row with no task id (a run of `check_static_analysis` with no `taskId`), and a row that names its task only at the top-level `data.taskId`.
   - A repository with no supported static-analysis toolchain cannot complete a task. A later change lets static analysis run configured commands.
+  - A repository whose static analysis is inconclusive cannot complete a task. The runner row of a degraded run has `passed: false`, and its evidence verdict is `indeterminate`. Before this change, a generic append of a passing row was the only path to completion for such a repository.
+    - A Node project is inconclusive when `package.json` has no `lint`, `typecheck` or `quality-check` script. `quality-check` is a script name of Exarchos, so most Node projects do not have it.
+    - A run with `skipLint` or `skipTypecheck` is also inconclusive when the flag skips a check.
+    - Recovery: add the missing scripts to `package.json`, or do not set the skip flags. Then run `exarchos_orchestrate check_static_analysis` with `taskId` for the task, and call `task_complete` again.
   - A config hook under `hooks.on['gate.executed']` no longer fires. Config hooks fire only after a generic append, and the generic append refuses the type.
   - Recovery: run `exarchos_orchestrate check_static_analysis` with `taskId` for the task, then call `task_complete` again. The refusal `GATE_NOT_PASSED` names this step.
 
