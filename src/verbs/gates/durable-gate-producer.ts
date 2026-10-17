@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
+import {
+  AdmissionEvidenceRecordedData,
+  type AdmissionEvidenceRecorded,
+} from '../../events/schemas.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { evidenceArtifactStore } from '../../workflow/admission/evidence-artifact.js';
@@ -33,6 +37,25 @@ export interface DurableGateScope {
  */
 export function ladderRequirementId(gateClass: string): string {
   return `verification-ladder:${gateClass}`;
+}
+
+/**
+ * The gate evidence records of one stream, keyed by evidence id.
+ * A row that fails the evidence schema, or that is not a gate record, is not in the map.
+ * Settlement and `task_complete` read gate evidence through this function, so the two readers parse the rows in one way.
+ */
+export async function readGateEvidenceRecords(
+  eventStore: Pick<EventStore, 'query'>,
+  streamId: string,
+): Promise<ReadonlyMap<string, AdmissionEvidenceRecorded>> {
+  const rows = await eventStore.query(streamId, { type: 'admission.evidence-recorded' });
+  const records = new Map<string, AdmissionEvidenceRecorded>();
+  for (const row of rows) {
+    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+    if (!parsed.success || parsed.data.evidence.kind !== 'gate') continue;
+    records.set(parsed.data.evidence.evidenceId, parsed.data);
+  }
+  return records;
 }
 
 function scopeError(code: string, message: string): ToolResult {

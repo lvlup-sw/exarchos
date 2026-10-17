@@ -101,6 +101,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, seedGateEvidence } from '../../../../tools/test-helpers/trusted-context.js';
+import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settle-unit';
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
@@ -189,12 +190,12 @@ function executeDeps(overrides: Readonly<Record<string, LeafHandler>> = {}): Exe
   };
 }
 
-/** Appends a passing static-analysis gate for one task. `task_complete` demands it, and the cut runbook does not run it. */
+/**
+ * Records a passing static-analysis verdict for one task through the gate runner, in the active phase attempt.
+ * `task_complete` demands it, and the cut runbook does not run it.
+ */
 async function seedPassingStaticAnalysis(taskId: string): Promise<void> {
-  await store.append(STREAM, {
-    type: 'gate.executed',
-    data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId } },
-  });
+  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId });
 }
 
 /** Record `capsule` as prepared, through the production commit. */
@@ -793,7 +794,9 @@ describe('settle — the verification a settled batch runs', () => {
     receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-gate-rows', claims: [passingClaim()] }),
     );
-    const evidence = await rowsOf('admission.evidence-recorded');
+    const evidence = (await rowsOf('admission.evidence-recorded')).filter(
+      (e) => (e.data as { evidence?: { requirementId?: string } }).evidence?.requirementId === 'verification-ladder:mock-boundary',
+    );
     const signals = (await rowsOf('gate.executed')).filter(
       (e) => (e.data as { gateName?: string }).gateName === 'mock-boundary',
     );

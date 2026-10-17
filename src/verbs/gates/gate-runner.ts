@@ -108,9 +108,9 @@ export const GATE_RUNNER_GATE_LAYER = 'verification-ladder';
 /**
  * Appends the `gate.executed` signal that `task_complete` reads, derived from the persisted
  * evidence record. Thus the proof and the signal agree. `passed` is true only for a `pass`
- * verdict. A task subject stamps `details.taskId`, and other subjects read as project-wide
- * gates. A skipped gate stamps the skip descriptor of its carrier in `details`. The idempotency
- * key derives from the evidence id, so a same-operation retry collapses onto one row.
+ * verdict. A task subject stamps `details.taskId`, and a row with no task completes no task.
+ * A skipped gate stamps the skip descriptor of its carrier in `details`. The idempotency key
+ * derives from the evidence id, so a same-operation retry collapses onto one row.
  */
 async function appendGateExecutedSignal(
   eventStore: Pick<EventStore, 'append' | 'query'>,

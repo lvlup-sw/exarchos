@@ -3,7 +3,7 @@
 import { foldToTail } from '../../projections/fold-at-tail.js';
 import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../../events/store.js';
-import { validateAgentEvent } from '../../events/schemas.js';
+import { GateExecutedData, validateAgentEvent, type GateExecuted } from '../../events/schemas.js';
 import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../../projections/views/tools.js';
 import { TASK_DETAIL_VIEW } from '../../projections/views/task-detail-view.js';
@@ -13,6 +13,8 @@ import type { WorkflowState } from '../../workflow/types.js';
 import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
+import { ladderRequirementId, readGateEvidenceRecords } from '../gates/durable-gate-producer.js';
+import { gateRunnerObservationSource } from '../gates/gate-runner.js';
 
 const CLAIM_BASE_DELAY_MS = 50;
 
@@ -211,13 +213,55 @@ const SYNC_SKIP_REASONS: Record<Extract<TaskStatusSyncOutcome, { kind: 'skipped'
   'tasks-not-found': 'task not found in state.tasks',
 };
 
+/** The gate class that `task_complete` requires for each task. */
+const STATIC_ANALYSIS_GATE = 'static-analysis';
+
 /**
- * Records `task.completed` when the static-analysis gate passed for the task.
+ * Whether the gate runner recorded a passing static-analysis verdict for the task.
+ * The function reads the latest `gate.executed` row with the runner source and the task at `details.taskId`.
+ * That row must pass. Its evidence id must resolve to a passing gate record of the ladder requirement for the same task.
+ * A row with no task id satisfies no task, and the function does not read a top-level `data.taskId`.
+ * A later failing run thus wins over an earlier pass.
+ */
+async function hasRunnerStaticAnalysisPass(
+  store: EventStore,
+  streamId: string,
+  taskId: string,
+): Promise<boolean> {
+  const runnerSource = gateRunnerObservationSource(STATIC_ANALYSIS_GATE);
+  const rows = await store.query(streamId, { type: 'gate.executed' });
+  let latest: { readonly sequence: number; readonly signal: GateExecuted } | undefined;
+  for (const row of rows) {
+    if (row.source !== runnerSource) continue;
+    const parsed = GateExecutedData.safeParse(row.data);
+    if (!parsed.success || parsed.data.gateName !== STATIC_ANALYSIS_GATE) continue;
+    if (parsed.data.details?.taskId !== taskId) continue;
+    if (latest === undefined || row.sequence > latest.sequence) {
+      latest = { sequence: row.sequence, signal: parsed.data };
+    }
+  }
+  if (latest === undefined || latest.signal.passed !== true) return false;
+
+  const evidenceId = latest.signal.details?.evidenceId;
+  if (typeof evidenceId !== 'string') return false;
+  const record = (await readGateEvidenceRecords(store, streamId)).get(evidenceId);
+  if (record === undefined) return false;
+  const { evidence } = record;
+  return (
+    evidence.requirementId === ladderRequirementId(STATIC_ANALYSIS_GATE) &&
+    evidence.subject.kind === 'task' &&
+    evidence.subject.taskId === taskId &&
+    evidence.verdict === 'pass'
+  );
+}
+
+/**
+ * Records `task.completed` when the gate runner recorded a passing static-analysis verdict for the task.
  * Caller evidence never satisfies a blocking gate. For an advisory gate, it needs passing output and an operator capability.
  * The transport puts that capability in the dispatch context, so the caller cannot assert it.
  *
- * The gate check reads only `gate.executed` events, which the gate runner writes from its evidence proof.
- * An event names its task at `data.taskId`, or else at `data.details.taskId`. A `data.details` with no task id marks a project-wide gate.
+ * The gate check reads the runner row for this task and the evidence record that the row cites.
+ * The generic append refuses `gate.executed`, so only a gate handler writes the row.
  * The task-completion runbook runs the tier-scaled kill probe before this step.
  *
  * The handler forwards `worktree` and `worktreePath` for the `mergePendingEntry` guard.
@@ -267,30 +311,21 @@ export async function handleTaskComplete(
     return hasOperatorCapability;
   };
 
-  const gateEvents = await store.query(streamId, { type: 'gate.executed' });
-
-  const hasPassingGate = (gateName: string): boolean =>
-    gateEvents.some((e) => {
-      const d = e.data as Record<string, unknown> | undefined;
-      if (!d) return false;
-      if (d.gateName !== gateName || d.passed !== true) return false;
-      if (typeof d.taskId === 'string') {
-        return d.taskId === args.taskId;
-      }
-      const details = d.details as Record<string, unknown> | undefined;
-      return details != null && (!details.taskId || details.taskId === args.taskId);
-    });
-
   const unmetGates: string[] = [];
-  if (!evidenceMaySatisfy('static-analysis') && !hasPassingGate('static-analysis')) {
-    unmetGates.push('static-analysis');
+  if (
+    !evidenceMaySatisfy(STATIC_ANALYSIS_GATE) &&
+    !(await hasRunnerStaticAnalysisPass(store, streamId, args.taskId))
+  ) {
+    unmetGates.push(STATIC_ANALYSIS_GATE);
   }
   if (unmetGates.length > 0) {
     return {
       success: false,
       error: {
         code: 'GATE_NOT_PASSED',
-        message: `Required gates not passed: ${unmetGates.join(', ')}. Run these checks first.`,
+        message:
+          `Required gates not passed: ${unmetGates.join(', ')}. Run exarchos_orchestrate ` +
+          `check_static_analysis with taskId '${args.taskId}' for this task, then call task_complete again.`,
         unmetGates,
       },
     };

@@ -6,6 +6,12 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Operator notes
 
+- **`task_complete` accepts only the static-analysis verdict that the gate runner recorded for that task.** This is a change of behavior. The handler reads the latest `gate.executed` row that the gate runner wrote for the task at `details.taskId`. That row must pass. The evidence record that the row cites must be a passing static-analysis record for the same task. A later failing run wins over an earlier pass.
+  - These rows no longer complete a task: a `gate.executed` row appended through `exarchos_event` (the generic append now refuses the type), a runner row with no task id (a run of `check_static_analysis` with no `taskId`), and a row that names its task only at the top-level `data.taskId`.
+  - A repository with no supported static-analysis toolchain cannot complete a task. A later change lets static analysis run configured commands.
+  - A config hook under `hooks.on['gate.executed']` no longer fires. Config hooks fire only after a generic append, and the generic append refuses the type.
+  - Recovery: run `exarchos_orchestrate check_static_analysis` with `taskId` for the task, then call `task_complete` again. The refusal `GATE_NOT_PASSED` names this step.
+
 - **The settlement vocabulary is a one-way upgrade, and the store schema stays V6.** This build gives three more settlement outcomes (`recompile-required`, `corrective-capsule`, `accepted-with-rationale`). A claim can carry a `status`, a `reason` and a `rationale`. The `execution.settled` row has two optional fields (`unresolvedTasks`, `rationales`). `SCHEMA_VERSION` stays 6, so no migration runs, and the store records no new version.
   - After this build settles a batch, a 2.12.x binary cannot read the settlement records of that workflow. It gives false refusals and `INTERNAL_ERROR` on them. Downgrade to 2.12.x is not supported.
   - This build replays and decides a batch that 2.12.x recorded, with one limit. The retry of a 2.12.x batch whose request repeated a deviation, or held more than sixteen deviations, does not replay its verdict. The decision of such a held batch still works.

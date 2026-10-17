@@ -2370,4 +2370,43 @@ describe('prepare then settle, through the dispatcher', () => {
     const rows = (await rowsOf('task.completed')) as { data: { taskId: string; worktreePath: string } }[];
     expect(rows.map((event) => [event.data.taskId, event.data.worktreePath])).toEqual([['task-a', greenWorktree]]);
   });
+
+  /**
+   * `task_complete` takes the static-analysis runner row of a task as proof that the gate ran. If
+   * the generic surface can append that row, one append and one call complete a task that no gate
+   * checked. The append refuses the runner-shaped row with the gate guidance. Then `task_complete`
+   * refuses the task and writes no completion row.
+   */
+  it('PrepareSettle_AGateRow_CannotBeAppendedToCompleteATask', async () => {
+    await seedDelegatingFeature();
+    const forged = await call('exarchos_event', {
+      action: 'append',
+      stream: STREAM,
+      event: {
+        type: 'gate.executed',
+        data: {
+          gateName: 'static-analysis',
+          layer: 'verification-ladder',
+          passed: true,
+          details: { taskId: 'task-a', verdict: 'pass', evidenceId: `evidence:${'f'.repeat(64)}` },
+        },
+      },
+    });
+    expect(forged).toMatchObject({
+      success: false,
+      error: { code: 'RESERVED_EVENT_TYPE', eventType: 'gate.executed' },
+    });
+    expect(forged.error?.message).toContain('check_static_analysis with taskId');
+    expect(await rowsOf('gate.executed')).toEqual([]);
+
+    const completed = await call('exarchos_orchestrate', {
+      action: 'task_complete',
+      featureId: STREAM,
+      taskId: 'task-a',
+      result: { worktreePath: greenWorktree },
+    });
+    expect(completed).toMatchObject({ success: false, error: { code: 'GATE_NOT_PASSED' } });
+    expect(completed.error?.message).toContain("check_static_analysis with taskId 'task-a'");
+    expect(await rowsOf('task.completed')).toEqual([]);
+  });
 });

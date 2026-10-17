@@ -19,6 +19,7 @@ import { EventStore } from '../../../src/events/store.js';
 import { handleTaskComplete, isBlockingGate, resetModuleEventStore } from '../../../src/verbs/tasks/tools.js';
 import { resetMaterializerCache } from '../../../src/projections/views/tools.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { seedStaticAnalysisVerdict } from '../../helpers/static-analysis-verdict.js';
 import { runAsTrustedCaller } from '../../../tools/test-helpers/trusted-context.js';
 import {
   deriveMcpCallerIdentity,
@@ -168,20 +169,12 @@ describe('DR-2: caller-supplied evidence cannot satisfy a blocking gate', () => 
 
 describe('DR-2: evidence as PROVENANCE RECORD is preserved', () => {
   /**
-   * When a passing `gate.executed` event satisfies the gate, the handler copies the caller
-   * evidence to `task.completed` unchanged and sets `verified` to `true`.
+   * When a passing runner verdict satisfies the gate, the handler copies the caller evidence to
+   * `task.completed` unchanged and sets `verified` to `true`.
    */
   it('TaskComplete_EvidenceWithPassingGate_StillRecordedAsProvenance', async () => {
     const store = await seededStore('dr2-record', 'T-01');
-    await store.append('dr2-record', {
-      type: 'gate.executed',
-      data: {
-        gateName: 'static-analysis',
-        layer: 'quality',
-        passed: true,
-        details: { taskId: 'T-01' },
-      },
-    });
+    await seedStaticAnalysisVerdict(store, { streamId: 'dr2-record', taskId: 'T-01', stateDir: tempDir });
 
     const evidence = { type: 'test' as const, output: '5727 tests passed', passed: true };
     const result = await handleTaskComplete(
@@ -201,15 +194,7 @@ describe('DR-2: evidence as PROVENANCE RECORD is preserved', () => {
   /** With no evidence, the event holds an explicit `verified: false`, not an absent field. */
   it('TaskComplete_NoEvidenceWithPassingGate_RecordsVerifiedFalse', async () => {
     const store = await seededStore('dr2-unverified', 'T-01');
-    await store.append('dr2-unverified', {
-      type: 'gate.executed',
-      data: {
-        gateName: 'static-analysis',
-        layer: 'quality',
-        passed: true,
-        details: { taskId: 'T-01' },
-      },
-    });
+    await seedStaticAnalysisVerdict(store, { streamId: 'dr2-unverified', taskId: 'T-01', stateDir: tempDir });
 
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'dr2-unverified' },

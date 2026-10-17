@@ -13,6 +13,7 @@ import {
   resetMaterializerCache,
 } from '../../../src/projections/views/tools.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { seedStaticAnalysisVerdict } from '../../helpers/static-analysis-verdict.js';
 
 let tempDir: string;
 let store: EventStore;
@@ -160,7 +161,7 @@ describe('handleTaskClaim', () => {
 });
 
 /**
- * `handleTaskComplete` needs a passing `static-analysis` gate event, so each success test seeds one.
+ * `handleTaskComplete` needs a passing static-analysis runner verdict, so each success test seeds one.
  * The handler does not read the `tdd-compliance` event that those tests also seed.
  */
 describe('handleTaskComplete', () => {
@@ -169,10 +170,7 @@ describe('handleTaskComplete', () => {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
     });
-    await store.append('wf-001', {
-      type: 'gate.executed',
-      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
-    });
+    await seedStaticAnalysisVerdict(store, { streamId: 'wf-001', taskId: 't1', stateDir: tempDir });
 
     const result = await handleTaskComplete(
       {
@@ -202,10 +200,7 @@ describe('handleTaskComplete', () => {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
     });
-    await store.append('wf-001', {
-      type: 'gate.executed',
-      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
-    });
+    await seedStaticAnalysisVerdict(store, { streamId: 'wf-001', taskId: 't1', stateDir: tempDir });
 
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },
@@ -253,10 +248,7 @@ describe('handleTaskComplete', () => {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
     });
-    await store.append('wf-002', {
-      type: 'gate.executed',
-      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
-    });
+    await seedStaticAnalysisVerdict(store, { streamId: 'wf-002', taskId: 't1', stateDir: tempDir });
 
     const result = await handleTaskComplete(
       {
@@ -286,10 +278,7 @@ describe('handleTaskComplete', () => {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't1' } },
     });
-    await store.append('wf-001', {
-      type: 'gate.executed',
-      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId: 't1' } },
-    });
+    await seedStaticAnalysisVerdict(store, { streamId: 'wf-001', taskId: 't1', stateDir: tempDir });
 
     const result = await handleTaskComplete(
       { taskId: 't1', streamId: 'wf-001' },

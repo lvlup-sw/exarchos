@@ -39,6 +39,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
+import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settlement-parity';
 const TASK_IDS = ['task-one', 'task-two'] as const;
@@ -146,17 +147,14 @@ let settleStore: EventStore;
 async function seed(dir: string, store: EventStore): Promise<void> {
   const tasks = TASK_IDS.map((id) => ({ id, title: id, status: 'in_progress', blockedBy: [], ...STAMP }));
   await initStateFile(dir, STREAM, 'feature', { phase: 'delegate', tasks });
-  await seedActivePhaseAttempt(store, STREAM);
+  const phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
   await store.append(STREAM, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
   await store.append(STREAM, {
     type: 'state.patched',
     data: { patch: { 'synthesis.integrationBranch': INTEGRATION_BRANCH, tasks } },
   });
   for (const taskId of TASK_IDS) {
-    await store.append(STREAM, {
-      type: 'gate.executed',
-      data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId } },
-    });
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir: dir, phaseAttemptId });
   }
 }
 
