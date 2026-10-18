@@ -59,8 +59,9 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - Such a skip does not fail the gate. When the other checks pass, the result has `passed: true`, `degraded: true`, and `advisorySkips` with the cause. The evidence verdict is `pass`.
   - A repository without a `.dependency-cruiser.*` config sees no change.
   - The runner of the static-analysis checks accepts 64 MiB of output, not 1 MiB. Before this change, a check with more output than 1 MiB failed. Now it gives its real verdict.
-  - The boundary-parse taint check reads a run that a signal stopped as a skip, not as a FAIL.
-  - Recovery: when the report shows a degraded boundary skip, read its cause. Set `ownership.firstParty` when the sources are not under `src/`.
+  - The boundary-parse taint check gives a skip, not a FAIL, when `semgrep` does not start (`ENOENT`), when its output passes the runner limit (`ENOBUFS`), or when a signal stops it. Before this change, the runner gave exit 1 for these runs, and the check read exit 1 as a finding.
+  - A taint skip of a repository with a `.semgrep/no-raw-io-into-core.yml` ruleset is now visible, as for the boundary check. The report lists it with its cause, and the result line says `degraded`. Before this change, an engine error such as exit 2 was a skip that the report did not show.
+  - Recovery: when the report shows a degraded skip, read its cause. Install `semgrep` when the taint check did not start. Set `ownership.firstParty` when the sources are not under `src/`.
 
 - **The settlement vocabulary is a one-way upgrade, and the store schema stays V6.** This build gives three more settlement outcomes (`recompile-required`, `corrective-capsule`, `accepted-with-rationale`). A claim can carry a `status`, a `reason` and a `rationale`. The `execution.settled` row has two optional fields (`unresolvedTasks`, `rationales`). `SCHEMA_VERSION` stays 6, so no migration runs, and the store records no new version.
   - After this build settles a batch, a 2.12.x binary cannot read the settlement records of that workflow. It gives false refusals and `INTERNAL_ERROR` on them. Downgrade to 2.12.x is not supported.

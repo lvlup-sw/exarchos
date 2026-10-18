@@ -896,12 +896,16 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
   });
 });
 
+/** Runs the semgrep arguments through the production runner with a command name that is on no PATH. */
+const missingSemgrepRunner: RunCommandFn = (_cmd, args, options) =>
+  execCommandRunner('exarchos-no-such-semgrep-for-this-test', args, options);
+
 /**
  * Runs the real `runRawIoTaint` and `runStaticAnalysis` against temp fixtures on disk with an injected
  * runner. The taint check is a dataflow rule that dependency-cruiser cannot express, so it runs Semgrep.
- * The leg runs only when the repo commits `.semgrep/no-raw-io-into-core.yml`. A missing ruleset, an
- * absent engine, or an engine error gives an advisory SKIP, not a FAIL. The exit code of the runner
- * decides the verdict, so the fixture ruleset only has to exist on disk.
+ * The leg runs only when the repo commits `.semgrep/no-raw-io-into-core.yml`. A missing ruleset gives a
+ * silent SKIP. An absent engine or an engine error gives a degraded SKIP that the report lists, not a
+ * FAIL. The exit code of the runner decides the verdict, so the fixture ruleset only has to exist on disk.
  */
 describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', () => {
   let tmpDir: string;
@@ -1018,6 +1022,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('SKIP');
+    expect(result.degraded).toBeUndefined();
     expect((runner as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 
@@ -1031,6 +1036,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('SKIP');
+    expect(result.degraded).toBe(true);
     expect(result.detail ?? '').toContain('not available');
   });
 
@@ -1050,6 +1056,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('SKIP');
+    expect(result.degraded).toBe(true);
     expect(result.detail ?? '').toContain('invalid rule schema');
   });
 
@@ -1070,6 +1077,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('SKIP');
+    expect(result.degraded).toBe(true);
     expect(result.detail ?? '').toContain('stopped by SIGKILL');
   });
 
@@ -1082,6 +1090,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('SKIP');
+    expect(result.degraded).toBe(true);
     expect(result.detail ?? '').toMatch(/inconclusive \(exit 2\)/);
   });
 
@@ -1102,7 +1111,48 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('SKIP');
+    expect(result.degraded).toBe(true);
     expect(result.detail ?? '').toContain('ENOENT');
+  });
+
+  /**
+   * The production runner gives exit 1, `SIGTERM` and `ENOBUFS` for output past its limit. The runner
+   * error takes precedence over exit 1, so the leg skips and names the limit.
+   */
+  it('RawIoTaint_OutputPastTheRunnerLimit_DegradedSkipNotFail', () => {
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({
+      exitCode: 1,
+      stdout: 'x',
+      stderr: '',
+      signal: 'SIGTERM',
+      spawnError: 'ENOBUFS',
+    }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result).toEqual({
+      status: 'SKIP',
+      degraded: true,
+      detail: 'semgrep output passed the output limit of the runner (ENOBUFS)',
+    });
+  });
+
+  /**
+   * An engine that is not on the PATH goes through the production runner, which gives exit 1 and
+   * `ENOENT`. Exit 1 alone is a finding, so the leg reads the runner error first and skips.
+   */
+  it('RawIoTaint_MissingEngineThroughTheProductionRunner_DegradedSkipNotFail', () => {
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const result = runRawIoTaint({ repoRoot, runCommand: missingSemgrepRunner });
+
+    expect(result).toEqual({
+      status: 'SKIP',
+      degraded: true,
+      detail: 'semgrep gave no verdict: the runner reported ENOENT',
+    });
   });
 
   /**
@@ -1128,6 +1178,39 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     expect(result.output).toContain('Boundary IO taint');
     const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.some((c: unknown[]) => c[0] === 'semgrep')).toBe(true);
+  });
+
+  /**
+   * A taint engine that did not start stays visible. The report lists the skip and marks the result
+   * degraded, and the status stays `pass`, so the gate does not fail on an infra fault.
+   */
+  it('StaticAnalysis_TaintEngineDidNotStart_PassesWithAVisibleDegradedSkip', () => {
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({
+        name: 'fixture',
+        scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'npm run qc' },
+      }),
+      'utf-8',
+    );
+
+    const runner: RunCommandFn = (cmd, args, options) =>
+      cmd === 'semgrep' ? missingSemgrepRunner(cmd, args, options) : { exitCode: 0, stdout: '', stderr: '' };
+
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner });
+
+    expect(result.status).toBe('pass');
+    expect(result.passCount).toBe(3);
+    expect(result.advisorySkips).toEqual([
+      { name: 'Boundary IO taint', detail: 'semgrep gave no verdict: the runner reported ENOENT' },
+    ]);
+    expect(result.output).toContain(
+      '- **SKIP**: Boundary IO taint — semgrep gave no verdict: the runner reported ENOENT',
+    );
+    expect(result.output).toContain(
+      '**Result: PASS** (3/3 checks passed, degraded: 1 advisory check gave no verdict)',
+    );
   });
 });
 

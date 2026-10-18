@@ -430,6 +430,24 @@ export interface RawIoTaintResult {
   readonly status: 'PASS' | 'FAIL' | 'SKIP';
   /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
   readonly detail?: string;
+  /**
+   * True on a `SKIP` when the repository has a ruleset but the engine gave no
+   * verdict. The report lists such a skip and marks the result degraded. A
+   * `SKIP` without it means that the repository has no ruleset.
+   */
+  readonly degraded?: boolean;
+}
+
+/** A degraded `SKIP` of the taint leg, with the cause in its detail. */
+function taintNoVerdict(detail: string): RawIoTaintResult {
+  return { status: 'SKIP', degraded: true, detail };
+}
+
+/** Names the runner error of a semgrep run. ENOBUFS gets its own text, because the engine did start. */
+function taintSpawnErrorDetail(spawnError: string): string {
+  const code = spawnError.trim();
+  if (code === 'ENOBUFS') return 'semgrep output passed the output limit of the runner (ENOBUFS)';
+  return code.length > 0 ? `semgrep gave no verdict: the runner reported ${code}` : 'semgrep not available';
 }
 
 /**
@@ -457,8 +475,9 @@ function findTaintRuleset(repoRoot: string): string | null {
  * core. Import rules cannot see value flow, so this leg uses a dataflow engine.
  * - No ruleset: `SKIP`, and the engine does not run.
  * - Exit 0: `PASS`. Exit 1: `FAIL`, with the findings in `detail`.
- * - A throw, a `spawnError`, a `signal`, or any other exit code: `SKIP`. An
- *   engine error or a killed process is not evidence of a violation.
+ * - A throw, a `spawnError`, a `signal`, or any other exit code: a degraded
+ *   `SKIP` that names the cause. An engine that did not start or did not
+ *   finish is not evidence of a violation.
  */
 export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
   const { repoRoot, runCommand, coreSources = ['.'] } = input;
@@ -478,19 +497,17 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
       ['--error', '--quiet', '--config', ruleset, ...coreSources],
       { cwd: repoRoot },
     );
-  } catch {
-    return { status: 'SKIP', detail: 'semgrep not available' };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return taintNoVerdict(`semgrep not available (${message})`);
   }
 
   if (result.spawnError) {
-    return {
-      status: 'SKIP',
-      detail: result.spawnError.trim() || 'semgrep not available',
-    };
+    return taintNoVerdict(taintSpawnErrorDetail(result.spawnError));
   }
 
   if (result.signal) {
-    return { status: 'SKIP', detail: `semgrep was stopped by ${result.signal}` };
+    return taintNoVerdict(`semgrep was stopped by ${result.signal}`);
   }
 
   if (result.exitCode === 0) {
@@ -498,10 +515,9 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
   }
 
   if (result.exitCode !== 1) {
-    return {
-      status: 'SKIP',
-      detail: result.stderr.trim() || `semgrep inconclusive (exit ${result.exitCode})`,
-    };
+    return taintNoVerdict(
+      result.stderr.trim() || `semgrep inconclusive (exit ${result.exitCode})`,
+    );
   }
 
   const detail =
@@ -784,8 +800,8 @@ function advisorySkipNote(advisorySkips: readonly AdvisorySkip[]): string {
 /**
  * Runs the checks for the detected project type and builds the report. The
  * boundary-lint and taint legs join the checks only when they do not give
- * `SKIP`, so a repo without their config sees no change. A degraded boundary
- * `SKIP` goes to `advisorySkips`: the report lists it and marks the result
+ * `SKIP`, so a repo without their config sees no change. A degraded `SKIP` of
+ * either leg goes to `advisorySkips`: the report lists it and marks the result
  * degraded, and the status does not change. A skipped check counts as a
  * result. The precedence is FAIL, then DEGRADED (`skip`), then PASS, so PASS
  * needs every check to run and pass.
@@ -894,6 +910,11 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
       name: BOUNDARY_TAINT_NAME,
       status: taint.status,
       ...(taint.detail ? { detail: taint.detail } : {}),
+    });
+  } else if (taint.degraded === true) {
+    advisorySkips.push({
+      name: BOUNDARY_TAINT_NAME,
+      detail: taint.detail ?? 'semgrep gave no verdict',
     });
   }
 

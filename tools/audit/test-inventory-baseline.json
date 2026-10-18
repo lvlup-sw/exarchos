@@ -7,7 +7,7 @@
     "testFiles": 1324,
     "parsedFiles": 1278,
     "shellFiles": 46,
-    "cases": 14900,
+    "cases": 14903,
     "dynamicTitles": 172,
     "unparseableFiles": 0
   },
@@ -58350,7 +58350,22 @@
         },
         {
           "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "RawIoTaint_OutputPastTheRunnerLimit_DegradedSkipNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "RawIoTaint_MissingEngineThroughTheProductionRunner_DegradedSkipNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
           "name": "StaticAnalysis_TaintRulesetPresent_FoldsLegIntoFullReport",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "StaticAnalysis_TaintEngineDidNotStart_PassesWithAVisibleDegradedSkip",
           "dynamic": false
         },
         {
