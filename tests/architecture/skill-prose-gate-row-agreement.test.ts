@@ -3,6 +3,7 @@
  * expectation row of the gate for its phase. The outcome table of the delegate skill names each
  * settlement outcome, which outcomes verify, and the next call of each, as the outcome rules state.
  * Each passage that binds the template variables of a completion runbook binds each variable of its static-analysis step.
+ * Each passage that tells the reader to run the kill probe binds the task tree, as the probe step of the completion runbook does.
  *
  * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts, ../../content/synthesis/skills/synthesize/SKILL.md, ../../src/verbs/settle/adjudicate.ts
  *
@@ -39,13 +40,15 @@ interface ProseSite {
    * `outcome-table`: the delegate skill's outcome table, one row per settlement outcome, compared with the outcome rules.
    * `runbook-binding`: the one line that tells the reader to bind the template variables of `check_static_analysis`,
    * compared with the static-analysis step of `runbook`.
+   * `probe-call`: the one passage that tells the reader to run `check_test_adequacy`, compared with the tree binding of
+   * the probe step of `runbook`.
    */
-  readonly shape: 'line' | 'table' | 'outcome-table' | 'runbook-binding';
-  /** The completion runbook whose static-analysis step a `runbook-binding` passage binds. */
+  readonly shape: 'line' | 'table' | 'outcome-table' | 'runbook-binding' | 'probe-call';
+  /** The completion runbook whose gate step a `runbook-binding` or a `probe-call` passage binds. */
   readonly runbook?: RunbookDefinition;
 }
 
-/** Every skill passage that claims to name what the gate checks, or how to bind the gate of a completion runbook. */
+/** Every skill passage that claims to name what the gate checks, or how to bind a gate of a completion runbook. */
 const SITES: readonly ProseSite[] = [
   { skill: 'content/synthesis/skills/synthesize/SKILL.md', phase: 'synthesize', shape: 'line' },
   { skill: 'content/delivery/skills/delegate/SKILL.md', phase: 'delegate', shape: 'table' },
@@ -56,6 +59,13 @@ const SITES: readonly ProseSite[] = [
     phase: 'delegate',
     shape: 'runbook-binding',
     runbook: TASK_FIX,
+  },
+  { skill: 'content/review/skills/review/SKILL.md', phase: 'review', shape: 'probe-call', runbook: TASK_COMPLETION },
+  {
+    skill: 'content/review/skills/review/references/spec-compliance-checklist.md',
+    phase: 'review',
+    shape: 'probe-call',
+    runbook: TASK_COMPLETION,
   },
 ];
 
@@ -205,6 +215,62 @@ function runbookBindingDisagreements(markdown: string, runbook: RunbookDefinitio
     .map((variable) => `the passage does not bind \`${variable}\`, which the check_static_analysis step of ${runbook.id} binds`);
 }
 
+/** The two params that `resolveRepoRoot` reads to run a gate in the task worktree. */
+const TREE_BINDING_KEYS: readonly ['repoRoot', 'worktreePath'] = ['repoRoot', 'worktreePath'];
+
+/** A prose line that tells the reader to run the kill probe. */
+const PROBE_CALL_LINE = /^Run `check_test_adequacy`/;
+
+/** A line that opens or closes a fenced block. */
+const FENCE = /^\s*```/;
+
+/**
+ * The passages that call the kill probe. A passage is a fenced block that holds a `check_test_adequacy` call, or a
+ * prose line outside a block that tells the reader to run `check_test_adequacy`.
+ */
+function probeCallPassages(markdown: string): readonly string[] {
+  const passages: string[] = [];
+  let block: string[] | undefined;
+  for (const line of markdown.split('\n')) {
+    if (FENCE.test(line)) {
+      if (block === undefined) {
+        block = [];
+        continue;
+      }
+      const text = block.join('\n');
+      if (text.includes('action: "check_test_adequacy"')) passages.push(text);
+      block = undefined;
+      continue;
+    }
+    if (block !== undefined) block.push(line);
+    else if (PROBE_CALL_LINE.test(line)) passages.push(line);
+  }
+  return passages;
+}
+
+/**
+ * How the probe-call passage disagrees with the probe step of its runbook. The passage must pass each tree-binding
+ * param with the value that the step binds. Then the probe reverts the task tree and not the directory of the server.
+ */
+function probeCallDisagreements(markdown: string, runbook: RunbookDefinition | undefined): readonly string[] {
+  if (runbook === undefined) return ['the site names no runbook'];
+  const step = runbook.steps.find((candidate) => candidate.action === 'check_test_adequacy');
+  const bindings = TREE_BINDING_KEYS.map((key) => ({ key, value: step?.params?.[key] }));
+  const missing = bindings.filter(({ value }) => typeof value !== 'string');
+  if (missing.length > 0) {
+    return missing.map(({ key }) => `the check_test_adequacy step of ${runbook.id} binds no ${key}`);
+  }
+  const passages = probeCallPassages(markdown);
+  if (passages.length !== 1) {
+    return [`expected exactly one passage that calls \`check_test_adequacy\`, found ${passages.length}`];
+  }
+  const passage = passages[0] ?? '';
+  return bindings
+    .map(({ key, value }) => `${key}: "${String(value)}"`)
+    .filter((binding) => !passage.includes(binding))
+    .map((binding) => `the passage does not pass \`${binding}\`, which the check_test_adequacy step of ${runbook.id} binds`);
+}
+
 /**
  * Pure comparator, so the live sites and a seeded disagreement go through the
  * same judge. Both directions are named: prose that over-claims and prose that
@@ -218,6 +284,7 @@ function disagreements(
 ): readonly string[] {
   if (shape === 'outcome-table') return outcomeTableDisagreements(markdown);
   if (shape === 'runbook-binding') return runbookBindingDisagreements(markdown, runbook);
+  if (shape === 'probe-call') return probeCallDisagreements(markdown, runbook);
   const read = checkedTypesIn(markdown, shape);
   if ('problem' in read) return [read.problem];
   const rows = PHASE_EVENT_CONTRACTS[phase]?.expects ?? [];
@@ -381,6 +448,45 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
         .join('\n');
       expect(disagreements(silent, site.phase, site.shape, site.runbook), site.skill).toEqual([
         'expected exactly one line that binds the variables of `check_static_analysis`, found 0',
+      ]);
+    }
+  });
+
+  /**
+   * Each probe-call passage gets three seeded defects. One runs the probe in the directory of the server, one renames
+   * the worktree field, and one drops the passage. The judge names each one, so a passage that stops binding the task
+   * tree turns this test red.
+   */
+  it('SkillProse_SeededProbeCallDisagreement_NamesTheUnboundField', () => {
+    const sites = SITES.filter((s) => s.shape === 'probe-call');
+    expect(sites.map((s) => s.skill)).toEqual([
+      'content/review/skills/review/SKILL.md',
+      'content/review/skills/review/references/spec-compliance-checklist.md',
+    ]);
+    for (const site of sites) {
+      expect(site.runbook, site.skill).toBeDefined();
+      if (site.runbook === undefined) continue;
+      const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
+      expect(disagreements(markdown, site.phase, site.shape, site.runbook), site.skill).toEqual([]);
+
+      const serverDirectory = markdown.replaceAll('repoRoot: "auto"', 'repoRoot: "."');
+      expect(serverDirectory, site.skill).not.toBe(markdown);
+      expect(disagreements(serverDirectory, site.phase, site.shape, site.runbook), site.skill).toEqual([
+        `the passage does not pass \`repoRoot: "auto"\`, which the check_test_adequacy step of ${site.runbook.id} binds`,
+      ]);
+
+      const renamed = markdown.replaceAll('worktreePath: "<worktreePath>"', 'path: "<worktreePath>"');
+      expect(renamed, site.skill).not.toBe(markdown);
+      expect(disagreements(renamed, site.phase, site.shape, site.runbook), site.skill).toEqual([
+        `the passage does not pass \`worktreePath: "<worktreePath>"\`, which the check_test_adequacy step of ${site.runbook.id} binds`,
+      ]);
+
+      const silent = markdown
+        .replace('action: "check_test_adequacy"', 'action: "check_static_analysis"')
+        .replace(/^Run `check_test_adequacy`/m, 'Run the probe');
+      expect(silent, site.skill).not.toBe(markdown);
+      expect(disagreements(silent, site.phase, site.shape, site.runbook), site.skill).toEqual([
+        'expected exactly one passage that calls `check_test_adequacy`, found 0',
       ]);
     }
   });

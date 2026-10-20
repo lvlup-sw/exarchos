@@ -4,8 +4,17 @@ import { z } from 'zod';
 import { declared, none, withActionContract } from '../action-contract.js';
 import { LOCAL_MUTATION, READ_ONLY_LOCAL } from '../annotations.js';
 import { makeEventDescribeAction } from '../describe-actions.js';
+import { RESERVED_EVENT_APPEND_REGISTRY } from '../gate-metadata.js';
 import { ALL_PHASES, DELEGATE_PHASES, ROLE_ANY, ROLE_LEAD } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
+
+/**
+ * The requires text of a generic append. It names each type of the reserved append registry, so the published
+ * contract changes when the registry changes.
+ */
+function genericAppendRequires(admits: string): string {
+  return `${admits}. It refuses each reserved type: ${[...RESERVED_EVENT_APPEND_REGISTRY.keys()].join(', ')}`;
+}
 
 /** The actions of the `exarchos_event` composite tool. */
 export const eventActions: readonly BuiltinToolAction[] = [
@@ -28,7 +37,7 @@ export const eventActions: readonly BuiltinToolAction[] = [
       annotations: LOCAL_MUTATION,
     },
     {
-      requires: none('append admits any catalog event; callers supply type and payload'),
+      requires: none(genericAppendRequires('append admits a catalog event whose type and payload the caller supplies')),
       ensures: none('the appended event type is caller-supplied rather than a fixed postcondition'),
       needs: none('append writes through the in-process event store'),
       touches: {
@@ -85,7 +94,9 @@ export const eventActions: readonly BuiltinToolAction[] = [
       annotations: LOCAL_MUTATION,
     },
     {
-      requires: none('batch_append admits a caller-supplied event list with no extra gate'),
+      requires: none(
+        genericAppendRequires('batch_append admits a caller-supplied event list, and a list with one refused element appends nothing'),
+      ),
       ensures: none('appended event types are caller-supplied rather than a fixed postcondition'),
       needs: none('batch_append writes through the in-process event store'),
       touches: {

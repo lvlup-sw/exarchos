@@ -34,7 +34,7 @@ exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "gate.e
 // rows with gateName "test-adequacy": details.taskId, passed, details.verdict
 ```
 
-Run `check_test_adequacy` yourself only for a task with no recorded verdict, and pass `baseBranch` (the branch the task forked from); without it the gate blocks with `base-missing`.
+Run `check_test_adequacy` yourself only for a task with no recorded verdict. Pass `repoRoot: "auto"` and `worktreePath: "<worktreePath>"` (the worktree of the task), so the probe reverts and restores the task tree and not your checkout. Also pass `baseBranch` (the branch the task forked from). Without it the gate blocks with `base-missing`.
 
 ## Manual Checks
 
