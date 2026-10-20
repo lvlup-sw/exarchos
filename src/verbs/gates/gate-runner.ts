@@ -100,6 +100,14 @@ export function gateRunnerObservationSource(gateClass: string): string {
 }
 
 /**
+ * The idempotency key of the runner signal that cites one evidence record.
+ * The store keeps one row for each key in a stream. `task_complete` reads only a row with this key, so a keyless copy proves nothing.
+ */
+export function gateSignalIdempotencyKey(evidenceId: string): string {
+  return `gate.executed:${evidenceId}`;
+}
+
+/**
  * Layer stamped on runner-owned `gate.executed` rows. It names the verification ladder, not a
  * phase, because a ladder gate runs in the phase of its caller.
  */
@@ -146,7 +154,7 @@ async function appendGateExecutedSignal(
         },
       },
     },
-    { idempotencyKey: `gate.executed:${evidence.evidenceId}` },
+    { idempotencyKey: gateSignalIdempotencyKey(evidence.evidenceId) },
   );
 }
 

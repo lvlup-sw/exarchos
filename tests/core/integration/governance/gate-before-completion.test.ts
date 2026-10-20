@@ -24,8 +24,12 @@ import {
   type DispatchObservation,
 } from '../_harness.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
+import { AdmissionEvidenceRecordedData, type WorkflowEvent } from '../../../../src/events/schemas.js';
+import { EventStore } from '../../../../src/events/store.js';
+import type { EvidenceSubjectV1 } from '../../../../src/workflow/admission/types.js';
 import { initStateFile, readStateFile, writeStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 type Rec = Record<string, unknown>;
 
@@ -84,6 +88,18 @@ async function gateSignalsFor(taskId: string): Promise<readonly Rec[]> {
     .filter((e) => e.type === 'gate.executed')
     .map((e): Rec => ({ ...(e.data as Rec), __source: e.source }))
     .filter((d) => ((d.details as Rec | undefined)?.taskId ?? null) === taskId);
+}
+
+/** The subject of the first evidence record in the rows whose subject is the task, or undefined when none exists. */
+function taskSubjectIn(rows: readonly WorkflowEvent[], taskId: string): EvidenceSubjectV1 | undefined {
+  for (const row of rows) {
+    if (row.type !== 'admission.evidence-recorded') continue;
+    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+    if (!parsed.success) continue;
+    const { subject } = parsed.data.evidence;
+    if (subject.kind === 'task' && subject.taskId === taskId) return subject;
+  }
+  return undefined;
 }
 
 /**
@@ -327,6 +343,36 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
       expect(completed.errorCode, runbookId).toBeUndefined();
       expect(completed.result?.success, runbookId).toBe(true);
       expect((completed.result?.data as Rec | undefined)?.type, runbookId).toBe('task.completed');
+    }
+  }, 400_000);
+
+  /**
+   * The static-analysis seed of the reader tests writes the subject that a real run writes.
+   * The real gate runs for a task with the default base, and the seed runs for the same task on a scratch store.
+   * The two subjects are equal, so the evidence id and the chain of a seeded record follow a real run.
+   */
+  it('Governance_StaticAnalysisSeed_WritesTheSubjectOfARealRun', async () => {
+    const repo = await makeNodeFixture({ lint: OK, typecheck: OK, 'quality-check': OK });
+    const taskId = 'T-seed-subject';
+    const gate = await harness.runAction(
+      'exarchos_orchestrate',
+      'check_static_analysis',
+      { featureId: FEATURE_ID, taskId, repoRoot: repo },
+      { timeoutMs: 180_000 },
+    );
+    expect(payload(gate).passed).toBe(true);
+    const real = taskSubjectIn(await harness.events(FEATURE_ID), taskId);
+    expect(real).toBeDefined();
+
+    const scratchDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-t2-seed-')));
+    scratchDirs.push(scratchDir);
+    const scratch = new EventStore(scratchDir);
+    await scratch.initialize();
+    try {
+      await seedStaticAnalysisVerdict(scratch, { streamId: FEATURE_ID, taskId, stateDir: scratchDir });
+      expect(taskSubjectIn(await scratch.query(FEATURE_ID), taskId)).toEqual(real);
+    } finally {
+      scratch.close();
     }
   }, 400_000);
 

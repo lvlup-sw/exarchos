@@ -31,6 +31,12 @@ export interface DurableGateScope {
   readonly eventStore: EventStore;
 }
 
+/** The fields of a gate scope that select the evidence subject of a run. */
+export type GateSubjectScope = Pick<
+  DurableGateScope,
+  'gateClass' | 'featureId' | 'taskId' | 'branch' | 'baseRef' | 'repoRoot'
+>;
+
 /**
  * The requirement id under which a ladder gate records its evidence.
  * It is exported so that a reader of a cited gate class, such as settlement, uses the same spelling as the producer.
@@ -43,6 +49,7 @@ export function ladderRequirementId(gateClass: string): string {
  * The gate evidence records of one stream, keyed by evidence id.
  * A row that fails the evidence schema, or that is not a gate record, is not in the map.
  * Settlement and `task_complete` read gate evidence through this function, so the two readers parse the rows in one way.
+ * The function selects nothing. Superseded and failing records stay in the map, and each reader applies its own rule.
  */
 export async function readGateEvidenceRecords(
   eventStore: Pick<EventStore, 'query'>,
@@ -75,7 +82,7 @@ async function activePhaseAttemptId(
   return resolveActivePhaseAttemptId(featureId, resolved.state);
 }
 
-function fallbackArtifactId(scope: DurableGateScope, phaseAttemptId: string): string {
+function fallbackArtifactId(scope: GateSubjectScope, phaseAttemptId: string): string {
   const digest = createHash('sha256')
     .update(
       [
@@ -94,9 +101,11 @@ function fallbackArtifactId(scope: DurableGateScope, phaseAttemptId: string): st
  * Selects the immutable proof target. A run with a `taskId` binds to a task subject.
  * Other runs bind to the `HEAD` commit. When `HEAD` does not resolve, they bind to an artifact target.
  * Mutable workflow state is not a commit, so the producer never uses it as one.
+ *
+ * @internal Exported so that the static-analysis seed of the tests derives its subject here.
  */
-function selectSubject(
-  scope: DurableGateScope,
+export function selectSubject(
+  scope: GateSubjectScope,
   phaseAttemptId: string,
 ): EvidenceSubjectV1 {
   const target = {

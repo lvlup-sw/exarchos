@@ -44,6 +44,7 @@ import {
 } from '../../../../src/events/bundle/digest-references.js';
 import { EventStore } from '../../../../src/events/store.js';
 import {
+  AdmissionEvidenceRecordedData,
   DesignRevisedData,
   DeviationDecidedData,
   DeviationProposedData,
@@ -68,7 +69,7 @@ import {
   type ExecuteIntentDeps,
   type LeafHandler,
 } from '../../../../src/verbs/execute/executor.js';
-import { ladderRequirementId } from '../../../../src/verbs/gates/durable-gate-producer.js';
+import { ladderRequirementId, readGateEvidenceRecords } from '../../../../src/verbs/gates/durable-gate-producer.js';
 import { builtInWorkflowAuthority } from '../../../../src/verbs/prepare/built-in-authority.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
@@ -196,6 +197,28 @@ function executeDeps(overrides: Readonly<Record<string, LeafHandler>> = {}): Exe
  */
 async function seedPassingStaticAnalysis(taskId: string): Promise<void> {
   await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId });
+}
+
+/**
+ * Records a later failing run of one gate record. The new row has a new evidence id and supersedes `supersededId`.
+ * The gate runner chains a later run of one subject in the same way. Returns the new evidence id.
+ */
+async function seedSupersedingFailure(supersededId: string): Promise<string> {
+  const superseded = (await readGateEvidenceRecords(store, STREAM)).get(supersededId);
+  if (superseded === undefined) throw new Error(`no gate record ${supersededId}`);
+  const evidenceId = `${supersededId}.later`;
+  const createdAt = new Date().toISOString();
+  const record = AdmissionEvidenceRecordedData.parse({
+    eventVersion: superseded.eventVersion,
+    evidence: { ...superseded.evidence, evidenceId, verdict: 'fail', createdAt },
+    supersedesEvidenceId: supersededId,
+  });
+  await store.append(
+    STREAM,
+    { type: 'admission.evidence-recorded', timestamp: createdAt, data: record },
+    { idempotencyKey: evidenceId },
+  );
+  return evidenceId;
 }
 
 /** Record `capsule` as prepared, through the production commit. */
@@ -1160,6 +1183,40 @@ describe('settle — the verification a settled batch runs', () => {
     );
     expect(miscited.outcome).toBe('rejected');
     expect(miscited.findings.map((f) => f.at)).toEqual(['claims[0].evidence[0].ref']);
+  });
+
+  /**
+   * Settlement resolves a cited record by its id, the requirement of the cited kind and its blobs. It reads neither the
+   * verdict nor supersession, because the segment runs each gate again. Thus a cited record that a later failing
+   * record supersedes resolves, and the cited failing record resolves too. The reader of `task_complete` selects the
+   * active record on its own, so its selection does not change this resolution.
+   */
+  it('Settle_ACitedSupersededOrFailingRecord_StillResolves', async () => {
+    const supersededId = await seedGateEvidence(store, {
+      streamId: STREAM,
+      requirementId: ladderRequirementId('test'),
+      phaseAttemptId,
+    });
+    const failingId = await seedSupersedingFailure(supersededId);
+    const receipt = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 7,
+        batchId: 'batch-cited-history',
+        claims: [
+          {
+            ...passingClaim(),
+            evidence: [
+              { kind: 'test', ref: supersededId },
+              { kind: 'test', ref: failingId },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(receipt.findings).toEqual([]);
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.adjudicated.evidence).toBe(2);
   });
 
   /**

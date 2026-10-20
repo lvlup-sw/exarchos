@@ -32,6 +32,15 @@ async function seededRunnerRows(
   return { evidence: evidence!, signal: signal! };
 }
 
+/**
+ * The runner idempotency key of a seeded signal row. A copy that keeps the key is a runner-shaped row on another
+ * stream, so each copy fixture below varies one other fact of the row.
+ */
+function runnerKeyOf(signal: WorkflowEvent): { readonly idempotencyKey: string } {
+  if (signal.idempotencyKey === undefined) throw new Error('the seeded signal row has no idempotency key');
+  return { idempotencyKey: signal.idempotencyKey };
+}
+
 beforeEach(async () => {
   resetModuleEventStore();
   resetMaterializerCache();
@@ -784,9 +793,9 @@ describe('handleTaskComplete gate enforcement', () => {
   });
 
   /**
-   * A passing runner row that names no task satisfies no task. The fixture is a real run with a
-   * commit subject and its evidence record. The handler once read such a row as a project-wide
-   * gate, so one run completed every task. This test pins the reverse.
+   * A passing runner row that names no task satisfies no task. The fixture is a real run with no
+   * task, so its subject is not a task, and its evidence record. The handler once read such a row
+   * as a project-wide gate, so one run completed every task. This test pins the reverse.
    */
   it('HandleTaskComplete_RunnerRowWithNoTaskId_RejectsCompletion', async () => {
     const store = new EventStore(tempDir);
@@ -873,7 +882,7 @@ describe('handleTaskComplete gate enforcement', () => {
   it('HandleTaskComplete_RunnerRowWithNoEvidenceRecord_RejectsCompletion', async () => {
     const store = new EventStore(tempDir);
     const { signal } = await seededRunnerRows(store, 'T-01');
-    await store.append('wf-gate-noev', { type: 'gate.executed', source: signal.source, data: signal.data });
+    await store.append('wf-gate-noev', { type: 'gate.executed', source: signal.source, data: signal.data }, runnerKeyOf(signal));
 
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-noev' },
@@ -897,7 +906,7 @@ describe('handleTaskComplete gate enforcement', () => {
       source: evidence.source,
       data: evidence.data,
     });
-    await store.append('wf-gate-src', { type: 'gate.executed', source: 'exarchos-mcp', data: signal.data });
+    await store.append('wf-gate-src', { type: 'gate.executed', source: 'exarchos-mcp', data: signal.data }, runnerKeyOf(signal));
 
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-src' },
@@ -926,7 +935,7 @@ describe('handleTaskComplete gate enforcement', () => {
       type: 'gate.executed',
       source: signal.source,
       data: { ...signal.data, details: { ...data.details, taskId: 'T-01' } },
-    });
+    }, runnerKeyOf(signal));
 
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-evtask' },
@@ -948,7 +957,7 @@ describe('handleTaskComplete gate enforcement', () => {
       source: evidence.source,
       data: { ...record, evidence: { ...record.evidence, requirementId: 'verification-ladder:test-adequacy' } },
     });
-    await store.append('wf-gate-evreq', { type: 'gate.executed', source: signal.source, data: signal.data });
+    await store.append('wf-gate-evreq', { type: 'gate.executed', source: signal.source, data: signal.data }, runnerKeyOf(signal));
 
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-evreq' },
@@ -973,7 +982,7 @@ describe('handleTaskComplete gate enforcement', () => {
       type: 'gate.executed',
       source: signal.source,
       data: { ...signal.data, passed: true },
-    });
+    }, runnerKeyOf(signal));
 
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-evfail' },
@@ -985,8 +994,11 @@ describe('handleTaskComplete gate enforcement', () => {
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 
-  /** The control of the copy fixtures: the copied evidence record and runner row, unchanged, complete the task. */
-  it('HandleTaskComplete_CopiedRunnerRows_AllowCompletion', async () => {
+  /**
+   * The control of the copy fixtures: the copied evidence record and runner row, unchanged and with the runner key,
+   * complete the task. Thus each copy fixture above refuses for the one fact that it changes.
+   */
+  it('HandleTaskComplete_CopiedRunnerRowsWithTheRunnerKey_AllowCompletion', async () => {
     const store = new EventStore(tempDir);
     const { evidence, signal } = await seededRunnerRows(store, 'T-01');
     await store.append('wf-gate-copy', {
@@ -994,7 +1006,7 @@ describe('handleTaskComplete gate enforcement', () => {
       source: evidence.source,
       data: evidence.data,
     });
-    await store.append('wf-gate-copy', { type: 'gate.executed', source: signal.source, data: signal.data });
+    await store.append('wf-gate-copy', { type: 'gate.executed', source: signal.source, data: signal.data }, runnerKeyOf(signal));
 
     const result = await handleTaskComplete(
       { taskId: 'T-01', streamId: 'wf-gate-copy' },
@@ -1003,6 +1015,72 @@ describe('handleTaskComplete gate enforcement', () => {
     );
 
     expect(result.success, JSON.stringify(result.error)).toBe(true);
+  });
+
+  /**
+   * A runner row counts only under the runner key of the evidence id that it cites. The fixture is the control
+   * above with no key on the copied row, as a writer outside the gate runner appends it.
+   */
+  it('HandleTaskComplete_RunnerRowCopiedWithoutItsKey_RejectsCompletion', async () => {
+    const store = new EventStore(tempDir);
+    const { evidence, signal } = await seededRunnerRows(store, 'T-01');
+    await store.append('wf-gate-nokey', {
+      type: 'admission.evidence-recorded',
+      source: evidence.source,
+      data: evidence.data,
+    });
+    await store.append('wf-gate-nokey', { type: 'gate.executed', source: signal.source, data: signal.data });
+
+    const result = await handleTaskComplete(
+      { taskId: 'T-01', streamId: 'wf-gate-nokey' },
+      tempDir,
+      store,
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  /**
+   * An older writer re-asserts an earlier pass after a later failure, by a copy of the passing runner row with no key.
+   * The copy is the latest runner-sourced row, and it does not complete the task.
+   */
+  it('HandleTaskComplete_KeylessCopyOfAnEarlierPassAfterAFailure_RejectsCompletion', async () => {
+    const store = new EventStore(tempDir);
+    await seedStaticAnalysisVerdict(store, { streamId: 'wf-gate-replay', taskId: 'T-01', stateDir: tempDir });
+    await seedStaticAnalysisVerdict(store, { streamId: 'wf-gate-replay', taskId: 'T-01', stateDir: tempDir, verdict: 'fail' });
+    const [passing] = await store.query('wf-gate-replay', { type: 'gate.executed' });
+    expect(passing?.data?.passed).toBe(true);
+    await store.append('wf-gate-replay', { type: 'gate.executed', source: passing!.source, data: passing!.data });
+
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-gate-replay' }, tempDir, store);
+
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  /**
+   * A copy of the earlier passing row that keeps the runner key collapses onto the stored row, so it is not a later
+   * signal. The store returns the stored row, the stream keeps two signal rows, and the later failure still refuses.
+   */
+  it('HandleTaskComplete_KeyedCopyOfAnEarlierPass_CollapsesOntoTheStoredRow', async () => {
+    const store = new EventStore(tempDir);
+    await seedStaticAnalysisVerdict(store, { streamId: 'wf-gate-keyed', taskId: 'T-01', stateDir: tempDir });
+    await seedStaticAnalysisVerdict(store, { streamId: 'wf-gate-keyed', taskId: 'T-01', stateDir: tempDir, verdict: 'fail' });
+    const [passing] = await store.query('wf-gate-keyed', { type: 'gate.executed' });
+    expect(passing?.data?.passed).toBe(true);
+
+    const copied = await store.append(
+      'wf-gate-keyed',
+      { type: 'gate.executed', source: passing!.source, data: passing!.data },
+      runnerKeyOf(passing!),
+    );
+
+    expect(copied.sequence).toBe(passing!.sequence);
+    expect(await store.query('wf-gate-keyed', { type: 'gate.executed' })).toHaveLength(2);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-gate-keyed' }, tempDir, store);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
   });
 
   /** The refusal names the gate and the recovery step for this task. */
@@ -1090,7 +1168,7 @@ describe('handleTaskComplete gate enforcement', () => {
         type: 'gate.executed',
         source: signal.source,
         data: { ...signal.data, taskId: 'T-01', details },
-      });
+      }, runnerKeyOf(signal));
 
       const result = await handleTaskComplete(
         { taskId: 'T-01', streamId: 'wf-gate-tlid' },
@@ -1224,6 +1302,215 @@ describe('handleTaskComplete gate enforcement', () => {
       expect(result.error?.code).toBe('GATE_NOT_PASSED');
       expect(result.error?.unmetGates).toContain('static-analysis');
     });
+  });
+});
+
+/** A view of the store whose `gate.executed` append throws, as a store fault between the two appends of the runner. */
+function signalLosingStore(store: EventStore): Pick<EventStore, 'append' | 'query'> {
+  return {
+    query: (streamId, filters) => store.query(streamId, filters),
+    append: async (streamId, event, options) => {
+      if (event.type === 'gate.executed') throw new Error('the signal append failed');
+      return store.append(streamId, event, options);
+    },
+  };
+}
+
+/** The evidence records of the stream in append order: the id, the verdict and the record that each supersedes. */
+async function recordsOf(
+  store: EventStore,
+  streamId: string,
+): Promise<ReadonlyArray<{ readonly evidenceId: string; readonly verdict: string; readonly supersedes?: string }>> {
+  const rows = await store.query(streamId, { type: 'admission.evidence-recorded' });
+  return rows.map((row) => {
+    const data = row.data as { evidence: { evidenceId: string; verdict: string }; supersedesEvidenceId?: string };
+    return {
+      evidenceId: data.evidence.evidenceId,
+      verdict: data.evidence.verdict,
+      ...(data.supersedesEvidenceId === undefined ? {} : { supersedes: data.supersedesEvidenceId }),
+    };
+  });
+}
+
+/** The evidence ids that the `gate.executed` rows of the stream cite, in sequence order. */
+async function signalsOf(store: EventStore, streamId: string): Promise<readonly unknown[]> {
+  const rows = await store.query(streamId, { type: 'gate.executed' });
+  return rows.map((row) => (row.data as { details?: { evidenceId?: unknown } }).details?.evidenceId);
+}
+
+/** A promise and the function that resolves it. */
+function latch(): { readonly reached: Promise<void>; readonly release: () => void } {
+  let release: () => void = () => undefined;
+  const reached = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  return { reached, release };
+}
+
+/**
+ * The completion reads the active evidence record of the task, not only the latest signal row. The scope is the task
+ * and the static-analysis requirement. A superseded record is not active. The latest runner signal must cite an
+ * active passing record, and any other active record of the task that does not pass refuses. Each fixture is a
+ * production-shaped run of the gate runner, and each signal row carries the runner key.
+ */
+describe('handleTaskComplete reads the active record of the task', () => {
+  /**
+   * A later failing run persists its record, and its signal append fails. The earlier passing signal is still the
+   * latest row, and it cites a superseded record.
+   */
+  it('HandleTaskComplete_LaterFailingRunWithALostSignal_RejectsCompletion', async () => {
+    const store = new EventStore(tempDir);
+    const passId = await seedStaticAnalysisVerdict(store, { streamId: 'wf-lost', taskId: 'T-01', stateDir: tempDir });
+    await expect(
+      seedStaticAnalysisVerdict(signalLosingStore(store), {
+        streamId: 'wf-lost',
+        taskId: 'T-01',
+        stateDir: tempDir,
+        verdict: 'fail',
+      }),
+    ).rejects.toThrow(/EVIDENCE_APPEND_FAILED/);
+
+    const records = await recordsOf(store, 'wf-lost');
+    expect(records.map((record) => [record.verdict, record.supersedes])).toEqual([
+      ['pass', undefined],
+      ['fail', passId],
+    ]);
+    expect(await signalsOf(store, 'wf-lost')).toEqual([passId]);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-lost' }, tempDir, store);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  /**
+   * A retry of an older operation re-derives the lost signal of its passing record above the signal of a later
+   * failing run. The re-derived row carries the runner key, and it cites a superseded record.
+   */
+  it('HandleTaskComplete_RetryOfAnOlderOperationAfterALaterFailure_RejectsCompletion', async () => {
+    const store = new EventStore(tempDir);
+    const olderOperation = randomUUID();
+    const seed = { streamId: 'wf-retry-op', taskId: 'T-01', stateDir: tempDir } as const;
+    await expect(
+      seedStaticAnalysisVerdict(signalLosingStore(store), { ...seed, operationId: olderOperation }),
+    ).rejects.toThrow(/EVIDENCE_APPEND_FAILED/);
+    const [older] = await recordsOf(store, 'wf-retry-op');
+    const failId = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail', operationId: randomUUID() });
+
+    const retried = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail', operationId: olderOperation });
+
+    expect(retried).toBe(older?.evidenceId);
+    expect((await recordsOf(store, 'wf-retry-op')).map((record) => record.supersedes)).toEqual([undefined, older?.evidenceId]);
+    expect(await signalsOf(store, 'wf-retry-op')).toEqual([failId, older?.evidenceId]);
+    const signals = await store.query('wf-retry-op', { type: 'gate.executed' });
+    expect(signals.at(-1)?.data?.passed).toBe(true);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-retry-op' }, tempDir, store);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  /**
+   * Two writers run the gate for one task. The failing run reads the passing record and supersedes it, and the
+   * passing signal lands after the failing signal.
+   */
+  it('HandleTaskComplete_TwoWritersWhosePassSignalLandsLast_RejectsCompletion', async () => {
+    const store = new EventStore(tempDir);
+    const passRecorded = latch();
+    const failSignalled = latch();
+    const holdingPass: Pick<EventStore, 'append' | 'query'> = {
+      query: (streamId, filters) => store.query(streamId, filters),
+      append: async (streamId, event, options) => {
+        if (event.type === 'gate.executed') {
+          passRecorded.release();
+          await failSignalled.reached;
+        }
+        return store.append(streamId, event, options);
+      },
+    };
+    const releasingFail: Pick<EventStore, 'append' | 'query'> = {
+      query: (streamId, filters) => store.query(streamId, filters),
+      append: async (streamId, event, options) => {
+        const row = await store.append(streamId, event, options);
+        if (event.type === 'gate.executed') failSignalled.release();
+        return row;
+      },
+    };
+    const seed = { streamId: 'wf-writers', taskId: 'T-01', stateDir: tempDir } as const;
+
+    const pass = seedStaticAnalysisVerdict(holdingPass, seed);
+    await passRecorded.reached;
+    const fail = seedStaticAnalysisVerdict(releasingFail, { ...seed, verdict: 'fail' });
+    const [passId, failId] = await Promise.all([pass, fail]);
+
+    expect((await recordsOf(store, 'wf-writers')).map((record) => record.supersedes)).toEqual([undefined, passId]);
+    expect(await signalsOf(store, 'wf-writers')).toEqual([failId, passId]);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-writers' }, tempDir, store);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  /**
+   * Two writers run the gate for one task, and neither reads the record of the other. Both records are active, the
+   * passing signal is the latest row, and the active failing record refuses.
+   */
+  it('HandleTaskComplete_TwoActiveRecordsThatDisagree_RejectsCompletion', async () => {
+    const store = new EventStore(tempDir);
+    const passQueried = latch();
+    const failQueried = latch();
+    const failSignalled = latch();
+    const holdingPass: Pick<EventStore, 'append' | 'query'> = {
+      query: async (streamId, filters) => {
+        const rows = await store.query(streamId, filters);
+        if (filters?.type === 'admission.evidence-recorded') passQueried.release();
+        return rows;
+      },
+      append: async (streamId, event, options) => {
+        if (event.type === 'admission.evidence-recorded') await failQueried.reached;
+        if (event.type === 'gate.executed') await failSignalled.reached;
+        return store.append(streamId, event, options);
+      },
+    };
+    const releasingFail: Pick<EventStore, 'append' | 'query'> = {
+      query: async (streamId, filters) => {
+        const rows = await store.query(streamId, filters);
+        if (filters?.type === 'admission.evidence-recorded') failQueried.release();
+        return rows;
+      },
+      append: async (streamId, event, options) => {
+        if (event.type === 'admission.evidence-recorded') await passQueried.reached;
+        const row = await store.append(streamId, event, options);
+        if (event.type === 'gate.executed') failSignalled.release();
+        return row;
+      },
+    };
+    const seed = { streamId: 'wf-fork', taskId: 'T-01', stateDir: tempDir } as const;
+
+    const [passId, failId] = await Promise.all([
+      seedStaticAnalysisVerdict(holdingPass, seed),
+      seedStaticAnalysisVerdict(releasingFail, { ...seed, verdict: 'fail' }),
+    ]);
+
+    expect((await recordsOf(store, 'wf-fork')).map((record) => record.supersedes)).toEqual([undefined, undefined]);
+    expect(await signalsOf(store, 'wf-fork')).toEqual([failId, passId]);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-fork' }, tempDir, store);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+  });
+
+  /**
+   * The scope is the task, across bases. A failing run on another base is a second chain, so it refuses until a run
+   * on that base passes and supersedes it.
+   */
+  it('HandleTaskComplete_FailingRecordOnAnotherBase_RefusesUntilThatBasePasses', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-bases', taskId: 'T-01', stateDir: tempDir } as const;
+    await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail', baseBranch: 'develop' });
+    await seedStaticAnalysisVerdict(store, seed);
+
+    const refused = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-bases' }, tempDir, store);
+    expect(refused.error?.code).toBe('GATE_NOT_PASSED');
+
+    await seedStaticAnalysisVerdict(store, { ...seed, baseBranch: 'develop' });
+    const admitted = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-bases' }, tempDir, store);
+    expect(admitted.success, JSON.stringify(admitted.error)).toBe(true);
   });
 });
 
@@ -1378,6 +1665,35 @@ describe('handleTaskComplete workflow state sync', () => {
     const retried = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
     expect(retried.success).toBe(true);
     expect(retried.data).toEqual(ack);
+    expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
+    const state = await readStateFile(stateFile);
+    expect((state.tasks as { status: string }[]).map((t) => t.status)).toEqual(['complete']);
+  });
+
+  /**
+   * A failing run after a completion whose sync failed does not refuse the retry. The handler reads the row under the
+   * completion key before the gate check, runs the sync again, and returns the stored row. It writes no second row.
+   */
+  it('handleTaskComplete_RetryAfterAFailedSyncAndALaterFailingRun_ReturnsTheStoredCompletion', async () => {
+    const featureId = 'wf-sync-5';
+    await initStateFile(tempDir, featureId, 'feature', {
+      tasks: [{ id: 'task-1', title: 'Test task', status: 'in_progress' }],
+    });
+    const stateFile = path.join(tempDir, `${featureId}.state.json`);
+    const intact = await readFile(stateFile, 'utf-8');
+    const store = new EventStore(tempDir);
+    await seedStaticAnalysisVerdict(store, { streamId: featureId, taskId: 'task-1', stateDir: tempDir });
+    await writeFile(stateFile, '{ not a document', 'utf-8');
+
+    const failed = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+    expect(failed.error?.code).toBe('STATE_SYNC_FAILED');
+    await seedStaticAnalysisVerdict(store, { streamId: featureId, taskId: 'task-1', stateDir: tempDir, verdict: 'fail' });
+    await writeFile(stateFile, intact, 'utf-8');
+
+    const retried = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+
+    expect(retried.success, JSON.stringify(retried.error)).toBe(true);
+    expect(retried.data).toEqual(failed.data);
     expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
     const state = await readStateFile(stateFile);
     expect((state.tasks as { status: string }[]).map((t) => t.status)).toEqual(['complete']);

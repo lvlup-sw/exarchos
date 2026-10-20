@@ -5,10 +5,14 @@
 import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { runDurableGateProducer } from './durable-gate-producer.js';
+import { runDurableGateProducer, type GateSubjectScope } from './durable-gate-producer.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runStaticAnalysis } from '../pure/static-analysis.js';
-import type { RunCommandFn, CommandResult } from '../pure/static-analysis.js';
+import type {
+  RunCommandFn,
+  CommandResult,
+  StaticAnalysisResult as StaticAnalysisRun,
+} from '../pure/static-analysis.js';
 
 interface StaticAnalysisArgs {
   readonly featureId: string;
@@ -77,9 +81,61 @@ const execCommandRunner: RunCommandFn = (
 };
 
 /**
- * Runs `runGatePreflight` first. It rejects a missing `eventStore` or `featureId`, and resolves a `repoRoot` of `'auto'`.
+ * The fields of one static-analysis run that select its evidence subject. The base defaults to `main`.
+ *
+ * @internal Exported so that the static-analysis seed of the tests derives its subject from the handler.
+ */
+export function staticAnalysisSubjectScope(
+  args: Pick<StaticAnalysisArgs, 'featureId' | 'taskId' | 'branch' | 'baseBranch'>,
+  repoRoot: string,
+): GateSubjectScope {
+  return {
+    gateClass: 'static-analysis',
+    featureId: args.featureId,
+    ...(args.taskId ? { taskId: args.taskId } : {}),
+    ...(args.branch ? { branch: args.branch } : {}),
+    baseRef: args.baseBranch ?? 'main',
+    repoRoot,
+  };
+}
+
+/**
+ * Maps one run of `runStaticAnalysis` to the carrier of the gate. An `error` status gives `SCRIPT_ERROR`.
  * A `skip` status gives `passed: false` and `skipped: true`, because a skip is inconclusive and never a pass.
  * With this mapping, `normalizeGateVerdict` gives `indeterminate` for a skip.
+ * The handler and the static-analysis seed of the tests both call this function, so the two carriers agree.
+ */
+export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolResult {
+  if (analysisResult.status === 'error') {
+    return {
+      success: false,
+      error: {
+        code: 'SCRIPT_ERROR',
+        message: analysisResult.error || 'Static analysis error',
+      },
+    };
+  }
+
+  const skipped = analysisResult.status === 'skip';
+  const passed = analysisResult.status === 'pass';
+  const degraded = skipped && analysisResult.skipReason === 'constituent-skipped';
+  const { passCount, failCount, skipCount, output } = analysisResult;
+
+  const result: StaticAnalysisResult = {
+    passed,
+    passCount,
+    failCount,
+    skipCount,
+    report: output,
+    ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
+    ...(degraded ? { degraded: true } : {}),
+  };
+  return { success: true, data: result };
+}
+
+/**
+ * Runs `runGatePreflight` first. It rejects a missing `eventStore` or `featureId`, and resolves a `repoRoot` of `'auto'`.
+ * The provider maps the run through `staticAnalysisCarrier`.
  */
 export async function handleStaticAnalysis(
   args: StaticAnalysisArgs,
@@ -100,49 +156,15 @@ export async function handleStaticAnalysis(
   const repoRoot = pre.repoRoot;
 
   return runDurableGateProducer(
-    {
-      gateClass: 'static-analysis',
-      featureId: args.featureId,
-      ...(args.taskId ? { taskId: args.taskId } : {}),
-      ...(args.branch ? { branch: args.branch } : {}),
-      baseRef: args.baseBranch ?? 'main',
-      repoRoot,
-      stateDir,
-      eventStore,
-    },
-    async () => {
-      const analysisResult = runStaticAnalysis({
-        repoRoot,
-        skipLint: args.skipLint,
-        skipTypecheck: args.skipTypecheck,
-        runCommand: execCommandRunner,
-      });
-
-      if (analysisResult.status === 'error') {
-        return {
-          success: false,
-          error: {
-            code: 'SCRIPT_ERROR',
-            message: analysisResult.error || 'Static analysis error',
-          },
-        };
-      }
-
-      const skipped = analysisResult.status === 'skip';
-      const passed = analysisResult.status === 'pass';
-      const degraded = skipped && analysisResult.skipReason === 'constituent-skipped';
-      const { passCount, failCount, skipCount, output } = analysisResult;
-
-      const result: StaticAnalysisResult = {
-        passed,
-        passCount,
-        failCount,
-        skipCount,
-        report: output,
-        ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
-        ...(degraded ? { degraded: true } : {}),
-      };
-      return { success: true, data: result };
-    },
+    { ...staticAnalysisSubjectScope(args, repoRoot), stateDir, eventStore },
+    async () =>
+      staticAnalysisCarrier(
+        runStaticAnalysis({
+          repoRoot,
+          skipLint: args.skipLint,
+          skipTypecheck: args.skipTypecheck,
+          runCommand: execCommandRunner,
+        }),
+      ),
   );
 }

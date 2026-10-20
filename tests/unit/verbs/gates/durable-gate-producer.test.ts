@@ -1,9 +1,10 @@
 /**
- * Tests for the legacy-state backfill in `runDurableGateProducer`.
+ * Tests for the legacy-state backfill in `runDurableGateProducer`, and for the shared gate-record reader.
  *
  * The migrated ladder gates resolve their evidence binding through `activePhaseAttemptId`.
  * Only workflow init and phase transitions mint the attempt stamp, so a workflow from before v2.12 projects no `phaseAttemptId`.
  * For such a workflow, the gate still runs and binds to the `legacy-version:` attempt id from `allocatePhaseAttemptId`.
+ * The shared reader `readGateEvidenceRecords` is a total parse, and each of its readers selects on its own.
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
@@ -20,7 +21,12 @@ import {
   runAsTrustedCaller,
   seedActivePhaseAttempt,
 } from '../../../../tools/test-helpers/trusted-context.js';
-import { runDurableGateProducer, type DurableGateScope } from '../../../../src/verbs/gates/durable-gate-producer.js';
+import {
+  readGateEvidenceRecords,
+  runDurableGateProducer,
+  type DurableGateScope,
+} from '../../../../src/verbs/gates/durable-gate-producer.js';
+import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const FEATURE_ID = 'legacy-backfill-feature';
 
@@ -156,5 +162,25 @@ describe('runDurableGateProducer — pre-v2.12 legacy-state backfill', () => {
       expect(id).toBe(persisted);
       expect(id).not.toBe(legacyDerived);
     }
+  });
+});
+
+describe('readGateEvidenceRecords', () => {
+  /**
+   * The reader keeps every parseable gate record, the superseded and the failing ones too. Settlement resolves a cited
+   * record through it, so a selection inside it changes what settlement resolves.
+   */
+  it('ReadGateEvidenceRecords_SupersededAndFailingRecords_StayInTheMap', async () => {
+    const fixture = await makeFixture();
+    const seed = { streamId: FEATURE_ID, taskId: 'task-total-parse', stateDir: fixture.stateDir } as const;
+    const passId = await seedStaticAnalysisVerdict(fixture.eventStore, seed);
+    const failId = await seedStaticAnalysisVerdict(fixture.eventStore, { ...seed, verdict: 'fail' });
+
+    const records = await readGateEvidenceRecords(fixture.eventStore, FEATURE_ID);
+
+    expect([...records.keys()]).toEqual([passId, failId]);
+    expect(records.get(passId)?.evidence.verdict).toBe('pass');
+    expect(records.get(failId)?.evidence.verdict).toBe('fail');
+    expect(records.get(failId)?.supersedesEvidenceId).toBe(passId);
   });
 });

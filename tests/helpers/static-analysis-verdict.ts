@@ -1,16 +1,19 @@
 /**
  * Seeds the static-analysis verdict of one task as `check_static_analysis` records it.
  *
- * The seed runs the real gate runner with a stub provider. Thus the evidence record and the
- * runner-owned `gate.executed` row have the production shape, and the shape cannot drift.
+ * The seed runs the real gate runner with a provider that returns a fixed run outcome.
+ * It takes the subject from `selectSubject` over the scope of the handler, and the carrier from the mapping of the handler.
+ * Thus a seeded record has the subject and the carrier that a real run writes for the same task, branch and base.
  * The file is outside `src/`, because each emitter census reads a shipped append as a producer.
  */
+import { deriveLocalOperatorIdentity, snapshotCallerAuthorization } from '../../src/dispatch/caller-identity.js';
+import { mintDispatchContext, runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import type { EventStore } from '../../src/events/store.js';
-import { ladderRequirementId } from '../../src/verbs/gates/durable-gate-producer.js';
+import { ladderRequirementId, selectSubject } from '../../src/verbs/gates/durable-gate-producer.js';
 import { runGate } from '../../src/verbs/gates/gate-runner.js';
+import { staticAnalysisCarrier, staticAnalysisSubjectScope } from '../../src/verbs/gates/static-analysis.js';
+import type { StaticAnalysisResult } from '../../src/verbs/pure/static-analysis.js';
 import { evidenceArtifactStore } from '../../src/workflow/admission/evidence-artifact.js';
-import { createEvidenceSubject } from '../../src/workflow/admission/evidence-subject.js';
-import { runAsTrustedCaller } from '../../tools/test-helpers/trusted-context.js';
 
 /** The gate class that `task_complete` requires. */
 const STATIC_ANALYSIS_GATE = 'static-analysis';
@@ -24,19 +27,43 @@ const SEED_PHASE_ATTEMPT_ID = 'phase-attempt:static-analysis-seed';
  */
 const SEED_OPERATOR_STATE_DIR = '/exarchos/static-analysis-seed';
 
-/** The commit of a seeded run that names no task. */
-const SEED_COMMIT_ID = 'c'.repeat(40);
+/** A run outcome in the shape of `runStaticAnalysis`. The seed fills the counts and the report that the test leaves out. */
+export type StaticAnalysisSeedOutcome = Pick<StaticAnalysisResult, 'status'> & Partial<StaticAnalysisResult>;
 
 /**
  * One seeded verdict. The evidence artifact store is under `stateDir`.
- * With no `taskId`, the subject is a commit, as for a run of `check_static_analysis` with no `taskId`.
+ * `verdict` is a short form of a passing or failing `outcome`. Give one of the two, or neither for a pass.
+ *
+ * The subject derives from `taskId`, `branch` and `baseBranch` as the handler derives it, with the base `main` by default.
+ * With no `taskId`, the subject is the commit at `repoRoot`, or an artifact when `repoRoot` holds no commit.
+ * `operationId` runs the seed under a fixed dispatch operation, as a retry of one dispatch does.
  */
 export interface StaticAnalysisVerdictSeed {
   readonly streamId: string;
   readonly taskId?: string;
   readonly stateDir: string;
   readonly verdict?: 'pass' | 'fail';
+  readonly outcome?: StaticAnalysisSeedOutcome;
+  readonly branch?: string;
+  readonly baseBranch?: string;
+  readonly repoRoot?: string;
   readonly phaseAttemptId?: string;
+  readonly operationId?: string;
+}
+
+/** The full run outcome of a seed, with a counted check for the status and a short report. */
+function seedOutcome(seed: StaticAnalysisVerdictSeed): StaticAnalysisResult {
+  if (seed.verdict !== undefined && seed.outcome !== undefined) {
+    throw new Error('static-analysis seed: give verdict or outcome, not both');
+  }
+  const outcome: StaticAnalysisSeedOutcome = seed.outcome ?? { status: seed.verdict ?? 'pass' };
+  return {
+    passCount: outcome.status === 'pass' ? 1 : 0,
+    failCount: outcome.status === 'fail' ? 1 : 0,
+    skipCount: outcome.status === 'skip' ? 1 : 0,
+    output: `## Static Analysis Report\n\n**Result: ${outcome.status.toUpperCase()}** (seeded)`,
+    ...outcome,
+  };
 }
 
 /** The evidence id in the carrier of the runner, or undefined when the carrier holds none. */
@@ -52,36 +79,51 @@ function firstEvidenceId(data: unknown): string | undefined {
 
 /**
  * Runs the gate runner for the static-analysis gate of the task, with a provider that gives the
- * requested verdict. Each call has a new operation id, so each call appends a new evidence record
- * and a new runner row. Returns the evidence id. The function throws when the runner refuses.
+ * carrier of the seeded outcome. Each call without `operationId` has a new operation id, so each
+ * call appends a new evidence record and a new runner row. A record supersedes the active record of
+ * the same subject and phase attempt, as in production. Returns the evidence id. The function throws
+ * when the runner refuses or fails to persist.
  */
 export async function seedStaticAnalysisVerdict(
   eventStore: Pick<EventStore, 'append' | 'query'>,
   seed: StaticAnalysisVerdictSeed,
 ): Promise<string> {
-  const passed = (seed.verdict ?? 'pass') === 'pass';
-  const result = await runAsTrustedCaller(SEED_OPERATOR_STATE_DIR, () =>
+  const carrier = staticAnalysisCarrier(seedOutcome(seed));
+  const phaseAttemptId = seed.phaseAttemptId ?? SEED_PHASE_ATTEMPT_ID;
+  const scope = staticAnalysisSubjectScope(
+    {
+      featureId: seed.streamId,
+      ...(seed.taskId === undefined ? {} : { taskId: seed.taskId }),
+      ...(seed.branch === undefined ? {} : { branch: seed.branch }),
+      ...(seed.baseBranch === undefined ? {} : { baseBranch: seed.baseBranch }),
+    },
+    seed.repoRoot ?? seed.stateDir,
+  );
+  const authorization = snapshotCallerAuthorization(
+    deriveLocalOperatorIdentity(SEED_OPERATOR_STATE_DIR),
+    undefined,
+  );
+  const minted = mintDispatchContext(undefined, authorization);
+  const context = seed.operationId === undefined ? minted : { ...minted, operationId: seed.operationId };
+  const result = await runWithDispatchContext(context, () =>
     runGate(
       {
         streamId: seed.streamId,
         gateClass: STATIC_ANALYSIS_GATE,
-        phaseAttemptId: seed.phaseAttemptId ?? SEED_PHASE_ATTEMPT_ID,
+        phaseAttemptId,
         requirementId: ladderRequirementId(STATIC_ANALYSIS_GATE),
-        subject: createEvidenceSubject(
-          seed.taskId === undefined
-            ? { kind: 'commit', commitId: SEED_COMMIT_ID }
-            : { kind: 'task', taskId: seed.taskId },
-          { gateClass: STATIC_ANALYSIS_GATE },
-        ),
+        subject: selectSubject(scope, phaseAttemptId),
         providerInput: {
           featureId: seed.streamId,
           ...(seed.taskId === undefined ? {} : { taskId: seed.taskId }),
+          ...(seed.branch === undefined ? {} : { branch: seed.branch }),
+          baseRef: scope.baseRef,
         },
       },
       {
         eventStore,
         artifactStore: evidenceArtifactStore(seed.stateDir),
-        executeProvider: async () => ({ success: true, data: { passed } }),
+        executeProvider: async () => carrier,
       },
     ),
   );

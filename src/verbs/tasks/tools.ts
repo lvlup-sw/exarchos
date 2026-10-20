@@ -3,7 +3,12 @@
 import { foldToTail } from '../../projections/fold-at-tail.js';
 import * as path from 'node:path';
 import { EventStore, SequenceConflictError } from '../../events/store.js';
-import { GateExecutedData, validateAgentEvent, type GateExecuted } from '../../events/schemas.js';
+import {
+  GateExecutedData,
+  validateAgentEvent,
+  type AdmissionEvidenceRecorded,
+  type WorkflowEvent,
+} from '../../events/schemas.js';
 import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../../projections/views/tools.js';
 import { TASK_DETAIL_VIEW } from '../../projections/views/task-detail-view.js';
@@ -14,7 +19,7 @@ import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { ladderRequirementId, readGateEvidenceRecords } from '../gates/durable-gate-producer.js';
-import { gateRunnerObservationSource } from '../gates/gate-runner.js';
+import { gateRunnerObservationSource, gateSignalIdempotencyKey } from '../gates/gate-runner.js';
 
 const CLAIM_BASE_DELAY_MS = 50;
 
@@ -216,43 +221,146 @@ const SYNC_SKIP_REASONS: Record<Extract<TaskStatusSyncOutcome, { kind: 'skipped'
 /** The gate class that `task_complete` requires for each task. */
 const STATIC_ANALYSIS_GATE = 'static-analysis';
 
+/** The ladder requirement under which a static-analysis run records its evidence. */
+const STATIC_ANALYSIS_REQUIREMENT = ladderRequirementId(STATIC_ANALYSIS_GATE);
+
+/**
+ * The latest runner signal of the static-analysis gate for the task, or undefined when none exists.
+ * A row counts only with the runner source, the task at `details.taskId`, and the runner key of the evidence id that it cites.
+ * A copy of a runner row without that key thus counts for nothing. The function does not read a top-level `data.taskId`.
+ */
+async function latestRunnerSignal(
+  store: EventStore,
+  streamId: string,
+  taskId: string,
+): Promise<{ readonly passed: boolean; readonly evidenceId: string } | undefined> {
+  const runnerSource = gateRunnerObservationSource(STATIC_ANALYSIS_GATE);
+  const rows = await store.query(streamId, { type: 'gate.executed' });
+  let latest: { readonly sequence: number; readonly passed: boolean; readonly evidenceId: string } | undefined;
+  for (const row of rows) {
+    if (row.source !== runnerSource) continue;
+    const parsed = GateExecutedData.safeParse(row.data);
+    if (!parsed.success || parsed.data.gateName !== STATIC_ANALYSIS_GATE) continue;
+    if (parsed.data.details?.taskId !== taskId) continue;
+    const evidenceId = parsed.data.details.evidenceId;
+    if (typeof evidenceId !== 'string' || row.idempotencyKey !== gateSignalIdempotencyKey(evidenceId)) continue;
+    if (latest === undefined || row.sequence > latest.sequence) {
+      latest = { sequence: row.sequence, passed: parsed.data.passed, evidenceId };
+    }
+  }
+  return latest === undefined ? undefined : { passed: latest.passed, evidenceId: latest.evidenceId };
+}
+
+/**
+ * The active static-analysis evidence records of the task, keyed by evidence id.
+ * The scope is the task and the static-analysis ladder requirement, across phase attempts, branches and bases.
+ * A record that another record of the scope names in `supersedesEvidenceId` is not active.
+ */
+function activeTaskRecords(
+  records: ReadonlyMap<string, AdmissionEvidenceRecorded>,
+  taskId: string,
+): ReadonlyMap<string, AdmissionEvidenceRecorded> {
+  const scoped = [...records.values()].filter(
+    ({ evidence }) =>
+      evidence.requirementId === STATIC_ANALYSIS_REQUIREMENT &&
+      evidence.subject.kind === 'task' &&
+      evidence.subject.taskId === taskId,
+  );
+  const superseded = new Set(
+    scoped.flatMap((record) => (record.supersedesEvidenceId === undefined ? [] : [record.supersedesEvidenceId])),
+  );
+  return new Map(
+    scoped
+      .filter(({ evidence }) => !superseded.has(evidence.evidenceId))
+      .map((record): [string, AdmissionEvidenceRecorded] => [record.evidence.evidenceId, record]),
+  );
+}
+
 /**
  * Whether the gate runner recorded a passing static-analysis verdict for the task.
- * The function reads the latest `gate.executed` row with the runner source and the task at `details.taskId`.
- * That row must pass. Its evidence id must resolve to a passing gate record of the ladder requirement for the same task.
- * A row with no task id satisfies no task, and the function does not read a top-level `data.taskId`.
- * A later failing run thus wins over an earlier pass.
+ * The latest runner signal for the task must pass and cite an active passing record of the task.
+ * Any other active record of the task that does not pass refuses, so two active records that disagree refuse.
+ * A later failing run thus wins over an earlier pass, also when the signal of the later run is lost.
+ * The shared reader stays a total parse, so this selection does not change the evidence resolution of settlement.
  */
 async function hasRunnerStaticAnalysisPass(
   store: EventStore,
   streamId: string,
   taskId: string,
 ): Promise<boolean> {
-  const runnerSource = gateRunnerObservationSource(STATIC_ANALYSIS_GATE);
-  const rows = await store.query(streamId, { type: 'gate.executed' });
-  let latest: { readonly sequence: number; readonly signal: GateExecuted } | undefined;
-  for (const row of rows) {
-    if (row.source !== runnerSource) continue;
-    const parsed = GateExecutedData.safeParse(row.data);
-    if (!parsed.success || parsed.data.gateName !== STATIC_ANALYSIS_GATE) continue;
-    if (parsed.data.details?.taskId !== taskId) continue;
-    if (latest === undefined || row.sequence > latest.sequence) {
-      latest = { sequence: row.sequence, signal: parsed.data };
-    }
-  }
-  if (latest === undefined || latest.signal.passed !== true) return false;
+  const signal = await latestRunnerSignal(store, streamId, taskId);
+  if (signal === undefined || !signal.passed) return false;
+  const active = activeTaskRecords(await readGateEvidenceRecords(store, streamId), taskId);
+  const cited = active.get(signal.evidenceId);
+  if (cited === undefined) return false;
+  return [...active.values()].every(({ evidence }) => evidence.verdict === 'pass');
+}
 
-  const evidenceId = latest.signal.details?.evidenceId;
-  if (typeof evidenceId !== 'string') return false;
-  const record = (await readGateEvidenceRecords(store, streamId)).get(evidenceId);
-  if (record === undefined) return false;
-  const { evidence } = record;
-  return (
-    evidence.requirementId === ladderRequirementId(STATIC_ANALYSIS_GATE) &&
-    evidence.subject.kind === 'task' &&
-    evidence.subject.taskId === taskId &&
-    evidence.verdict === 'pass'
-  );
+/** The idempotency key of the `task.completed` row of one task. */
+function completionKey(streamId: string, taskId: string): string {
+  return `${streamId}:task.completed:${taskId}`;
+}
+
+/** The `task.completed` row stored under the completion key of the task, or undefined when none exists. */
+async function storedCompletion(
+  store: EventStore,
+  streamId: string,
+  taskId: string,
+): Promise<WorkflowEvent | undefined> {
+  const key = completionKey(streamId, taskId);
+  const rows = await store.query(streamId, { type: 'task.completed' });
+  return rows.find((row) => row.idempotencyKey === key);
+}
+
+/**
+ * Syncs the state document that the transition guards read after the `task.completed` row of the task.
+ * A failed sync returns `STATE_SYNC_FAILED` beside the ack of the row.
+ */
+async function syncCompletion(
+  stateDir: string,
+  streamId: string,
+  taskId: string,
+  event: WorkflowEvent,
+): Promise<ToolResult> {
+  const stateFile = path.join(stateDir, `${streamId}.state.json`);
+  const sync = await markTasksCompleteInStateDocument(stateFile, [taskId]);
+  if (sync.kind === 'skipped') {
+    const detail = { streamId, taskId, reason: sync.reason };
+    const message = `task_complete state sync skipped: ${SYNC_SKIP_REASONS[sync.reason]}`;
+    if (sync.reason === 'no-document') logger.debug(detail, message);
+    else logger.warn(detail, message);
+  } else if (sync.kind === 'failed') {
+    logger.warn(
+      { streamId, taskId, attempt: sync.attempts, err: sync.error },
+      'task_complete state sync failed',
+    );
+    return {
+      success: false,
+      data: toEventAck(event),
+      error: {
+        code: 'STATE_SYNC_FAILED',
+        message:
+          `task ${taskId} is recorded complete (task.completed at sequence ${event.sequence}), but ` +
+          'the state document the transition guards read could not be updated after ' +
+          `${sync.attempts} attempt(s): ${sync.error}. Run \`exarchos_workflow reconcile\`, then retry ` +
+          'task_complete. The fact is not recorded twice. If the refusal comes back, stop and report it ' +
+          'to a person.',
+      },
+    };
+  }
+
+  return { success: true, data: toEventAck(event) };
+}
+
+/** The `COMPLETE_FAILED` result for an error that the completion read, append or sync threw. */
+function completeFailed(err: unknown): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'COMPLETE_FAILED',
+      message: err instanceof Error ? err.message : String(err),
+    },
+  };
 }
 
 /**
@@ -260,13 +368,14 @@ async function hasRunnerStaticAnalysisPass(
  * Caller evidence never satisfies a blocking gate. For an advisory gate, it needs passing output and an operator capability.
  * The transport puts that capability in the dispatch context, so the caller cannot assert it.
  *
- * The gate check reads the runner row for this task and the evidence record that the row cites.
+ * The gate check reads the latest runner row for this task and the active evidence records of the task.
  * The generic append refuses `gate.executed`, so only a gate handler writes the row.
  * The task-completion runbook runs the tier-scaled kill probe before this step.
  *
  * The handler forwards `worktree` and `worktreePath` for the `mergePendingEntry` guard.
  * After the append, it syncs the state document that the transition guards read. A failed sync returns `STATE_SYNC_FAILED`.
- * A retry repairs it, because the task-keyed idempotency key returns the stored event.
+ * A retry repairs it. Before the gate check, the handler reads the row under the completion key of the task.
+ * When that row exists, the handler runs the sync again and returns the row, so a later failing run does not refuse the retry.
  */
 export async function handleTaskComplete(
   args: {
@@ -295,6 +404,13 @@ export async function handleTaskComplete(
   const streamId = identity.streamId;
 
   const store = eventStore;
+
+  try {
+    const stored = await storedCompletion(store, streamId, args.taskId);
+    if (stored !== undefined) return await syncCompletion(stateDir, streamId, args.taskId, stored);
+  } catch (err) {
+    return completeFailed(err);
+  }
 
   const evidenceIsSubstantive =
     args.evidence?.passed === true && (args.evidence.output ?? '').trim().length > 0;
@@ -370,44 +486,10 @@ export async function handleTaskComplete(
     const event = await store.append(streamId, {
       type: 'task.completed',
       data,
-    }, { idempotencyKey: `${streamId}:task.completed:${args.taskId}` });
-
-    const stateFile = path.join(stateDir, `${streamId}.state.json`);
-    const sync = await markTasksCompleteInStateDocument(stateFile, [args.taskId]);
-    if (sync.kind === 'skipped') {
-      const detail = { streamId: streamId, taskId: args.taskId, reason: sync.reason };
-      const message = `task_complete state sync skipped: ${SYNC_SKIP_REASONS[sync.reason]}`;
-      if (sync.reason === 'no-document') logger.debug(detail, message);
-      else logger.warn(detail, message);
-    } else if (sync.kind === 'failed') {
-      logger.warn(
-        { streamId: streamId, taskId: args.taskId, attempt: sync.attempts, err: sync.error },
-        'task_complete state sync failed',
-      );
-      return {
-        success: false,
-        data: toEventAck(event),
-        error: {
-          code: 'STATE_SYNC_FAILED',
-          message:
-            `task ${args.taskId} is recorded complete (task.completed at sequence ${event.sequence}), but ` +
-            'the state document the transition guards read could not be updated after ' +
-            `${sync.attempts} attempt(s): ${sync.error}. Run \`exarchos_workflow reconcile\`, then retry ` +
-            'task_complete. The fact is not recorded twice. If the refusal comes back, stop and report it ' +
-            'to a person.',
-        },
-      };
-    }
-
-    return { success: true, data: toEventAck(event) };
+    }, { idempotencyKey: completionKey(streamId, args.taskId) });
+    return await syncCompletion(stateDir, streamId, args.taskId, event);
   } catch (err) {
-    return {
-      success: false,
-      error: {
-        code: 'COMPLETE_FAILED',
-        message: err instanceof Error ? err.message : String(err),
-      },
-    };
+    return completeFailed(err);
   }
 }
 
