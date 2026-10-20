@@ -9,6 +9,7 @@
 import { deriveLocalOperatorIdentity, snapshotCallerAuthorization } from '../../src/dispatch/caller-identity.js';
 import { mintDispatchContext, runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import type { EventStore } from '../../src/events/store.js';
+import type { ToolResult } from '../../src/format.js';
 import { ladderRequirementId, selectSubject } from '../../src/verbs/gates/durable-gate-producer.js';
 import { runGate } from '../../src/verbs/gates/gate-runner.js';
 import { staticAnalysisCarrier, staticAnalysisSubjectScope } from '../../src/verbs/gates/static-analysis.js';
@@ -37,6 +38,7 @@ export type StaticAnalysisSeedOutcome = Pick<StaticAnalysisResult, 'status'> & P
  * The subject derives from `taskId`, `branch` and `baseBranch` as the handler derives it, with the base `main` by default.
  * With no `taskId`, the subject is the commit at `repoRoot`, or an artifact when `repoRoot` holds no commit.
  * `operationId` runs the seed under a fixed dispatch operation, as a retry of one dispatch does.
+ * `earlierBuildCarrier` gives the carrier of an earlier build, which set no skip `discriminant` and no skip `reason`.
  */
 export interface StaticAnalysisVerdictSeed {
   readonly streamId: string;
@@ -49,6 +51,7 @@ export interface StaticAnalysisVerdictSeed {
   readonly repoRoot?: string;
   readonly phaseAttemptId?: string;
   readonly operationId?: string;
+  readonly earlierBuildCarrier?: boolean;
 }
 
 /** The full run outcome of a seed, with a counted check for the status and a short report. */
@@ -64,6 +67,14 @@ function seedOutcome(seed: StaticAnalysisVerdictSeed): StaticAnalysisResult {
     output: `## Static Analysis Report\n\n**Result: ${outcome.status.toUpperCase()}** (seeded)`,
     ...outcome,
   };
+}
+
+/** The carrier of an earlier build. It drops the skip `discriminant` and the skip `reason`, which that build did not set. */
+function earlierBuildCarrier(carrier: ToolResult): ToolResult {
+  const data = carrier.data;
+  if (typeof data !== 'object' || data === null) return carrier;
+  const kept = Object.entries(data).filter(([key]) => key !== 'discriminant' && key !== 'reason');
+  return { ...carrier, data: Object.fromEntries(kept) };
 }
 
 /** The evidence id in the carrier of the runner, or undefined when the carrier holds none. */
@@ -88,7 +99,8 @@ export async function seedStaticAnalysisVerdict(
   eventStore: Pick<EventStore, 'append' | 'query'>,
   seed: StaticAnalysisVerdictSeed,
 ): Promise<string> {
-  const carrier = staticAnalysisCarrier(seedOutcome(seed));
+  const current = staticAnalysisCarrier(seedOutcome(seed));
+  const carrier = seed.earlierBuildCarrier === true ? earlierBuildCarrier(current) : current;
   const phaseAttemptId = seed.phaseAttemptId ?? SEED_PHASE_ATTEMPT_ID;
   const scope = staticAnalysisSubjectScope(
     {

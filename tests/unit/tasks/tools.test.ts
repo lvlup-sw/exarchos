@@ -1402,6 +1402,36 @@ describe('handleTaskComplete names the cause and the recovery of a refusal', () 
     expect(message).not.toContain('Add the missing scripts');
   });
 
+  /**
+   * An earlier build wrote a skip row with no `discriminant` and no `reason`, because its carrier set only `skipReason`.
+   * The refusal names a skip with no recorded cause and the rerun, and neither a skipped check nor a missing toolchain.
+   */
+  it('HandleTaskComplete_SkipRowOfAnEarlierBuild_NamesASkipWithNoRecordedCause', async () => {
+    const store = new EventStore(tempDir);
+    await seedStaticAnalysisVerdict(store, {
+      streamId: 'wf-cause-old',
+      taskId: 'T-01',
+      stateDir: tempDir,
+      outcome: { status: 'skip', skipReason: 'no-toolchain' },
+      earlierBuildCarrier: true,
+    });
+    const [signal] = await store.query('wf-cause-old', { type: 'gate.executed' });
+    expect(signal?.data?.details).toMatchObject({ skipped: true, verdict: 'indeterminate' });
+    expect(signal?.data?.details).not.toHaveProperty('discriminant');
+    expect(signal?.data?.details).not.toHaveProperty('reason');
+
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-cause-old' }, tempDir, store);
+
+    const message = result.error?.message ?? '';
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(message).toContain("The latest static-analysis run for task 'T-01' is a skip with no recorded cause.");
+    expect(message).toContain('To find the cause, run exarchos_orchestrate check_static_analysis with');
+    expect(unnamedStepParams(message, { rerunFor: 'T-01' })).toEqual([]);
+    expect(message).not.toContain('skipped a check');
+    expect(message).not.toContain('Add the missing scripts');
+    expect(message).not.toContain('(#1540)');
+  });
+
   /** Each cause gets its own text, so no two causes share a refusal. */
   it('HandleTaskComplete_EachCause_GetsItsOwnText', async () => {
     const store = new EventStore(tempDir);
@@ -1410,15 +1440,22 @@ describe('handleTaskComplete names the cause and the recovery of a refusal', () 
     await seedStaticAnalysisVerdict(store, { streamId: 'wf-each', taskId: 'fail', stateDir: tempDir, verdict: 'fail' });
     await seedStaticAnalysisVerdict(store, { streamId: 'wf-each', taskId: 'skip', stateDir: tempDir, outcome: skipped });
     await seedStaticAnalysisVerdict(store, { streamId: 'wf-each', taskId: 'tool', stateDir: tempDir, outcome: noToolchain });
+    await seedStaticAnalysisVerdict(store, {
+      streamId: 'wf-each',
+      taskId: 'old',
+      stateDir: tempDir,
+      outcome: noToolchain,
+      earlierBuildCarrier: true,
+    });
 
     const messages = await Promise.all(
-      ['none', 'fail', 'skip', 'tool'].map(async (taskId) => {
+      ['none', 'fail', 'skip', 'tool', 'old'].map(async (taskId) => {
         const result = await handleTaskComplete({ taskId, streamId: 'wf-each' }, tempDir, store);
         return (result.error?.message ?? '').replaceAll(`'${taskId}'`, "'<task>'");
       }),
     );
 
-    expect(new Set(messages).size).toBe(4);
+    expect(new Set(messages).size).toBe(5);
   });
 
   /**
@@ -1522,6 +1559,89 @@ describe('handleTaskComplete reads the active record of the task', () => {
   });
 
   /**
+   * A skipped check has its signal. A later failing run supersedes the skip, and its signal append fails.
+   * The cause is the fail of the active record, not the skip of the latest signal row.
+   */
+  it('HandleTaskComplete_LaterFailingRunAfterASkipWithALostSignal_NamesTheFail', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-skip-lost', taskId: 'T-01', stateDir: tempDir } as const;
+    const skipId = await seedStaticAnalysisVerdict(store, {
+      ...seed,
+      outcome: { status: 'skip', skipReason: 'constituent-skipped', skippedChecks: [{ name: 'Lint', detail: '--skip-lint' }] },
+    });
+    await expect(seedStaticAnalysisVerdict(signalLosingStore(store), { ...seed, verdict: 'fail' })).rejects.toThrow(
+      /EVIDENCE_APPEND_FAILED/,
+    );
+
+    expect((await recordsOf(store, 'wf-skip-lost')).map((record) => [record.verdict, record.supersedes])).toEqual([
+      ['indeterminate', undefined],
+      ['fail', skipId],
+    ]);
+    expect(await signalsOf(store, 'wf-skip-lost')).toEqual([skipId]);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-skip-lost' }, tempDir, store);
+    const message = result.error?.message ?? '';
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(message).toContain("The latest static-analysis verdict for task 'T-01' is a fail.");
+    expect(message).toContain('Fix the failing checks that the check_static_analysis report names.');
+    expect(message).not.toContain('skipped a check');
+    expect(message).not.toContain('Add the missing scripts');
+  });
+
+  /**
+   * A fail has its signal. A later skipped run supersedes the fail, and its signal append fails.
+   * The active record is the skip, and no runner row records its cause, so the refusal does not name the fail.
+   */
+  it('HandleTaskComplete_LaterSkipAfterAFailWithALostSignal_NamesNoRecordedCause', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-fail-lost', taskId: 'T-01', stateDir: tempDir } as const;
+    const failId = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail' });
+    await expect(
+      seedStaticAnalysisVerdict(signalLosingStore(store), {
+        ...seed,
+        outcome: { status: 'skip', skipReason: 'constituent-skipped', skippedChecks: [{ name: 'Lint' }] },
+      }),
+    ).rejects.toThrow(/EVIDENCE_APPEND_FAILED/);
+
+    expect((await recordsOf(store, 'wf-fail-lost')).map((record) => [record.verdict, record.supersedes])).toEqual([
+      ['fail', undefined],
+      ['indeterminate', failId],
+    ]);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-fail-lost' }, tempDir, store);
+    const message = result.error?.message ?? '';
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(message).toContain(
+      "The latest static-analysis run for task 'T-01' is not a pass, and no runner row records its cause.",
+    );
+    expect(message).toContain('To find the cause, run exarchos_orchestrate check_static_analysis with');
+    expect(unnamedStepParams(message, { rerunFor: 'T-01' })).toEqual([]);
+    expect(message).not.toContain('is a fail');
+  });
+
+  /**
+   * A fail has its signal. A later passing run supersedes the fail, and its signal append fails.
+   * Each active record passes, and the latest runner row cites the superseded fail, so the refusal says that the row does not count.
+   */
+  it('HandleTaskComplete_LaterPassAfterAFailWithALostSignal_SaysThatTheLatestRowDoesNotCount', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-pass-lost', taskId: 'T-01', stateDir: tempDir } as const;
+    const failId = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail' });
+    await expect(seedStaticAnalysisVerdict(signalLosingStore(store), seed)).rejects.toThrow(/EVIDENCE_APPEND_FAILED/);
+
+    expect((await recordsOf(store, 'wf-pass-lost')).map((record) => [record.verdict, record.supersedes])).toEqual([
+      ['fail', undefined],
+      ['pass', failId],
+    ]);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-pass-lost' }, tempDir, store);
+    const message = result.error?.message ?? '';
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(message).toContain(
+      "The latest runner row for task 'T-01' is not a pass of an active static-analysis record, so it does not count.",
+    );
+    expect(unnamedStepParams(message, { rerunFor: 'T-01' })).toEqual([]);
+    expect(message).not.toContain('is a fail');
+  });
+
+  /**
    * A retry of an older operation re-derives the lost signal of its passing record above the signal of a later
    * failing run. The re-derived row carries the runner key, and it cites a superseded record.
    */
@@ -1545,6 +1665,7 @@ describe('handleTaskComplete reads the active record of the task', () => {
     const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-retry-op' }, tempDir, store);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(result.error?.message).toContain("The latest static-analysis verdict for task 'T-01' is a fail.");
   });
 
   /**
@@ -1585,6 +1706,7 @@ describe('handleTaskComplete reads the active record of the task', () => {
     const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-writers' }, tempDir, store);
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(result.error?.message).toContain("The latest static-analysis verdict for task 'T-01' is a fail.");
   });
 
   /**
@@ -1643,11 +1765,14 @@ describe('handleTaskComplete reads the active record of the task', () => {
   it('HandleTaskComplete_FailingRecordOnAnotherBase_RefusesUntilThatBasePasses', async () => {
     const store = new EventStore(tempDir);
     const seed = { streamId: 'wf-bases', taskId: 'T-01', stateDir: tempDir } as const;
-    await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail', baseBranch: 'develop' });
+    const failId = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail', baseBranch: 'develop' });
     await seedStaticAnalysisVerdict(store, seed);
 
     const refused = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-bases' }, tempDir, store);
     expect(refused.error?.code).toBe('GATE_NOT_PASSED');
+    expect(refused.error?.message).toContain(`The static-analysis verdict of evidence '${failId}'`);
+    expect(refused.error?.message).toContain("for task 'T-01' is a fail. That run is on another branch, base or phase attempt");
+    expect(refused.error?.message).toContain("taskId 'T-01' and the branch and baseBranch of that run");
 
     await seedStaticAnalysisVerdict(store, { ...seed, baseBranch: 'develop' });
     const admitted = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-bases' }, tempDir, store);
@@ -1676,6 +1801,38 @@ describe('handleTaskComplete reads the active record of the task', () => {
 
     expect(result.error?.code).toBe('GATE_NOT_PASSED');
     expect(result.error?.message).toContain('so it is not a pass: Lint did not run (--skip-lint).');
+  });
+
+  /**
+   * A no-toolchain skip on another branch is not the latest run of the task, because a later run on the main base passed.
+   * The refusal names that run and the rerun on its branch, and it does not say that no rerun helps.
+   * A passing run on that branch supersedes the skip and completes the task.
+   */
+  it('HandleTaskComplete_NoToolchainRecordOnAnotherBranchUnderALaterPass_NamesTheRerunOfThatRun', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-tool-branch', taskId: 'T-01', stateDir: tempDir } as const;
+    const skipId = await seedStaticAnalysisVerdict(store, {
+      ...seed,
+      branch: 'feat/x',
+      outcome: { status: 'skip', skipReason: 'no-toolchain' },
+    });
+    await seedStaticAnalysisVerdict(store, seed);
+
+    const refused = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-tool-branch' }, tempDir, store);
+
+    const message = refused.error?.message ?? '';
+    expect(refused.error?.code).toBe('GATE_NOT_PASSED');
+    expect(message).toContain(`The static-analysis run of evidence '${skipId}'`);
+    expect(message).toContain('is a skip, because it found no supported static-analysis toolchain in the scanned directory.');
+    expect(message).toContain('That run is on another branch, base or phase attempt than the latest run of the task');
+    expect(message).toContain("taskId 'T-01' and the branch and baseBranch of that run");
+    expect(message).not.toContain('(#1540)');
+    expect(message).not.toContain('A rerun gives the same skip.');
+    expect(message).not.toContain('the repository has no supported static-analysis toolchain');
+
+    await seedStaticAnalysisVerdict(store, { ...seed, branch: 'feat/x' });
+    const admitted = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-tool-branch' }, tempDir, store);
+    expect(admitted.success, JSON.stringify(admitted.error)).toBe(true);
   });
 });
 

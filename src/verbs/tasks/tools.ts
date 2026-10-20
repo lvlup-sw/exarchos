@@ -237,7 +237,6 @@ interface SignalSkip {
 interface RunnerSignal {
   readonly sequence: number;
   readonly passed: boolean;
-  readonly verdict: unknown;
   readonly evidenceId: string;
   readonly skip: SignalSkip | undefined;
 }
@@ -245,6 +244,15 @@ interface RunnerSignal {
 /** A string value of a row field, or undefined for any other value. */
 function stringField(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;
+}
+
+/** The last item that matches, or undefined when no item matches. */
+function lastMatch<Item>(items: readonly Item[], matches: (item: Item) => boolean): Item | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+    if (item !== undefined && matches(item)) return item;
+  }
+  return undefined;
 }
 
 /**
@@ -267,7 +275,6 @@ async function runnerSignals(store: EventStore, streamId: string, taskId: string
     signals.push({
       sequence: row.sequence,
       passed: parsed.data.passed,
-      verdict: details.verdict,
       evidenceId,
       skip:
         details.skipped === true
@@ -279,40 +286,73 @@ async function runnerSignals(store: EventStore, streamId: string, taskId: string
 }
 
 /**
- * The active static-analysis evidence records of the task, keyed by evidence id.
+ * The static-analysis evidence records of one task in stream order, and the active records among them, keyed by evidence id.
  * The scope is the task and the static-analysis ladder requirement, across phase attempts, branches and bases.
  * A record that another record of the scope names in `supersedesEvidenceId` is not active.
  */
-function activeTaskRecords(
-  records: ReadonlyMap<string, AdmissionEvidenceRecorded>,
-  taskId: string,
-): ReadonlyMap<string, AdmissionEvidenceRecorded> {
-  const scoped = [...records.values()].filter(
+interface TaskRecords {
+  readonly all: readonly AdmissionEvidenceRecorded[];
+  readonly active: ReadonlyMap<string, AdmissionEvidenceRecorded>;
+}
+
+/** Selects the records of the task from the gate records of the stream. The shared reader keeps the stream order. */
+function taskRecords(records: ReadonlyMap<string, AdmissionEvidenceRecorded>, taskId: string): TaskRecords {
+  const all = [...records.values()].filter(
     ({ evidence }) =>
       evidence.requirementId === STATIC_ANALYSIS_REQUIREMENT &&
       evidence.subject.kind === 'task' &&
       evidence.subject.taskId === taskId,
   );
   const superseded = new Set(
-    scoped.flatMap((record) => (record.supersedesEvidenceId === undefined ? [] : [record.supersedesEvidenceId])),
+    all.flatMap((record) => (record.supersedesEvidenceId === undefined ? [] : [record.supersedesEvidenceId])),
   );
-  return new Map(
-    scoped
-      .filter(({ evidence }) => !superseded.has(evidence.evidenceId))
-      .map((record): [string, AdmissionEvidenceRecorded] => [record.evidence.evidenceId, record]),
+  return {
+    all,
+    active: new Map(
+      all
+        .filter(({ evidence }) => !superseded.has(evidence.evidenceId))
+        .map((record): [string, AdmissionEvidenceRecorded] => [record.evidence.evidenceId, record]),
+    ),
+  };
+}
+
+/**
+ * Whether two records are in one chain of runs: the same subject, phase attempt, provider and policy.
+ * The subject holds the task, the branch and the base. The gate runner supersedes a record only inside its chain.
+ */
+function sameChain(left: AdmissionEvidenceRecorded, right: AdmissionEvidenceRecorded): boolean {
+  return (
+    JSON.stringify(left.evidence.subject) === JSON.stringify(right.evidence.subject) &&
+    left.evidence.phaseAttemptId === right.evidence.phaseAttemptId &&
+    left.evidence.producer.providerRef === right.evidence.producer.providerRef &&
+    JSON.stringify(left.evidence.policyDigest) === JSON.stringify(right.evidence.policyDigest)
   );
 }
 
 /**
+ * The evidence record that gives the cause of a refusal.
+ * `inLatestChain` is true when the record is in the chain of the latest static-analysis record of the task.
+ */
+interface CauseRecord {
+  readonly evidenceId: string;
+  readonly phaseAttemptId: string;
+  readonly inLatestChain: boolean;
+}
+
+/**
  * Why the static-analysis prerequisite of a task holds or does not hold.
- * `latest-skipped` carries the skipped checks as the runner row names them, or undefined when the row names none.
+ * `no-runner-verdict` says whether the task has a runner row. `skipped-check` carries the skipped checks that the runner row names.
+ * `no-toolchain` is a no-toolchain skip that is the latest record of the task. `earlier-no-toolchain` is one that is not.
+ * `no-recorded-cause` is a record whose runner row is absent or names no known skip cause, as a row of an earlier build does.
  */
 type StaticAnalysisPrerequisite =
   | { readonly kind: 'pass' }
-  | { readonly kind: 'no-runner-verdict' }
-  | { readonly kind: 'latest-failed' }
-  | { readonly kind: 'latest-skipped'; readonly skippedChecks: string | undefined }
-  | { readonly kind: 'no-toolchain' };
+  | { readonly kind: 'no-runner-verdict'; readonly latestRow: boolean }
+  | { readonly kind: 'failed'; readonly record: CauseRecord }
+  | { readonly kind: 'skipped-check'; readonly record: CauseRecord; readonly skippedChecks: string | undefined }
+  | { readonly kind: 'no-toolchain' }
+  | { readonly kind: 'earlier-no-toolchain'; readonly record: CauseRecord }
+  | { readonly kind: 'no-recorded-cause'; readonly record: CauseRecord; readonly skipped: boolean };
 
 /** The causes of a refusal. */
 type StaticAnalysisRefusalCause = Exclude<StaticAnalysisPrerequisite, { readonly kind: 'pass' }>;
@@ -320,16 +360,47 @@ type StaticAnalysisRefusalCause = Exclude<StaticAnalysisPrerequisite, { readonly
 /** The skip discriminant of a static-analysis run with no supported toolchain. */
 const NO_TOOLCHAIN: StaticAnalysisSkipReason = 'no-toolchain';
 
-/** The cause of a skip, from the skip descriptor of a runner signal. A skip with no discriminant is a skipped check. */
-function skipCause(skip: SignalSkip): StaticAnalysisRefusalCause {
-  if (skip.discriminant === NO_TOOLCHAIN) return { kind: 'no-toolchain' };
-  return { kind: 'latest-skipped', skippedChecks: skip.reason };
+/** The skip discriminant of a static-analysis run in which a check did not run. */
+const CONSTITUENT_SKIPPED: StaticAnalysisSkipReason = 'constituent-skipped';
+
+/**
+ * The active record that gives the cause of a refusal, or undefined when each active record passes.
+ * A failing record wins over a record with no verdict. Inside that group, a record in the chain of the latest record wins.
+ * Then the later record wins.
+ */
+function causeRecordOf(
+  active: ReadonlyMap<string, AdmissionEvidenceRecorded>,
+  latest: AdmissionEvidenceRecorded | undefined,
+): AdmissionEvidenceRecorded | undefined {
+  const notPassing = [...active.values()].filter(({ evidence }) => evidence.verdict !== 'pass');
+  const failing = notPassing.filter(({ evidence }) => evidence.verdict === 'fail');
+  const pool = failing.length > 0 ? failing : notPassing;
+  return lastMatch(pool, (record) => latest !== undefined && sameChain(record, latest)) ?? pool.at(-1);
 }
 
-/** The cause of a signal that does not pass. A signal with no pass, fail or skip verdict is no verdict. */
-function signalCause(signal: RunnerSignal): StaticAnalysisRefusalCause {
-  if (signal.skip !== undefined) return skipCause(signal.skip);
-  return signal.verdict === 'fail' ? { kind: 'latest-failed' } : { kind: 'no-runner-verdict' };
+/**
+ * The cause of a refusal from an active record that does not pass. The verdict of the record tells a fail from a run with no verdict.
+ * For a run with no verdict, the latest runner row of the record gives the skip cause by its closed `discriminant` code.
+ * A no-toolchain skip says that no rerun helps only when it is the latest record of the task.
+ */
+function recordCause(
+  record: AdmissionEvidenceRecorded,
+  latest: AdmissionEvidenceRecorded,
+  signals: readonly RunnerSignal[],
+): StaticAnalysisRefusalCause {
+  const { evidenceId, phaseAttemptId } = record.evidence;
+  const cause: CauseRecord = { evidenceId, phaseAttemptId, inLatestChain: sameChain(record, latest) };
+  if (record.evidence.verdict === 'fail') return { kind: 'failed', record: cause };
+  const skip = lastMatch(signals, (signal) => signal.evidenceId === evidenceId)?.skip;
+  if (skip?.discriminant === CONSTITUENT_SKIPPED) {
+    return { kind: 'skipped-check', record: cause, skippedChecks: skip.reason };
+  }
+  if (skip?.discriminant === NO_TOOLCHAIN) {
+    return evidenceId === latest.evidence.evidenceId
+      ? { kind: 'no-toolchain' }
+      : { kind: 'earlier-no-toolchain', record: cause };
+  }
+  return { kind: 'no-recorded-cause', record: cause, skipped: skip !== undefined };
 }
 
 /**
@@ -337,8 +408,9 @@ function signalCause(signal: RunnerSignal): StaticAnalysisRefusalCause {
  * The latest runner signal for the task must pass and cite an active passing record of the task.
  * Any other active record of the task that does not pass refuses, so two active records that disagree refuse.
  * A later failing run thus wins over an earlier pass, also when the signal of the later run is lost.
- * A refusal takes its cause from the latest signal when that signal does not pass, else from an active record that does not pass.
  * The shared reader stays a total parse, so this selection does not change the evidence resolution of settlement.
+ *
+ * The cause of a refusal comes from the active records. A runner row gives only the skip cause of its own record.
  */
 async function staticAnalysisPrerequisite(
   store: EventStore,
@@ -346,17 +418,17 @@ async function staticAnalysisPrerequisite(
   taskId: string,
 ): Promise<StaticAnalysisPrerequisite> {
   const signals = await runnerSignals(store, streamId, taskId);
-  const latest = signals.at(-1);
-  if (latest === undefined) return { kind: 'no-runner-verdict' };
-  if (!latest.passed) return signalCause(latest);
-  const active = activeTaskRecords(await readGateEvidenceRecords(store, streamId), taskId);
-  const notPassing = [...active.values()].filter(({ evidence }) => evidence.verdict !== 'pass');
-  if (active.has(latest.evidenceId) && notPassing.length === 0) return { kind: 'pass' };
-  if (notPassing.some(({ evidence }) => evidence.verdict === 'fail')) return { kind: 'latest-failed' };
-  const skipped = notPassing
-    .map(({ evidence }) => signals.find((signal) => signal.evidenceId === evidence.evidenceId)?.skip)
-    .find((skip) => skip !== undefined);
-  return skipped === undefined ? { kind: 'no-runner-verdict' } : skipCause(skipped);
+  const { all, active } = taskRecords(await readGateEvidenceRecords(store, streamId), taskId);
+  const latestSignal = signals.at(-1);
+  const latestRecord = all.at(-1);
+  const cited = causeRecordOf(active, latestRecord);
+  if (cited === undefined && latestSignal?.passed === true && active.has(latestSignal.evidenceId)) {
+    return { kind: 'pass' };
+  }
+  if (cited === undefined || latestRecord === undefined) {
+    return { kind: 'no-runner-verdict', latestRow: latestSignal !== undefined };
+  }
+  return recordCause(cited, latestRecord, signals);
 }
 
 /** The template variable of the static-analysis step that the refusal fills with the task id. */
@@ -368,52 +440,95 @@ const TEMPLATE_VARIABLE = /^<[A-Za-z]+>$/;
 /**
  * The rerun of the static-analysis step for one task, built from the params of the runbook step.
  * The task id fills its variable. The text tells the caller to fill each other variable.
+ * For a record outside the chain of the latest run, the rerun also names the branch, the base and the phase attempt of that record.
  */
-function staticAnalysisRerun(taskId: string): string {
+function staticAnalysisRerun(taskId: string, otherChain: CauseRecord | undefined): string {
   const entries = Object.entries(STATIC_ANALYSIS_STEP_PARAMS);
   const params = entries.map(([name, value]) => `${name} '${value.replaceAll(TASK_ID_VARIABLE, taskId)}'`);
+  const chain = otherChain === undefined ? '' : ' and the branch and baseBranch of that run';
   const unfilled = entries
     .map(([, value]) => value)
     .filter((value) => TEMPLATE_VARIABLE.test(value) && value !== TASK_ID_VARIABLE);
   const fill = unfilled.length === 0 ? '' : ` (replace ${unfilled.join(' and ')} with the value for this task)`;
+  const supersede =
+    otherChain === undefined ? '' : ` Only a run in phase attempt '${otherChain.phaseAttemptId}' supersedes that record.`;
   return (
-    `run exarchos_orchestrate check_static_analysis with ${params.join(', ')}${fill}, then call task_complete again. ` +
+    `run exarchos_orchestrate check_static_analysis with ${params.join(', ')}${chain}${fill}, ` +
+    `then call task_complete again.${supersede} ` +
     'Under settle, correct the cause and settle the claim under a new batch id instead.'
   );
 }
 
+/** The record of a refusal cause when that record is outside the chain of the latest run, else undefined. */
+function otherChainRecord(cause: StaticAnalysisRefusalCause): CauseRecord | undefined {
+  return 'record' in cause && !cause.record.inLatestChain ? cause.record : undefined;
+}
+
 /**
  * The recovery that the refusal names for each cause. The record is total over the causes, so a new cause without a recovery does not compile.
- * A rerun recovery comes from the params of the static-analysis step of the completion runbooks.
+ * Each function gets the rerun of the static-analysis step, which comes from the params of the step of the completion runbooks.
  */
-const REFUSAL_RECOVERIES: Readonly<Record<StaticAnalysisRefusalCause['kind'], (taskId: string) => string>> = {
-  'no-runner-verdict': (taskId) => `To record one, ${staticAnalysisRerun(taskId)}`,
-  'latest-failed': (taskId) =>
-    `Fix the failing checks that the check_static_analysis report names. Then ${staticAnalysisRerun(taskId)}`,
-  'latest-skipped': (taskId) =>
-    `Add the missing scripts, or do not set the skip flags. Then ${staticAnalysisRerun(taskId)}`,
+const REFUSAL_RECOVERIES: Readonly<Record<StaticAnalysisRefusalCause['kind'], (rerun: string) => string>> = {
+  'no-runner-verdict': (rerun) => `To record a verdict, ${rerun}`,
+  failed: (rerun) => `Fix the failing checks that the check_static_analysis report names. Then ${rerun}`,
+  'skipped-check': (rerun) => `Add the missing scripts, or do not set the skip flags. Then ${rerun}`,
   'no-toolchain': () =>
     'A task cannot complete in this repository until static analysis can run configured commands (#1540). ' +
     'A rerun gives the same skip.',
+  'earlier-no-toolchain': (rerun) => `Make sure that the run scans the worktree of the task. Then ${rerun}`,
+  'no-recorded-cause': (rerun) => `To find the cause, ${rerun}`,
 };
+
+/** The subject of a cause sentence: the latest run of the task, or the named record outside the chain of the latest run. */
+function causeSubject(record: CauseRecord, taskId: string, noun: 'run' | 'verdict'): string {
+  return record.inLatestChain
+    ? `The latest static-analysis ${noun} for task '${taskId}'`
+    : namedRecordSubject(record, taskId, noun);
+}
+
+/** The subject of a cause sentence that names the record by its evidence id and its phase attempt. */
+function namedRecordSubject(record: CauseRecord, taskId: string, noun: 'run' | 'verdict'): string {
+  return `The static-analysis ${noun} of evidence '${record.evidenceId}' (phase attempt '${record.phaseAttemptId}') for task '${taskId}'`;
+}
+
+/** The sentence that says why a record outside the chain of the latest run still counts, or an empty text. */
+function chainSentence(record: CauseRecord): string {
+  return record.inLatestChain
+    ? ''
+    : ' That run is on another branch, base or phase attempt than the latest run of the task, ' +
+        'and no later run on its branch, base and phase attempt superseded it.';
+}
 
 /** The sentence that names the cause of a refusal for the task. */
 function refusalCauseText(cause: StaticAnalysisRefusalCause, taskId: string): string {
   switch (cause.kind) {
     case 'no-runner-verdict':
-      return `The gate runner recorded no static-analysis verdict for task '${taskId}'.`;
-    case 'latest-failed':
-      return `The latest static-analysis verdict for task '${taskId}' is a fail.`;
-    case 'latest-skipped':
+      return cause.latestRow
+        ? `The latest runner row for task '${taskId}' is not a pass of an active static-analysis record, so it does not count.`
+        : `The gate runner recorded no static-analysis verdict for task '${taskId}'.`;
+    case 'failed':
+      return `${causeSubject(cause.record, taskId, 'verdict')} is a fail.${chainSentence(cause.record)}`;
+    case 'skipped-check':
       return cause.skippedChecks === undefined
-        ? `The latest static-analysis run for task '${taskId}' skipped a check, so it is not a pass. ` +
-            'The check_static_analysis report names the check.'
-        : `The latest static-analysis run for task '${taskId}' skipped a check, so it is not a pass: ${cause.skippedChecks}.`;
+        ? `${causeSubject(cause.record, taskId, 'run')} skipped a check, so it is not a pass. ` +
+            `The check_static_analysis report names the check.${chainSentence(cause.record)}`
+        : `${causeSubject(cause.record, taskId, 'run')} skipped a check, so it is not a pass: ` +
+            `${cause.skippedChecks}.${chainSentence(cause.record)}`;
     case 'no-toolchain':
       return (
         `The latest static-analysis run for task '${taskId}' is a skip, ` +
         'because the repository has no supported static-analysis toolchain.'
       );
+    case 'earlier-no-toolchain':
+      return (
+        `${namedRecordSubject(cause.record, taskId, 'run')} is a skip, because it found no supported static-analysis ` +
+        `toolchain in the scanned directory. A later run of the task is not this skip.${chainSentence(cause.record)}`
+      );
+    case 'no-recorded-cause':
+      return cause.skipped
+        ? `${causeSubject(cause.record, taskId, 'run')} is a skip with no recorded cause.${chainSentence(cause.record)}`
+        : `${causeSubject(cause.record, taskId, 'run')} is not a pass, and no runner row records its cause.` +
+            chainSentence(cause.record);
     default:
       return assertNever(cause, 'static-analysis refusal cause');
   }
@@ -421,13 +536,14 @@ function refusalCauseText(cause: StaticAnalysisRefusalCause, taskId: string): st
 
 /** The `GATE_NOT_PASSED` refusal for one cause. It names the gate, the cause and the recovery of that cause. */
 function gateNotPassed(cause: StaticAnalysisRefusalCause, taskId: string): ToolResult {
+  const rerun = staticAnalysisRerun(taskId, otherChainRecord(cause));
   return {
     success: false,
     error: {
       code: 'GATE_NOT_PASSED',
       message:
         `Required gates not passed: ${STATIC_ANALYSIS_GATE}. ${refusalCauseText(cause, taskId)} ` +
-        REFUSAL_RECOVERIES[cause.kind](taskId),
+        REFUSAL_RECOVERIES[cause.kind](rerun),
       unmetGates: [STATIC_ANALYSIS_GATE],
     },
   };

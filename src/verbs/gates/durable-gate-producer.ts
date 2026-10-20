@@ -46,7 +46,7 @@ export function ladderRequirementId(gateClass: string): string {
 }
 
 /**
- * The gate evidence records of one stream, keyed by evidence id.
+ * The gate evidence records of one stream, keyed by evidence id, in the stream order of their rows.
  * A row that fails the evidence schema, or that is not a gate record, is not in the map.
  * Settlement and `task_complete` read gate evidence through this function, so the two readers parse the rows in one way.
  * The function selects nothing. Superseded and failing records stay in the map, and each reader applies its own rule.
