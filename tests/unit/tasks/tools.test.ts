@@ -1671,8 +1671,8 @@ describe('handleTaskComplete workflow state sync', () => {
   });
 
   /**
-   * A failing run after a completion whose sync failed does not refuse the retry. The handler reads the row under the
-   * completion key before the gate check, runs the sync again, and returns the stored row. It writes no second row.
+   * A failing run after a completion whose sync failed does not refuse the retry. The document still lists the task
+   * in progress, so the handler syncs it before the gate check and returns the stored row. It writes no second row.
    */
   it('handleTaskComplete_RetryAfterAFailedSyncAndALaterFailingRun_ReturnsTheStoredCompletion', async () => {
     const featureId = 'wf-sync-5';
@@ -1694,6 +1694,37 @@ describe('handleTaskComplete workflow state sync', () => {
 
     expect(retried.success, JSON.stringify(retried.error)).toBe(true);
     expect(retried.data).toEqual(failed.data);
+    expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
+    const state = await readStateFile(stateFile);
+    expect((state.tasks as { status: string }[]).map((t) => t.status)).toEqual(['complete']);
+  });
+
+  /**
+   * A fix of a completed task calls `task_complete` again, as the task-fix runbook does. The document lists the task
+   * complete, so the stored row does not skip the gate. A later failing run refuses. A later pass returns the stored row.
+   */
+  it('handleTaskComplete_CompletedTaskAndALaterFailingRun_RefusesTheFixUntilARunPasses', async () => {
+    const featureId = 'wf-sync-6';
+    await initStateFile(tempDir, featureId, 'feature', {
+      tasks: [{ id: 'task-1', title: 'Test task', status: 'in_progress' }],
+    });
+    const stateFile = path.join(tempDir, `${featureId}.state.json`);
+    const store = new EventStore(tempDir);
+    await seedStaticAnalysisVerdict(store, { streamId: featureId, taskId: 'task-1', stateDir: tempDir });
+    const completed = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+    expect(completed.success, JSON.stringify(completed.error)).toBe(true);
+
+    await seedStaticAnalysisVerdict(store, { streamId: featureId, taskId: 'task-1', stateDir: tempDir, verdict: 'fail' });
+    const refused = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('GATE_NOT_PASSED');
+
+    await seedStaticAnalysisVerdict(store, { streamId: featureId, taskId: 'task-1', stateDir: tempDir });
+    const fixed = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+
+    expect(fixed.success, JSON.stringify(fixed.error)).toBe(true);
+    expect(fixed.data).toEqual(completed.data);
     expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
     const state = await readStateFile(stateFile);
     expect((state.tasks as { status: string }[]).map((t) => t.status)).toEqual(['complete']);

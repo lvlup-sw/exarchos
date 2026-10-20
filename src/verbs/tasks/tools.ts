@@ -312,18 +312,21 @@ async function storedCompletion(
   return rows.find((row) => row.idempotencyKey === key);
 }
 
+/** Marks the task complete on the state document that the transition guards read, and returns the outcome of the sync. */
+function syncTaskDocument(stateDir: string, streamId: string, taskId: string): Promise<TaskStatusSyncOutcome> {
+  return markTasksCompleteInStateDocument(path.join(stateDir, `${streamId}.state.json`), [taskId]);
+}
+
 /**
- * Syncs the state document that the transition guards read after the `task.completed` row of the task.
- * A failed sync returns `STATE_SYNC_FAILED` beside the ack of the row.
+ * The result of a completion for one outcome of the document sync, beside the ack of the `task.completed` row.
+ * A skipped sync is logged. A failed sync returns `STATE_SYNC_FAILED`.
  */
-async function syncCompletion(
-  stateDir: string,
+function completionResult(
   streamId: string,
   taskId: string,
   event: WorkflowEvent,
-): Promise<ToolResult> {
-  const stateFile = path.join(stateDir, `${streamId}.state.json`);
-  const sync = await markTasksCompleteInStateDocument(stateFile, [taskId]);
+  sync: TaskStatusSyncOutcome,
+): ToolResult {
   if (sync.kind === 'skipped') {
     const detail = { streamId, taskId, reason: sync.reason };
     const message = `task_complete state sync skipped: ${SYNC_SKIP_REASONS[sync.reason]}`;
@@ -352,6 +355,24 @@ async function syncCompletion(
   return { success: true, data: toEventAck(event) };
 }
 
+/**
+ * The result for a stored `task.completed` row of the task while the state document lists the task with another status.
+ * The sync brings the document level with the row, and the result returns the row with no gate check and no new row.
+ * A failed sync returns `STATE_SYNC_FAILED`.
+ * When the document already lists the task complete, or does not list the task, the function returns undefined.
+ * The gate check then runs, so a fix of a completed task needs a passing run.
+ */
+async function repairStoredCompletion(
+  stateDir: string,
+  streamId: string,
+  taskId: string,
+  stored: WorkflowEvent,
+): Promise<ToolResult | undefined> {
+  const sync = await syncTaskDocument(stateDir, streamId, taskId);
+  if (sync.kind === 'synced' || sync.kind === 'failed') return completionResult(streamId, taskId, stored, sync);
+  return undefined;
+}
+
 /** The `COMPLETE_FAILED` result for an error that the completion read, append or sync threw. */
 function completeFailed(err: unknown): ToolResult {
   return {
@@ -374,8 +395,7 @@ function completeFailed(err: unknown): ToolResult {
  *
  * The handler forwards `worktree` and `worktreePath` for the `mergePendingEntry` guard.
  * After the append, it syncs the state document that the transition guards read. A failed sync returns `STATE_SYNC_FAILED`.
- * A retry repairs it. Before the gate check, the handler reads the row under the completion key of the task.
- * When that row exists, the handler runs the sync again and returns the row, so a later failing run does not refuse the retry.
+ * Before the gate check, a retry syncs the document and returns the stored row when the document shows the task with another status.
  */
 export async function handleTaskComplete(
   args: {
@@ -407,7 +427,9 @@ export async function handleTaskComplete(
 
   try {
     const stored = await storedCompletion(store, streamId, args.taskId);
-    if (stored !== undefined) return await syncCompletion(stateDir, streamId, args.taskId, stored);
+    const repaired =
+      stored === undefined ? undefined : await repairStoredCompletion(stateDir, streamId, args.taskId, stored);
+    if (repaired !== undefined) return repaired;
   } catch (err) {
     return completeFailed(err);
   }
@@ -487,7 +509,7 @@ export async function handleTaskComplete(
       type: 'task.completed',
       data,
     }, { idempotencyKey: completionKey(streamId, args.taskId) });
-    return await syncCompletion(stateDir, streamId, args.taskId, event);
+    return completionResult(streamId, args.taskId, event, await syncTaskDocument(stateDir, streamId, args.taskId));
   } catch (err) {
     return completeFailed(err);
   }
