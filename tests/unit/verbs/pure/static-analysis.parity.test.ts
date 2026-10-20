@@ -51,6 +51,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
     })).toEqual({
       status: 'skip',
       skipReason: 'constituent-skipped',
+      skippedChecks: [{ name: 'Quality check', detail: "no 'quality-check' script in package.json" }],
       output: [
         '## Static Analysis Report',
         '',
@@ -108,6 +109,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
     })).toEqual({
       status: 'skip',
       skipReason: 'constituent-skipped',
+      skippedChecks: [{ name: 'Lint', detail: '--skip-lint' }, { name: 'Quality check', detail: "no 'quality-check' script in package.json" }],
       output: [
         '## Static Analysis Report',
         '',
@@ -137,6 +139,10 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
     })).toEqual({
       status: 'skip',
       skipReason: 'constituent-skipped',
+      skippedChecks: [
+        { name: 'Typecheck', detail: '--skip-typecheck' },
+        { name: 'Quality check', detail: "no 'quality-check' script in package.json" },
+      ],
       output: [
         '## Static Analysis Report',
         '',

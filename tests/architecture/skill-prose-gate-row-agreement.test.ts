@@ -2,6 +2,7 @@
  * The "checked by `check-event-emissions`" passage of a skill names exactly the
  * expectation row of the gate for its phase. The outcome table of the delegate skill names each
  * settlement outcome, which outcomes verify, and the next call of each, as the outcome rules state.
+ * Each passage that binds the template variables of a completion runbook binds each variable of its static-analysis step.
  *
  * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts, ../../content/synthesis/skills/synthesize/SKILL.md, ../../src/verbs/settle/adjudicate.ts
  *
@@ -18,6 +19,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
+import { TASK_COMPLETION, TASK_FIX } from '../../src/runbooks/definitions.js';
+import type { RunbookDefinition } from '../../src/runbooks/types.js';
 import { PHASE_EXPECTED_EVENTS } from '../../src/verbs/gates/check-event-emissions.js';
 import { SETTLEMENT_OUTCOME_RULES, SETTLEMENT_OUTCOMES } from '../../src/verbs/settle/adjudicate.js';
 import { PHASE_EVENT_CONTRACTS } from '../../src/workflow/topology/phase-events.js';
@@ -34,15 +37,26 @@ interface ProseSite {
    * delegate skill's event-contract table, one `| \`type\` | when | emitter |`
    * row per expected type, whose emitter column is compared too.
    * `outcome-table`: the delegate skill's outcome table, one row per settlement outcome, compared with the outcome rules.
+   * `runbook-binding`: the one line that tells the reader to bind the template variables of `check_static_analysis`,
+   * compared with the static-analysis step of `runbook`.
    */
-  readonly shape: 'line' | 'table' | 'outcome-table';
+  readonly shape: 'line' | 'table' | 'outcome-table' | 'runbook-binding';
+  /** The completion runbook whose static-analysis step a `runbook-binding` passage binds. */
+  readonly runbook?: RunbookDefinition;
 }
 
-/** Every skill passage that claims to name what the gate checks. */
+/** Every skill passage that claims to name what the gate checks, or how to bind the gate of a completion runbook. */
 const SITES: readonly ProseSite[] = [
   { skill: 'content/synthesis/skills/synthesize/SKILL.md', phase: 'synthesize', shape: 'line' },
   { skill: 'content/delivery/skills/delegate/SKILL.md', phase: 'delegate', shape: 'table' },
   { skill: 'content/delivery/skills/delegate/SKILL.md', phase: 'delegate', shape: 'outcome-table' },
+  { skill: 'content/delivery/skills/delegate/SKILL.md', phase: 'delegate', shape: 'runbook-binding', runbook: TASK_COMPLETION },
+  {
+    skill: 'content/delivery/skills/delegate/references/fix-mode.md',
+    phase: 'delegate',
+    shape: 'runbook-binding',
+    runbook: TASK_FIX,
+  },
 ];
 
 /**
@@ -162,6 +176,35 @@ function outcomeTableDisagreements(markdown: string): readonly string[] {
   return problems.sort();
 }
 
+/** A step param value that is a template variable, for example `<worktreePath>`. */
+const TEMPLATE_VARIABLE = /^<[A-Za-z]+>$/;
+
+/** The template variables of the static-analysis step of a runbook, in step order. */
+function staticAnalysisStepVariables(runbook: RunbookDefinition): readonly string[] {
+  const step = runbook.steps.find((candidate) => candidate.action === 'check_static_analysis');
+  return Object.values(step?.params ?? {}).filter(
+    (value): value is string => typeof value === 'string' && TEMPLATE_VARIABLE.test(value),
+  );
+}
+
+/**
+ * How the binding passage disagrees with the static-analysis step of its runbook. The passage is the one line that names
+ * `check_static_analysis` and tells the reader to bind. It must name each template variable of the step in backticks.
+ */
+function runbookBindingDisagreements(markdown: string, runbook: RunbookDefinition | undefined): readonly string[] {
+  if (runbook === undefined) return ['the site names no runbook'];
+  const variables = staticAnalysisStepVariables(runbook);
+  if (variables.length === 0) return [`the check_static_analysis step of ${runbook.id} binds no template variable`];
+  const passages = markdown.split('\n').filter((line) => line.includes('`check_static_analysis`') && /\bBind\b/.test(line));
+  if (passages.length !== 1) {
+    return [`expected exactly one line that binds the variables of \`check_static_analysis\`, found ${passages.length}`];
+  }
+  const passage = passages[0] ?? '';
+  return variables
+    .filter((variable) => !passage.includes(`\`${variable}\``))
+    .map((variable) => `the passage does not bind \`${variable}\`, which the check_static_analysis step of ${runbook.id} binds`);
+}
+
 /**
  * Pure comparator, so the live sites and a seeded disagreement go through the
  * same judge. Both directions are named: prose that over-claims and prose that
@@ -171,8 +214,10 @@ function disagreements(
   markdown: string,
   phase: string,
   shape: ProseSite['shape'],
+  runbook?: RunbookDefinition,
 ): readonly string[] {
   if (shape === 'outcome-table') return outcomeTableDisagreements(markdown);
+  if (shape === 'runbook-binding') return runbookBindingDisagreements(markdown, runbook);
   const read = checkedTypesIn(markdown, shape);
   if ('problem' in read) return [read.problem];
   const rows = PHASE_EVENT_CONTRACTS[phase]?.expects ?? [];
@@ -205,7 +250,7 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     for (const site of SITES) {
       const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
       expect(PHASE_EXPECTED_EVENTS[site.phase]?.length, `${site.phase} expects nothing`).toBeGreaterThan(0);
-      expect(disagreements(markdown, site.phase, site.shape), site.skill).toEqual([]);
+      expect(disagreements(markdown, site.phase, site.shape, site.runbook), site.skill).toEqual([]);
     }
   });
 
@@ -305,5 +350,38 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
 
     const silent = markdown.replace(OUTCOME_TABLE_HEADING, '| Outcome | Next call |');
     expect(disagreements(silent, site.phase, site.shape)).toEqual(['no outcome table']);
+  });
+
+  /**
+   * Each binding passage gets two seeded defects. One drops the worktree variable, and one drops the passage.
+   * The judge names each one, so a passage that stops binding the worktree turns this test red.
+   */
+  it('SkillProse_SeededBindingDisagreement_NamesTheUnboundVariable', () => {
+    const sites = SITES.filter((s) => s.shape === 'runbook-binding');
+    expect(sites.map((s) => s.skill)).toEqual([
+      'content/delivery/skills/delegate/SKILL.md',
+      'content/delivery/skills/delegate/references/fix-mode.md',
+    ]);
+    for (const site of sites) {
+      expect(site.runbook, site.skill).toBeDefined();
+      if (site.runbook === undefined) continue;
+      expect(staticAnalysisStepVariables(site.runbook), site.skill).toEqual(['<worktreePath>', '<taskId>']);
+      const markdown = readFileSync(join(REPO_ROOT, site.skill), 'utf8');
+      expect(disagreements(markdown, site.phase, site.shape, site.runbook), site.skill).toEqual([]);
+
+      const unbound = markdown.replace(' and `<worktreePath>` to the', ' to the');
+      expect(unbound, site.skill).not.toBe(markdown);
+      expect(disagreements(unbound, site.phase, site.shape, site.runbook), site.skill).toEqual([
+        `the passage does not bind \`<worktreePath>\`, which the check_static_analysis step of ${site.runbook.id} binds`,
+      ]);
+
+      const silent = markdown
+        .split('\n')
+        .filter((line) => !(line.includes('`check_static_analysis`') && /\bBind\b/.test(line)))
+        .join('\n');
+      expect(disagreements(silent, site.phase, site.shape, site.runbook), site.skill).toEqual([
+        'expected exactly one line that binds the variables of `check_static_analysis`, found 0',
+      ]);
+    }
   });
 });

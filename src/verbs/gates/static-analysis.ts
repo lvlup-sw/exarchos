@@ -12,6 +12,7 @@ import type {
   RunCommandFn,
   CommandResult,
   StaticAnalysisResult as StaticAnalysisRun,
+  StaticAnalysisSkipReason,
 } from '../pure/static-analysis.js';
 
 interface StaticAnalysisArgs {
@@ -47,6 +48,13 @@ interface StaticAnalysisResult {
   readonly skipped?: boolean;
   /** Reason code when `skipped` is true ('no-toolchain' | 'constituent-skipped'). */
   readonly skipReason?: string;
+  /**
+   * The reason code of a skip again, because the gate runner copies only `discriminant` and `reason` into the `gate.executed` row.
+   * `task_complete` reads it to tell a missing toolchain from a skipped check.
+   */
+  readonly discriminant?: StaticAnalysisSkipReason;
+  /** The cause of a skip as text. It names each check that did not run, or the missing toolchain. */
+  readonly reason?: string;
   /**
    * True when the gate detected a toolchain but one or more constituent checks did not run.
    * It is distinct from a no-toolchain skip, and it is never a pass.
@@ -99,10 +107,20 @@ export function staticAnalysisSubjectScope(
   };
 }
 
+/** The text of a skip cause. It names each check that did not run and its cause, or the missing toolchain. */
+function skipCauseText(skipReason: StaticAnalysisSkipReason, analysisResult: StaticAnalysisRun): string {
+  if (skipReason === 'no-toolchain') return 'no supported static-analysis toolchain in the scanned directory';
+  const checks = (analysisResult.skippedChecks ?? []).map(({ name, detail }) =>
+    detail === undefined ? `${name} did not run` : `${name} did not run (${detail})`,
+  );
+  return checks.length === 0 ? 'a check did not run' : checks.join(', ');
+}
+
 /**
  * Maps one run of `runStaticAnalysis` to the carrier of the gate. An `error` status gives `SCRIPT_ERROR`.
  * A `skip` status gives `passed: false` and `skipped: true`, because a skip is inconclusive and never a pass.
  * With this mapping, `normalizeGateVerdict` gives `indeterminate` for a skip.
+ * A skip also sets `discriminant` and `reason`, which the gate runner copies into the `gate.executed` row.
  * The handler and the static-analysis seed of the tests both call this function, so the two carriers agree.
  */
 export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolResult {
@@ -118,7 +136,8 @@ export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolRe
 
   const skipped = analysisResult.status === 'skip';
   const passed = analysisResult.status === 'pass';
-  const degraded = skipped && analysisResult.skipReason === 'constituent-skipped';
+  const skipReason = analysisResult.skipReason ?? 'no-toolchain';
+  const degraded = skipped && skipReason === 'constituent-skipped';
   const { passCount, failCount, skipCount, output } = analysisResult;
 
   const result: StaticAnalysisResult = {
@@ -127,7 +146,9 @@ export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolRe
     failCount,
     skipCount,
     report: output,
-    ...(skipped ? { skipped: true, skipReason: analysisResult.skipReason ?? 'no-toolchain' } : {}),
+    ...(skipped
+      ? { skipped: true, skipReason, discriminant: skipReason, reason: skipCauseText(skipReason, analysisResult) }
+      : {}),
     ...(degraded ? { degraded: true } : {}),
   };
   return { success: true, data: result };

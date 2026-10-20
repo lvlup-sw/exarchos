@@ -8,6 +8,16 @@ function literalRunbook<const Runbook extends RunbookDefinition>(runbook: Runboo
   return runbook;
 }
 
+/**
+ * The params of the static-analysis step of each completion runbook. `repoRoot: 'auto'` and the `<worktreePath>` variable run the gate in the agent worktree.
+ * The `<taskId>` variable binds the gate record to the task. The refusal of `task_complete` builds its rerun from these params.
+ */
+export const STATIC_ANALYSIS_STEP_PARAMS: Readonly<Record<'repoRoot' | 'worktreePath' | 'taskId', string>> = {
+  repoRoot: 'auto',
+  worktreePath: '<worktreePath>',
+  taskId: '<taskId>',
+};
+
 export const TASK_COMPLETION = literalRunbook({
   id: 'task-completion',
   phase: 'delegate',
@@ -49,7 +59,7 @@ export const TASK_COMPLETION = literalRunbook({
      * accepts only a passing gate runner record for that task.
      */
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>', taskId: '<taskId>' },
+      params: STATIC_ANALYSIS_STEP_PARAMS,
       note: '#1330: run against the agent worktree via repoRoot:auto + worktreePath template var. Run it per task with taskId: task_complete reads only the run for that task' },
     /**
      * Terminal step. All blocking per-task gates must pass before it. The
@@ -262,7 +272,7 @@ export const TASK_FIX: RunbookDefinition = {
      * and binds its record to the task, so `task_complete` can accept the fix.
      */
     { tool: 'exarchos_orchestrate', action: 'check_static_analysis', onFail: 'stop',
-      params: { repoRoot: 'auto', worktreePath: '<worktreePath>', taskId: '<taskId>' },
+      params: STATIC_ANALYSIS_STEP_PARAMS,
       note: 'run per task with taskId in the agent worktree: task_complete reads only the run for that task' },
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop' },
   ],

@@ -2406,7 +2406,10 @@ describe('prepare then settle, through the dispatcher', () => {
       result: { worktreePath: greenWorktree },
     });
     expect(completed).toMatchObject({ success: false, error: { code: 'GATE_NOT_PASSED' } });
-    expect(completed.error?.message).toContain("check_static_analysis with taskId 'task-a'");
+    expect(completed.error?.message).toContain("The gate runner recorded no static-analysis verdict for task 'task-a'.");
+    expect(completed.error?.message).toContain(
+      "check_static_analysis with repoRoot 'auto', worktreePath '<worktreePath>', taskId 'task-a'",
+    );
     expect(await rowsOf('task.completed')).toEqual([]);
   });
 });

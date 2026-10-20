@@ -20,6 +20,9 @@ import { getFullRegistry } from '../../registry.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { ladderRequirementId, readGateEvidenceRecords } from '../gates/durable-gate-producer.js';
 import { gateRunnerObservationSource, gateSignalIdempotencyKey } from '../gates/gate-runner.js';
+import type { StaticAnalysisSkipReason } from '../pure/static-analysis.js';
+import { STATIC_ANALYSIS_STEP_PARAMS } from '../../runbooks/definitions.js';
+import { assertNever } from '../../contract/error-families.js';
 
 const CLAIM_BASE_DELAY_MS = 50;
 
@@ -224,31 +227,55 @@ const STATIC_ANALYSIS_GATE = 'static-analysis';
 /** The ladder requirement under which a static-analysis run records its evidence. */
 const STATIC_ANALYSIS_REQUIREMENT = ladderRequirementId(STATIC_ANALYSIS_GATE);
 
+/** The skip descriptor that the gate runner copied from the carrier into a signal row. */
+interface SignalSkip {
+  readonly discriminant: string | undefined;
+  readonly reason: string | undefined;
+}
+
+/** The facts of one runner signal of the static-analysis gate that the completion check reads. */
+interface RunnerSignal {
+  readonly sequence: number;
+  readonly passed: boolean;
+  readonly verdict: unknown;
+  readonly evidenceId: string;
+  readonly skip: SignalSkip | undefined;
+}
+
+/** A string value of a row field, or undefined for any other value. */
+function stringField(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
 /**
- * The latest runner signal of the static-analysis gate for the task, or undefined when none exists.
+ * The runner signals of the static-analysis gate for the task, in stream order.
  * A row counts only with the runner source, the task at `details.taskId`, and the runner key of the evidence id that it cites.
  * A copy of a runner row without that key thus counts for nothing. The function does not read a top-level `data.taskId`.
  */
-async function latestRunnerSignal(
-  store: EventStore,
-  streamId: string,
-  taskId: string,
-): Promise<{ readonly passed: boolean; readonly evidenceId: string } | undefined> {
+async function runnerSignals(store: EventStore, streamId: string, taskId: string): Promise<readonly RunnerSignal[]> {
   const runnerSource = gateRunnerObservationSource(STATIC_ANALYSIS_GATE);
   const rows = await store.query(streamId, { type: 'gate.executed' });
-  let latest: { readonly sequence: number; readonly passed: boolean; readonly evidenceId: string } | undefined;
+  const signals: RunnerSignal[] = [];
   for (const row of rows) {
     if (row.source !== runnerSource) continue;
     const parsed = GateExecutedData.safeParse(row.data);
     if (!parsed.success || parsed.data.gateName !== STATIC_ANALYSIS_GATE) continue;
-    if (parsed.data.details?.taskId !== taskId) continue;
-    const evidenceId = parsed.data.details.evidenceId;
+    const details = parsed.data.details;
+    if (details?.taskId !== taskId) continue;
+    const evidenceId = details.evidenceId;
     if (typeof evidenceId !== 'string' || row.idempotencyKey !== gateSignalIdempotencyKey(evidenceId)) continue;
-    if (latest === undefined || row.sequence > latest.sequence) {
-      latest = { sequence: row.sequence, passed: parsed.data.passed, evidenceId };
-    }
+    signals.push({
+      sequence: row.sequence,
+      passed: parsed.data.passed,
+      verdict: details.verdict,
+      evidenceId,
+      skip:
+        details.skipped === true
+          ? { discriminant: stringField(details.discriminant), reason: stringField(details.reason) }
+          : undefined,
+    });
   }
-  return latest === undefined ? undefined : { passed: latest.passed, evidenceId: latest.evidenceId };
+  return signals.sort((a, b) => a.sequence - b.sequence);
 }
 
 /**
@@ -277,23 +304,133 @@ function activeTaskRecords(
 }
 
 /**
- * Whether the gate runner recorded a passing static-analysis verdict for the task.
+ * Why the static-analysis prerequisite of a task holds or does not hold.
+ * `latest-skipped` carries the skipped checks as the runner row names them, or undefined when the row names none.
+ */
+type StaticAnalysisPrerequisite =
+  | { readonly kind: 'pass' }
+  | { readonly kind: 'no-runner-verdict' }
+  | { readonly kind: 'latest-failed' }
+  | { readonly kind: 'latest-skipped'; readonly skippedChecks: string | undefined }
+  | { readonly kind: 'no-toolchain' };
+
+/** The causes of a refusal. */
+type StaticAnalysisRefusalCause = Exclude<StaticAnalysisPrerequisite, { readonly kind: 'pass' }>;
+
+/** The skip discriminant of a static-analysis run with no supported toolchain. */
+const NO_TOOLCHAIN: StaticAnalysisSkipReason = 'no-toolchain';
+
+/** The cause of a skip, from the skip descriptor of a runner signal. A skip with no discriminant is a skipped check. */
+function skipCause(skip: SignalSkip): StaticAnalysisRefusalCause {
+  if (skip.discriminant === NO_TOOLCHAIN) return { kind: 'no-toolchain' };
+  return { kind: 'latest-skipped', skippedChecks: skip.reason };
+}
+
+/** The cause of a signal that does not pass. A signal with no pass, fail or skip verdict is no verdict. */
+function signalCause(signal: RunnerSignal): StaticAnalysisRefusalCause {
+  if (signal.skip !== undefined) return skipCause(signal.skip);
+  return signal.verdict === 'fail' ? { kind: 'latest-failed' } : { kind: 'no-runner-verdict' };
+}
+
+/**
+ * Whether the gate runner recorded a passing static-analysis verdict for the task, and the cause when it did not.
  * The latest runner signal for the task must pass and cite an active passing record of the task.
  * Any other active record of the task that does not pass refuses, so two active records that disagree refuse.
  * A later failing run thus wins over an earlier pass, also when the signal of the later run is lost.
+ * A refusal takes its cause from the latest signal when that signal does not pass, else from an active record that does not pass.
  * The shared reader stays a total parse, so this selection does not change the evidence resolution of settlement.
  */
-async function hasRunnerStaticAnalysisPass(
+async function staticAnalysisPrerequisite(
   store: EventStore,
   streamId: string,
   taskId: string,
-): Promise<boolean> {
-  const signal = await latestRunnerSignal(store, streamId, taskId);
-  if (signal === undefined || !signal.passed) return false;
+): Promise<StaticAnalysisPrerequisite> {
+  const signals = await runnerSignals(store, streamId, taskId);
+  const latest = signals.at(-1);
+  if (latest === undefined) return { kind: 'no-runner-verdict' };
+  if (!latest.passed) return signalCause(latest);
   const active = activeTaskRecords(await readGateEvidenceRecords(store, streamId), taskId);
-  const cited = active.get(signal.evidenceId);
-  if (cited === undefined) return false;
-  return [...active.values()].every(({ evidence }) => evidence.verdict === 'pass');
+  const notPassing = [...active.values()].filter(({ evidence }) => evidence.verdict !== 'pass');
+  if (active.has(latest.evidenceId) && notPassing.length === 0) return { kind: 'pass' };
+  if (notPassing.some(({ evidence }) => evidence.verdict === 'fail')) return { kind: 'latest-failed' };
+  const skipped = notPassing
+    .map(({ evidence }) => signals.find((signal) => signal.evidenceId === evidence.evidenceId)?.skip)
+    .find((skip) => skip !== undefined);
+  return skipped === undefined ? { kind: 'no-runner-verdict' } : skipCause(skipped);
+}
+
+/** The template variable of the static-analysis step that the refusal fills with the task id. */
+const TASK_ID_VARIABLE = '<taskId>';
+
+/** A step param value that is a template variable, for example `<worktreePath>`. */
+const TEMPLATE_VARIABLE = /^<[A-Za-z]+>$/;
+
+/**
+ * The rerun of the static-analysis step for one task, built from the params of the runbook step.
+ * The task id fills its variable. The text tells the caller to fill each other variable.
+ */
+function staticAnalysisRerun(taskId: string): string {
+  const entries = Object.entries(STATIC_ANALYSIS_STEP_PARAMS);
+  const params = entries.map(([name, value]) => `${name} '${value.replaceAll(TASK_ID_VARIABLE, taskId)}'`);
+  const unfilled = entries
+    .map(([, value]) => value)
+    .filter((value) => TEMPLATE_VARIABLE.test(value) && value !== TASK_ID_VARIABLE);
+  const fill = unfilled.length === 0 ? '' : ` (replace ${unfilled.join(' and ')} with the value for this task)`;
+  return (
+    `run exarchos_orchestrate check_static_analysis with ${params.join(', ')}${fill}, then call task_complete again. ` +
+    'Under settle, correct the cause and settle the claim under a new batch id instead.'
+  );
+}
+
+/**
+ * The recovery that the refusal names for each cause. The record is total over the causes, so a new cause without a recovery does not compile.
+ * A rerun recovery comes from the params of the static-analysis step of the completion runbooks.
+ */
+const REFUSAL_RECOVERIES: Readonly<Record<StaticAnalysisRefusalCause['kind'], (taskId: string) => string>> = {
+  'no-runner-verdict': (taskId) => `To record one, ${staticAnalysisRerun(taskId)}`,
+  'latest-failed': (taskId) =>
+    `Fix the failing checks that the check_static_analysis report names. Then ${staticAnalysisRerun(taskId)}`,
+  'latest-skipped': (taskId) =>
+    `Add the missing scripts, or do not set the skip flags. Then ${staticAnalysisRerun(taskId)}`,
+  'no-toolchain': () =>
+    'A task cannot complete in this repository until static analysis can run configured commands (#1540). ' +
+    'A rerun gives the same skip.',
+};
+
+/** The sentence that names the cause of a refusal for the task. */
+function refusalCauseText(cause: StaticAnalysisRefusalCause, taskId: string): string {
+  switch (cause.kind) {
+    case 'no-runner-verdict':
+      return `The gate runner recorded no static-analysis verdict for task '${taskId}'.`;
+    case 'latest-failed':
+      return `The latest static-analysis verdict for task '${taskId}' is a fail.`;
+    case 'latest-skipped':
+      return cause.skippedChecks === undefined
+        ? `The latest static-analysis run for task '${taskId}' skipped a check, so it is not a pass. ` +
+            'The check_static_analysis report names the check.'
+        : `The latest static-analysis run for task '${taskId}' skipped a check, so it is not a pass: ${cause.skippedChecks}.`;
+    case 'no-toolchain':
+      return (
+        `The latest static-analysis run for task '${taskId}' is a skip, ` +
+        'because the repository has no supported static-analysis toolchain.'
+      );
+    default:
+      return assertNever(cause, 'static-analysis refusal cause');
+  }
+}
+
+/** The `GATE_NOT_PASSED` refusal for one cause. It names the gate, the cause and the recovery of that cause. */
+function gateNotPassed(cause: StaticAnalysisRefusalCause, taskId: string): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'GATE_NOT_PASSED',
+      message:
+        `Required gates not passed: ${STATIC_ANALYSIS_GATE}. ${refusalCauseText(cause, taskId)} ` +
+        REFUSAL_RECOVERIES[cause.kind](taskId),
+      unmetGates: [STATIC_ANALYSIS_GATE],
+    },
+  };
 }
 
 /** The idempotency key of the `task.completed` row of one task. */
@@ -390,6 +527,7 @@ function completeFailed(err: unknown): ToolResult {
  * The transport puts that capability in the dispatch context, so the caller cannot assert it.
  *
  * The gate check reads the latest runner row for this task and the active evidence records of the task.
+ * A refusal names its cause and the recovery of that cause.
  * The generic append refuses `gate.executed`, so only a gate handler writes the row.
  * The task-completion runbook runs the tier-scaled kill probe before this step.
  *
@@ -449,24 +587,11 @@ export async function handleTaskComplete(
     return hasOperatorCapability;
   };
 
-  const unmetGates: string[] = [];
-  if (
-    !evidenceMaySatisfy(STATIC_ANALYSIS_GATE) &&
-    !(await hasRunnerStaticAnalysisPass(store, streamId, args.taskId))
-  ) {
-    unmetGates.push(STATIC_ANALYSIS_GATE);
-  }
-  if (unmetGates.length > 0) {
-    return {
-      success: false,
-      error: {
-        code: 'GATE_NOT_PASSED',
-        message:
-          `Required gates not passed: ${unmetGates.join(', ')}. Run exarchos_orchestrate ` +
-          `check_static_analysis with taskId '${args.taskId}' for this task, then call task_complete again.`,
-        unmetGates,
-      },
-    };
+  const prerequisite = evidenceMaySatisfy(STATIC_ANALYSIS_GATE)
+    ? undefined
+    : await staticAnalysisPrerequisite(store, streamId, args.taskId);
+  if (prerequisite !== undefined && prerequisite.kind !== 'pass') {
+    return gateNotPassed(prerequisite, args.taskId);
   }
 
   const data: Record<string, unknown> = { taskId: args.taskId };

@@ -104,10 +104,12 @@ const TYPED_APPEND_HANDLERS: ReadonlyMap<string, string> = new Map([
 /**
  * The refusal guidance of a gate signal. Many gate handlers write the row, so no single typed
  * handler exists. The caller runs the gate instead, and the gate handler records the row.
+ * The example names the params of the static-analysis step of the completion runbooks. The registry
+ * cannot import the runbooks, so a test compares the two.
  */
 const GATE_SIGNAL_APPEND_GUIDANCE =
-  'Run the gate through exarchos_orchestrate check_*, for example check_static_analysis with taskId. ' +
-  'The gate handler records this row.';
+  `Run the gate through exarchos_orchestrate check_*, for example check_static_analysis with taskId, repoRoot 'auto' ` +
+  'and worktreePath, as the task-completion runbook binds them. The gate handler records this row.';
 
 const GATE_SIGNAL_TYPES: ReadonlySet<string> = new Set(INTERNAL_GATE_SIGNAL_EVENT_TYPES);
 
