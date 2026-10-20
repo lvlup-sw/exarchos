@@ -15,12 +15,13 @@ import { steerForFinding } from '../../../../src/verbs/gates/mock-boundary-handl
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
-  runDurableGateProducer: (
-    _scope: unknown,
-    executeProvider: () => Promise<unknown>,
-  ) => executeProvider(),
-}));
+vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/durable-gate-producer.js')>();
+  return {
+    ...actual,
+    runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<unknown>) => executeProvider(),
+  };
+});
 
 /**
  * A git seam that returns an empty diff for any `git diff …` call, so the

@@ -41,7 +41,17 @@ export const gateActions: readonly BuiltinToolAction[] = [
     description: 'Run static analysis gate (lint + typecheck) and persist canonical subject-bound evidence.',
     schema: z.object({
       featureId: z.string().min(1),
-      taskId: z.string().optional(),
+      /**
+       * The text names the params of the static-analysis step of the completion runbooks. The registry cannot import
+       * the runbooks, so a test compares the two.
+       */
+      taskId: z
+        .string()
+        .optional()
+        .describe(
+          'The task that the run records its verdict for. task_complete counts only a passing run with this taskId. ' +
+            "The task-completion runbook binds taskId, repoRoot 'auto' and worktreePath.",
+        ),
       branch: z.string().optional(),
       baseBranch: z.string().optional(),
       repoRoot: z.string().optional(),

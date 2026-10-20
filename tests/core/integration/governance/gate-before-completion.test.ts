@@ -24,9 +24,6 @@ import {
   type DispatchObservation,
 } from '../_harness.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
-import { AdmissionEvidenceRecordedData, type WorkflowEvent } from '../../../../src/events/schemas.js';
-import { EventStore } from '../../../../src/events/store.js';
-import type { EvidenceSubjectV1 } from '../../../../src/workflow/admission/types.js';
 import { initStateFile, readStateFile, writeStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
@@ -88,18 +85,6 @@ async function gateSignalsFor(taskId: string): Promise<readonly Rec[]> {
     .filter((e) => e.type === 'gate.executed')
     .map((e): Rec => ({ ...(e.data as Rec), __source: e.source }))
     .filter((d) => ((d.details as Rec | undefined)?.taskId ?? null) === taskId);
-}
-
-/** The subject of the first evidence record in the rows whose subject is the task, or undefined when none exists. */
-function taskSubjectIn(rows: readonly WorkflowEvent[], taskId: string): EvidenceSubjectV1 | undefined {
-  for (const row of rows) {
-    if (row.type !== 'admission.evidence-recorded') continue;
-    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
-    if (!parsed.success) continue;
-    const { subject } = parsed.data.evidence;
-    if (subject.kind === 'task' && subject.taskId === taskId) return subject;
-  }
-  return undefined;
 }
 
 /**
@@ -347,36 +332,6 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
   }, 400_000);
 
   /**
-   * The static-analysis seed of the reader tests writes the subject that a real run writes.
-   * The real gate runs for a task with the default base, and the seed runs for the same task on a scratch store.
-   * The two subjects are equal, so the evidence id and the chain of a seeded record follow a real run.
-   */
-  it('Governance_StaticAnalysisSeed_WritesTheSubjectOfARealRun', async () => {
-    const repo = await makeNodeFixture({ lint: OK, typecheck: OK, 'quality-check': OK });
-    const taskId = 'T-seed-subject';
-    const gate = await harness.runAction(
-      'exarchos_orchestrate',
-      'check_static_analysis',
-      { featureId: FEATURE_ID, taskId, repoRoot: repo },
-      { timeoutMs: 180_000 },
-    );
-    expect(payload(gate).passed).toBe(true);
-    const real = taskSubjectIn(await harness.events(FEATURE_ID), taskId);
-    expect(real).toBeDefined();
-
-    const scratchDir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-t2-seed-')));
-    scratchDirs.push(scratchDir);
-    const scratch = new EventStore(scratchDir);
-    await scratch.initialize();
-    try {
-      await seedStaticAnalysisVerdict(scratch, { streamId: FEATURE_ID, taskId, stateDir: scratchDir });
-      expect(taskSubjectIn(await scratch.query(FEATURE_ID), taskId)).toEqual(real);
-    } finally {
-      scratch.close();
-    }
-  }, 400_000);
-
-  /**
    * The completion runbook has no blocking gate after `task_complete`. A gate that runs after its subject is decorative.
    * BLOCKING ARM: the predicate finds no blocking gate after `task_complete` in the real runbook, and blocking gates do exist.
    * NEGATIVE TWIN: the predicate detects a blocking gate appended to a copy, and a list without a `task_complete` step.
@@ -431,6 +386,86 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     expect(harness.reachedActionIds()).toContain('exarchos_orchestrate.task_complete');
     expect(harness.reachedActionIds()).toContain('exarchos_orchestrate.check_static_analysis');
   });
+});
+
+/** The workflow of the retry case. It is apart from the workflow of the gate cases. */
+const RETRY_FEATURE_ID = 'gov-t2-completion-retry';
+
+/** The status of the task in the state document of the retry case. */
+async function retryDocumentStatus(taskId: string): Promise<unknown> {
+  const state = await readStateFile(path.join(harness.stateDir, `${RETRY_FEATURE_ID}.state.json`));
+  const tasks: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
+  const entry = tasks.find((task) => typeof task === 'object' && task !== null && Reflect.get(task, 'id') === taskId);
+  return typeof entry === 'object' && entry !== null ? Reflect.get(entry, 'status') : undefined;
+}
+
+/**
+ * A retry of `task_complete` through the real `dispatch()`, with the interceptors that run after the handler.
+ * The retry returns the stored `task.completed` row, which a call under another operation id wrote.
+ */
+describe('task_complete retry through dispatch', () => {
+  /**
+   * The first call completes the task. The test puts the document back to `in_progress`, as a failed sync leaves it.
+   * A later run fails. The retry returns the stored row through dispatch, writes no second row and brings the document level.
+   */
+  it('Governance_TaskCompleteRetryAfterALostSync_ReturnsTheStoredRowThroughDispatch', async () => {
+    const taskId = 'task-retry';
+    await initStateFile(harness.stateDir, RETRY_FEATURE_ID, 'feature', {
+      phase: 'delegate',
+      tasks: [{ id: taskId, title: taskId, status: 'in_progress' }],
+    });
+    const seed = { streamId: RETRY_FEATURE_ID, taskId, stateDir: harness.stateDir } as const;
+    await seedStaticAnalysisVerdict(harness.eventStore, seed);
+
+    const first = await harness.runAction('exarchos_orchestrate', 'task_complete', { taskId, streamId: RETRY_FEATURE_ID });
+    expect(first.result?.success, JSON.stringify(first.result)).toBe(true);
+    expect(await retryDocumentStatus(taskId)).toBe('complete');
+
+    const stateFile = path.join(harness.stateDir, `${RETRY_FEATURE_ID}.state.json`);
+    const level = await readStateFile(stateFile);
+    const stale = level.tasks.map((task): typeof task => ({ ...task, status: 'in_progress' }));
+    await writeStateFile(stateFile, { ...level, tasks: stale }, { expectedVersion: level._version ?? 1 });
+    await seedStaticAnalysisVerdict(harness.eventStore, { ...seed, verdict: 'fail' });
+
+    const retried = await harness.runAction('exarchos_orchestrate', 'task_complete', { taskId, streamId: RETRY_FEATURE_ID });
+
+    expect(retried.errorCode, JSON.stringify(retried.result)).toBeUndefined();
+    expect(retried.result?.success).toBe(true);
+    expect(retried.result?.data).toEqual(first.result?.data);
+    const rows = (await harness.events(RETRY_FEATURE_ID)).filter((event) => event.type === 'task.completed');
+    expect(rows).toHaveLength(1);
+    expect(await retryDocumentStatus(taskId)).toBe('complete');
+    const findingRows = (await harness.events(RETRY_FEATURE_ID)).filter((event) => event.type === 'emission.violated');
+    expect(findingRows).toEqual([]);
+  }, 120_000);
+
+  /**
+   * A fix of a completed task calls `task_complete` again, as the task-fix runbook does. The gate check runs, and after a
+   * later pass the keyed append returns the stored row. Dispatch returns that row, and a later fail refuses before it.
+   */
+  it('Governance_TaskCompleteOnACompletedTaskAfterAPass_ReturnsTheStoredRowThroughDispatch', async () => {
+    const taskId = 'task-fixed';
+    const seed = { streamId: RETRY_FEATURE_ID, taskId, stateDir: harness.stateDir } as const;
+    await seedStaticAnalysisVerdict(harness.eventStore, seed);
+    const first = await harness.runAction('exarchos_orchestrate', 'task_complete', { taskId, streamId: RETRY_FEATURE_ID });
+    expect(first.result?.success, JSON.stringify(first.result)).toBe(true);
+
+    await seedStaticAnalysisVerdict(harness.eventStore, { ...seed, verdict: 'fail' });
+    const refused = await harness.runAction('exarchos_orchestrate', 'task_complete', { taskId, streamId: RETRY_FEATURE_ID });
+    expect(refused.errorCode).toBe('GATE_NOT_PASSED');
+
+    await seedStaticAnalysisVerdict(harness.eventStore, seed);
+    const fixed = await harness.runAction('exarchos_orchestrate', 'task_complete', { taskId, streamId: RETRY_FEATURE_ID });
+
+    expect(fixed.errorCode, JSON.stringify(fixed.result)).toBeUndefined();
+    expect(fixed.result?.data).toEqual(first.result?.data);
+    const rows = (await harness.events(RETRY_FEATURE_ID)).filter(
+      (event) => event.type === 'task.completed' && (event.data as Rec | undefined)?.taskId === taskId,
+    );
+    expect(rows).toHaveLength(1);
+    const findingRows = (await harness.events(RETRY_FEATURE_ID)).filter((event) => event.type === 'emission.violated');
+    expect(findingRows).toEqual([]);
+  }, 120_000);
 });
 
 /** The workflow of the `settle` case. It is apart from the workflow of the gate cases. */

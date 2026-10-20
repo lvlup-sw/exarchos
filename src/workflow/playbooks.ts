@@ -204,7 +204,7 @@ register({
       tool: 'exarchos_workflow',
       action: 'update',
       purpose:
-        'Update task statuses, transition to review when all complete',
+        'Record fields other than a completion (task_complete records it), transition to review when all complete',
     },
     {
       tool: 'exarchos_event',
@@ -815,7 +815,7 @@ register({
     {
       tool: 'exarchos_workflow',
       action: 'update',
-      purpose: 'Update task statuses',
+      purpose: 'Record fields other than a completion (task_complete records it)',
     },
     {
       tool: 'exarchos_event',

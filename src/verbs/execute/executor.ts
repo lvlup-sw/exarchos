@@ -741,6 +741,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
       streamId: leaf.observationStreamId,
       declared: verifierDeclaredEmissions(leaf.contract),
       handlerSucceeded: result.success,
+      reply: result.data,
       ...(ctx.projectConfig !== undefined ? { projectConfig: ctx.projectConfig } : {}),
     });
 
@@ -765,6 +766,7 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
           operationId: derived,
           outcome: 'success',
           artifactResolver: evidenceArtifactResolver(stateDir),
+          reply: result.data,
         });
       } catch {
         observation = {

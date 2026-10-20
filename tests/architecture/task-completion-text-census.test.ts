@@ -6,8 +6,10 @@
  * @oracle-sources: ../../content, ../../src/workflow/guards.ts, ../../src/workflow/hsm-definitions.ts, ../../src/registry/actions/workflow.ts
  *
  * The census reads three payload shapes: an index path, a list element in an `updates` payload, and a spread element.
+ * A list element can be in a flow list or in a YAML block sequence, and the value can be quoted or not.
  * A finding outside the exception list fails, and an exception that excuses no finding fails.
- * The census also reads the description of the workflow `update` action.
+ *
+ * The census also reads the description of the workflow `update` action and the `update` purposes of the playbooks.
  * Prose that names the write in words, with no payload, is outside the census.
  * The test reads only the content source. `render:guard` pins `rendered/` to `content/`.
  */
@@ -19,6 +21,7 @@ import ts from 'typescript';
 import { describe, expect, it } from 'vitest';
 
 import { workflowActions } from '../../src/registry/actions/workflow.js';
+import { workflowPlaybooks } from '../../src/workflow/playbooks.js';
 
 const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -94,18 +97,25 @@ const FENCE = /^\s*(```|~~~)/;
 /** An `updates` key, which marks a Markdown unit as a payload of `update` or `set`. */
 const UPDATES_KEY = /\bupdates\b/;
 
+/** The value `complete`, quoted or bare. A bare value ends at a character that cannot continue a word. */
+const COMPLETE_VALUE = String.raw`(?:["'\`]complete["'\`]|complete(?![\w-]))`;
+
 /** A status entry with the value `complete`, in JSON, YAML or TypeScript. */
-const COMPLETE_STATUS = /\bstatus["'`]?\s*:\s*["'`]complete["'`]/;
+const COMPLETE_STATUS = new RegExp(String.raw`\bstatus["'\`]?\s*:\s*${COMPLETE_VALUE}`);
 
 /** A write through an index path: `tasks[0].status: "complete"`, or `tasks[0]: { …, status: "complete" }`. */
-const INDEX_PATH =
-  /\btasks\[[^\]\s]+\](?:\.status["'`]?\s*[:=]\s*["'`]complete["'`]|["'`]?\s*:\s*\{[^}]*\bstatus["'`]?\s*:\s*["'`]complete["'`])/;
+const INDEX_PATH = new RegExp(
+  String.raw`\btasks\[[^\]\s]+\](?:\.status["'\`]?\s*[:=]\s*${COMPLETE_VALUE}|["'\`]?\s*:\s*\{[^}]*\bstatus["'\`]?\s*:\s*${COMPLETE_VALUE})`,
+);
 
 /** The opener of a task list in a payload: `tasks: [`, or `tasks: <list>.map(`. */
 const TASK_LIST_OPENER = /\btasks["'`]?\s*:\s*(?:\[|[\w.]+\.map\()/g;
 
+/** The key line of a YAML block sequence of tasks: `tasks:` with nothing after the colon. */
+const TASK_BLOCK_KEY = /^(\s*)tasks["'`]?\s*:\s*$/;
+
 /** A spread element with the value `complete`: `{...task, status: "complete"}`. */
-const SPREAD_ELEMENT = /\{\s*\.\.\.[\w.]+\s*,[^}]*\bstatus["'`]?\s*:\s*["'`]complete["'`]/;
+const SPREAD_ELEMENT = new RegExp(String.raw`\{\s*\.\.\.[\w.]+\s*,[^}]*\bstatus["'\`]?\s*:\s*${COMPLETE_VALUE}`);
 
 /** The text from an opening bracket to its closing bracket. An unclosed bracket gives the rest of the text. */
 function balancedSpan(text: string, open: number): string {
@@ -121,13 +131,38 @@ function balancedSpan(text: string, open: number): string {
   return text.slice(open);
 }
 
-/** True when a task list of the unit holds an element with the value `complete`. */
+/**
+ * The lines of each YAML block sequence under a `tasks:` key.
+ * A block ends at the first line that is not blank and is not indented past the key.
+ * A `- ` item at the indentation of the key stays in the block.
+ */
+function taskBlockSpans(text: string): readonly string[] {
+  const lines = text.split('\n');
+  const spans: string[] = [];
+  lines.forEach((line, index) => {
+    const key = TASK_BLOCK_KEY.exec(line);
+    if (key === null) return;
+    const indent = (key[1] ?? '').length;
+    const body: string[] = [];
+    for (const next of lines.slice(index + 1)) {
+      const nextIndent = next.length - next.trimStart().length;
+      const inBlock =
+        next.trim().length === 0 || nextIndent > indent || (nextIndent === indent && next.trimStart().startsWith('- '));
+      if (!inBlock) break;
+      body.push(next);
+    }
+    spans.push(body.join('\n'));
+  });
+  return spans;
+}
+
+/** True when a task list of the unit, in flow form or in block form, holds an element with the value `complete`. */
 function hasCompleteListElement(text: string): boolean {
   for (const match of text.matchAll(TASK_LIST_OPENER)) {
     const open = (match.index ?? 0) + match[0].length - 1;
     if (COMPLETE_STATUS.test(balancedSpan(text, open))) return true;
   }
-  return false;
+  return taskBlockSpans(text).some((span) => COMPLETE_STATUS.test(span));
 }
 
 /** The payload shapes of one unit. A list element counts only in a payload. */
@@ -237,6 +272,20 @@ function updateDescriptionProblems(description: string): readonly string[] {
   return problems;
 }
 
+/** The `update` purposes of the playbooks that state a task field, as `workflowType:phase` strings. */
+function playbookUpdateProblems(): readonly string[] {
+  const problems: string[] = [];
+  for (const [workflowType, playbooks] of workflowPlaybooks) {
+    for (const playbook of playbooks) {
+      const updates = playbook.tools.filter((tool) => tool.tool === 'exarchos_workflow' && tool.action === 'update');
+      for (const update of updates) {
+        if (TASK_FIELD_IN_DESCRIPTION.test(update.purpose)) problems.push(`${workflowType}:${playbook.phase}`);
+      }
+    }
+  }
+  return problems;
+}
+
 /** The units of the live tree, with the counts of what the census read. */
 function liveCensus(): { readonly files: number; readonly replies: number; readonly units: readonly PayloadUnit[] } {
   const files = contentMarkdownFiles();
@@ -272,10 +321,28 @@ describe('TaskCompletionTextCensus — completion texts name a gated writer', ()
     expect(updateDescriptionProblems(update?.description ?? '')).toEqual([]);
   });
 
+  /**
+   * No playbook gives `exarchos_workflow update` the purpose of a task status write.
+   * Each playbook whose tools hold `task_complete` says that `task_complete` records a completion, in its `update` purpose.
+   */
+  it('TaskCompletionTextCensus_PlaybookUpdatePurposes_LeaveTheCompletionToTaskComplete', () => {
+    expect(playbookUpdateProblems()).toEqual([]);
+    const completing = [...workflowPlaybooks.values()]
+      .flat()
+      .filter((playbook) => playbook.tools.some((tool) => tool.action === 'task_complete'));
+    expect(completing.length).toBeGreaterThanOrEqual(2);
+    for (const playbook of completing) {
+      const update = playbook.tools.find((tool) => tool.tool === 'exarchos_workflow' && tool.action === 'update');
+      expect(update?.purpose ?? '', playbook.phase).toContain('task_complete');
+    }
+  });
+
   /** Each payload shape has one seeded violation and one clean twin. */
   it('TaskCompletionTextCensus_SeededIndexPath_IsFoundAndItsTwinIsClean', () => {
     const seeded = markdownUnits('seed.md', '- Mark: `updates: { "tasks[0].status": "complete" }`');
     expect(findingsIn(seeded)).toEqual([{ site: 'seed.md', line: 1, shape: 'index-path' }]);
+    const seededBare = markdownUnits('seed.md', '- Mark: `updates: { tasks[0].status: complete }`');
+    expect(findingsIn(seededBare).map((finding) => finding.shape)).toEqual(['index-path']);
     const seededSlot = markdownUnits('seed.md', '```\nupdates: { "tasks[2]": { id: "T-003", status: "complete" } }\n```');
     expect(findingsIn(seededSlot).map((finding) => finding.shape)).toEqual(['index-path']);
 
@@ -292,6 +359,27 @@ describe('TaskCompletionTextCensus — completion texts name a gated writer', ()
 
     const twin = markdownUnits('twin.md', `Text.\n\`\`\`json\n{ ${element} }\n\`\`\``);
     expect(findingsIn(twin)).toEqual([]);
+  });
+
+  /** A list element in a YAML block sequence of a `set` payload, with a bare value, is found. Its twins are clean. */
+  it('TaskCompletionTextCensus_SeededBlockSequenceElement_IsFoundAndItsTwinsAreClean', () => {
+    const block = (status: string): string =>
+      ['```yaml', 'exarchos_workflow set:', '  updates:', '    tasks:', '      - id: T-001', `        status: ${status}`, '```'].join(
+        '\n',
+      );
+    expect(findingsIn(markdownUnits('seed.md', block('complete')))).toEqual([
+      { site: 'seed.md', line: 1, shape: 'list-element' },
+    ]);
+    expect(findingsIn(markdownUnits('seed.md', block('"complete"'))).map((finding) => finding.shape)).toEqual([
+      'list-element',
+    ]);
+
+    expect(findingsIn(markdownUnits('twin.md', block('in_progress')))).toEqual([]);
+    expect(findingsIn(markdownUnits('twin.md', block('completed')))).toEqual([]);
+    const outsidePayload = ['```yaml', 'tasks:', '- id: T-001', '  status: complete', '```'].join('\n');
+    expect(findingsIn(markdownUnits('twin.md', outsidePayload))).toEqual([]);
+    const afterTheBlock = ['```yaml', 'updates:', '  tasks:', '    - id: T-001', 'status: complete', '```'].join('\n');
+    expect(findingsIn(markdownUnits('twin.md', afterTheBlock))).toEqual([]);
   });
 
   it('TaskCompletionTextCensus_SeededSpreadElement_IsFoundAndItsTwinIsClean', () => {

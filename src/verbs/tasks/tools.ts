@@ -287,7 +287,8 @@ async function runnerSignals(store: EventStore, streamId: string, taskId: string
 
 /**
  * The static-analysis evidence records of one task in stream order, and the active records among them, keyed by evidence id.
- * The scope is the task and the static-analysis ladder requirement, across phase attempts, branches and bases.
+ * The scope is the task, the static-analysis ladder requirement and the phase attempt of the latest record of the task.
+ * Inside that phase attempt, the scope spans branches and bases.
  * A record that another record of the scope names in `supersedesEvidenceId` is not active.
  */
 interface TaskRecords {
@@ -295,14 +296,22 @@ interface TaskRecords {
   readonly active: ReadonlyMap<string, AdmissionEvidenceRecorded>;
 }
 
-/** Selects the records of the task from the gate records of the stream. The shared reader keeps the stream order. */
+/**
+ * Selects the records of the task from the gate records of the stream. The shared reader keeps the stream order.
+ * Only the records of the phase attempt of the latest record of the task count.
+ * The gate runner supersedes a record only inside its own phase attempt, and a caller cannot choose the phase attempt of a run.
+ * Phase attempts follow one another, so the latest attempt holds the current evidence.
+ * A failing record of an earlier attempt thus does not refuse the task for ever.
+ */
 function taskRecords(records: ReadonlyMap<string, AdmissionEvidenceRecorded>, taskId: string): TaskRecords {
-  const all = [...records.values()].filter(
+  const ofTask = [...records.values()].filter(
     ({ evidence }) =>
       evidence.requirementId === STATIC_ANALYSIS_REQUIREMENT &&
       evidence.subject.kind === 'task' &&
       evidence.subject.taskId === taskId,
   );
+  const latestAttempt = ofTask.at(-1)?.evidence.phaseAttemptId;
+  const all = ofTask.filter(({ evidence }) => evidence.phaseAttemptId === latestAttempt);
   const superseded = new Set(
     all.flatMap((record) => (record.supersedesEvidenceId === undefined ? [] : [record.supersedesEvidenceId])),
   );
@@ -319,6 +328,7 @@ function taskRecords(records: ReadonlyMap<string, AdmissionEvidenceRecorded>, ta
 /**
  * Whether two records are in one chain of runs: the same subject, phase attempt, provider and policy.
  * The subject holds the task, the branch and the base. The gate runner supersedes a record only inside its chain.
+ * The records that the completion reads share one phase attempt, so two chains of a task differ in branch or base.
  */
 function sameChain(left: AdmissionEvidenceRecorded, right: AdmissionEvidenceRecorded): boolean {
   return (
@@ -335,7 +345,6 @@ function sameChain(left: AdmissionEvidenceRecorded, right: AdmissionEvidenceReco
  */
 interface CauseRecord {
   readonly evidenceId: string;
-  readonly phaseAttemptId: string;
   readonly inLatestChain: boolean;
 }
 
@@ -388,8 +397,8 @@ function recordCause(
   latest: AdmissionEvidenceRecorded,
   signals: readonly RunnerSignal[],
 ): StaticAnalysisRefusalCause {
-  const { evidenceId, phaseAttemptId } = record.evidence;
-  const cause: CauseRecord = { evidenceId, phaseAttemptId, inLatestChain: sameChain(record, latest) };
+  const { evidenceId } = record.evidence;
+  const cause: CauseRecord = { evidenceId, inLatestChain: sameChain(record, latest) };
   if (record.evidence.verdict === 'fail') return { kind: 'failed', record: cause };
   const skip = lastMatch(signals, (signal) => signal.evidenceId === evidenceId)?.skip;
   if (skip?.discriminant === CONSTITUENT_SKIPPED) {
@@ -405,6 +414,7 @@ function recordCause(
 
 /**
  * Whether the gate runner recorded a passing static-analysis verdict for the task, and the cause when it did not.
+ * The active records are the records of the phase attempt of the latest record of the task.
  * The latest runner signal for the task must pass and cite an active passing record of the task.
  * Any other active record of the task that does not pass refuses, so two active records that disagree refuse.
  * A later failing run thus wins over an earlier pass, also when the signal of the later run is lost.
@@ -440,7 +450,7 @@ const TEMPLATE_VARIABLE = /^<[A-Za-z]+>$/;
 /**
  * The rerun of the static-analysis step for one task, built from the params of the runbook step.
  * The task id fills its variable. The text tells the caller to fill each other variable.
- * For a record outside the chain of the latest run, the rerun also names the branch, the base and the phase attempt of that record.
+ * For a record outside the chain of the latest run, the rerun also names the branch and the base of that record.
  */
 function staticAnalysisRerun(taskId: string, otherChain: CauseRecord | undefined): string {
   const entries = Object.entries(STATIC_ANALYSIS_STEP_PARAMS);
@@ -450,11 +460,9 @@ function staticAnalysisRerun(taskId: string, otherChain: CauseRecord | undefined
     .map(([, value]) => value)
     .filter((value) => TEMPLATE_VARIABLE.test(value) && value !== TASK_ID_VARIABLE);
   const fill = unfilled.length === 0 ? '' : ` (replace ${unfilled.join(' and ')} with the value for this task)`;
-  const supersede =
-    otherChain === undefined ? '' : ` Only a run in phase attempt '${otherChain.phaseAttemptId}' supersedes that record.`;
   return (
     `run exarchos_orchestrate check_static_analysis with ${params.join(', ')}${chain}${fill}, ` +
-    `then call task_complete again.${supersede} ` +
+    'then call task_complete again. ' +
     'Under settle, correct the cause and settle the claim under a new batch id instead.'
   );
 }
@@ -486,17 +494,17 @@ function causeSubject(record: CauseRecord, taskId: string, noun: 'run' | 'verdic
     : namedRecordSubject(record, taskId, noun);
 }
 
-/** The subject of a cause sentence that names the record by its evidence id and its phase attempt. */
+/** The subject of a cause sentence that names the record by its evidence id. */
 function namedRecordSubject(record: CauseRecord, taskId: string, noun: 'run' | 'verdict'): string {
-  return `The static-analysis ${noun} of evidence '${record.evidenceId}' (phase attempt '${record.phaseAttemptId}') for task '${taskId}'`;
+  return `The static-analysis ${noun} of evidence '${record.evidenceId}' for task '${taskId}'`;
 }
 
 /** The sentence that says why a record outside the chain of the latest run still counts, or an empty text. */
 function chainSentence(record: CauseRecord): string {
   return record.inLatestChain
     ? ''
-    : ' That run is on another branch, base or phase attempt than the latest run of the task, ' +
-        'and no later run on its branch, base and phase attempt superseded it.';
+    : ' That run is on another branch or base than the latest run of the task, ' +
+        'and no later run on its branch and base superseded it.';
 }
 
 /** The sentence that names the cause of a refusal for the task. */

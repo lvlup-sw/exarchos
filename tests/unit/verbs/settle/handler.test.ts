@@ -44,7 +44,6 @@ import {
 } from '../../../../src/events/bundle/digest-references.js';
 import { EventStore } from '../../../../src/events/store.js';
 import {
-  AdmissionEvidenceRecordedData,
   DesignRevisedData,
   DeviationDecidedData,
   DeviationProposedData,
@@ -197,28 +196,6 @@ function executeDeps(overrides: Readonly<Record<string, LeafHandler>> = {}): Exe
  */
 async function seedPassingStaticAnalysis(taskId: string): Promise<void> {
   await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId });
-}
-
-/**
- * Records a later failing run of one gate record. The new row has a new evidence id and supersedes `supersededId`.
- * The gate runner chains a later run of one subject in the same way. Returns the new evidence id.
- */
-async function seedSupersedingFailure(supersededId: string): Promise<string> {
-  const superseded = (await readGateEvidenceRecords(store, STREAM)).get(supersededId);
-  if (superseded === undefined) throw new Error(`no gate record ${supersededId}`);
-  const evidenceId = `${supersededId}.later`;
-  const createdAt = new Date().toISOString();
-  const record = AdmissionEvidenceRecordedData.parse({
-    eventVersion: superseded.eventVersion,
-    evidence: { ...superseded.evidence, evidenceId, verdict: 'fail', createdAt },
-    supersedesEvidenceId: supersededId,
-  });
-  await store.append(
-    STREAM,
-    { type: 'admission.evidence-recorded', timestamp: createdAt, data: record },
-    { idempotencyKey: evidenceId },
-  );
-  return evidenceId;
 }
 
 /** Record `capsule` as prepared, through the production commit. */
@@ -1186,29 +1163,36 @@ describe('settle — the verification a settled batch runs', () => {
   });
 
   /**
-   * Settlement resolves a cited record by its id, the requirement of the cited kind and its blobs. It reads neither the
-   * verdict nor supersession, because the segment runs each gate again. Thus a cited record that a later failing
-   * record supersedes resolves, and the cited failing record resolves too. The reader of `task_complete` selects the
+   * The rule: a superseded or a failing cited record resolves. Its source is a recommendation of the verification
+   * review, adopted on 2026-10-20, and not a recorded decision.
+   * Settlement resolves a cited record by its id, the requirement of the cited kind and its blobs. It reads neither
+   * the verdict nor supersession, because the segment runs each gate again. The reader of `task_complete` selects the
    * active record on its own, so its selection does not change this resolution.
+   *
+   * Two runs of the gate runner for one task chain in the active phase attempt: a pass, then a fail that supersedes it.
+   * The capsule admits the `static-analysis` kind, as a prepared capsule admits each ladder gate class.
    */
   it('Settle_ACitedSupersededOrFailingRecord_StillResolves', async () => {
-    const supersededId = await seedGateEvidence(store, {
-      streamId: STREAM,
-      requirementId: ladderRequirementId('test'),
-      phaseAttemptId,
-    });
-    const failingId = await seedSupersedingFailure(supersededId);
+    const base = baseValidCapsule();
+    const evidenceKinds = [...base.contracts.evidenceKinds, 'static-analysis'];
+    await seedPrepared(withVersion({ ...base, contracts: { ...base.contracts, evidenceKinds } }, 8));
+    const seed = { streamId: STREAM, taskId: 'task-cited', stateDir, phaseAttemptId } as const;
+    const supersededId = await seedStaticAnalysisVerdict(store, seed);
+    const failingId = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail' });
+    const recorded = await readGateEvidenceRecords(store, STREAM);
+    expect(recorded.get(failingId)?.supersedesEvidenceId).toBe(supersededId);
+    expect(recorded.get(failingId)?.evidence.verdict).toBe('fail');
     const receipt = receiptOf(
       await settle({
         featureId: STREAM,
-        capsuleVersion: 7,
+        capsuleVersion: 8,
         batchId: 'batch-cited-history',
         claims: [
           {
             ...passingClaim(),
             evidence: [
-              { kind: 'test', ref: supersededId },
-              { kind: 'test', ref: failingId },
+              { kind: 'static-analysis', ref: supersededId },
+              { kind: 'static-analysis', ref: failingId },
             ],
           },
         ],

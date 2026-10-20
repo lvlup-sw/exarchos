@@ -19,7 +19,10 @@ import { evidenceArtifactStore } from '../../src/workflow/admission/evidence-art
 /** The gate class that `task_complete` requires. */
 const STATIC_ANALYSIS_GATE = 'static-analysis';
 
-/** The phase attempt of a seeded verdict when the test names none. `task_complete` does not read it. */
+/**
+ * The phase attempt of a seeded verdict when the test names none.
+ * `task_complete` reads only the records of the phase attempt of the latest record of the task.
+ */
 const SEED_PHASE_ATTEMPT_ID = 'phase-attempt:static-analysis-seed';
 
 /**
@@ -37,6 +40,7 @@ export type StaticAnalysisSeedOutcome = Pick<StaticAnalysisResult, 'status'> & P
  *
  * The subject derives from `taskId`, `branch` and `baseBranch` as the handler derives it, with the base `main` by default.
  * With no `taskId`, the subject is the commit at `repoRoot`, or an artifact when `repoRoot` holds no commit.
+ * `phaseAttemptId` sets the phase attempt of the run. A run supersedes only an earlier run of its own phase attempt.
  * `operationId` runs the seed under a fixed dispatch operation, as a retry of one dispatch does.
  * `earlierBuildCarrier` gives the carrier of an earlier build, which set no skip `discriminant` and no skip `reason`.
  */

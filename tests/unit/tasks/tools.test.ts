@@ -11,6 +11,7 @@ import { initStateFile, readStateFile } from '../../../src/workflow/state-store.
 import { guards } from '../../../src/workflow/guards.js';
 import { getPlaybook } from '../../../src/workflow/playbooks.js';
 import { getReservedEventAppendRegistration } from '../../../src/registry/gate-metadata.js';
+import { findActionInRegistry } from '../../../src/registry.js';
 import { STATIC_ANALYSIS_STEP_PARAMS } from '../../../src/runbooks/definitions.js';
 import { runStaticAnalysis, type StaticAnalysisResult } from '../../../src/verbs/pure/static-analysis.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
@@ -1459,8 +1460,9 @@ describe('handleTaskComplete names the cause and the recovery of a refusal', () 
   });
 
   /**
-   * Every recovery text that names the static-analysis call names the params of the runbook step. The texts are the
-   * refusal, the guidance of a refused `gate.executed` append, and the two delegation playbooks.
+   * Every recovery text that names the static-analysis call names the params of the runbook step.
+   * The texts are the refusal, the guidance of a refused `gate.executed` append and the two delegation playbooks.
+   * The description of `task_complete` and the describe text of the `taskId` field of `check_static_analysis` are texts too.
    */
   it('RecoveryTexts_NameTheParamsOfTheStaticAnalysisStep', async () => {
     const store = new EventStore(tempDir);
@@ -1469,6 +1471,9 @@ describe('handleTaskComplete names the cause and the recovery of a refusal', () 
     const playbooks = [getPlaybook('feature', 'delegate'), getPlaybook('refactor', 'overhaul-delegate')].map(
       (playbook) => playbook?.compactGuidance ?? '',
     );
+    const completion = findActionInRegistry('exarchos_orchestrate', 'task_complete')?.description ?? '';
+    const taskIdField =
+      findActionInRegistry('exarchos_orchestrate', 'check_static_analysis')?.schema.shape.taskId?.description ?? '';
 
     expect(Object.keys(STATIC_ANALYSIS_STEP_PARAMS)).toEqual(['repoRoot', 'worktreePath', 'taskId']);
     expect(unnamedStepParams(refusal.error?.message ?? '', { rerunFor: 'T-07' })).toEqual([]);
@@ -1478,6 +1483,10 @@ describe('handleTaskComplete names the cause and the recovery of a refusal', () 
       expect(text).toContain('check_static_analysis');
       expect(unnamedStepParams(text, 'guidance')).toEqual([]);
     }
+    expect(completion).toContain('check_static_analysis');
+    expect(unnamedStepParams(completion, 'guidance')).toEqual([]);
+    expect(taskIdField).toContain('task_complete');
+    expect(unnamedStepParams(taskIdField, 'guidance')).toEqual([]);
   });
 });
 
@@ -1771,7 +1780,7 @@ describe('handleTaskComplete reads the active record of the task', () => {
     const refused = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-bases' }, tempDir, store);
     expect(refused.error?.code).toBe('GATE_NOT_PASSED');
     expect(refused.error?.message).toContain(`The static-analysis verdict of evidence '${failId}'`);
-    expect(refused.error?.message).toContain("for task 'T-01' is a fail. That run is on another branch, base or phase attempt");
+    expect(refused.error?.message).toContain("for task 'T-01' is a fail. That run is on another branch or base");
     expect(refused.error?.message).toContain("taskId 'T-01' and the branch and baseBranch of that run");
 
     await seedStaticAnalysisVerdict(store, { ...seed, baseBranch: 'develop' });
@@ -1824,7 +1833,7 @@ describe('handleTaskComplete reads the active record of the task', () => {
     expect(refused.error?.code).toBe('GATE_NOT_PASSED');
     expect(message).toContain(`The static-analysis run of evidence '${skipId}'`);
     expect(message).toContain('is a skip, because it found no supported static-analysis toolchain in the scanned directory.');
-    expect(message).toContain('That run is on another branch, base or phase attempt than the latest run of the task');
+    expect(message).toContain('That run is on another branch or base than the latest run of the task');
     expect(message).toContain("taskId 'T-01' and the branch and baseBranch of that run");
     expect(message).not.toContain('(#1540)');
     expect(message).not.toContain('A rerun gives the same skip.');
@@ -1833,6 +1842,110 @@ describe('handleTaskComplete reads the active record of the task', () => {
     await seedStaticAnalysisVerdict(store, { ...seed, branch: 'feat/x' });
     const admitted = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-tool-branch' }, tempDir, store);
     expect(admitted.success, JSON.stringify(admitted.error)).toBe(true);
+  });
+
+  /**
+   * Inside one phase attempt, the scope spans branches. A fail on one branch and a later pass on another branch refuse.
+   * A rerun on the failing branch supersedes the fail, and the task completes.
+   */
+  it('HandleTaskComplete_FailOnOneBranchAndAPassOnAnother_RefusesUntilThatBranchPasses', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-branches', taskId: 'T-01', stateDir: tempDir } as const;
+    const failId = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail', branch: 'feat/a' });
+    await seedStaticAnalysisVerdict(store, { ...seed, branch: 'feat/b' });
+
+    const refused = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-branches' }, tempDir, store);
+
+    const message = refused.error?.message ?? '';
+    expect(refused.error?.code).toBe('GATE_NOT_PASSED');
+    expect(message).toContain(`The static-analysis verdict of evidence '${failId}' for task 'T-01' is a fail.`);
+    expect(message).toContain('That run is on another branch or base than the latest run of the task');
+    expect(message).toContain("taskId 'T-01' and the branch and baseBranch of that run");
+    expect(message).not.toContain('phase attempt');
+
+    await seedStaticAnalysisVerdict(store, { ...seed, branch: 'feat/a' });
+    const admitted = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-branches' }, tempDir, store);
+    expect(admitted.success, JSON.stringify(admitted.error)).toBe(true);
+  });
+
+  /**
+   * One task has two chains by path. The runbook steps pass no `branch`, and settle passes the `branch` of the claim.
+   * A failing runbook-path run and a later passing settle-path run refuse while the failing chain has no later pass.
+   * A passing runbook-path run supersedes the fail, and the task completes.
+   */
+  it('HandleTaskComplete_RunbookPathFailAndSettlePathPass_RefusesWhileTheFailingChainHasNoLaterPass', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-paths', taskId: 'T-01', stateDir: tempDir } as const;
+    const runbookFail = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail' });
+    await seedStaticAnalysisVerdict(store, { ...seed, branch: 'feature/wf-paths' });
+
+    const refused = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-paths' }, tempDir, store);
+
+    expect(refused.error?.code).toBe('GATE_NOT_PASSED');
+    expect(refused.error?.message).toContain(`The static-analysis verdict of evidence '${runbookFail}' for task 'T-01' is a fail.`);
+    expect((await recordsOf(store, 'wf-paths')).map((record) => record.supersedes)).toEqual([undefined, undefined]);
+
+    await seedStaticAnalysisVerdict(store, seed);
+    const admitted = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-paths' }, tempDir, store);
+    expect(admitted.success, JSON.stringify(admitted.error)).toBe(true);
+  });
+});
+
+/**
+ * The completion reads only the records of the phase attempt of the latest static-analysis record of the task.
+ * The gate runner supersedes a record only inside its own phase attempt, and a caller cannot choose the attempt of a run.
+ * Phase attempts follow one another, so the latest attempt holds the current evidence.
+ */
+describe('handleTaskComplete reads the latest phase attempt of the task', () => {
+  /** A failing record of an earlier phase attempt does not refuse a pass in the latest attempt. */
+  it('HandleTaskComplete_FailInAnEarlierPhaseAttemptAndAPassInTheLatest_AllowsCompletion', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-attempts-pass', taskId: 'T-01', stateDir: tempDir } as const;
+    await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail', phaseAttemptId: 'phase-attempt:delegate-1' });
+    await seedStaticAnalysisVerdict(store, { ...seed, phaseAttemptId: 'phase-attempt:delegate-2' });
+
+    expect((await recordsOf(store, 'wf-attempts-pass')).map((record) => [record.verdict, record.supersedes])).toEqual([
+      ['fail', undefined],
+      ['pass', undefined],
+    ]);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-attempts-pass' }, tempDir, store);
+    expect(result.success, JSON.stringify(result.error)).toBe(true);
+  });
+
+  /** A passing record of an earlier phase attempt does not admit over a fail in the latest attempt. */
+  it('HandleTaskComplete_PassInAnEarlierPhaseAttemptAndAFailInTheLatest_RejectsCompletion', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-attempts-fail', taskId: 'T-01', stateDir: tempDir } as const;
+    await seedStaticAnalysisVerdict(store, { ...seed, phaseAttemptId: 'phase-attempt:delegate-1' });
+    await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail', phaseAttemptId: 'phase-attempt:delegate-2' });
+
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-attempts-fail' }, tempDir, store);
+
+    const message = result.error?.message ?? '';
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(message).toContain("The latest static-analysis verdict for task 'T-01' is a fail.");
+    expect(message).not.toContain('phase attempt');
+  });
+
+  /**
+   * The latest runner row cites a pass of an earlier phase attempt, and the record of the latest attempt lost its row.
+   * The row does not count, because its record is outside the latest attempt.
+   */
+  it('HandleTaskComplete_LatestRowCitesAnEarlierPhaseAttempt_SaysThatTheRowDoesNotCount', async () => {
+    const store = new EventStore(tempDir);
+    const seed = { streamId: 'wf-attempts-row', taskId: 'T-01', stateDir: tempDir } as const;
+    const earlier = await seedStaticAnalysisVerdict(store, { ...seed, phaseAttemptId: 'phase-attempt:delegate-1' });
+    await expect(
+      seedStaticAnalysisVerdict(signalLosingStore(store), { ...seed, phaseAttemptId: 'phase-attempt:delegate-2' }),
+    ).rejects.toThrow(/EVIDENCE_APPEND_FAILED/);
+
+    expect(await signalsOf(store, 'wf-attempts-row')).toEqual([earlier]);
+    const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-attempts-row' }, tempDir, store);
+
+    expect(result.error?.code).toBe('GATE_NOT_PASSED');
+    expect(result.error?.message).toContain(
+      "The latest runner row for task 'T-01' is not a pass of an active static-analysis record, so it does not count.",
+    );
   });
 });
 

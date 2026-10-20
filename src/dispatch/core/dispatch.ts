@@ -774,6 +774,7 @@ export async function dispatch(
     handlerStubbed: STUBBED_COMPOSITES.has(tool),
     handlerSucceeded: result.success,
     readOnlyAbstention,
+    reply: result.data,
     ...(ctx.projectConfig !== undefined ? { projectConfig: ctx.projectConfig } : {}),
   });
 
@@ -867,6 +868,7 @@ export async function dispatch(
         operationId: dispatchCtx.operationId,
         outcome: result.success ? 'success' : 'failure',
         artifactResolver: evidenceArtifactResolver(ctx.stateDir),
+        reply: result.data,
       });
     } catch {
       observation = { status: 'violated' as const, missing: applicable };
