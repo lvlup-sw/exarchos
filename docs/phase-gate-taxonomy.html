@@ -2037,6 +2037,12 @@
       not <code>.strict()</code> and the reader is tolerant. That is the only way it goes green, and it is not a
       path the system drives.)
     </p>
+    <p>
+      <strong>Note, 2026-10-20.</strong> The hand-append route in the parenthesis above is closed. The generic
+      append and the batch append of <code>exarchos_event</code> now refuse <code>gate.executed</code> with
+      <code>RESERVED_EVENT_TYPE</code>, and the refusal tells the caller to run the gate. Only the handlers
+      of the server write the row.
+    </p>
   </div>
 
   <div class="callout warn">

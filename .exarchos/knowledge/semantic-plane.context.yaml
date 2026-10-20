@@ -17,7 +17,7 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-10-16
+  as_of: 2026-10-20
   main_at: b6e339fd9
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
@@ -410,6 +410,7 @@ decisions:
     source: "Reed (#1926, settlement vocabulary, verification review)"
     decision: "task.completed is reserved to its gated writers: task_complete, called directly or as the last leaf of the segment that settle runs. The generic append and batch append refuse it with RESERVED_EVENT_TYPE, as they refuse the other reserved types. The drain of the hook-event sidecar files appends no row of a reserved type. A recorded completion is the result of a required task, so a required task with a completion row needs no claim and no second verification. Nothing is reopened (#1929)."
     known: "Owned by #1929. task_complete reads no design revision. A task that a later revision names can still be completed by task_complete, and a batch on the earlier capsule then settles that task as already-complete. Owned by #1886 (a child of #1929): task_complete accepts a gate.executed row that the generic append can write, so the reservation does not prove that a gate ran. Drift row completion-gate-row."
+    status: "known updated 2026-10-20: the gate.executed half is resolved in part. The generic append refuses gate.executed, and task_complete reads only the runner row of the task and its evidence record. A pass on another tree and a write of tasks[].status stay open (drift row completion-gate-row)."
 
   - date: "2026-10-15"
     source: "Reed (#1926, settlement vocabulary, verification review)"
@@ -431,6 +432,37 @@ decisions:
   - date: "2026-10-16"
     source: "Reed, roadmap check after the C3 merge"
     decision: "Verification scope (#1929) is the next leg. It owns the items that the settlement vocabulary deferred (reopening finished work, the race at settlement time, #1886), and the per-task coordinates that #1927 and #1928 read."
+  - date: "2026-10-16"
+    source: "Reed, plan of verification scope (#1929)"
+    decision: "Verification scope is built in four slices, by name: 'honest verdicts', 'settlement reads inside its commit', 'the capsule pins the scope' and 'no per-language code'. build_order lists the issues of each. 'Honest verdicts' is built with Workflow runs and a /verify-code pass before each pull request, and with no Exarchos call. From 'settlement reads inside its commit' on, the build dogfoods prepare and settle on a binary built from main."
+  - date: "2026-10-16"
+    source: "Reed, plan of verification scope (#1929, #1886)"
+    decision: "The repair of #1886 reserves gate.executed to the gate handlers. The generic append and the batch append refuse the type, and the drain of the hook-event sidecar files drops it. task_complete reads only the runner row of the task and the evidence record that the row cites. This replaces the earlier direction of #1886, a new row that the producer mints."
+  - date: "2026-10-16"
+    source: "Reed, plan of verification scope (#1929)"
+    decision: "A decision round whose deviation names a finished task is refused: deviation-names-finished-task applies on the decision round too (the refuse class, rejected, nothing verified, no revision recorded). The slice 'settlement reads inside its commit' builds it."
+  - date: "2026-10-17"
+    source: "Reed, plan of verification scope (#1929)"
+    decision: "A repository with no supported static-analysis toolchain fails closed, and the CHANGELOG says so. task_complete and settle refuse, so such a repository records no task.completed row until static analysis can run configured commands (#1540, the slice 'no per-language code')."
+  - date: "2026-10-18"
+    source: "Reed, verification of honest verdicts (#1929)"
+    decision: "A refused completion names its cause and the recovery of that cause: no runner verdict for the task, a latest verdict that failed, or a skip and the check that skipped. The recovery runs check_static_analysis with taskId, repoRoot 'auto' and worktreePath. For a skip, it first adds the missing scripts."
+  - date: "2026-10-18"
+    source: "Reed, verification of honest verdicts (#1929)"
+    decision: "One Exarchos build for each store. task_complete reads only a runner row under the runner key gate.executed:<evidenceId>, so a copy without the key completes nothing. An earlier build that shares the store still accepts a generic append of gate.executed. Thus every MCP registration, the PATH binary that the hooks run and the CLI start the main build before 'settlement reads inside its commit', and every session restarts after a binary change. The CHANGELOG states the rule."
+    known: "A human control: no row names the build that wrote it. Follow-up (no owner): a stamp of the build on the evidence record, and a reader that refuses a record of another build. The stamp is the build commit, not a hand-bumped epoch (decided 2026-10-20)."
+  - date: "2026-10-18"
+    source: "Reed, verification of honest verdicts (#1929, #1886)"
+    decision: "'Honest verdicts' lands the forged-row half of #1886 defect 2: no generic append, and a runner row and evidence for the task. The wrong-tree half stays open on the direct path and closes in 'the capsule pins the scope'. The answer calls that slice 'slice 3', its number in the plan. The tracker draft, the pull request and the CHANGELOG say so."
+  - date: "2026-10-18"
+    source: "Reed, verification of honest verdicts (#1929, #1886, #1813)"
+    decision: "'Honest verdicts' merges with #1886 defect 1 (a disabled gate in the config is not honored) and #1813 recorded as open and owned by 'the capsule pins the scope'."
+  - date: "2026-10-18"
+    source: "Reed, verification of honest verdicts (#1929)"
+    decision: "Evidence before the pull requests: one blocking case in tests/core/process for the packaged chain (the generic append refused, then check_static_analysis with taskId, then task_complete). At the final tip, the boundary runs again with the binary of the branch first on PATH, and a few commits of the branch replay as probe tasks in a scratch clone of the repository."
+  - date: "2026-10-20"
+    source: "Reed, verification of honest verdicts (#1929, #1918): 'Proceed with recommendations'"
+    decision: "Calls under that authorization. The agent-teams texts that write tasks[].status keep the write as an exception row of the completion-text census, owner #1918, because agent-teams mode is off-plane until re-designed. A refused completion names both routes: call task_complete again, or settle the claim under a new batch id. A recovery of the CHANGELOG that no shipped surface can carry is a register entry of the recovery check (tests/architecture/operator-recovery-carriers.test.ts), with an owner and a reason. Each list that is a deliberate subset says so in place, with its reason, and a guard over every such list is a follow-up. 'Honest verdicts' merges as one stack of three pull requests, each fix in the pull request whose code it changes, when CI and CodeRabbit are green."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -459,7 +491,7 @@ build_order:
       refs: "#1926; landed on main 2026-10-16 in PRs #2130, #2131 and #2132 (one stack merge, main b6e339fd9). The build made no Exarchos call, so it is not a real settlement of the loop."
       deferred: "reopening finished work and the settlement-time comparison for a race (#1929); the race where a second batch finishes a task that a held deviation names, so that the accepted decision revises a finished task, because the decision round does not read the standing of the named tasks (#1929); the completion read that moved ahead of the shape pass, drift row completion-read-before-shape-pass (#1929); quarantine (no owner); a deferred decision (no owner); a detector for a prohibited change, which today is found only by the gates and by the report of the worker (no owner); binding the reasons of unresolved tasks into the next capsule (#1930); a limit on the number of corrections of one task (no owner); a task.failed row for a claim that reports failed, because the status is on the claim and in the bundle, and tasks[].status does not change (no owner); a SCHEMA_VERSION step, after the freshness gate of #2106 is repaired (no owner)"
     - leg: "conformance: verification scope (per-task repoRoot, worktreePath, baseRef in the capsule; worktree identity checked)"
-      status: "in progress (first slice landed: the kill-probe base, #1925 via #1974). The next leg (decision of 2026-10-16)."
+      status: "in progress, and the next leg (decision of 2026-10-16). #1925 landed via #1974 (the kill-probe base, frozen in the capsule). The plan of 2026-10-16 cuts the rest into four slices, by name. 'Honest verdicts' (no capsule change): #1886 defect 2, #2062 and the first half of #1721, in a stack of three pull requests (the reserved gate.executed row and the task_complete reader, then the kill probe, then the boundary check of static analysis). 'Settlement reads inside its commit' (no capsule change): drift row completion-read-before-shape-pass and the race at settlement time. 'The capsule pins the scope' (exarchos-prepare-4): the per-task scope in the capsule and worktree identity, with the wrong-tree half of #1886 defect 2, #1886 defect 1, #1813 and #1753. 'No per-language code': #1540 and #1814. No slice names #1526 yet."
       refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721); gate verdict enforcement #1943 (done, #1975)"
     - leg: "conformance: VCS demotion (serialize_merge, setup_worktree, create_pr off the governance surface)"
       status: "decided"
@@ -579,8 +611,8 @@ drift:
     resolution: "unresolved. Until it is fixed, a kill-probe pass in this repository is not evidence that a test can fail."
   - id: "completion-gate-row"
     design: "a task is complete only after the verification that its gate runs passes"
-    built: "task.completed is reserved (2026-10-15), but task_complete accepts a passing static-analysis gate.executed row for the task, and the generic append can write that row. Thus one appended row and one task_complete call complete a task with no gate run. settle then reports the task as already-complete, and a required task with that row needs no claim. A gate.executed row with details that name no task satisfies every task of the stream. In the segment that settle runs, the gate runs before the task_complete leaf, and a static-analysis verdict that blocks stops the segment."
-    resolution: "unresolved; owned by #1886 (a child of #1929, v3.0.0). The direction of #1886: the producer mints a row that the generic append cannot write, and only that row discharges task_complete. Reserving gate.executed instead takes away a documented append."
+    built: "task.completed is reserved (2026-10-15), and 'honest verdicts' reserves gate.executed to the gate handlers: the generic append and the batch append refuse it, and the sidecar drain drops it. task_complete reads the latest runner row of the task (the runner source, the runner key gate.executed:<evidenceId> and details.taskId). The evidence record that the row cites must be an active passing static-analysis record of the task, and any other active record of the task that does not pass refuses. A row that names no task satisfies no task, and a later failing run wins over an earlier pass. In the segment that settle runs, the gate runs before the task_complete leaf, and a static-analysis verdict that blocks stops the segment. Two routes stay open. The record and the reader name no tree, so on the direct path a pass on another tree, such as the directory of the server, completes the task. And exarchos_workflow update or a generic state.patched append sets tasks[].status to complete with no gate run, and the transition guards and the prepare frontier read that field. An earlier build that shares the store still accepts a generic append of gate.executed."
+    resolution: "resolved in part (#1886 defect 2, the forged-row half): the decision of 2026-10-16 reserves gate.executed, and the decision of 2026-10-18 keeps one build for each store. Open: the wrong-tree half, owned by 'the capsule pins the scope' (#1929). The state-field route, owned by #1927 for the transition guards (the state document retires as a guard input) and by no issue for the prepare frontier."
   - id: "completion-row-consumers"
     design: "each consumer of a fact has a producer"
     built: "after task.completed was reserved (2026-10-15), two consumers of the row have no producer. The team.disbanded tally counts the completion rows that carry a teamId (src/events/tools.ts), and task_complete writes no teamId, so no new completion counts. Config hooks and the channel push keyed on task.completed run only from the event composite (src/events/composite.ts), and task_complete writes through the store, so they do not fire for it."
@@ -730,7 +762,7 @@ issue_map:
   distribution: [1877, 1601, 1737, 1690]
   transport: [1604, 1283, 1780]
   verification_scope: [1925, 1526, 1753, 1813, 1814, 1540, 1886, 1721]
-  kill_probe_base: "1925 (first slice of 1929; base frozen at prepare; closed by PR 1974)"
+  kill_probe_base: "1925 (a child of 1929; base frozen at prepare; closed by PR 1974)"
   gate_verdict_enforcement: "1943 (closed by PR 1975); verdict-shaped gates 1976"
   vcs_effects: [1626, 1884, 1835]       # 1402, 1496, 1351, 1722 closed as superseded by #1928
   second_runtime_candidate: [1661, 1662, 1663, 1665, 1666, 1667, 1668]
@@ -752,5 +784,5 @@ traps:
   - "The static census counts what skills prescribe, not what agents do. The observed half of #1687 needs transcripts recorded after the skill rewrite."
   - "The description budget of an action (280 tokens) does not measure its schema text. describe returns the output schema twice, and the describe response has a budget of its own (8000 tokens) that a registry test measures. An earlier commit moved text into the settle output schema and said that no budget measures it."
   - "The status of a claim is not the status of a task. A claim that reports failed, blocked or skipped writes no task.failed row and leaves tasks[].status alone. The task is unresolved on the receipt and on the execution.settled row, and nowhere else on the stream."
-  - "A reserved completion row is not a proven gate run. task_complete accepts a gate.executed row that the generic append can write (#1886). A guard on the writer of a fact proves nothing when the writer reads a forgeable input."
+  - "A reserved completion row is not a proven gate run. A guard on the writer of a fact proves nothing when the writer reads a forgeable input: task_complete accepted a gate.executed row that the generic append could write (#1886), until gate.executed was reserved too. The same holds for a field. The transition guards and the prepare frontier read tasks[].status, which exarchos_workflow update and a generic state.patched append write with no gate."
   - "A rationale is not a deviation and not evidence. It names a delegated decision of the capsule, it takes no decision round, and it changes no gate. A choice outside the delegated decisions goes in deviations."

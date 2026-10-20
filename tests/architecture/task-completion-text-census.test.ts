@@ -73,7 +73,8 @@ interface CensusException {
 }
 
 /**
- * The exceptions. This list is a deliberate subset of the findings: each row excuses one site, with a reason and an owner.
+ * The exceptions. This list is a deliberate subset of the findings, because each other text must name a gated writer.
+ * Each row excuses one site, with a reason and an owner.
  * The agent-teams texts name `exarchos_workflow set`, and no workflow composite case serves `set`.
  * The guard shape is the state that the guard reads, and the guard reason names `task_complete`.
  */
