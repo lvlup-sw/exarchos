@@ -377,6 +377,77 @@ describe('T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)', () => 
   }, 120_000);
 
   /**
+   * A refused completion guard names the gated writer, not a state write.
+   * BLOCKING ARM: a `delegate` workflow holds one pending task, and the transition to `review` gets `GUARD_FAILED`.
+   * The message names the task and `task_complete`, and it names no `exarchos_workflow update`. The phase does not change.
+   *
+   * The required state is the shape that the guard reads, as a description.
+   * NEGATIVE TWIN: the store gets the `task.completed` row that `task_complete` writes, and `reconcile` folds it.
+   * The same transition then moves the phase, which is the recovery that the troubleshooting text names.
+   */
+  it('Governance_AllTasksComplete_RefusalNamesTheGatedWriter', async () => {
+    const featureId = 'gov-t2-tasks-complete-writer';
+    await initFeature(featureId);
+    await harness.runAction('exarchos_workflow', 'update', {
+      featureId,
+      updates: { artifacts: { plan: 'docs/specs/gov-t2-tasks.md' } },
+    });
+    const toPlanReview = await harness.runAction('exarchos_workflow', 'transition', {
+      featureId,
+      target: 'plan-review',
+    });
+    expect(toPlanReview.result?.success).toBe(true);
+    await harness.runAction('exarchos_workflow', 'update', {
+      featureId,
+      updates: { planReview: { approved: true } },
+    });
+    const toDelegate = await harness.runAction('exarchos_workflow', 'transition', {
+      featureId,
+      target: 'delegate',
+    });
+    expect(toDelegate.result?.success).toBe(true);
+    const seeded = await harness.runAction('exarchos_workflow', 'update', {
+      featureId,
+      updates: { tasks: [{ id: 'task-1', title: 'One pending task', status: 'pending' }] },
+    });
+    expect(seeded.result?.success).toBe(true);
+    expect(await phaseOf(featureId)).toBe('delegate');
+
+    const denied = await harness.runAction('exarchos_workflow', 'transition', {
+      featureId,
+      target: 'review',
+    });
+    expect(denied.result?.success).toBe(false);
+    expect(denied.errorCode).toBe('GUARD_FAILED');
+    const message = String(denied.result?.error?.message);
+    expect(message).toContain("Guard 'all-tasks-complete+team-disbanded' failed");
+    expect(message).toContain('1 task(s) incomplete (task-1)');
+    expect(message).toContain('Only task_complete or settle marks a task complete.');
+    expect(message).toContain('exarchos_orchestrate task_complete');
+    expect(message).not.toContain('exarchos_workflow update');
+    expect(await phaseOf(featureId)).toBe('delegate');
+    expect(
+      (denied.result?.error?.expectedShape as Rec | undefined)?.requiredState,
+    ).toEqual({ tasks: [{ id: '<task-id>', status: 'complete' }] });
+    expect(await eventTypes(featureId)).not.toContain('task.completed');
+
+    await harness.appendEvent(featureId, {
+      type: 'task.completed',
+      data: { taskId: 'task-1' },
+      idempotencyKey: `${featureId}:task.completed:task-1`,
+    });
+    const reconciled = await harness.runAction('exarchos_workflow', 'reconcile', { featureId });
+    expect(reconciled.result?.success).toBe(true);
+    const admitted = await harness.runAction('exarchos_workflow', 'transition', {
+      featureId,
+      target: 'review',
+    });
+    expect(admitted.errorCode).toBeUndefined();
+    expect(admitted.result?.success).toBe(true);
+    expect(await phaseOf(featureId)).toBe('review');
+  }, 120_000);
+
+  /**
    * The anti-stub invariant of this tier. The test asserts the returned list.
    * It drives both composites itself, so an earlier test that aborts cannot make the check vacuous.
    */

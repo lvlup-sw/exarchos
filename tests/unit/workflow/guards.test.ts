@@ -429,6 +429,10 @@ describe('planReviewComplete', () => {
 });
 
 describe('allTasksComplete', () => {
+  /**
+   * The reason names each incomplete task and the gated writers, and the fix is `task_complete` for the first one.
+   * The fix names no state write, because only `task_complete` or `settle` marks a task complete.
+   */
   it('AllTasksCompleted_MixedTaskStatuses_ReturnsFailed', () => {
     const state: Record<string, unknown> = {
       featureId: 'test-feature',
@@ -445,9 +449,14 @@ describe('allTasksComplete', () => {
     const failure = result as GuardFailure;
     expect(failure.passed).toBe(false);
     expect(failure.reason).toContain('all-tasks-complete');
-    expect(failure.reason).toContain('2 task(s) incomplete');
-    expect(failure.suggestedFix).toBeDefined();
-    expect(failure.suggestedFix!.tool).toBe('exarchos_workflow');
+    expect(failure.reason).toContain('2 task(s) incomplete (t2, t3)');
+    expect(failure.reason).toContain('Only task_complete or settle marks a task complete.');
+    expect(failure.reason).toContain('exarchos_orchestrate task_complete for each task');
+    expect(failure.reason).not.toContain('exarchos_workflow');
+    expect(failure.suggestedFix).toEqual({
+      tool: 'exarchos_orchestrate',
+      params: { action: 'task_complete', featureId: 'test-feature', taskId: 't2' },
+    });
   });
 });
 
@@ -1363,8 +1372,8 @@ describe('guards — malformed state is narrowed, not asserted (DR-24)', () => {
 
       const failure = guards.allTasksComplete.evaluate(state) as GuardFailure;
 
-      const updates = failure.suggestedFix?.params.updates as { tasks: Array<{ id: string }> };
-      expect(updates.tasks[0]?.id).toBe('<task-id>');
+      expect(failure.suggestedFix?.params.taskId).toBe('<task-id>');
+      expect(failure.reason).toContain('1 task(s) incomplete (<task-id>)');
     });
   });
 

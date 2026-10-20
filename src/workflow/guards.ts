@@ -240,6 +240,10 @@ export const guards = {
   /**
    * Pass when each task has the status `complete`. An absent task list passes. A
    * present `tasks` value that is not an array fails, so corrupt state never reads as done.
+   *
+   * Only `task_complete` or `settle` marks a task complete. The failure names each incomplete
+   * task, and its fix is `task_complete` for the first one. The guard reply carries one fix,
+   * so the reason tells the caller to repeat the call for each task.
    */
   allTasksComplete: {
     id: 'all-tasks-complete',
@@ -261,21 +265,20 @@ export const guards = {
       if (tasks.length === 0) return true;
       const incomplete = tasks.filter((t) => readStringField(t, 'status') !== 'complete');
       if (incomplete.length === 0) return true;
+      const incompleteIds = incomplete.map((t) => readStringField(t, 'id') ?? '<task-id>');
       return {
         passed: false,
-        reason: `all-tasks-complete not satisfied: ${incomplete.length} task(s) incomplete`,
+        reason:
+          `all-tasks-complete not satisfied: ${incomplete.length} task(s) incomplete ` +
+          `(${incompleteIds.join(', ')}). Only task_complete or settle marks a task complete. ` +
+          'Call exarchos_orchestrate task_complete for each task after its gates pass, or settle its batch.',
         expectedShape: { tasks: [{ id: '<task-id>', status: 'complete' }] },
         suggestedFix: {
-          tool: 'exarchos_workflow',
+          tool: 'exarchos_orchestrate',
           params: {
-            action: 'update',
+            action: 'task_complete',
             featureId,
-            updates: {
-              tasks: incomplete.map((t) => ({
-                id: readStringField(t, 'id') ?? '<task-id>',
-                status: 'complete',
-              })),
-            },
+            taskId: incompleteIds[0] ?? '<task-id>',
           },
         },
       };

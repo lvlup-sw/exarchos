@@ -842,7 +842,7 @@ exarchos_orchestrate({
 ```
 
 4. **On a gate failure**, dispatch a fixer (Fix Failed Tasks above), then run the `task-fix` runbook: `exarchos_orchestrate({ action: "runbook", id: "task-fix" })`.
-5. **Update workflow state** — set each passing task's status to `"complete"` via `exarchos_workflow update` with the tasks array, then land, backstop and transition as in Step 4.
+5. **Land and transition** — `task_complete` marked each passing task complete in workflow state, so do not write `tasks[].status` by hand. Land, backstop and transition as in Step 4.
 
 ---
 

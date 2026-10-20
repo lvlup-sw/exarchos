@@ -1057,13 +1057,6 @@
           "line": 821,
           "source": "content/delivery/skills/delegate/SKILL.md",
           "why": "the primitive path, for the workflow types prepare does not compile; this census counts the capsule path"
-        },
-        {
-          "call": "exarchos_workflow.update",
-          "kind": "alternate-mode",
-          "line": 840,
-          "source": "content/delivery/skills/delegate/SKILL.md",
-          "why": "the primitive path patches task statuses by hand; on the capsule path settlement leaves them complete"
         }
       ],
       "id": "delegation",
@@ -2623,16 +2616,6 @@
       "subject": "exarchos_orchestrate.prepare_delegation"
     },
     {
-      "decision": "the primitive path patches task statuses by hand; on the capsule path settlement leaves them complete",
-      "flag": null,
-      "intent": "delegation",
-      "kind": "alternate-mode",
-      "line": 840,
-      "path": "excluded",
-      "source": "content/delivery/skills/delegate/SKILL.md",
-      "subject": "exarchos_workflow.update"
-    },
-    {
       "decision": "task_complete records the task complete",
       "flag": null,
       "intent": "task-completion",
@@ -3055,7 +3038,7 @@
     "inputs": [
       {
         "file": "content/delivery/skills/delegate/SKILL.md",
-        "sha256": "6a61081027533df351ea54272e5275d861ca76ac8d7f737ce8f722242d872c13"
+        "sha256": "7f6eb0eb73eed754bc87add1ad232e9fb5c6935f20535459054851452d97c8b5"
       },
       {
         "file": "content/design/skills/plan/SKILL.md",
@@ -4173,17 +4156,6 @@
         "line": 839,
         "pattern": "call-expression",
         "runbookId": "task-fix",
-        "status": "registered"
-      },
-      {
-        "call": "exarchos_workflow.update",
-        "dispositions": [
-          "delegation:excluded:alternate-mode"
-        ],
-        "endLine": 840,
-        "line": 840,
-        "pattern": "tool-verb-span",
-        "runbookId": null,
         "status": "registered"
       }
     ],

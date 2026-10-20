@@ -80,7 +80,7 @@ See `@skills/oneshot/SKILL.md` for the lightweight variant's full prose, includi
 Use `exarchos:exarchos_workflow` with `action: "update"` with `featureId` and `updates`. This action mutates non-phase fields only — `phase`, `workflowType`, `featureId`, `createdAt`, and `version` are reserved (see "Reserved fields" below).
 
 - **Set artifact path**: `updates: { "artifacts.spec": "docs/specs/2026-01-05-feature.md" }`
-- **Mark task complete (by index)**: `updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<timestamp>" }`
+- **Complete a task**: do not use `update`. Call `exarchos:exarchos_orchestrate` with `action: "task_complete"` after the gates of the task pass, or let `settle` mark the task. Only `task_complete` and `settle` mark a task complete.
 - **Add worktree**: `updates: { "worktrees.wt-001": { "branch": "feature/001-types", "taskId": "001", "status": "active" } }`
 
 Worktree status values: `'active' | 'merged' | 'removed'`
@@ -114,10 +114,10 @@ The dot-path parser used by `set updates` recognizes only **numeric** array brac
    exarchos_workflow({
      action: "update",
      featureId: "<id>",
-     updates: { "tasks[0].status": "complete", "tasks[0].completedAt": "<ts>" },
+     updates: { "tasks[0].status": "in_progress", "tasks[0].startedAt": "<ts>" },
    })
    ```
-   First read `tasks` (`action: "get", query: "tasks"`) to find the index of the task you want to edit, then set by that index.
+   First read `tasks` (`action: "get", query: "tasks"`) to find the index of the task you want to edit, then set by that index. Do not set a status of `"complete"` this way: only `task_complete` and `settle` mark a task complete.
 
 3. **Append a new task** by writing to the next-free index. If the array currently has length `N`, write to `tasks[N]`:
    ```typescript
@@ -142,7 +142,7 @@ The dot-path parser used by `set updates` recognizes only **numeric** array brac
 | Plan-review gaps found | `update: { "planReview.gaps": [...] }`, auto-loop to plan |
 | Plan-review approved | `update: { "planReview.approved": true }`, then `transition target: "delegate"` |
 | Task dispatched | Set task `status = "in_progress"`, `startedAt` |
-| Task complete | Set task `status = "complete"`, `completedAt` |
+| Task complete | No update: `task_complete` or `settle` marks the task complete |
 | Worktree created | Add to `worktrees` object |
 | Review complete | Update `reviews` object |
 | PR created | Set `artifacts.pr`, `synthesis.prUrl` |
@@ -190,7 +190,7 @@ On task dispatch:
 - Add worktree to state if created
 
 On task complete:
-- Update task status to "complete"
+- Call task_complete after the gates of the task pass (it marks the task complete)
 - Check if all tasks done, suggest checkpoint
 ```
 

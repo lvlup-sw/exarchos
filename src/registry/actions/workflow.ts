@@ -212,7 +212,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
        * `applyDotPath`.
        */
       name: 'update',
-      description: 'Mutate non-phase workflow state fields (artifacts, planReview, task results, etc.). Canonical state-mutation surface. Emits exactly one state.patched event on success. For phase changes use action: transition.',
+      description: 'Mutate non-phase workflow state fields (artifacts, planReview, etc.). Canonical state-mutation surface. Emits exactly one state.patched event on success. For phase changes use action: transition. To complete a task use exarchos_orchestrate task_complete.',
       schema: z.object({
         featureId: featureIdSchema,
         updates: z.record(z.string(), z.unknown()),
