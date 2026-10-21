@@ -168,6 +168,30 @@ export const FIXTURE_COULD_NOT_RUN_NEGATIVE_FIXTURE = `import { it, expect } fro
   });
 `;
 
+/** POSITIVE: the block binds a degraded run, then asserts a bare pass with no mark. */
+export const FIXTURE_PASSED_TRUE_ON_A_DEGRADED_RUN = `import { it, expect } from 'vitest';
+// @oracle-sources: ./corpus.ts, ./registry.ts
+  it('Gate_WhenTheBoundaryLegGaveNoVerdict_IsReportedAsPassing', () => {
+    const run = { passed: true, completeness: 'degraded', advisorySkips: [{ name: 'Import boundaries', cause: 'signal' }] };
+    expect(run.passed).toBe(true);
+    expect(missing).toEqual([]);
+  });
+`;
+
+/**
+ * NEGATIVE: a twin asserts that a mark is absent, then asserts the pass of a run with no mark.
+ * The subject of the pass is one expression, so the marker word of the earlier assertion is not part of it.
+ */
+export const FIXTURE_PASSED_TRUE_AFTER_AN_ABSENT_MARK = `import { it, expect } from 'vitest';
+// @oracle-sources: ./corpus.ts, ./registry.ts
+  it('Gate_EveryLegRan_ReportsAPassWithNoMark', () => {
+    const twin = runGate({ boundary: 'clean' });
+    expect(twin.degraded).toBeFalsy();
+    expect(twin.passed).toBe(true);
+    expect(missing).toEqual([]);
+  });
+`;
+
 /** POSITIVE: a cast of an object literal to `DispatchContext`. */
 export const FIXTURE_SYNTHESIZED_CONTEXT = `import { it, expect } from 'vitest';
 // @oracle-sources: ./corpus.ts, ./registry.ts

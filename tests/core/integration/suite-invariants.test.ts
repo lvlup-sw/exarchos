@@ -153,6 +153,17 @@ describe('DR-30 part 1 — every detector is proved able to fire and able not to
     ).toEqual([]);
   });
 
+  /**
+   * A degraded run is a run in which a check gave no verdict. A bare pass over it is flagged. A twin that asserts an
+   * absent mark before a pass with no mark is not flagged, because the subject of each assertion is one expression.
+   */
+  it('SuiteInvariant_PassedTrueOnADegradedRun_IsRejected', () => {
+    expect(rules(checkCouldNotRunVerdicts(FIXTURE_PATH, F.FIXTURE_PASSED_TRUE_ON_A_DEGRADED_RUN))).toEqual([
+      'passed-true-on-could-not-run',
+    ]);
+    expect(checkCouldNotRunVerdicts(FIXTURE_PATH, F.FIXTURE_PASSED_TRUE_AFTER_AN_ABSENT_MARK)).toEqual([]);
+  });
+
   /** The rule flags a synthesized dispatch context and a mocked composite module. */
   it('SuiteInvariant_SynthesizedIntegrationRoot_IsRejected', () => {
     expect(rules(checkNoSynthesizedRoot(FIXTURE_PATH, F.FIXTURE_SYNTHESIZED_CONTEXT))).toEqual([

@@ -296,22 +296,24 @@ export function checkBlockingClaims(file: string, source: string): readonly Viol
 /**
  * R6: no test asserts `passed === true` on a verdict that did not run.
  *
- * The defect: a probe that did not run reports through the same channel as a
- * probe that ran and passed. The rule reads one test block with the comments
- * blank and the string bodies kept, because a verdict is usually a string. It
- * fires on a match of `PASSED_TRUE_ASSERT`, such as
- * `expect(<subject>.passed).toBe(true)`, in two cases:
+ * The defect: a probe that did not run reports through the same channel as a probe that ran and passed.
+ * The rule reads one test block with the comments blank and the string bodies kept, because a verdict is usually a string.
+ * It fires on a match of `PASSED_TRUE_ASSERT`, such as `expect(<subject>.passed).toBe(true)`, in two cases:
  * - the subject itself matches `COULD_NOT_RUN_MARKER`
  * - the subject is one identifier, and its initializer in the block matches
  *
- * The rule does not fire on a block that only builds such a carrier to prove
- * that the system rejects it.
+ * The marker also names a degraded run and a leg with no verdict. A test asserts a degraded pass with its mark, as a record match.
+ * The rule does not fire on a block that only builds such a carrier to prove that the system rejects it.
  */
 export const COULD_NOT_RUN_MARKER =
-  /\b(?:couldNotRun|could_not_run|COULD_NOT_RUN|could-not-run|could not run|didNotRun|did_not_run|notRun|not_run|NOT_RUN|not-run|unavailable|UNAVAILABLE|indeterminate|INDETERMINATE|neverRan|never_ran)\b/;
+  /\b(?:couldNotRun|could_not_run|COULD_NOT_RUN|could-not-run|could not run|didNotRun|did_not_run|notRun|not_run|NOT_RUN|not-run|unavailable|UNAVAILABLE|indeterminate|INDETERMINATE|neverRan|never_ran|degraded|DEGRADED|advisorySkips|no-verdict|NO_VERDICT|noVerdict)\b/;
 
+/**
+ * One `passed === true` assertion. The subject is one expression: it holds no `;` and no other `expect(`.
+ * A subject that spans statements reads a marker word of an earlier assertion as part of the subject.
+ */
 const PASSED_TRUE_ASSERT =
-  /expect\s*\(\s*([\s\S]{0,600}?)\.\s*passed\s*\)\s*\.\s*(?:toBe\s*\(\s*true\s*\)|toEqual\s*\(\s*true\s*\)|toStrictEqual\s*\(\s*true\s*\)|toBeTruthy\s*\(\s*\))/g;
+  /expect\s*\(\s*((?:(?!expect\s*\()[^;]){0,600}?)\.\s*passed\s*\)\s*\.\s*(?:toBe\s*\(\s*true\s*\)|toEqual\s*\(\s*true\s*\)|toStrictEqual\s*\(\s*true\s*\)|toBeTruthy\s*\(\s*\))/g;
 
 
 export function checkCouldNotRunVerdicts(file: string, source: string): readonly Violation[] {

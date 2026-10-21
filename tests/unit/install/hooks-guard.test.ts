@@ -13,7 +13,7 @@ import { buildAllHooks } from '../../../src/install/build-hooks.js';
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const tempDirs: string[] = [];
@@ -275,7 +275,7 @@ async function provisionShrunkProject(): Promise<{ root: string; outDir: string 
 describe('runHooksGuard — #1476 T10', () => {
   it('HooksGuard_InSyncTree_ReturnsOk', async () => {
     const root = await provisionProject();
-    const result = runHooksGuard({ cwd: root });
+    const result = await isolatedSync(() => runHooksGuard({ cwd: root }));
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
   });
@@ -298,7 +298,7 @@ describe('runHooksGuard — #1476 T10', () => {
       ) + '\n',
     );
 
-    const result = runHooksGuard({ cwd: root });
+    const result = await isolatedSync(() => runHooksGuard({ cwd: root }));
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
     expect(result.message).toMatch(/build:hooks|hooks:guard|stale|drift/i);
@@ -314,7 +314,7 @@ describe('runHooksGuard — #1476 T10', () => {
     await execFileAsync('git', ['add', '-A'], { cwd: root, env: gitEnv });
     await execFileAsync('git', ['commit', '-q', '-m', 'tamper'], { cwd: root, env: gitEnv });
 
-    const result = runHooksGuard({ cwd: root });
+    const result = await isolatedSync(() => runHooksGuard({ cwd: root }));
     expect(result.ok).toBe(false);
     expect(result.exitCode).toBe(1);
   });
@@ -329,7 +329,7 @@ describe('runHooksGuard — shrunk hook tree (DR-7)', () => {
   it('hooksGuard_ShrunkTree_Passes', async () => {
     const { root, outDir } = await provisionShrunkProject();
 
-    const result = runHooksGuard({ cwd: root });
+    const result = await isolatedSync(() => runHooksGuard({ cwd: root }));
     expect(result.ok, result.message).toBe(true);
     expect(result.exitCode).toBe(0);
 

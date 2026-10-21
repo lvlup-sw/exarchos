@@ -80,7 +80,7 @@ describe('DR-14: strict-flag ratchet (satellite projects)', () => {
  * `PACKAGE_ROOTS` holds the directories whose tsconfig projects the census roots must cover.
  */
 describe('DR-14: escape-hatch census', () => {
-  const BASELINE: CastCounts = { nonNull: 70, asCast: 1716, asAny: 0 };
+  const BASELINE: CastCounts = { nonNull: 70, asCast: 1712, asAny: 0 };
 
   const DELTA_BUDGET: CastCounts = { nonNull: 5, asCast: 5, asAny: 0 };
 

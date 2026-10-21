@@ -15,7 +15,7 @@ import { COMMAND_TO_SKILL } from '../../../src/install/config/canonical-skills.j
 import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const tempDirs: string[] = [];
@@ -167,7 +167,7 @@ describe('skills-guard — task 023', () => {
   it('SkillsGuard_CleanBuild_Passes', async () => {
     const root = await provisionProject();
 
-    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
+    const result = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents }));
 
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
@@ -188,7 +188,7 @@ describe('skills-guard — task 023', () => {
       'Hello {{AGENT_LABEL}} — updated\n',
     );
 
-    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
+    const result = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents }));
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
@@ -207,7 +207,7 @@ describe('skills-guard — task 023', () => {
       'Hello {{AGENT_LABEL}} — changed\n',
     );
 
-    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
+    const result = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents }));
 
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/npm run build:skills/);
@@ -238,7 +238,7 @@ describe('skills-guard — task 023', () => {
       env: gitEnv,
     });
 
-    const result = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
+    const result = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents }));
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
@@ -287,7 +287,7 @@ describe('skills-guard — task 13 agents/ drift', () => {
       );
     };
 
-    const result = runSkillsGuard({ cwd: root, regenerateAgents });
+    const result = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents }));
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
@@ -324,7 +324,7 @@ describe('skills-guard — task 13 agents/ drift', () => {
       );
     };
 
-    const result = runSkillsGuard({ cwd: root, regenerateAgents });
+    const result = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents }));
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
@@ -351,7 +351,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
   it('SkillsGuard_AfterCallMacroRender_NoDrift', async () => {
     const root = await provisionProjectWithCallMacro();
 
-    const firstResult = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
+    const firstResult = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents }));
     expect(firstResult.ok).toBe(true);
     expect(firstResult.exitCode).toBe(0);
 
@@ -370,7 +370,7 @@ describe('skills-guard — task 011 CALL macro determinism', () => {
       runtimesDir: join(root, 'content/harness/runtimes'),
     });
 
-    const secondResult = runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents });
+    const secondResult = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents: noopRegenerateAgents }));
     expect(secondResult.ok).toBe(true);
     expect(secondResult.exitCode).toBe(0);
   });
@@ -478,10 +478,10 @@ describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
   it('AliasesGuard_CleanBuild_Passes', async () => {
     const root = await provisionProjectWithAliases();
 
-    const result = runSkillsGuard({
+    const result = await isolatedSync(() => runSkillsGuard({
       cwd: root,
       regenerateAgents: noopRegenerateAgents,
-    });
+    }));
 
     expect(result.ok).toBe(true);
     expect(result.exitCode).toBe(0);
@@ -511,10 +511,10 @@ describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
       ].join('\n'),
     );
 
-    const result = runSkillsGuard({
+    const result = await isolatedSync(() => runSkillsGuard({
       cwd: root,
       regenerateAgents: noopRegenerateAgents,
-    });
+    }));
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
@@ -542,10 +542,10 @@ describe('skills-guard — T4 command-aliases/ drift (#1472)', () => {
       env: gitEnv,
     });
 
-    const result = runSkillsGuard({
+    const result = await isolatedSync(() => runSkillsGuard({
       cwd: root,
       regenerateAgents: noopRegenerateAgents,
-    });
+    }));
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);

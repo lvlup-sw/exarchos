@@ -19,7 +19,7 @@ import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import { resolveGateSeverity } from './gate-severity.js';
 import { DEFAULTS, resolveConfig, type ResolvedProjectConfig } from '../../config/resolve.js';
-import { loadExarchosConfig, type LoadResult } from '../../config/load-exarchos-config.js';
+import { loadExarchosConfigOutcome, type ExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import {
   detectMockFindings,
@@ -93,8 +93,8 @@ export interface MockBoundaryHandlerArgs {
   readonly projectConfig?: ResolvedProjectConfig;
   /** Test seam. Defaults to `defaultGitExec`. */
   readonly gitExec?: GitExec;
-  /** Config loader for ownership globs + review-gate severity. */
-  readonly loadConfig?: (worktreePath: string) => LoadResult | null;
+  /** Config reader for ownership globs + review-gate severity. Defaults to `loadExarchosConfigOutcome`. */
+  readonly loadConfig?: (worktreePath: string) => ExarchosConfigOutcome;
 }
 
 const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/;
@@ -160,8 +160,11 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
  * Runs the mock-boundary gate for one task.
  *
  * A missing or malformed `.exarchos.yml` falls back to the default globs and severity, and never
- * fails the gate. The diff uses `--no-ext-diff`, because a `diff.external` wrapper replaces the
- * unified diff and gives zero findings. A git failure gives zero findings.
+ * fails the gate. A malformed file, or a file whose review settings do not resolve, also sets
+ * `configLoadError` on the result. Thus the fallback is visible.
+ *
+ * The diff uses `--no-ext-diff`, because a `diff.external` wrapper replaces the unified diff and
+ * gives zero findings. A git failure gives zero findings.
  *
  * The gate fails only when the severity is blocking, an unowned mock exists, and no `reason` is
  * given. The built-in severity is `warning`, so only a project override makes the gate block.
@@ -219,19 +222,22 @@ export async function handleMockBoundary(
       }
 
       const gitExec = args.gitExec ?? defaultGitExec;
-      const loadConfig = args.loadConfig ?? loadExarchosConfig;
+      const loadConfig = args.loadConfig ?? loadExarchosConfigOutcome;
 
       let firstPartyGlobs: readonly string[] = DEFAULT_FIRST_PARTY_GLOBS;
       let resolvedConfig: ResolvedProjectConfig | undefined;
-      try {
-        const loaded = loadConfig(repoRoot);
-        if (loaded?.config.ownership?.firstParty) {
-          firstPartyGlobs = loaded.config.ownership.firstParty;
+      const outcome = loadConfig(repoRoot);
+      let configLoadError = outcome.kind === 'invalid' ? outcome.message : undefined;
+      if (outcome.kind === 'loaded') {
+        const { config } = outcome.result;
+        if (config.ownership?.firstParty) {
+          firstPartyGlobs = config.ownership.firstParty;
         }
-        if (loaded?.config) {
-          resolvedConfig = resolveConfig(loaded.config);
+        try {
+          resolvedConfig = resolveConfig(config);
+        } catch (err) {
+          configLoadError = err instanceof Error ? err.message : String(err);
         }
-      } catch {
       }
 
       const severity = resolveGateSeverity('mock-boundary', 'D1', resolvedConfig ?? DEFAULTS);
@@ -257,6 +263,7 @@ export async function handleMockBoundary(
           severity,
           ...(escapeHatch ? { escapeHatch } : {}),
           ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
+          ...(configLoadError === undefined ? {} : { configLoadError }),
         },
       };
     },

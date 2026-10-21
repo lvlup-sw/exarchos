@@ -12,7 +12,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { handleVerifyWorktreeBoundary } from '../../../../src/lifecycle/verify-worktree-boundary.js';
 
 /** Run `git <args>` from `cwd`, returning trimmed stdout (throws on failure). */
@@ -42,11 +42,13 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
   let worktreePath: string;
   let siblingPath: string;
 
-  function runGuard(stdin: string): { code: number; err: string } {
+  async function runGuard(stdin: string): Promise<{ code: number; err: string }> {
     const errLines: string[] = [];
-    const code = handleVerifyWorktreeBoundary(stdin, {
-      stderr: (s) => errLines.push(s),
-    });
+    const code = await isolatedSync(() =>
+      handleVerifyWorktreeBoundary(stdin, {
+        stderr: (s) => errLines.push(s),
+      }),
+    );
     return { code, err: errLines.join('\n') };
   }
 
@@ -79,8 +81,8 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
    * The real `defaultGitToplevel` must resolve the agent cwd to the linked worktree toplevel.
    * The main repo is then out of bounds, and the deny reason cites #1301.
    */
-  it('WorktreeBoundary_AbsoluteMainRepoPath_DeniedThroughRealGitToplevel', () => {
-    const { code, err } = runGuard(
+  it('WorktreeBoundary_AbsoluteMainRepoPath_DeniedThroughRealGitToplevel', async () => {
+    const { code, err } = await runGuard(
       preToolUse({ file_path: path.join(repoRoot, 'src.txt') }, worktreePath),
     );
     expect(code).toBe(DENY);
@@ -89,16 +91,16 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
   });
 
   /** A relative `..` path from the worktree resolves to the same main-repo file. */
-  it('WorktreeBoundary_DotDotEscapeToMainRepo_Denied', () => {
-    const { code } = runGuard(
+  it('WorktreeBoundary_DotDotEscapeToMainRepo_Denied', async () => {
+    const { code } = await runGuard(
       preToolUse({ file_path: '../../src.txt' }, worktreePath),
     );
     expect(code).toBe(DENY);
   });
 
   /** A write into the worktree of a parallel agent is also out of bounds. */
-  it('WorktreeBoundary_SiblingWorktreePath_Denied', () => {
-    const { code } = runGuard(
+  it('WorktreeBoundary_SiblingWorktreePath_Denied', async () => {
+    const { code } = await runGuard(
       preToolUse(
         { file_path: path.join(siblingPath, 'src.txt') },
         worktreePath,
@@ -108,8 +110,8 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
   });
 
   /** The notebook write tool has the same leak path. */
-  it('WorktreeBoundary_NotebookEditIntoMainRepo_Denied', () => {
-    const { code } = runGuard(
+  it('WorktreeBoundary_NotebookEditIntoMainRepo_Denied', async () => {
+    const { code } = await runGuard(
       preToolUse(
         { notebook_path: path.join(repoRoot, 'analysis.ipynb') },
         worktreePath,
@@ -119,15 +121,15 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
     expect(code).toBe(DENY);
   });
 
-  it('WorktreeBoundary_RelativePathInsideWorktree_Allowed', () => {
-    const { code } = runGuard(
+  it('WorktreeBoundary_RelativePathInsideWorktree_Allowed', async () => {
+    const { code } = await runGuard(
       preToolUse({ file_path: 'src.txt' }, worktreePath),
     );
     expect(code).toBe(ALLOW);
   });
 
-  it('WorktreeBoundary_AbsolutePathInsideWorktree_Allowed', () => {
-    const { code } = runGuard(
+  it('WorktreeBoundary_AbsolutePathInsideWorktree_Allowed', async () => {
+    const { code } = await runGuard(
       preToolUse(
         { file_path: path.join(worktreePath, 'src.txt') },
         worktreePath,
@@ -137,8 +139,8 @@ describe('WorktreeBoundaryGuard #1301 leak-shape regression (real linked worktre
   });
 
   /** A new nested path runs the `ENOENT` branch of `defaultRealpath` on a real filesystem. */
-  it('WorktreeBoundary_NewNestedFileInsideWorktree_Allowed', () => {
-    const { code } = runGuard(
+  it('WorktreeBoundary_NewNestedFileInsideWorktree_Allowed', async () => {
+    const { code } = await runGuard(
       preToolUse(
         { file_path: path.join(worktreePath, 'sub', 'brand-new.ts') },
         worktreePath,

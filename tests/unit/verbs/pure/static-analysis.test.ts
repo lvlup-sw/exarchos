@@ -4,11 +4,83 @@ import * as path from 'node:path';
 import * as os from 'node:os';
 import {
   runStaticAnalysis,
+  BOUNDARY_NO_VERDICT_CAUSES,
   FAIL_DETAIL_MAX_LINES,
   FAIL_DETAIL_MAX_FILES,
 } from '../../../../src/verbs/pure/static-analysis.js';
-import type { StaticAnalysisResult, RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
+import type { CommandResult, StaticAnalysisResult, RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+
+/** The counted checks of one run: the npm scripts of the fixture, and the script that exits 1. */
+interface CheckOutcome {
+  readonly outcome: 'pass' | 'fail' | 'skip';
+  readonly scripts: Record<string, string>;
+  readonly failingScript?: string;
+}
+
+/** One outcome of the counted checks for each status that they give: each check passes, lint fails, or a script is missing. */
+const CHECK_OUTCOMES: readonly CheckOutcome[] = [
+  { outcome: 'pass', scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' } },
+  {
+    outcome: 'fail',
+    scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' },
+    failingScript: 'lint',
+  },
+  { outcome: 'skip', scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit' } },
+];
+
+/** How the boundary leg reaches one cause with no verdict: the result of the depcruise run, or globs that name no path. */
+interface NoVerdictRoute {
+  readonly depcruise?: CommandResult;
+  readonly firstPartyGlobs?: readonly string[];
+}
+
+/**
+ * One route to each cause of a boundary leg with no verdict. The case reads the causes from the list of the source.
+ * A cause with no route here fails it, and so does a route with no cause.
+ */
+const NO_VERDICT_ROUTES: Readonly<Record<string, NoVerdictRoute>> = {
+  'missing-tool': { depcruise: { exitCode: 1, stdout: '', stderr: '', spawnError: 'ENOENT' } },
+  'did-not-start': { depcruise: { exitCode: 1, stdout: '', stderr: '', spawnError: 'EACCES' } },
+  signal: { depcruise: { exitCode: 1, stdout: '', stderr: '', signal: 'SIGKILL' } },
+  'out-of-memory': {
+    depcruise: {
+      exitCode: 134,
+      stdout: '',
+      stderr: 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n',
+    },
+  },
+  'output-limit': { depcruise: { exitCode: 1, stdout: '', stderr: '', spawnError: 'ENOBUFS' } },
+  'no-source-root': { firstPartyGlobs: ['nowhere/**'] },
+  'zero-modules': {
+    depcruise: {
+      exitCode: 0,
+      stdout: JSON.stringify({ summary: { violations: [], error: 0, totalCruised: 0 } }),
+      stderr: '',
+    },
+  },
+};
+
+/** Makes a fixture repository under `base` with the npm scripts, a `src/` root and a depcruise bin. It adds the boundary config when asked. */
+function makeRepo(base: string, name: string, scripts: Record<string, string>, withConfig: boolean): string {
+  const repoRoot = path.join(base, name);
+  fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+  fs.writeFileSync(path.join(repoRoot, 'package.json'), JSON.stringify({ name, scripts }), 'utf-8');
+  fs.mkdirSync(path.join(repoRoot, 'node_modules', '.bin'), { recursive: true });
+  for (const bin of ['depcruise', 'depcruise.cmd']) {
+    fs.writeFileSync(path.join(repoRoot, 'node_modules', '.bin', bin), '', 'utf-8');
+  }
+  if (withConfig) {
+    fs.writeFileSync(path.join(repoRoot, '.dependency-cruiser.cjs'), 'module.exports = { forbidden: [] };\n', 'utf-8');
+  }
+  return repoRoot;
+}
+
+/** The fields of a result that an advisory skip does not change. */
+function statusAndCounts(result: StaticAnalysisResult): Partial<StaticAnalysisResult> {
+  const { status, skipReason, skippedChecks, passCount, failCount, skipCount } = result;
+  return { status, skipReason, skippedChecks, passCount, failCount, skipCount };
+}
 
 describe('runStaticAnalysis', () => {
   let tmpDir: string;
@@ -357,6 +429,30 @@ describe('runStaticAnalysis', () => {
     });
   });
 
+  /**
+   * The npm legs read only the exit status of the runner. A signal stop or a runner error of an npm script is a failed
+   * check, never a skip. Only the advisory legs read the fault fields of the runner.
+   */
+  describe('npm legs and the fault fields of the runner', () => {
+    it.each<[string, CommandResult]>([
+      ['a signal stop', { exitCode: 1, stdout: '', stderr: '', signal: 'SIGKILL' }],
+      ['a runner error', { exitCode: 1, stdout: '', stderr: '', spawnError: 'ENOENT' }],
+    ])('StaticAnalysis_NpmScriptsWithAFaultField_FailEachCheck [%s]', (_label, faulted) => {
+      const repoRoot = createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' });
+      const runner: RunCommandFn = vi.fn(() => faulted);
+
+      const result = runStaticAnalysis({ repoRoot, runCommand: runner });
+
+      expect(result.status).toBe('fail');
+      expect(result.failCount).toBe(3);
+      expect(result.skipCount).toBe(0);
+      expect(result.advisorySkips).toBeUndefined();
+      for (const [name, script] of [['Lint', 'lint'], ['Typecheck', 'typecheck'], ['Quality check', 'quality-check']]) {
+        expect(result.output).toContain(`- **FAIL**: ${name} — npm run ${script} failed`);
+      }
+    });
+  });
+
   describe('structured output', () => {
     it('output includes repository path', () => {
       const repoRoot = createPackageJson({
@@ -653,6 +749,151 @@ describe('runStaticAnalysis', () => {
       );
       expect(result.output).toContain('src/file01.ts: 2');
       expect(result.output).not.toContain('src/file30.ts');
+    });
+  });
+
+  /**
+   * An import-boundary scan that gives no verdict is an advisory skip. It does not change the status
+   * that the other checks give, and the result line marks it as degraded.
+   */
+  describe('advisory boundary skip', () => {
+    function withBoundaryConfig(repoRoot: string): string {
+      fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(repoRoot, '.dependency-cruiser.cjs'), 'module.exports = { forbidden: [] };\n', 'utf-8');
+      fs.mkdirSync(path.join(repoRoot, 'node_modules', '.bin'), { recursive: true });
+      for (const name of ['depcruise', 'depcruise.cmd']) {
+        fs.writeFileSync(path.join(repoRoot, 'node_modules', '.bin', name), '', 'utf-8');
+      }
+      return repoRoot;
+    }
+
+    function isDepcruise(cmd: string): boolean {
+      return /^depcruise(\.cmd)?$/.test(path.basename(cmd));
+    }
+
+    function stoppedDepcruiseRunner(npmExit: Record<string, number>): RunCommandFn {
+      return vi.fn((cmd: string, args: readonly string[]) => {
+        if (isDepcruise(cmd)) {
+          return { exitCode: 1, stdout: '', stderr: '', signal: 'SIGKILL' };
+        }
+        const exitCode = npmExit[args[1] ?? ''] ?? 0;
+        return { exitCode, stdout: '', stderr: exitCode === 0 ? '' : `${args[1]} failed` };
+      });
+    }
+
+    it('StaticAnalysis_AdvisorySkipBesideAFailure_StaysFailAndNamesTheSkip', () => {
+      const repoRoot = withBoundaryConfig(
+        createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' }),
+      );
+
+      const result = runStaticAnalysis({ repoRoot, runCommand: stoppedDepcruiseRunner({ lint: 1 }) });
+
+      expect(result.status).toBe('fail');
+      expect(result.failCount).toBe(1);
+      expect(result.advisorySkips).toEqual([
+        {
+          name: 'Import boundaries',
+          cause: 'signal',
+          detail:
+            'dependency-cruiser gave no verdict: it was stopped by SIGKILL. ' +
+            'ownership.firstParty globs that name no path, not scanned: servers/*/src/**.',
+        },
+      ]);
+      expect(result.output).toContain(
+        '**Result: FAIL** (1/3 checks failed, degraded: 1 advisory check gave no verdict)',
+      );
+    });
+
+    it('StaticAnalysis_AdvisorySkipBesideAConstituentSkip_StaysInconclusive', () => {
+      const repoRoot = withBoundaryConfig(createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit' }));
+
+      const result = runStaticAnalysis({ repoRoot, runCommand: stoppedDepcruiseRunner({}) });
+
+      expect(result.status).toBe('skip');
+      expect(result.skipReason).toBe('constituent-skipped');
+      expect(result.skipCount).toBe(1);
+      expect(result.advisorySkips).toHaveLength(1);
+      expect(result.output).toContain(
+        '**Result: DEGRADED** (2/2 checks passed, 1 skipped — inconclusive, not a pass, ' +
+          'degraded: 1 advisory check gave no verdict)',
+      );
+    });
+
+    /** A repository without a boundary config is not subject to the leg, so nothing about it shows. */
+    it('StaticAnalysis_NoBoundaryConfig_AddsNoAdvisorySkip', () => {
+      const repoRoot = createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' });
+
+      const result = runStaticAnalysis({ repoRoot, runCommand: stoppedDepcruiseRunner({}) });
+
+      expect(result.status).toBe('pass');
+      expect(result.advisorySkips).toBeUndefined();
+      expect(result.output).not.toContain('Import boundaries');
+      expect(result.output).toContain('**Result: PASS** (3/3 checks passed)');
+    });
+
+    /** The handler passes the project globs through, so the leg scans the configured roots. */
+    it('StaticAnalysis_FirstPartyGlobs_ReachTheBoundaryScan', () => {
+      const repoRoot = withBoundaryConfig(
+        createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' }),
+      );
+      fs.mkdirSync(path.join(repoRoot, 'lib'), { recursive: true });
+      const runner = stoppedDepcruiseRunner({});
+
+      runStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['lib/**'] });
+
+      const depcruiseCall = vi.mocked(runner).mock.calls.find(([cmd]) => isDepcruise(cmd));
+      expect(depcruiseCall?.[0]).toBe(
+        path.join(repoRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'depcruise.cmd' : 'depcruise'),
+      );
+      expect(depcruiseCall?.[1].slice(4)).toEqual(['lib']);
+    });
+
+    /**
+     * The case takes each cause of a boundary leg with no verdict and each outcome of the counted checks.
+     * The run with the leg and its twin with no boundary config give the same status, skip reason, skipped checks and counts.
+     * Only the advisory skip tells them apart.
+     */
+    it('StaticAnalysis_BoundaryLegWithNoVerdict_KeepsTheStatusAndTheCountsOfTheNoConfigTwin', () => {
+      expect(Object.keys(NO_VERDICT_ROUTES)).toHaveLength(BOUNDARY_NO_VERDICT_CAUSES.length);
+      for (const cause of BOUNDARY_NO_VERDICT_CAUSES) expect(Object.keys(NO_VERDICT_ROUTES)).toContain(cause);
+      expect(BOUNDARY_NO_VERDICT_CAUSES).toContain('zero-modules');
+      const twinStatuses = new Set<string>();
+      let pairs = 0;
+
+      for (const cause of BOUNDARY_NO_VERDICT_CAUSES) {
+        const route = NO_VERDICT_ROUTES[cause];
+        for (const { outcome, scripts, failingScript } of CHECK_OUTCOMES) {
+          const label = `${cause} beside a ${outcome}`;
+          const runner: RunCommandFn = vi.fn((cmd: string, args: readonly string[]) => {
+            if (isDepcruise(cmd)) return route?.depcruise ?? { exitCode: 0, stdout: '', stderr: '' };
+            return args[1] === failingScript
+              ? { exitCode: 1, stdout: '', stderr: `${args[1]} failed` }
+              : { exitCode: 0, stdout: '', stderr: '' };
+          });
+          const firstPartyGlobs = route?.firstPartyGlobs;
+
+          const withLeg = runStaticAnalysis({
+            repoRoot: makeRepo(tmpDir, `${cause}-${outcome}-leg`, scripts, true),
+            runCommand: runner,
+            firstPartyGlobs,
+          });
+          const twin = runStaticAnalysis({
+            repoRoot: makeRepo(tmpDir, `${cause}-${outcome}-twin`, scripts, false),
+            runCommand: runner,
+            firstPartyGlobs,
+          });
+
+          expect(withLeg.advisorySkips?.map((skip) => skip.cause), label).toEqual([cause]);
+          expect(twin.advisorySkips, label).toBeUndefined();
+          expect(statusAndCounts(withLeg), label).toEqual(statusAndCounts(twin));
+          twinStatuses.add(twin.status);
+          pairs += 1;
+        }
+      }
+
+      expect(twinStatuses.size).toBe(3);
+      for (const status of ['pass', 'fail', 'skip']) expect(twinStatuses.has(status), status).toBe(true);
+      expect(pairs).toBe(BOUNDARY_NO_VERDICT_CAUSES.length * CHECK_OUTCOMES.length);
     });
   });
 });

@@ -41,6 +41,7 @@ import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
+import type { EventStore } from '../../events/store.js';
 import {
   DesignRevisedData,
   DeviationDecidedData,
@@ -57,6 +58,7 @@ import { compileIntent } from '../execute/compile.js';
 import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
 import { ladderRequirementId, readGateEvidenceRecords } from '../gates/durable-gate-producer.js';
+import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
@@ -84,6 +86,7 @@ import {
   settlementBundleArtifactId,
   SETTLEMENT_BUNDLE_KIND,
   SETTLEMENT_BUNDLE_VERSION,
+  type SettlementBundleV1,
 } from './settlement-bundle.js';
 import {
   MAX_AFFECTED_TASKS_PER_DEVIATION,
@@ -93,6 +96,7 @@ import {
   type SettlementDecision,
   type SettlementDesignRevision,
   type SettlementReceipt,
+  type SettlementTraceQualifier,
   type SettlementUnresolvedTask,
   type SettlementVerificationTrace,
 } from './types.js';
@@ -705,6 +709,81 @@ type VerificationRun =
     }
   | { readonly kind: 'refused'; readonly result: ToolResult; readonly halted: boolean };
 
+/** The event type of the gate rows whose marks become trace qualifiers. */
+const GATE_EXECUTED_TYPE = 'gate.executed';
+
+/**
+ * The qualifier of one `gate.executed` row, or undefined when the row carries no mark.
+ * A skip by the verification policy gives no qualifier, because the capsule terms exclude that gate for the task.
+ */
+function qualifierOfGateRow(data: unknown): SettlementTraceQualifier | undefined {
+  if (!isRecord(data) || typeof data.gateName !== 'string') return undefined;
+  const gate = data.gateName;
+  const { skip, completeness } = readGateRowMarks(data.details);
+  if (skip !== undefined) {
+    if (skip.discriminant === SKIPPED_BY_POLICY) return undefined;
+    return {
+      gate,
+      mark: 'skipped',
+      ...(skip.discriminant === undefined ? {} : { discriminant: skip.discriminant }),
+      ...(skip.reason === undefined ? {} : { reason: skip.reason }),
+    };
+  }
+  if (completeness?.completeness === 'degraded') {
+    return { gate, mark: 'degraded', advisorySkips: completeness.advisorySkips };
+  }
+  return undefined;
+}
+
+/**
+ * The qualifiers of a segment, in leaf order: one for each `gate.executed` row that the leaves appended and that
+ * carries a mark. Each row is read back from the store at the sequence that the receipt names, so a replayed
+ * receipt gives the same list. The list is empty when no row carries a mark.
+ */
+async function traceQualifiersOf(receipt: IntentReceipt, eventStore: EventStore): Promise<SettlementTraceQualifier[]> {
+  const qualifiers: SettlementTraceQualifier[] = [];
+  for (const leaf of receipt.leaves) {
+    for (const event of leaf.events) {
+      if (event.type !== GATE_EXECUTED_TYPE) continue;
+      const [row] = await eventStore.query(event.streamId, {
+        type: GATE_EXECUTED_TYPE,
+        sinceSequence: event.sequence - 1,
+        limit: 1,
+      });
+      if (row === undefined || row.sequence !== event.sequence) continue;
+      const qualifier = qualifierOfGateRow(row.data);
+      if (qualifier !== undefined) qualifiers.push(qualifier);
+    }
+  }
+  return qualifiers;
+}
+
+/** The trace field that holds the qualifiers, or no field when the list is empty. */
+function qualifiersField(
+  qualifiers: readonly SettlementTraceQualifier[],
+): Pick<SettlementVerificationTrace, 'qualifiers'> {
+  const [first, ...rest] = qualifiers;
+  return first === undefined ? {} : { qualifiers: [first, ...rest] };
+}
+
+/** One trace of the settlement bundle. */
+type BundleVerificationTrace = NonNullable<SettlementBundleV1['verification']>[number];
+
+/**
+ * The bundle copy of one trace. It takes only the keys of the strict trace schema of the bundle, and it leaves
+ * `qualifiers` on the receipt. Thus the stored bundle keeps its shape, and a build without qualifiers reads it.
+ */
+function bundleTraceOf(trace: SettlementVerificationTrace): BundleVerificationTrace {
+  return {
+    taskId: trace.taskId,
+    outcome: trace.outcome,
+    ...(trace.operationId === undefined ? {} : { operationId: trace.operationId }),
+    ...(trace.failedLeaf === undefined ? {} : { failedLeaf: trace.failedLeaf }),
+    ...(trace.message === undefined ? {} : { message: trace.message }),
+    ...(trace.bundleRefs === undefined ? {} : { bundleRefs: [...trace.bundleRefs] }),
+  };
+}
+
 /**
  * Run the verification of one task through the executor, and read the receipt
  * as an outcome.
@@ -744,6 +823,7 @@ async function verifyTask(
           outcome: 'verified',
           operationId: receipt.operationId,
           ...(receipt.bundleRefs !== undefined ? { bundleRefs: receipt.bundleRefs } : {}),
+          ...qualifiersField(await traceQualifiersOf(receipt, ctx.eventStore)),
         },
       };
     }
@@ -773,6 +853,7 @@ async function verifyTask(
         failedLeaf,
         message,
         ...(receipt.bundleRefs !== undefined ? { bundleRefs: receipt.bundleRefs } : {}),
+        ...qualifiersField(await traceQualifiersOf(receipt, ctx.eventStore)),
       },
     };
   }
@@ -1310,9 +1391,7 @@ export async function handleSettle(
       decisions: [...decisions],
       ...(round > 0 ? { round } : {}),
       adjudicated: verdict.adjudicated,
-      verification: traces.map(({ bundleRefs, ...trace }) =>
-        bundleRefs === undefined ? trace : { ...trace, bundleRefs: [...bundleRefs] },
-      ),
+      verification: traces.map(bundleTraceOf),
       settledAt,
     });
 

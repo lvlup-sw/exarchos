@@ -1,8 +1,9 @@
 // dependency-cruiser configuration for the import-boundary rules.
 //
 // The static-analysis gate (`runBoundaryLint` in src/verbs/pure/static-analysis.ts)
-// finds this file at the repo root and runs `npx depcruise --validate`. A non-zero
-// exit fails the gate. Without this file, the leg reports SKIP and does not block.
+// finds this file at the repo root. It runs `npx depcruise --validate` with the JSON
+// reporter over the `ownership.firstParty` roots. An `error` violation fails the gate.
+// Without this file, the leg reports SKIP and does not block.
 //
 // A boundary rule names a `from` path and a `to` path that `from` must not import.
 // Both are regexes relative to the repo root.
@@ -12,8 +13,9 @@ module.exports = {
   forbidden: [
     /**
      * Runtime import cycles. The severity is `warn`, so the rule names cycles and the gate
-     * stays green. `runBoundaryLint` fails on any non-zero exit, and `depcruise --validate`
-     * exits non-zero only for `error` violations. The blocking ratchet is tools/audit/cycle-gate.ts.
+     * stays green. `runBoundaryLint` fails only when `summary.error` of the JSON report is
+     * above 0, and a `warn` violation does not count there. The blocking ratchet is
+     * tools/audit/cycle-gate.ts.
      * With the default `tsPreCompilationDeps: false`, depcruise drops `import type`
      * edges and keeps dynamic `import()` edges.
      */

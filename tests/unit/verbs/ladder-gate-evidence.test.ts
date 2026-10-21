@@ -10,6 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const controls = vi.hoisted(() => ({
   staticStatus: 'pass' as 'pass' | 'fail' | 'skip',
+  staticAdvisorySkip: false,
   probePassed: true,
   probeDiscriminant: undefined as string | undefined,
   contractPassed: true,
@@ -22,6 +23,9 @@ const controls = vi.hoisted(() => ({
     unowned: boolean;
   }>,
   mockSeverity: 'warning' as 'warning' | 'blocking',
+  mockConfig: { kind: 'absent' } as
+    | { readonly kind: 'absent' }
+    | { readonly kind: 'invalid'; readonly source: string; readonly message: string },
 }));
 
 vi.mock('../../../src/verbs/pure/static-analysis.js', async (importActual) => {
@@ -44,6 +48,17 @@ vi.mock('../../../src/verbs/pure/static-analysis.js', async (importActual) => {
             passCount: controls.staticStatus === 'pass' ? 2 : 1,
             failCount: controls.staticStatus === 'pass' ? 0 : 1,
             skipCount: 0,
+            ...(controls.staticAdvisorySkip
+              ? {
+                  advisorySkips: [
+                    {
+                      name: 'Import boundaries',
+                      cause: 'out-of-memory',
+                      detail: 'dependency-cruiser gave no verdict: it ran out of memory',
+                    },
+                  ],
+                }
+              : {}),
           },
   };
 });
@@ -200,12 +215,14 @@ describe('migrated ladder gate durable evidence', () => {
     roots.push(root);
     store = new RecordingStore(featureId, 'phase-attempt:implement-008');
     controls.staticStatus = 'pass';
+    controls.staticAdvisorySkip = false;
     controls.probePassed = true;
     controls.probeDiscriminant = undefined;
     controls.contractPassed = true;
     controls.contractSkipped = false;
     controls.mockFindings = [];
     controls.mockSeverity = 'warning';
+    controls.mockConfig = { kind: 'absent' };
   });
 
   afterEach(async () => {
@@ -275,7 +292,7 @@ describe('migrated ladder gate durable evidence', () => {
           return handleMockBoundary({
             ...common,
             gitExec: () => ({ stdout: '', exitCode: 0 }),
-            loadConfig: () => null,
+            loadConfig: () => controls.mockConfig,
           }, root, eventStore);
       }
     };
@@ -380,6 +397,62 @@ describe('migrated ladder gate durable evidence', () => {
       });
     }
     expect(evidenceEvents()).toHaveLength(1);
+  });
+
+  /**
+   * A static-analysis run whose boundary check gave no verdict is degraded but not a skip. Its evidence
+   * verdict is `pass`, and the `gate.executed` row of the runner says passed.
+   */
+  it('LadderGate_StaticAnalysisAdvisorySkip_RecordsPassEvidenceAndAPassedRow', async () => {
+    controls.staticAdvisorySkip = true;
+
+    const result = await invoke('static-analysis');
+
+    expect(result.data).toMatchObject({
+      passed: true,
+      degraded: true,
+      completeness: 'degraded',
+      advisorySkips: [{ name: 'Import boundaries', cause: 'out-of-memory' }],
+    });
+    expect(result.data).not.toHaveProperty('skipped');
+    expect(evidenceEvents()[0]?.data).toMatchObject({ evidence: { verdict: 'pass' } });
+    const signals = store.events.filter((event) => event.type === 'gate.executed');
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.data).toMatchObject({
+      gateName: 'static-analysis',
+      passed: true,
+      details: {
+        taskId,
+        verdict: 'pass',
+        completeness: 'degraded',
+        advisorySkips: [{ name: 'Import boundaries', cause: 'out-of-memory' }],
+      },
+    });
+    expect(signals[0]?.data).not.toMatchObject({ details: { skipped: true } });
+  });
+
+  /**
+   * A mock-boundary run with a project config that does not load keeps its fallback verdict, and the result names the
+   * error. Thus the fallback to the default scope is visible to the caller.
+   */
+  it('LadderGate_MockBoundaryConfigThatDoesNotLoad_KeepsTheVerdictAndNamesTheError', async () => {
+    controls.mockConfig = {
+      kind: 'invalid',
+      source: '/repo/.exarchos.yml',
+      message: 'Invalid .exarchos.yml at /repo/.exarchos.yml: <root>: Unrecognized key: "notARealKey"',
+    };
+
+    const result = await invoke('mock-boundary');
+
+    expect(result.data).toMatchObject({
+      passed: true,
+      configLoadError: 'Invalid .exarchos.yml at /repo/.exarchos.yml: <root>: Unrecognized key: "notARealKey"',
+    });
+    expect(evidenceEvents()[0]?.data).toMatchObject({ evidence: { verdict: 'pass' } });
+
+    controls.mockConfig = { kind: 'absent' };
+    const clean = await invoke('mock-boundary');
+    expect(clean.data).not.toHaveProperty('configLoadError');
   });
 
   it('LadderGate_SameOperationIsIdempotent_NewOperationSupersedes', async () => {

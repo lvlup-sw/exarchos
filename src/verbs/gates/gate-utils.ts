@@ -190,15 +190,8 @@ export interface GateSkipDescriptor {
   readonly reason?: string;
 }
 
-/**
- * Reads the skip descriptor of a carrier. The verdict normalizer and the runner signal both use
- * it, so they agree on whether the gate ran. The test is `skipped === true` only, and it does
- * not depend on `passed`.
- */
-export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor | undefined {
-  const data = result.data;
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) return undefined;
-  const record = data as Readonly<Record<string, unknown>>;
+/** The skip descriptor of a carrier data record or of `gate.executed` details, or undefined when the record declares no skip. */
+function skipDescriptorOf(record: Readonly<Record<string, unknown>>): GateSkipDescriptor | undefined {
   if (record.skipped !== true) return undefined;
   const discriminant = record.discriminant;
   const reason = record.reason;
@@ -209,6 +202,16 @@ export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor |
   };
 }
 
+/**
+ * Reads the skip descriptor of a carrier. The verdict normalizer and the runner signal both use
+ * it, so they agree on whether the gate ran. The test is `skipped === true` only, and it does
+ * not depend on `passed`.
+ */
+export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor | undefined {
+  const data = result.data;
+  return isDataRecord(data) ? skipDescriptorOf(data) : undefined;
+}
+
 /** The closed verdict that a gate carrier states about itself. It has the values of the evidence verdict of a gate. */
 export type GateCarrierVerdict = 'pass' | 'fail' | 'indeterminate';
 
@@ -216,22 +219,41 @@ export type GateCarrierVerdict = 'pass' | 'fail' | 'indeterminate';
 const GATE_CARRIER_VERDICTS: readonly GateCarrierVerdict[] = ['pass', 'fail', 'indeterminate'];
 
 /**
- * Whether the verdict of a gate rests on each check that applies. `degraded` marks a pass with a check that gave no verdict.
+ * Whether the verdict of a gate rests on each check that applies.
+ * `degraded` marks a verdict that leaves out an advisory check, because that check gave no verdict.
  * A gate with one check states `complete`, because a check with no verdict makes its whole verdict `indeterminate`.
  */
 export type GateCarrierCompleteness = 'complete' | 'degraded';
 
-/** Each value of {@link GateCarrierCompleteness}, in one list. */
-const GATE_CARRIER_COMPLETENESS: readonly GateCarrierCompleteness[] = ['complete', 'degraded'];
-
 /**
  * The closed verdict fields of a gate carrier. The producer derives them from its own verdict authority.
- * {@link normalizeGateVerdict} reads `verdict` before the older fields. The runner copies `completeness` into the
- * `gate.executed` details, and the strict evidence record does not get it.
+ * {@link normalizeGateVerdict} reads `verdict` before the older fields. The runner copies the
+ * {@link GateCompletenessDescriptor} into the `gate.executed` details, and the strict evidence record does not get it.
  */
 export interface ClosedGateVerdict {
   readonly verdict: GateCarrierVerdict;
   readonly completeness: GateCarrierCompleteness;
+}
+
+/** One advisory check that gave no verdict, as a `gate.executed` row keeps it: the name of the check and its closed cause. */
+export interface GateAdvisorySkip {
+  readonly name: string;
+  readonly cause: string;
+}
+
+/**
+ * The completeness facts that a gate carrier declares about itself, beside {@link GateSkipDescriptor}.
+ * The runner copies them into the `gate.executed` details, and settle reads them back from the row.
+ * A `degraded` descriptor names each advisory check that gave no verdict, with its cause.
+ */
+export type GateCompletenessDescriptor =
+  | { readonly completeness: 'complete' }
+  | { readonly completeness: 'degraded'; readonly advisorySkips: readonly GateAdvisorySkip[] };
+
+/** The marks of one `gate.executed` row: its skip descriptor and its completeness descriptor. A row of an earlier build has neither. */
+export interface GateRowMarks {
+  readonly skip?: GateSkipDescriptor;
+  readonly completeness?: GateCompletenessDescriptor;
 }
 
 /** True for an object record. An array and null are not records. */
@@ -244,11 +266,49 @@ function isGateCarrierVerdict(value: unknown): value is GateCarrierVerdict {
   return GATE_CARRIER_VERDICTS.some((verdict) => verdict === value);
 }
 
-/** Reads the completeness that a carrier states, or undefined when it states none. */
-export function readGateCompleteness(result: ToolResult): GateCarrierCompleteness | undefined {
+/** The advisory skips of a record, each as its name and its cause. An entry with no string name or no string cause is left out. */
+function advisorySkipsOf(value: unknown): GateAdvisorySkip[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry: unknown): GateAdvisorySkip[] =>
+    isDataRecord(entry) && typeof entry.name === 'string' && typeof entry.cause === 'string'
+      ? [{ name: entry.name, cause: entry.cause }]
+      : [],
+  );
+}
+
+/**
+ * The completeness descriptor of a carrier data record or of `gate.executed` details, or undefined when the record states none.
+ * A `degraded` record keeps its mark when its list of advisory skips is absent or malformed. The list is then empty.
+ */
+function completenessDescriptorOf(record: Readonly<Record<string, unknown>>): GateCompletenessDescriptor | undefined {
+  switch (record.completeness) {
+    case 'complete':
+      return { completeness: 'complete' };
+    case 'degraded':
+      return { completeness: 'degraded', advisorySkips: advisorySkipsOf(record.advisorySkips) };
+    default:
+      return undefined;
+  }
+}
+
+/** Reads the completeness descriptor that a carrier states, or undefined when it states none. The runner copies it into the row. */
+export function readGateCompletenessDescriptor(result: ToolResult): GateCompletenessDescriptor | undefined {
   const data = result.data;
-  if (!isDataRecord(data)) return undefined;
-  return GATE_CARRIER_COMPLETENESS.find((completeness) => completeness === data.completeness);
+  return isDataRecord(data) ? completenessDescriptorOf(data) : undefined;
+}
+
+/**
+ * Reads the marks that the runner copied into the `details` of a `gate.executed` row.
+ * Settle builds the qualifiers of a verification trace from them, with the readers that the runner copy uses.
+ */
+export function readGateRowMarks(details: unknown): GateRowMarks {
+  if (!isDataRecord(details)) return {};
+  const skip = skipDescriptorOf(details);
+  const completeness = completenessDescriptorOf(details);
+  return {
+    ...(skip === undefined ? {} : { skip }),
+    ...(completeness === undefined ? {} : { completeness }),
+  };
 }
 
 /**

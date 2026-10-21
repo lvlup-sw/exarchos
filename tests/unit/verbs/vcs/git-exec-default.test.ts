@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
 import { defaultGitExec } from '../../../../src/verbs/vcs/git-exec-default.js';
-import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 /**
@@ -15,15 +15,15 @@ import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 describe('git-exec-default', () => {
   const repoRoot = process.cwd();
 
-  it('DefaultGitExec_RunsGitArgs_ReturnsStdoutAndExitCode', () => {
-    const result = defaultGitExec(repoRoot, ['--version']);
+  it('DefaultGitExec_RunsGitArgs_ReturnsStdoutAndExitCode', async () => {
+    const result = await isolatedSync(() => defaultGitExec(repoRoot, ['--version']));
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toMatch(/git version/i);
     expect(result.stderr).toBe('');
   });
 
-  it('DefaultGitExec_GitFailure_CapturesStderrAndExitCode', () => {
-    const result = defaultGitExec(repoRoot, ['this-is-not-a-git-command']);
+  it('DefaultGitExec_GitFailure_CapturesStderrAndExitCode', async () => {
+    const result = await isolatedSync(() => defaultGitExec(repoRoot, ['this-is-not-a-git-command']));
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr.length).toBeGreaterThan(0);
     expect(result.stdout.length).toBeGreaterThan(0);
@@ -82,12 +82,12 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
     expect(existsSync(lock)).toBe(true);
 
     const remover = scheduleOffThreadRemoval(lock, 100);
-    const result = defaultGitExec(repo, ['add', file]);
+    const result = await isolatedSync(() => defaultGitExec(repo, ['add', file]));
     await remover.terminate();
 
     expect(result.exitCode).toBe(0);
     expect(existsSync(lock)).toBe(false);
-    const status = defaultGitExec(repo, ['status', '--porcelain']);
+    const status = await isolatedSync(() => defaultGitExec(repo, ['status', '--porcelain']));
     expect(status.stdout).toMatch(/^A\s+staged\.txt/m);
   }, 20_000);
 
@@ -100,14 +100,14 @@ describe('git-exec-default — DR-1 index.lock retry composition', () => {
     const { repo, file, lock } = await makeRepo();
     writeFileSync(lock, '');
 
-    const result = defaultGitExec(repo, ['add', file]);
+    const result = await isolatedSync(() => defaultGitExec(repo, ['add', file]));
 
     expect(result.exitCode).not.toBe(0);
     expect(`${result.stderr ?? ''}\n${result.stdout}`).toMatch(
       /unable to create '[^']*index\.lock'/i,
     );
     rmSync(lock, { force: true });
-    const status = defaultGitExec(repo, ['status', '--porcelain']);
+    const status = await isolatedSync(() => defaultGitExec(repo, ['status', '--porcelain']));
     expect(status.stdout).toMatch(/^\?\?\s+staged\.txt/m);
   }, 20_000);
 });

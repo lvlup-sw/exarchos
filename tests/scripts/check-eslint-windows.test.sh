@@ -9,7 +9,8 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT" || { echo "cannot cd to repo root: $ROOT" >&2; exit 1; }
 FX="src/__eslint_selftest__.ts"
-trap 'rm -f "$FX"' EXIT
+GX="src/verbs/gates/__eslint_selftest__.ts"
+trap 'rm -f "$FX" "$GX"' EXIT
 fail=0
 
 cat > "$FX" <<'EOF'
@@ -30,6 +31,57 @@ export const a = execFileSync(resolveExecutable('npm'), ['run', 'test']);
 export const b = path.dirname(fileURLToPath(import.meta.url));
 EOF
 if npx eslint "$FX" >/dev/null 2>&1; then echo "  ok: fixed form is clean"; else echo "  FAIL: fixed form unexpectedly flagged"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+import { execFileSync } from 'node:child_process';
+import * as path from 'node:path';
+import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+export const a = execFileSync('npm', ['run', 'test']);
+export const b = path.dirname(new URL(import.meta.url).pathname);
+export const c = loadExarchosConfig;
+EOF
+gout="$(npx eslint "$GX" 2>&1 || true)"
+gerrs="$(printf '%s\n' "$gout" | grep -c 'no-restricted-syntax' || true)"
+gcfg="$(printf '%s\n' "$gout" | grep -c 'loadExarchosConfigOutcome' || true)"
+if [ "$gerrs" -eq 3 ] && [ "$gcfg" -eq 1 ]; then echo "  ok: gate module flags the config loader and both anti-patterns (3)"; else echo "  FAIL: expected 3 gate flags with 1 config-loader flag, got $gerrs and $gcfg"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+import { loadExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
+export const c = loadExarchosConfigOutcome;
+EOF
+if npx eslint "$GX" >/dev/null 2>&1; then echo "  ok: gate module with the outcome reader is clean"; else echo "  FAIL: gate module with the outcome reader unexpectedly flagged"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+import * as config from '../../config/load-exarchos-config.js';
+export const c = config.loadExarchosConfig;
+EOF
+mout="$(npx eslint "$GX" 2>&1 || true)"
+mcfg="$(printf '%s\n' "$mout" | grep -c 'loadExarchosConfigOutcome' || true)"
+if [ "$mcfg" -eq 1 ]; then echo "  ok: gate module flags a member access of the config loader (1)"; else echo "  FAIL: expected 1 config-loader flag for a member access, got $mcfg"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+import * as config from '../../config/load-exarchos-config.js';
+export const c = config.loadExarchosConfigOutcome;
+EOF
+if npx eslint "$GX" >/dev/null 2>&1; then echo "  ok: gate module with a member access of the outcome reader is clean"; else echo "  FAIL: gate module with a member access of the outcome reader unexpectedly flagged"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+export async function c(): Promise<unknown> {
+  const { loadExarchosConfig } = await import('../../config/load-exarchos-config.js');
+  return loadExarchosConfig;
+}
+EOF
+dout="$(npx eslint "$GX" 2>&1 || true)"
+dcfg="$(printf '%s\n' "$dout" | grep -c 'loadExarchosConfigOutcome' || true)"
+if [ "$dcfg" -eq 1 ]; then echo "  ok: gate module flags a destructured config loader (1)"; else echo "  FAIL: expected 1 config-loader flag for a destructured property, got $dcfg"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+export async function c(): Promise<unknown> {
+  const { loadExarchosConfigOutcome } = await import('../../config/load-exarchos-config.js');
+  return loadExarchosConfigOutcome;
+}
+EOF
+if npx eslint "$GX" >/dev/null 2>&1; then echo "  ok: gate module with a destructured outcome reader is clean"; else echo "  FAIL: gate module with a destructured outcome reader unexpectedly flagged"; fail=1; fi
 
 echo "eslint-windows self-test: $([ "$fail" -eq 0 ] && echo PASS || echo FAIL)"
 [ "$fail" -eq 0 ]

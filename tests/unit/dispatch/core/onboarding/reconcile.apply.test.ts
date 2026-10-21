@@ -28,6 +28,7 @@ import type { CheckResult } from '../../../../../src/verbs/doctor/schema.js';
 import { BLOCK_DRIFT_CHECK_NAME } from '../../../../../src/verbs/onboard/block-drift.js';
 import { RETIRED_HOOKS_CHECK_NAME } from '../../../../../src/verbs/onboard/hooks.js';
 import { rmrfAsync } from '../../../../../tools/test-helpers/temp-dir.js';
+import { isolatedSync } from '../../../../../tools/test-helpers/spawn.js';
 
 const CONFIG_FILE = '.exarchos.yml';
 
@@ -539,12 +540,12 @@ describe('apply', () => {
         expect.arrayContaining(['verification-command-mutation', 'verification-command-lint']),
       );
 
-      const resolved = resolveVerificationRuntime(fx.repoRoot);
+      const resolved = await isolatedSync(() => resolveVerificationRuntime(fx.repoRoot));
       expect(resolved.mutation).toBe('mutmut run');
       expect(resolved.lint).toBe('ruff check');
       expect(resolved.source).toBe('config');
 
-      const loaded = loadExarchosConfig(fx.repoRoot);
+      const loaded = await isolatedSync(() => loadExarchosConfig(fx.repoRoot));
       expect(loaded).not.toBeNull();
       expect(loaded!.config.mutation).toBe('mutmut run');
       expect(loaded!.config.lint).toBe('ruff check');
@@ -564,7 +565,7 @@ describe('apply', () => {
       await writeFile(path.join(fx.repoRoot, CONFIG_FILE), 'test: pytest\n', 'utf8');
 
       const desired = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
-      const declared = (loadExarchosConfig(fx.repoRoot)?.config ?? {}) as {
+      const declared = ((await isolatedSync(() => loadExarchosConfig(fx.repoRoot)))?.config ?? {}) as {
         mutation?: string;
         lint?: string;
       };
@@ -583,7 +584,7 @@ describe('apply', () => {
       expect(result.applied.map((s) => s.key)).not.toContain('verification-command-mutation');
       expect(result.advisories.length).toBeGreaterThanOrEqual(2);
 
-      const loaded = loadExarchosConfig(fx.repoRoot);
+      const loaded = await isolatedSync(() => loadExarchosConfig(fx.repoRoot));
       expect(loaded).not.toBeNull();
       expect(loaded!.config.mutation).toBeUndefined();
       expect(loaded!.config.lint).toBeUndefined();
@@ -600,7 +601,7 @@ describe('apply', () => {
     const fx = await createPythonFixture();
     try {
       const desired1 = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
-      const declared1 = (loadExarchosConfig(fx.repoRoot)?.config ?? {}) as {
+      const declared1 = ((await isolatedSync(() => loadExarchosConfig(fx.repoRoot)))?.config ?? {}) as {
         mutation?: string;
         lint?: string;
       };
@@ -609,7 +610,7 @@ describe('apply', () => {
       await apply(plan1, makeCtx(fx));
 
       const desired2 = await detectDesiredState(fx.repoRoot, { detectRuntimes: async () => [] });
-      const declared2 = (loadExarchosConfig(fx.repoRoot)?.config ?? {}) as {
+      const declared2 = ((await isolatedSync(() => loadExarchosConfig(fx.repoRoot)))?.config ?? {}) as {
         mutation?: string;
         lint?: string;
       };
@@ -636,7 +637,7 @@ describe('apply', () => {
       const parsed = parseYaml(raw) as Record<string, unknown>;
       expect('verification' in parsed).toBe(false);
 
-      const loaded = loadExarchosConfig(fx.repoRoot);
+      const loaded = await isolatedSync(() => loadExarchosConfig(fx.repoRoot));
       expect(loaded).not.toBeNull();
       expect('verification' in (loaded!.config as Record<string, unknown>)).toBe(false);
     } finally {

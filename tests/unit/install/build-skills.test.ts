@@ -31,7 +31,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
-import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -2346,7 +2346,7 @@ describe('buildAllSkills — task 003: classification-driven emission', () => {
     await execFileAsync('git', ['add', '-A'], { cwd: root, env: GIT_ENV });
     await execFileAsync('git', ['commit', '-q', '-m', 'drift standard'], { cwd: root, env: GIT_ENV });
 
-    const result = runSkillsGuard({ cwd: root, regenerateAgents: () => {} });
+    const result = await isolatedSync(() => runSkillsGuard({ cwd: root, regenerateAgents: () => {} }));
 
     expect(result.ok).toBe(false);
     expect(result.exitCode).not.toBe(0);
