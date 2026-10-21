@@ -70,22 +70,40 @@ export interface StaticAnalysisInput {
   readonly runCommand: RunCommandFn;
 }
 
+/** Returns the listed names as a tuple of literal types, so one list can feed each closed type and each reader of every name. */
+function closedNames<const Names extends readonly [string, ...string[]]>(...names: Names): Names {
+  return names;
+}
+
 /**
- * Why a run of an advisory leg gave no verdict. Each cause is a fault outside the repository.
+ * Each cause of an advisory leg run that gave no verdict, in one list. Each cause is a fault outside the repository.
  * - `missing-tool`: the tool or its interpreter is not installed.
  * - `did-not-start`: the runner did not start the tool.
  * - `signal`: a signal stopped the tool.
  * - `out-of-memory`: the tool ran out of heap.
  * - `output-limit`: the output passed the buffer limit of the runner.
  */
-export type ProcessNoVerdictCause = 'missing-tool' | 'did-not-start' | 'signal' | 'out-of-memory' | 'output-limit';
+export const PROCESS_NO_VERDICT_CAUSES = closedNames(
+  'missing-tool',
+  'did-not-start',
+  'signal',
+  'out-of-memory',
+  'output-limit',
+);
+
+/** Why a run of an advisory leg gave no verdict. */
+export type ProcessNoVerdictCause = (typeof PROCESS_NO_VERDICT_CAUSES)[number];
 
 /**
- * Why the import-boundary leg gave no verdict: a cause of the run, or a scan that had nothing to check.
+ * Each cause of an import-boundary leg with no verdict, in one list: a cause of the run, or a scan that had nothing to check.
  * - `no-source-root`: no `ownership.firstParty` glob names an existing path.
  * - `zero-modules`: the report says that the scan checked no module.
+ * A reader that needs every cause, such as a test table, reads this list.
  */
-export type BoundaryNoVerdictCause = ProcessNoVerdictCause | 'no-source-root' | 'zero-modules';
+export const BOUNDARY_NO_VERDICT_CAUSES = closedNames(...PROCESS_NO_VERDICT_CAUSES, 'no-source-root', 'zero-modules');
+
+/** Why the import-boundary leg gave no verdict. */
+export type BoundaryNoVerdictCause = (typeof BOUNDARY_NO_VERDICT_CAUSES)[number];
 
 /**
  * An advisory check that applies to the repository but gave no verdict. An

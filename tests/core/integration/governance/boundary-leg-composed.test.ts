@@ -35,16 +35,25 @@ const CHECKOUT_DEPCRUISE = path.join(
   process.platform === 'win32' ? 'depcruise.cmd' : 'depcruise',
 );
 
+/** The boundary config of a fixture: one `error` rule, and the `options` block when one is given. */
+function cruiserConfig(options?: string): string {
+  return [
+    'module.exports = {',
+    '  forbidden: [',
+    "    { name: 'no-core-to-io', severity: 'error',",
+    "      from: { path: '^(src|lib)/domain-core' }, to: { path: '^(src|lib)/io-adapters' } },",
+    '  ],',
+    ...(options === undefined ? [] : [`  options: ${options},`]),
+    '};',
+    '',
+  ].join('\n');
+}
+
 /** One `error` rule: a module under `domain-core` imports a module under `io-adapters`. */
-const CRUISER_CONFIG = [
-  'module.exports = {',
-  '  forbidden: [',
-  "    { name: 'no-core-to-io', severity: 'error',",
-  "      from: { path: '^(src|lib)/domain-core' }, to: { path: '^(src|lib)/io-adapters' } },",
-  '  ],',
-  '};',
-  '',
-].join('\n');
+const CRUISER_CONFIG = cruiserConfig();
+
+/** The same rule with an `includeOnly` filter that names a tree outside the scanned root, so the scan keeps no module. */
+const CRUISER_CONFIG_THAT_KEEPS_NO_MODULE = cruiserConfig("{ includeOnly: '^packages/' }");
 
 let harness: PublicRootHarness;
 const scratchDirs: string[] = [];
@@ -56,6 +65,19 @@ interface FixtureOptions {
   readonly localInstall: boolean;
   readonly exarchosYml?: string;
   readonly cleanSrcToo?: boolean;
+  /** The boundary config text. The default is {@link CRUISER_CONFIG}. */
+  readonly cruiserConfig?: string;
+  /** Adds a `docs/` directory that holds only a README, so a `docs/**` root exists and holds no module. */
+  readonly docsOnly?: boolean;
+}
+
+/**
+ * Asserts that the gate finds the dependency-cruiser bin of the fixture itself, linked from this checkout.
+ * A checkout with no bin fails here, and never passes with the `missing-tool` skip in place of the verdict under test.
+ */
+function expectTheFixtureBin(dir: string): void {
+  expect(existsSync(CHECKOUT_DEPCRUISE), 'the checkout has no dependency-cruiser bin').toBe(true);
+  expect(findLocalDepcruise(dir)).toBe(path.join(dir, 'node_modules', '.bin', path.basename(CHECKOUT_DEPCRUISE)));
 }
 
 /** Writes a `domain-core` module and an `io-adapters` module under `base`. The violation is the import of the second. */
@@ -86,9 +108,13 @@ async function fixture(opts: FixtureOptions): Promise<string> {
     }),
     'utf-8',
   );
-  await fs.writeFile(path.join(dir, '.dependency-cruiser.cjs'), CRUISER_CONFIG, 'utf-8');
+  await fs.writeFile(path.join(dir, '.dependency-cruiser.cjs'), opts.cruiserConfig ?? CRUISER_CONFIG, 'utf-8');
   await writeModules(path.join(dir, opts.root), opts.violation);
   if (opts.cleanSrcToo === true) await writeModules(path.join(dir, 'src'), false);
+  if (opts.docsOnly === true) {
+    await fs.mkdir(path.join(dir, 'docs'), { recursive: true });
+    await fs.writeFile(path.join(dir, 'docs', 'README.md'), '# notes\n', 'utf-8');
+  }
   if (opts.exarchosYml !== undefined) {
     await fs.writeFile(path.join(dir, '.exarchos.yml'), opts.exarchosYml, 'utf-8');
   }
@@ -215,5 +241,135 @@ describe('governance — the boundary leg through the production composition', (
     expect(scoped.data).toMatchObject({ passed: false, verdict: 'fail' });
     expect(scopedReport).toContain('error no-core-to-io: lib/domain-core/order.js → lib/io-adapters/db.js');
     expect(scopedReport).not.toContain('does not load');
+  }, 400_000);
+
+  /**
+   * The installed dependency-cruiser of the fixture scans `src/` and reads an `error` violation from its JSON report.
+   * BLOCKING ARM: the violation fails the gate, the report names the rule and the import, and the row of the task is a fail.
+   * @kill-seam: the verdict of the boundary leg, read from the JSON report of the installed bin
+   */
+  it('Governance_BoundaryViolationWithTheInstalledTool_FailsTheGateAndTheRow', async () => {
+    const violating = await fixture({ root: 'src', violation: true, localInstall: true });
+    expectTheFixtureBin(violating);
+
+    const failed = await runGate('T-boundary-violation', violating);
+    const report = String(failed.data.report);
+    expect(failed.data).toMatchObject({ passed: false, verdict: 'fail', completeness: 'complete', failCount: 1 });
+    expect(failed.data).not.toHaveProperty('advisorySkips');
+    expect(report).toContain(
+      '- **FAIL**: Import boundaries — dependency-cruiser found 1 violation of error severity',
+    );
+    expect(report).toContain('error no-core-to-io: src/domain-core/order.js → src/io-adapters/db.js');
+    expect(failed.rows).toHaveLength(1);
+    expect(failed.rows[0]).toMatchObject({ passed: false, details: { verdict: 'fail', completeness: 'complete' } });
+  }, 400_000);
+
+  /** The same tree without the import passes the leg with the count of the two modules that the installed bin checked. */
+  it('Governance_CleanTreeWithTheInstalledTool_PassesWithTheCountOfTheModules', async () => {
+    const clean = await fixture({ root: 'src', violation: false, localInstall: true });
+    expectTheFixtureBin(clean);
+
+    const passed = await runGate('T-boundary-clean-count', clean);
+    expect(passed.data).toMatchObject({
+      passed: true,
+      verdict: 'pass',
+      completeness: 'complete',
+      passCount: 4,
+      failCount: 0,
+    });
+    expect(passed.data).not.toHaveProperty('advisorySkips');
+    expect(String(passed.data.report)).toContain('- **PASS**: Import boundaries — 2 modules checked');
+    expect(passed.rows).toHaveLength(1);
+    expect(passed.rows[0]).toMatchObject({ passed: true, details: { verdict: 'pass', completeness: 'complete' } });
+  }, 400_000);
+
+  /**
+   * A depcruise `includeOnly` filter that keeps no module of the scanned root gives no verdict, although the installed bin
+   * ran, and `src/` holds a violation.
+   * BLOCKING ARM: the leg is a degraded skip with the cause `zero-modules`, never a PASS. The row of the task keeps the mark
+   * and the cause.
+   * NEGATIVE TWIN: the same tree without the filter checks the modules, and the violation fails the leg.
+   * @kill-seam: the zero-module arm of the boundary leg, and the completeness copy of the gate runner into the row
+   */
+  it('Governance_BoundaryFilterThatKeepsNoModule_DegradedSkipKeepsItsMarkInTheRow', async () => {
+    const filtered = await fixture({
+      root: 'src',
+      violation: true,
+      localInstall: true,
+      cruiserConfig: CRUISER_CONFIG_THAT_KEEPS_NO_MODULE,
+    });
+    expectTheFixtureBin(filtered);
+
+    const skipped = await runGate('T-boundary-filter-keeps-none', filtered);
+    const report = String(skipped.data.report);
+    expect(skipped.data).toMatchObject({ passed: true, degraded: true, verdict: 'pass', completeness: 'degraded' });
+    expect(skipped.data.advisorySkips).toEqual([
+      expect.objectContaining({ name: 'Import boundaries', cause: 'zero-modules' }),
+    ]);
+    expect(report).toContain('- **SKIP**: Import boundaries — dependency-cruiser gave no verdict: the scan checked no module');
+    expect(report).not.toContain('- **PASS**: Import boundaries');
+    expect(skipped.rows).toHaveLength(1);
+    expect(skipped.rows[0]).toMatchObject({
+      passed: true,
+      details: {
+        verdict: 'pass',
+        completeness: 'degraded',
+        advisorySkips: [{ name: 'Import boundaries', cause: 'zero-modules' }],
+      },
+    });
+
+    const unfiltered = await fixture({ root: 'src', violation: true, localInstall: true });
+    expectTheFixtureBin(unfiltered);
+    const checked = await runGate('T-boundary-filter-absent', unfiltered);
+    expect(checked.data).toMatchObject({ passed: false, verdict: 'fail', completeness: 'complete' });
+    expect(String(checked.data.report)).toContain(
+      'error no-core-to-io: src/domain-core/order.js → src/io-adapters/db.js',
+    );
+  }, 400_000);
+
+  /**
+   * A configured `ownership.firstParty` root that exists and holds no module gives no verdict, although `src/` holds a
+   * violation.
+   * BLOCKING ARM: the leg is a degraded skip with the cause `zero-modules`, never a clean PASS over an empty scan.
+   * NEGATIVE TWIN: the same tree with the `src/**` root checks the modules, and the violation fails the leg.
+   * @kill-seam: the zero-module arm of the boundary leg, which gave a clean PASS for a scan of no module
+   */
+  it('Governance_ConfiguredRootWithNoModule_DegradedSkipNotAPass', async () => {
+    const emptyRoot = await fixture({
+      root: 'src',
+      violation: true,
+      localInstall: true,
+      docsOnly: true,
+      exarchosYml: "ownership:\n  firstParty:\n    - 'docs/**'\n",
+    });
+    expectTheFixtureBin(emptyRoot);
+
+    const skipped = await runGate('T-boundary-empty-root', emptyRoot);
+    const report = String(skipped.data.report);
+    expect(skipped.data).toMatchObject({ passed: true, degraded: true, verdict: 'pass', completeness: 'degraded' });
+    expect(skipped.data.advisorySkips).toEqual([
+      expect.objectContaining({ name: 'Import boundaries', cause: 'zero-modules' }),
+    ]);
+    expect(report).toContain('- **SKIP**: Import boundaries — dependency-cruiser gave no verdict: the scan checked no module');
+    expect(report).not.toContain('- **PASS**: Import boundaries');
+    expect(skipped.rows).toHaveLength(1);
+    expect(skipped.rows[0]).toMatchObject({
+      passed: true,
+      details: { completeness: 'degraded', advisorySkips: [{ name: 'Import boundaries', cause: 'zero-modules' }] },
+    });
+
+    const srcRoot = await fixture({
+      root: 'src',
+      violation: true,
+      localInstall: true,
+      docsOnly: true,
+      exarchosYml: "ownership:\n  firstParty:\n    - 'src/**'\n",
+    });
+    expectTheFixtureBin(srcRoot);
+    const checked = await runGate('T-boundary-src-root', srcRoot);
+    expect(checked.data).toMatchObject({ passed: false, verdict: 'fail', completeness: 'complete' });
+    expect(String(checked.data.report)).toContain(
+      'error no-core-to-io: src/domain-core/order.js → src/io-adapters/db.js',
+    );
   }, 400_000);
 });
