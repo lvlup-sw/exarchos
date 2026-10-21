@@ -15,7 +15,8 @@
  * A file of the `process` project tests the `exarchos` binary on PATH. For such a file, the script builds the binary of the
  * working tree into a temporary directory and puts that directory first on PATH. Thus each run of the probe tests the tree that the probe sees.
  *
- * The exit code is the exit code of vitest. A refusal, a failed build or a vitest that does not start exits 2.
+ * The exit code is the exit code of vitest. A refusal, a failed build, a vitest that does not start and each other error of the script exit 2.
+ * A temporary directory that the script cannot delete gives a warning, and the exit code of vitest stays.
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
@@ -46,6 +47,22 @@ const BUILT_BINARY_PREFIX = 'exarchos-';
 
 /** The name under which the setup of the `process` project looks for the binary on PATH. */
 const PATH_BINARY_NAME = process.platform === 'win32' ? 'exarchos.exe' : 'exarchos';
+
+/**
+ * The options of each delete of the build directory. Windows refuses to delete a binary that a process still runs.
+ * The retries give such a transient lock time to end, as the test helper `rmrf` does outside its run root.
+ * @type {import('node:fs').RmOptions}
+ */
+const BUILD_DIR_REMOVE = Object.freeze({ recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+
+/**
+ * Returns the message of a thrown value.
+ * @param {unknown} error
+ * @returns {string}
+ */
+function errorText(error) {
+  return error instanceof Error ? error.message : String(error);
+}
 
 /**
  * Returns true when `candidate` names a regular file, relative to the working directory or absolute.
@@ -156,32 +173,57 @@ function runBuild(dir, cwd) {
 }
 
 /**
- * Builds the `exarchos` binary of the working tree in `cwd` into a new temporary directory, with `tools/release/build-binary.ts`.
- * The binary gets the bare name that the setup of the `process` project looks for on PATH.
- * It resolves to the directory, or to the reason that no binary is there. On a failure, it removes the directory.
- * The build writes `src/install/runtimes/embedded.ts` from the runtime files, as each build does.
- * @param {string} cwd
- * @returns {Promise<{ dir: string } | { error: string }>}
+ * Makes a new temporary directory for the build. It returns the directory, or the reason that the directory was not made.
+ * @returns {{ dir: string } | { error: string }}
  */
-async function buildPathBinary(cwd) {
-  const dir = mkdtempSync(path.join(os.tmpdir(), 'exarchos-test-files-'));
-  const fail = (/** @type {string} */ error) => {
-    rmSync(dir, { recursive: true, force: true });
-    return { error };
-  };
-  const result = await runBuild(dir, cwd);
-  if (result.error !== undefined) return fail(`the shell did not start: ${result.error.message}`);
-  if (result.code !== 0) {
-    const end = result.code === null ? `stopped on signal ${String(result.signal)}` : `exited ${result.code}`;
-    return fail(`the build ${end}. The build output ends with:\n${result.output.trimEnd().split('\n').slice(-20).join('\n')}`);
+function makeBuildDir() {
+  try {
+    return { dir: mkdtempSync(path.join(os.tmpdir(), 'exarchos-test-files-')) };
+  } catch (error) {
+    return { error: `the temporary directory for the build was not made: ${errorText(error)}` };
   }
-  const built = readdirSync(dir).filter((name) => name.startsWith(BUILT_BINARY_PREFIX));
-  const [binary] = built;
-  if (binary === undefined || built.length !== 1) {
-    return fail(`the build wrote ${built.length} binaries into ${dir}, and the script needs one`);
+}
+
+/**
+ * Deletes the build directory. A failed delete writes a warning and never throws.
+ * Thus a directory that stays behind never changes the exit code of the run.
+ * @param {string} dir
+ */
+function removeBuildDir(dir) {
+  try {
+    rmSync(dir, BUILD_DIR_REMOVE);
+  } catch (error) {
+    process.stderr.write(`test:files: warning: the build directory ${dir} was not deleted: ${errorText(error)}\n`);
   }
-  renameSync(path.join(dir, binary), path.join(dir, PATH_BINARY_NAME));
-  return { dir };
+}
+
+/**
+ * Builds the `exarchos` binary of the working tree in `cwd` into `dir`, with `tools/release/build-binary.ts`.
+ * The binary gets the bare name that the setup of the `process` project looks for on PATH.
+ * It resolves to `undefined` when the binary is there, and otherwise to the reason. It never rejects.
+ * The build writes `src/install/runtimes/embedded.ts` from the runtime files, as each build does.
+ * @param {string} dir
+ * @param {string} cwd
+ * @returns {Promise<string | undefined>}
+ */
+async function buildPathBinary(dir, cwd) {
+  try {
+    const result = await runBuild(dir, cwd);
+    if (result.error !== undefined) return `the shell did not start: ${result.error.message}`;
+    if (result.code !== 0) {
+      const end = result.code === null ? `stopped on signal ${String(result.signal)}` : `exited ${result.code}`;
+      return `the build ${end}. The build output ends with:\n${result.output.trimEnd().split('\n').slice(-20).join('\n')}`;
+    }
+    const built = readdirSync(dir).filter((name) => name.startsWith(BUILT_BINARY_PREFIX));
+    const [binary] = built;
+    if (binary === undefined || built.length !== 1) {
+      return `the build wrote ${built.length} binaries into ${dir}, and the script needs one`;
+    }
+    renameSync(path.join(dir, binary), path.join(dir, PATH_BINARY_NAME));
+    return undefined;
+  } catch (error) {
+    return `the script did not prepare the built binary: ${errorText(error)}`;
+  }
 }
 
 /**
@@ -210,33 +252,38 @@ function runVitest(forwarded, env) {
 
 /**
  * Builds the binary for the files of the `process` project, then runs vitest with that binary first on PATH.
- * It removes the binary when vitest ends, and also when `SIGINT` or `SIGTERM` stops the script.
+ * It removes the build directory when vitest ends or the build fails.
+ * It also removes the directory when `SIGINT` or `SIGTERM` stops the script during the build or during vitest.
  * @param {readonly string[]} forwarded
  * @param {readonly string[]} binaryFiles
  * @returns {Promise<number>}
  */
 async function runWithPathBinary(forwarded, binaryFiles) {
-  const built = await buildPathBinary(process.cwd());
-  if ('error' in built) {
+  const refuse = (/** @type {string} */ reason) => {
     process.stderr.write(
       `test:files: refused. The tests ${binaryFiles.join(', ')} check the exarchos binary on PATH, ` +
-        `and the binary of the working tree did not build: ${built.error}\n`,
+        `and the binary of the working tree did not build: ${reason}\n`,
     );
     return REFUSED;
-  }
+  };
+  const made = makeBuildDir();
+  if ('error' in made) return refuse(made.error);
+  const { dir } = made;
   /** @type {NodeJS.Signals[]} */
   const signals = ['SIGINT', 'SIGTERM'];
   const onSignal = (/** @type {NodeJS.Signals} */ signal) => {
-    rmSync(built.dir, { recursive: true, force: true });
+    removeBuildDir(dir);
     process.kill(process.pid, signal);
   };
   for (const signal of signals) process.once(signal, onSignal);
-  process.stdout.write(`test:files: the exarchos binary of the working tree is first on PATH, from ${built.dir}.\n`);
   try {
-    return await runVitest(forwarded, withFirstOnPath(process.env, built.dir));
+    const failure = await buildPathBinary(dir, process.cwd());
+    if (failure !== undefined) return refuse(failure);
+    process.stdout.write(`test:files: the exarchos binary of the working tree is first on PATH, from ${dir}.\n`);
+    return await runVitest(forwarded, withFirstOnPath(process.env, dir));
   } finally {
     for (const signal of signals) process.removeListener(signal, onSignal);
-    rmSync(built.dir, { recursive: true, force: true });
+    removeBuildDir(dir);
   }
 }
 
@@ -282,4 +329,19 @@ function isEntryScript() {
   }
 }
 
-if (isEntryScript()) process.exitCode = await main(process.argv.slice(2));
+/**
+ * Runs the script when node starts this file. An error that escapes `main` exits 2, because the run has no verdict.
+ * Without the catch, node exits 1 on the error, and the kill probe reads exit 1 as a failing test.
+ * @param {readonly string[]} argv
+ * @returns {Promise<number>}
+ */
+async function runEntry(argv) {
+  try {
+    return await main(argv);
+  } catch (error) {
+    process.stderr.write(`test:files: the script stopped on an error, and the run has no verdict: ${errorText(error)}\n`);
+    return REFUSED;
+  }
+}
+
+if (isEntryScript()) process.exitCode = await runEntry(process.argv.slice(2));

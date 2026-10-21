@@ -7,6 +7,7 @@
  * No real vitest and no real build starts.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { spawn } from 'node:child_process';
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -54,18 +55,31 @@ describe('run-test-files refusals', () => {
   });
 });
 
-/** The echo vitest. It prints its arguments, the first two PATH entries, and whether the first entry holds the binary. */
-const ECHO_VITEST = `import { existsSync } from 'node:fs';
+/**
+ * The echo vitest. It prints its arguments, the first two PATH entries, and whether the first entry holds the binary.
+ * When asked, it writes a file into a read-only directory in the first entry, so that the script cannot delete that entry.
+ */
+const ECHO_VITEST = `import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 const key = Object.keys(process.env).find((name) => name.toUpperCase() === 'PATH') ?? 'PATH';
 const entries = (process.env[key] ?? '').split(path.delimiter);
 const first = entries[0] ?? '';
 const binary = path.join(first, process.platform === 'win32' ? 'exarchos.exe' : 'exarchos');
+if (process.env.FAKE_VITEST_HOLD_FIRST_PATH) {
+  const held = path.join(first, 'held');
+  mkdirSync(held);
+  writeFileSync(path.join(held, 'file'), 'held\\n');
+  chmodSync(held, 0o555);
+}
 process.stdout.write('ECHO ' + JSON.stringify({ argv: process.argv.slice(2), pathEntries: entries.slice(0, 2), binaryOnFirstPath: existsSync(binary) }) + '\\n');
 `;
 
-/** The fake build. It records its arguments, fails when asked, and otherwise writes one binary into its `--outdir`. */
-const FAKE_BUN = `import { writeFileSync } from 'node:fs';
+/**
+ * The fake build. It records its arguments, fails when asked, and otherwise writes one binary into its `--outdir`.
+ * When asked, it also writes a directory with the bare binary name, so that the rename of the binary fails.
+ * When asked to hold, it writes no binary and waits until its `--outdir` is gone.
+ */
+const FAKE_BUN = `import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 const args = process.argv.slice(2);
 if (process.env.FAKE_BUN_MARKER) writeFileSync(process.env.FAKE_BUN_MARKER, JSON.stringify({ args, cwd: process.cwd() }));
@@ -74,7 +88,18 @@ if (process.env.FAKE_BUN_EXIT) {
   process.exit(Number(process.env.FAKE_BUN_EXIT));
 }
 const outdir = args[args.indexOf('--outdir') + 1];
-writeFileSync(path.join(outdir, 'exarchos-fake-host'), 'fake binary\\n', { mode: 0o755 });
+if (process.env.FAKE_BUN_HOLD) {
+  setInterval(() => {
+    if (!existsSync(outdir)) process.exit(1);
+  }, 20);
+  setTimeout(() => process.exit(1), 20000);
+} else {
+  writeFileSync(path.join(outdir, 'exarchos-fake-host'), 'fake binary\\n', { mode: 0o755 });
+  if (process.env.FAKE_BUN_BLOCK_RENAME) {
+    mkdirSync(path.join(outdir, 'exarchos'));
+    writeFileSync(path.join(outdir, 'exarchos', 'file'), 'blocks the rename\\n');
+  }
+}
 `;
 
 /** What the echo vitest printed. */
@@ -99,6 +124,29 @@ function readEcho(stdout: string): Echo | undefined {
     pathEntries: pathEntries.filter((entry): entry is string => typeof entry === 'string'),
     binaryOnFirstPath,
   };
+}
+
+/** Reads the `--outdir` that the fake build wrote into `marker`, or an empty string when the marker is absent or not complete. */
+function readBuildDir(marker: string): string {
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(marker, 'utf8'));
+    const args: unknown = typeof parsed === 'object' && parsed !== null ? Reflect.get(parsed, 'args') : undefined;
+    if (!Array.isArray(args)) return '';
+    const outdir: unknown = args[args.indexOf('--outdir') + 1];
+    return typeof outdir === 'string' ? outdir : '';
+  } catch {
+    return '';
+  }
+}
+
+/** Polls `check` until it returns true or the time ends. It resolves to the last result of `check`. */
+async function waitFor(check: () => boolean, timeoutMs: number): Promise<boolean> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (check()) return true;
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+  return check();
 }
 
 /**
@@ -181,6 +229,86 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
     expect(readEcho(result.stdout)).toBeUndefined();
     expect(result.stderr).toContain('did not build');
     expect(result.stderr).toContain('fake build failed');
+  });
+
+  /** An error of the file system before the build is a refusal with no verdict. Node exits 1 on an uncaught error, and the probe reads 1 as red. */
+  it('RunTestFiles_TemporaryDirectoryNotMade_RefusesWithExit2AndStartsNoBuild', async () => {
+    const marker = path.join(root, 'build-no-tmp.json');
+
+    const result = await runCopy(['tests/process/sample.test.ts'], {
+      FAKE_BUN_MARKER: marker,
+      TMPDIR: path.join(root, 'missing-tmp'),
+    });
+
+    expect(result.status, result.stderr).toBe(REFUSED);
+    expect(readEcho(result.stdout)).toBeUndefined();
+    expect(result.stderr).toContain('the temporary directory for the build was not made');
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  /** An error of the file system after the build is a refusal with no verdict, and the build directory goes away. */
+  it('RunTestFiles_RenameOfTheBuiltBinaryFails_RefusesWithExit2AndDeletesTheBuildDirectory', async () => {
+    const marker = path.join(root, 'build-rename.json');
+
+    const result = await runCopy(['tests/process/sample.test.ts'], { FAKE_BUN_MARKER: marker, FAKE_BUN_BLOCK_RENAME: '1' });
+
+    expect(result.status, result.stderr).toBe(REFUSED);
+    expect(readEcho(result.stdout)).toBeUndefined();
+    expect(result.stderr).toContain('the script did not prepare the built binary');
+    const buildDir = readBuildDir(marker);
+    expect(buildDir).not.toBe('');
+    expect(existsSync(buildDir)).toBe(false);
+  });
+
+  /**
+   * A build directory that the script cannot delete gives a warning, and the green exit of vitest stays.
+   * The root user can delete a read-only directory, so the case does not run as root.
+   */
+  it.skipIf(process.getuid?.() === 0)('RunTestFiles_BuildDirectoryNotDeleted_WarnsAndKeepsTheExitCodeOfVitest', async () => {
+    const result = await runCopy(['tests/process/sample.test.ts'], { FAKE_VITEST_HOLD_FIRST_PATH: '1' });
+    const buildDir = readEcho(result.stdout)?.pathEntries[0] ?? '';
+    const held = path.join(buildDir, 'held');
+    try {
+      expect(buildDir).not.toBe('');
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.stderr).toContain(`the build directory ${buildDir} was not deleted`);
+      expect(existsSync(held)).toBe(true);
+    } finally {
+      if (buildDir !== '' && existsSync(held)) {
+        chmodSync(held, 0o755);
+        rmrf(buildDir);
+      }
+    }
+  });
+
+  /** A signal during the build stops the script, and the script deletes the build directory before it stops. */
+  it('RunTestFiles_SignalDuringTheBuild_DeletesTheBuildDirectory', async () => {
+    const marker = path.join(root, 'build-signal.json');
+    const child = spawn(process.execPath, [copy, 'tests/process/sample.test.ts'], {
+      cwd: root,
+      env: {
+        ...process.env,
+        PATH: `${fakeBin}${path.delimiter}${process.env['PATH'] ?? ''}`,
+        FAKE_BUN_MARKER: marker,
+        FAKE_BUN_HOLD: '1',
+      },
+      stdio: 'ignore',
+    });
+    const stopped = new Promise<NodeJS.Signals | null>((resolve) => {
+      child.on('close', (_code, signal) => resolve(signal));
+    });
+    try {
+      expect(await waitFor(() => readBuildDir(marker) !== '', 10_000)).toBe(true);
+      const buildDir = readBuildDir(marker);
+      expect(existsSync(buildDir)).toBe(true);
+
+      child.kill('SIGTERM');
+
+      expect(await stopped).toBe('SIGTERM');
+      expect(existsSync(buildDir)).toBe(false);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
   });
 });
 
