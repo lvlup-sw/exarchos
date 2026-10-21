@@ -28,6 +28,7 @@ import {
   minimalValidCapsule,
 } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import {
+  deriveLocalOperatorIdentity,
   deriveMcpCallerIdentity,
   snapshotCallerAuthorization,
 } from '../../../../src/dispatch/caller-identity.js';
@@ -68,7 +69,13 @@ import {
   type ExecuteIntentDeps,
   type LeafHandler,
 } from '../../../../src/verbs/execute/executor.js';
-import { ladderRequirementId, readGateEvidenceRecords } from '../../../../src/verbs/gates/durable-gate-producer.js';
+import {
+  ladderRequirementId,
+  readGateEvidenceRecords,
+  selectSubject,
+} from '../../../../src/verbs/gates/durable-gate-producer.js';
+import { runGate } from '../../../../src/verbs/gates/gate-runner.js';
+import { SKIPPED_BY_POLICY } from '../../../../src/verbs/gates/gate-utils.js';
 import { builtInWorkflowAuthority } from '../../../../src/verbs/prepare/built-in-authority.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
@@ -97,6 +104,7 @@ import {
   MAX_DEVIATIONS_PER_BATCH,
   type SettlementReceipt,
 } from '../../../../src/verbs/settle/types.js';
+import { evidenceArtifactStore } from '../../../../src/workflow/admission/evidence-artifact.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -785,6 +793,9 @@ describe('settle — the verification a settled batch runs', () => {
       }),
     ]);
     expect(record.operationId).toBe(receipt.verification?.[0]?.operationId);
+    expect(receipt.verification?.[0], 'a segment whose gate rows carry no mark gives no qualifier').not.toHaveProperty(
+      'qualifiers',
+    );
     const completion = (await completionRows())[0];
     expect(completion?.operationId).toBe(`${String(record.operationId)}:leaf-1:task_complete`);
   });
@@ -804,6 +815,142 @@ describe('settle — the verification a settled batch runs', () => {
     expect(signals).toHaveLength(1);
     expect(evidence[0]?.operationId).toMatch(/^settle-task:[0-9a-f]{64}:leaf-0:check_mock_boundary$/);
     expect(signals[0]?.operationId).toBe(evidence[0]?.operationId);
+  });
+
+  /**
+   * A degraded static-analysis pass in the segment marks the receipt trace with the gate, each advisory check and its
+   * cause. The leaf writes its row through the real gate runner and the real carrier mapping. The policy skip of the
+   * mock-boundary leaf gives no qualifier, because the capsule terms exclude that gate at the low tier. The bundle copy
+   * keeps the keys of its strict schema, so the bundle decodes strictly and holds no qualifier.
+   * @kill-seam: the bundle copy of a trace in src/verbs/settle/handler.ts, and the qualifier reader of the leaf gate rows
+   */
+  it('Settle_ADegradedGateLeaf_MarksTheReceiptTraceAndKeepsTheBundleShape', async () => {
+    const advisorySkips = [
+      { name: 'Import boundaries', cause: 'missing-tool' as const, detail: 'no node_modules/.bin/depcruise in the repository' },
+    ];
+    const degradedStaticAnalysis: LeafHandler = async (args, leafStateDir, ctx) => {
+      await seedStaticAnalysisVerdict(store, {
+        streamId: STREAM,
+        taskId: String(args.taskId),
+        stateDir,
+        phaseAttemptId,
+        outcome: { status: 'pass', advisorySkips },
+      });
+      return gateStandIn(args, leafStateDir, ctx);
+    };
+
+    const receipt = receiptOf(
+      await settle(
+        { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-degraded', claims: [passingClaim()] },
+        { check_mock_boundary: degradedStaticAnalysis },
+      ),
+    );
+
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.verification).toEqual([
+      expect.objectContaining({
+        taskId: 'task-verify',
+        outcome: 'verified',
+        qualifiers: [
+          {
+            gate: 'static-analysis',
+            mark: 'degraded',
+            advisorySkips: [{ name: 'Import boundaries', cause: 'missing-tool' }],
+          },
+        ],
+      }),
+    ]);
+    const mockBoundaryRows = (await rowsOf('gate.executed')).filter(
+      (row) => (row.data as { gateName?: string }).gateName === 'mock-boundary',
+    );
+    expect(mockBoundaryRows.map((row) => (row.data as { details?: unknown }).details)).toEqual([
+      expect.objectContaining({ skipped: true, discriminant: SKIPPED_BY_POLICY }),
+    ]);
+
+    const bundle = await bundleOf(receipt);
+    expect(bundle.verification).toEqual([
+      expect.objectContaining({ taskId: 'task-verify', outcome: 'verified' }),
+    ]);
+    expect(bundle.verification?.[0]).not.toHaveProperty('qualifiers');
+    expect(Object.keys(bundle.verification?.[0] ?? {}).sort()).toEqual(['bundleRefs', 'operationId', 'outcome', 'taskId']);
+
+    const tail = (await store.query(STREAM)).length;
+    expect(
+      receiptOf(
+        await settle(
+          { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-degraded', claims: [passingClaim()] },
+          { check_mock_boundary: degradedStaticAnalysis },
+        ),
+      ),
+    ).toEqual(receipt);
+    expect(await store.query(STREAM)).toHaveLength(tail);
+  });
+
+  /**
+   * A gate row in the segment that declares a skip marks the trace as skipped with its cause.
+   * An example is the probe skip of a task with no new tests at the low tier.
+   */
+  it('Settle_ASkippedGateRowInTheSegment_MarksTheTraceAsSkipped', async () => {
+    const probeSkip: LeafHandler = async (args, leafStateDir, ctx) => {
+      const taskId = String(args.taskId);
+      const subject = selectSubject(
+        { gateClass: 'test-adequacy', featureId: STREAM, taskId, baseRef: 'main', repoRoot: stateDir },
+        phaseAttemptId,
+      );
+      const operator = mintDispatchContext(
+        undefined,
+        snapshotCallerAuthorization(deriveLocalOperatorIdentity('/exarchos/settle-probe-skip'), undefined),
+      );
+      await runWithDispatchContext(operator, () =>
+        runGate(
+          {
+            streamId: STREAM,
+            gateClass: 'test-adequacy',
+            phaseAttemptId,
+            requirementId: ladderRequirementId('test-adequacy'),
+            subject,
+            providerInput: { featureId: STREAM, taskId, baseRef: 'main' },
+          },
+          {
+            eventStore: store,
+            artifactStore: evidenceArtifactStore(stateDir),
+            executeProvider: async () => ({
+              success: true,
+              data: {
+                passed: true,
+                skipped: true,
+                disposition: 'advisory-skip',
+                verdict: 'indeterminate',
+                completeness: 'complete',
+                discriminant: 'no-new-tests',
+                reason: 'the task changed no test file',
+                redObserved: false,
+                restoredClean: true,
+                probedTests: [],
+              },
+            }),
+          },
+        ),
+      );
+      return gateStandIn(args, leafStateDir, ctx);
+    };
+
+    const receipt = receiptOf(
+      await settle(
+        { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-probe-skip', claims: [passingClaim()] },
+        { check_mock_boundary: probeSkip },
+      ),
+    );
+
+    expect(receipt.verification).toEqual([
+      expect.objectContaining({
+        taskId: 'task-verify',
+        outcome: 'verified',
+        qualifiers: [
+          { gate: 'test-adequacy', mark: 'skipped', discriminant: 'no-new-tests', reason: 'the task changed no test file' },
+        ],
+      }),
+    ]);
   });
 
   it('Settle_ARejectedBatch_VerifiesNothingAndLeavesNoCompletion', async () => {

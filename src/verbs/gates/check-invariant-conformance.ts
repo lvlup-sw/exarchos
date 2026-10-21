@@ -16,7 +16,7 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import type { PluginFinding } from '../../review/check-catalog.js';
 import type { ExarchosConfig } from '../../config/exarchos-config-schema.js';
-import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+import { loadExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
 import type { InvariantEntry } from '../../architecture/invariants-loader.js';
 import { projectCatalog } from '../../architecture/project-catalog.js';
 import {
@@ -215,17 +215,16 @@ async function executeCheckInvariantConformance(
   const findings: PluginFinding[] = [];
   let effectiveConfig: ExarchosConfig | undefined = args.config;
   if (effectiveConfig === undefined && args.loadInvariantsFn === undefined) {
-    try {
-      const loaded = loadExarchosConfig(args.repoRoot ?? process.cwd());
-      effectiveConfig = loaded?.config;
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
+    const outcome = loadExarchosConfigOutcome(args.repoRoot ?? process.cwd());
+    if (outcome.kind === 'loaded') {
+      effectiveConfig = outcome.result.config;
+    } else if (outcome.kind === 'invalid') {
       findings.push({
         source: 'exarchos-config-load',
         severity: 'LOW',
         message:
           `.exarchos.yml failed to load and was skipped; the invariant gate ` +
-          `ran with default (no-config) settings. Reason: ${reason}`,
+          `ran with default (no-config) settings. Reason: ${outcome.message}`,
       });
     }
   }

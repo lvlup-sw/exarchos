@@ -5,6 +5,7 @@
  */
 
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
+import type { GateAdvisorySkip } from '../gates/gate-utils.js';
 import type { SettlementFinding, SettlementCensus, SettlementOutcome, UnresolvedTask } from './adjudicate.js';
 
 /** The settlement key: which compilation, and which batch of it. */
@@ -17,12 +18,24 @@ export interface SettledCapsuleIdentity {
 }
 
 /**
+ * A mark on the verification trace of a task. It names a gate whose `gate.executed` row in the segment does not
+ * rest on each check that applies.
+ * - `degraded`: the gate gave a verdict, and each advisory check in `advisorySkips` gave none.
+ * - `skipped`: the gate gave no verdict, and the segment continued. `discriminant` and `reason` name the cause.
+ */
+export type SettlementTraceQualifier =
+  | { readonly gate: string; readonly mark: 'degraded'; readonly advisorySkips: readonly GateAdvisorySkip[] }
+  | { readonly gate: string; readonly mark: 'skipped'; readonly discriminant?: string; readonly reason?: string };
+
+/**
  * How settlement read the completion of one task. A task has a trace when the shape pass accepts
  * its claim, or when the capsule requires it and the stream already shows it complete.
  *
  * `operationId` names the task-completion segment, so a caller can read its receipt through
  * `execute_intent`. It is absent under `already-complete`, because the stream holds the completion
  * of the task. `bundleRefs` is the run bundle of a segment that committed a record.
+ * `qualifiers` comes from the gate rows of the segment, and it is absent when no row carries a mark.
+ * The receipt holds it. The settlement bundle does not, because its trace schema is strict.
  */
 export interface SettlementVerificationTrace {
   readonly taskId: string;
@@ -31,6 +44,7 @@ export interface SettlementVerificationTrace {
   readonly failedLeaf?: string;
   readonly message?: string;
   readonly bundleRefs?: readonly [BundleRefV1, ...BundleRefV1[]];
+  readonly qualifiers?: readonly [SettlementTraceQualifier, ...SettlementTraceQualifier[]];
 }
 
 /**

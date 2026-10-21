@@ -421,11 +421,39 @@ describe('handleStaticAnalysis', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toMatchObject({ passed: true, degraded: true, advisorySkips });
+      expect(result.data).toMatchObject({
+        passed: true,
+        degraded: true,
+        verdict: 'pass',
+        completeness: 'degraded',
+        advisorySkips,
+      });
       expect(result.data).not.toHaveProperty('skipped');
       expect(result.data).not.toHaveProperty('skipReason');
       expect((result.data as { report: string }).report).toContain('Import boundaries');
       expect(normalizeGateVerdict(result)).toBe('pass');
+    });
+
+    /**
+     * The carrier states the closed verdict of each run status, as the adequacy carrier does. A run with no advisory skip
+     * is `complete` and carries no list, and a skip is `indeterminate`.
+     */
+    it('handleStaticAnalysis_EachRunStatus_StatesTheClosedVerdictAndTheCompleteness', async () => {
+      const runs = [
+        { label: 'pass', run: { ...makePassingResult(), skipCount: 0 }, verdict: 'pass' },
+        { label: 'fail', run: { ...makeFailingResult(), skipCount: 0 }, verdict: 'fail' },
+        { label: 'skip', run: { ...makeSkipResult(), skipCount: 0 }, verdict: 'indeterminate' },
+      ];
+      for (const { label, run, verdict } of runs) {
+        mockRunStaticAnalysis.mockReturnValue(run);
+        const result = await handleStaticAnalysis(
+          { featureId: 'feat-1', repoRoot: '/home/user/project' },
+          STATE_DIR,
+          mockStore as unknown as EventStore,
+        );
+        expect(result.data, label).toMatchObject({ verdict, completeness: 'complete' });
+        expect(result.data, label).not.toHaveProperty('advisorySkips');
+      }
     });
 
     /** The handler reads `ownership.firstParty` from the `.exarchos.yml` of the analyzed tree. */
@@ -457,8 +485,36 @@ describe('handleStaticAnalysis', () => {
         mockStore as unknown as EventStore,
       );
 
-      const callArgs = mockRunStaticAnalysis.mock.calls[0]?.[0] as { firstPartyGlobs?: readonly string[] };
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]?.[0] as {
+        firstPartyGlobs?: readonly string[];
+        projectConfigError?: unknown;
+      };
       expect(callArgs.firstPartyGlobs).toBeUndefined();
+      expect(callArgs.projectConfigError).toBeUndefined();
+    });
+
+    /**
+     * A project config that does not load is not read as no config. The handler passes the file and the error, and no
+     * globs, so the boundary leg fails and names them. It does not scan the default roots.
+     */
+    it('handleStaticAnalysis_ProjectConfigThatDoesNotLoad_PassesTheLoadFailure', async () => {
+      const file = path.join(configDir, '.exarchos.yml');
+      fs.writeFileSync(file, "ownership:\n  firstParty:\n    - 'lib/**'\nnotARealKey: true\n", 'utf-8');
+      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
+
+      await handleStaticAnalysis(
+        { featureId: 'feat-1', repoRoot: configDir },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]?.[0] as {
+        firstPartyGlobs?: readonly string[];
+        projectConfigError?: { source: string; message: string };
+      };
+      expect(callArgs.firstPartyGlobs).toBeUndefined();
+      expect(callArgs.projectConfigError?.source).toBe(path.resolve(file));
+      expect(callArgs.projectConfigError?.message).toMatch(/Invalid \.exarchos\.yml at .*notARealKey/s);
     });
   });
 });
@@ -837,6 +893,33 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
   });
 
   /**
+   * A project config that does not load fails the leg with the file and the error. The leg runs nothing, so it never
+   * scans the default roots in place of the configured ones. A repository with no boundary config has no leg to fail.
+   */
+  it('BoundaryLint_ProjectConfigThatDoesNotLoad_FailsWithoutARun', () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0), stderr: '' }));
+    const projectConfigError = {
+      source: path.join(repoRoot, '.exarchos.yml'),
+      message: `Invalid .exarchos.yml at ${path.join(repoRoot, '.exarchos.yml')}: <root>: Unrecognized key: "notARealKey"`,
+    };
+
+    const result = runBoundaryLint({ repoRoot, runCommand: runner, projectConfigError });
+
+    expect(result.status).toBe('FAIL');
+    expect(result.status === 'FAIL' ? result.cause : undefined).toBe('project-config');
+    expect(result.detail).toContain(`the project config ${projectConfigError.source} does not load`);
+    expect(result.detail).toContain('Unrecognized key: "notARealKey"');
+    expect(result.detail).toContain('does not scan the default roots');
+    expect(vi.mocked(runner).mock.calls).toEqual([]);
+
+    const unconfigured = fs.mkdtempSync(path.join(tmpDir, 'no-boundary-config-'));
+    expect(runBoundaryLint({ repoRoot: unconfigured, runCommand: runner, projectConfigError }).status).toBe(
+      'NOT_CONFIGURED',
+    );
+  });
+
+  /**
    * The lookup walks up from the repository root as npm does, and the nearest `node_modules/.bin` with the bin
    * wins. A directory with the bin name is not a bin. On win32 the bin is the `.cmd` shim.
    */
@@ -1149,6 +1232,38 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     expect(result.status).toBe('fail');
     expect(result.failCount).toBe(1);
     expect(result.output).toContain('- **FAIL**: Import boundaries — dependency-cruiser found 2 violations');
+  });
+
+  /** A project config that does not load fails the whole result, and the report names the file and the error. */
+  it('StaticAnalysis_ProjectConfigThatDoesNotLoad_FailsTheResult', () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({
+        name: 'fixture',
+        scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'npm run qc' },
+      }),
+      'utf-8',
+    );
+    const runner: RunCommandFn = vi.fn((cmd: string) => ({
+      exitCode: 0,
+      stdout: isDepcruise(cmd) ? cruiseReport(0) : '',
+      stderr: '',
+    }));
+    const source = path.join(repoRoot, '.exarchos.yml');
+
+    const result = realRunStaticAnalysis({
+      repoRoot,
+      runCommand: runner,
+      projectConfigError: { source, message: `Failed to parse .exarchos.yml at ${source}: bad indentation` },
+    });
+
+    expect(result.status).toBe('fail');
+    expect(result.failCount).toBe(1);
+    expect(result.advisorySkips).toBeUndefined();
+    expect(result.output).toContain(`- **FAIL**: Import boundaries — the project config ${source} does not load`);
+    expect(result.output).toContain('bad indentation');
+    expect(vi.mocked(runner).mock.calls.some(([cmd]) => isDepcruise(cmd))).toBe(false);
   });
 
   /** A broken boundary config fails the whole result. It is a counted FAIL, not an advisory skip. */

@@ -10,7 +10,8 @@ import {
   resolvePhaseMode,
   getDiff,
   normalizeGateVerdict,
-  readGateCompleteness,
+  readGateCompletenessDescriptor,
+  readGateRowMarks,
   readGateSkipDescriptor,
   SKIPPED_BY_POLICY,
 } from '../../../../src/verbs/gates/gate-utils.js';
@@ -232,14 +233,55 @@ describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () =
     expect(normalizeGateVerdict(carrier({ verdict: 'pass', completeness: 'complete' }))).toBe('pass');
   });
 
-  /** The completeness reader returns a stated value of the closed set, and nothing for any other shape. */
-  it('ReadGateCompleteness_StatedValue_IsReadAndOtherShapesAreNot', () => {
-    expect(readGateCompleteness(carrier({ verdict: 'pass', completeness: 'complete' }))).toBe('complete');
-    expect(readGateCompleteness(carrier({ verdict: 'pass', completeness: 'degraded' }))).toBe('degraded');
-    expect(readGateCompleteness(carrier({ passed: true }))).toBeUndefined();
-    expect(readGateCompleteness(carrier({ completeness: 'partial' }))).toBeUndefined();
-    expect(readGateCompleteness(carrier([{ completeness: 'complete' }]))).toBeUndefined();
-    expect(readGateCompleteness(carrier(null))).toBeUndefined();
+  /**
+   * The completeness reader returns a stated value of the closed set, and nothing for any other shape.
+   * A degraded carrier keeps the name and the cause of each advisory skip, and drops the detail and each malformed entry.
+   */
+  it('ReadGateCompletenessDescriptor_StatedValue_IsReadAndOtherShapesAreNot', () => {
+    expect(readGateCompletenessDescriptor(carrier({ verdict: 'pass', completeness: 'complete' }))).toEqual({
+      completeness: 'complete',
+    });
+    expect(
+      readGateCompletenessDescriptor(
+        carrier({
+          verdict: 'pass',
+          completeness: 'degraded',
+          advisorySkips: [
+            { name: 'Import boundaries', cause: 'missing-tool', detail: 'no node_modules/.bin/depcruise' },
+            { name: 'Boundary IO taint' },
+            'not a record',
+          ],
+        }),
+      ),
+    ).toEqual({ completeness: 'degraded', advisorySkips: [{ name: 'Import boundaries', cause: 'missing-tool' }] });
+    expect(readGateCompletenessDescriptor(carrier({ verdict: 'pass', completeness: 'degraded' }))).toEqual({
+      completeness: 'degraded',
+      advisorySkips: [],
+    });
+    expect(readGateCompletenessDescriptor(carrier({ passed: true }))).toBeUndefined();
+    expect(readGateCompletenessDescriptor(carrier({ completeness: 'partial' }))).toBeUndefined();
+    expect(readGateCompletenessDescriptor(carrier([{ completeness: 'complete' }]))).toBeUndefined();
+    expect(readGateCompletenessDescriptor(carrier(null))).toBeUndefined();
+  });
+
+  /** The row reader reads the skip and the completeness that the runner copied into `details`. Other shapes give no mark. */
+  it('ReadGateRowMarks_RowDetails_GiveTheSkipAndTheCompleteness', () => {
+    expect(
+      readGateRowMarks({
+        verdict: 'pass',
+        completeness: 'degraded',
+        advisorySkips: [{ name: 'Import boundaries', cause: 'out-of-memory' }],
+      }),
+    ).toEqual({ completeness: { completeness: 'degraded', advisorySkips: [{ name: 'Import boundaries', cause: 'out-of-memory' }] } });
+    expect(readGateRowMarks({ verdict: 'indeterminate', skipped: true, discriminant: 'no-new-tests' })).toEqual({
+      skip: { skipped: true, discriminant: 'no-new-tests' },
+    });
+    expect(readGateRowMarks({ verdict: 'pass', completeness: 'complete' })).toEqual({
+      completeness: { completeness: 'complete' },
+    });
+    expect(readGateRowMarks({ verdict: 'pass' })).toEqual({});
+    expect(readGateRowMarks(undefined)).toEqual({});
+    expect(readGateRowMarks(['completeness'])).toEqual({});
   });
 
   /**

@@ -19,6 +19,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { detectToolchain, BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
 import { DEFAULT_FIRST_PARTY_GLOBS } from '../../config/exarchos-config-schema.js';
+import type { ExarchosConfigLoadFailure } from '../../config/load-exarchos-config.js';
 
 /** Result of running an external command. */
 export interface CommandResult {
@@ -59,6 +60,12 @@ export interface StaticAnalysisInput {
    * scans only these source trees. When absent, the leg uses the schema default.
    */
   readonly firstPartyGlobs?: readonly string[] | undefined;
+  /**
+   * The `.exarchos.yml` of the project that exists and does not load. The
+   * import-boundary leg then has no scope, so it fails and names the file and
+   * the error. It does not scan the default roots.
+   */
+  readonly projectConfigError?: ExarchosConfigLoadFailure | undefined;
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
 }
@@ -168,6 +175,8 @@ export interface BoundaryLintInput {
    * schema default.
    */
   readonly firstPartyGlobs?: readonly string[] | undefined;
+  /** The project config that does not load. When it is present, the leg fails and does not scan. */
+  readonly projectConfigError?: ExarchosConfigLoadFailure | undefined;
   /**
    * Finds the dependency-cruiser bin for `repoRoot`. The default is {@link findLocalDepcruise}.
    * A test injects a lookup to run a chosen bin.
@@ -209,13 +218,18 @@ export interface LegNoVerdict<Cause extends BoundaryNoVerdictCause> {
 /**
  * The verdict of the import-boundary leg. Each member is a closed state.
  * - `PASS`: no `error` violation, and the scan checked at least one module.
- * - `FAIL`: `error` violations, or a fault inside the repository, such as a broken config or a usage error.
+ * - `FAIL`: `error` violations, or a fault inside the repository. The faults are a broken boundary config, a usage
+ *   error, and a project `.exarchos.yml` that does not load (`project-config`).
  * - `NO_VERDICT`: a fault outside the repository, or a scan with nothing to check. The gate does not fail on it.
  * - `NOT_CONFIGURED`: the repository has no boundary config.
  */
 export type BoundaryLintResult =
   | { readonly status: 'PASS'; readonly cruised: PositiveCount; readonly detail: string }
-  | { readonly status: 'FAIL'; readonly cause: 'violations' | 'config-or-usage'; readonly detail: string }
+  | {
+      readonly status: 'FAIL';
+      readonly cause: 'violations' | 'config-or-usage' | 'project-config';
+      readonly detail: string;
+    }
   | LegNoVerdict<BoundaryNoVerdictCause>
   | LegNotConfigured;
 
@@ -517,16 +531,15 @@ export function findLocalDepcruise(
 }
 
 /**
- * Runs the installed `node_modules/.bin/depcruise --validate <config> --output-type json` over the roots of the
- * `ownership.firstParty` globs. The leg never runs `npx`, so a missing install never fetches a package from the
- * registry. A glob whose walk stops at its first segment widens the scan to the repository root, which takes in
- * nested worktrees and build output. The detail of each verdict names such a glob and each glob with no path.
- * The verdict comes from the JSON report, not from the exit code, because 256 errors wrap to exit 0.
+ * Runs the installed `node_modules/.bin/depcruise --validate <config> --output-type json` over the roots of the `ownership.firstParty`
+ * globs. The leg never runs `npx`, so a missing install never fetches a package from the registry. A glob whose walk stops at its
+ * first segment widens the scan to the repository root, which takes in nested worktrees and build output. The detail of each verdict
+ * names such a glob and each glob with no path. The verdict comes from the JSON report, not from the exit code, because 256 errors wrap to exit 0.
  * - No config: `NOT_CONFIGURED`, and depcruise does not run.
+ * - A project `.exarchos.yml` that does not load: `FAIL` with the file and the error, and depcruise does not run.
  * - `summary.error` above 0: `FAIL` with the violations. 0 with modules checked: `PASS` with the count.
  * - No complete report and no fault outside the repository, such as a config error with exit 1: `FAIL`.
- * - No source root, no installed bin, a runner fault, a signal, a heap exhaustion, or zero modules checked:
- *   `NO_VERDICT` with its cause.
+ * - No source root, no installed bin, a runner fault, a signal, a heap exhaustion, or zero modules checked: `NO_VERDICT` with its cause.
  */
 export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
   const {
@@ -534,11 +547,23 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
     runCommand,
     firstPartyGlobs = DEFAULT_FIRST_PARTY_GLOBS,
     findDepcruise = findLocalDepcruise,
+    projectConfigError,
   } = input;
 
   const configName = findBoundaryConfig(repoRoot);
   if (configName === null) {
     return { status: 'NOT_CONFIGURED', detail: `no ${BOUNDARY_CONFIG_FILENAMES[0]} in repo root` };
+  }
+
+  if (projectConfigError !== undefined) {
+    return {
+      status: 'FAIL',
+      cause: 'project-config',
+      detail:
+        `the project config ${projectConfigError.source} does not load, so the leg has no ownership.firstParty ` +
+        `scope and does not scan the default roots in its place: ${projectConfigError.message}. ` +
+        'Correct the file, then run the gate again',
+    };
   }
 
   const scope = firstPartyScanRoots(repoRoot, firstPartyGlobs);
@@ -1171,7 +1196,12 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   const advisorySkips: AdvisorySkip[] = [];
   foldAdvisoryLeg(
     BOUNDARY_LINT_NAME,
-    runBoundaryLint({ repoRoot, runCommand, firstPartyGlobs: input.firstPartyGlobs }),
+    runBoundaryLint({
+      repoRoot,
+      runCommand,
+      firstPartyGlobs: input.firstPartyGlobs,
+      projectConfigError: input.projectConfigError,
+    }),
     checks,
     advisorySkips,
   );

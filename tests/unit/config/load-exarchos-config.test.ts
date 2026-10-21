@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { loadExarchosConfig } from '../../../src/config/load-exarchos-config.js';
+import { loadExarchosConfig, loadExarchosConfigOutcome } from '../../../src/config/load-exarchos-config.js';
 import { readInvariantsConfig } from '../../../src/architecture/invariants-loader.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
@@ -248,5 +248,35 @@ describe('loadExarchosConfig', () => {
     expect(result?.config.test).toBe('bun test');
     expect(result?.config.typecheck).toBe('tsc --noEmit');
     expect(result?.config.install).toBe('bun install');
+  });
+
+  /**
+   * The outcome reader tags each state of the file. A file that does not load is `invalid` with its path and its error,
+   * and never `absent`. The file at the repo root counts as the worktree file does.
+   */
+  it('loadConfigOutcome_EachStateOfTheFile_IsTagged', () => {
+    const worktree = join(tmpRoot, 'wt');
+    const repo = join(tmpRoot, 'repo');
+    mkdirSync(worktree, { recursive: true });
+    mkdirSync(repo, { recursive: true });
+
+    expect(loadExarchosConfigOutcome(worktree, { findRepoRoot: () => null })).toEqual({ kind: 'absent' });
+
+    writeFileSync(join(repo, '.exarchos.yml'), 'notARealKey: true\n', 'utf-8');
+    const fromRepoRoot = loadExarchosConfigOutcome(worktree, { findRepoRoot: () => repo });
+    expect(fromRepoRoot).toMatchObject({ kind: 'invalid', source: resolve(repo, '.exarchos.yml') });
+    expect(fromRepoRoot.kind === 'invalid' ? fromRepoRoot.message : '').toMatch(
+      /Invalid \.exarchos\.yml at .*repo.*notARealKey/s,
+    );
+
+    writeFileSync(join(worktree, '.exarchos.yml'), 'test: [unterminated\n  bad: : :\n', 'utf-8');
+    const unparsed = loadExarchosConfigOutcome(worktree, { findRepoRoot: () => repo });
+    expect(unparsed).toMatchObject({ kind: 'invalid', source: resolve(worktree, '.exarchos.yml') });
+    expect(unparsed.kind === 'invalid' ? unparsed.message : '').toMatch(/Failed to parse \.exarchos\.yml at /);
+
+    writeFileSync(join(worktree, '.exarchos.yml'), 'test: bun test\n', 'utf-8');
+    const loaded = loadExarchosConfigOutcome(worktree, { findRepoRoot: () => repo });
+    expect(loaded.kind).toBe('loaded');
+    expect(loaded.kind === 'loaded' ? loaded.result.config.test : undefined).toBe('bun test');
   });
 });

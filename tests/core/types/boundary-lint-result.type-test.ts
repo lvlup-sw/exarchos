@@ -1,5 +1,5 @@
 /**
- * Compile-time proofs for the closed results of the import-boundary leg and the taint leg.
+ * Compile-time proofs for the closed results of the import-boundary leg and the taint leg, and for the static-analysis carrier.
  * Each `@ts-expect-error` asserts that a shape is a type error. If the shape compiles, the directive is unused, and `tsc` fails with TS2578.
  * `tests/tsconfig.json` checks `core/**`, so `npm run typecheck` checks this file.
  * The positive controls carry no directive, so they must compile.
@@ -15,6 +15,7 @@ import {
   type PositiveCount,
   type RawIoTaintResult,
 } from '../../../src/verbs/pure/static-analysis.js';
+import type { StaticAnalysisCarrier } from '../../../src/verbs/gates/static-analysis.js';
 
 // @ts-expect-error — a boundary PASS carries the count of the modules that the scan checked.
 const _passWithNoCount: BoundaryLintResult = { status: 'PASS', detail: '0 modules checked' };
@@ -51,6 +52,22 @@ void _taintUnknownCause;
 // @ts-expect-error — an advisory skip names the closed cause of its leg.
 const _skipWithNoCause: AdvisorySkip = { name: 'Import boundaries', detail: 'it ran out of memory' };
 void _skipWithNoCause;
+
+// @ts-expect-error — a static-analysis carrier states its completeness, so the runner always has a mark to copy.
+const _carrierWithNoCompleteness: StaticAnalysisCarrier = { verdict: 'pass', passed: true, passCount: 3, failCount: 0, skipCount: 0, report: 'PASS' };
+void _carrierWithNoCompleteness;
+
+// @ts-expect-error — a degraded carrier names each advisory check that gave no verdict.
+const _degradedWithNoSkips: StaticAnalysisCarrier = { verdict: 'pass', completeness: 'degraded', passed: true, passCount: 3, failCount: 0, skipCount: 0, report: 'PASS' };
+void _degradedWithNoSkips;
+
+// @ts-expect-error — a complete carrier has no advisory check with no verdict.
+const _completeWithSkips: StaticAnalysisCarrier = { verdict: 'pass', completeness: 'complete', advisorySkips: [{ name: 'Import boundaries', cause: 'signal', detail: 'SIGKILL' }], passed: true, passCount: 3, failCount: 0, skipCount: 0, report: 'PASS' };
+void _completeWithSkips;
+
+// @ts-expect-error — the carrier verdict is closed, so a status of the run is not a verdict.
+const _carrierWithARunStatus: StaticAnalysisCarrier = { verdict: 'skip', completeness: 'complete', passed: false, passCount: 0, failCount: 0, skipCount: 1, report: 'SKIP' };
+void _carrierWithARunStatus;
 
 /** A reader that handles only the members with a verdict does not compile, because the other members reach `assertNever`. */
 function readsOnlyAVerdict(result: BoundaryLintResult): string {
@@ -95,6 +112,26 @@ const _configError: BoundaryLintResult = { status: 'FAIL', cause: 'config-or-usa
 const _taintRulesetError: RawIoTaintResult = { status: 'FAIL', cause: 'ruleset-or-usage', detail: 'semgrep exited 7' };
 const _taintUnknownExit: RawIoTaintResult = { status: 'FAIL', cause: 'unknown-exit', detail: 'semgrep exited 2' };
 const _skip: AdvisorySkip = { name: 'Import boundaries', cause: 'out-of-memory', detail: 'it ran out of memory' };
+const _degradedCarrier: StaticAnalysisCarrier = {
+  verdict: 'pass',
+  completeness: 'degraded',
+  advisorySkips: [_skip],
+  passed: true,
+  passCount: 3,
+  failCount: 0,
+  skipCount: 0,
+  report: 'PASS',
+};
+const _completeCarrier: StaticAnalysisCarrier = {
+  verdict: 'indeterminate',
+  completeness: 'complete',
+  passed: false,
+  passCount: 0,
+  failCount: 0,
+  skipCount: 0,
+  report: 'SKIP',
+  skipped: true,
+};
 void _configError;
 void _taintRulesetError;
 void _taintUnknownExit;
@@ -106,4 +143,6 @@ it('BoundaryLintResult_TypeProofs_Compile', () => {
   expect(_runtimeCount).toBeUndefined();
   expect(_pass === undefined ? undefined : readsEveryMember(_pass)).toBe('2');
   expect(readsEveryMember(_zeroModules)).toBe('zero-modules');
+  expect(_degradedCarrier.advisorySkips).toEqual([_skip]);
+  expect(_completeCarrier.advisorySkips).toBeUndefined();
 });

@@ -673,6 +673,47 @@ describe('DR-1 gate-executed signal ownership', () => {
       completeness: 'complete',
     });
   });
+
+  /**
+   * A degraded pass keeps its mark in the row: the completeness and the name and the cause of each advisory check with no
+   * verdict. The evidence verdict is `pass`, and the strict evidence record gets no mark. The detail text stays in the report.
+   */
+  it('AppendGateExecutedSignal_DegradedCarrier_CopiesTheMarkAndTheCausesIntoTheRow', async () => {
+    const degradedProvider: GateProviderExecutor = async () => ({
+      success: true,
+      data: {
+        passed: true,
+        verdict: 'pass',
+        completeness: 'degraded',
+        advisorySkips: [
+          { name: 'Import boundaries', cause: 'out-of-memory', detail: 'dependency-cruiser gave no verdict: it ran out of memory' },
+        ],
+      },
+    });
+
+    await runWithDispatchContext(trusted('degraded-pass'), () =>
+      runGate(taskRequest('task-degraded-pass'), deps(degradedProvider)),
+    );
+
+    const [evidence] = await eventStore.query(streamId, {
+      type: 'admission.evidence-recorded',
+    });
+    expect(AdmissionEvidenceRecordedData.parse(evidence?.data).evidence.verdict).toBe('pass');
+    const storedEvidence = (evidence?.data as { readonly evidence?: Record<string, unknown> } | undefined)?.evidence;
+    expect(storedEvidence).toBeDefined();
+    expect(storedEvidence).not.toHaveProperty('completeness');
+    expect(storedEvidence).not.toHaveProperty('advisorySkips');
+
+    const rows = await gateExecutedRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.passed).toBe(true);
+    expect(rows[0]?.details).toMatchObject({
+      verdict: 'pass',
+      completeness: 'degraded',
+      advisorySkips: [{ name: 'Import boundaries', cause: 'out-of-memory' }],
+    });
+    expect(rows[0]?.details).not.toHaveProperty('skipped');
+  });
 });
 
 /**

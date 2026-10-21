@@ -47,6 +47,51 @@ function defaultFindRepoRoot(start: string): string | null {
   }
 }
 
+/** A config file that exists and does not load. `message` names the file and the read, parse or schema error. */
+export interface ExarchosConfigLoadFailure {
+  /** Absolute path of the file that did not load. */
+  readonly source: string;
+  readonly message: string;
+}
+
+/**
+ * The outcome of one config read, as a closed union.
+ * - `absent`: no config file in the worktree or at the git repo root.
+ * - `loaded`: the file loaded and passed the schema.
+ * - `invalid`: the file exists and does not load. The caller decides what that does, and it never reads as `absent`.
+ */
+export type ExarchosConfigOutcome =
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'loaded'; readonly result: LoadResult }
+  | ({ readonly kind: 'invalid' } & ExarchosConfigLoadFailure);
+
+/**
+ * Finds the config file for `worktreePath`: the worktree file, or else the file at
+ * the git repo root when that root is a different directory. Returns null when
+ * neither location has a config file.
+ */
+function findConfigFile(worktreePath: string, options?: LoadOptions): string | null {
+  const findRepoRoot = options?.findRepoRoot ?? defaultFindRepoRoot;
+
+  const worktreeAbs = resolve(worktreePath);
+  const worktreeCfg = resolve(worktreeAbs, CONFIG_FILENAME);
+
+  if (existsSync(worktreeCfg)) {
+    return worktreeCfg;
+  }
+
+  const repoRoot = findRepoRoot(worktreeAbs);
+  if (repoRoot === null) return null;
+
+  const repoRootAbs = resolve(repoRoot);
+  if (repoRootAbs === worktreeAbs) {
+    return null;
+  }
+
+  const repoCfg = resolve(repoRootAbs, CONFIG_FILENAME);
+  return existsSync(repoCfg) ? repoCfg : null;
+}
+
 /**
  * Loads `.exarchos.yml` from `worktreePath`, or else from the git repo root when
  * that root is a different directory. Returns null when neither location has a
@@ -59,29 +104,26 @@ export function loadExarchosConfig(
   worktreePath: string,
   options?: LoadOptions,
 ): LoadResult | null {
-  const findRepoRoot = options?.findRepoRoot ?? defaultFindRepoRoot;
+  const file = findConfigFile(worktreePath, options);
+  return file === null ? null : readAndValidate(file);
+}
 
-  const worktreeAbs = resolve(worktreePath);
-  const worktreeCfg = resolve(worktreeAbs, CONFIG_FILENAME);
-
-  if (existsSync(worktreeCfg)) {
-    return readAndValidate(worktreeCfg);
+/**
+ * Reads the config as {@link loadExarchosConfig} does, and returns the outcome as a closed union.
+ * It does not throw for a file that does not load. It returns `invalid` with the path and the error.
+ * A gate reads the config through this function, so a broken file cannot read as no file.
+ */
+export function loadExarchosConfigOutcome(
+  worktreePath: string,
+  options?: LoadOptions,
+): ExarchosConfigOutcome {
+  const file = findConfigFile(worktreePath, options);
+  if (file === null) return { kind: 'absent' };
+  try {
+    return { kind: 'loaded', result: readAndValidate(file) };
+  } catch (err) {
+    return { kind: 'invalid', source: file, message: err instanceof Error ? err.message : String(err) };
   }
-
-  const repoRoot = findRepoRoot(worktreeAbs);
-  if (repoRoot === null) return null;
-
-  const repoRootAbs = resolve(repoRoot);
-  if (repoRootAbs === worktreeAbs) {
-    return null;
-  }
-
-  const repoCfg = resolve(repoRootAbs, CONFIG_FILENAME);
-  if (existsSync(repoCfg)) {
-    return readAndValidate(repoCfg);
-  }
-
-  return null;
 }
 
 /**

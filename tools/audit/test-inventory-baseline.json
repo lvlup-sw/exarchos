@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1324,
-    "parsedFiles": 1278,
+    "testFiles": 1325,
+    "parsedFiles": 1279,
     "shellFiles": 46,
-    "cases": 14903,
+    "cases": 14905,
     "dynamicTitles": 172,
     "unparseableFiles": 0
   },
@@ -7903,6 +7903,22 @@
         {
           "suite": "verify",
           "name": "AnyOutput_MatchesItself",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/integration/governance/boundary-leg-composed.test.ts": {
+      "file": "tests/core/integration/governance/boundary-leg-composed.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "governance — the boundary leg through the production composition",
+          "name": "Governance_BoundaryLegWithNoInstalledTool_RowKeepsTheDegradedMarkAndItsCause",
+          "dynamic": false
+        },
+        {
+          "suite": "governance — the boundary leg through the production composition",
+          "name": "Governance_ProjectConfigThatDoesNotLoad_FailsTheBoundaryLegAndNamesTheFile",
           "dynamic": false
         }
       ]
@@ -56368,7 +56384,7 @@
         },
         {
           "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
-          "name": "ReadGateCompleteness_StatedValue_IsReadAndOtherShapesAreNot",
+          "name": "ReadGateCompletenessDescriptor_StatedValue_IsReadAndOtherShapesAreNot",
           "dynamic": false
         },
         {

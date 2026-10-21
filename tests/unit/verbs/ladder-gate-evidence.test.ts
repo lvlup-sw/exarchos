@@ -23,6 +23,9 @@ const controls = vi.hoisted(() => ({
     unowned: boolean;
   }>,
   mockSeverity: 'warning' as 'warning' | 'blocking',
+  mockConfig: { kind: 'absent' } as
+    | { readonly kind: 'absent' }
+    | { readonly kind: 'invalid'; readonly source: string; readonly message: string },
 }));
 
 vi.mock('../../../src/verbs/pure/static-analysis.js', async (importActual) => {
@@ -48,7 +51,11 @@ vi.mock('../../../src/verbs/pure/static-analysis.js', async (importActual) => {
             ...(controls.staticAdvisorySkip
               ? {
                   advisorySkips: [
-                    { name: 'Import boundaries', detail: 'dependency-cruiser gave no verdict: it ran out of memory' },
+                    {
+                      name: 'Import boundaries',
+                      cause: 'out-of-memory',
+                      detail: 'dependency-cruiser gave no verdict: it ran out of memory',
+                    },
                   ],
                 }
               : {}),
@@ -215,6 +222,7 @@ describe('migrated ladder gate durable evidence', () => {
     controls.contractSkipped = false;
     controls.mockFindings = [];
     controls.mockSeverity = 'warning';
+    controls.mockConfig = { kind: 'absent' };
   });
 
   afterEach(async () => {
@@ -284,7 +292,7 @@ describe('migrated ladder gate durable evidence', () => {
           return handleMockBoundary({
             ...common,
             gitExec: () => ({ stdout: '', exitCode: 0 }),
-            loadConfig: () => null,
+            loadConfig: () => controls.mockConfig,
           }, root, eventStore);
       }
     };
@@ -412,9 +420,38 @@ describe('migrated ladder gate durable evidence', () => {
     expect(signals[0]?.data).toMatchObject({
       gateName: 'static-analysis',
       passed: true,
-      details: { taskId, verdict: 'pass' },
+      details: {
+        taskId,
+        verdict: 'pass',
+        completeness: 'degraded',
+        advisorySkips: [{ name: 'Import boundaries', cause: 'out-of-memory' }],
+      },
     });
     expect(signals[0]?.data).not.toMatchObject({ details: { skipped: true } });
+  });
+
+  /**
+   * A mock-boundary run with a project config that does not load keeps its fallback verdict, and the result names the
+   * error. Thus the fallback to the default scope is visible to the caller.
+   */
+  it('LadderGate_MockBoundaryConfigThatDoesNotLoad_KeepsTheVerdictAndNamesTheError', async () => {
+    controls.mockConfig = {
+      kind: 'invalid',
+      source: '/repo/.exarchos.yml',
+      message: 'Invalid .exarchos.yml at /repo/.exarchos.yml: <root>: Unrecognized key: "notARealKey"',
+    };
+
+    const result = await invoke('mock-boundary');
+
+    expect(result.data).toMatchObject({
+      passed: true,
+      configLoadError: 'Invalid .exarchos.yml at /repo/.exarchos.yml: <root>: Unrecognized key: "notARealKey"',
+    });
+    expect(evidenceEvents()[0]?.data).toMatchObject({ evidence: { verdict: 'pass' } });
+
+    controls.mockConfig = { kind: 'absent' };
+    const clean = await invoke('mock-boundary');
+    expect(clean.data).not.toHaveProperty('configLoadError');
   });
 
   it('LadderGate_SameOperationIsIdempotent_NewOperationSupersedes', async () => {
