@@ -25,7 +25,9 @@ export const DEFAULT_TEST_GLOBS: readonly string[] = [
  * The directory names that mark test support, such as a helper, a mock or a fixture.
  * A changed file that is not a test file and has a directory segment with one of these names is test support.
  * The probe does not revert test support. A reverted helper can make a test fail to load, and such a red run proves no kill.
- * The table is data, so a later change can make it configurable.
+ *
+ * The table is a deliberate subset of the names that projects use for test support, such as `testdata` or `spec`.
+ * Each name keeps more files out of the revert, so the owner chose a short table. A later change can make it configurable.
  */
 export const DEFAULT_TEST_SUPPORT_SEGMENTS: readonly string[] = [
   'tests',

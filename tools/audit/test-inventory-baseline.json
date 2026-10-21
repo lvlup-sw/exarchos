@@ -7,8 +7,8 @@
     "testFiles": 1324,
     "parsedFiles": 1278,
     "shellFiles": 46,
-    "cases": 14788,
-    "dynamicTitles": 164,
+    "cases": 14873,
+    "dynamicTitles": 170,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -7324,6 +7324,16 @@
           "suite": "vitest.config",
           "name": "VitestConfig_FileBoundaryRule_NamesASeededProjectAndPassesItsTwin",
           "dynamic": false
+        },
+        {
+          "suite": "vitest.config",
+          "name": "VitestConfig_PathBinaryProjects_HaveEachIncludeGlobInTheTestFilesScript",
+          "dynamic": false
+        },
+        {
+          "suite": "vitest.config",
+          "name": "VitestConfig_PathBinaryGlobRule_NamesASeededProjectAndPassesItsTwin",
+          "dynamic": false
         }
       ]
     },
@@ -8977,6 +8987,11 @@
         {
           "suite": "gradeAdequacy — mechanical diff-scoped kill-probe (DR-4/DR-7)",
           "name": "DISCRIMINATES: the genuine suite outscores the vacuous one on the same impl",
+          "dynamic": false
+        },
+        {
+          "suite": "gradeAdequacy — mechanical diff-scoped kill-probe (DR-4/DR-7)",
+          "name": "leaves NO adequacy score when the suite is red before the revert (baseline-red)",
           "dynamic": false
         },
         {
@@ -14553,6 +14568,86 @@
           "suite": "run-test-files refusals",
           "name": "RunTestFiles_OnlyAnOption_RefusesBeforeVitestStarts",
           "dynamic": false
+        },
+        {
+          "suite": "run-test-files refusals",
+          "name": "RunTestFiles_OptionWithASeparateValue_RefusesBeforeVitestStarts",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files refusals",
+          "name": "RunTestFiles_OptionWithAnEmptyValueAfterEquals_RefusesBeforeVitestStarts",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files refusals",
+          "name": "RunTestFiles_NoLocalVitest_RefusesWithExit2",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files runs the local vitest",
+          "name": "RunTestFiles_TestFiles_RunsVitestOnExactlyTheseFiles",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files runs the local vitest",
+          "name": "RunTestFiles_OptionWithItsValueAfterEquals_IsForwarded",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files runs the local vitest",
+          "name": "RunTestFiles_VitestExitCode_IsTheExitCodeOfTheScript",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files runs the local vitest",
+          "name": "RunTestFiles_NoInstallInTheTree_RunsTheVitestOfTheDirectoryAbove",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files binary build for process tests",
+          "name": "RunTestFiles_ProcessTestFile_PutsTheBinaryOfTheTreeFirstOnPath",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files binary build for process tests",
+          "name": "RunTestFiles_NoProcessTestFile_BuildsNoBinaryAndKeepsThePath",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files binary build for process tests",
+          "name": "RunTestFiles_FailedBuild_RefusesWithExit2AndRunsNoTest",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files binary build for process tests",
+          "name": "RunTestFiles_TemporaryDirectoryNotMade_RefusesWithExit2AndStartsNoBuild",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files binary build for process tests",
+          "name": "RunTestFiles_RenameOfTheBuiltBinaryFails_RefusesWithExit2AndDeletesTheBuildDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files binary build for process tests",
+          "name": "RunTestFiles_BuildDirectoryNotDeleted_WarnsAndKeepsTheExitCodeOfVitest",
+          "dynamic": false
+        },
+        {
+          "suite": "run-test-files binary build for process tests",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "run-test-files binary build for process tests",
+          "name": "RunTestFiles_SignalDuringTheBuild_DeletesTheBuildDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "pathBinaryTestFiles",
+          "name": "PathBinaryTestFiles_ProcessInclude_MatchesOnlyItsFiles",
+          "dynamic": false
         }
       ]
     },
@@ -19773,6 +19868,86 @@
           "suite": "resolveRunnableCommand",
           "name": "RunnableCommand_UnterminatedQuote_IsInvalid",
           "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_NpmProjectWithTheScript_IsTheTestFilesScript",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_NpmProjectWithoutTheScript_IsTheResolvedTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_BlankScript_IsTheResolvedTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_%s_WithTheScript_RunsItThroughThatPackageManager",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_%s_WithoutTheScript_KeepsTheTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_ConfiguredTestCommand_TheScriptComesFirst",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_NonNodeProject_IsTheDetectedTestCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_NodeProject_ReadsExit1AsRed",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_RustProject_ReadsExit101AsRed",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_ConfiguredCommand_HasNoKnownToolchainUnlessItIsTheDetectedCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_UserToolchain_ReadsExit1AsRed",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_MalformedPackageJson_IsNull",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_TheScript_ChangesNoRuntimeFieldSourceOrEvent",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveScopedTestCommand",
+          "name": "ScopedTestCommand_ThisRepository_IsTheTestFilesScript",
+          "dynamic": false
         }
       ]
     },
@@ -19949,6 +20124,31 @@
         {
           "suite": "BUILTIN_TOOLCHAINS — registry integrity",
           "name": "dotnet recognizes all three solution formats",
+          "dynamic": false
+        },
+        {
+          "suite": "testFailureExitCodesFor — the red exit codes of a test run",
+          "name": "TestFailureExitCodes_Table_HoldsEachBuiltinOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "testFailureExitCodesFor — the red exit codes of a test run",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "testFailureExitCodesFor — the red exit codes of a test run",
+          "name": "TestFailureExitCodes_Default_IsExit1",
+          "dynamic": false
+        },
+        {
+          "suite": "testFailureExitCodesFor — the red exit codes of a test run",
+          "name": "TestFailureExitCodes_NoToolchain_IsTheDefault",
+          "dynamic": false
+        },
+        {
+          "suite": "testFailureExitCodesFor — the red exit codes of a test run",
+          "name": "TestFailureExitCodes_UserToolchain_HasNoConfigKey",
           "dynamic": false
         },
         {
@@ -45903,6 +46103,11 @@
         },
         {
           "suite": "Runbook definitions",
+          "name": "KillProbeTexts_DescriptionAndStepNotes_HoldTheStepSummary",
+          "dynamic": false
+        },
+        {
+          "suite": "Runbook definitions",
           "name": "DelegateRunbook_TaskComplete_FollowsEveryBlockingPerTaskGate",
           "dynamic": false
         },
@@ -55970,6 +56175,16 @@
           "dynamic": false
         },
         {
+          "suite": "DR-1 gate-executed signal ownership",
+          "name": "AppendGateExecutedSignal_ClosedVerdictCarrier_SetsTheVerdictAndCopiesTheCompleteness",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-1 gate-executed signal ownership",
+          "name": "AppendGateExecutedSignal_SkippedCarrierThatStatesFail_RecordsIndeterminate",
+          "dynamic": false
+        },
+        {
           "suite": "DR-1 acceptance: check_static_analysis → task_complete",
           "name": "TaskComplete_StaticAnalysisPassed_SucceedsWithoutSeededEvent",
           "dynamic": false
@@ -56129,6 +56344,31 @@
         {
           "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
           "name": "NormalizeGateVerdict_RanToAVerdict_StillMapsPassAndFail",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
+          "name": "NormalizeGateVerdict_StatedClosedVerdict_IsReadBeforeTheOlderFields",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
+          "name": "NormalizeGateVerdict_StatedPassThatContradictsTheCarrier_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
+          "name": "NormalizeGateVerdict_DeclaredSkipWithAStatedVerdict_IsIndeterminate",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
+          "name": "NormalizeGateVerdict_CarrierWithNoClosedVerdict_KeepsTheOlderReading",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
+          "name": "ReadGateCompleteness_StatedValue_IsReadAndOtherShapesAreNot",
           "dynamic": false
         },
         {
@@ -58066,6 +58306,11 @@
         },
         {
           "suite": "TestAdequacy_CommittedBranchDiscovery (WFQ-005)",
+          "name": "marks a deleted test file as deleted, keeps a non-ASCII path unquoted, and probes only the tests at the head",
+          "dynamic": false
+        },
+        {
+          "suite": "TestAdequacy_CommittedBranchDiscovery (WFQ-005)",
           "name": "reports a git failure as a failure rather than an empty file list",
           "dynamic": false
         },
@@ -58147,12 +58392,32 @@
         },
         {
           "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_ADiffThatDoesNotParse_IsADiffFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
           "name": "CheckTestAdequacy_ARefGitWouldReadAsAnOption_NeverReachesGit",
           "dynamic": false
         },
         {
           "suite": "check_test_adequacy routing + idempotency (task 014)",
           "name": "CheckTestAdequacy_ABaseWithNoMergeBase_IsADiffFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy routing + idempotency (task 014)",
+          "name": "CheckTestAdequacy_EachIndeterminateCause_StatesTheVerdictOfItsCause",
+          "dynamic": false
+        },
+        {
+          "suite": "probeTestEnvironment",
+          "name": "ProbeTestEnvironment_OnPosix_SetsEachStoreKeyAndDropsEachPluginKey",
+          "dynamic": false
+        },
+        {
+          "suite": "probeTestEnvironment",
+          "name": "ProbeTestEnvironment_OnWindows_DropsAStoreOrPluginKeyOfAnyCase",
           "dynamic": false
         }
       ]
@@ -58169,6 +58434,91 @@
         {
           "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
           "name": "HandleOrchestrate_CheckTestAdequacy_AssertNothingTest_FailsProbe",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
+          "name": "HandleOrchestrate_CheckTestAdequacy_TestCommandAlwaysFails_IsBaselineRedAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
+          "name": "HandleOrchestrate_CheckTestAdequacy_TestFilesScript_IsTheCommandTheProbeRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
+          "name": "HandleOrchestrate_CheckTestAdequacy_ProbeTestRun_GetsAScratchStoreAndNoPluginKey",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
+          "name": "HandleOrchestrate_CheckTestAdequacy_TaskAddedHelperAndVacuousTest_FailsAsVacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
+          "name": "HandleOrchestrate_CheckTestAdequacy_TestAndHelperOnly_FailsAsVacuous",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy acceptance (kill probe through handleOrchestrate)",
+          "name": "HandleOrchestrate_CheckTestAdequacy_SourceUnderANearMissDirectory_IsReverted",
+          "dynamic": false
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "ScopedTestRunner_NoVerdictTable_HoldsEachCauseOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "ScopedTestRunner_ScratchDirectoryNotMade_IsNoVerdictAndStartsNoCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "ScopedTestRunner_ExitZero_IsAGreenRun",
+          "dynamic": false
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "ScopedTestRunner_ExitOne_IsARedRunWithItsOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "ScopedTestRunner_RustToolchain_ReadsExit101AsRedAndExit1AsNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "ScopedTestRunner_PythonToolchain_ReadsExit2AsRedAndExit4AsNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "ScopedTestRunner_RealPytestCollectionErrorAfterTheRevert_IsARedRun",
+          "dynamic": false
+        },
+        {
+          "suite": "buildScopedTestRunner — each end of a real test run",
+          "name": "ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "buildDefaultRunTests — the test:files wrapper with a real vitest",
+          "name": "DefaultRunTests_TestFilesWrapper_RunsEachNamedFileInItsProjectAndReadsItsResult",
           "dynamic": false
         }
       ]
@@ -58210,6 +58560,16 @@
         },
         {
           "suite": "check_test_adequacy production path",
+          "name": "ProductionPath_BaselineRed_DurableRowsRecordIndeterminateNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy production path",
+          "name": "ProductionPath_RunNoVerdict_DurableRowsRecordIndeterminateNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "check_test_adequacy production path",
           "name": "ProductionPath_DiffFailure_BlocksEvenAtLowTier",
           "dynamic": false
         },
@@ -58226,6 +58586,11 @@
         {
           "suite": "ProbeVerdict algebra",
           "name": "ExecutionFailureCauses_BlockOnEveryTier",
+          "dynamic": false
+        },
+        {
+          "suite": "ProbeVerdict algebra",
+          "name": "Indeterminate_Report_StatesWhatTheProbeDidForEachCause",
           "dynamic": false
         },
         {
@@ -58280,6 +58645,16 @@
           "dynamic": false
         },
         {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_TestSupportSegments_AreNeitherTestNorSource",
+          "dynamic": false
+        },
+        {
+          "suite": "splitHunks (file-level test/source classification)",
+          "name": "SplitHunks_NearMissNamesAndTestsUnderSupport_KeepTheirClass",
+          "dynamic": false
+        },
+        {
           "suite": "snapshot/revert/restore (INV-14: refuse-to-discard recovery)",
           "name": "Snapshot_BeforeProbe_UsesRefuseToDiscardRef",
           "dynamic": false
@@ -58327,6 +58702,56 @@
         {
           "suite": "runProbe (compose split → snapshot → revert → run → restore)",
           "name": "Probe_Result_CarriesProbedTestsAndRestoredClean",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_TestCommandAlwaysFails_IsBaselineRedAndBlocksAtEveryTier",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_BaselineRed_DetailEndsWithTheTailOfTheRunnerOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_TestOnlyTask_RunsTheTestsOnceAndNeverPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_DeletedTestFile_IsNeverProbed",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_RenamedAndDeletedSource_RestoresTheTreeAndTheIndexExactly",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_RestoreFailsAfterBaselineRed_IsRestoreFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_RunOnTheTaskSourceWithNoVerdict_IsRunNoVerdictAndBlocksAtEveryTier",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_RunAfterTheRevertWithNoVerdict_IsNeverAKill",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_RestoreFailsAfterARunWithNoVerdict_IsRestoreFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "runProbe (compose split → snapshot → revert → run → restore)",
+          "name": "Probe_BaselineRed_DetailKeepsTheFirstStderrLineAheadOfTheTail",
           "dynamic": false
         }
       ]

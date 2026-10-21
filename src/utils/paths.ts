@@ -197,7 +197,7 @@ export type StoreLocation = 'state' | 'teams' | 'tasks' | 'cache' | 'installIden
  * The environment key of each store location. Each store resolver of this file reads its key from this record.
  * A child process that must not reach a live store gets each key set to a scratch directory.
  * A key that is only deleted is not safe, because the resolver then falls back to a store under the home directory.
- * `XDG_STATE_HOME` and the home directory are not in the record. A resolver reads them only when its own key is absent.
+ * The record leaves out `XDG_STATE_HOME` and the home directory on purpose. A resolver reads them only when its own key is absent.
  */
 export const STORE_LOCATION_ENV_KEYS: Readonly<Record<StoreLocation, string>> = {
   state: 'WORKFLOW_STATE_DIR',
