@@ -546,7 +546,7 @@ export function restoreWorkingTree(
 
 /**
  * Each end of a scoped test run that gives no verdict, in one list. {@link RUN_NO_VERDICT_TEXT} says what each cause means.
- * `did-not-start` also covers a runner that failed with no exit status.
+ * `did-not-start` also covers a runner that failed with no exit status, and a run whose scratch directory was not made.
  * `unknown-exit-code` is an exit code that is not 0 and not a test-failure code of the toolchain.
  */
 export const RUN_NO_VERDICT_CAUSES = closedNames(

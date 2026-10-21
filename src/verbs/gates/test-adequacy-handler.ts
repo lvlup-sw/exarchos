@@ -161,10 +161,10 @@ function isEnvKey(key: string, name: string, platform: NodeJS.Platform): boolean
 }
 
 /**
- * Returns the environment of one probe test run: a copy of `parent` that reaches no live store.
- * Each key of the store record gets a directory under `scratchDir`, and no plugin-mode key stays.
- * A deleted store key is not enough, because the resolver then falls back to a store under the home directory.
- * Thus the tests of a task cannot write the live store that settle writes in the same call.
+ * Returns the environment of one probe test run: a copy of `parent` in which each store key points under `scratchDir`.
+ * No plugin-mode key stays. A deleted store key is not enough, because the resolver then falls back to the home directory.
+ * Thus a test that resolves its store through these keys does not write the live store that settle writes in the same call.
+ * `HOME` and `XDG_STATE_HOME` stay, so a test that builds a store path from them can still reach the live store.
  *
  * @internal Exported so that a test can read the environment without a process.
  */

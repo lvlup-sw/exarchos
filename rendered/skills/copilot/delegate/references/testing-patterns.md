@@ -23,7 +23,8 @@ Tests use `Method_Scenario_Outcome` format:
 
 The `check_test_adequacy` kill probe runs only the changed test files of the task.
 It runs them on the task source first. A red run there gives the indeterminate
-cause `baseline-red`, and the gate blocks at every tier. Then the probe reverts the
+cause `baseline-red`. In `enforce` mode with a blocking severity, the gate blocks at
+every tier. Then the probe reverts the
 source hunks and runs the tests again.
 
 When the gate gives `baseline-red`, make the scoped tests pass on the task source,
