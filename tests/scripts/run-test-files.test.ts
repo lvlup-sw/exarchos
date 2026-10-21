@@ -29,9 +29,19 @@ const TREE_FILES = ['tests/process/sample.test.ts', 'tests/unit/sample.test.ts',
  * The echo vitest. It prints its arguments, the first two PATH entries, and whether the first entry holds the binary.
  * It exits with the code in `ECHO_EXIT`, or with 0.
  * When asked, it writes a file into a read-only directory in the first entry, so that the script cannot delete that entry.
+ * When asked to hold, it writes its pid, records a `SIGTERM` in a second file, and otherwise waits.
  */
 const ECHO_VITEST = `import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
+if (process.env.FAKE_VITEST_HOLD) {
+  const held = process.env.FAKE_VITEST_HOLD;
+  process.on('SIGTERM', () => {
+    writeFileSync(held + '.signal', 'SIGTERM');
+    process.exit(143);
+  });
+  writeFileSync(held, String(process.pid));
+  setTimeout(() => process.exit(0), 20000);
+}
 const key = Object.keys(process.env).find((name) => name.toUpperCase() === 'PATH') ?? 'PATH';
 const entries = (process.env[key] ?? '').split(path.delimiter);
 const first = entries[0] ?? '';
@@ -49,11 +59,18 @@ process.exitCode = Number(process.env.ECHO_EXIT ?? '0');
 /**
  * The fake build. It records its arguments, fails when asked, and otherwise writes one binary into its `--outdir`.
  * When asked, it also writes a directory with the bare binary name, so that the rename of the binary fails.
- * When asked to hold, it writes no binary and waits until its `--outdir` is gone.
+ * When asked to hold, it writes no binary and waits until its `--outdir` is gone. When asked, it records a `SIGTERM` and stops.
  */
 const FAKE_BUN = `import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 const args = process.argv.slice(2);
+if (process.env.FAKE_BUN_SIGNAL_MARKER) {
+  const signalMarker = process.env.FAKE_BUN_SIGNAL_MARKER;
+  process.on('SIGTERM', () => {
+    writeFileSync(signalMarker, String(existsSync(args[args.indexOf('--outdir') + 1])));
+    process.exit(143);
+  });
+}
 if (process.env.FAKE_BUN_MARKER) writeFileSync(process.env.FAKE_BUN_MARKER, JSON.stringify({ args, cwd: process.cwd() }));
 if (process.env.FAKE_BUN_EXIT) {
   process.stderr.write('fake build failed\\n');
@@ -396,9 +413,13 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
     }
   });
 
-  /** A signal during the build stops the script, and the script deletes the build directory before it stops. */
+  /**
+   * A signal during the build goes to the build, and the build gets it while its output directory still exists.
+   * The script waits for the build to end, deletes the build directory, and then stops on the same signal.
+   */
   it('RunTestFiles_SignalDuringTheBuild_DeletesTheBuildDirectory', async () => {
     const marker = path.join(root, 'build-signal.json');
+    const signalMarker = path.join(root, 'build-signal.received');
     const child = spawn(process.execPath, [copy, 'tests/process/sample.test.ts'], {
       cwd: root,
       env: {
@@ -406,6 +427,7 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
         PATH: `${fakeBin}${path.delimiter}${process.env['PATH'] ?? ''}`,
         FAKE_BUN_MARKER: marker,
         FAKE_BUN_HOLD: '1',
+        FAKE_BUN_SIGNAL_MARKER: signalMarker,
       },
       stdio: 'ignore',
     });
@@ -420,9 +442,54 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
       child.kill('SIGTERM');
 
       expect(await stopped).toBe('SIGTERM');
+      expect(readFileSync(signalMarker, 'utf8')).toBe('true');
       expect(existsSync(buildDir)).toBe(false);
     } finally {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+    }
+  });
+});
+
+/** True when a process with `pid` exists. A signal 0 checks the process and sends nothing. */
+function isAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A stop signal while vitest runs goes to vitest, and the script waits for vitest to end. Then it stops on the same signal.
+ * Thus no vitest outlives the script, for example when the timeout of the kill probe stops the run.
+ * Windows has no signal that a process can handle, so these cases do not run there.
+ */
+describe.skipIf(process.platform === 'win32')('run-test-files stop signals', () => {
+  it('RunTestFiles_SignalWhileVitestRuns_ForwardsItAndWaitsForVitest', async () => {
+    const pidFile = path.join(root, 'vitest-hold.pid');
+    const child = spawn(process.execPath, [copy, 'tests/unit/sample.test.ts'], {
+      cwd: root,
+      env: { ...process.env, FAKE_VITEST_HOLD: pidFile },
+      stdio: 'ignore',
+    });
+    const stopped = new Promise<NodeJS.Signals | null>((resolve) => {
+      child.on('close', (_code, signal) => resolve(signal));
+    });
+    let vitestPid = 0;
+    try {
+      expect(await waitFor(() => existsSync(pidFile) && readFileSync(pidFile, 'utf8') !== '', 10_000)).toBe(true);
+      vitestPid = Number(readFileSync(pidFile, 'utf8'));
+      expect(isAlive(vitestPid)).toBe(true);
+
+      child.kill('SIGTERM');
+
+      expect(await stopped).toBe('SIGTERM');
+      expect(readFileSync(`${pidFile}.signal`, 'utf8')).toBe('SIGTERM');
+      expect(isAlive(vitestPid)).toBe(false);
+    } finally {
+      if (child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
+      if (vitestPid > 0 && isAlive(vitestPid)) process.kill(vitestPid, 'SIGKILL');
     }
   });
 });
