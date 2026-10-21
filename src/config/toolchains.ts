@@ -47,8 +47,10 @@ export interface Toolchain {
   /** Resolver-canonical commands (test-runner perspective). */
   readonly commands: ToolchainCommands;
   /**
-   * The exit codes of a test command run with a failing test. An absent field means {@link DEFAULT_TEST_FAILURE_EXIT_CODES}.
-   * The kill probe reads exit 0 as a green run and these codes as a red run. Every other end of a run gives no verdict.
+   * The exit codes of a test run with a failing test, or with a test that does not load after a compile or import error.
+   * An absent field means {@link DEFAULT_TEST_FAILURE_EXIT_CODES}. Set the field for each runner that uses a different code.
+   * The kill probe reads exit 0 as green, these codes as red, and every other end of a run as no verdict.
+   *
    * Only the built-in registry sets the field. A `.exarchos.yml` toolchain entry has no key for it, so it gets the default.
    */
   readonly testFailureExitCodes?: readonly number[];
@@ -92,6 +94,11 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: null,
       contract: null,
     },
+    /**
+     * `dotnet test` exits 1 when the build fails or when a VSTest run has a failing test.
+     * A Microsoft.Testing.Platform run exits 2 when a test fails.
+     */
+    testFailureExitCodes: [1, 2],
   },
   {
     id: 'rust',
@@ -133,6 +140,11 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: 'ruff check',
       contract: null,
     },
+    /**
+     * `pytest` exits 1 when a test fails, and 2 when a test module does not import, such as after the revert removes a function.
+     * Exit 2 also follows an interrupt, and the probe sends none. A `conftest.py` that does not import exits 4, which gives no verdict.
+     */
+    testFailureExitCodes: [1, 2],
   },
   {
     id: 'java-gradle',
@@ -185,6 +197,11 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: null,
       contract: null,
     },
+    /**
+     * PHPUnit exits 1 when a test fails, and 2 when a test has an error, such as a call to a removed function.
+     * Composer passes the exit code of the `test` script through.
+     */
+    testFailureExitCodes: [1, 2],
   },
   {
     id: 'elixir',
@@ -198,6 +215,8 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: 'mix credo',
       contract: null,
     },
+    /** `mix test` exits 2 when a test fails, which is the default of `--exit-status`. A compile error exits 1. */
+    testFailureExitCodes: [1, 2],
   },
   {
     id: 'swift',
@@ -224,6 +243,8 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: null,
       contract: null,
     },
+    /** `ctest` exits 8 when a test fails or does not run. */
+    testFailureExitCodes: [8],
   },
 ];
 

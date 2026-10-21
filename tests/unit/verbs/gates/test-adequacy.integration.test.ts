@@ -423,6 +423,60 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
   });
 
   /**
+   * pytest exits 2 when a test module does not import, such as after the revert removes a function that the test imports.
+   * The resolver gives a Python project the exit codes 1 and 2. So exit 2 is a red run, and exit 4 gives no verdict.
+   */
+  it('ScopedTestRunner_PythonToolchain_ReadsExit2AsRedAndExit4AsNoVerdict', async () => {
+    const pythonRepo = mkdtempSync(path.join(workDir, 'python-'));
+    writeFileSync(path.join(pythonRepo, 'pyproject.toml'), '[project]\nname = "fixture"\nversion = "0.0.1"\n');
+    const resolved = resolveScopedTestCommand(pythonRepo);
+    expect(resolved).toEqual({ command: 'pytest', testFailureExitCodes: [1, 2] });
+    if (resolved === null) return;
+
+    const red = await runOnce(
+      buildScopedTestRunner({ ...resolved, command: `${NODE} -e "process.exit(2)"` }, pythonRepo),
+      pythonRepo,
+    );
+    const noVerdict = await runOnce(
+      buildScopedTestRunner({ ...resolved, command: `${NODE} -e "process.exit(4)"` }, pythonRepo),
+      pythonRepo,
+    );
+
+    expect(red).toEqual({ kind: 'ran', result: 'red', stdout: '', stderr: '' });
+    expect(noVerdict).toMatchObject({
+      kind: 'no-verdict',
+      cause: 'unknown-exit-code',
+      detail: 'the command exited 4, and only exit 1 or 2 reads as a red run',
+    });
+  });
+
+  /**
+   * A measurement with a real pytest. It skips where no pytest is on PATH. The test file imports a function, and the revert removes it.
+   * pytest stops at collection with exit 2. The default runner reads that load failure as a red run, so the probe counts it as a kill.
+   */
+  it('ScopedTestRunner_RealPytestCollectionErrorAfterTheRevert_IsARedRun', async (ctx) => {
+    try {
+      await execFileAsync('pytest', ['--version'], { timeout: 30_000 });
+    } catch {
+      ctx.skip();
+    }
+    const pythonRepo = mkdtempSync(path.join(workDir, 'pytest-'));
+    writeFileSync(path.join(pythonRepo, 'pyproject.toml'), '[project]\nname = "fixture"\nversion = "0.0.1"\n');
+    writeFileSync(path.join(pythonRepo, 'calc.py'), 'def add(a, b):\n    return a + b\n');
+    writeFileSync(path.join(pythonRepo, 'test_calc.py'), 'from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n');
+    const runner = buildDefaultRunTests(pythonRepo);
+    const run = (): Promise<RunOutcome> => isolatedSync(() => runner({ repoRoot: pythonRepo, testFiles: ['test_calc.py'] }));
+
+    const onTheTaskSource = await run();
+    writeFileSync(path.join(pythonRepo, 'calc.py'), '\n');
+    const afterTheRevert = await run();
+
+    expect(onTheTaskSource).toMatchObject({ kind: 'ran', result: 'green' });
+    expect(afterTheRevert).toMatchObject({ kind: 'ran', result: 'red' });
+    expect(afterTheRevert.stdout).toContain('error during collection');
+  }, 60_000);
+
+  /**
    * A measurement: the `test:files` wrapper refuses an argument that is not a file with exit 2. The case records whether
    * `npm run test:files` passes that exit through to the probe. npm 11 passes it through, so the run gives no verdict and is not red.
    */

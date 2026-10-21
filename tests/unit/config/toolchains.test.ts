@@ -187,20 +187,49 @@ describe('BUILTIN_TOOLCHAINS — registry integrity', () => {
 });
 
 /**
+ * The red exit codes of each built-in toolchain. Each description says where its codes come from: a measured run, the documentation or the source.
+ * A row with no description holds the default, and no run measured it.
+ */
+const RED_EXIT_CODES_BY_TOOLCHAIN: Readonly<Record<string, readonly number[]>> = {
+  /** Measured: a failing test and a test file that does not import both exit 1, in vitest and in `node --test`. */
+  node: [1],
+  /** Measured: a build error and a failing VSTest test exit 1. A failing Microsoft.Testing.Platform test exits 2. */
+  dotnet: [1, 2],
+  /** Measured: a failing test and a compile error of the reverted source both exit 101. */
+  rust: [101],
+  /** Measured: a failing test and a build error of the reverted source both exit 1. */
+  go: [1],
+  /** Measured: a failing test exits 1, and a test module that does not import exits 2. */
+  python: [1, 2],
+  'java-gradle': [1],
+  'java-maven': [1],
+  ruby: [1],
+  /** From the source of PHPUnit and Composer: a failing test exits 1, a test error exits 2, and Composer passes the code through. */
+  php: [1, 2],
+  /** From the documentation of `mix test`: a failing test exits 2 by default, and a compile error exits 1. */
+  elixir: [1, 2],
+  swift: [1],
+  /** Measured: a failing test and a test that does not run both exit 8. */
+  cmake: [8],
+};
+
+/**
  * The kill probe reads exit 0 as green, these exit codes as red, and every other exit as a run with no verdict.
- * `cargo test` exits 101 when a test fails. Every other built-in toolchain, and every user toolchain, reads only exit 1 as red.
+ * A runner whose failure code is not 1 needs its own row, or each honest kill gives no verdict and blocks.
  */
 describe('testFailureExitCodesFor — the red exit codes of a test run', () => {
-  it('TestFailureExitCodes_Rust_Is101', () => {
-    expect(testFailureExitCodesFor(BUILTIN_TOOLCHAINS.find((t) => t.id === 'rust'))).toEqual([101]);
+  /** The denominator: the table holds each built-in toolchain once, so a new toolchain without a row fails here. */
+  it('TestFailureExitCodes_Table_HoldsEachBuiltinOnce', () => {
+    expect(Object.keys(RED_EXIT_CODES_BY_TOOLCHAIN).sort()).toEqual(BUILTIN_TOOLCHAINS.map((t) => t.id).sort());
   });
 
-  it('TestFailureExitCodes_EveryOtherBuiltin_IsTheDefault', () => {
-    const others = BUILTIN_TOOLCHAINS.filter((t) => t.id !== 'rust');
-    expect(others.length).toBeGreaterThan(0);
-    for (const toolchain of others) {
-      expect(testFailureExitCodesFor(toolchain), toolchain.id).toEqual([1]);
-    }
+  for (const toolchain of BUILTIN_TOOLCHAINS) {
+    it(`TestFailureExitCodes_${toolchain.id}_IsTheCodesOfItsRunner`, () => {
+      expect(testFailureExitCodesFor(toolchain)).toEqual(RED_EXIT_CODES_BY_TOOLCHAIN[toolchain.id]);
+    });
+  }
+
+  it('TestFailureExitCodes_Default_IsExit1', () => {
     expect(DEFAULT_TEST_FAILURE_EXIT_CODES).toEqual([1]);
   });
 

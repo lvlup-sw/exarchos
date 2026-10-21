@@ -538,7 +538,7 @@ const RUN_NO_VERDICT_TEXT: Readonly<Record<RunNoVerdictCause, string>> = {
   timeout: 'the test command ran past its time limit',
   signal: 'a signal stopped the test command',
   overflow: 'the test command wrote more output than the runner reads',
-  'unknown-exit-code': 'the test command exited with a code that is not a test result',
+  'unknown-exit-code': 'the test command exited with a code that the probe does not read as a test result',
 };
 
 /**
