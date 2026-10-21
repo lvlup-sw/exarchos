@@ -66,12 +66,43 @@ export function needsWindowsShell(
 }
 
 /**
- * `execFileSync` that launches Windows package-manager shims.
+ * True when `command` names a `.cmd` or `.bat` file on win32, such as a resolved shim in `node_modules/.bin`.
+ * Since CVE-2024-27980, `execFile` and `spawn` refuse such a file with EINVAL.
+ * `platform` is injectable, so the win32 branch is testable on a Linux host.
+ */
+export function isWindowsBatchFile(
+  command: string,
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  if (platform !== 'win32') return false;
+  const ext = path.extname(command).toLowerCase();
+  return ext === '.cmd' || ext === '.bat';
+}
+
+/** The program and the arguments that launch a win32 batch file through `cmd.exe`. */
+export interface WindowsBatchLaunch {
+  readonly file: string;
+  readonly args: readonly string[];
+}
+
+/**
+ * The `cmd.exe /d /c` launch of a win32 batch file. Each token is escaped by {@link escapeForCmd}.
+ * The caller sets `windowsVerbatimArguments`, so Node adds no quotes of its own.
+ */
+export function windowsBatchLaunch(file: string, args: readonly string[]): WindowsBatchLaunch {
+  const comspec = process.env['ComSpec'] || 'cmd.exe';
+  const body = [escapeForCmd(file), ...args.map(escapeForCmd)].join(' ');
+  return { file: comspec, args: ['/d', '/c', body] };
+}
+
+/**
+ * `execFileSync` that launches Windows package-manager shims and batch files.
  *
  * On win32 a bare shim name (see {@link needsWindowsShell}) runs through `cmd.exe`
  * with `shell: true`, which resolves the `.cmd` through `PATHEXT`. Arguments with
- * whitespace get double quotes. All other commands pass through to `execFileSync`,
- * which returns stdout and throws on a non-zero exit.
+ * whitespace get double quotes. A path to a `.cmd` or `.bat` file runs through the
+ * {@link windowsBatchLaunch} of `cmd.exe`. All other commands pass through to
+ * `execFileSync`, which returns stdout and throws on a non-zero exit.
  *
  * The caller must pass trusted arguments (fixed subcommands, resolved file paths). With
  * `shell: true`, an argument with shell metacharacters can inject commands.
@@ -84,6 +115,14 @@ export function runCommandSync(
   if (needsWindowsShell(command)) {
     const quoted = args.map((a) => (/\s/.test(a) ? `"${a}"` : a));
     return execFileSync(command, quoted, { ...options, shell: true });
+  }
+  if (isWindowsBatchFile(command)) {
+    const launch = windowsBatchLaunch(command, args);
+    const batchOptions: ExecFileSyncOptions & { readonly windowsVerbatimArguments: true } = {
+      ...options,
+      windowsVerbatimArguments: true,
+    };
+    return execFileSync(launch.file, [...launch.args], batchOptions);
   }
   return execFileSync(command, args as string[], options);
 }
@@ -386,13 +425,12 @@ export function resolveSpawnPlan(
   const ext = path.extname(resolved).toLowerCase();
 
   if (ext === '.cmd' || ext === '.bat') {
-    const comspec = process.env['ComSpec'] || 'cmd.exe';
-    const body = [escapeForCmd(resolved), ...request.args.map(escapeForCmd)].join(' ');
+    const launch = windowsBatchLaunch(resolved, request.args);
     return {
       ok: true,
       plan: {
-        file: comspec,
-        args: ['/d', '/c', body],
+        file: launch.file,
+        args: launch.args,
         options: { ...baseOptions, windowsVerbatimArguments: true },
       },
     };

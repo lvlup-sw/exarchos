@@ -664,12 +664,20 @@ describe('runStaticAnalysis', () => {
     function withBoundaryConfig(repoRoot: string): string {
       fs.mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
       fs.writeFileSync(path.join(repoRoot, '.dependency-cruiser.cjs'), 'module.exports = { forbidden: [] };\n', 'utf-8');
+      fs.mkdirSync(path.join(repoRoot, 'node_modules', '.bin'), { recursive: true });
+      for (const name of ['depcruise', 'depcruise.cmd']) {
+        fs.writeFileSync(path.join(repoRoot, 'node_modules', '.bin', name), '', 'utf-8');
+      }
       return repoRoot;
     }
 
+    function isDepcruise(cmd: string): boolean {
+      return /^depcruise(\.cmd)?$/.test(path.basename(cmd));
+    }
+
     function stoppedDepcruiseRunner(npmExit: Record<string, number>): RunCommandFn {
-      return vi.fn((_cmd: string, args: readonly string[]) => {
-        if (args.includes('depcruise')) {
+      return vi.fn((cmd: string, args: readonly string[]) => {
+        if (isDepcruise(cmd)) {
           return { exitCode: 1, stdout: '', stderr: '', signal: 'SIGKILL' };
         }
         const exitCode = npmExit[args[1] ?? ''] ?? 0;
@@ -687,7 +695,13 @@ describe('runStaticAnalysis', () => {
       expect(result.status).toBe('fail');
       expect(result.failCount).toBe(1);
       expect(result.advisorySkips).toEqual([
-        { name: 'Import boundaries', detail: 'dependency-cruiser gave no verdict: it was stopped by SIGKILL' },
+        {
+          name: 'Import boundaries',
+          cause: 'signal',
+          detail:
+            'dependency-cruiser gave no verdict: it was stopped by SIGKILL. ' +
+            'ownership.firstParty globs that name no path, not scanned: servers/*/src/**.',
+        },
       ]);
       expect(result.output).toContain(
         '**Result: FAIL** (1/3 checks failed, degraded: 1 advisory check gave no verdict)',
@@ -731,8 +745,11 @@ describe('runStaticAnalysis', () => {
 
       runStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['lib/**'] });
 
-      const depcruiseCall = vi.mocked(runner).mock.calls.find(([, args]) => args.includes('depcruise'));
-      expect(depcruiseCall?.[1].slice(5)).toEqual(['lib']);
+      const depcruiseCall = vi.mocked(runner).mock.calls.find(([cmd]) => isDepcruise(cmd));
+      expect(depcruiseCall?.[0]).toBe(
+        path.join(repoRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'depcruise.cmd' : 'depcruise'),
+      );
+      expect(depcruiseCall?.[1].slice(4)).toEqual(['lib']);
     });
   });
 });

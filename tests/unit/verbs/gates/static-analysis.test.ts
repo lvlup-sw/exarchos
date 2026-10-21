@@ -13,6 +13,7 @@ import { fileURLToPath } from 'node:url';
 import type { ToolResult } from '../../../../src/format.js';
 import type { EventStore } from '../../../../src/events/store.js';
 import {
+  findLocalDepcruise,
   runBoundaryLint,
   runRawIoTaint,
   type BoundaryLintResult,
@@ -55,7 +56,15 @@ vi.mock('../../../../src/projections/views/tools.js', () => ({
 }));
 
 import { execCommandRunner, handleStaticAnalysis } from '../../../../src/verbs/gates/static-analysis.js';
+import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+
+/** The dependency-cruiser bin that this repository installed. The real-tool cases run it through the production runner. */
+const REPO_DEPCRUISE_BIN = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  '../../../../node_modules/.bin',
+  process.platform === 'win32' ? 'depcruise.cmd' : 'depcruise',
+);
 
 const STATE_DIR = '/tmp/test-static-analysis';
 
@@ -396,7 +405,7 @@ describe('handleStaticAnalysis', () => {
     it('handleStaticAnalysis_AdvisorySkip_PassedAndDegradedButNotSkipped', async () => {
       const { normalizeGateVerdict } = await import('../../../../src/verbs/gates/gate-utils.js');
       const advisorySkips = [
-        { name: 'Import boundaries', detail: 'dependency-cruiser gave no verdict: it ran out of memory' },
+        { name: 'Import boundaries', cause: 'out-of-memory', detail: 'dependency-cruiser gave no verdict: it ran out of memory' },
       ];
       mockRunStaticAnalysis.mockReturnValue({
         ...makePassingResult(),
@@ -517,10 +526,11 @@ describe('execCommandRunner — the production runner of the static-analysis leg
 });
 
 /**
- * Runs the real `runBoundaryLint` against temp fixtures on disk with an injected runner. The leg runs
- * `npx depcruise --validate --output-type json` over the first-party roots and reads `summary.error`.
- * Without `.dependency-cruiser.cjs` the leg skips, like the gate skips a missing lint script. The
- * fixture config forbids imports from `domain-core` to `io-adapters`.
+ * Runs the real `runBoundaryLint` against temp fixtures on disk with an injected runner. The leg runs the
+ * installed `node_modules/.bin/depcruise --validate --output-type json` over the first-party roots and reads
+ * `summary.error` and `summary.totalCruised`. Each fixture holds an empty file at that bin path, so the lookup
+ * finds it. Without `.dependency-cruiser.cjs` the leg is not configured. The fixture config forbids imports from
+ * `domain-core` to `io-adapters`.
  */
 describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', () => {
   let tmpDir: string;
@@ -540,7 +550,15 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     rmrf(tmpDir);
   });
 
-  function makeBoundaryFixture(opts: { withConfig: boolean; withViolation: boolean }): string {
+  function localBin(repoRoot: string): string {
+    return path.join(repoRoot, 'node_modules', '.bin', process.platform === 'win32' ? 'depcruise.cmd' : 'depcruise');
+  }
+
+  function isDepcruise(cmd: string): boolean {
+    return /^depcruise(\.cmd)?$/.test(path.basename(cmd));
+  }
+
+  function makeBoundaryFixture(opts: { withConfig: boolean; withViolation: boolean; withLocalBin?: boolean }): string {
     const repoRoot = path.join(tmpDir, 'repo');
     fs.mkdirSync(path.join(repoRoot, 'src', 'domain-core'), { recursive: true });
     fs.mkdirSync(path.join(repoRoot, 'src', 'io-adapters'), { recursive: true });
@@ -557,6 +575,13 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
         : 'export const order = {};\n',
       'utf-8',
     );
+
+    if (opts.withLocalBin ?? true) {
+      fs.mkdirSync(path.join(repoRoot, 'node_modules', '.bin'), { recursive: true });
+      for (const name of ['depcruise', 'depcruise.cmd']) {
+        fs.writeFileSync(path.join(repoRoot, 'node_modules', '.bin', name), '', 'utf-8');
+      }
+    }
 
     if (opts.withConfig) {
       fs.writeFileSync(
@@ -580,7 +605,7 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     return repoRoot;
   }
 
-  function cruiseReport(errors: number): string {
+  function cruiseReport(errors: number, totalCruised = 2): string {
     const violation = (name: string, severity: string) => ({
       type: 'dependency',
       from: 'src/domain-core/order.js',
@@ -597,16 +622,16 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
         error: errors,
         warn: 1,
         info: 0,
-        totalCruised: 2,
+        totalCruised,
       },
     });
   }
 
-  function depcruiseArgs(runner: RunCommandFn): string[] {
+  function depcruiseArgs(runner: RunCommandFn, repoRoot: string): string[] {
     const calls = vi.mocked(runner).mock.calls;
     expect(calls.length).toBe(1);
     const [cmd, cmdArgs] = calls[0] ?? [];
-    expect(cmd).toBe('npx');
+    expect(cmd).toBe(localBin(repoRoot));
     return [...(cmdArgs ?? [])];
   }
 
@@ -619,18 +644,12 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     const result: BoundaryLintResult = runBoundaryLint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('FAIL');
-    expect(result.detail ?? '').toContain('no-core-to-io-0');
-    expect(result.detail ?? '').toContain('1 violation of error severity');
-    expect(result.detail ?? '').not.toContain('cycle-advice');
-    expect(result.degraded).toBeUndefined();
-    const cmdArgs = depcruiseArgs(runner);
-    expect(cmdArgs.slice(0, 5)).toEqual([
-      'depcruise',
-      '--validate',
-      '.dependency-cruiser.cjs',
-      '--output-type',
-      'json',
-    ]);
+    expect(result.status === 'FAIL' ? result.cause : undefined).toBe('violations');
+    expect(result.detail).toContain('no-core-to-io-0');
+    expect(result.detail).toContain('1 violation of error severity');
+    expect(result.detail).not.toContain('cycle-advice');
+    const cmdArgs = depcruiseArgs(runner, repoRoot);
+    expect(cmdArgs.slice(0, 4)).toEqual(['--validate', '.dependency-cruiser.cjs', '--output-type', 'json']);
   });
 
   /**
@@ -645,10 +664,13 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     const result = runBoundaryLint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('FAIL');
-    expect(result.detail ?? '').toContain('256 violations of error severity');
+    expect(result.status === 'FAIL' ? result.detail : '').toContain('256 violations of error severity');
   });
 
-  /** A report with zero `error` violations passes, also with a `warn` violation and a non-zero exit. */
+  /**
+   * A report with zero `error` violations and checked modules passes, also with a `warn` violation and a
+   * non-zero exit. The detail gives the count and names the default glob that names no path here.
+   */
   it('BoundaryLint_ZeroErrorsInReport_PassesEvenWithANonZeroExit', () => {
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
 
@@ -656,7 +678,11 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
 
     const result: BoundaryLintResult = runBoundaryLint({ repoRoot, runCommand: runner });
 
-    expect(result).toEqual({ status: 'PASS' });
+    expect(result).toEqual({
+      status: 'PASS',
+      cruised: 2,
+      detail: '2 modules checked. ownership.firstParty globs that name no path, not scanned: servers/*/src/**.',
+    });
   });
 
   it('StaticAnalysis_CompliantImports_Passes', () => {
@@ -664,70 +690,172 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
 
     const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0), stderr: '' }));
 
-    const result: BoundaryLintResult = runBoundaryLint({ repoRoot, runCommand: runner });
+    const result: BoundaryLintResult = runBoundaryLint({ repoRoot, runCommand: runner, firstPartyGlobs: ['src/**'] });
 
-    expect(result.status).toBe('PASS');
+    expect(result).toEqual({ status: 'PASS', cruised: 2, detail: '2 modules checked' });
     expect(vi.mocked(runner).mock.calls.length).toBe(1);
   });
 
-  /** A missing config is an advisory skip, not a failure, and depcruise does not run. */
-  it('StaticAnalysis_NoBoundaryConfig_LegSkippedAdvisory', () => {
+  /**
+   * A complete report with zero `error` violations and zero checked modules is no verdict, not a PASS. This is
+   * the shape of a first-party root that holds no module that the config scans.
+   */
+  it('BoundaryLint_ZeroModulesChecked_DegradedSkipNotPass', () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0, 0), stderr: '' }));
+
+    const result = runBoundaryLint({ repoRoot, runCommand: runner, firstPartyGlobs: ['src/**'] });
+
+    expect(result).toEqual({
+      status: 'NO_VERDICT',
+      cause: 'zero-modules',
+      detail:
+        'dependency-cruiser gave no verdict: the scan checked no module (summary.totalCruised is 0). ' +
+        'The roots hold no module that the config scans',
+    });
+  });
+
+  /** A missing config means that the leg is not configured. It is not a failure, and depcruise does not run. */
+  it('StaticAnalysis_NoBoundaryConfig_LegNotConfigured', () => {
     const repoRoot = makeBoundaryFixture({ withConfig: false, withViolation: false });
 
     const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
 
     const result: BoundaryLintResult = runBoundaryLint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBeUndefined();
+    expect(result.status).toBe('NOT_CONFIGURED');
     expect(vi.mocked(runner).mock.calls.length).toBe(0);
   });
 
   /**
-   * Each outcome that is not a complete report is an infra fault. The leg gives a degraded SKIP that
-   * names the cause, and never a FAIL. The cases hold the shapes that the production runner gives.
+   * Each fault outside the repository gives no verdict with its cause, and never a FAIL. The cases hold the
+   * shapes that the production runner gives.
    */
-  it.each<[string, { exitCode: number; stdout: string; stderr: string; signal?: string; spawnError?: string }, RegExp]>([
+  it.each<[string, { exitCode: number; stdout: string; stderr: string; signal?: string; spawnError?: string }, string, RegExp]>([
     [
-      'heap exhaustion through npx',
+      'heap exhaustion',
       {
         exitCode: 134,
         stdout: '',
         stderr: 'FATAL ERROR: Ineffective mark-compacts near heap limit Allocation failed - JavaScript heap out of memory\n',
       },
+      'out-of-memory',
       /ran out of memory/,
     ],
-    ['a report cut short', { exitCode: 137, stdout: cruiseReport(0).slice(0, 40), stderr: '' }, /no JSON report \(exit 137, .*signal 9\)/],
-    ['output that is not JSON', { exitCode: 1, stdout: '', stderr: "ERROR: Can't open 'src' for reading.\n" }, /no JSON report \(exit 1\): ERROR: Can't open/],
-    ['a JSON value with no summary', { exitCode: 0, stdout: '{"modules":[]}', stderr: '' }, /no JSON report \(exit 0\)/],
-    ['a signal, even with a complete report', { exitCode: 1, stdout: cruiseReport(1), stderr: '', signal: 'SIGKILL' }, /stopped by SIGKILL/],
-    ['a command that did not start', { exitCode: 1, stdout: '', stderr: '', spawnError: 'ENOENT' }, /runner reported ENOENT/],
-    ['a report larger than the output limit', { exitCode: 1, stdout: cruiseReport(0).slice(0, 40), stderr: '', signal: 'SIGTERM', spawnError: 'ENOBUFS' }, /output limit of the runner \(ENOBUFS\)/],
-  ])('BoundaryLint_NoVerdict_DegradedSkipNotFail [%s]', (_label, commandResult, cause) => {
+    ['a report cut short', { exitCode: 137, stdout: cruiseReport(0).slice(0, 40), stderr: '' }, 'signal', /exit 137, .*signal 9/],
+    ['a signal, even with a complete report', { exitCode: 1, stdout: cruiseReport(1), stderr: '', signal: 'SIGKILL' }, 'signal', /stopped by SIGKILL/],
+    ['a bin that did not start', { exitCode: 1, stdout: '', stderr: '', spawnError: 'EACCES' }, 'did-not-start', /runner reported EACCES/],
+    ['a bin that is gone', { exitCode: 1, stdout: '', stderr: '', spawnError: 'ENOENT' }, 'missing-tool', /runner reported ENOENT/],
+    [
+      'an interpreter that is not installed',
+      { exitCode: 127, stdout: '', stderr: "/usr/bin/env: 'node': No such file or directory\n" },
+      'missing-tool',
+      /exit 127, the status of a command that was not found: .*'node'/,
+    ],
+    ['a report larger than the output limit', { exitCode: 1, stdout: cruiseReport(0).slice(0, 40), stderr: '', signal: 'SIGTERM', spawnError: 'ENOBUFS' }, 'output-limit', /output limit of the runner \(ENOBUFS\)/],
+  ])('BoundaryLint_NoVerdict_DegradedSkipNotFail [%s]', (_label, commandResult, cause, text) => {
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: true });
 
     const runner: RunCommandFn = vi.fn(() => commandResult);
 
     const result = runBoundaryLint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBe(true);
-    expect(result.detail ?? '').toMatch(/^dependency-cruiser gave no verdict: /);
-    expect(result.detail ?? '').toMatch(cause);
+    expect(result.status).toBe('NO_VERDICT');
+    expect(result.status === 'NO_VERDICT' ? result.cause : undefined).toBe(cause);
+    expect(result.detail).toMatch(/^dependency-cruiser gave no verdict: /);
+    expect(result.detail).toMatch(text);
+  });
+
+  /**
+   * A run with no complete report and no fault outside the repository fails the leg. A broken config and a
+   * usage error give exit 1 with no stdout. A report of another shape fails too, because the repository chose
+   * the installed version. The detail quotes stderr and names the command to run again.
+   */
+  it.each<[string, { exitCode: number; stdout: string; stderr: string }, RegExp]>([
+    [
+      'a config that is not valid',
+      {
+        exitCode: 1,
+        stdout: '',
+        stderr: '\n  ERROR: The supplied configuration is not valid: data/forbidden/0/severity must be equal to one of the allowed values\n',
+      },
+      /no complete report \(exit 1\): ERROR: The supplied configuration is not valid/,
+    ],
+    ['a config with a syntax error', { exitCode: 1, stdout: '', stderr: "\n  ERROR: Unexpected token ';'\n" }, /\(exit 1\): ERROR: Unexpected token/],
+    ['output that is not JSON', { exitCode: 1, stdout: '', stderr: "ERROR: Can't open 'src' for reading.\n" }, /\(exit 1\): ERROR: Can't open/],
+    ['a usage error', { exitCode: 1, stdout: '', stderr: "error: unknown option '--no-such-flag'\n" }, /\(exit 1\): error: unknown option/],
+    ['a JSON value with no summary', { exitCode: 0, stdout: '{"modules":[]}', stderr: '' }, /no complete report \(exit 0\)\. /],
+    ['a summary with no module count', { exitCode: 0, stdout: '{"summary":{"error":0}}', stderr: '' }, /no complete report \(exit 0\)\. /],
+    ['an unknown exit code with no stderr', { exitCode: 2, stdout: '', stderr: '' }, /no complete report \(exit 2\)\. /],
+  ])('BoundaryLint_RepositoryFault_FailsNotSkip [%s]', (_label, commandResult, text) => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+
+    const runner: RunCommandFn = vi.fn(() => commandResult);
+
+    const result = runBoundaryLint({ repoRoot, runCommand: runner, firstPartyGlobs: ['src/**'] });
+
+    expect(result.status).toBe('FAIL');
+    expect(result.status === 'FAIL' ? result.cause : undefined).toBe('config-or-usage');
+    expect(result.detail).toMatch(text);
+    expect(result.detail).toContain(
+      `Re-run \`${path.join('node_modules', '.bin', path.basename(localBin(repoRoot)))} --validate .dependency-cruiser.cjs src\``,
+    );
   });
 
   it('BoundaryLint_RunnerThrows_DegradedSkipNotFail', () => {
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: true });
 
     const runner: RunCommandFn = vi.fn(() => {
-      throw new Error('npx: command not found');
+      throw new Error('spawn failed');
     });
 
     const result = runBoundaryLint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBe(true);
-    expect(result.detail ?? '').toContain('not available');
+    expect(result.status).toBe('NO_VERDICT');
+    expect(result.status === 'NO_VERDICT' ? result.cause : undefined).toBe('did-not-start');
+    expect(result.detail).toContain('the tool did not start (spawn failed)');
+  });
+
+  /**
+   * With no installed bin on the walk from the repository root, the leg has no tool. It gives no verdict with a
+   * remedy, and it runs nothing, so no `npx` call can fetch a package from the registry.
+   */
+  it('BoundaryLint_NoLocalBin_MissingToolWithoutARun', () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: true, withLocalBin: false });
+    expect(findLocalDepcruise(repoRoot), 'a bin on the walk above the temp directory voids this case').toBeUndefined();
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0), stderr: '' }));
+
+    const result = runBoundaryLint({ repoRoot, runCommand: runner, firstPartyGlobs: ['src/**'] });
+
+    expect(result.status).toBe('NO_VERDICT');
+    expect(result.status === 'NO_VERDICT' ? result.cause : undefined).toBe('missing-tool');
+    expect(result.detail).toContain(`no node_modules/.bin/${path.basename(localBin(repoRoot))} in ${repoRoot}`);
+    expect(result.detail).toContain('npm install --save-dev dependency-cruiser');
+    expect(result.detail).toContain('does not fetch it from the registry');
+    expect(vi.mocked(runner).mock.calls).toEqual([]);
+  });
+
+  /**
+   * The lookup walks up from the repository root as npm does, and the nearest `node_modules/.bin` with the bin
+   * wins. A directory with the bin name is not a bin. On win32 the bin is the `.cmd` shim.
+   */
+  it('FindLocalDepcruise_WalksUpFromTheRepositoryRootAsNpmDoes', () => {
+    const outer = path.join(tmpDir, 'outer');
+    const repoRoot = path.join(outer, 'packages', 'app');
+    fs.mkdirSync(repoRoot, { recursive: true });
+    fs.mkdirSync(path.join(outer, 'node_modules', '.bin'), { recursive: true });
+    fs.writeFileSync(path.join(outer, 'node_modules', '.bin', 'depcruise'), '', 'utf-8');
+    fs.writeFileSync(path.join(outer, 'node_modules', '.bin', 'depcruise.cmd'), '', 'utf-8');
+    fs.mkdirSync(path.join(repoRoot, 'node_modules', '.bin', 'depcruise'), { recursive: true });
+
+    expect(findLocalDepcruise(repoRoot, 'linux')).toBe(path.join(outer, 'node_modules', '.bin', 'depcruise'));
+    expect(findLocalDepcruise(repoRoot, 'win32')).toBe(path.join(outer, 'node_modules', '.bin', 'depcruise.cmd'));
+
+    fs.mkdirSync(path.join(outer, 'packages', 'node_modules', '.bin'), { recursive: true });
+    fs.writeFileSync(path.join(outer, 'packages', 'node_modules', '.bin', 'depcruise'), '', 'utf-8');
+
+    expect(findLocalDepcruise(repoRoot, 'linux')).toBe(path.join(outer, 'packages', 'node_modules', '.bin', 'depcruise'));
   });
 
   /**
@@ -741,66 +869,194 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     }
     const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0), stderr: '' }));
 
-    runBoundaryLint({ repoRoot, runCommand: runner });
+    const result = runBoundaryLint({ repoRoot, runCommand: runner });
 
-    expect(depcruiseArgs(runner).slice(5)).toEqual(['servers/api/src', 'src']);
+    expect(depcruiseArgs(runner, repoRoot).slice(4)).toEqual(['servers/api/src', 'src']);
+    expect(result).toEqual({ status: 'PASS', cruised: 2, detail: '2 modules checked' });
   });
 
+  /** The roots hold no duplicate and no root inside another root. The detail names each glob that names no path. */
   it('BoundaryLint_ConfiguredGlobs_ScanTheirRootsWithoutNestedDuplicates', () => {
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
     fs.mkdirSync(path.join(repoRoot, 'lib'), { recursive: true });
     fs.writeFileSync(path.join(repoRoot, 'index.js'), 'export {};\n', 'utf-8');
     const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0), stderr: '' }));
 
-    runBoundaryLint({
+    const result = runBoundaryLint({
       repoRoot,
       runCommand: runner,
       firstPartyGlobs: ['src/domain-core/**', 'lib/**', 'src/**/*.js', 'missing/**', 'index.js', '!lib/x/**'],
     });
 
-    expect(depcruiseArgs(runner).slice(5)).toEqual(['index.js', 'lib', 'src']);
+    expect(depcruiseArgs(runner, repoRoot).slice(4)).toEqual(['index.js', 'lib', 'src']);
+    expect(result.detail).toBe(
+      '2 modules checked. ownership.firstParty globs that name no path, not scanned: missing/**, !lib/x/**.',
+    );
   });
 
-  /** With no first-party root on disk, the leg has nothing to scan. It gives a degraded skip, and depcruise does not run. */
+  /**
+   * A glob in the dialect of the mock-boundary gate, such as a package specifier, names no path. The scan drops
+   * it, and the report names it, also on a PASS.
+   */
+  it('BoundaryLint_GlobWithNoPath_PassReportNamesTheDroppedGlob', () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({
+        name: 'fixture',
+        scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'npm run qc' },
+      }),
+      'utf-8',
+    );
+    const runner: RunCommandFn = vi.fn((cmd: string) => ({
+      exitCode: 0,
+      stdout: isDepcruise(cmd) ? cruiseReport(0) : '',
+      stderr: '',
+    }));
+
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['@acme/**', 'src/**'] });
+
+    expect(result.status).toBe('pass');
+    expect(result.output).toContain(
+      '- **PASS**: Import boundaries — 2 modules checked. ownership.firstParty globs that name no path, not scanned: @acme/**.',
+    );
+    const depcruiseCall = vi.mocked(runner).mock.calls.find(([cmd]) => isDepcruise(cmd));
+    expect(depcruiseCall?.[1].slice(4)).toEqual(['src']);
+  });
+
+  /**
+   * A glob whose walk stops at its first segment widens the scan to the repository root. The leg detail and the
+   * report name the widening, also on a PASS.
+   */
+  it('BoundaryLint_GlobWidenedToTheRoot_ReportNamesTheWidening', () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({
+        name: 'fixture',
+        scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'npm run qc' },
+      }),
+      'utf-8',
+    );
+    const legRunner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0), stderr: '' }));
+    const runner: RunCommandFn = vi.fn((cmd: string) => ({
+      exitCode: 0,
+      stdout: isDepcruise(cmd) ? cruiseReport(0) : '',
+      stderr: '',
+    }));
+
+    const leg = runBoundaryLint({ repoRoot, runCommand: legRunner, firstPartyGlobs: ['**/src/**'] });
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['**/src/**'] });
+
+    expect(depcruiseArgs(legRunner, repoRoot).slice(4)).toEqual(['.']);
+    expect(leg).toEqual({
+      status: 'PASS',
+      cruised: 2,
+      detail: '2 modules checked. ownership.firstParty globs widened to the repository root: **/src/**.',
+    });
+    expect(result.status).toBe('pass');
+    expect(result.output).toContain(
+      '- **PASS**: Import boundaries — 2 modules checked. ownership.firstParty globs widened to the repository root: **/src/**.',
+    );
+  });
+
+  /** With no first-party root on disk, the leg has nothing to scan. It gives no verdict, and depcruise does not run. */
   it('BoundaryLint_NoFirstPartyRootExists_DegradedSkipWithoutARun', () => {
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
     const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0), stderr: '' }));
 
     const result = runBoundaryLint({ repoRoot, runCommand: runner, firstPartyGlobs: ['packages/*/src/**'] });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBe(true);
-    expect(result.detail ?? '').toContain('no ownership.firstParty source root exists (packages/*/src/**)');
+    expect(result.status).toBe('NO_VERDICT');
+    expect(result.status === 'NO_VERDICT' ? result.cause : undefined).toBe('no-source-root');
+    expect(result.detail).toContain('no ownership.firstParty source root exists (packages/*/src/**)');
     expect(vi.mocked(runner).mock.calls.length).toBe(0);
   });
 
   /**
-   * Runs the real dependency-cruiser of this repository through the production runner. The JSON report
-   * of a violating fixture fails the leg, and the report of a clean fixture passes it.
+   * Runs the installed dependency-cruiser of this repository through the production runner. The JSON report of
+   * a violating fixture fails the leg. The report of a clean fixture passes it with the count of its two modules.
    */
-  it('BoundaryLint_RealDependencyCruiser_ReadsTheVerdictFromTheJsonReport', () => {
-    const depcruiseBin = path.resolve(
-      path.dirname(fileURLToPath(import.meta.url)),
-      '../../../../node_modules/dependency-cruiser/bin/dependency-cruise.mjs',
+  it('BoundaryLint_RealDependencyCruiser_ReadsTheVerdictFromTheJsonReport', async () => {
+    const violating = await isolatedSync(() =>
+      runBoundaryLint({
+        repoRoot: makeBoundaryFixture({ withConfig: true, withViolation: true, withLocalBin: false }),
+        runCommand: execCommandRunner,
+        findDepcruise: () => REPO_DEPCRUISE_BIN,
+      }),
     );
-    const realRunner: RunCommandFn = (_cmd, args, options) =>
-      execCommandRunner(process.execPath, [depcruiseBin, ...args.slice(1)], options);
-
-    const violating = runBoundaryLint({
-      repoRoot: makeBoundaryFixture({ withConfig: true, withViolation: true }),
-      runCommand: realRunner,
-    });
     rmrf(path.join(tmpDir, 'repo'));
-    const clean = runBoundaryLint({
-      repoRoot: makeBoundaryFixture({ withConfig: true, withViolation: false }),
-      runCommand: realRunner,
-    });
+    const clean = await isolatedSync(() =>
+      runBoundaryLint({
+        repoRoot: makeBoundaryFixture({ withConfig: true, withViolation: false, withLocalBin: false }),
+        runCommand: execCommandRunner,
+        findDepcruise: () => REPO_DEPCRUISE_BIN,
+        firstPartyGlobs: ['src/**'],
+      }),
+    );
 
     expect(violating.status).toBe('FAIL');
-    expect(violating.detail ?? '').toContain(
-      'error no-core-to-io: src/domain-core/order.js → src/io-adapters/db.js',
+    expect(violating.detail).toContain('error no-core-to-io: src/domain-core/order.js → src/io-adapters/db.js');
+    expect(clean).toEqual({ status: 'PASS', cruised: 2, detail: '2 modules checked' });
+  });
+
+  /**
+   * Pins the JSON contract of the installed dependency-cruiser for a root with no module. A first-party root
+   * that holds only a README gives a complete report with `totalCruised` 0, so the leg gives no verdict. The
+   * violation in `src`, outside the configured root, does not turn the empty scan into a PASS.
+   */
+  it('BoundaryLint_RealDependencyCruiserOnAnEmptyRoot_GivesZeroModulesNotPass', async () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: true, withLocalBin: false });
+    fs.mkdirSync(path.join(repoRoot, 'docs'), { recursive: true });
+    fs.writeFileSync(path.join(repoRoot, 'docs', 'README.md'), '# docs\n', 'utf-8');
+
+    const run = await isolatedSync(() =>
+      execCommandRunner(REPO_DEPCRUISE_BIN, ['--validate', '.dependency-cruiser.cjs', '--output-type', 'json', 'docs'], {
+        cwd: repoRoot,
+      }),
     );
-    expect(clean).toEqual({ status: 'PASS' });
+    const result = await isolatedSync(() =>
+      runBoundaryLint({
+        repoRoot,
+        runCommand: execCommandRunner,
+        findDepcruise: () => REPO_DEPCRUISE_BIN,
+        firstPartyGlobs: ['docs/**'],
+      }),
+    );
+
+    expect(run.exitCode).toBe(0);
+    expect(JSON.parse(run.stdout)).toMatchObject({ summary: { error: 0, totalCruised: 0 } });
+    expect(result.status).toBe('NO_VERDICT');
+    expect(result.status === 'NO_VERDICT' ? result.cause : undefined).toBe('zero-modules');
+  });
+
+  /**
+   * A broken config of the repository fails the leg through the installed dependency-cruiser. A syntax error
+   * and a severity that the schema does not allow each give exit 1, no stdout and an `ERROR:` line on stderr.
+   */
+  it.each<[string, string, RegExp]>([
+    ['a syntax error', 'module.exports = { forbidden: [ ;\n', /ERROR: Unexpected token/],
+    [
+      'a severity that the schema does not allow',
+      "module.exports = { forbidden: [ { name: 'r', severity: 'fatal', from: { path: '^src' }, to: { path: '^lib' } } ] };\n",
+      /ERROR: The supplied configuration is not valid/,
+    ],
+  ])('BoundaryLint_RealDependencyCruiserWithABrokenConfig_Fails [%s]', async (_label, config, text) => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false, withLocalBin: false });
+    fs.writeFileSync(path.join(repoRoot, '.dependency-cruiser.cjs'), config, 'utf-8');
+
+    const result = await isolatedSync(() =>
+      runBoundaryLint({
+        repoRoot,
+        runCommand: execCommandRunner,
+        findDepcruise: () => REPO_DEPCRUISE_BIN,
+        firstPartyGlobs: ['src/**'],
+      }),
+    );
+
+    expect(result.status).toBe('FAIL');
+    expect(result.status === 'FAIL' ? result.cause : undefined).toBe('config-or-usage');
+    expect(result.detail).toMatch(text);
   });
 
   /**
@@ -818,24 +1074,24 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
       'utf-8',
     );
 
-    const runner: RunCommandFn = vi.fn((_cmd: string, args: readonly string[]) => ({
+    const runner: RunCommandFn = vi.fn((cmd: string) => ({
       exitCode: 0,
-      stdout: args.includes('depcruise') ? cruiseReport(0) : '',
+      stdout: isDepcruise(cmd) ? cruiseReport(0) : '',
       stderr: '',
     }));
 
-    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner });
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['src/**'] });
 
     expect(result.status).toBe('pass');
     expect(result.passCount).toBe(4);
     expect(result.advisorySkips).toBeUndefined();
-    expect(result.output).toContain('- **PASS**: Import boundaries');
+    expect(result.output).toContain('- **PASS**: Import boundaries — 2 modules checked');
     expect(result.output).toContain('**Result: PASS** (4/4 checks passed)');
   });
 
   /**
-   * A boundary scan that gives no verdict stays visible. The report lists it and marks the result
-   * degraded, and the status stays `pass`, so the gate does not fail on an infra fault.
+   * A boundary scan that gives no verdict stays visible. The report lists it and marks the result degraded.
+   * The status stays `pass`, so the gate does not fail on a fault outside the repository.
    */
   it('StaticAnalysis_BoundaryGaveNoVerdict_PassesWithAVisibleDegradedSkip', () => {
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
@@ -848,19 +1104,19 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
       'utf-8',
     );
 
-    const runner: RunCommandFn = vi.fn((_cmd: string, args: readonly string[]) =>
-      args.includes('depcruise')
+    const runner: RunCommandFn = vi.fn((cmd: string) =>
+      isDepcruise(cmd)
         ? { exitCode: 134, stdout: '', stderr: 'FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory\n' }
         : { exitCode: 0, stdout: '', stderr: '' },
     );
 
-    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner });
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['src/**'] });
 
     expect(result.status).toBe('pass');
     expect(result.skipCount).toBe(0);
     expect(result.passCount).toBe(3);
     expect(result.advisorySkips).toEqual([
-      { name: 'Import boundaries', detail: 'dependency-cruiser gave no verdict: it ran out of memory' },
+      { name: 'Import boundaries', cause: 'out-of-memory', detail: 'dependency-cruiser gave no verdict: it ran out of memory' },
     ]);
     expect(result.output).toContain(
       '- **SKIP**: Import boundaries — dependency-cruiser gave no verdict: it ran out of memory',
@@ -882,9 +1138,9 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
       'utf-8',
     );
 
-    const runner: RunCommandFn = vi.fn((_cmd: string, args: readonly string[]) => ({
+    const runner: RunCommandFn = vi.fn((cmd: string) => ({
       exitCode: 0,
-      stdout: args.includes('depcruise') ? cruiseReport(2) : '',
+      stdout: isDepcruise(cmd) ? cruiseReport(2) : '',
       stderr: '',
     }));
 
@@ -893,6 +1149,34 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     expect(result.status).toBe('fail');
     expect(result.failCount).toBe(1);
     expect(result.output).toContain('- **FAIL**: Import boundaries — dependency-cruiser found 2 violations');
+  });
+
+  /** A broken boundary config fails the whole result. It is a counted FAIL, not an advisory skip. */
+  it('StaticAnalysis_BoundaryConfigError_FailsTheResult', () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+    fs.writeFileSync(
+      path.join(repoRoot, 'package.json'),
+      JSON.stringify({
+        name: 'fixture',
+        scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'npm run qc' },
+      }),
+      'utf-8',
+    );
+
+    const runner: RunCommandFn = vi.fn((cmd: string) =>
+      isDepcruise(cmd)
+        ? { exitCode: 1, stdout: '', stderr: "\n  ERROR: Unexpected token ';'\n" }
+        : { exitCode: 0, stdout: '', stderr: '' },
+    );
+
+    const result = realRunStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['src/**'] });
+
+    expect(result.status).toBe('fail');
+    expect(result.failCount).toBe(1);
+    expect(result.advisorySkips).toBeUndefined();
+    expect(result.output).toContain(
+      "- **FAIL**: Import boundaries — dependency-cruiser gave no complete report (exit 1): ERROR: Unexpected token ';'",
+    );
   });
 });
 
@@ -903,9 +1187,9 @@ const missingSemgrepRunner: RunCommandFn = (_cmd, args, options) =>
 /**
  * Runs the real `runRawIoTaint` and `runStaticAnalysis` against temp fixtures on disk with an injected
  * runner. The taint check is a dataflow rule that dependency-cruiser cannot express, so it runs Semgrep.
- * The leg runs only when the repo commits `.semgrep/no-raw-io-into-core.yml`. A missing ruleset gives a
- * silent SKIP. An absent engine or an engine error gives a degraded SKIP that the report lists, not a
- * FAIL. The exit code of the runner decides the verdict, so the fixture ruleset only has to exist on disk.
+ * The leg runs only when the repo commits `.semgrep/no-raw-io-into-core.yml`, else it is not configured.
+ * An engine that did not start or did not finish gives no verdict, which the report lists. A ruleset error
+ * fails the leg. The exit code of the runner decides the verdict, so the fixture ruleset only has to exist.
  */
 describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', () => {
   let tmpDir: string;
@@ -974,7 +1258,8 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('FAIL');
-    expect(result.detail ?? '').toContain('no-raw-io-into-core');
+    expect(result.status === 'FAIL' ? result.cause : undefined).toBe('findings');
+    expect(result.status === 'FAIL' ? result.detail : '').toContain('no-raw-io-into-core');
     const calls = (runner as ReturnType<typeof vi.fn>).mock.calls;
     expect(calls.length).toBe(1);
     const [cmd, cmdArgs] = calls[0] as [string, string[]];
@@ -999,7 +1284,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('FAIL');
-    expect(result.detail ?? '').toContain('no-out-of-band-brand-cast');
+    expect(result.status === 'FAIL' ? result.detail : '').toContain('no-out-of-band-brand-cast');
   });
 
   it('RawIoTaint_AllInputsCrossRegisteredParser_Passes', () => {
@@ -1014,15 +1299,14 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
   });
 
   /** A repo without the ruleset is not subject to the leg, so the engine does not run. */
-  it('RawIoTaint_NoRuleset_LegSkippedAdvisory', () => {
+  it('RawIoTaint_NoRuleset_LegNotConfigured', () => {
     const repoRoot = makeTaintFixture({ withRuleset: false });
 
     const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
 
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBeUndefined();
+    expect(result.status).toBe('NOT_CONFIGURED');
     expect((runner as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0);
   });
 
@@ -1035,16 +1319,18 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
 
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBe(true);
-    expect(result.detail ?? '').toContain('not available');
+    expect(result).toEqual({
+      status: 'NO_VERDICT',
+      cause: 'did-not-start',
+      detail: 'semgrep gave no verdict: semgrep not available (semgrep: command not found)',
+    });
   });
 
   /**
-   * Exit 2 is an engine or ruleset error. The result is inconclusive, so the leg skips, and the skip
-   * detail is the stderr of the engine.
+   * An exit code other than 0 and 1, such as exit 2 for a ruleset error, is a fault inside the repository. The
+   * leg fails, and the detail is the stderr of the engine.
    */
-  it('RawIoTaint_EngineConfigError_SkipsNotFail', () => {
+  it('RawIoTaint_EngineConfigError_Fails', () => {
     const repoRoot = makeTaintFixture({ withRuleset: true });
 
     const runner: RunCommandFn = vi.fn(() => ({
@@ -1055,9 +1341,11 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
 
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBe(true);
-    expect(result.detail ?? '').toContain('invalid rule schema');
+    expect(result).toEqual({
+      status: 'FAIL',
+      cause: 'ruleset-or-usage',
+      detail: 'semgrep exited 2: semgrep: invalid rule schema. A ruleset or a usage error fails the leg',
+    });
   });
 
   /**
@@ -1076,22 +1364,38 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
 
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBe(true);
-    expect(result.detail ?? '').toContain('stopped by SIGKILL');
+    expect(result).toEqual({
+      status: 'NO_VERDICT',
+      cause: 'signal',
+      detail: 'semgrep gave no verdict: it was stopped by SIGKILL',
+    });
   });
 
-  /** Only exit 1 fails the leg. Another exit code with an empty stderr skips with a generic label. */
-  it('RawIoTaint_EngineErrorWithoutStderr_SkipsWithTheExitStatus', () => {
+  /** Another exit code with an empty stderr fails the leg too, and the detail names the exit code. */
+  it('RawIoTaint_EngineErrorWithoutStderr_FailsWithTheExitStatus', () => {
     const repoRoot = makeTaintFixture({ withRuleset: true });
 
     const runner: RunCommandFn = vi.fn(() => ({ exitCode: 2, stdout: '', stderr: '' }));
 
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBe(true);
-    expect(result.detail ?? '').toMatch(/inconclusive \(exit 2\)/);
+    expect(result.status).toBe('FAIL');
+    expect(result.status === 'FAIL' ? result.detail : '').toMatch(/^semgrep exited 2 with no stderr\./);
+  });
+
+  /** A shell status of a signal stop is a fault outside the repository, so the leg gives no verdict. */
+  it('RawIoTaint_SignalExitStatus_SkipsNotFail', () => {
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 137, stdout: '', stderr: '' }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result).toEqual({
+      status: 'NO_VERDICT',
+      cause: 'signal',
+      detail: 'semgrep gave no verdict: exit 137, the status of a process stopped by signal 9',
+    });
   });
 
   /**
@@ -1110,9 +1414,8 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
 
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('SKIP');
-    expect(result.degraded).toBe(true);
-    expect(result.detail ?? '').toContain('ENOENT');
+    expect(result.status).toBe('NO_VERDICT');
+    expect(result.status === 'NO_VERDICT' ? result.detail : '').toContain('ENOENT');
   });
 
   /**
@@ -1133,9 +1436,9 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
     expect(result).toEqual({
-      status: 'SKIP',
-      degraded: true,
-      detail: 'semgrep output passed the output limit of the runner (ENOBUFS)',
+      status: 'NO_VERDICT',
+      cause: 'output-limit',
+      detail: 'semgrep gave no verdict: its output passed the output limit of the runner (ENOBUFS)',
     });
   });
 
@@ -1149,8 +1452,8 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result = runRawIoTaint({ repoRoot, runCommand: missingSemgrepRunner });
 
     expect(result).toEqual({
-      status: 'SKIP',
-      degraded: true,
+      status: 'NO_VERDICT',
+      cause: 'missing-tool',
       detail: 'semgrep gave no verdict: the runner reported ENOENT',
     });
   });
@@ -1203,7 +1506,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     expect(result.status).toBe('pass');
     expect(result.passCount).toBe(3);
     expect(result.advisorySkips).toEqual([
-      { name: 'Boundary IO taint', detail: 'semgrep gave no verdict: the runner reported ENOENT' },
+      { name: 'Boundary IO taint', cause: 'missing-tool', detail: 'semgrep gave no verdict: the runner reported ENOENT' },
     ]);
     expect(result.output).toContain(
       '- **SKIP**: Boundary IO taint — semgrep gave no verdict: the runner reported ENOENT',

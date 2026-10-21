@@ -64,11 +64,30 @@ export interface StaticAnalysisInput {
 }
 
 /**
+ * Why a run of an advisory leg gave no verdict. Each cause is a fault outside the repository.
+ * - `missing-tool`: the tool or its interpreter is not installed.
+ * - `did-not-start`: the runner did not start the tool.
+ * - `signal`: a signal stopped the tool.
+ * - `out-of-memory`: the tool ran out of heap.
+ * - `output-limit`: the output passed the buffer limit of the runner.
+ */
+export type ProcessNoVerdictCause = 'missing-tool' | 'did-not-start' | 'signal' | 'out-of-memory' | 'output-limit';
+
+/**
+ * Why the import-boundary leg gave no verdict: a cause of the run, or a scan that had nothing to check.
+ * - `no-source-root`: no `ownership.firstParty` glob names an existing path.
+ * - `zero-modules`: the report says that the scan checked no module.
+ */
+export type BoundaryNoVerdictCause = ProcessNoVerdictCause | 'no-source-root' | 'zero-modules';
+
+/**
  * An advisory check that applies to the repository but gave no verdict. An
  * example is an import-boundary scan that ran out of memory.
  */
 export interface AdvisorySkip {
   readonly name: string;
+  /** The closed cause code of the leg. */
+  readonly cause: BoundaryNoVerdictCause;
   /** The cause, for the report and the reviewer. */
   readonly detail: string;
 }
@@ -92,8 +111,8 @@ export interface StaticAnalysisSkippedCheck {
 export interface StaticAnalysisResult {
   /**
    * Overall status.
-   * - `pass`: every applicable check ran and passed. One skipped check
-   *   prevents this value.
+   * - `pass`: every counted check ran and passed. One skipped check prevents
+   *   this value. An advisory check with no verdict does not, see `advisorySkips`.
    * - `fail`: one or more checks failed.
    * - `skip`: inconclusive, see `skipReason`. A repo with no supported
    *   toolchain, or with a check that did not run, is not reported as a pass.
@@ -149,21 +168,56 @@ export interface BoundaryLintInput {
    * schema default.
    */
   readonly firstPartyGlobs?: readonly string[] | undefined;
+  /**
+   * Finds the dependency-cruiser bin for `repoRoot`. The default is {@link findLocalDepcruise}.
+   * A test injects a lookup to run a chosen bin.
+   */
+  readonly findDepcruise?: ((repoRoot: string) => string | undefined) | undefined;
 }
 
-/** Verdict of the import-boundary leg. `SKIP` is advisory and does not block. */
-export interface BoundaryLintResult {
-  readonly status: 'PASS' | 'FAIL' | 'SKIP';
-  /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
-  readonly detail?: string;
-  /**
-   * True on a `SKIP` when the leg applies but gave no verdict. The scan did not
-   * finish, or no first-party source root exists. The report lists such a skip
-   * and marks the result degraded. A `SKIP` without it means that the
-   * repository has no boundary config.
-   */
-  readonly degraded?: boolean;
+/** A count of modules above zero. Only {@link positiveCount} gives one, so a value of this type is never 0. */
+export type PositiveCount = number & { readonly positiveCountBrand: true };
+
+/** True when `value` is a whole number above zero. */
+function isPositiveCount(value: number): value is PositiveCount {
+  return Number.isInteger(value) && value > 0;
 }
+
+/**
+ * Gives `value` as a {@link PositiveCount}, or `undefined` for 0, a negative number or a fraction.
+ * A literal 0 is a compile error, and a runtime 0 gives `undefined`.
+ */
+export function positiveCount<N extends number>(
+  value: N & (N extends 0 ? never : unknown),
+): PositiveCount | undefined {
+  return isPositiveCount(value) ? value : undefined;
+}
+
+/** The leg result for a repository without the config of the leg. The leg does not run, and the report does not name it. */
+export interface LegNotConfigured {
+  readonly status: 'NOT_CONFIGURED';
+  readonly detail: string;
+}
+
+/** The leg result for a run with no verdict. The report lists it as an advisory skip, and the status does not change. */
+export interface LegNoVerdict<Cause extends BoundaryNoVerdictCause> {
+  readonly status: 'NO_VERDICT';
+  readonly cause: Cause;
+  readonly detail: string;
+}
+
+/**
+ * The verdict of the import-boundary leg. Each member is a closed state.
+ * - `PASS`: no `error` violation, and the scan checked at least one module.
+ * - `FAIL`: `error` violations, or a fault inside the repository, such as a broken config or a usage error.
+ * - `NO_VERDICT`: a fault outside the repository, or a scan with nothing to check. The gate does not fail on it.
+ * - `NOT_CONFIGURED`: the repository has no boundary config.
+ */
+export type BoundaryLintResult =
+  | { readonly status: 'PASS'; readonly cruised: PositiveCount; readonly detail: string }
+  | { readonly status: 'FAIL'; readonly cause: 'violations' | 'config-or-usage'; readonly detail: string }
+  | LegNoVerdict<BoundaryNoVerdictCause>
+  | LegNotConfigured;
 
 /**
  * Finds a dependency-cruiser config in `repoRoot` and returns its file name,
@@ -248,23 +302,60 @@ function scanRootsOfGlob(repoRoot: string, glob: string): string[] {
   return candidates.map((rel) => (rel === '' ? '.' : rel));
 }
 
-/**
- * The scan roots of the import-boundary leg: the existing roots of the
- * `ownership.firstParty` globs, sorted. The list holds no duplicate and no
- * root inside another root. A root of `.` replaces all other roots.
- */
-function firstPartyScanRoots(repoRoot: string, globs: readonly string[]): string[] {
-  const roots = [...new Set(globs.flatMap((glob) => scanRootsOfGlob(repoRoot, glob)))].sort();
-  if (roots.includes('.')) return ['.'];
-  return roots.filter(
-    (root) => !roots.some((other) => other !== root && root.startsWith(`${other}/`)),
-  );
+/** The scan scope of the import-boundary leg, with the globs that the scan did not take as written. */
+interface BoundaryScanScope {
+  /** The existing roots, sorted, with no duplicate and no root inside another root. */
+  readonly roots: readonly string[];
+  /** The globs that name no existing path. The scan drops them. */
+  readonly dropped: readonly string[];
+  /** The globs whose walk stops at the first segment. The scan widens them to the repository root. */
+  readonly widened: readonly string[];
 }
 
-/** The parts of a dependency-cruiser JSON report that the leg reads. */
+/**
+ * The scan scope of the import-boundary leg: the existing roots of the
+ * `ownership.firstParty` globs. A root of `.` replaces all other roots.
+ * The scope also names each dropped glob and each glob widened to `.`.
+ */
+function firstPartyScanRoots(repoRoot: string, globs: readonly string[]): BoundaryScanScope {
+  const rootsByGlob = globs.map((glob) => ({ glob, roots: scanRootsOfGlob(repoRoot, glob) }));
+  const dropped = rootsByGlob.filter((entry) => entry.roots.length === 0).map((entry) => entry.glob);
+  const widened = rootsByGlob.filter((entry) => entry.roots.includes('.')).map((entry) => entry.glob);
+  const roots = [...new Set(rootsByGlob.flatMap((entry) => entry.roots))].sort();
+  if (roots.includes('.')) return { roots: ['.'], dropped, widened };
+  return {
+    roots: roots.filter((root) => !roots.some((other) => other !== root && root.startsWith(`${other}/`))),
+    dropped,
+    widened,
+  };
+}
+
+/**
+ * The sentence of the leg detail that names the dropped and the widened globs, or `undefined` when the scan
+ * took each glob as written. The leg adds it to each verdict, a PASS too.
+ */
+function scopeNote(scope: BoundaryScanScope): string | undefined {
+  const parts: string[] = [];
+  if (scope.dropped.length > 0) {
+    parts.push(`ownership.firstParty globs that name no path, not scanned: ${scope.dropped.join(', ')}`);
+  }
+  if (scope.widened.length > 0) {
+    parts.push(`ownership.firstParty globs widened to the repository root: ${scope.widened.join(', ')}`);
+  }
+  return parts.length === 0 ? undefined : `${parts.join('. ')}.`;
+}
+
+/** Adds the scope note to a leg detail as a sentence of its own. */
+function withScopeNote(detail: string, note: string | undefined): string {
+  return note === undefined ? detail : `${detail}. ${note}`;
+}
+
+/** The parts of a complete dependency-cruiser JSON report that the leg reads. */
 interface CruiseSummary {
   /** The number of violations of `error` severity, from `summary.error`. */
   readonly errorCount: number;
+  /** The number of modules that the scan checked, from `summary.totalCruised`. */
+  readonly totalCruised: number;
   /** One line for each `error` violation, in the form of the text reporter. */
   readonly errorLines: readonly string[];
 }
@@ -280,10 +371,14 @@ function errorViolationLine(violation: unknown): string[] {
   return [`error ${rule.name}: ${from} → ${to}`];
 }
 
+/** True when `value` is a whole number of zero or more. */
+function isCount(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0;
+}
+
 /**
- * Reads `summary.error` and the `error` violations from the stdout of
- * `depcruise --output-type json`. Output that is not a complete report gives
- * `undefined`, because a partial or absent report is not a verdict.
+ * Reads `summary.error`, `summary.totalCruised` and the `error` violations from the stdout of
+ * `depcruise --output-type json`. A complete report holds both counts. Other output gives `undefined`.
  */
 function readCruiseSummary(stdout: string): CruiseSummary | undefined {
   let report: unknown;
@@ -294,23 +389,23 @@ function readCruiseSummary(stdout: string): CruiseSummary | undefined {
   }
   if (typeof report !== 'object' || report === null || !('summary' in report)) return undefined;
   const summary = report.summary;
-  if (typeof summary !== 'object' || summary === null || !('error' in summary)) return undefined;
+  if (typeof summary !== 'object' || summary === null) return undefined;
+  if (!('error' in summary) || !('totalCruised' in summary)) return undefined;
   const errorCount = summary.error;
-  if (typeof errorCount !== 'number' || !Number.isInteger(errorCount) || errorCount < 0) {
-    return undefined;
-  }
+  const totalCruised = summary.totalCruised;
+  if (!isCount(errorCount) || !isCount(totalCruised)) return undefined;
   const violations: unknown = 'violations' in summary ? summary.violations : undefined;
   const errorLines = Array.isArray(violations)
     ? violations.flatMap((violation: unknown) => errorViolationLine(violation))
     : [];
-  return { errorCount, errorLines };
+  return { errorCount, totalCruised, errorLines };
 }
 
 /** Text on stderr that shows that the Node heap was exhausted. */
 const OUT_OF_MEMORY = /heap out of memory|allocation failed/i;
 
-/** The most stderr lines that the detail of a degraded skip quotes. */
-const SKIP_DETAIL_STDERR_LINES = 3;
+/** The most stderr lines that a leg detail quotes. */
+const DETAIL_STDERR_LINES = 3;
 
 /** A shell gives the exit status 128 plus the signal number for a process that a signal stopped. */
 const SIGNAL_EXIT_BASE = 128;
@@ -318,90 +413,206 @@ const SIGNAL_EXIT_BASE = 128;
 /** The highest signal number that the exit-status hint names. */
 const MAX_SIGNAL_NUMBER = 64;
 
+/** The exit status of a POSIX shell, and of `env` in a shebang line, for a command that it did not find. */
+const COMMAND_NOT_FOUND_EXIT = 127;
+
+/** The exit status of `cmd.exe` for a command that it did not find. */
+const WINDOWS_COMMAND_NOT_FOUND_EXIT = 9009;
+
+/** A fault outside the repository that gave no verdict, with the words that name it. */
+interface ProcessFault {
+  readonly cause: ProcessNoVerdictCause;
+  readonly text: string;
+}
+
 /**
- * Names the cause when a depcruise run gave no verdict. The cause is the runner
- * error, a heap exhaustion, the signal, or the exit status with stderr.
+ * Names the fault when the runner or a signal stopped a run. Both void the exit status and the output,
+ * so a leg reads them first. It gives `undefined` for a run that ended by itself.
  */
-function noVerdictCause(result: CommandResult): string {
+function processFault(result: CommandResult): ProcessFault | undefined {
   if (result.spawnError === 'ENOBUFS') {
-    return 'its JSON report passed the output limit of the runner (ENOBUFS)';
+    return { cause: 'output-limit', text: 'its output passed the output limit of the runner (ENOBUFS)' };
   }
-  if (result.spawnError) return `the runner reported ${result.spawnError}`;
-  if (OUT_OF_MEMORY.test(result.stderr)) return 'it ran out of memory';
-  if (result.signal) return `it was stopped by ${result.signal}`;
+  if (result.spawnError === 'ENOENT') return { cause: 'missing-tool', text: 'the runner reported ENOENT' };
+  if (result.spawnError) return { cause: 'did-not-start', text: `the runner reported ${result.spawnError}` };
+  if (OUT_OF_MEMORY.test(result.stderr) && result.signal) {
+    return { cause: 'out-of-memory', text: 'it ran out of memory' };
+  }
+  if (result.signal) return { cause: 'signal', text: `it was stopped by ${result.signal}` };
+  return undefined;
+}
+
+/**
+ * Names the fault outside the repository that the stderr or the exit status of a run with no verdict shows.
+ * The faults are a heap exhaustion, a shell status of a signal stop, and a command that was not found.
+ * It gives `undefined` otherwise, and the leg then reads the run as a fault inside the repository.
+ */
+function noVerdictFault(result: CommandResult): ProcessFault | undefined {
+  if (OUT_OF_MEMORY.test(result.stderr)) return { cause: 'out-of-memory', text: 'it ran out of memory' };
   const code = result.exitCode;
   const signalNumber = code - SIGNAL_EXIT_BASE;
-  const status =
-    signalNumber > 0 && signalNumber <= MAX_SIGNAL_NUMBER
-      ? `exit ${code}, the status of a process stopped by signal ${signalNumber}`
-      : `exit ${code}`;
-  const stderr = result.stderr
+  if (signalNumber > 0 && signalNumber <= MAX_SIGNAL_NUMBER) {
+    return { cause: 'signal', text: `exit ${code}, the status of a process stopped by signal ${signalNumber}` };
+  }
+  if (code === COMMAND_NOT_FOUND_EXIT || code === WINDOWS_COMMAND_NOT_FOUND_EXIT) {
+    const stderr = stderrExcerpt(result.stderr);
+    const quoted = stderr ? `: ${stderr}` : '';
+    return { cause: 'missing-tool', text: `exit ${code}, the status of a command that was not found${quoted}` };
+  }
+  return undefined;
+}
+
+/** The first non-empty lines of stderr on one line, for a leg detail. */
+function stderrExcerpt(stderr: string): string {
+  return stderr
     .trim()
     .split('\n')
-    .slice(0, SKIP_DETAIL_STDERR_LINES)
+    .slice(0, DETAIL_STDERR_LINES)
     .map((line) => line.trim())
     .filter((line) => line.length > 0)
     .join(' ');
-  return `it gave no JSON report (${status})${stderr ? `: ${stderr}` : ''}`;
 }
 
-/** A degraded `SKIP` of the boundary leg, with the cause in its detail. */
-function boundaryNoVerdict(cause: string): BoundaryLintResult {
-  return { status: 'SKIP', degraded: true, detail: `dependency-cruiser gave no verdict: ${cause}` };
+/** A `NO_VERDICT` of the boundary leg, with the cause and the scope note in its detail. */
+function boundaryNoVerdict(
+  cause: BoundaryNoVerdictCause,
+  text: string,
+  note: string | undefined,
+): BoundaryLintResult {
+  return { status: 'NO_VERDICT', cause, detail: withScopeNote(`dependency-cruiser gave no verdict: ${text}`, note) };
+}
+
+/** The file name of the dependency-cruiser bin in `node_modules/.bin`. npm writes a `.cmd` shim on win32. */
+function depcruiseBinName(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'depcruise.cmd' : 'depcruise';
+}
+
+/** True when `candidate` is a file. A symbolic link counts when its target is a file. */
+function isFile(candidate: string): boolean {
+  try {
+    return fs.statSync(candidate).isFile();
+  } catch {
+    return false;
+  }
 }
 
 /**
- * Runs `npx depcruise --validate <config> --output-type json` over the roots of
- * `ownership.firstParty`, so nested worktrees and build output stay out. The
- * verdict is `summary.error` of the JSON report. The leg does not read the
- * exit code, because 256 errors wrap to exit 0.
- * - No config: `SKIP`, and depcruise does not run.
- * - `summary.error` is 0: `PASS`. Above 0: `FAIL`, with the violations in `detail`.
- * - No first-party root, a throw, a runner error, a signal, or no complete
- *   report: a degraded `SKIP` that names the cause.
+ * Finds the dependency-cruiser bin that the repository installed. It walks up from `repoRoot` as npm does,
+ * and gives the first `node_modules/.bin/depcruise` that is a file. On win32 the bin is `depcruise.cmd`.
+ * It gives `undefined` when no directory on the walk holds the bin.
+ */
+export function findLocalDepcruise(
+  repoRoot: string,
+  platform: NodeJS.Platform = process.platform,
+): string | undefined {
+  const name = depcruiseBinName(platform);
+  let dir = path.resolve(repoRoot);
+  for (;;) {
+    const candidate = path.join(dir, 'node_modules', '.bin', name);
+    if (isFile(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
+ * Runs the installed `node_modules/.bin/depcruise --validate <config> --output-type json` over the roots of the
+ * `ownership.firstParty` globs. The leg never runs `npx`, so a missing install never fetches a package from the
+ * registry. A glob whose walk stops at its first segment widens the scan to the repository root, which takes in
+ * nested worktrees and build output. The detail of each verdict names such a glob and each glob with no path.
+ * The verdict comes from the JSON report, not from the exit code, because 256 errors wrap to exit 0.
+ * - No config: `NOT_CONFIGURED`, and depcruise does not run.
+ * - `summary.error` above 0: `FAIL` with the violations. 0 with modules checked: `PASS` with the count.
+ * - No complete report and no fault outside the repository, such as a config error with exit 1: `FAIL`.
+ * - No source root, no installed bin, a runner fault, a signal, a heap exhaustion, or zero modules checked:
+ *   `NO_VERDICT` with its cause.
  */
 export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
-  const { repoRoot, runCommand, firstPartyGlobs = DEFAULT_FIRST_PARTY_GLOBS } = input;
+  const {
+    repoRoot,
+    runCommand,
+    firstPartyGlobs = DEFAULT_FIRST_PARTY_GLOBS,
+    findDepcruise = findLocalDepcruise,
+  } = input;
 
   const configName = findBoundaryConfig(repoRoot);
   if (configName === null) {
+    return { status: 'NOT_CONFIGURED', detail: `no ${BOUNDARY_CONFIG_FILENAMES[0]} in repo root` };
+  }
+
+  const scope = firstPartyScanRoots(repoRoot, firstPartyGlobs);
+  if (scope.roots.length === 0) {
+    return boundaryNoVerdict(
+      'no-source-root',
+      `no ownership.firstParty source root exists (${firstPartyGlobs.join(', ')})`,
+      undefined,
+    );
+  }
+  const note = scopeNote(scope);
+
+  const bin = findDepcruise(repoRoot);
+  if (bin === undefined) {
+    return boundaryNoVerdict(
+      'missing-tool',
+      `no node_modules/.bin/${depcruiseBinName(process.platform)} in ${repoRoot} or in a parent directory. ` +
+        'Install dependency-cruiser in the repository, for example with npm install --save-dev dependency-cruiser. ' +
+        'The gate does not fetch it from the registry',
+      note,
+    );
+  }
+
+  const args = ['--validate', configName, '--output-type', 'json', ...scope.roots];
+  const rerun = `${path.relative(repoRoot, bin) || bin} --validate ${configName} ${scope.roots.join(' ')}`;
+  let result: CommandResult;
+  try {
+    result = runCommand(bin, args, { cwd: repoRoot });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    return boundaryNoVerdict('did-not-start', `the tool did not start (${message})`, note);
+  }
+
+  const fault = processFault(result);
+  if (fault !== undefined) return boundaryNoVerdict(fault.cause, fault.text, note);
+
+  const summary = readCruiseSummary(result.stdout);
+  if (summary === undefined) {
+    const exitFault = noVerdictFault(result);
+    if (exitFault !== undefined) return boundaryNoVerdict(exitFault.cause, exitFault.text, note);
+    const stderr = stderrExcerpt(result.stderr);
+    const header =
+      `dependency-cruiser gave no complete report (exit ${result.exitCode})${stderr ? `: ${stderr}` : ''}. ` +
+      'A broken config, a usage error or an installed version with another report shape fails the leg';
     return {
-      status: 'SKIP',
-      detail: `no ${BOUNDARY_CONFIG_FILENAMES[0]} in repo root`,
+      status: 'FAIL',
+      cause: 'config-or-usage',
+      detail: withScopeNote(`${header}. Re-run \`${rerun}\` for the full output`, note),
     };
   }
 
-  const roots = firstPartyScanRoots(repoRoot, firstPartyGlobs);
-  if (roots.length === 0) {
+  if (summary.errorCount > 0) {
+    const count = summary.errorCount;
+    const header = `dependency-cruiser found ${count} ${count === 1 ? 'violation' : 'violations'} of error severity`;
+    const detail = capFailDetail(
+      [header, ...(note === undefined ? [] : [note]), ...summary.errorLines].join('\n'),
+      rerun,
+    );
+    return { status: 'FAIL', cause: 'violations', detail };
+  }
+
+  const cruised = positiveCount(summary.totalCruised);
+  if (cruised === undefined) {
     return boundaryNoVerdict(
-      `no ownership.firstParty source root exists (${firstPartyGlobs.join(', ')})`,
+      'zero-modules',
+      'the scan checked no module (summary.totalCruised is 0). The roots hold no module that the config scans',
+      note,
     );
   }
-
-  let result: CommandResult;
-  try {
-    result = runCommand(
-      'npx',
-      ['depcruise', '--validate', configName, '--output-type', 'json', ...roots],
-      { cwd: repoRoot },
-    );
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return boundaryNoVerdict(`the tool is not available (${message})`);
-  }
-
-  if (result.spawnError || result.signal) return boundaryNoVerdict(noVerdictCause(result));
-  const summary = readCruiseSummary(result.stdout);
-  if (summary === undefined) return boundaryNoVerdict(noVerdictCause(result));
-  if (summary.errorCount === 0) return { status: 'PASS' };
-
-  const count = summary.errorCount;
-  const header = `dependency-cruiser found ${count} ${count === 1 ? 'violation' : 'violations'} of error severity`;
-  const detail = capFailDetail(
-    [header, ...summary.errorLines].join('\n'),
-    `npx depcruise --validate ${configName} ${roots.join(' ')}`,
-  );
-  return { status: 'FAIL', detail };
+  return {
+    status: 'PASS',
+    cruised,
+    detail: withScopeNote(`${cruised} ${cruised === 1 ? 'module' : 'modules'} checked`, note),
+  };
 }
 
 /** Candidate taint-ruleset filenames, in resolution order. */
@@ -425,29 +636,22 @@ export interface RawIoTaintInput {
   readonly coreSources?: readonly string[];
 }
 
-/** Verdict of the boundary-parse taint leg. `SKIP` is advisory and does not block. */
-export interface RawIoTaintResult {
-  readonly status: 'PASS' | 'FAIL' | 'SKIP';
-  /** Human detail: the violation summary on FAIL, the skip reason on SKIP. */
-  readonly detail?: string;
-  /**
-   * True on a `SKIP` when the repository has a ruleset but the engine gave no
-   * verdict. The report lists such a skip and marks the result degraded. A
-   * `SKIP` without it means that the repository has no ruleset.
-   */
-  readonly degraded?: boolean;
-}
+/**
+ * The verdict of the boundary-parse taint leg. Each member is a closed state.
+ * - `PASS`: exit 0.
+ * - `FAIL`: findings (exit 1), or a fault inside the repository, such as a ruleset or a usage error.
+ * - `NO_VERDICT`: a fault outside the repository. The gate does not fail on it.
+ * - `NOT_CONFIGURED`: the repository has no ruleset.
+ */
+export type RawIoTaintResult =
+  | { readonly status: 'PASS' }
+  | { readonly status: 'FAIL'; readonly cause: 'findings' | 'ruleset-or-usage'; readonly detail: string }
+  | LegNoVerdict<ProcessNoVerdictCause>
+  | LegNotConfigured;
 
-/** A degraded `SKIP` of the taint leg, with the cause in its detail. */
-function taintNoVerdict(detail: string): RawIoTaintResult {
-  return { status: 'SKIP', degraded: true, detail };
-}
-
-/** Names the runner error of a semgrep run. ENOBUFS gets its own text, because the engine did start. */
-function taintSpawnErrorDetail(spawnError: string): string {
-  const code = spawnError.trim();
-  if (code === 'ENOBUFS') return 'semgrep output passed the output limit of the runner (ENOBUFS)';
-  return code.length > 0 ? `semgrep gave no verdict: the runner reported ${code}` : 'semgrep not available';
+/** A `NO_VERDICT` of the taint leg, with the cause in its detail. */
+function taintNoVerdict(cause: ProcessNoVerdictCause, text: string): RawIoTaintResult {
+  return { status: 'NO_VERDICT', cause, detail: `semgrep gave no verdict: ${text}` };
 }
 
 /**
@@ -473,21 +677,18 @@ function findTaintRuleset(repoRoot: string): string | null {
  * `semgrep --error --quiet --config <ruleset> <coreSources...>`. The ruleset
  * checks that untrusted input passes a registered parser before it enters the
  * core. Import rules cannot see value flow, so this leg uses a dataflow engine.
- * - No ruleset: `SKIP`, and the engine does not run.
+ * - No ruleset: `NOT_CONFIGURED`, and the engine does not run.
  * - Exit 0: `PASS`. Exit 1: `FAIL`, with the findings in `detail`.
- * - A throw, a `spawnError`, a `signal`, or any other exit code: a degraded
- *   `SKIP` that names the cause. An engine that did not start or did not
- *   finish is not evidence of a violation.
+ * - A throw, a runner error, a signal, a heap exhaustion, or the exit status of a signal stop: `NO_VERDICT`.
+ *   The exit status of a missing command is `NO_VERDICT` too. An engine that did not finish is not evidence.
+ * - Any other exit code, such as a ruleset error: `FAIL`, with the stderr of the engine.
  */
 export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
   const { repoRoot, runCommand, coreSources = ['.'] } = input;
 
   const ruleset = findTaintRuleset(repoRoot);
   if (ruleset === null) {
-    return {
-      status: 'SKIP',
-      detail: `no ${TAINT_RULESET_FILENAMES[0]} in repo`,
-    };
+    return { status: 'NOT_CONFIGURED', detail: `no ${TAINT_RULESET_FILENAMES[0]} in repo` };
   }
 
   let result: CommandResult;
@@ -499,32 +700,35 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
     );
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
-    return taintNoVerdict(`semgrep not available (${message})`);
+    return taintNoVerdict('did-not-start', `semgrep not available (${message})`);
   }
 
-  if (result.spawnError) {
-    return taintNoVerdict(taintSpawnErrorDetail(result.spawnError));
-  }
-
-  if (result.signal) {
-    return taintNoVerdict(`semgrep was stopped by ${result.signal}`);
-  }
+  const fault = processFault(result);
+  if (fault !== undefined) return taintNoVerdict(fault.cause, fault.text);
 
   if (result.exitCode === 0) {
     return { status: 'PASS' };
   }
 
-  if (result.exitCode !== 1) {
-    return taintNoVerdict(
-      result.stderr.trim() || `semgrep inconclusive (exit ${result.exitCode})`,
-    );
+  if (result.exitCode === 1) {
+    const detail =
+      result.stdout.trim() ||
+      result.stderr.trim() ||
+      'semgrep reported a boundary-parse violation';
+    return { status: 'FAIL', cause: 'findings', detail };
   }
 
-  const detail =
-    result.stdout.trim() ||
-    result.stderr.trim() ||
-    'semgrep reported a boundary-parse violation';
-  return { status: 'FAIL', detail };
+  const exitFault = noVerdictFault(result);
+  if (exitFault !== undefined) return taintNoVerdict(exitFault.cause, exitFault.text);
+
+  const stderr = stderrExcerpt(result.stderr);
+  return {
+    status: 'FAIL',
+    cause: 'ruleset-or-usage',
+    detail:
+      `semgrep exited ${result.exitCode}${stderr ? `: ${stderr}` : ' with no stderr'}. ` +
+      'A ruleset or a usage error fails the leg',
+  };
 }
 
 type CheckStatus = 'PASS' | 'FAIL' | 'SKIP';
@@ -798,13 +1002,42 @@ function advisorySkipNote(advisorySkips: readonly AdvisorySkip[]): string {
 }
 
 /**
+ * Adds the result of an advisory leg to the report. `PASS` and `FAIL` are counted checks. `NO_VERDICT` goes to
+ * `advisorySkips`, and the status does not change. `NOT_CONFIGURED` adds nothing, so a repo without the config
+ * of the leg sees no change. The switch is exhaustive, so a new member of a leg result is a compile error here.
+ */
+function foldAdvisoryLeg(
+  name: string,
+  leg: BoundaryLintResult | RawIoTaintResult,
+  checks: CheckResult[],
+  advisorySkips: AdvisorySkip[],
+): void {
+  switch (leg.status) {
+    case 'PASS':
+      checks.push('detail' in leg ? { name, status: 'PASS', detail: leg.detail } : { name, status: 'PASS' });
+      return;
+    case 'FAIL':
+      checks.push({ name, status: 'FAIL', detail: leg.detail });
+      return;
+    case 'NO_VERDICT':
+      advisorySkips.push({ name, cause: leg.cause, detail: leg.detail });
+      return;
+    case 'NOT_CONFIGURED':
+      return;
+    default: {
+      const unhandled: never = leg;
+      return unhandled;
+    }
+  }
+}
+
+/**
  * Runs the checks for the detected project type and builds the report. The
- * boundary-lint and taint legs join the checks only when they do not give
- * `SKIP`, so a repo without their config sees no change. A degraded `SKIP` of
- * either leg goes to `advisorySkips`: the report lists it and marks the result
- * degraded, and the status does not change. A skipped check counts as a
- * result. The precedence is FAIL, then DEGRADED (`skip`), then PASS, so PASS
- * needs every check to run and pass.
+ * boundary-lint and taint legs join through `foldAdvisoryLeg`. A skipped check
+ * counts as a result. The precedence is FAIL, then DEGRADED (`skip`), then PASS.
+ * Thus PASS needs every counted check to run and pass. An advisory leg with no
+ * verdict is not a counted check, so a PASS can carry `advisorySkips`, and the
+ * result line then says `degraded`.
  */
 export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisResult {
   const { repoRoot, skipLint = false, skipTypecheck = false, runCommand } = input;
@@ -886,37 +1119,13 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   }
 
   const advisorySkips: AdvisorySkip[] = [];
-  const boundary = runBoundaryLint({
-    repoRoot,
-    runCommand,
-    firstPartyGlobs: input.firstPartyGlobs,
-  });
-  if (boundary.status !== 'SKIP') {
-    checks.push({
-      name: BOUNDARY_LINT_NAME,
-      status: boundary.status,
-      ...(boundary.detail ? { detail: boundary.detail } : {}),
-    });
-  } else if (boundary.degraded === true) {
-    advisorySkips.push({
-      name: BOUNDARY_LINT_NAME,
-      detail: boundary.detail ?? 'dependency-cruiser gave no verdict',
-    });
-  }
-
-  const taint = runRawIoTaint({ repoRoot, runCommand });
-  if (taint.status !== 'SKIP') {
-    checks.push({
-      name: BOUNDARY_TAINT_NAME,
-      status: taint.status,
-      ...(taint.detail ? { detail: taint.detail } : {}),
-    });
-  } else if (taint.degraded === true) {
-    advisorySkips.push({
-      name: BOUNDARY_TAINT_NAME,
-      detail: taint.detail ?? 'semgrep gave no verdict',
-    });
-  }
+  foldAdvisoryLeg(
+    BOUNDARY_LINT_NAME,
+    runBoundaryLint({ repoRoot, runCommand, firstPartyGlobs: input.firstPartyGlobs }),
+    checks,
+    advisorySkips,
+  );
+  foldAdvisoryLeg(BOUNDARY_TAINT_NAME, runRawIoTaint({ repoRoot, runCommand }), checks, advisorySkips);
 
   let passCount = 0;
   let failCount = 0;
