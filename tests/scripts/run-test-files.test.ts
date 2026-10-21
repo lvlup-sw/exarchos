@@ -1,14 +1,13 @@
 /**
  * Tests for `tools/test-helpers/run-test-files.mjs`, the script behind `npm run test:files`.
  *
- * Without a file argument, `vitest run` starts the whole root suite, and that suite deletes the
- * worktree that it runs in. These tests hold that the script refuses before vitest starts.
- * The cases of the binary build run a copy of the script beside an echo vitest and a fake `bun`.
- * No real vitest and no real build starts.
+ * With no file, `vitest run` can start the whole root suite. These tests hold that the script refuses before vitest starts.
+ * Each case runs a copy of the script in a temporary tree beside an echo vitest, so no case can start the real vitest.
+ * Thus a changed script turns a case red and starts no suite. The binary cases add a fake `bun`, so no real build starts.
  */
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'node:child_process';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,40 +22,12 @@ const SCRIPT = path.join(REPO_ROOT, 'tools', 'test-helpers', 'run-test-files.mjs
 /** The exit code of a refusal. */
 const REFUSED = 2;
 
-/** Runs the script from the repository root with the given arguments. */
-function runScript(args: readonly string[]): ReturnType<typeof spawnAsync> {
-  return spawnAsync(process.execPath, [SCRIPT, ...args], { cwd: REPO_ROOT, timeout: 30_000 });
-}
-
-describe('run-test-files refusals', () => {
-  it('RunTestFiles_NoFileArgument_RefusesBeforeVitestStarts', async () => {
-    const result = await runScript([]);
-    expect(result.status).toBe(REFUSED);
-    expect(result.stderr).toContain('refused');
-    expect(result.stdout).not.toContain('Test Files');
-  });
-
-  it('RunTestFiles_OnlyTheSeparator_RefusesBeforeVitestStarts', async () => {
-    const result = await runScript(['--']);
-    expect(result.status).toBe(REFUSED);
-    expect(result.stderr).toContain('refused');
-  });
-
-  it('RunTestFiles_ADirectoryArgument_IsRefusedAsNotAFile', async () => {
-    const result = await runScript(['tests']);
-    expect(result.status).toBe(REFUSED);
-    expect(result.stderr).toContain('not files: tests');
-  });
-
-  it('RunTestFiles_OnlyAnOption_RefusesBeforeVitestStarts', async () => {
-    const result = await runScript(['--project=unit']);
-    expect(result.status).toBe(REFUSED);
-    expect(result.stderr).toContain('refused');
-  });
-});
+/** The files of each temporary tree. They are empty, because the echo vitest reads no file. */
+const TREE_FILES = ['tests/process/sample.test.ts', 'tests/unit/sample.test.ts', 'tests/unit/other.test.ts', 'vitest.config.ts'];
 
 /**
  * The echo vitest. It prints its arguments, the first two PATH entries, and whether the first entry holds the binary.
+ * It exits with the code in `ECHO_EXIT`, or with 0.
  * When asked, it writes a file into a read-only directory in the first entry, so that the script cannot delete that entry.
  */
 const ECHO_VITEST = `import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -72,6 +43,7 @@ if (process.env.FAKE_VITEST_HOLD_FIRST_PATH) {
   chmodSync(held, 0o555);
 }
 process.stdout.write('ECHO ' + JSON.stringify({ argv: process.argv.slice(2), pathEntries: entries.slice(0, 2), binaryOnFirstPath: existsSync(binary) }) + '\\n');
+process.exitCode = Number(process.env.ECHO_EXIT ?? '0');
 `;
 
 /**
@@ -149,26 +121,166 @@ async function waitFor(check: () => boolean, timeoutMs: number): Promise<boolean
   return check();
 }
 
+/** Copies the tracked script into `tree` at its path in the repository, and writes the files of {@link TREE_FILES}. It returns the copy. */
+function makeTree(tree: string): string {
+  const copy = path.join(tree, 'tools', 'test-helpers', 'run-test-files.mjs');
+  mkdirSync(path.dirname(copy), { recursive: true });
+  copyFileSync(SCRIPT, copy);
+  for (const file of TREE_FILES) {
+    mkdirSync(path.join(tree, path.dirname(file)), { recursive: true });
+    writeFileSync(path.join(tree, file), '');
+  }
+  return copy;
+}
+
+/** Returns the first vitest entry point in a `node_modules` directory from `dir` up, or `undefined` when there is none. */
+function vitestEntryAbove(dir: string): string | undefined {
+  for (let current = dir; ; current = path.dirname(current)) {
+    const candidate = path.join(current, 'node_modules', 'vitest', 'vitest.mjs');
+    if (existsSync(candidate) && statSync(candidate).isFile()) return candidate;
+    if (path.dirname(current) === current) return undefined;
+  }
+}
+
+/** Runs `script` with node in `cwd`. The child gets the environment of the test with `env` added. */
+function runScriptIn(
+  script: string,
+  cwd: string,
+  args: readonly string[],
+  env: Readonly<Record<string, string>> = {},
+): ReturnType<typeof spawnAsync> {
+  return spawnAsync(process.execPath, [script, ...args], { cwd, env: { ...process.env, ...env }, timeout: 30_000 });
+}
+
+/** The temporary tree. It holds the copy of the script, the files of {@link TREE_FILES}, and the echo vitest in its `node_modules`. */
+let root = '';
+/** The copy of the script in {@link root}. */
+let copy = '';
+
+beforeAll(() => {
+  root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'run-test-files-')));
+  copy = makeTree(root);
+  mkdirSync(path.join(root, 'node_modules', 'vitest'), { recursive: true });
+  writeFileSync(path.join(root, 'node_modules', 'vitest', 'vitest.mjs'), ECHO_VITEST);
+});
+
+afterAll(() => {
+  if (root !== '') rmrf(root);
+});
+
+/** Runs the copy of the script in the temporary tree, beside the echo vitest. */
+function runCopy(args: readonly string[], env: Readonly<Record<string, string>> = {}): ReturnType<typeof spawnAsync> {
+  return runScriptIn(copy, root, args, env);
+}
+
+describe('run-test-files refusals', () => {
+  it('RunTestFiles_NoFileArgument_RefusesBeforeVitestStarts', async () => {
+    const result = await runCopy([]);
+    expect(result.status).toBe(REFUSED);
+    expect(result.stderr).toContain('refused');
+    expect(readEcho(result.stdout)).toBeUndefined();
+    expect(result.stdout).not.toContain('Test Files');
+  });
+
+  it('RunTestFiles_OnlyTheSeparator_RefusesBeforeVitestStarts', async () => {
+    const result = await runCopy(['--']);
+    expect(result.status).toBe(REFUSED);
+    expect(result.stderr).toContain('refused');
+    expect(readEcho(result.stdout)).toBeUndefined();
+  });
+
+  /** The directory comes with a test file, so only the refusal of an argument that is not a file stops the run. */
+  it('RunTestFiles_ADirectoryArgument_IsRefusedAsNotAFile', async () => {
+    const result = await runCopy(['tests/unit/sample.test.ts', 'tests']);
+    expect(result.status).toBe(REFUSED);
+    expect(result.stderr).toContain('not files: tests');
+    expect(readEcho(result.stdout)).toBeUndefined();
+  });
+
+  it('RunTestFiles_OnlyAnOption_RefusesBeforeVitestStarts', async () => {
+    const result = await runCopy(['--project=unit']);
+    expect(result.status).toBe(REFUSED);
+    expect(result.stderr).toContain('refused');
+    expect(readEcho(result.stdout)).toBeUndefined();
+  });
+
+  /**
+   * vitest reads `vitest.config.ts` as the value of `--config` or `-c`, and then gets no file filter.
+   * The value names a file, so only the refusal of an option with no `=` stops the run.
+   */
+  it('RunTestFiles_OptionWithASeparateValue_RefusesBeforeVitestStarts', async () => {
+    const result = await runCopy(['--config', 'vitest.config.ts', '-c', 'vitest.config.ts']);
+    expect(result.status).toBe(REFUSED);
+    expect(result.stderr).toContain('refused. These options hold no =: --config, -c.');
+    expect(readEcho(result.stdout)).toBeUndefined();
+  });
+
+  /** No `node_modules` from the tree up holds vitest. A vitest on `NODE_PATH` is not an install of the tree, so the script does not run it. */
+  it('RunTestFiles_NoLocalVitest_RefusesWithExit2', async () => {
+    const bare = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'run-test-files-bare-')));
+    try {
+      const bareCopy = makeTree(bare);
+      const nodePath = path.join(bare, 'node-path');
+      mkdirSync(path.join(nodePath, 'vitest'), { recursive: true });
+      writeFileSync(path.join(nodePath, 'vitest', 'vitest.mjs'), ECHO_VITEST);
+      expect(vitestEntryAbove(bare), 'a vitest above the temporary directory').toBeUndefined();
+
+      const result = await runScriptIn(bareCopy, bare, ['tests/unit/sample.test.ts'], { NODE_PATH: nodePath });
+
+      expect(result.status).toBe(REFUSED);
+      expect(result.stderr).toContain('the local vitest is missing');
+      expect(readEcho(result.stdout)).toBeUndefined();
+    } finally {
+      rmrf(bare);
+    }
+  });
+});
+
+describe('run-test-files runs the local vitest', () => {
+  /** A package manager can pass the separator on. The script drops it, and vitest gets `run` and the files in order. */
+  it('RunTestFiles_TestFiles_RunsVitestOnExactlyTheseFiles', async () => {
+    const result = await runCopy(['--', 'tests/unit/sample.test.ts', 'tests/unit/other.test.ts']);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readEcho(result.stdout)?.argv).toEqual(['run', 'tests/unit/sample.test.ts', 'tests/unit/other.test.ts']);
+  });
+
+  it('RunTestFiles_OptionWithItsValueAfterEquals_IsForwarded', async () => {
+    const result = await runCopy(['--reporter=dot', 'tests/unit/sample.test.ts']);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readEcho(result.stdout)?.argv).toEqual(['run', '--reporter=dot', 'tests/unit/sample.test.ts']);
+  });
+
+  /** The kill probe reads the exit code of the script. An exit that is not 0 or 1 gives no verdict, so the script passes each code on. */
+  it('RunTestFiles_VitestExitCode_IsTheExitCodeOfTheScript', async () => {
+    const result = await runCopy(['tests/unit/sample.test.ts'], { ECHO_EXIT: '3' });
+
+    expect(result.status, result.stderr).toBe(3);
+    expect(readEcho(result.stdout)?.argv).toEqual(['run', 'tests/unit/sample.test.ts']);
+  });
+
+  /** A worktree inside a checkout can have no install of its own. The script then runs the vitest of the checkout above it. */
+  it('RunTestFiles_NoInstallInTheTree_RunsTheVitestOfTheDirectoryAbove', async () => {
+    const tree = path.join(root, 'nested-worktree');
+    const nestedCopy = makeTree(tree);
+    expect(existsSync(path.join(tree, 'node_modules'))).toBe(false);
+
+    const result = await runScriptIn(nestedCopy, tree, ['tests/unit/sample.test.ts']);
+
+    expect(result.status, result.stderr).toBe(0);
+    expect(readEcho(result.stdout)?.argv).toEqual(['run', 'tests/unit/sample.test.ts']);
+  });
+});
+
 /**
  * The script builds the `exarchos` binary of the working tree for a file of the `process` project, and puts it first on PATH.
  * The fake `bun` is a POSIX shell script, so these cases do not run on Windows.
  */
 describe.skipIf(process.platform === 'win32')('run-test-files binary build for process tests', () => {
-  let root = '';
-  let copy = '';
   let fakeBin = '';
 
   beforeAll(() => {
-    root = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'run-test-files-')));
-    copy = path.join(root, 'tools', 'test-helpers', 'run-test-files.mjs');
-    mkdirSync(path.dirname(copy), { recursive: true });
-    copyFileSync(SCRIPT, copy);
-    mkdirSync(path.join(root, 'node_modules', 'vitest'), { recursive: true });
-    writeFileSync(path.join(root, 'node_modules', 'vitest', 'vitest.mjs'), ECHO_VITEST);
-    for (const file of ['tests/process/sample.test.ts', 'tests/unit/sample.test.ts']) {
-      mkdirSync(path.join(root, path.dirname(file)), { recursive: true });
-      writeFileSync(path.join(root, file), '');
-    }
     fakeBin = path.join(root, 'fake-bin');
     mkdirSync(fakeBin);
     writeFileSync(path.join(root, 'fake-bun.mjs'), FAKE_BUN);
@@ -179,22 +291,14 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
     chmodSync(path.join(fakeBin, 'bun'), 0o755);
   });
 
-  afterAll(() => {
-    if (root !== '') rmrf(root);
-  });
-
-  function runCopy(args: readonly string[], env: Readonly<Record<string, string>>): ReturnType<typeof spawnAsync> {
-    return spawnAsync(process.execPath, [copy, ...args], {
-      cwd: root,
-      env: { ...process.env, PATH: `${fakeBin}${path.delimiter}${process.env['PATH'] ?? ''}`, ...env },
-      timeout: 30_000,
-    });
+  function runWithFakeBun(args: readonly string[], env: Readonly<Record<string, string>>): ReturnType<typeof spawnAsync> {
+    return runCopy(args, { PATH: `${fakeBin}${path.delimiter}${process.env['PATH'] ?? ''}`, ...env });
   }
 
   it('RunTestFiles_ProcessTestFile_PutsTheBinaryOfTheTreeFirstOnPath', async () => {
     const marker = path.join(root, 'build-process.json');
 
-    const result = await runCopy(['tests/process/sample.test.ts'], { FAKE_BUN_MARKER: marker });
+    const result = await runWithFakeBun(['tests/process/sample.test.ts'], { FAKE_BUN_MARKER: marker });
 
     expect(result.status, result.stderr).toBe(0);
     const echo = readEcho(result.stdout);
@@ -213,7 +317,7 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
   it('RunTestFiles_NoProcessTestFile_BuildsNoBinaryAndKeepsThePath', async () => {
     const marker = path.join(root, 'build-unit.json');
 
-    const result = await runCopy(['tests/unit/sample.test.ts'], { FAKE_BUN_MARKER: marker });
+    const result = await runWithFakeBun(['tests/unit/sample.test.ts'], { FAKE_BUN_MARKER: marker });
 
     expect(result.status, result.stderr).toBe(0);
     const echo = readEcho(result.stdout);
@@ -223,7 +327,7 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
   });
 
   it('RunTestFiles_FailedBuild_RefusesWithExit2AndRunsNoTest', async () => {
-    const result = await runCopy(['tests/unit/sample.test.ts', 'tests/process/sample.test.ts'], { FAKE_BUN_EXIT: '1' });
+    const result = await runWithFakeBun(['tests/unit/sample.test.ts', 'tests/process/sample.test.ts'], { FAKE_BUN_EXIT: '1' });
 
     expect(result.status).toBe(REFUSED);
     expect(readEcho(result.stdout)).toBeUndefined();
@@ -235,7 +339,7 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
   it('RunTestFiles_TemporaryDirectoryNotMade_RefusesWithExit2AndStartsNoBuild', async () => {
     const marker = path.join(root, 'build-no-tmp.json');
 
-    const result = await runCopy(['tests/process/sample.test.ts'], {
+    const result = await runWithFakeBun(['tests/process/sample.test.ts'], {
       FAKE_BUN_MARKER: marker,
       TMPDIR: path.join(root, 'missing-tmp'),
     });
@@ -250,7 +354,7 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
   it('RunTestFiles_RenameOfTheBuiltBinaryFails_RefusesWithExit2AndDeletesTheBuildDirectory', async () => {
     const marker = path.join(root, 'build-rename.json');
 
-    const result = await runCopy(['tests/process/sample.test.ts'], { FAKE_BUN_MARKER: marker, FAKE_BUN_BLOCK_RENAME: '1' });
+    const result = await runWithFakeBun(['tests/process/sample.test.ts'], { FAKE_BUN_MARKER: marker, FAKE_BUN_BLOCK_RENAME: '1' });
 
     expect(result.status, result.stderr).toBe(REFUSED);
     expect(readEcho(result.stdout)).toBeUndefined();
@@ -265,7 +369,7 @@ describe.skipIf(process.platform === 'win32')('run-test-files binary build for p
    * The root user can delete a read-only directory, so the case does not run as root.
    */
   it.skipIf(process.getuid?.() === 0)('RunTestFiles_BuildDirectoryNotDeleted_WarnsAndKeepsTheExitCodeOfVitest', async () => {
-    const result = await runCopy(['tests/process/sample.test.ts'], { FAKE_VITEST_HOLD_FIRST_PATH: '1' });
+    const result = await runWithFakeBun(['tests/process/sample.test.ts'], { FAKE_VITEST_HOLD_FIRST_PATH: '1' });
     const buildDir = readEcho(result.stdout)?.pathEntries[0] ?? '';
     const held = path.join(buildDir, 'held');
     try {

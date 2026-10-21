@@ -6,11 +6,13 @@
  * The run has no `--project` filter, so vitest runs each file in the project that collects it.
  * The kill probe uses the script to run the changed test files of a task.
  *
- * It refuses to start when it gets no file, or when an argument is not a file.
- * vitest reads a file argument as a substring filter. With no file, `vitest run` starts the whole
- * root suite, and a short filter starts a large part of it. The whole suite deletes the worktree that
- * it runs in.
- * An argument that starts with `-` is a vitest option. Write an option value as `--name=value`.
+ * It refuses to start when it gets no file, when an argument is not a file, or when an option holds no `=`.
+ * vitest reads a file argument as a substring filter. With no file, `vitest run` can start the whole root suite,
+ * and a short filter can start a large part of it. vitest can read the argument after an option as the option value.
+ * Thus `--config vitest.config.ts` gives a run with no file filter. Write an option value as `--name=value`.
+ *
+ * The script runs the vitest of the nearest `node_modules` from the working directory up, as npm finds the binaries of a script.
+ * A worktree inside a checkout with no install of its own uses the install of that checkout. The script never downloads a runner.
  *
  * A file of the `process` project tests the `exarchos` binary on PATH. For such a file, the script builds the binary of the
  * working tree into a temporary directory and puts that directory first on PATH. Thus each run of the probe tests the tree that the probe sees.
@@ -19,16 +21,14 @@
  * A temporary directory that the script cannot delete gives a warning, and the exit code of vitest stays.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
+import { mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
-const HERE = path.dirname(fileURLToPath(import.meta.url));
-
-/** The entry point of the local vitest. The script never downloads a runner. */
-const VITEST_ENTRY = path.resolve(HERE, '..', '..', 'node_modules', 'vitest', 'vitest.mjs');
+/** The path of the vitest entry point inside a `node_modules` directory. */
+const VITEST_ENTRY_IN_NODE_MODULES = path.join('node_modules', 'vitest', 'vitest.mjs');
 
 /** The exit code of a refusal, of a failed build, and of a vitest that does not start or that a signal stops. */
 const REFUSED = 2;
@@ -77,23 +77,51 @@ function isFile(candidate) {
 }
 
 /**
- * Sorts the arguments into test files and arguments that are not files, and keeps the order of the
+ * Returns the vitest entry point of the nearest `node_modules` directory from `cwd` up, or `undefined` when no such directory holds one.
+ * The search reads no `NODE_PATH` and no global folder of node. Thus only an install of the tree or of a checkout around it runs.
+ * @param {string} cwd
+ * @returns {string | undefined}
+ */
+function findVitestEntry(cwd) {
+  let dir = path.resolve(cwd);
+  for (;;) {
+    const candidate = path.join(dir, VITEST_ENTRY_IN_NODE_MODULES);
+    if (isFile(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) return undefined;
+    dir = parent;
+  }
+}
+
+/**
+ * Returns true when `arg` is an option with no `=`. vitest can read the next argument as the value of such an option.
+ * A bare `--` is a separator, not an option.
+ * @param {string} arg
+ */
+function isOptionWithoutValue(arg) {
+  return arg.startsWith('-') && arg !== '--' && !arg.includes('=');
+}
+
+/**
+ * Sorts the arguments into test files, arguments that are not files, and options with no `=`, and keeps the order of the
  * arguments for vitest. A bare `--` separator is dropped, because some package managers pass it on.
  * @param {readonly string[]} argv
- * @returns {{ forwarded: string[]; files: string[]; notFiles: string[] }}
+ * @returns {{ forwarded: string[]; files: string[]; notFiles: string[]; optionsWithoutValue: string[] }}
  */
 function splitArguments(argv) {
   const forwarded = [];
   const files = [];
   const notFiles = [];
+  const optionsWithoutValue = [];
   for (const arg of argv) {
     if (arg === '--') continue;
     forwarded.push(arg);
+    if (isOptionWithoutValue(arg)) optionsWithoutValue.push(arg);
     if (arg.startsWith('-')) continue;
     if (isFile(arg)) files.push(arg);
     else notFiles.push(arg);
   }
-  return { forwarded, files, notFiles };
+  return { forwarded, files, notFiles, optionsWithoutValue };
 }
 
 /**
@@ -227,14 +255,15 @@ async function buildPathBinary(dir, cwd) {
 }
 
 /**
- * Runs vitest with inherited stdio and the given environment. It resolves to the exit code for the process.
+ * Runs the vitest entry point `entry` with inherited stdio and the given environment. It resolves to the exit code for the process.
+ * @param {string} entry
  * @param {readonly string[]} forwarded
  * @param {NodeJS.ProcessEnv} env
  * @returns {Promise<number>}
  */
-function runVitest(forwarded, env) {
+function runVitest(entry, forwarded, env) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [VITEST_ENTRY, 'run', ...forwarded], { stdio: 'inherit', env });
+    const child = spawn(process.execPath, [entry, 'run', ...forwarded], { stdio: 'inherit', env });
     child.on('error', (error) => {
       process.stderr.write(`test:files: vitest did not start: ${error.message}\n`);
       resolve(REFUSED);
@@ -254,11 +283,12 @@ function runVitest(forwarded, env) {
  * Builds the binary for the files of the `process` project, then runs vitest with that binary first on PATH.
  * It removes the build directory when vitest ends or the build fails.
  * It also removes the directory when `SIGINT` or `SIGTERM` stops the script during the build or during vitest.
+ * @param {string} entry
  * @param {readonly string[]} forwarded
  * @param {readonly string[]} binaryFiles
  * @returns {Promise<number>}
  */
-async function runWithPathBinary(forwarded, binaryFiles) {
+async function runWithPathBinary(entry, forwarded, binaryFiles) {
   const refuse = (/** @type {string} */ reason) => {
     process.stderr.write(
       `test:files: refused. The tests ${binaryFiles.join(', ')} check the exarchos binary on PATH, ` +
@@ -280,7 +310,7 @@ async function runWithPathBinary(forwarded, binaryFiles) {
     const failure = await buildPathBinary(dir, process.cwd());
     if (failure !== undefined) return refuse(failure);
     process.stdout.write(`test:files: the exarchos binary of the working tree is first on PATH, from ${dir}.\n`);
-    return await runVitest(forwarded, withFirstOnPath(process.env, dir));
+    return await runVitest(entry, forwarded, withFirstOnPath(process.env, dir));
   } finally {
     for (const signal of signals) process.removeListener(signal, onSignal);
     removeBuildDir(dir);
@@ -293,11 +323,18 @@ async function runWithPathBinary(forwarded, binaryFiles) {
  * @returns {Promise<number>}
  */
 async function main(argv) {
-  const { forwarded, files, notFiles } = splitArguments(argv);
+  const { forwarded, files, notFiles, optionsWithoutValue } = splitArguments(argv);
   if (notFiles.length > 0) {
     process.stderr.write(
       `test:files: refused. These arguments are not files: ${notFiles.join(', ')}. ` +
         'Give the paths of test files. Write an option value as --name=value.\n',
+    );
+    return REFUSED;
+  }
+  if (optionsWithoutValue.length > 0) {
+    process.stderr.write(
+      `test:files: refused. These options hold no =: ${optionsWithoutValue.join(', ')}. ` +
+        'vitest can read the next argument as the option value. Give the paths of test files. Write an option value as --name=value.\n',
     );
     return REFUSED;
   }
@@ -309,13 +346,17 @@ async function main(argv) {
     );
     return REFUSED;
   }
-  if (!existsSync(VITEST_ENTRY)) {
-    process.stderr.write(`test:files: the local vitest is missing at ${VITEST_ENTRY}. Run npm install.\n`);
+  const entry = findVitestEntry(process.cwd());
+  if (entry === undefined) {
+    process.stderr.write(
+      `test:files: the local vitest is missing. No node_modules directory from ${process.cwd()} up holds vitest/vitest.mjs. ` +
+        'Run npm install.\n',
+    );
     return REFUSED;
   }
   const binaryFiles = pathBinaryTestFiles(files, process.cwd());
-  if (binaryFiles.length > 0) return runWithPathBinary(forwarded, binaryFiles);
-  return runVitest(forwarded, process.env);
+  if (binaryFiles.length > 0) return runWithPathBinary(entry, forwarded, binaryFiles);
+  return runVitest(entry, forwarded, process.env);
 }
 
 /** Returns true when node runs this file as its entry script. A module that imports the glob table starts no run. */
