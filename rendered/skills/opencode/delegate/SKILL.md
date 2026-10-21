@@ -294,7 +294,7 @@ Finished work is not reopened — plan its rework as a new task, and name that n
 
 ### Settle
 
-Each task that the capsule requires (`settlementContract.requiredResults`) needs a claim, unless the stream already shows the task complete. A submitted batch carries at least one claim. Submit the batch once, under an id that you choose. The id is the settlement key, so a retry after a timeout reuses the id and gets the same verdict:
+Each task that the capsule requires (`settlementContract.requiredResults`) needs a claim, unless the stream already shows the task complete. A submitted batch carries at least one claim. Submit the batch once, under an id that you choose. The id is the settlement key:
 
 ```typescript
 exarchos_orchestrate({
@@ -306,6 +306,12 @@ exarchos_orchestrate({
   deviations: [],
 })
 ```
+
+**A client error or an interrupt does not stop the call.** The server does not read the cancel request of the client, so the first call can still run to its end. Then:
+
+- Retry from the same session, with the same batch id. The server runs one call for each batch id at a time. The retry waits for the first call, and then gets the verdict that the first call recorded.
+- A retry from another session or from the CLI runs in another server process. It does not wait. It can run the gates of a task again, on the same worktree, while the first call still runs them.
+- Do not edit, commit or dispatch work in a task worktree until a verdict returns. The probe of each task reverts the task source in its worktree, and then writes its snapshot back over the tracked files. A change in that window is lost, and a commit in that window holds the reverted source.
 
 Settlement first reads each claim and each deviation against the capsule. A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: `findings` lists each fault, and `verification[]` names the segment of each task (`operationId`, `outcome`, `failedLeaf`).
 
@@ -759,7 +765,7 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 
 1. **Readiness** — `exarchos_orchestrate({ action: "prepare_delegation", featureId: "<featureId>", planPath: "docs/specs/<the-decomposition-spec>.md", tasks: [...] })`. It announces the plan's tasks (`task.assigned`) itself before reading readiness, so no append precedes it. Pass `planPath` so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp; `ready: false` stops the wave. It returns `implementerPromptTemplate`, a `verificationNotes` map keyed by `"<riskTier>|<boundaryTouching>"`, and `taskClassifications[i].verificationNoteKey` — splice the task's note into the template before dispatching. It also returns `baseBranch`, the integration branch the tasks fork from: **record it** for step 3.
 2. **Dispatch and collect** as in Steps 2 and 3, with the note in place of the capsule's terms.
-3. **Per completed task**, run the task-completion runbook: `exarchos_orchestrate({ action: "runbook", id: "task-completion" })` and execute the returned steps in order. Stop on gate failure. Bind the `<baseRef>` template variable to the `baseBranch` recorded in step 1: the kill probe blocks with `base-missing` without it. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`. Its terminal step records the completion with the report's provenance:
+3. **Per completed task**, run the task-completion runbook: `exarchos_orchestrate({ action: "runbook", id: "task-completion" })` and execute the returned steps in order. Stop on gate failure. Bind the `<baseRef>` template variable to the `baseBranch` recorded in step 1: the kill probe blocks with `base-missing` without it. Bind `<taskId>` and `<worktreePath>` to the task: `check_static_analysis` runs per task in its worktree, with `taskId`, and `task_complete` accepts only a passing run for the same task. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`. Its terminal step records the completion with the report's provenance:
 
 ```typescript
 exarchos_orchestrate({
@@ -776,7 +782,7 @@ exarchos_orchestrate({
 ```
 
 4. **On a gate failure**, dispatch a fixer (Fix Failed Tasks above), then run the `task-fix` runbook: `exarchos_orchestrate({ action: "runbook", id: "task-fix" })`.
-5. **Update workflow state** — set each passing task's status to `"complete"` via `exarchos_workflow update` with the tasks array, then land, backstop and transition as in Step 4.
+5. **Land and transition** — `task_complete` marked each passing task complete in workflow state, so do not write `tasks[].status` by hand. Land, backstop and transition as in Step 4.
 
 ---
 

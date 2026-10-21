@@ -22,6 +22,37 @@ import {
   ALL_RUNBOOKS,
 } from '../../../src/runbooks/definitions.js';
 
+/** A runbook completes a task when one of its steps calls `task_complete`. */
+function completesATask(runbook: RunbookDefinition): boolean {
+  return runbook.steps.some((step) => step.action === 'task_complete');
+}
+
+/** The params that run the static-analysis gate in the agent worktree and bind its record to the task. */
+const TASK_TREE_BINDING: Readonly<Record<string, string>> = {
+  repoRoot: 'auto',
+  worktreePath: '<worktreePath>',
+  taskId: '<taskId>',
+};
+
+/**
+ * Why the static-analysis step of a completion runbook does not bind the task and the worktree.
+ * The template vars must hold `taskId` and `worktreePath`, and the step must bind each param of the task-tree binding.
+ */
+function unboundStaticAnalysis(runbook: RunbookDefinition): readonly string[] {
+  const problems: string[] = [];
+  const missingVars = ['taskId', 'worktreePath'].filter((name) => !runbook.templateVars.includes(name));
+  if (missingVars.length > 0) problems.push(`${runbook.id}: templateVars lack ${missingVars.join(', ')}`);
+  const step = runbook.steps.find((candidate) => candidate.action === 'check_static_analysis');
+  if (step === undefined) return [...problems, `${runbook.id}: no check_static_analysis step`];
+  const unbound = Object.entries(TASK_TREE_BINDING)
+    .filter(([key, value]) => step.params?.[key] !== value)
+    .map(([key]) => key);
+  if (unbound.length > 0) {
+    problems.push(`${runbook.id}: the check_static_analysis step does not bind ${unbound.join(', ')}`);
+  }
+  return problems;
+}
+
 describe('Runbook definitions', () => {
   it('AllRunbooks_HaveUniqueIds', () => {
     const ids = ALL_RUNBOOKS.map(r => r.id);
@@ -259,6 +290,51 @@ describe('Runbook definitions', () => {
     expect(params?.repoRoot).toBe('auto');
     expect(params?.repoRoot).not.toBe('.');
     expect(params?.worktreePath).toBe('<worktreePath>');
+  });
+
+  /**
+   * `task_complete` accepts only a passing gate runner record that names the task.
+   * Thus the static-analysis step of each completion runbook binds `<taskId>` and runs
+   * in the agent worktree. Without the binding, an agent that follows the runbook runs
+   * the gate for no task, and `task_complete` then refuses the task. The list of completion
+   * runbooks comes from `ALL_RUNBOOKS`, so a new runbook that completes a task is checked too.
+   */
+  it('CompletionRunbooks_StaticAnalysisStep_BindsTheTaskAndTheWorktree', () => {
+    const completionRunbooks = ALL_RUNBOOKS.filter(completesATask);
+    expect(completionRunbooks.map((runbook) => runbook.id)).toEqual(
+      expect.arrayContaining([TASK_COMPLETION.id, TASK_FIX.id]),
+    );
+    expect(completionRunbooks.length).toBeGreaterThanOrEqual(2);
+    expect(completionRunbooks.flatMap(unboundStaticAnalysis)).toEqual([]);
+  });
+
+  /**
+   * The judge of the case above names a completion runbook whose static-analysis step binds no task, or that has no
+   * such step. A runbook that does not complete a task is not judged.
+   */
+  it('CompletionRunbooks_SeededUnboundStep_IsNamed', () => {
+    const unbound: RunbookDefinition = {
+      ...TASK_FIX,
+      id: 'seeded-unbound',
+      steps: TASK_FIX.steps.map((step) =>
+        step.action === 'check_static_analysis' ? { tool: step.tool, action: step.action, onFail: step.onFail } : step,
+      ),
+    };
+    const stepless: RunbookDefinition = {
+      ...TASK_FIX,
+      id: 'seeded-stepless',
+      steps: TASK_FIX.steps.filter((step) => step.action !== 'check_static_analysis'),
+    };
+    const noCompletion: RunbookDefinition = {
+      ...unbound,
+      id: 'seeded-no-completion',
+      steps: unbound.steps.filter((step) => step.action !== 'task_complete'),
+    };
+    const seeded = [...ALL_RUNBOOKS, unbound, stepless, noCompletion];
+    expect(seeded.filter(completesATask).flatMap(unboundStaticAnalysis)).toEqual([
+      'seeded-unbound: the check_static_analysis step does not bind repoRoot, worktreePath, taskId',
+      'seeded-stepless: no check_static_analysis step',
+    ]);
   });
 
   /**

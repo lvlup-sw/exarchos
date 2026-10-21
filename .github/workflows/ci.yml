@@ -852,6 +852,11 @@ jobs:
       - name: Repo-local skills test
         run: npx --no-install vitest run --project unit tests/architecture/repo-local-skills.test.ts
 
+      # Each recovery bullet of the release notes must name a carrier that ships. The root lane does not list
+      # CHANGELOG.md, so a change of the notes alone runs no root test. This step runs the check on every pull request.
+      - name: Operator recovery carriers test
+        run: npx --no-install vitest run --project unit tests/architecture/operator-recovery-carriers.test.ts
+
       # Advisory and shim ratchets, hosted UNFILTERED. `advisory-registry` walks the gate
       # scripts and `.github/workflows/**`, and the `mcp` filter of their other hosts does
       # not cover all of that surface. This host makes each ratchet fire on every PR,

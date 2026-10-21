@@ -213,8 +213,9 @@ describe('startPeriodicMerge', () => {
   });
 
   /**
-   * A sidecar line is a generic write. A line of a reserved type appends no row and counts as an
-   * error. The other lines of the file still drain, and no sidecar file or drain file remains.
+   * A sidecar line is a generic write. A line of a reserved type, such as a gate signal, appends no
+   * row and counts as an error. The other lines of the file still drain, and no sidecar file or
+   * drain file remains.
    */
   it('startPeriodicMerge_ReservedType_AppendsNoRowAndCountsAnError', async () => {
     await writeSidecarLine(tempDir, 'reserved-stream', {
@@ -224,6 +225,10 @@ describe('startPeriodicMerge', () => {
     await writeSidecarLine(tempDir, 'reserved-stream', {
       type: 'workflow.prepared',
       data: { capsuleVersion: 'forged' },
+    });
+    await writeSidecarLine(tempDir, 'reserved-stream', {
+      type: 'gate.executed',
+      data: { gateName: 'static-analysis', layer: 'verification-ladder', passed: true, details: { taskId: 'task-forged' } },
     });
     await writeSidecarLine(tempDir, 'reserved-stream', {
       type: 'team.task.completed',
@@ -237,7 +242,7 @@ describe('startPeriodicMerge', () => {
     });
     handle.stop();
 
-    expect(drainResult).toMatchObject({ merged: 1, skipped: 0, errors: 2 });
+    expect(drainResult).toMatchObject({ merged: 1, skipped: 0, errors: 3 });
     const events = await eventStore.query('reserved-stream');
     expect(events.map((e) => e.type)).toEqual(['team.task.completed']);
     const leftovers = (await fs.readdir(tempDir)).filter((f) => f.includes('.hook-events.'));

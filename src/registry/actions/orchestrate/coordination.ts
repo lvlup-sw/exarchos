@@ -63,7 +63,13 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
   }),
   withContract({
     name: 'task_complete',
-    description: 'Mark a task as complete with optional result and evidence. Auto-emits task.completed event. When evidence is provided, verified=true in event data; otherwise verified=false',
+    /**
+     * The prerequisite names the params of the static-analysis step of the completion runbooks. The registry cannot
+     * import the runbooks, so a test compares the two.
+     */
+    description:
+      'Mark a task as complete with optional result and evidence. Auto-emits task.completed event. When evidence is provided, verified=true in event data; otherwise verified=false. ' +
+      "Requires a passing check_static_analysis run for the task, with taskId, repoRoot 'auto' and worktreePath, as the task-completion runbook binds them.",
     schema: z.object({
       taskId: z.string().min(1),
       result: coercedRecord().optional(),

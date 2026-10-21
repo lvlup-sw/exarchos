@@ -288,17 +288,16 @@ else
   record_pass "check_tdd_compliance reachable, no sibling-default schema leak (#1191 Fix 2)"
 fi
 
-# C5. #1191 Fix 3 — tolerant gate-event reader: top-level data.taskId accepted.
-#     Emit a gate.executed event with taskId at top level (NOT nested in details),
-#     then verify task_complete consults it instead of rejecting the shape.
-exarchos event append --stream "$FEATURE" --type "gate.executed" \
-  --data '{"taskId":"smoke-1","gate":"tdd-compliance","passed":true,"reason":"smoke"}' \
-  >/dev/null 2>&1 || true
-COMPLETE_OUT="$(exarchos orchestrate task-complete --featureId "$FEATURE" --taskId smoke-1 2>&1 || true)"
-if echo "$COMPLETE_OUT" | grep -qiE "GATE_NOT_PASSED.*tdd-compliance|gate not passed.*tdd"; then
-  record_fail "tolerant gate-event reader (#1191 Fix 3)" "top-level taskId rejected:$(echo "$COMPLETE_OUT" | head -5)"
+# C5. The generic append refuses gate.executed. Only a gate handler writes that row,
+#     because task_complete reads it as proof that the gate ran. A forged row must
+#     get RESERVED_EVENT_TYPE. Any other output fails the check.
+GATE_APPEND_OUT="$(exarchos event append --stream "$FEATURE" \
+  --event '{"type":"gate.executed","data":{"gateName":"static-analysis","layer":"verification-ladder","passed":true,"details":{"taskId":"smoke-1"}}}' \
+  2>&1 || true)"
+if echo "$GATE_APPEND_OUT" | grep -q "RESERVED_EVENT_TYPE"; then
+  record_pass "generic append refuses gate.executed (RESERVED_EVENT_TYPE)"
 else
-  record_pass "tolerant gate-event reader accepts top-level taskId (#1191 Fix 3)"
+  record_fail "generic append refuses gate.executed" "expected RESERVED_EVENT_TYPE, got:$(echo "$GATE_APPEND_OUT" | head -5)"
 fi
 
 # C6. #1197 — readonly capability handshake surfaces in describe.

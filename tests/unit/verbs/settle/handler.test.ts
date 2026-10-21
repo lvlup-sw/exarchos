@@ -68,7 +68,7 @@ import {
   type ExecuteIntentDeps,
   type LeafHandler,
 } from '../../../../src/verbs/execute/executor.js';
-import { ladderRequirementId } from '../../../../src/verbs/gates/durable-gate-producer.js';
+import { ladderRequirementId, readGateEvidenceRecords } from '../../../../src/verbs/gates/durable-gate-producer.js';
 import { builtInWorkflowAuthority } from '../../../../src/verbs/prepare/built-in-authority.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
@@ -101,6 +101,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, seedGateEvidence } from '../../../../tools/test-helpers/trusted-context.js';
+import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settle-unit';
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
@@ -189,12 +190,12 @@ function executeDeps(overrides: Readonly<Record<string, LeafHandler>> = {}): Exe
   };
 }
 
-/** Appends a passing static-analysis gate for one task. `task_complete` demands it, and the cut runbook does not run it. */
+/**
+ * Records a passing static-analysis verdict for one task through the gate runner, in the active phase attempt.
+ * `task_complete` demands it, and the cut runbook does not run it.
+ */
 async function seedPassingStaticAnalysis(taskId: string): Promise<void> {
-  await store.append(STREAM, {
-    type: 'gate.executed',
-    data: { gateName: 'static-analysis', layer: 'quality', passed: true, details: { taskId } },
-  });
+  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId });
 }
 
 /** Record `capsule` as prepared, through the production commit. */
@@ -793,7 +794,9 @@ describe('settle — the verification a settled batch runs', () => {
     receiptOf(
       await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-gate-rows', claims: [passingClaim()] }),
     );
-    const evidence = await rowsOf('admission.evidence-recorded');
+    const evidence = (await rowsOf('admission.evidence-recorded')).filter(
+      (e) => (e.data as { evidence?: { requirementId?: string } }).evidence?.requirementId === 'verification-ladder:mock-boundary',
+    );
     const signals = (await rowsOf('gate.executed')).filter(
       (e) => (e.data as { gateName?: string }).gateName === 'mock-boundary',
     );
@@ -1160,6 +1163,47 @@ describe('settle — the verification a settled batch runs', () => {
   });
 
   /**
+   * The rule: a superseded or a failing cited record resolves. Its source is a recommendation of the verification
+   * review, adopted on 2026-10-20, and not a recorded decision.
+   * Settlement resolves a cited record by its id, the requirement of the cited kind and its blobs. It reads neither
+   * the verdict nor supersession, because the segment runs each gate again. The reader of `task_complete` selects the
+   * active record on its own, so its selection does not change this resolution.
+   *
+   * Two runs of the gate runner for one task chain in the active phase attempt: a pass, then a fail that supersedes it.
+   * The capsule admits the `static-analysis` kind, as a prepared capsule admits each ladder gate class.
+   */
+  it('Settle_ACitedSupersededOrFailingRecord_StillResolves', async () => {
+    const base = baseValidCapsule();
+    const evidenceKinds = [...base.contracts.evidenceKinds, 'static-analysis'];
+    await seedPrepared(withVersion({ ...base, contracts: { ...base.contracts, evidenceKinds } }, 8));
+    const seed = { streamId: STREAM, taskId: 'task-cited', stateDir, phaseAttemptId } as const;
+    const supersededId = await seedStaticAnalysisVerdict(store, seed);
+    const failingId = await seedStaticAnalysisVerdict(store, { ...seed, verdict: 'fail' });
+    const recorded = await readGateEvidenceRecords(store, STREAM);
+    expect(recorded.get(failingId)?.supersedesEvidenceId).toBe(supersededId);
+    expect(recorded.get(failingId)?.evidence.verdict).toBe('fail');
+    const receipt = receiptOf(
+      await settle({
+        featureId: STREAM,
+        capsuleVersion: 8,
+        batchId: 'batch-cited-history',
+        claims: [
+          {
+            ...passingClaim(),
+            evidence: [
+              { kind: 'static-analysis', ref: supersededId },
+              { kind: 'static-analysis', ref: failingId },
+            ],
+          },
+        ],
+      }),
+    );
+    expect(receipt.findings).toEqual([]);
+    expect(receipt.outcome).toBe('settled');
+    expect(receipt.adjudicated.evidence).toBe(2);
+  });
+
+  /**
    * A capsule with a result shape for a task but no verification terms cannot apply. Settle does
    * not infer the tier, because the tier chooses the gates.
    */
@@ -1374,10 +1418,11 @@ describe('settle — the verification a settled batch runs', () => {
 
   /**
    * Another call completes the task while its segment runs. The completion leaf of the segment
-   * then finds the fact under another operation, so it breaks its postcondition and the segment
-   * halts. The stream records the task complete, so completion wins, and the batch settles.
+   * then returns the stored row of that call and appends nothing. The leaf reply acknowledges the
+   * stored row, so the emission check of the segment counts it, and the segment passes. The gates
+   * of the segment passed, so the trace says verified, and the batch settles with one completion row.
    */
-  it('Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsAlreadyComplete', async () => {
+  it('Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsVerifiedOnTheStoredRow', async () => {
     const completesFirst: LeafHandler = async (leafArgs, leafStateDir, ctx) => {
       const completed = await liveHandler('task_complete')(
         { taskId: leafArgs.taskId, featureId: leafArgs.featureId },
@@ -1394,10 +1439,10 @@ describe('settle — the verification a settled batch runs', () => {
       ),
     );
     expect(receipt.outcome).toBe('settled');
-    expect(receipt.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
+    expect(receipt.verification).toEqual([expect.objectContaining({ taskId: 'task-verify', outcome: 'verified' })]);
     expect(receipt).not.toHaveProperty('unresolved');
     const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
-    expect(segments.map((segment) => [segment.outcome, segment.failedLeaf])).toEqual([['failed', 'task_complete']]);
+    expect(segments.map((segment) => [segment.outcome, segment.failedLeaf])).toEqual([['committed', undefined]]);
     expect(await completionRows()).toHaveLength(1);
   });
 

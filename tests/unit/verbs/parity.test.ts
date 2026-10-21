@@ -66,6 +66,7 @@ async function callMcp(
 import { UUID_ANY_RE } from '../parity-harness.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../tools/test-helpers/trusted-context.js';
+import { seedStaticAnalysisVerdict } from '../../helpers/static-analysis-verdict.js';
 
 /** Keys whose values the normalizer replaces with `<TIMESTAMP>`, whatever the value format. */
 const TIMESTAMP_KEYS = new Set([
@@ -268,14 +269,14 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
   });
 
   /**
-   * Each arm gets `task.assigned`, `task.claimed`, and a passing `static-analysis` gate row, so `task_complete` is legal.
-   * Caller evidence cannot satisfy a blocking gate, so the fixture seeds the gate row. The `evidence` argument stays because it records provenance.
+   * Each arm gets `task.assigned`, `task.claimed`, and a passing static-analysis runner verdict, so `task_complete` is legal.
+   * Caller evidence cannot satisfy a blocking gate, so the fixture seeds the runner verdict. The `evidence` argument stays because it records provenance.
    * The seed uses the event store of the arm, because dispatch reads through that store.
    */
   it('OrchestrateParity_TaskComplete_CliAndMcp_ReturnEqualPayload', async () => {
     const streamId = 'parity-complete-wf';
 
-    const seedStream = async (store: EventStore) => {
+    const seedStream = async (store: EventStore, stateDir: string) => {
       await store.append(streamId, {
         type: 'task.assigned',
         data: { taskId: 't-parity-2', title: 'Parity complete', assignee: 'agent-parity' },
@@ -285,15 +286,7 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
         data: { taskId: 't-parity-2', agentId: 'agent-parity', claimedAt: new Date().toISOString() },
         agentId: 'agent-parity',
       });
-      await store.append(streamId, {
-        type: 'gate.executed',
-        data: {
-          gateName: 'static-analysis',
-          layer: 'quality',
-          passed: true,
-          details: { taskId: 't-parity-2' },
-        },
-      });
+      await seedStaticAnalysisVerdict(store, { streamId, taskId: 't-parity-2', stateDir });
     };
 
     const completeArgs = {
@@ -309,14 +302,14 @@ describe('exarchos_orchestrate CLI-vs-MCP parity', () => {
 
     const cliArm = await createArm('parity-complete-cli-');
     arms.push(cliArm);
-    await seedStream(cliArm.ctx.eventStore);
+    await seedStream(cliArm.ctx.eventStore, cliArm.stateDir);
 
     resetMaterializerCache();
     const cliResult = await callCli(cliArm.ctx, 'task_complete', completeArgs);
 
     const mcpArm = await createArm('parity-complete-mcp-');
     arms.push(mcpArm);
-    await seedStream(mcpArm.ctx.eventStore);
+    await seedStream(mcpArm.ctx.eventStore, mcpArm.stateDir);
 
     resetMaterializerCache();
     const mcpResult = await callMcp(mcpArm.ctx, 'task_complete', completeArgs);

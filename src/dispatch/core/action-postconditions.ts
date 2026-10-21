@@ -6,6 +6,9 @@
  * `durable-evidence` ensure needs a committed evidence row of the matching kind. An in-memory
  * witness or a declaration is not observation, so neither satisfies an ensure.
  *
+ * A replay of a keyed append appends nothing and returns the stored row of an earlier operation.
+ * That stored row satisfies an `event-append` ensure of its type when the store shows it.
+ *
  * The verdict is `satisfied` or `violated`. A success return with an unobserved applicable
  * ensure is a contract violation.
  */
@@ -23,13 +26,65 @@ export type PostconditionOutcome = 'success' | 'failure';
 
 /**
  * The store slice that an event-append ensure needs. `EventStore.query` satisfies it, and the
- * checker never writes.
+ * checker never writes. The sequence and the idempotency key identify the stored row of a replay.
  */
 export interface PostconditionStore {
   query(
     streamId: string,
     filters?: { type?: string | undefined; operationId?: string | undefined },
-  ): Promise<readonly { readonly type: string; readonly operationId?: string | undefined }[]>;
+  ): Promise<
+    readonly {
+      readonly type: string;
+      readonly operationId?: string | undefined;
+      readonly sequence?: number;
+      readonly idempotencyKey?: string | undefined;
+    }[]
+  >;
+}
+
+/** The acknowledgement of one stored row, in the shape of `toEventAck`. */
+interface RowAcknowledgement {
+  readonly streamId: string;
+  readonly sequence: number;
+  readonly type: string;
+}
+
+/** The row that a reply acknowledges, or undefined when the reply is not an event acknowledgement. */
+function rowAcknowledgement(reply: unknown): RowAcknowledgement | undefined {
+  if (typeof reply !== 'object' || reply === null) return undefined;
+  const streamId: unknown = Reflect.get(reply, 'streamId');
+  const sequence: unknown = Reflect.get(reply, 'sequence');
+  const type: unknown = Reflect.get(reply, 'type');
+  if (typeof streamId !== 'string' || typeof sequence !== 'number' || typeof type !== 'string') return undefined;
+  return { streamId, sequence, type };
+}
+
+/**
+ * The event type of the stored row that a reply replays, or undefined when the reply replays no stored row.
+ * A keyed append that finds its key appends nothing and returns the stored row, so the reply acknowledges that row.
+ * The store must hold the row on the stream at the acknowledged sequence, with the acknowledged type and an idempotency key.
+ * The store is the observation. The acknowledgement only names the row.
+ *
+ * Limit: no declaration names the idempotency key of its emission, so the check does not bind the key of the row to the call.
+ * A stored keyed row of the acknowledged type passes, also when the key belongs to another call, such as another task.
+ * The handler that builds the reply chooses the row.
+ */
+export async function replayedRowType(
+  store: PostconditionStore,
+  streamId: string,
+  reply: unknown,
+): Promise<string | undefined> {
+  const acknowledged = rowAcknowledgement(reply);
+  if (acknowledged === undefined || acknowledged.streamId !== streamId) return undefined;
+  const rows = await store.query(streamId, { type: acknowledged.type });
+  const stored = rows.find(
+    (row) =>
+      row.sequence === acknowledged.sequence &&
+      row.type === acknowledged.type &&
+      row.idempotencyKey !== undefined &&
+      row.idempotencyKey.length > 0,
+  );
+  return stored === undefined ? undefined : stored.type;
 }
 
 export interface ObserveActionPostconditionsInput {
@@ -54,6 +109,12 @@ export interface ObserveActionPostconditionsInput {
    * only when each blob resolves. Without a resolver, a row that names blobs does not count.
    */
   readonly artifactResolver?: EvidenceArtifactResolver;
+  /**
+   * The reply data of the handler. When it acknowledges a stored keyed row, {@link replayedRowType}
+   * reads that row from the store, and the row satisfies an `event-append` ensure of its type.
+   * The check does not bind the key of the row to this call. {@link replayedRowType} states the limit.
+   */
+  readonly reply?: unknown;
 }
 
 export interface ActionPostconditionObservation {
@@ -137,6 +198,7 @@ async function durableEvidenceObserved(
 /**
  * Observes the declared ensures against the store and the persisted-evidence reader. Each
  * applicable ensure is observed or reported missing. A witness never satisfies an ensure.
+ * A stored keyed row that the reply acknowledges satisfies an `event-append` ensure of its type.
  */
 export async function observeActionPostconditions(
   input: ObserveActionPostconditionsInput,
@@ -148,6 +210,7 @@ export async function observeActionPostconditions(
 
   const missing: ActionPostcondition[] = [];
   const unresolvedArtifacts: EvidenceArtifactReferenceV1[] = [];
+  let replayed: Promise<string | undefined> | undefined;
   for (const postcondition of applicableEnsures(input.ensures, input.outcome ?? 'success')) {
     if (postcondition.source === 'event-append') {
       const observed = await eventAppendObserved(
@@ -156,7 +219,9 @@ export async function observeActionPostconditions(
         input.operationId,
         postcondition.event,
       );
-      if (!observed) missing.push(postcondition);
+      if (observed) continue;
+      replayed ??= replayedRowType(input.store, input.streamId, input.reply);
+      if ((await replayed) !== postcondition.event) missing.push(postcondition);
       continue;
     }
     const observation = await durableEvidenceObserved(

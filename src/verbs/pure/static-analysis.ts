@@ -55,6 +55,14 @@ export interface StaticAnalysisInput {
  */
 export type StaticAnalysisSkipReason = 'no-toolchain' | 'constituent-skipped';
 
+/** One check that did not run, with the cause that the report names for it. */
+export interface StaticAnalysisSkippedCheck {
+  /** The report label of the check, for example `Quality check`. */
+  readonly name: string;
+  /** Why the check did not run, for example a missing npm script or a skip flag. */
+  readonly detail?: string;
+}
+
 export interface StaticAnalysisResult {
   /**
    * Overall status.
@@ -72,6 +80,8 @@ export interface StaticAnalysisResult {
   readonly error?: string;
   /** Reason code when status is 'skip'. */
   readonly skipReason?: StaticAnalysisSkipReason;
+  /** The checks that did not run, when `skipReason` is `constituent-skipped`. */
+  readonly skippedChecks?: readonly StaticAnalysisSkippedCheck[];
   /** Number of checks that passed. */
   readonly passCount: number;
   /** Number of checks that failed. */
@@ -689,10 +699,14 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   const status: StaticAnalysisResult['status'] =
     failCount > 0 ? 'fail' : skipCount > 0 ? 'skip' : 'pass';
 
+  const skippedChecks = checks
+    .filter((check) => check.status === 'SKIP')
+    .map(({ name, detail }): StaticAnalysisSkippedCheck => (detail === undefined ? { name } : { name, detail }));
+
   return {
     status,
     output,
-    ...(status === 'skip' ? { skipReason: 'constituent-skipped' as const } : {}),
+    ...(status === 'skip' ? { skipReason: 'constituent-skipped' as const, skippedChecks } : {}),
     passCount,
     failCount,
     skipCount,

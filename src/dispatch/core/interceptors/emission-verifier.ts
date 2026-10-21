@@ -10,6 +10,9 @@
  * is also a violation. That check covers only events that the action declares, because other
  * writers share the operation id.
  *
+ * A replay of a keyed append appends nothing and returns the stored row of an earlier operation.
+ * When the store holds the row that the reply acknowledges, that row counts as the declared emission.
+ *
  * `events.emission-enforcement` decides if a violation blocks, and `block` is the fallback without
  * a project config. `indeterminate` means that the verifier did not assess the contract. Under
  * `block` it refuses promotion like a violation. A `not-applicable` exemption never blocks.
@@ -28,6 +31,7 @@ import {
 } from '../../../config/resolve.js';
 import type { ActionContract, AutoEmission } from '../../../registry.js';
 import { INFRA_STREAM_IDS } from '../infra-streams.js';
+import { replayedRowType } from '../action-postconditions.js';
 import { logger } from '../../../logger.js';
 
 const verifierLogger = logger.child({ subsystem: 'emission-verifier' });
@@ -273,6 +277,11 @@ export function verifyDeclaredEmissions(input: {
   readonly declared: readonly AutoEmission[] | undefined;
   readonly streamId: string | undefined;
   readonly landed: readonly string[];
+  /**
+   * The event types of stored rows that the call replays. Each satisfies a required edge of its type.
+   * The lifecycle check does not read them, because nothing landed.
+   */
+  readonly replayed?: readonly string[];
   readonly annotations?: Readonly<Record<string, EventRegistration>>;
 }): EmissionVerdict {
   const required = unconditionalEmissions(input.declared);
@@ -296,7 +305,7 @@ export function verifyDeclaredEmissions(input: {
     };
   }
 
-  const landed = new Set(input.landed);
+  const landed = new Set([...input.landed, ...(input.replayed ?? [])]);
   const missingEvents = required.filter((event) => !landed.has(event));
   const declaredEvents = declaredEventNames(input.declared);
   const lifecycle = lifecycleViolations(
@@ -441,6 +450,12 @@ export interface EmissionVerifierCall {
    * check, because a query treats a reasoned silence as drift.
    */
   readonly readOnlyAbstention?: boolean;
+  /**
+   * The reply data of the handler. It can acknowledge a stored keyed row of a required event type.
+   * The verifier then reads that row from the store, and the row counts as the emission of a replay.
+   * No declaration names the idempotency key of its emission, so the verifier does not bind the key of the row to this call.
+   */
+  readonly reply?: unknown;
   /** Registration table for the lifecycle axis. Injectable for tests. */
   readonly annotations?: Readonly<Record<string, EventRegistration>>;
   /**
@@ -458,6 +473,7 @@ export interface EmissionVerifierCall {
  * It never throws. A failed store read resolves `indeterminate` with `store-unavailable`. A fault
  * after the read, or a failed write of the finding, resolves `verification-fault`. A violation is
  * appended as `emission.violated` in each mode, once per operation through an idempotency key.
+ * When a required event did not land on the operation, the verifier reads the stored row that the reply acknowledges.
  */
 export async function runEmissionVerifierInterceptor(
   eventStore: EventStore,
@@ -532,8 +548,14 @@ export async function runEmissionVerifierInterceptor(
   };
 
   let observed: readonly { readonly type: string }[];
+  let replayed: readonly string[] = [];
   try {
     observed = await eventStore.query(streamId, { operationId: call.operationId });
+    const observedTypes = new Set(observed.map((event) => event.type));
+    if (required.some((event) => !observedTypes.has(event))) {
+      const replayedType = await replayedRowType(eventStore, streamId, call.reply);
+      if (replayedType !== undefined) replayed = [replayedType];
+    }
   } catch (err) {
     return unassessed('store-unavailable', err);
   }
@@ -543,6 +565,7 @@ export async function runEmissionVerifierInterceptor(
       declared: call.declared,
       streamId,
       landed: observed.map((event) => event.type),
+      replayed,
       annotations: call.annotations ?? EVENT_ANNOTATIONS,
     });
     if (verdict.status !== 'violated') return verdict;

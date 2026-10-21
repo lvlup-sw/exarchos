@@ -15,12 +15,13 @@ vi.mock('../../../../src/verbs/gates/test-adequacy.js', async (importOriginal) =
   return { ...actual, runProbe: (...args: unknown[]) => mockRunProbe(...args) };
 });
 
-vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
-  runDurableGateProducer: (
-    _scope: unknown,
-    executeProvider: () => Promise<unknown>,
-  ) => executeProvider(),
-}));
+vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/durable-gate-producer.js')>();
+  return {
+    ...actual,
+    runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<unknown>) => executeProvider(),
+  };
+});
 
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';

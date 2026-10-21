@@ -222,6 +222,52 @@ describe('emission verifier policy', () => {
   });
 
   /**
+   * A replay of a keyed append returns the stored row of an earlier operation and appends nothing.
+   * The verifier reads the row that the reply acknowledges, and the row counts as the declared emission.
+   * An acknowledgement of a row with no key, of an absent row or of another stream stays a violation.
+   */
+  it('EmissionVerifier_ReplyOfAStoredKeyedRow_CountsAsTheDeclaredEmission', async () => {
+    const stream = 'feature-replay';
+    const data = { featureId: stream, workflowType: 'feature' };
+    const keyed = await store.append(
+      stream,
+      { type: 'workflow.started', operationId: 'op-first', data },
+      { idempotencyKey: `${stream}:workflow.started` },
+    );
+    const unkeyed = await store.append(stream, { type: 'workflow.started', operationId: 'op-other', data });
+    const verify = (operationId: string, reply: unknown) =>
+      runEmissionVerifierInterceptor(store, {
+        tool: 'exarchos_workflow',
+        action: 'init',
+        operationId,
+        streamId: stream,
+        declared: [{ event: 'workflow.started', condition: 'always' }],
+        annotations: ANNOTATIONS,
+        reply,
+      });
+
+    const replay = await verify('op-replay', { streamId: stream, sequence: keyed.sequence, type: 'workflow.started' });
+    expect(replay.status).toBe('ok');
+    expect(replay.lifecycleViolations).toEqual([]);
+
+    const twins = [
+      { operationId: 'op-unkeyed', reply: { streamId: stream, sequence: unkeyed.sequence, type: 'workflow.started' } },
+      { operationId: 'op-absent', reply: { streamId: stream, sequence: 99, type: 'workflow.started' } },
+      { operationId: 'op-elsewhere', reply: { streamId: 'feature-other', sequence: keyed.sequence, type: 'workflow.started' } },
+      { operationId: 'op-no-reply', reply: undefined },
+    ];
+    for (const twin of twins) {
+      const verdict = await verify(twin.operationId, twin.reply);
+      expect(verdict.status, twin.operationId).toBe('violated');
+      expect(verdict.missingEvents, twin.operationId).toEqual(['workflow.started']);
+    }
+    const findingRows = (await store.query(stream, {})).filter((event) => event.type === 'emission.violated');
+    expect(findingRows.map((event) => (event.data as { operationId: string }).operationId)).toEqual(
+      twins.map((twin) => twin.operationId),
+    );
+  });
+
+  /**
    * `workflow.started` never lands and the retired event lands. Both axes fire on one operation,
    * and the one persisted record must hold both.
    */

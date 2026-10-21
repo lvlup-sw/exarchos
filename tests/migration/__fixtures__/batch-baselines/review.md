@@ -49,7 +49,7 @@ Review the **combined** diff across all tasks in one view — this catches cross
    ```typescript
    exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "gate.executed" }, limit: 200 })
    ```
-   Each row with `gateName: "test-adequacy"` is one task's verdict: `details.taskId`, `passed`, and `details.verdict` (`details.skipped` marks a policy skip). A `passed: false` verdict is a finding against that task. Only for a task with no such row, run the probe yourself, from the branch the task forked from — without a base the gate blocks with `base-missing`:
+   Each row with `gateName: "test-adequacy"` is one task's verdict: `details.taskId`, `passed`, and `details.verdict` (`details.skipped` marks a policy skip). A `passed: false` verdict is a finding against that task. Only for a task with no such row, run the probe yourself, from the branch the task forked from — without a base the gate blocks with `base-missing`. Pass `repoRoot: "auto"` and the worktree of the task. The probe reverts and then restores the source of the tree it runs in. Without these two fields, that tree is the directory of the server, usually your own checkout:
    ```typescript
    exarchos_orchestrate({
      action: "check_test_adequacy",
@@ -57,6 +57,8 @@ Review the **combined** diff across all tasks in one view — this catches cross
      taskId: "<taskId>",
      branch: "<branch>",
      baseBranch: "<integration branch>",
+     repoRoot: "auto",
+     worktreePath: "<worktreePath>",
      riskTier: "<low|medium|high>",
      phase: "review"
    })

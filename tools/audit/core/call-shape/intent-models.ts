@@ -426,11 +426,6 @@ const DELEGATION: IntentModel = {
       kind: 'alternate-mode',
       why: 'the primitive path, for the workflow types prepare does not compile; this census counts the capsule path',
     },
-    {
-      ref: at('delegate', `${W}.update`, 'with the tasks array'),
-      kind: 'alternate-mode',
-      why: 'the primitive path patches task statuses by hand; on the capsule path settlement leaves them complete',
-    },
   ],
 };
 

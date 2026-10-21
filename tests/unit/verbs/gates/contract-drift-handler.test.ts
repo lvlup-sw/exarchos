@@ -17,12 +17,13 @@ import {
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import type { CommandRunFn } from '../../../../src/verbs/gates/contract-drift.js';
 
-vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', () => ({
-  runDurableGateProducer: (
-    _scope: unknown,
-    executeProvider: () => Promise<unknown>,
-  ) => executeProvider(),
-}));
+vi.mock('../../../../src/verbs/gates/durable-gate-producer.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/durable-gate-producer.js')>();
+  return {
+    ...actual,
+    runDurableGateProducer: (_scope: unknown, executeProvider: () => Promise<unknown>) => executeProvider(),
+  };
+});
 
 const gitMergeBase: GitExec = (_repoRoot, args) =>
   args[0] === 'merge-base' ? { stdout: 'MB0\n', exitCode: 0 } : { stdout: '', exitCode: 0 };

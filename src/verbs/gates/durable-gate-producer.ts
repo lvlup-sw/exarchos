@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto';
 
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
+import {
+  AdmissionEvidenceRecordedData,
+  type AdmissionEvidenceRecorded,
+} from '../../events/schemas.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { evidenceArtifactStore } from '../../workflow/admission/evidence-artifact.js';
@@ -27,12 +31,38 @@ export interface DurableGateScope {
   readonly eventStore: EventStore;
 }
 
+/** The fields of a gate scope that select the evidence subject of a run. */
+export type GateSubjectScope = Pick<
+  DurableGateScope,
+  'gateClass' | 'featureId' | 'taskId' | 'branch' | 'baseRef' | 'repoRoot'
+>;
+
 /**
  * The requirement id under which a ladder gate records its evidence.
  * It is exported so that a reader of a cited gate class, such as settlement, uses the same spelling as the producer.
  */
 export function ladderRequirementId(gateClass: string): string {
   return `verification-ladder:${gateClass}`;
+}
+
+/**
+ * The gate evidence records of one stream, keyed by evidence id, in the stream order of their rows.
+ * A row that fails the evidence schema, or that is not a gate record, is not in the map.
+ * Settlement and `task_complete` read gate evidence through this function, so the two readers parse the rows in one way.
+ * The function selects nothing. Superseded and failing records stay in the map, and each reader applies its own rule.
+ */
+export async function readGateEvidenceRecords(
+  eventStore: Pick<EventStore, 'query'>,
+  streamId: string,
+): Promise<ReadonlyMap<string, AdmissionEvidenceRecorded>> {
+  const rows = await eventStore.query(streamId, { type: 'admission.evidence-recorded' });
+  const records = new Map<string, AdmissionEvidenceRecorded>();
+  for (const row of rows) {
+    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+    if (!parsed.success || parsed.data.evidence.kind !== 'gate') continue;
+    records.set(parsed.data.evidence.evidenceId, parsed.data);
+  }
+  return records;
 }
 
 function scopeError(code: string, message: string): ToolResult {
@@ -52,7 +82,7 @@ async function activePhaseAttemptId(
   return resolveActivePhaseAttemptId(featureId, resolved.state);
 }
 
-function fallbackArtifactId(scope: DurableGateScope, phaseAttemptId: string): string {
+function fallbackArtifactId(scope: GateSubjectScope, phaseAttemptId: string): string {
   const digest = createHash('sha256')
     .update(
       [
@@ -71,9 +101,11 @@ function fallbackArtifactId(scope: DurableGateScope, phaseAttemptId: string): st
  * Selects the immutable proof target. A run with a `taskId` binds to a task subject.
  * Other runs bind to the `HEAD` commit. When `HEAD` does not resolve, they bind to an artifact target.
  * Mutable workflow state is not a commit, so the producer never uses it as one.
+ *
+ * The task_complete reader and the static-analysis seed of the tests also derive a subject here.
  */
-function selectSubject(
-  scope: DurableGateScope,
+export function selectSubject(
+  scope: GateSubjectScope,
   phaseAttemptId: string,
 ): EvidenceSubjectV1 {
   const target = {

@@ -61,15 +61,11 @@ describe('AllTasksComplete Structured Failure', () => {
       expect(obj.expectedShape).toEqual({
         tasks: [{ id: '<task-id>', status: 'complete' }],
       });
-      expect(obj.suggestedFix).toBeDefined();
-      expect(obj.suggestedFix!.tool).toBe('exarchos_workflow');
-      const params = obj.suggestedFix!.params as Record<string, unknown>;
-      expect(params.action).toBe('update');
-      expect(params.featureId).toBe('feat-123');
-      const updates = params.updates as { tasks: Array<{ id: string; status: string }> };
-      expect(updates.tasks).toHaveLength(2);
-      expect(updates.tasks.map((t) => t.id).sort()).toEqual(['2', '3']);
-      expect(updates.tasks.every((t) => t.status === 'complete')).toBe(true);
+      expect(obj.reason).toContain('2 task(s) incomplete (2, 3)');
+      expect(obj.suggestedFix).toEqual({
+        tool: 'exarchos_orchestrate',
+        params: { action: 'task_complete', featureId: 'feat-123', taskId: '2' },
+      });
     });
   });
 

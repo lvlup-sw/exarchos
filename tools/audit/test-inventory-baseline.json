@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1320,
-    "parsedFiles": 1274,
+    "testFiles": 1322,
+    "parsedFiles": 1276,
     "shellFiles": 46,
-    "cases": 14539,
-    "dynamicTitles": 162,
+    "cases": 14778,
+    "dynamicTitles": 164,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5017,6 +5017,11 @@
           "dynamic": false
         },
         {
+          "suite": "durable action postcondition observation",
+          "name": "Postconditions_ReplyOfAStoredKeyedRow_SatisfiesTheEventAppend",
+          "dynamic": false
+        },
+        {
           "suite": "durable action postcondition observation — artifact-backed evidence",
           "name": "Postconditions_ArtifactBackedCorpus_IsNotEmpty",
           "dynamic": false
@@ -5203,12 +5208,122 @@
         },
         {
           "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ARetryUnderTheShippedTelemetryDefault_AddsOnlyTelemetryRows",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ASettledBatch_CompletesItsTasksAndAdmitsTheTransition",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_AHeldBatchDecided_IsThreeCallsAndCompletesItsTasks",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ABatchRejectedOnShape_VerifiesNothingAndLeavesNoCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ABatchWhoseVerificationFails_NeedsACorrectionWithTheHaltNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ACorrectiveBatch_CompletesWhatPassedAndSettlesTheUnresolvedTaskAlone",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_AMediumTierBatchThroughTheShippedRunbook_CompletesThePassingTaskAndCorrectsTheHaltedOne",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ABlockedClaim_LeavesItsTaskUnresolvedAndTheOtherTasksComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_AFailedClaim_LeavesNoFailureRowAndSettlesWhenTheTaskIsClaimedAsCompleted",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ABatchThatRecordsADelegatedChoice_IsAcceptedWithRationaleInTwoCalls",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ACapsuleStoredWithTheEarlierIdentityForm_StillSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_AnAcceptedMaterialDeviation_RevisesTheDesignAndTheNextCapsuleCompilesUnderIt",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_AClaimRefusedForALaterRevision_SettlesAfterTheNextPrepare",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_AMaterialRevision_RecompilesItsSliceAndLeavesFinishedWorkUntouched",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ABlockedTaskNamedByItsOwnDeviation_IsRevisedRecompiledAndSettled",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ADecisionIdOverItsBound_IsRefusedByTheDispatcherBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ThePresenceOfTheThreeRequestLists_SelectsOneModeOrOneRefusalInEachCell",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
           "name": "PrepareSettle_ACapsuleEditedAfterCompilation_IsRefused",
           "dynamic": false
         },
         {
           "suite": "prepare then settle, through the dispatcher",
           "name": "PrepareSettle_APreparedRecord_CannotBeAppendedByAnyoneButPrepare",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ADecision_CannotBeAppendedByAnyoneButSettle",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ADesignRevision_CannotBeAppendedByAnyoneButSettle",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ARecompileRecord_CannotBeAppendedByAnyoneButPrepare",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_ACompletionRow_CannotBeAppendedByAnyoneButTaskComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare then settle, through the dispatcher",
+          "name": "PrepareSettle_AGateRow_CannotBeAppendedToCompleteATask",
           "dynamic": false
         }
       ]
@@ -6366,6 +6481,52 @@
         }
       ]
     },
+    "tests/architecture/operator-recovery-carriers.test.ts": {
+      "file": "tests/architecture/operator-recovery-carriers.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_TableAndNotes_AreNotEmpty",
+          "dynamic": false
+        },
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_EveryRecoveryBullet_HasOneRowAndACarrier",
+          "dynamic": false
+        },
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_EmptyTable_NamesEveryRecoveryBullet",
+          "dynamic": false
+        },
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_SeededBulletWithNoRow_IsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_SeededRowDefects_AreNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_SeededCarrierDefects_AreNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_SeededRegisterEntryWithNoOwner_IsNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_SeededNegativeAssertionTwin_IsNamed",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/package-scripts.test.ts": {
       "file": "tests/architecture/package-scripts.test.ts",
       "runner": "vitest:root",
@@ -6770,6 +6931,26 @@
           "suite": "SkillProse — the checked-by sentence names the gate row",
           "name": "SkillProse_SeededTableDisagreement_NamesTheRowAndTheEmitter",
           "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_SeededOutcomeTableDisagreement_NamesTheOutcome",
+          "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_SeededBindingDisagreement_NamesTheUnboundVariable",
+          "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_SeededProbeCallDisagreement_NamesTheUnboundField",
+          "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_EveryProbeCallPassageOfTheContent_HasAProbeCallSite",
+          "dynamic": false
         }
       ]
     },
@@ -6795,6 +6976,72 @@
         {
           "suite": "SQLite handle owners refuse to reopen after close (#2026)",
           "name": "SqliteOwnerGuard_Matcher_AcceptsTheCleanTwin",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/task-completion-text-census.test.ts": {
+      "file": "tests/architecture/task-completion-text-census.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_LiveTree_ReadsTheFloor",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_LiveTree_HasNoUnexcusedStatusWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_EachException_ExcusesALiveFindingAndNamesAnOwner",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_UpdateDescription_NamesTheGatedWriter",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_PlaybookUpdatePurposes_LeaveTheCompletionToTaskComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_SeededIndexPath_IsFoundAndItsTwinIsClean",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_SeededListElement_IsFoundOnlyInAnUpdatesPayload",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_SeededBlockSequenceElement_IsFoundAndItsTwinsAreClean",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_SeededSpreadElement_IsFoundAndItsTwinIsClean",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_SeededGuardReply_IsFoundAtItsField",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_SeededWriteInARealSkill_IsUnexcused",
+          "dynamic": false
+        },
+        {
+          "suite": "TaskCompletionTextCensus — completion texts name a gated writer",
+          "name": "TaskCompletionTextCensus_SeededUpdateDescription_NamesBothProblems",
           "dynamic": false
         }
       ]
@@ -7645,6 +7892,11 @@
         },
         {
           "suite": "T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)",
+          "name": "Governance_AllTasksComplete_RefusalNamesTheGatedWriter",
+          "dynamic": false
+        },
+        {
+          "suite": "T2 governance — denied transitions (DR-5, DR-7, DR-8, DR-9)",
           "name": "Governance_TransitionTier_DrivesRealCompositeHandlers",
           "dynamic": false
         }
@@ -7702,12 +7954,32 @@
         },
         {
           "suite": "T2 governance — gate before completion (DR-1, DR-2, DR-6)",
+          "name": "Governance_DocumentedRunbookPath_StaticAnalysisStepCompletesTheTask",
+          "dynamic": false
+        },
+        {
+          "suite": "T2 governance — gate before completion (DR-1, DR-2, DR-6)",
           "name": "Governance_Dr1_TaskCompletionRunbook_HasNoBlockingGateAfterTaskComplete",
           "dynamic": false
         },
         {
           "suite": "T2 governance — gate before completion (DR-1, DR-2, DR-6)",
           "name": "Governance_GateTier_DrivesRealCompositeHandlers",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete retry through dispatch",
+          "name": "Governance_TaskCompleteRetryAfterALostSync_ReturnsTheStoredRowThroughDispatch",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete retry through dispatch",
+          "name": "Governance_TaskCompleteOnACompletedTaskAfterAPass_ReturnsTheStoredRowThroughDispatch",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document in the workflow_state row",
+          "name": "Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel",
           "dynamic": false
         }
       ]
@@ -8120,6 +8392,11 @@
         {
           "suite": "packaged reserved-event append authorization (EFF-007)",
           "name": "PackagedEventAppend_NonReservedEvent_StillAppends",
+          "dynamic": false
+        },
+        {
+          "suite": "packaged task completion chain",
+          "name": "PackagedCompletionChain_ForgedRowRefusedThenGateRun_TaskCompleteRecordsTheCompletion",
           "dynamic": false
         }
       ]
@@ -9595,6 +9872,11 @@
         {
           "suite": "emission verifier policy",
           "name": "EmissionVerifier_LifecycleOnlyViolation_PersistsEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "emission verifier policy",
+          "name": "EmissionVerifier_ReplyOfAStoredKeyedRow_CountsAsTheDeclaredEmission",
           "dynamic": false
         },
         {
@@ -30237,6 +30519,26 @@
           "dynamic": false
         },
         {
+          "suite": "gate.executed is reserved to the gate handlers",
+          "name": "HandleEventAppend_GateExecuted_RefusedWithGateGuidance",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed is reserved to the gate handlers",
+          "name": "HandleEventAppend_GateExecutedWithTopLevelFields_StillRefusedAsReserved",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed is reserved to the gate handlers",
+          "name": "HandleBatchAppend_OneGateExecuted_RefusesTheWholeBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "gate.executed is reserved to the gate handlers",
+          "name": "HandleEventAppend_OtherReservedType_KeepsTheAdmissionFactText",
+          "dynamic": false
+        },
+        {
           "suite": "handleEventQuery field projection",
           "name": "should filter out __proto__ from fields",
           "dynamic": false
@@ -44529,6 +44831,11 @@
           "suite": "event, workflow, and sync action contracts",
           "name": "Registry_EventWorkflowSyncActions_HaveCompleteContracts",
           "dynamic": false
+        },
+        {
+          "suite": "event, workflow, and sync action contracts",
+          "name": "Registry_GenericAppendRequires_NamesEachReservedType",
+          "dynamic": false
         }
       ]
     },
@@ -45520,6 +45827,16 @@
         {
           "suite": "Runbook definitions",
           "name": "TaskCompletionRunbook_StaticAnalysisStep_ReceivesWorktreePath",
+          "dynamic": false
+        },
+        {
+          "suite": "Runbook definitions",
+          "name": "CompletionRunbooks_StaticAnalysisStep_BindsTheTaskAndTheWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "Runbook definitions",
+          "name": "CompletionRunbooks_SeededUnboundStep_IsNamed",
           "dynamic": false
         },
         {
@@ -49131,6 +49448,11 @@
         },
         {
           "suite": "mergeSidecarEvents",
+          "name": "mergeSidecarEvents_ReservedType_AppendsNoRowAndCountsAnError",
+          "dynamic": false
+        },
+        {
+          "suite": "mergeSidecarEvents",
           "name": "mergeSidecarEvents_NoSidecarFiles_ReturnsZero",
           "dynamic": false
         }
@@ -49168,6 +49490,11 @@
         {
           "suite": "startPeriodicMerge",
           "name": "startPeriodicMerge_ConcurrentWritesDuringDrain_NoDuplicates",
+          "dynamic": false
+        },
+        {
+          "suite": "startPeriodicMerge",
+          "name": "startPeriodicMerge_ReservedType_AppendsNoRowAndCountsAnError",
           "dynamic": false
         },
         {
@@ -50201,7 +50528,67 @@
         },
         {
           "suite": "handleTaskComplete gate enforcement",
-          "name": "HandleTaskComplete_ProjectWideStaticAnalysis_AcceptsNoTaskId",
+          "name": "HandleTaskComplete_RunnerRowWithNoTaskId_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_RunnerRowOfAnotherTask_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_LatestRunnerRowFailedAfterAPass_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_LatestRunnerRowPassedAfterAFailure_AllowsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_RunnerRowWithNoEvidenceRecord_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_RunnerShapeWithOtherSource_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_EvidenceRecordOfAnotherTask_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_EvidenceRecordOfAnotherRequirement_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_PassingRowCitingAFailedRecord_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_CopiedRunnerRowsWithTheRunnerKey_AllowCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_RunnerRowCopiedWithoutItsKey_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_KeylessCopyOfAnEarlierPassAfterAFailure_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete gate enforcement",
+          "name": "HandleTaskComplete_KeyedCopyOfAnEarlierPass_CollapsesOntoTheStoredRow",
           "dynamic": false
         },
         {
@@ -50215,33 +50602,143 @@
           "dynamic": false
         },
         {
-          "suite": "handleTaskComplete gate enforcement > #1189 — gate consultation tolerates alt shapes",
-          "name": "HandleTaskComplete_GateWithTopLevelTaskId_RecognizedAsPassing",
+          "suite": "handleTaskComplete gate enforcement > gate consultation reads only the runner shape",
+          "name": "HandleTaskComplete_GateWithTopLevelTaskId_RejectsCompletion",
           "dynamic": false
         },
         {
-          "suite": "handleTaskComplete gate enforcement > #1189 — gate consultation tolerates alt shapes",
+          "suite": "handleTaskComplete gate enforcement > gate consultation reads only the runner shape",
           "name": "HandleTaskComplete_GateWithTopLevelTaskIdMismatch_RejectsCompletion",
           "dynamic": false
         },
         {
-          "suite": "handleTaskComplete gate enforcement > #1189 — gate consultation tolerates alt shapes",
+          "suite": "handleTaskComplete gate enforcement > gate consultation reads only the runner shape",
           "name": "HandleTaskComplete_NonManualEvidenceWithPassedTrue_DoesNotSatisfyBlockingGate",
           "dynamic": false
         },
         {
-          "suite": "handleTaskComplete gate enforcement > #1189 — gate consultation tolerates alt shapes",
+          "suite": "handleTaskComplete gate enforcement > gate consultation reads only the runner shape",
           "name": "HandleTaskComplete_EvidenceWithEmptyOutput_DoesNotBypass",
           "dynamic": false
         },
         {
-          "suite": "handleTaskComplete gate enforcement > #1189 — gate consultation tolerates alt shapes",
+          "suite": "handleTaskComplete gate enforcement > gate consultation reads only the runner shape",
           "name": "HandleTaskComplete_EvidenceWithWhitespaceOnlyOutput_DoesNotBypass",
           "dynamic": false
         },
         {
-          "suite": "handleTaskComplete gate enforcement > #1189 — gate consultation tolerates alt shapes",
+          "suite": "handleTaskComplete gate enforcement > gate consultation reads only the runner shape",
           "name": "HandleTaskComplete_ManualEvidenceBypass_NoLongerSatisfiesBlockingGate",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete names the cause and the recovery of a refusal",
+          "name": "HandleTaskComplete_NoRunnerVerdict_NamesTheRerunOfTheStep",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete names the cause and the recovery of a refusal",
+          "name": "HandleTaskComplete_LatestRunFailed_NamesTheFailAndTheRerun",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete names the cause and the recovery of a refusal",
+          "name": "HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheMissingScript",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete names the cause and the recovery of a refusal",
+          "name": "HandleTaskComplete_LatestRunHadNoToolchain_SaysThatNoRerunHelps",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete names the cause and the recovery of a refusal",
+          "name": "HandleTaskComplete_SkipRowOfAnEarlierBuild_NamesASkipWithNoRecordedCause",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete names the cause and the recovery of a refusal",
+          "name": "HandleTaskComplete_EachCause_GetsItsOwnText",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete names the cause and the recovery of a refusal",
+          "name": "RecoveryTexts_NameTheParamsOfTheStaticAnalysisStep",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_LaterFailingRunWithALostSignal_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_LaterFailingRunAfterASkipWithALostSignal_NamesTheFail",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_LaterSkipAfterAFailWithALostSignal_NamesNoRecordedCause",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_LaterPassAfterAFailWithALostSignal_SaysThatTheLatestRowDoesNotCount",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_RetryOfAnOlderOperationAfterALaterFailure_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_TwoWritersWhosePassSignalLandsLast_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_TwoActiveRecordsThatDisagree_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_FailingRecordOnAnotherBase_RefusesUntilThatBasePasses",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_SkippedRecordOnAnotherBase_NamesTheSkippedCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_NoToolchainRecordOnAnotherBranchUnderALaterPass_NamesTheRerunOfThatRun",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_FailOnOneBranchAndAPassOnAnother_RefusesUntilThatBranchPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the active record of the task",
+          "name": "HandleTaskComplete_RunbookPathFailAndSettlePathPass_RefusesWhileTheFailingChainHasNoLaterPass",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the latest phase attempt of the task",
+          "name": "HandleTaskComplete_FailInAnEarlierPhaseAttemptAndAPassInTheLatest_AllowsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the latest phase attempt of the task",
+          "name": "HandleTaskComplete_PassInAnEarlierPhaseAttemptAndAFailInTheLatest_RejectsCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete reads the latest phase attempt of the task",
+          "name": "HandleTaskComplete_LatestRowCitesAnEarlierPhaseAttempt_SaysThatTheRowDoesNotCount",
           "dynamic": false
         },
         {
@@ -50262,6 +50759,26 @@
         {
           "suite": "handleTaskComplete workflow state sync",
           "name": "handleTaskComplete_WhenGatesPass_AllTasksCompleteGuardPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete workflow state sync",
+          "name": "handleTaskComplete_WhenTheDocumentCannotBeWritten_ReportsTheFailureBesideTheDurableFact",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete workflow state sync",
+          "name": "handleTaskComplete_RetryAfterAFailedSyncAndALaterFailingRun_ReturnsTheStoredCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete workflow state sync",
+          "name": "handleTaskComplete_CompletedTaskAndALaterFailingRun_RefusesTheFixUntilARunPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "handleTaskComplete workflow state sync",
+          "name": "handleTaskComplete_WithNoStateDocument_CompletesTheTask",
           "dynamic": false
         },
         {
@@ -54222,6 +54739,11 @@
           "suite": "task-completion over the no-shell leaf subset",
           "name": "BothPathsLeaveTheSameWorkflowProjection",
           "dynamic": false
+        },
+        {
+          "suite": "task-completion leaf that returns a stored completion row",
+          "name": "StoredCompletionAndAStaleStateDocument_HaltsOnTheRowsOfTheLeafAndAppendsNoRow",
+          "dynamic": false
         }
       ]
     },
@@ -55048,6 +55570,11 @@
         {
           "suite": "runDurableGateProducer — pre-v2.12 legacy-state backfill",
           "name": "StampedState_PersistedAttemptWins_OverLegacyDerivation",
+          "dynamic": false
+        },
+        {
+          "suite": "readGateEvidenceRecords",
+          "name": "ReadGateEvidenceRecords_SupersededAndFailingRecords_StayInTheMap",
           "dynamic": false
         }
       ]
@@ -62947,7 +63474,682 @@
         },
         {
           "suite": "settle — the adjudication endpoint",
-          "name": "Settle_TheTailSequence_IsTheRowThisCallAppended",
+          "name": "Settle_TheTailSequence_IsTheRecordThisCallAppended",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ASettledBatch_LeavesOneCompletionPerAcceptedTask_FromTheCompletionLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_TheVerification_IsTheExecutorsOwnSegment",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_TheGateRows_AreTheEvidenceTheSegmentLeaves",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ARejectedBatch_VerifiesNothingAndLeavesNoCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_AHeldBatch_VerifiesNothingAndLeavesNoCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ATaskWhoseSegmentHalts_IsAFindingAndTheBatchNeedsACorrection",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ABatchWithOnePassingAndOneHaltedTask_NeedsACorrectionAndCompletesThePassingTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ABatchWithOnePassingAndOneHaltedTask_NamesTheUnresolvedTaskOnTheReceiptAndTheRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_TwoHaltedTasksClaimedInReverseOrder_AreNamedInTaskIdOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ABatchWithTheOutcome_%s_NamesNoUnresolvedTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ATaskTheStreamAlreadyShowsComplete_IsAcceptedWithoutRunningAgain",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_AReplay_RunsNoSecondVerification",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_AClaimTheSegmentCannotBeCompiledFrom_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ACitedReferenceThatDoesNotResolve_IsInadmissible_AndNothingRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ACitedReferenceToARecordedRow_Resolves",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ACitedSupersededOrFailingRecord_StillResolves",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ACapsuleWithNoVerificationTerms_IsRefusedAsUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_TheRecord_FollowsTheSegmentsItVerified",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ASettledBatch_LeavesTheStateDocumentLevel",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_AReplayOfASettledBatch_BringsAStaleDocumentLevel",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_AReplayThatCannotLevelTheDocument_CarriesItsVerdictOnTheError",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ATaskTheStreamAlreadyShowsComplete_IsBroughtLevelOnTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ACompletionLeafThatCannotWriteTheDocument_RecordsNoVerdictAndTheSameBatchSettlesAfterTheRepair",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ASegmentThatHaltsAfterTheCompletionFact_IsAlreadyCompleteAndTheBatchSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsAlreadyComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_AGateThatBreaksItsContract_IsRefusedWithNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_AHaltOnALeafThatIsNotAGate_IsRefusedAndTheSameBatchSettlesLater",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "TaskCompletionLeafClasses_MatchTheGateDeclarationOfEachLeaf",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_AHeldBatch_ProposesWhatItWaitsOn_AheadOfTheRecordThatHoldsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_AnAcceptedDecision_RecordsIt_VerifiesTheHeldWork_AndSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_ARejectedDecision_RecordsIt_AndRejectsTheBatchWithNothingRun",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_AReplayedDecision_ReturnsThePersistedVerdictAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_ADifferentDecisionOnADecidedBatch_IsRefused_AndTheFirstStands",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_ADecisionOnABatchThatIsNotHeld_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_ADecisionThatAnswersLessThanTheBatchWaitsOn_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_ADecisionNamingNoPendingDeviation_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_ADecisionCarryingClaims_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_AnEmptyDecisionList_IsRefusedRatherThanSettledAsAClaimlessBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round",
+          "name": "Settle_AMalformedDecision_IsRefusedWithoutAdjudicating",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_ADeviationCarryingNoNewField_KeepsItsIdAndItsRequestDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_ABatchHeldBeforeTheChange_IsReadBackAndDecided",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AHeldBatchStoredOverTheInputBounds_IsStillDecided",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AffectedTasksReorderedRepeatedOrEmpty_AreTheSameRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_TwoDeviationsThatDifferOnlyInTheirAffectedTasks_HaveDistinctIds",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_TwoDeviationsThatDifferOnlyInTheirProposedChange_HaveDistinctIds",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_TwoIdenticalDeviations_AreOne",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AHeldBatchReadBackForItsDecision_YieldsTheSameDeviationIds",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_ASeventeenthDeviationOrAThirtyThirdAffectedTask_IsRefusedAsInvalidInput",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_SeventeenIdenticalDeviationsOrThirtyThreeRepeatedTaskIds_AreRefusedAsInvalidInput",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_TheSameBatchWithADifferentProposedChange_IsADigestMismatch",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_ABatchWithOneDeviationThatNamesAnUnknownTaskAndOneThatNamesNone_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AMalformedAffectedTaskListOrProposedChange_IsRefusedWithoutAdjudicating",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AnAffectedTaskThePlanDoesNotHold_RejectsTheBatchRatherThanHoldingIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_APlanEntryTheReaderRefuses_DoesNotMakeAnotherTaskUnknown",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AWorkflowStateThatCannotBeResolved_FailsTheCallAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AnAffectedTaskThatIsFinished_RejectsTheBatchAndSaysToPlanTheReworkAsANewTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AnAffectedTaskWithACompletionRowAndAPendingPlanStatus_IsFinished",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AnAffectedTaskTheBatchClaims_RejectsTheBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_ABatchRejectedForAnAffectedTask_LeavesNoProposalRow",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_ATaskAddedAfterTheCapsuleWasCompiled_CanBeNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_ADecisionAfterTheAffectedTaskLeftThePlan_StillSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AHeldBatchWithAProposedChange_KeepsTheChangeOutOfTheRowAndTheReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round > the tasks a deviation affects and the change it proposes",
+          "name": "Settle_AHeldBatchWithAffectedTasks_NamesThemOnTheProposalRow",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_AnAcceptedMaterialDeviation_CommitsOneRevisionBetweenTheDecisionAndTheRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_AnAcceptedMaterialDeviation_NamesTheRevisionOnItsReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_SeveralAcceptedMaterialDeviations_AreOneRevisionNamingThemAllInSortedOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_AnAcceptedNonMaterialDeviation_RevisesNothingAndItsReceiptCarriesNoRevision",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_ARejectedMaterialDecision_RevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_ARoundThatAcceptsOneMaterialDeviationAndRejectsAnother_RevisesForTheAcceptedOneOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_ACapsulePreparedBeforeMaterialKindsExisted_RevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_AnEnvelopeThatDoesNotRequireApproval_AdmitsWithoutADecisionAndRevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_AnAcceptedMaterialDeviationWhoseVerificationFails_StillRevisesTheDesign",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_ABatchRejectedForAnAffectedTask_LeavesNoRevision",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_AReplayedMaterialDecision_ReturnsTheSameRevisionAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_ARevisionCommittedWhileThisOneAdjudicates_IsCountedByTheNext",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the design revision a decision round records",
+          "name": "Settle_ARevisingDecisionOnAStreamWithADamagedRevisionRow_FailsBeforeAnyTaskCompletes",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_AClaimForATaskALaterRevisionNamed_IsRefusedUnderTheEarlierCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_ATaskThatTwoLaterRevisionsName_IsRefusedForTheLatestOfThem",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_ASiblingOfANamedTask_IsNotVerifiedWhenTheBatchNeedsARecompile",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_AnUnclaimedUnfinishedTaskALaterRevisionNamed_NeedsARecompile",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_AnUnclaimedFinishedTaskALaterRevisionNamed_NeedsNoClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_ADecisionRoundWhoseHeldClaimALaterRevisionNamed_NeedsARecompile",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_ADecisionRoundThatNeedsARecompileForASupersededClaim_StillRecordsItsRevision",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_AReplayUnderAnEarlierCapsule_IsStillAnswered",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_AClaimUnderACapsuleCompiledAfterTheRevision_Settles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_ABatchOnAnEarlierCapsuleThatHoldsNoNamedTask_IsUntouchedByLaterRevisions",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that a later revision supersedes",
+          "name": "Settle_ADamagedLaterRevisionRow_FailsTheClaimRatherThanSettlingIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ACorrectionThatClaimsOnlyTheUnresolvedTask_Settles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ACorrectionBuiltFromTheUnresolvedListOfTheFirstReceipt_Settles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_AnUnclaimedRequiredTaskThatIsNotComplete_IsStillAMissingClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ASubmittedBatchWithNoClaim_IsRefusedAsInvalidInput",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ABatchWithNoClaimRecordedBeforeTheChange_StillReplays",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ATaskCompleteOnTheStreamAndNotOnTheDocument_IsBroughtLevelByABatchThatOmitsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_AReplayOfABatchThatNeedsACorrection_BringsItsCompleteTaskLevel",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ARoundThatStopsBeforeVerification_WritesNoDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_AClaimThatDoesNotCompile_IsRefusedBeforeTheDocumentIsWritten",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ADecisionOnAHeldBatchThatOmitsACompleteTask_VerifiesAndLevelsTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ADocumentThatCannotBeWritten_RefusesABatchThatOmitsTheCompleteTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a required result that the stream shows complete",
+          "name": "Settle_ACompleteTaskThatTheDocumentDoesNotList_IsNamedInTheWarnings",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_AClaimWithTheStatus_%s_BesideACompletedClaim_VerifiesTheCompletedTaskAndNeedsACorrection",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_TheStatusesOfAClaimThatIsNotCompleted_AreTheThreeThatTheCasesCover",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_ACorrectionAfterABlockedClaim_ClaimsTheTaskAsCompletedAndSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_AClaimThatIsNotCompleted_ForATaskTheStreamShowsComplete_GetsTheRecordedCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_AClaimThatIsNotCompleted_ForATaskALaterRevisionNamed_NeedsARecompile",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_ADecisionOnAHeldBatchWithABlockedClaim_VerifiesTheCompletedClaimAndNeedsACorrection",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_AMaximalClaim_SurvivesTheRequestTheBundleAndTheDecisionRoundUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_AHeldBundleWrittenBeforeAClaimHadAStatus_IsReadBackAndDecided",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_ACompletedClaim_KeepsTheRequestDigestAndTheStoredBytesOfTheEarlierBuild",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_TheStatusAndTheReasonOfAClaim_ArePartOfTheRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_AClaimThatBreaksAStatusRule_IsRefusedAsInvalidInputBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that reports the status of its task",
+          "name": "Settle_TheRegisteredSchema_AdmitsTheStatusAndBoundsTheReason",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a deviation that names a task of its own batch",
+          "name": "Settle_ABlockedClaimNamedByItsOwnDeviation_HoldsTheBatchAndVerifiesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a deviation that names a task of its own batch",
+          "name": "Settle_ADeviationThatNamesItsOwnTask_IsRefusedWhenTheClaimIsCompletedOrTheTaskIsFinished",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a deviation that names a task of its own batch",
+          "name": "Settle_AnAcceptedMaterialDeviationThatNamesItsOwnBlockedTask_RevisesTheDesignAndNeedsACorrection",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a deviation that names a task of its own batch",
+          "name": "Settle_ALaterBatchOnTheCapsuleOfAnOwnTaskRevision_NeedsARecompileWhetherItClaimsTheTaskOrNot",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a deviation that names a task of its own batch",
+          "name": "Settle_AnAcceptedDeviationThatIsNotMaterialAndNamesItsOwnBlockedTask_IsCorrectedUnderTheSameCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a deviation that names a task of its own batch",
+          "name": "Settle_ARejectedDeviationThatNamesItsOwnBlockedTask_RejectsTheBatchAndVerifiesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a deviation that names a task of its own batch",
+          "name": "Settle_ARetryOfEitherRoundOfAnOwnTaskDeviation_ReturnsItsReceiptAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_TheDelegatedDecisionsOfTheCapsule_AreTheTwoThatPrepareCompiles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_ABatchWithNoFindingAndARecordedChoice_IsAcceptedWithRationale",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_ABatchWithARationaleAndTheSameBatchWithoutIt_RunTheSameGates",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_ARationaleOnATaskWhoseVerificationFails_DoesNotCompleteTheTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_ARationaleBesideABlockedTask_NeedsACorrectionAndTheRecordStillNamesTheChoice",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_ARationaleThatNamesADecisionTheCapsuleDoesNotDelegate_RejectsTheBatchAndVerifiesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_AReplayOfABatchAcceptedWithRationale_ReturnsItsReceiptAndBringsTheDocumentLevel",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_AHeldBatchWithARecordedChoice_IsAcceptedWithRationaleByTheDecisionThatAcceptsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_TheRationaleOfAClaim_IsPartOfTheRequestOnlyWhenTheClaimCarriesOne",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_AClaimThatBreaksARationaleRule_IsRefusedAsInvalidInputBeforeAnyEffect",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a claim that records a delegated choice",
+          "name": "Settle_TheRegisteredSchema_AdmitsARationaleAndBoundsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the receipts that the MCP output gate admits",
+          "name": "Settle_AReceiptOfEachOutcome_CrossesTheOutputGateWholeAndCappedOnTheFirstCallAndTheReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the text of the action",
+          "name": "SettleAction_ItsDescription_SaysTheVerdictReadsTaskStandingAndLaterRevisions",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the text of the action",
+          "name": "SettleAction_ItsOutputSchema_StatesEachOutcomeAndTheCallThatFollows",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the text of the action",
+          "name": "SettleAction_ItsRequiresRationale_NoLongerSaysTheVerdictReadsNoCurrentState",
           "dynamic": false
         }
       ]
@@ -63003,12 +64205,17 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "settlement facts — parity with completing each task by hand",
-          "name": "SettlementParity_ASettledBatch_LeavesTheSameCompletionFacts",
+          "suite": "settlement composition — parity with completing each task by hand",
+          "name": "SettlementParity_ASettledBatch_LeavesTheSameLeafFacts",
           "dynamic": false
         },
         {
-          "suite": "settlement facts — parity with completing each task by hand",
+          "suite": "settlement composition — parity with completing each task by hand",
+          "name": "SettlementParity_ASettledBatch_LeavesTheSameWorkflowProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "settlement composition — parity with completing each task by hand",
           "name": "SettlementParity_ASettledBatch_LeavesTheSameStateDocument",
           "dynamic": false
         }

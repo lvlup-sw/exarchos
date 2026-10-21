@@ -42,7 +42,6 @@ import { OperationDigestMismatchError, type EventInput } from '../../events/atom
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import {
-  AdmissionEvidenceRecordedData,
   DesignRevisedData,
   DeviationDecidedData,
   DeviationProposedData,
@@ -57,7 +56,7 @@ import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '..
 import { compileIntent } from '../execute/compile.js';
 import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
-import { ladderRequirementId } from '../gates/durable-gate-producer.js';
+import { ladderRequirementId, readGateEvidenceRecords } from '../gates/durable-gate-producer.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
@@ -618,22 +617,13 @@ async function resolvedEvidence(
   const resolved = new Set<string>();
   if (cited.size === 0) return resolved;
 
-  const rows = await ctx.eventStore.query(streamId, { type: 'admission.evidence-recorded' });
-  const recorded = new Map<string, { readonly requirementId: string; readonly artifactRefs: readonly unknown[] }>();
-  for (const row of rows) {
-    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
-    if (!parsed.success || parsed.data.evidence.kind !== 'gate') continue;
-    recorded.set(parsed.data.evidence.evidenceId, {
-      requirementId: parsed.data.evidence.requirementId,
-      artifactRefs: parsed.data.evidence.artifactRefs ?? [],
-    });
-  }
+  const recorded = await readGateEvidenceRecords(ctx.eventStore, streamId);
   const resolver = evidenceArtifactResolver(stateDir);
   for (const [key, evidence] of cited) {
-    const row = recorded.get(evidence.ref);
-    if (row === undefined || row.requirementId !== ladderRequirementId(evidence.kind)) continue;
+    const record = recorded.get(evidence.ref);
+    if (record === undefined || record.evidence.requirementId !== ladderRequirementId(evidence.kind)) continue;
     let intact = true;
-    for (const reference of row.artifactRefs) {
+    for (const reference of record.evidence.artifactRefs ?? []) {
       try {
         await resolver.resolve(reference);
       } catch {

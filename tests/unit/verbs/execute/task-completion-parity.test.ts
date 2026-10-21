@@ -30,6 +30,7 @@ import {
   INTENT_EXECUTED_EVENT,
   type ExecuteIntentDeps,
 } from '../../../../src/verbs/execute/executor.js';
+import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
 import { fixtureCorrelation, fixtureWiring } from './fixtures.js';
@@ -281,5 +282,81 @@ describe('task-completion over the no-shell leaf subset', () => {
     };
 
     expect(await project(executorStore)).toEqual(await project(baselineStore));
+  });
+});
+
+/** The intent of a segment that holds only the terminal `task_complete` step of the shipped runbook. */
+const TERMINAL_INTENT = 'task-completion-terminal-leaf';
+
+/** The shipped runbook cut to its `task_complete` step, so the segment reaches the completion leaf with no gate leaf. */
+function terminalLeafRunbook(): RunbookDefinition {
+  const shipped = ALL_RUNBOOKS.find((entry) => entry.id === SHIPPED_INTENT);
+  if (shipped === undefined) throw new Error(`the ${SHIPPED_INTENT} runbook is missing`);
+  const steps = shipped.steps.filter((step) => step.action === 'task_complete');
+  expect(steps).toHaveLength(1);
+  return { ...shipped, id: TERMINAL_INTENT, steps };
+}
+
+/** The executor deps for the terminal-leaf segment, with the live orchestrate table. */
+function terminalDeps(): ExecuteIntentDeps {
+  const schema = INTENT_ARG_SCHEMAS[SHIPPED_INTENT];
+  if (schema === undefined) throw new Error(`no argument schema for ${SHIPPED_INTENT}`);
+  return {
+    runbookTable: [terminalLeafRunbook()],
+    findAction: findActionInRegistry,
+    argSchemas: { [TERMINAL_INTENT]: schema },
+    handlers: ACTION_HANDLERS,
+    handlerTool: 'exarchos_orchestrate',
+  };
+}
+
+describe('task-completion leaf that returns a stored completion row', () => {
+  /**
+   * The task has its `task.completed` row from an earlier operation, and the state document lists the task in progress.
+   * The leaf syncs the document and returns the stored row, so no row of the leaf operation exists.
+   * The emission verifier, the ensures check and the owed-events check of the executor read the stored row that the reply acknowledges.
+   * Thus the segment passes, appends no second completion row and records no violation.
+   * The receipt lists no event, because the leaf appended none.
+   */
+  it('StoredCompletionAndAStaleStateDocument_PassesOnTheStoredRowAndAppendsNoRow', async () => {
+    await initStateFile(executorDir, STREAM, 'feature', {
+      tasks: [{ id: TASK_ID, title: 'Parity task', status: 'in_progress' }],
+    });
+    const stored = await executorStore.append(
+      STREAM,
+      { type: 'task.completed', data: { taskId: TASK_ID, verified: false } },
+      { idempotencyKey: `${STREAM}:task.completed:${TASK_ID}` },
+    );
+
+    const executed = await runWithDispatchContext(fixtureCorrelation(), () =>
+      handleExecuteIntent(
+        {
+          intent: TERMINAL_INTENT,
+          streamId: STREAM,
+          args: INTENT_ARGS,
+          operationId: 'op-stored-completion',
+        },
+        executorDir,
+        fixtureWiring(executorDir, executorStore),
+        terminalDeps(),
+      ),
+    );
+
+    expect(executed.success, JSON.stringify(executed.error)).toBe(true);
+    const receipt = executed.data as {
+      outcome: string;
+      leaves: { action: string; status: string; events: unknown[] }[];
+    };
+    expect(receipt.outcome).toBe('committed');
+    expect(receipt.leaves.map((leaf) => [leaf.action, leaf.status, leaf.events])).toEqual([
+      ['task_complete', 'passed', []],
+    ]);
+    const completions = await executorStore.query(STREAM, { type: 'task.completed' });
+    expect(completions.map((row) => row.sequence)).toEqual([stored.sequence]);
+    expect(await executorStore.query(STREAM, { type: 'emission.violated' })).toEqual([]);
+    const state = await readStateFile(`${executorDir}/${STREAM}.state.json`);
+    expect((state.tasks as { id: string; status: string }[]).map((task) => [task.id, task.status])).toEqual([
+      [TASK_ID, 'complete'],
+    ]);
   });
 });

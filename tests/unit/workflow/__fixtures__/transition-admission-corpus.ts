@@ -137,7 +137,9 @@ const featureCases: readonly LegacyTransitionFixture[] = [
     guardId: 'all-tasks-complete+team-disbanded',
     pass: { tasks: [{ id: '001', status: 'complete' }], _events: [] },
     fail: { tasks: [{ id: '001', status: 'in_progress' }], _events: [] },
-    failReason: 'all-tasks-complete not satisfied: 1 task(s) incomplete',
+    failReason:
+      'all-tasks-complete not satisfied: 1 task(s) incomplete (001). Only task_complete or settle marks a task complete. ' +
+      'Call exarchos_orchestrate task_complete for each task after its gates pass, or settle its batch.',
   }),
   ...edgeCases({
     workflowType: 'feature',
@@ -541,7 +543,9 @@ const refactorCases: readonly LegacyTransitionFixture[] = [
     guardId: 'all-tasks-complete',
     pass: { tasks: [{ id: '001', status: 'complete' }] },
     fail: { tasks: [{ id: '001', status: 'in_progress' }] },
-    failReason: 'all-tasks-complete not satisfied: 1 task(s) incomplete',
+    failReason:
+      'all-tasks-complete not satisfied: 1 task(s) incomplete (001). Only task_complete or settle marks a task complete. ' +
+      'Call exarchos_orchestrate task_complete for each task after its gates pass, or settle its batch.',
   }),
   ...edgeCases({
     workflowType: 'refactor',

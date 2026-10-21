@@ -66,6 +66,8 @@ const DIGEST = { algorithm: 'sha256' as const, value: 'a'.repeat(64) };
 interface StoreRow {
   readonly type: string;
   readonly operationId?: string;
+  readonly sequence?: number;
+  readonly idempotencyKey?: string;
   readonly data?: unknown;
 }
 
@@ -299,6 +301,34 @@ describe('durable action postcondition observation', () => {
 
     expect(observation.status).toBe('satisfied');
     expect(observation.missing).toEqual([]);
+  });
+
+  /**
+   * A replay of a keyed append appends nothing and returns the stored row of an earlier operation.
+   * The store holds that row under its key at the acknowledged sequence, so the row satisfies the ensure.
+   * An acknowledgement of a row with no key, of an absent row, of another stream or of another type does not.
+   */
+  it('Postconditions_ReplyOfAStoredKeyedRow_SatisfiesTheEventAppend', async () => {
+    const rows: readonly StoreRow[] = [
+      { type: 'task.completed', operationId: 'operation.first', sequence: 4, idempotencyKey: `${STREAM}:task.completed:T1` },
+      { type: 'task.completed', operationId: 'operation.other', sequence: 5 },
+    ];
+    const observe = (reply: unknown) =>
+      observeActionPostconditions({
+        ensures: declared({ source: 'event-append', when: 'success', event: 'task.completed' }),
+        store: memorySource(rows),
+        evidence: memorySource([]),
+        streamId: STREAM,
+        operationId: OPERATION,
+        reply,
+      });
+
+    expect((await observe({ streamId: STREAM, sequence: 4, type: 'task.completed' })).status).toBe('satisfied');
+    expect((await observe({ streamId: STREAM, sequence: 5, type: 'task.completed' })).status).toBe('violated');
+    expect((await observe({ streamId: STREAM, sequence: 9, type: 'task.completed' })).status).toBe('violated');
+    expect((await observe({ streamId: 'feature-other', sequence: 4, type: 'task.completed' })).status).toBe('violated');
+    expect((await observe({ streamId: STREAM, sequence: 4, type: 'workflow.started' })).status).toBe('violated');
+    expect((await observe(undefined)).status).toBe('violated');
   });
 });
 
