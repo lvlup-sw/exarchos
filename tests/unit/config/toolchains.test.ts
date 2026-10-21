@@ -220,7 +220,11 @@ const RED_EXIT_CODES_BY_TOOLCHAIN: Readonly<Record<string, readonly number[]>> =
 describe('testFailureExitCodesFor — the red exit codes of a test run', () => {
   /** The denominator: the table holds each built-in toolchain once, so a new toolchain without a row fails here. */
   it('TestFailureExitCodes_Table_HoldsEachBuiltinOnce', () => {
-    expect(Object.keys(RED_EXIT_CODES_BY_TOOLCHAIN).sort()).toEqual(BUILTIN_TOOLCHAINS.map((t) => t.id).sort());
+    const ids = BUILTIN_TOOLCHAINS.map((t) => t.id);
+
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids.filter((id) => RED_EXIT_CODES_BY_TOOLCHAIN[id] === undefined)).toEqual([]);
+    expect(Object.keys(RED_EXIT_CODES_BY_TOOLCHAIN).filter((id) => !ids.includes(id))).toEqual([]);
   });
 
   for (const toolchain of BUILTIN_TOOLCHAINS) {

@@ -45,6 +45,13 @@ export const CLOSE_SQLITE = './tests/helpers/close-sqlite.ts';
 const HERMETIC_INSTALL_IDENTITY = './tests/helpers/hermetic-install-identity.ts';
 
 /**
+ * The setup file that checks the `exarchos` binary on PATH before the first test. The `test:files` script builds the binary
+ * of the working tree for each project with this setup. `tests/architecture/vitest-config.test.ts` checks that the script
+ * holds the include globs of each such project.
+ */
+export const PATH_BINARY_PREFLIGHT = './tests/helpers/global.ts';
+
+/**
  * Windows headroom factor for the tier budgets (#1699). The budgets are calibrated on Linux, where a
  * `git` spawn is cheap. On the 2-core Windows runner a spawn costs one to two orders of magnitude
  * more, so a tight budget fails by timeout at random. The factor scales the whole tier, because the
@@ -201,7 +208,7 @@ export default defineConfig({
           setupFiles: [
             FILE_BOUNDARY_RESET,
             HERMETIC_INSTALL_IDENTITY,
-            './tests/helpers/global.ts',
+            PATH_BINARY_PREFLIGHT,
             YIELD_BETWEEN_TESTS,
           ],
         },

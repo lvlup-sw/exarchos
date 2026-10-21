@@ -292,6 +292,147 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
     },
     120_000,
   );
+
+  /**
+   * The task changes the source, adds a helper under `tests/helpers/`, and adds a test that calls the source but asserts
+   * only the helper. The probe keeps the helper, so the test loads and stays green after the revert. The verdict is
+   * `failed` (vacuous). When the probe reverted the helper, the test failed to load and the probe read that as a kill.
+   */
+  it(
+    'HandleOrchestrate_CheckTestAdequacy_TaskAddedHelperAndVacuousTest_FailsAsVacuous',
+    async () => {
+      const repoRoot = await initRepo('test-adequacy-helper-');
+      cleanups.push(() => rmrf(repoRoot));
+      await writeBaseProject(repoRoot);
+
+      await git(repoRoot, ['checkout', '-b', 'feature/helper', '-q']);
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
+      mkdirSync(path.join(repoRoot, 'tests', 'helpers'), { recursive: true });
+      writeFileSync(path.join(repoRoot, 'tests', 'helpers', 'fixture.js'), 'export const fixture = { ready: true };\n');
+      writeFileSync(
+        path.join(repoRoot, 'src', 'calc.test.js'),
+        [
+          "import { test } from 'node:test';",
+          "import assert from 'node:assert';",
+          "import { fixture } from '../tests/helpers/fixture.js';",
+          "import { value } from './calc.js';",
+          '',
+          "test('calls value and asserts only the fixture', () => {",
+          '  value();',
+          '  assert.ok(fixture.ready);',
+          '});',
+          '',
+        ].join('\n'),
+      );
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: bump value with a helper and a vacuous test', '-q']);
+
+      const { success, data } = await dispatch(repoRoot, 'feature/helper', { riskTier: 'medium' });
+
+      expect(success).toBe(true);
+      expect(data.passed).toBe(false);
+      expect(data.redObserved).toBe(false);
+      expect(data.discriminant).toBeUndefined();
+      expect(data.report).toContain('stayed GREEN');
+      expect(data.probedTests).toEqual(['src/calc.test.js']);
+      expect(data.restoredClean).toBe(true);
+      expect(await git(repoRoot, ['status', '--porcelain'])).toBe('');
+    },
+    120_000,
+  );
+
+  /**
+   * The task changes only a test and a helper under `tests/helpers/`, and no product source. The helper is test support,
+   * so the probe has no source to revert. The green test gives `failed`. When the probe reverted the helper, the test
+   * failed to load and a task with no product change passed the probe.
+   */
+  it(
+    'HandleOrchestrate_CheckTestAdequacy_TestAndHelperOnly_FailsAsVacuous',
+    async () => {
+      const repoRoot = await initRepo('test-adequacy-test-and-helper-');
+      cleanups.push(() => rmrf(repoRoot));
+      mkdirSync(path.join(repoRoot, 'tests', 'helpers'), { recursive: true });
+      writeFileSync(path.join(repoRoot, 'tests', 'helpers', 'fixture.js'), 'export const fixture = { ready: true };\n');
+      await writeBaseProject(repoRoot);
+
+      await git(repoRoot, ['checkout', '-b', 'feature/test-and-helper', '-q']);
+      writeFileSync(
+        path.join(repoRoot, 'tests', 'helpers', 'fixture.js'),
+        'export const fixture = { ready: true };\nexport const fixtureValue = 2;\n',
+      );
+      writeFileSync(
+        path.join(repoRoot, 'src', 'calc.test.js'),
+        [
+          "import { test } from 'node:test';",
+          "import assert from 'node:assert';",
+          "import { fixtureValue } from '../tests/helpers/fixture.js';",
+          '',
+          "test('asserts the helper value only', () => {",
+          '  assert.strictEqual(fixtureValue, 2);',
+          '});',
+          '',
+        ].join('\n'),
+      );
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'test: change a helper and a test only', '-q']);
+
+      const { success, data } = await dispatch(repoRoot, 'feature/test-and-helper', { riskTier: 'medium' });
+
+      expect(success).toBe(true);
+      expect(data.passed).toBe(false);
+      expect(data.redObserved).toBe(false);
+      expect(data.discriminant).toBeUndefined();
+      expect(data.report).toContain('changes no source file');
+      expect(data.probedTests).toEqual(['src/calc.test.js']);
+      expect(data.restoredClean).toBe(true);
+      expect(await git(repoRoot, ['status', '--porcelain'])).toBe('');
+    },
+    120_000,
+  );
+
+  /**
+   * The source file sits under `src/contest/`. The directory name holds `test`, but it is not a test-support name, so the
+   * file stays source. The probe reverts it, the real test goes red, and the probe passes.
+   */
+  it(
+    'HandleOrchestrate_CheckTestAdequacy_SourceUnderANearMissDirectory_IsReverted',
+    async () => {
+      const repoRoot = await initRepo('test-adequacy-near-miss-');
+      cleanups.push(() => rmrf(repoRoot));
+      mkdirSync(path.join(repoRoot, 'src', 'contest'), { recursive: true });
+      writeFileSync(path.join(repoRoot, 'src', 'contest', 'score.js'), 'export function score() {\n  return 1;\n}\n');
+      await writeBaseProject(repoRoot);
+
+      await git(repoRoot, ['checkout', '-b', 'feature/near-miss', '-q']);
+      writeFileSync(path.join(repoRoot, 'src', 'contest', 'score.js'), 'export function score() {\n  return 2;\n}\n');
+      writeFileSync(
+        path.join(repoRoot, 'src', 'contest', 'score.test.js'),
+        [
+          "import { test } from 'node:test';",
+          "import assert from 'node:assert';",
+          "import { score } from './score.js';",
+          '',
+          "test('score is 2', () => {",
+          '  assert.strictEqual(score(), 2);',
+          '});',
+          '',
+        ].join('\n'),
+      );
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: bump score to 2 with test', '-q']);
+
+      const { success, data } = await dispatch(repoRoot, 'feature/near-miss', { riskTier: 'medium' });
+
+      expect(success).toBe(true);
+      expect(data.discriminant).toBeUndefined();
+      expect(data.passed).toBe(true);
+      expect(data.redObserved).toBe(true);
+      expect(data.probedTests).toEqual(['src/contest/score.test.js']);
+      expect(data.restoredClean).toBe(true);
+      expect(await git(repoRoot, ['status', '--porcelain'])).toBe('');
+    },
+    120_000,
+  );
 });
 
 /** The node binary of this run, quoted for `splitCommand`. */

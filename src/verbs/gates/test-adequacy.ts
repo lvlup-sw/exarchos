@@ -1,7 +1,7 @@
 /**
  * The kill-probe gate for `check_test_adequacy`. It proves that the tests of a task are not vacuous, with mutation testing at N=1.
  * The probe first runs the new or changed tests on the task source, and they must pass.
- * Then it reverts only the source files of the task and keeps the test files. It runs the same tests again and expects at least one to go red.
+ * Then it reverts only the source files of the task and keeps the test files and the test-support files. It runs the same tests again and expects at least one to go red.
  * A test that survives the source revert asserts nothing about the change.
  *
  * `splitHunks` is exported so the mock-boundary gate can reuse the same classification.
@@ -21,6 +21,22 @@ export const DEFAULT_TEST_GLOBS: readonly string[] = [
   '**/__tests__/**',
 ];
 
+/**
+ * The directory names that mark test support, such as a helper, a mock or a fixture.
+ * A changed file that is not a test file and has a directory segment with one of these names is test support.
+ * The probe does not revert test support. A reverted helper can make a test fail to load, and such a red run proves no kill.
+ * The table is data, so a later change can make it configurable.
+ */
+export const DEFAULT_TEST_SUPPORT_SEGMENTS: readonly string[] = [
+  'tests',
+  'test',
+  '__tests__',
+  '__mocks__',
+  '__fixtures__',
+  'fixtures',
+  'test-helpers',
+];
+
 export interface SplitHunksOptions {
   /**
    * Test-file globs from the resolved toolchain/config. When provided these
@@ -34,8 +50,10 @@ export interface SplitHunksOptions {
 export interface SplitHunksResult {
   /** Changed files classified as tests, in input order. */
   readonly testFiles: string[];
-  /** Changed files classified as source (everything not a test), in input order. */
+  /** Changed files classified as source, in input order. A source file is not a test and not test support. */
   readonly sourceFiles: string[];
+  /** Changed files that are not tests and sit under a test-support directory, in input order. They are in neither list above. */
+  readonly supportFiles: string[];
 }
 
 /**
@@ -71,8 +89,18 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(out);
 }
 
+/** Returns true when a directory segment of the repo-relative path is in {@link DEFAULT_TEST_SUPPORT_SEGMENTS}. The file name is not a directory segment. */
+function isTestSupport(file: string): boolean {
+  return file
+    .split('/')
+    .slice(0, -1)
+    .some((segment) => DEFAULT_TEST_SUPPORT_SEGMENTS.includes(segment));
+}
+
 /**
- * Classifies the changed files of a task diff as test or source at the file level. A file is wholly test or wholly source.
+ * Classifies the changed files of a task diff as test, test support or source at the file level. Each file is in one class.
+ * A file that matches a test glob is a test. Else a file under a test-support directory is test support. Every other file is source.
+ *
  * The function is pure. It makes no git calls and no file system reads.
  *
  * @param changedFiles - repo-relative paths changed by the task diff
@@ -87,17 +115,19 @@ export function splitHunks(
 
   const testFiles: string[] = [];
   const sourceFiles: string[] = [];
+  const supportFiles: string[] = [];
 
   for (const file of changedFiles) {
-    const isTest = matchers.some((re) => re.test(file));
-    if (isTest) {
+    if (matchers.some((re) => re.test(file))) {
       testFiles.push(file);
+    } else if (isTestSupport(file)) {
+      supportFiles.push(file);
     } else {
       sourceFiles.push(file);
     }
   }
 
-  return { testFiles, sourceFiles };
+  return { testFiles, sourceFiles, supportFiles };
 }
 
 /**
@@ -774,16 +804,17 @@ function postRevertVerdict(outcome: RunOutcome, probedTests: string[]): ProbeVer
 /**
  * Runs the kill probe. The test runner and the changed-file list are injected, so unit tests need no real test command.
  *
- *   1. Split the diff into test and source files. A deleted test file is not run. No test file left gives `no-new-tests`.
+ *   1. Split the diff into test, test-support and source files. A deleted test file is not run. No test file left gives `no-new-tests`.
  *   2. Snapshot the working tree (a failed snapshot stops the probe before any change).
  *   3. Run the scoped tests on the task source. A red run gives `baseline-red`, because a later red run proves no kill.
- *   4. Revert the source files to `baseRef` and run the tests again. A task with no source file skips this step and fails.
+ *   4. Revert only the source files to `baseRef` and run the tests again. A task with no source file skips this step and fails.
  *   5. Restore the working tree in a `finally`, so the restore runs even when a test run throws.
  *
- * Red after green gives `passed`, and green after green gives `failed`. A failed revert or restore gives `indeterminate`.
- * A run with no verdict, such as a timeout, a signal or an unknown exit code, gives `run-no-verdict`. It is never a kill.
- * A failed restore wins over `baseline-red` and `run-no-verdict`.
- * Limit: a reverted config file, such as `package.json`, can make the second run collect no test, and that run reads as a kill.
+ * Red after green gives `passed`, and green after green gives `failed`. A failed revert or restore gives `indeterminate`. A failed restore wins over `baseline-red` and `run-no-verdict`.
+ * A run with no verdict, such as a timeout, a signal or an unknown exit code, gives `run-no-verdict`. A run that does not finish is never a kill.
+ *
+ * Limit: the probe reads every red run after the revert as a kill. A test can fail to load when the revert removes or changes a module that it imports.
+ * An example is a module that the task adds or renames. A reverted config file, such as `package.json`, can make the run red or collect no test. Test files and test-support files are never reverted.
  */
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   const { gitExec, repoRoot, baseRef, changedFiles, runTests, testGlobs } = args;
@@ -894,7 +925,8 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
       {
         kind: 'failed',
         reason:
-          'the task changes no source file, so the probe had nothing to revert — ' +
+          'the task changes no source file, so the probe had nothing to revert ' +
+          '(the probe keeps test files and test-support files) — ' +
           'the scoped tests stay GREEN and no kill is possible',
         probedTests: testFiles,
       },

@@ -13,6 +13,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import {
+  DEFAULT_TEST_SUPPORT_SEGMENTS,
   splitHunks,
   snapshotWorkingTree,
   revertSourceFiles,
@@ -142,11 +143,12 @@ describe('splitHunks (file-level test/source classification)', () => {
     expect(result.sourceFiles).toEqual(['src/calc.test.ts']);
   });
 
-  /** Each changed file is in exactly one class, and the two classes together equal the input set. */
+  /** Each changed file is in exactly one class, and the three classes together equal the input set. */
   it('SplitHunks_Partition_EveryFileClassifiedExactlyOnce', () => {
-    const segment = fc
-      .stringMatching(/^[a-z][a-z0-9_]{0,7}$/)
-      .filter((s) => s.length > 0);
+    const segment = fc.oneof(
+      fc.stringMatching(/^[a-z][a-z0-9_]{0,7}$/).filter((s) => s.length > 0),
+      fc.constantFrom(...DEFAULT_TEST_SUPPORT_SEGMENTS),
+    );
     const fileArb = fc
       .tuple(
         fc.array(segment, { minLength: 1, maxLength: 4 }),
@@ -156,16 +158,63 @@ describe('splitHunks (file-level test/source classification)', () => {
 
     fc.assert(
       fc.property(fc.uniqueArray(fileArb, { maxLength: 20 }), (files) => {
-        const { testFiles, sourceFiles } = splitHunks(files);
-        const union = [...testFiles, ...sourceFiles];
-
-        const testSet = new Set(testFiles);
-        for (const s of sourceFiles) expect(testSet.has(s)).toBe(false);
+        const { testFiles, sourceFiles, supportFiles } = splitHunks(files);
+        const union = [...testFiles, ...sourceFiles, ...supportFiles];
 
         expect(new Set(union)).toEqual(new Set(files));
         expect(union.length).toBe(files.length);
       }),
     );
+  });
+
+  /**
+   * A file that is not a test and sits under a directory with a test-support name is test support. It is in neither the
+   * test list nor the source list, so the probe does not revert it. The table holds the seven names, and each one counts.
+   */
+  it('SplitHunks_TestSupportSegments_AreNeitherTestNorSource', () => {
+    expect(DEFAULT_TEST_SUPPORT_SEGMENTS).toEqual([
+      'tests',
+      'test',
+      '__tests__',
+      '__mocks__',
+      '__fixtures__',
+      'fixtures',
+      'test-helpers',
+    ]);
+    const files = DEFAULT_TEST_SUPPORT_SEGMENTS.map((name) => `pkg/${name}/support.ts`);
+
+    const result = splitHunks(files, { testGlobs: ['**/*.test.*'] });
+
+    expect(result.supportFiles).toEqual(files);
+    expect(result.testFiles).toEqual([]);
+    expect(result.sourceFiles).toEqual([]);
+  });
+
+  /**
+   * The rule matches a whole directory name. A name that only holds a support name, a file named like a support
+   * directory, and a singular form stay source. A test file under a support directory stays a test.
+   */
+  it('SplitHunks_NearMissNamesAndTestsUnderSupport_KeepTheirClass', () => {
+    const result = splitHunks([
+      'src/contest/value.ts',
+      'src/testing/value.ts',
+      'src/fixture/value.ts',
+      'bin/tests',
+      'src/tests.ts',
+      'tests/helpers/fixture.ts',
+      'tools/test-helpers/spawn.ts',
+      'tests/helpers/fixture.test.ts',
+    ]);
+
+    expect(result.sourceFiles).toEqual([
+      'src/contest/value.ts',
+      'src/testing/value.ts',
+      'src/fixture/value.ts',
+      'bin/tests',
+      'src/tests.ts',
+    ]);
+    expect(result.supportFiles).toEqual(['tests/helpers/fixture.ts', 'tools/test-helpers/spawn.ts']);
+    expect(result.testFiles).toEqual(['tests/helpers/fixture.test.ts']);
   });
 });
 
