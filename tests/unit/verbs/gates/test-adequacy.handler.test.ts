@@ -374,7 +374,8 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
       'baseline-red': 'indeterminate',
       'run-no-verdict': 'indeterminate',
     };
-    expect(Object.keys(blockedVerdict).sort()).toEqual([...ADEQUACY_DISCRIMINANTS].sort());
+    expect(Object.keys(blockedVerdict)).toHaveLength(ADEQUACY_DISCRIMINANTS.length);
+    for (const cause of ADEQUACY_DISCRIMINANTS) expect(Object.keys(blockedVerdict)).toContain(cause);
     const gitExec: GitExec = () => ({ stdout: 'fatal: no repository', exitCode: 128 });
     let blockedRuns = 0;
     for (const cause of ADEQUACY_DISCRIMINANTS) {
