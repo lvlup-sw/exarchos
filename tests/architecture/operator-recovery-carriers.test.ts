@@ -144,7 +144,7 @@ const CARRIED: readonly CarriedRecovery[] = [
   },
   {
     id: 'advisory-skip-cause',
-    notes: 'Recovery: when the result line says `degraded`, read the cause of each advisory skip',
+    notes: 'Recovery: when the result line says `degraded: N advisory check gave no verdict`, read the cause of each advisory skip',
     carrier: {
       kind: 'produced',
       test: 'tests/unit/verbs/gates/static-analysis.test.ts',
