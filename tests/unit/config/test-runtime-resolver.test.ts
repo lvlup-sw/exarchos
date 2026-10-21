@@ -15,6 +15,7 @@ import { loadExarchosConfig } from '../../../src/config/load-exarchos-config.js'
 import { ExarchosConfigSchema } from '../../../src/config/exarchos-config-schema.js';
 import { FullExarchosConfigSchema } from '../../../src/config/yaml-schema.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
+import { isolatedSync } from '../../../tools/test-helpers/spawn.js';
 
 describe('resolveTestRuntime', () => {
   const tmpDirs: string[] = [];
@@ -32,14 +33,14 @@ describe('resolveTestRuntime', () => {
     tmpDirs.length = 0;
   });
 
-  it('resolveTestRuntime_NodeProject_ReturnsNpmCommands', () => {
+  it('resolveTestRuntime_NodeProject_ReturnsNpmCommands', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
       JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
     );
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'npm run test:run',
@@ -49,11 +50,11 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_PythonProject_ReturnsPytestCommand', () => {
+  it('resolveTestRuntime_PythonProject_ReturnsPytestCommand', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'pyproject.toml'), '[project]');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'pytest',
@@ -63,11 +64,11 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_RustProject_ReturnsCargoCommand', () => {
+  it('resolveTestRuntime_RustProject_ReturnsCargoCommand', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'Cargo.toml'), '[package]');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'cargo test',
@@ -77,11 +78,11 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_DotNetProject_ReturnsDotnetCommand', () => {
+  it('resolveTestRuntime_DotNetProject_ReturnsDotnetCommand', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'Foo.csproj'), '<Project/>');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'dotnet test',
@@ -93,11 +94,11 @@ describe('resolveTestRuntime', () => {
 
   it.each(['App.sln', 'App.slnx'])(
     'resolveTestRuntime_DotNetSolution_%s_ReturnsDotnetCommand (#1507)',
-    (solutionFile) => {
+    async (solutionFile) => {
       const dir = makeTmpDir();
       writeFileSync(join(dir, solutionFile), '');
 
-      const result = resolveTestRuntime(dir);
+      const result = await isolatedSync(() => resolveTestRuntime(dir));
 
       expect(result).toEqual({
         test: 'dotnet test',
@@ -108,11 +109,11 @@ describe('resolveTestRuntime', () => {
     },
   );
 
-  it('resolveTestRuntime_GoProject_ReturnsGoCommand', () => {
+  it('resolveTestRuntime_GoProject_ReturnsGoCommand', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'go.mod'), 'module example.com/x\n');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'go test ./...',
@@ -122,10 +123,10 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_NoMarkers_ReturnsUnresolved', () => {
+  it('resolveTestRuntime_NoMarkers_ReturnsUnresolved', async () => {
     const dir = makeTmpDir();
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.test).toBeNull();
     expect(result.typecheck).toBeNull();
@@ -135,25 +136,25 @@ describe('resolveTestRuntime', () => {
     expect(result.remediation!.length).toBeGreaterThan(0);
   });
 
-  it('resolveTestRuntime_OverrideTestProvided_ReturnsOverride', () => {
+  it('resolveTestRuntime_OverrideTestProvided_ReturnsOverride', async () => {
     const dir = makeTmpDir();
 
-    const result = resolveTestRuntime(dir, { override: { test: 'bun test' } });
+    const result = await isolatedSync(() => resolveTestRuntime(dir, { override: { test: 'bun test' } }));
 
     expect(result.test).toBe('bun test');
     expect(result.source).toBe('override');
   });
 
-  it('resolveTestRuntime_OverrideAllFieldsProvided_ReturnsOverrideForAll', () => {
+  it('resolveTestRuntime_OverrideAllFieldsProvided_ReturnsOverrideForAll', async () => {
     const dir = makeTmpDir();
 
-    const result = resolveTestRuntime(dir, {
+    const result = await isolatedSync(() => resolveTestRuntime(dir, {
       override: {
         test: 'bun test',
         typecheck: 'bunx tsc --noEmit',
         install: 'bun install',
       },
-    });
+    }));
 
     expect(result).toEqual({
       test: 'bun test',
@@ -163,14 +164,14 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_OverridePartial_MergesWithDetection', () => {
+  it('resolveTestRuntime_OverridePartial_MergesWithDetection', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
       JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
     );
 
-    const result = resolveTestRuntime(dir, { override: { test: 'bun test' } });
+    const result = await isolatedSync(() => resolveTestRuntime(dir, { override: { test: 'bun test' } }));
 
     expect(result).toEqual({
       test: 'bun test',
@@ -180,17 +181,17 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_OverrideUnsafeChars_Throws', () => {
+  it('resolveTestRuntime_OverrideUnsafeChars_Throws', async () => {
     const dir = makeTmpDir();
 
-    expect(() => resolveTestRuntime(dir, { override: { test: 'npm test; rm -rf /' } })).toThrow();
-    expect(() => resolveTestRuntime(dir, { override: { test: 'echo `whoami`' } })).toThrow();
-    expect(() => resolveTestRuntime(dir, { override: { test: 'echo $HOME' } })).toThrow();
-    expect(() => resolveTestRuntime(dir, { override: { typecheck: 'tsc && evil' } })).toThrow();
-    expect(() => resolveTestRuntime(dir, { override: { install: 'npm i | bad' } })).toThrow();
+    await expect(isolatedSync(() => resolveTestRuntime(dir, { override: { test: 'npm test; rm -rf /' } }))).rejects.toThrow();
+    await expect(isolatedSync(() => resolveTestRuntime(dir, { override: { test: 'echo `whoami`' } }))).rejects.toThrow();
+    await expect(isolatedSync(() => resolveTestRuntime(dir, { override: { test: 'echo $HOME' } }))).rejects.toThrow();
+    await expect(isolatedSync(() => resolveTestRuntime(dir, { override: { typecheck: 'tsc && evil' } }))).rejects.toThrow();
+    await expect(isolatedSync(() => resolveTestRuntime(dir, { override: { install: 'npm i | bad' } }))).rejects.toThrow();
   });
 
-  it('resolveTestRuntime_PriorityPackageJsonWinsOverPyproject', () => {
+  it('resolveTestRuntime_PriorityPackageJsonWinsOverPyproject', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -198,7 +199,7 @@ describe('resolveTestRuntime', () => {
     );
     writeFileSync(join(dir, 'pyproject.toml'), '[project]');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.test).toBe('npm run test:run');
     expect(result.typecheck).toBe('npm run typecheck');
@@ -206,12 +207,12 @@ describe('resolveTestRuntime', () => {
     expect(result.source).toBe('detection');
   });
 
-  it('resolveTestRuntime_BunProject_DetectsBunLockfile', () => {
+  it('resolveTestRuntime_BunProject_DetectsBunLockfile', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), '{}');
     writeFileSync(join(dir, 'bun.lockb'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'bun test',
@@ -226,7 +227,7 @@ describe('resolveTestRuntime', () => {
    * the script through `bun run test:run`, not through the native bun test runner.
    * `typecheck` uses its script in the same way.
    */
-  it('resolveTestRuntime_BunProjectWithTestRunScript_HonorsTestRunViaBunRun', () => {
+  it('resolveTestRuntime_BunProjectWithTestRunScript_HonorsTestRunViaBunRun', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -234,7 +235,7 @@ describe('resolveTestRuntime', () => {
     );
     writeFileSync(join(dir, 'bun.lock'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'bun run test:run',
@@ -245,7 +246,7 @@ describe('resolveTestRuntime', () => {
   });
 
   /** A `test:run` script does not imply a `typecheck` script. Without one, typecheck falls back to `tsc --noEmit`. */
-  it('resolveTestRuntime_BunProjectWithTestRunButNoTypecheck_FallsBackToTsc', () => {
+  it('resolveTestRuntime_BunProjectWithTestRunButNoTypecheck_FallsBackToTsc', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -253,7 +254,7 @@ describe('resolveTestRuntime', () => {
     );
     writeFileSync(join(dir, 'bun.lock'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'bun run test:run',
@@ -263,12 +264,12 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_PnpmProject_DetectsPnpmLockfile', () => {
+  it('resolveTestRuntime_PnpmProject_DetectsPnpmLockfile', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'pnpm test',
@@ -282,12 +283,12 @@ describe('resolveTestRuntime', () => {
    * With no Berry signal (`.yarnrc.yml`, `.yarn/releases/`, `packageManager`), the project is Yarn
    * Classic. `--immutable` is Berry-only, so Classic gets `--frozen-lockfile`.
    */
-  it('resolveTestRuntime_YarnClassicProject_UsesFrozenLockfile', () => {
+  it('resolveTestRuntime_YarnClassicProject_UsesFrozenLockfile', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'yarn.lock'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'yarn test',
@@ -297,19 +298,19 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_YarnBerryProject_UsesImmutable_ViaYarnrcYml', () => {
+  it('resolveTestRuntime_YarnBerryProject_UsesImmutable_ViaYarnrcYml', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'yarn.lock'), '');
     writeFileSync(join(dir, '.yarnrc.yml'), 'nodeLinker: node-modules\n');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.install).toBe('yarn install --immutable');
     expect(result.source).toBe('detection');
   });
 
-  it('resolveTestRuntime_YarnBerryProject_UsesImmutable_ViaPackageManagerField', () => {
+  it('resolveTestRuntime_YarnBerryProject_UsesImmutable_ViaPackageManagerField', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -320,12 +321,12 @@ describe('resolveTestRuntime', () => {
     );
     writeFileSync(join(dir, 'yarn.lock'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.install).toBe('yarn install --immutable');
   });
 
-  it('resolveTestRuntime_NpmProject_NoAltLockfile_ReturnsNpmCommands', () => {
+  it('resolveTestRuntime_NpmProject_NoAltLockfile_ReturnsNpmCommands', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -333,7 +334,7 @@ describe('resolveTestRuntime', () => {
     );
     writeFileSync(join(dir, 'package-lock.json'), '{}');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'npm run test:run',
@@ -343,13 +344,13 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_BunAndPnpmLockfiles_BunWins', () => {
+  it('resolveTestRuntime_BunAndPnpmLockfiles_BunWins', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), '{}');
     writeFileSync(join(dir, 'bun.lockb'), '');
     writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'bun test',
@@ -359,13 +360,13 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_PnpmAndYarnLockfiles_PnpmWins', () => {
+  it('resolveTestRuntime_PnpmAndYarnLockfiles_PnpmWins', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
     writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
     writeFileSync(join(dir, 'yarn.lock'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'pnpm test',
@@ -375,11 +376,11 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_BunLockfileWithoutPackageJson_FallsThroughToUnresolved', () => {
+  it('resolveTestRuntime_BunLockfileWithoutPackageJson_FallsThroughToUnresolved', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'bun.lockb'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.source).toBe('unresolved');
     expect(result.test).toBeNull();
@@ -391,14 +392,14 @@ describe('resolveTestRuntime', () => {
    * The remediation must name `.exarchos.yml` or the missing script. The install command stays set,
    * so a caller can still install the dependencies.
    */
-  it('resolveTestRuntime_NpmProjectMissingTestRunScript_ReturnsUnresolvedTestWithRemediation', () => {
+  it('resolveTestRuntime_NpmProjectMissingTestRunScript_ReturnsUnresolvedTestWithRemediation', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
       JSON.stringify({ scripts: { build: 'tsc' } }),
     );
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.test).toBeNull();
     expect(result.source).toBe('unresolved');
@@ -410,14 +411,14 @@ describe('resolveTestRuntime', () => {
     expect(result.install).toBe('npm install');
   });
 
-  it('resolveTestRuntime_NpmProjectWithTestRunScript_ReturnsNpmRunTestRun', () => {
+  it('resolveTestRuntime_NpmProjectWithTestRunScript_ReturnsNpmRunTestRun', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
       JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
     );
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'npm run test:run',
@@ -427,14 +428,14 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_NpmProjectMissingTypecheckScript_FallsBackToTscNoEmit', () => {
+  it('resolveTestRuntime_NpmProjectMissingTypecheckScript_FallsBackToTscNoEmit', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
       JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
     );
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'npm run test:run',
@@ -444,12 +445,12 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_PnpmProjectMissingTestScript_ReturnsUnresolvedWithRemediation', () => {
+  it('resolveTestRuntime_PnpmProjectMissingTestScript_ReturnsUnresolvedWithRemediation', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
     writeFileSync(join(dir, 'pnpm-lock.yaml'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.test).toBeNull();
     expect(result.source).toBe('unresolved');
@@ -459,12 +460,12 @@ describe('resolveTestRuntime', () => {
     ).toBe(true);
   });
 
-  it('resolveTestRuntime_YarnProjectMissingTestScript_ReturnsUnresolvedWithRemediation', () => {
+  it('resolveTestRuntime_YarnProjectMissingTestScript_ReturnsUnresolvedWithRemediation', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
     writeFileSync(join(dir, 'yarn.lock'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.test).toBeNull();
     expect(result.source).toBe('unresolved');
@@ -474,12 +475,12 @@ describe('resolveTestRuntime', () => {
     ).toBe(true);
   });
 
-  it('resolveTestRuntime_BunProjectMissingTestScript_StillReturnsBunTest', () => {
+  it('resolveTestRuntime_BunProjectMissingTestScript_StillReturnsBunTest', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { build: 'tsc' } }));
     writeFileSync(join(dir, 'bun.lockb'), '');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result).toEqual({
       test: 'bun test',
@@ -489,11 +490,11 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_NpmProjectScriptsFieldAbsent_ReturnsUnresolved', () => {
+  it('resolveTestRuntime_NpmProjectScriptsFieldAbsent_ReturnsUnresolved', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'no-scripts-here' }));
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.test).toBeNull();
     expect(result.source).toBe('unresolved');
@@ -503,11 +504,11 @@ describe('resolveTestRuntime', () => {
     ).toBe(true);
   });
 
-  it('resolveTestRuntime_NpmProjectMalformedPackageJson_HandlesGracefully', () => {
+  it('resolveTestRuntime_NpmProjectMalformedPackageJson_HandlesGracefully', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), '{ "name": "broken", "scripts": {');
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.test).toBeNull();
     expect(result.typecheck).toBeNull();
@@ -675,18 +676,18 @@ describe('resolveTestRuntime', () => {
    * With no `eventStore` option there is no spy, so the test cannot observe an emission.
    * It proves only that resolution succeeds without a store.
    */
-  it('resolveTestRuntime_NoEventStore_NoEmissions', () => {
+  it('resolveTestRuntime_NoEventStore_NoEmissions', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
       JSON.stringify({ scripts: { 'test:run': 'vitest run' } }),
     );
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
     expect(result.source).toBe('detection');
   });
 
-  it('resolveTestRuntime_WithEventStoreNpmDetection_EmitsThreeDetectionEvents', () => {
+  it('resolveTestRuntime_WithEventStoreNpmDetection_EmitsThreeDetectionEvents', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -695,7 +696,7 @@ describe('resolveTestRuntime', () => {
     const append = vi.fn();
     const eventStore = { append };
 
-    const result = resolveTestRuntime(dir, { eventStore, stream: 'feat-123' });
+    const result = await isolatedSync(() => resolveTestRuntime(dir, { eventStore, stream: 'feat-123' }));
 
     expect(append).toHaveBeenCalledTimes(3);
     const calls = append.mock.calls.map((c) => c[1]);
@@ -717,7 +718,7 @@ describe('resolveTestRuntime', () => {
     });
   });
 
-  it('resolveTestRuntime_WithEventStoreOverride_EmitsOverrideSourcePerOverriddenField', () => {
+  it('resolveTestRuntime_WithEventStoreOverride_EmitsOverrideSourcePerOverriddenField', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -725,11 +726,11 @@ describe('resolveTestRuntime', () => {
     );
     const append = vi.fn();
 
-    resolveTestRuntime(dir, {
+    await isolatedSync(() => resolveTestRuntime(dir, {
       override: { test: 'custom-test' },
       eventStore: { append },
       stream: 'feat-x',
-    });
+    }));
 
     const calls = append.mock.calls.map((c) => c[1]);
     const byField = new Map<string, { data: { source: string } }>(
@@ -769,11 +770,11 @@ describe('resolveTestRuntime', () => {
     expect(byField.get('install')?.data.command).toBeNull();
   });
 
-  it('resolveTestRuntime_WithEventStoreUnresolved_EmitsUnresolvedSourceWithRemediation', () => {
+  it('resolveTestRuntime_WithEventStoreUnresolved_EmitsUnresolvedSourceWithRemediation', async () => {
     const dir = makeTmpDir();
     const append = vi.fn();
 
-    resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-u' });
+    await isolatedSync(() => resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-u' }));
 
     expect(append).toHaveBeenCalledTimes(3);
     const calls = append.mock.calls.map((c) => c[1]);
@@ -796,7 +797,7 @@ describe('resolveTestRuntime', () => {
     writeFileSync(join(dir, 'MyApp.csproj'), '<Project></Project>');
     const append = vi.fn();
 
-    const result = resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-net' });
+    const result = await isolatedSync(() => resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-net' }));
 
     expect(result.test).toBe('dotnet test');
     expect(result.typecheck).toBeNull();
@@ -836,7 +837,7 @@ describe('resolveTestRuntime', () => {
     }
   });
 
-  it('resolveTestRuntime_WithEventStoreThrows_ResolutionStillSucceeds', () => {
+  it('resolveTestRuntime_WithEventStoreThrows_ResolutionStillSucceeds', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -847,14 +848,14 @@ describe('resolveTestRuntime', () => {
       throw new Error('boom');
     });
 
-    const result = resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-y' });
+    const result = await isolatedSync(() => resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-y' }));
 
     expect(result.test).toBe('npm run test:run');
     expect(result.source).toBe('detection');
     warn.mockRestore();
   });
 
-  it('resolveTestRuntime_EventStoreWithoutStream_Throws', () => {
+  it('resolveTestRuntime_EventStoreWithoutStream_Throws', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -862,12 +863,10 @@ describe('resolveTestRuntime', () => {
     );
     const append = vi.fn();
 
-    expect(() =>
-      resolveTestRuntime(dir, { eventStore: { append } }),
-    ).toThrow(/stream.*required.*eventStore/i);
+    await expect(isolatedSync(() => resolveTestRuntime(dir, { eventStore: { append } }))).rejects.toThrow(/stream.*required.*eventStore/i);
   });
 
-  it('resolveTestRuntime_StreamPassedToEachAppend', () => {
+  it('resolveTestRuntime_StreamPassedToEachAppend', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -875,7 +874,7 @@ describe('resolveTestRuntime', () => {
     );
     const append = vi.fn();
 
-    resolveTestRuntime(dir, { eventStore: { append }, stream: 'my-feat-stream' });
+    await isolatedSync(() => resolveTestRuntime(dir, { eventStore: { append }, stream: 'my-feat-stream' }));
 
     expect(append).toHaveBeenCalledTimes(3);
     for (const call of append.mock.calls) {
@@ -888,10 +887,10 @@ describe('resolveTestRuntime', () => {
    * It must hold an inline YAML example or a link to the docs. The test accepts either form, so a
    * docs reorganization does not constrain the message.
    */
-  it('testRuntimeResolver_RemediationMessage_IncludesDocLinkOrExample', () => {
+  it('testRuntimeResolver_RemediationMessage_IncludesDocLinkOrExample', async () => {
     const dir = makeTmpDir();
 
-    const result = resolveTestRuntime(dir);
+    const result = await isolatedSync(() => resolveTestRuntime(dir));
 
     expect(result.source).toBe('unresolved');
     expect(result.remediation).toBeDefined();
@@ -925,20 +924,20 @@ describe('resolveTestRuntime', () => {
     });
 
     /** Built-in detection resolves `Cargo.toml` to `cargo test`. The justfile wins. */
-    it('tier4_TaskRunner_BeatsBuiltinDetection', () => {
+    it('tier4_TaskRunner_BeatsBuiltinDetection', async () => {
       const dir = makeTmpDir();
       writeFileSync(join(dir, 'Cargo.toml'), '[package]');
       writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
-      const result = resolveTestRuntime(dir);
+      const result = await isolatedSync(() => resolveTestRuntime(dir));
       expect(result.test).toBe('just test');
       expect(result.source).toBe('task-runner');
     });
 
-    it('tier4_TaskRunner_RescuesNodeMissingTestScript', () => {
+    it('tier4_TaskRunner_RescuesNodeMissingTestScript', async () => {
       const dir = makeTmpDir();
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: {} }));
       writeFileSync(join(dir, 'Taskfile.yml'), 'tasks:\n  test:\n    cmds: [echo hi]\n');
-      const result = resolveTestRuntime(dir);
+      const result = await isolatedSync(() => resolveTestRuntime(dir));
       expect(result.test).toBe('task test');
       expect(result.source).toBe('task-runner');
     });
@@ -962,21 +961,21 @@ describe('resolveTestRuntime', () => {
     });
 
     /** A committed task runner is a deliberate project interface, so it wins over the `test:run` script of a node repository. */
-    it('tier4_TaskRunner_BeatsNodeWithWorkingTestScript', () => {
+    it('tier4_TaskRunner_BeatsNodeWithWorkingTestScript', async () => {
       const dir = makeTmpDir();
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { 'test:run': 'vitest run' } }));
       writeFileSync(join(dir, 'justfile'), 'test:\n\techo hi\n');
-      const result = resolveTestRuntime(dir);
+      const result = await isolatedSync(() => resolveTestRuntime(dir));
       expect(result.test).toBe('just test');
       expect(result.source).toBe('task-runner');
     });
 
     /** With no lockfile, the installed-state markers of `INSTALL_METADATA` identify the package manager. */
-    it('nodeInstallMetadataFallback_NoLockfile_ResolvesPm', () => {
+    it('nodeInstallMetadataFallback_NoLockfile_ResolvesPm', async () => {
       const dir = makeTmpDir();
       writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts: { test: 'vitest run' } }));
       mkdirSync(join(dir, 'node_modules', '.pnpm'), { recursive: true });
-      const result = resolveTestRuntime(dir);
+      const result = await isolatedSync(() => resolveTestRuntime(dir));
       expect(result.test).toBe('pnpm test');
     });
 
@@ -1021,10 +1020,10 @@ describe('resolveVerificationRuntime', () => {
    * A user toolchain beats detection, and a direct config value beats detection.
    * An override beats the config value.
    */
-  it('ResolveVerificationRuntime_MutationField_HonorsLayeredPrecedence', () => {
+  it('ResolveVerificationRuntime_MutationField_HonorsLayeredPrecedence', async () => {
     const rust = makeTmpDir();
     writeFileSync(join(rust, 'Cargo.toml'), '[package]');
-    expect(resolveVerificationRuntime(rust).mutation).toBe('cargo mutants --in-diff');
+    expect((await isolatedSync(() => resolveVerificationRuntime(rust))).mutation).toBe('cargo mutants --in-diff');
 
     const userTc = makeTmpDir();
     writeFileSync(join(userTc, 'Cargo.toml'), '[package]');
@@ -1057,10 +1056,10 @@ describe('resolveVerificationRuntime', () => {
   });
 
   /** Go detection seeds `go vet ./...`. A direct config value beats detection, and an override beats the config value. */
-  it('ResolveVerificationRuntime_LintField_HonorsLayeredPrecedence', () => {
+  it('ResolveVerificationRuntime_LintField_HonorsLayeredPrecedence', async () => {
     const go = makeTmpDir();
     writeFileSync(join(go, 'go.mod'), 'module example.com/x\n');
-    expect(resolveVerificationRuntime(go).lint).toBe('go vet ./...');
+    expect((await isolatedSync(() => resolveVerificationRuntime(go))).lint).toBe('go vet ./...');
 
     const cfg = makeTmpDir();
     writeFileSync(join(cfg, 'go.mod'), 'module example.com/x\n');
@@ -1084,7 +1083,7 @@ describe('resolveVerificationRuntime', () => {
    * A direct config value gives the structured `{ codegen, diff }` contract, and an override beats it.
    * A Rust marker alone gives null, because no built-in toolchain supplies a contract.
    */
-  it('ResolveVerificationRuntime_ContractField_ResolvesStructured', () => {
+  it('ResolveVerificationRuntime_ContractField_ResolvesStructured', async () => {
     const dir = makeTmpDir();
     const result = resolveVerificationRuntime(dir, {
       loadConfig: () => ({
@@ -1106,7 +1105,7 @@ describe('resolveVerificationRuntime', () => {
 
     const none = makeTmpDir();
     writeFileSync(join(none, 'Cargo.toml'), '[package]');
-    expect(resolveVerificationRuntime(none).contract).toBeNull();
+    expect((await isolatedSync(() => resolveVerificationRuntime(none))).contract).toBeNull();
   });
 
   /**
@@ -1114,13 +1113,13 @@ describe('resolveVerificationRuntime', () => {
    * `remediation`. The result must hold no `mutation`, `lint` or `contract` field.
    * An unresolved result still carries the remediation.
    */
-  it('ResolveTestRuntime_Alias_BehaviorUnchanged', () => {
+  it('ResolveTestRuntime_Alias_BehaviorUnchanged', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
       JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
     );
-    const legacy = resolveTestRuntime(dir);
+    const legacy = await isolatedSync(() => resolveTestRuntime(dir));
     expect(legacy).toEqual({
       test: 'npm run test:run',
       typecheck: 'npm run typecheck',
@@ -1132,7 +1131,7 @@ describe('resolveVerificationRuntime', () => {
     expect('contract' in legacy).toBe(false);
 
     const empty = makeTmpDir();
-    const un = resolveTestRuntime(empty);
+    const un = await isolatedSync(() => resolveTestRuntime(empty));
     expect(un.source).toBe('unresolved');
     expect(un.remediation).toBeDefined();
   });
@@ -1230,7 +1229,7 @@ describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)'
     scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' },
   });
 
-  it('npm-managed root and bun-managed mcp workspace both resolve their test:run script', () => {
+  it('npm-managed root and bun-managed mcp workspace both resolve their test:run script', async () => {
     const rootLike = makeTmpDir();
     writeFileSync(join(rootLike, 'package.json'), pkg);
     writeFileSync(join(rootLike, 'package-lock.json'), '{}');
@@ -1239,8 +1238,8 @@ describe('supported-workspace test-runtime consistency (WFQ-015 / exit-proof c)'
     writeFileSync(join(mcpLike, 'package.json'), pkg);
     writeFileSync(join(mcpLike, 'bun.lock'), '');
 
-    const rootResult = resolveTestRuntime(rootLike);
-    const mcpResult = resolveTestRuntime(mcpLike);
+    const rootResult = await isolatedSync(() => resolveTestRuntime(rootLike));
+    const mcpResult = await isolatedSync(() => resolveTestRuntime(mcpLike));
 
     expect(rootResult.test).toBe('npm run test:run');
     expect(mcpResult.test).toBe('bun run test:run');
@@ -1273,13 +1272,13 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
    * throw, and the value must reach `config.mutation`. The schema is strict, so a schema that does not
    * know the key rejects the committed file.
    */
-  it('committed root .exarchos.yml loads clean and exposes a top-level `mutation`', () => {
-    const result = loadExarchosConfig(REPO_ROOT);
+  it('committed root .exarchos.yml loads clean and exposes a top-level `mutation`', async () => {
+    const result = await isolatedSync(() => loadExarchosConfig(REPO_ROOT));
     expect(result).not.toBeNull();
     expect(result!.config.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');
   });
 
-  it('resolveVerificationRuntime honors a top-level `mutation` via the config-direct tier', () => {
+  it('resolveVerificationRuntime honors a top-level `mutation` via the config-direct tier', async () => {
     const dir = makeTmpDir();
     writeFileSync(
       join(dir, 'package.json'),
@@ -1287,7 +1286,7 @@ describe('top-level mutation config shape (WFQ-013 / DOC-5)', () => {
     );
     writeFileSync(join(dir, '.exarchos.yml'), 'mutation: echo mutate\n');
 
-    const result = resolveVerificationRuntime(dir);
+    const result = await isolatedSync(() => resolveVerificationRuntime(dir));
 
     expect(result.mutation).toBe('echo mutate');
   });
@@ -1305,11 +1304,11 @@ describe('resolveRunnableCommand', () => {
     tmpDirs.length = 0;
   });
 
-  it('RunnableCommand_GoModule_SplitsTheDetectedTestCommand', () => {
+  it('RunnableCommand_GoModule_SplitsTheDetectedTestCommand', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'go.mod'), 'module example.com/fixture\n');
 
-    expect(resolveRunnableCommand(dir, 'test')).toEqual({
+    expect(await isolatedSync(() => resolveRunnableCommand(dir, 'test'))).toEqual({
       kind: 'runnable',
       command: 'go test ./...',
       bin: 'go',
@@ -1317,11 +1316,11 @@ describe('resolveRunnableCommand', () => {
     });
   });
 
-  it('RunnableCommand_ConfiguredCommand_KeepsAQuotedArgumentWhole', () => {
+  it('RunnableCommand_ConfiguredCommand_KeepsAQuotedArgumentWhole', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, '.exarchos.yml'), `test: 'pytest -k "slow api"'\n`);
 
-    expect(resolveRunnableCommand(dir, 'test')).toEqual({
+    expect(await isolatedSync(() => resolveRunnableCommand(dir, 'test'))).toEqual({
       kind: 'runnable',
       command: 'pytest -k "slow api"',
       bin: 'pytest',
@@ -1329,40 +1328,40 @@ describe('resolveRunnableCommand', () => {
     });
   });
 
-  it('RunnableCommand_NoProjectMarkers_IsUnresolvedWithTheRemediation', () => {
+  it('RunnableCommand_NoProjectMarkers_IsUnresolvedWithTheRemediation', async () => {
     const dir = makeTmpDir();
 
-    const result = resolveRunnableCommand(dir, 'test');
+    const result = await isolatedSync(() => resolveRunnableCommand(dir, 'test'));
 
     expect(result.kind).toBe('unresolved');
     expect(result.kind !== 'runnable' && result.reason).toMatch(/No project markers detected/);
   });
 
-  it('RunnableCommand_ToolchainWithoutTypecheck_IsUnresolvedNotInvalid', () => {
+  it('RunnableCommand_ToolchainWithoutTypecheck_IsUnresolvedNotInvalid', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'go.mod'), 'module example.com/fixture\n');
 
-    const result = resolveRunnableCommand(dir, 'typecheck');
+    const result = await isolatedSync(() => resolveRunnableCommand(dir, 'typecheck'));
 
     expect(result.kind).toBe('unresolved');
     expect(result.kind !== 'runnable' && result.reason).toMatch(/"typecheck" entry to \.exarchos\.yml/);
   });
 
-  it('RunnableCommand_InvalidConfig_IsInvalidAndDoesNotThrow', () => {
+  it('RunnableCommand_InvalidConfig_IsInvalidAndDoesNotThrow', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, '.exarchos.yml'), `test: 'pytest; rm -rf build'\n`);
 
-    const result = resolveRunnableCommand(dir, 'test');
+    const result = await isolatedSync(() => resolveRunnableCommand(dir, 'test'));
 
     expect(result.kind).toBe('invalid');
     expect(result.kind !== 'runnable' && result.reason).toMatch(/toolchain resolver failed/);
   });
 
-  it('RunnableCommand_UnterminatedQuote_IsInvalid', () => {
+  it('RunnableCommand_UnterminatedQuote_IsInvalid', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, '.exarchos.yml'), `test: 'pytest -k "slow'\n`);
 
-    const result = resolveRunnableCommand(dir, 'test');
+    const result = await isolatedSync(() => resolveRunnableCommand(dir, 'test'));
 
     expect(result.kind).toBe('invalid');
     expect(result.kind !== 'runnable' && result.reason).toMatch(/cannot be parsed/);
@@ -1390,54 +1389,54 @@ describe('resolveScopedTestCommand', () => {
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts }));
   }
 
-  it('ScopedTestCommand_NpmProjectWithTheScript_IsTheTestFilesScript', () => {
+  it('ScopedTestCommand_NpmProjectWithTheScript_IsTheTestFilesScript', async () => {
     const dir = makeTmpDir();
     writeScripts(dir, { 'test:run': 'vitest run --project unit', 'test:files': 'vitest run' });
 
-    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:files');
+    expect((await isolatedSync(() => resolveScopedTestCommand(dir)))?.command).toBe('npm run test:files');
   });
 
-  it('ScopedTestCommand_NpmProjectWithoutTheScript_IsTheResolvedTestCommand', () => {
+  it('ScopedTestCommand_NpmProjectWithoutTheScript_IsTheResolvedTestCommand', async () => {
     const dir = makeTmpDir();
     writeScripts(dir, { 'test:run': 'vitest run --project unit' });
 
-    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:run');
-    expect(resolveScopedTestCommand(dir)?.command).toBe(resolveTestRuntime(dir).test);
+    expect((await isolatedSync(() => resolveScopedTestCommand(dir)))?.command).toBe('npm run test:run');
+    expect((await isolatedSync(() => resolveScopedTestCommand(dir)))?.command).toBe((await isolatedSync(() => resolveTestRuntime(dir))).test);
   });
 
-  it('ScopedTestCommand_BlankScript_IsTheResolvedTestCommand', () => {
+  it('ScopedTestCommand_BlankScript_IsTheResolvedTestCommand', async () => {
     const dir = makeTmpDir();
     writeScripts(dir, { 'test:run': 'vitest run', 'test:files': '   ' });
 
-    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:run');
+    expect((await isolatedSync(() => resolveScopedTestCommand(dir)))?.command).toBe('npm run test:run');
   });
 
   it.each([
     ['pnpm-lock.yaml', 'pnpm run test:files'],
     ['yarn.lock', 'yarn run test:files'],
     ['bun.lock', 'bun run test:files'],
-  ])('ScopedTestCommand_%s_WithTheScript_RunsItThroughThatPackageManager', (lockfile, expected) => {
+  ])('ScopedTestCommand_%s_WithTheScript_RunsItThroughThatPackageManager', async (lockfile, expected) => {
     const dir = makeTmpDir();
     writeScripts(dir, { test: 'vitest', 'test:run': 'vitest run', 'test:files': 'vitest run' });
     writeFileSync(join(dir, lockfile), '');
 
-    expect(resolveScopedTestCommand(dir)?.command).toBe(expected);
+    expect((await isolatedSync(() => resolveScopedTestCommand(dir)))?.command).toBe(expected);
   });
 
   it.each([
     ['pnpm-lock.yaml', 'pnpm test'],
     ['yarn.lock', 'yarn test'],
     ['bun.lock', 'bun test'],
-  ])('ScopedTestCommand_%s_WithoutTheScript_KeepsTheTestCommand', (lockfile, expected) => {
+  ])('ScopedTestCommand_%s_WithoutTheScript_KeepsTheTestCommand', async (lockfile, expected) => {
     const dir = makeTmpDir();
     writeScripts(dir, { test: 'vitest' });
     writeFileSync(join(dir, lockfile), '');
 
-    expect(resolveScopedTestCommand(dir)?.command).toBe(expected);
+    expect((await isolatedSync(() => resolveScopedTestCommand(dir)))?.command).toBe(expected);
   });
 
   /** The script names a run of the given files. A configured `test` command names the whole suite, so the script comes first. */
-  it('ScopedTestCommand_ConfiguredTestCommand_TheScriptComesFirst', () => {
+  it('ScopedTestCommand_ConfiguredTestCommand_TheScriptComesFirst', async () => {
     const withScript = makeTmpDir();
     writeScripts(withScript, { 'test:run': 'vitest run', 'test:files': 'vitest run' });
     writeFileSync(join(withScript, '.exarchos.yml'), 'test: npm run test:unit\n');
@@ -1445,41 +1444,41 @@ describe('resolveScopedTestCommand', () => {
     writeScripts(withoutScript, { 'test:run': 'vitest run' });
     writeFileSync(join(withoutScript, '.exarchos.yml'), 'test: npm run test:unit\n');
 
-    expect(resolveScopedTestCommand(withScript)?.command).toBe('npm run test:files');
-    expect(resolveScopedTestCommand(withoutScript)?.command).toBe('npm run test:unit');
+    expect((await isolatedSync(() => resolveScopedTestCommand(withScript)))?.command).toBe('npm run test:files');
+    expect((await isolatedSync(() => resolveScopedTestCommand(withoutScript)))?.command).toBe('npm run test:unit');
   });
 
-  it('ScopedTestCommand_NonNodeProject_IsTheDetectedTestCommand', () => {
+  it('ScopedTestCommand_NonNodeProject_IsTheDetectedTestCommand', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'go.mod'), 'module example.com/fixture\n');
 
-    expect(resolveScopedTestCommand(dir)?.command).toBe('go test ./...');
+    expect((await isolatedSync(() => resolveScopedTestCommand(dir)))?.command).toBe('go test ./...');
   });
 
   /** A Node project reads only exit 1 as a red run, through the script and through the resolved test command. */
-  it('ScopedTestCommand_NodeProject_ReadsExit1AsRed', () => {
+  it('ScopedTestCommand_NodeProject_ReadsExit1AsRed', async () => {
     const withScript = makeTmpDir();
     writeScripts(withScript, { 'test:run': 'vitest run', 'test:files': 'vitest run' });
     const withoutScript = makeTmpDir();
     writeScripts(withoutScript, { 'test:run': 'vitest run' });
 
-    expect(resolveScopedTestCommand(withScript)).toEqual({ command: 'npm run test:files', testFailureExitCodes: [1] });
-    expect(resolveScopedTestCommand(withoutScript)).toEqual({ command: 'npm run test:run', testFailureExitCodes: [1] });
+    expect(await isolatedSync(() => resolveScopedTestCommand(withScript))).toEqual({ command: 'npm run test:files', testFailureExitCodes: [1] });
+    expect(await isolatedSync(() => resolveScopedTestCommand(withoutScript))).toEqual({ command: 'npm run test:run', testFailureExitCodes: [1] });
   });
 
   /** `cargo test` exits 101 when a test fails, so the detected rust command carries the exit codes of the rust toolchain. */
-  it('ScopedTestCommand_RustProject_ReadsExit101AsRed', () => {
+  it('ScopedTestCommand_RustProject_ReadsExit101AsRed', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "fixture"\n');
 
-    expect(resolveScopedTestCommand(dir)).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
+    expect(await isolatedSync(() => resolveScopedTestCommand(dir))).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
   });
 
   /**
    * A configured command is not the command of a known toolchain, so only exit 1 reads as red, also in a Cargo project.
    * The same text as the detected command keeps the exit codes of the detected toolchain.
    */
-  it('ScopedTestCommand_ConfiguredCommand_HasNoKnownToolchainUnlessItIsTheDetectedCommand', () => {
+  it('ScopedTestCommand_ConfiguredCommand_HasNoKnownToolchainUnlessItIsTheDetectedCommand', async () => {
     const other = makeTmpDir();
     writeFileSync(join(other, 'Cargo.toml'), '[package]\nname = "fixture"\n');
     writeFileSync(join(other, '.exarchos.yml'), 'test: cargo nextest run\n');
@@ -1487,12 +1486,12 @@ describe('resolveScopedTestCommand', () => {
     writeFileSync(join(same, 'Cargo.toml'), '[package]\nname = "fixture"\n');
     writeFileSync(join(same, '.exarchos.yml'), 'test: cargo test\n');
 
-    expect(resolveScopedTestCommand(other)).toEqual({ command: 'cargo nextest run', testFailureExitCodes: [1] });
-    expect(resolveScopedTestCommand(same)).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
+    expect(await isolatedSync(() => resolveScopedTestCommand(other))).toEqual({ command: 'cargo nextest run', testFailureExitCodes: [1] });
+    expect(await isolatedSync(() => resolveScopedTestCommand(same))).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
   });
 
   /** A user toolchain of `.exarchos.yml` has no key for the exit codes, so its own command reads only exit 1 as red. */
-  it('ScopedTestCommand_UserToolchain_ReadsExit1AsRed', () => {
+  it('ScopedTestCommand_UserToolchain_ReadsExit1AsRed', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "fixture"\n');
     writeFileSync(
@@ -1500,26 +1499,26 @@ describe('resolveScopedTestCommand', () => {
       'toolchains:\n  - id: rust-workspace\n    markers: [Cargo.toml]\n    commands:\n      test: cargo test --workspace\n',
     );
 
-    expect(resolveScopedTestCommand(dir)).toEqual({ command: 'cargo test --workspace', testFailureExitCodes: [1] });
+    expect(await isolatedSync(() => resolveScopedTestCommand(dir))).toEqual({ command: 'cargo test --workspace', testFailureExitCodes: [1] });
   });
 
-  it('ScopedTestCommand_MalformedPackageJson_IsNull', () => {
+  it('ScopedTestCommand_MalformedPackageJson_IsNull', async () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'package.json'), '{ "scripts": { "test:files": ');
 
-    expect(resolveScopedTestCommand(dir)).toBeNull();
+    expect(await isolatedSync(() => resolveScopedTestCommand(dir))).toBeNull();
   });
 
   /**
    * The scoped command is not a field of the resolved runtime. The runtime, its source and its three
    * `command.resolved` events stay the same when the script exists.
    */
-  it('ScopedTestCommand_TheScript_ChangesNoRuntimeFieldSourceOrEvent', () => {
+  it('ScopedTestCommand_TheScript_ChangesNoRuntimeFieldSourceOrEvent', async () => {
     const dir = makeTmpDir();
     writeScripts(dir, { 'test:run': 'vitest run', 'test:files': 'vitest run', typecheck: 'tsc --noEmit' });
     const append = vi.fn();
 
-    const result = resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-scoped' });
+    const result = await isolatedSync(() => resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-scoped' }));
 
     expect(result).toEqual({
       test: 'npm run test:run',
@@ -1535,9 +1534,9 @@ describe('resolveScopedTestCommand', () => {
   });
 
   /** This repository runs `test:run` on the `unit` project only, so the probe needs the script to reach `tests/unit`. */
-  it('ScopedTestCommand_ThisRepository_IsTheTestFilesScript', () => {
-    expect(resolveScopedTestCommand(REPO_ROOT)).toEqual({ command: 'npm run test:files', testFailureExitCodes: [1] });
-    expect(resolveTestRuntime(REPO_ROOT).test).toBe('npm run test:run');
-    expect(resolveTestRuntime(REPO_ROOT).source).toBe('detection');
+  it('ScopedTestCommand_ThisRepository_IsTheTestFilesScript', async () => {
+    expect(await isolatedSync(() => resolveScopedTestCommand(REPO_ROOT))).toEqual({ command: 'npm run test:files', testFailureExitCodes: [1] });
+    expect((await isolatedSync(() => resolveTestRuntime(REPO_ROOT))).test).toBe('npm run test:run');
+    expect((await isolatedSync(() => resolveTestRuntime(REPO_ROOT))).source).toBe('detection');
   });
 });

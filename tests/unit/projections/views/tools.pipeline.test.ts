@@ -17,7 +17,7 @@ import { handleViewPipeline, resetMaterializerCache } from '../../../../src/proj
 import { handleView } from '../../../../src/projections/views/composite.js';
 import { deriveRepoKey } from '../../../../src/utils/paths.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync, rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import type { QualityHintsConfig } from '../../../../src/workflow/capabilities/resolver.js';
 
@@ -438,7 +438,7 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
    * show in the default result.
    */
   it('Pipeline_CompositeDispatch_FiltersToCallerRepo', async () => {
-    const callerKey = deriveRepoKey(stateDir);
+    const callerKey = await isolatedSync(() => deriveRepoKey(stateDir));
     await seedStarted('here-1', { repoRoot: callerKey });
     await seedStarted('there-1', { repoRoot: '/some/other/repo' });
 
@@ -558,7 +558,7 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
       await git(['-C', mainRoot, 'commit', '-q', '--allow-empty', '-m', 'init']);
       await git(['-C', mainRoot, 'worktree', 'add', '-q', wtPath]);
 
-      const mainKey = deriveRepoKey(mainRoot);
+      const mainKey = await isolatedSync(() => deriveRepoKey(mainRoot));
       await seedStarted('wt-scoped', { repoRoot: mainKey });
       await seedStarted('wt-legacy');
 
@@ -596,7 +596,7 @@ describe('handleViewPipeline — DR-6/DR-7 repo scoping + perceivability (task 0
    * still show, and its reason must hold the hidden count: `unscopedTotal - total`, which is 3.
    */
   it('Pipeline_MixedState_EmitsScopeAllHintWithHiddenCount', async () => {
-    const key = deriveRepoKey(stateDir);
+    const key = await isolatedSync(() => deriveRepoKey(stateDir));
     await seedStarted('mine-1', { repoRoot: key });
     await seedStarted('mine-2', { repoRoot: key });
     await seedStarted('other-1', { repoRoot: '/repo/other-1' });

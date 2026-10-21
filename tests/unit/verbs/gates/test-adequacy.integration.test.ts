@@ -719,7 +719,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
   it('ScopedTestRunner_RustToolchain_ReadsExit101AsRedAndExit1AsNoVerdict', async () => {
     const cargoRepo = mkdtempSync(path.join(workDir, 'cargo-'));
     writeFileSync(path.join(cargoRepo, 'Cargo.toml'), '[package]\nname = "fixture"\nversion = "0.1.0"\n');
-    const resolved = resolveScopedTestCommand(cargoRepo);
+    const resolved = await isolatedSync(() => resolveScopedTestCommand(cargoRepo));
     expect(resolved).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
     if (resolved === null) return;
 
@@ -747,7 +747,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
   it('ScopedTestRunner_PythonToolchain_ReadsExit2AsRedAndExit4AsNoVerdict', async () => {
     const pythonRepo = mkdtempSync(path.join(workDir, 'python-'));
     writeFileSync(path.join(pythonRepo, 'pyproject.toml'), '[project]\nname = "fixture"\nversion = "0.0.1"\n');
-    const resolved = resolveScopedTestCommand(pythonRepo);
+    const resolved = await isolatedSync(() => resolveScopedTestCommand(pythonRepo));
     expect(resolved).toEqual({ command: 'pytest', testFailureExitCodes: [1, 2] });
     if (resolved === null) return;
 
@@ -782,7 +782,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
     writeFileSync(path.join(pythonRepo, 'pyproject.toml'), '[project]\nname = "fixture"\nversion = "0.0.1"\n');
     writeFileSync(path.join(pythonRepo, 'calc.py'), 'def add(a, b):\n    return a + b\n');
     writeFileSync(path.join(pythonRepo, 'test_calc.py'), 'from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n');
-    const runner = buildDefaultRunTests(pythonRepo);
+    const runner = await isolatedSync(() => buildDefaultRunTests(pythonRepo));
     const run = (): Promise<RunOutcome> => isolatedSync(() => runner({ repoRoot: pythonRepo, testFiles: ['test_calc.py'] }));
 
     const onTheTaskSource = await run();
@@ -807,7 +807,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
       JSON.stringify({ name: 'fixture', private: true, scripts: { 'test:files': 'node run-test-files.mjs' } }),
     );
 
-    const outcome = await runOnce(buildDefaultRunTests(pkg), pkg);
+    const outcome = await runOnce(await isolatedSync(() => buildDefaultRunTests(pkg)), pkg);
 
     expect(outcome).toMatchObject({
       kind: 'no-verdict',
@@ -892,7 +892,7 @@ describe('buildDefaultRunTests — the test:files wrapper with a real vitest', (
         mkdirSync(path.join(pkg, 'tests', dir), { recursive: true });
         writeFileSync(path.join(pkg, 'tests', dir, `${name}.test.mjs`), scratchTestFile(name));
       }
-      const runner = buildDefaultRunTests(pkg);
+      const runner = await isolatedSync(() => buildDefaultRunTests(pkg));
       const testFiles = ['tests/scripts/scripts.test.mjs', 'tests/unit/unit.test.mjs'];
 
       const green = await isolatedSync(() => runner({ repoRoot: pkg, testFiles }));

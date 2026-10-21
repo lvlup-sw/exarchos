@@ -23,7 +23,7 @@ import {
   EMPTY_REPORT,
   MAX_MUTATE_FILES,
 } from '../../../tools/audit/core/stryker-adapter.mjs';
-import { execFileAsync, spawnAsync } from '../../../tools/test-helpers/spawn.js';
+import { execFileAsync, spawnAsync, isolatedSync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 /** The package root, which is also the repository root. */
@@ -94,8 +94,8 @@ describe('stryker-adapter pure helpers', () => {
 });
 
 describe('resolveVerificationRuntime mutation-field provenance (DR-7)', () => {
-  it('resolves this repo\'s .exarchos.yml adapter entry, not the built-in npx fallback', () => {
-    const runtime = resolveVerificationRuntime(REPO_ROOT);
+  it('resolves this repo\'s .exarchos.yml adapter entry, not the built-in npx fallback', async () => {
+    const runtime = await isolatedSync(() => resolveVerificationRuntime(REPO_ROOT));
     expect(runtime.mutation).toBe('node tools/audit/core/stryker-adapter.mjs');
     expect(runtime.mutation).not.toBe('npx stryker run');
   });

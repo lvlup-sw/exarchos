@@ -23,6 +23,7 @@ import {
   type DesiredState,
 } from '../../../../../src/dispatch/core/onboarding/types.js';
 import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
+import { isolatedSync } from '../../../../../tools/test-helpers/spawn.js';
 
 describe('reconcile characterization (T0 baseline)', () => {
   describe('ResolvedCommandsSchema_WidenedFields_Pinned', () => {
@@ -127,12 +128,12 @@ describe('reconcile characterization (T0 baseline)', () => {
       };
       expect(desired).toEqual(expected);
 
-      const resolved = resolveTestRuntime(dir);
+      const resolved = await isolatedSync(() => resolveTestRuntime(dir));
       expect(desired.commands.test).toBe(resolved.test ?? undefined);
       expect(desired.commands.typecheck).toBe(resolved.typecheck ?? undefined);
       expect(desired.commands.install).toBe(resolved.install ?? undefined);
 
-      const verification = resolveVerificationRuntime(dir);
+      const verification = await isolatedSync(() => resolveVerificationRuntime(dir));
       expect(desired.commands.mutation).toBe(verification.mutation ?? undefined);
       expect('lint' in desired.commands).toBe(false);
 

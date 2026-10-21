@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import os from 'node:os';
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../tools/test-helpers/spawn.js';
 import { expandTilde, isClaudeCodePlugin, resolveStateDir, resolveTeamsDir, resolveTasksDir, resolveCacheDir, deriveRepoKey, resetRepoKeyMemo, resolveStorePath, computeStorePathDivergence, STORE_DB_FILENAME } from '../../../src/utils/paths.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
@@ -259,8 +259,8 @@ describe('deriveRepoKey', () => {
       await git(['-C', mainRoot, 'commit', '-q', '--allow-empty', '-m', 'init']);
       await git(['-C', mainRoot, 'worktree', 'add', '-q', wtPath]);
 
-      const mainKey = deriveRepoKey(mainRoot);
-      const worktreeKey = deriveRepoKey(wtPath);
+      const mainKey = await isolatedSync(() => deriveRepoKey(mainRoot));
+      const worktreeKey = await isolatedSync(() => deriveRepoKey(wtPath));
 
       expect(worktreeKey).toBe(mainKey);
       expect(worktreeKey).toMatch(/^(\/|[A-Za-z]:\/)/);
@@ -275,10 +275,10 @@ describe('deriveRepoKey', () => {
    * The test assumes that the temp dir is outside a git repository. Then the git spawn
    * fails, and the key is the real path of the input with POSIX separators.
    */
-  it('DeriveRepoKey_NonGitPath_FallsBackToNormalizedPath', () => {
+  it('DeriveRepoKey_NonGitPath_FallsBackToNormalizedPath', async () => {
     const nonGit = fs.mkdtempSync(path.join(os.tmpdir(), 'drk-nongit-'));
     try {
-      const key = deriveRepoKey(nonGit);
+      const key = await isolatedSync(() => deriveRepoKey(nonGit));
       expect(key).toBe(fs.realpathSync.native(nonGit).replace(/\\/g, '/'));
       expect(key).not.toContain('\\');
     } finally {

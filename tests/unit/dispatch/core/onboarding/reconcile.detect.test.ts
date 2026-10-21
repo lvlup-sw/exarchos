@@ -10,6 +10,7 @@ import {
 } from '../../../../../src/config/test-runtime-resolver.js';
 import { DesiredStateSchema } from '../../../../../src/dispatch/core/onboarding/types.js';
 import { rmrf } from '../../../../../tools/test-helpers/temp-dir.js';
+import { isolatedSync } from '../../../../../tools/test-helpers/spawn.js';
 
 /**
  * `detectDesiredState` takes `commands` only from the layered resolver. Each command equals the
@@ -34,7 +35,7 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
       JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
     );
 
-    const resolved = resolveTestRuntime(dir);
+    const resolved = await isolatedSync(() => resolveTestRuntime(dir));
     const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
 
     expect(desired.commands.test).toBe(resolved.test ?? undefined);
@@ -55,7 +56,7 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
   it('omits (never fabricates) a command field the resolver leaves unresolved', async () => {
     writeFileSync(join(dir, 'Foo.csproj'), '<Project/>');
 
-    const resolved = resolveTestRuntime(dir);
+    const resolved = await isolatedSync(() => resolveTestRuntime(dir));
     const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
 
     expect(resolved.test).toBe('dotnet test');
@@ -95,7 +96,7 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
       JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
     );
 
-    const resolved = resolveVerificationRuntime(dir);
+    const resolved = await isolatedSync(() => resolveVerificationRuntime(dir));
     expect(resolved.mutation).toBe('npx stryker run');
 
     const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
@@ -108,7 +109,7 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
 
   /** A directory with no toolchain marker leaves `mutation` and `lint` unresolved. */
   it('DetectDesiredState_UnresolvableMutation_LeavesFieldAbsent', async () => {
-    const resolved = resolveVerificationRuntime(dir);
+    const resolved = await isolatedSync(() => resolveVerificationRuntime(dir));
     expect(resolved.mutation).toBeNull();
 
     const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
@@ -131,7 +132,7 @@ describe('DetectDesiredState_DerivesCommands_FromLayeredResolver', () => {
       JSON.stringify({ scripts: { 'test:run': 'vitest run', typecheck: 'tsc --noEmit' } }),
     );
 
-    const legacy = resolveTestRuntime(dir);
+    const legacy = await isolatedSync(() => resolveTestRuntime(dir));
     const desired = await detectDesiredState(dir, { detectRuntimes: async () => [] });
 
     expect(desired.commands.test).toBe(legacy.test ?? undefined);

@@ -19,7 +19,7 @@ Read `verdict` and `completeness` in the result, not `passed`. In audit mode, or
 **On `verdict: "pass"`:** Each check that gave a verdict passed. Read `completeness` before you go to Step 2.
 **On `verdict: "fail"`:** Errors found. Fix them before you continue the review.
 **On `verdict: "indeterminate"`:** No toolchain was found, or a check did not run. The result has `skipped: true`, and `reason` names the cause. It can also have `degraded: true`. This is not a pass. Remove the cause, then run the gate again.
-**On `completeness: "complete"`:** Each check that applies gave a verdict.
+**On `completeness: "complete"`:** `verdict` leaves out no advisory check. A skip also has this value, so it does not show that each check gave a verdict. With `verdict: "indeterminate"`, read `reason` and do not report a pass.
 **On `completeness: "degraded"`:** The result also has `degraded: true` and `advisorySkips`. An advisory check, such as the import-boundary scan, gave no verdict, so `verdict` is the verdict of the other checks only. Read each entry of `advisorySkips`: `name` is the check, `cause` is the closed cause, and `detail` tells what occurred. Write each skip in the review report, and do not report that check as passed.
 
 ## Step 2: Code Walkthrough

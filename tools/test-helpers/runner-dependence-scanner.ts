@@ -20,12 +20,24 @@ export interface RunnerDependence {
 /** The synchronous spawn APIs of `node:child_process`. */
 export const CHILD_PROCESS_SYNC_APIS: ReadonlySet<string> = new Set(['execFileSync', 'execSync', 'spawnSync']);
 
+/** One dependency that a caller passes in place of a default spawn: the index of the argument, and its property for a property of it. */
+export interface SpawnOverride {
+  readonly argument: number;
+  readonly property?: string;
+}
+
 /**
- * The exported synchronous spawn wrappers of a source tree, by module key.
+ * When a call of a wrapper spawns. `always` means on each call.
+ * A list of overrides means on each call that does not pass each of them, because the wrapper spawns only through default dependencies.
+ */
+export type SpawnCondition = 'always' | readonly SpawnOverride[];
+
+/**
+ * The exported synchronous spawn wrappers of a source tree, by module key, each with the condition of its spawn.
  * A module key is the repository-relative path of a module without its extension.
  * {@link deriveSyncSpawnWrappers} derives the map from the source, so a new exported wrapper needs no edit here.
  */
-export type SyncSpawnWrappers = ReadonlyMap<string, ReadonlySet<string>>;
+export type SyncSpawnWrappers = ReadonlyMap<string, ReadonlyMap<string, SpawnCondition>>;
 
 /** One module that the derivation reads: its repository-relative path, with forward slashes, and its text. */
 export interface SourceModule {
@@ -84,10 +96,13 @@ function resolveModuleKey(specifier: string | undefined, fromFile: string): stri
   return moduleKeyOf(posix.normalize(posix.join(posix.dirname(fromFile), specifier)));
 }
 
-/** Whether the export `name` of the module `key` runs a synchronous spawn. A directory key also reads its `index` module. */
-function isSyncApi(key: string, name: string, wrappers: SyncSpawnWrappers): boolean {
-  if (key === CHILD_PROCESS_KEY) return CHILD_PROCESS_SYNC_APIS.has(name);
-  return (wrappers.get(key) ?? wrappers.get(`${key}/index`))?.has(name) === true;
+/**
+ * The condition of the spawn of the export `name` of the module `key`, or undefined when it does not spawn.
+ * A directory key also reads its `index` module.
+ */
+function wrapperCondition(key: string, name: string, wrappers: SyncSpawnWrappers): SpawnCondition | undefined {
+  if (key === CHILD_PROCESS_KEY) return CHILD_PROCESS_SYNC_APIS.has(name) ? 'always' : undefined;
+  return (wrappers.get(key) ?? wrappers.get(`${key}/index`))?.get(name);
 }
 
 /** Removes parentheses, `await`, type assertions and non-null marks around an expression. */
@@ -171,29 +186,383 @@ function importBindingsOf(file: ts.SourceFile): ImportBindings {
 }
 
 /**
- * The sync API that a call invokes, with the key of its module, or undefined when the call is not a sync spawn.
- * `localSync` holds the module-level functions of the same file that the derivation already found to spawn.
+ * What a sync-spawn check of one file reads.
+ * Only the derivation sets `localSync` and `owner`. The derivation also follows a call of a local function into its body.
+ * A test scan does not, because each call in that body is a finding of its own.
  */
-function syncApiCalled(
-  call: ts.CallExpression,
-  bindings: ImportBindings,
-  wrappers: SyncSpawnWrappers,
-  localSync?: ReadonlySet<string>,
-): ImportedName | undefined {
-  const callee = unwrap(call.expression);
-  if (ts.isIdentifier(callee)) {
-    if (localSync?.has(callee.text) === true) return { from: call.getSourceFile().fileName, name: callee.text };
-    const imported = bindings.named.get(callee.text);
-    if (imported === undefined || !isSyncApi(imported.from, imported.name, wrappers)) return undefined;
-    return imported.name === 'default' ? { from: imported.from, name: callee.text } : imported;
+interface SpawnScope {
+  readonly bindings: ImportBindings;
+  readonly wrappers: SyncSpawnWrappers;
+  /** The module-level functions of the file that the derivation already found to spawn, each with its condition. */
+  readonly localSync?: ReadonlyMap<string, SpawnCondition>;
+  /** The module-level function that the derivation reads. Its parameters are the arguments that an override names. */
+  readonly owner?: ts.SignatureDeclaration;
+  /** The values already followed, so that a binding that refers to itself ends the search. */
+  readonly seen: Set<ts.Node>;
+}
+
+/** One spawn that a call or a value can run: the sync API and its condition. The condition names the arguments of the owner. */
+interface SpawnHit {
+  readonly api: ImportedName;
+  readonly condition: SpawnCondition;
+}
+
+/** Whether two overrides name the same argument and the same property. */
+function sameOverride(a: SpawnOverride, b: SpawnOverride): boolean {
+  return a.argument === b.argument && a.property === b.property;
+}
+
+/**
+ * The condition of two spawn paths together. A call spawns when either path spawns.
+ * A path with more than one override can stop when the caller passes any one of them.
+ * The union asks the caller for each of them, so the result never misses a spawn.
+ */
+function combine(a: SpawnCondition, b: SpawnCondition): SpawnCondition {
+  if (a === 'always' || b === 'always') return 'always';
+  return [...a, ...b.filter((override) => !a.some((known) => sameOverride(override, known)))];
+}
+
+/** Whether two conditions are equal, so that the repeated search knows when it found nothing new. */
+function sameCondition(a: SpawnCondition | undefined, b: SpawnCondition | undefined): boolean {
+  if (a === undefined || b === undefined || a === 'always' || b === 'always') return a === b;
+  return a.length === b.length && a.every((override) => b.some((known) => sameOverride(override, known)));
+}
+
+/** Two hits as one: the first API, and the condition of both. */
+function joinHits(a: SpawnHit | undefined, b: SpawnHit | undefined): SpawnHit | undefined {
+  if (a === undefined) return b;
+  if (b === undefined) return a;
+  return { api: a.api, condition: combine(a.condition, b.condition) };
+}
+
+/** A hit that runs only when the caller does not pass `guard`, because it is the default of that dependency. */
+function guardedHit(hit: SpawnHit | undefined, guard: SpawnOverride | undefined): SpawnHit | undefined {
+  if (hit === undefined || guard === undefined) return hit;
+  return { api: hit.api, condition: combine(hit.condition === 'always' ? [] : hit.condition, [guard]) };
+}
+
+/** What a declaration binds to a name. */
+interface Binding {
+  /** The value of the declaration, or the default of a parameter or a destructured name. */
+  readonly value?: ts.Expression | ts.FunctionDeclaration;
+  /** The argument of the owner that the name reads: the index, and the property for a destructured name. */
+  readonly argument?: SpawnOverride;
+  /** Marks a declaration with no value, such as a parameter with no default. */
+  readonly opaque?: boolean;
+  /**
+   * The function that a module-level name declares. The scan reads what it returns.
+   * The derivation reads the spawns of that function by its name, so the binding gives no `value` for it.
+   */
+  readonly declaration?: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression;
+  /** The value that a destructured name with no default reads, and the property path to the name. */
+  readonly source?: { readonly initializer: ts.Expression; readonly path: readonly string[] };
+}
+
+/** The declared element of `name` in a binding name, with the property path from the root and the default of the element. */
+function elementOf(
+  declared: ts.BindingName,
+  initializer: ts.Expression | undefined,
+  name: string,
+  path: readonly string[] = [],
+): { readonly value: ts.Expression | undefined; readonly path: readonly string[] } | undefined {
+  if (ts.isIdentifier(declared)) return declared.text === name ? { value: initializer, path } : undefined;
+  for (const element of declared.elements) {
+    if (ts.isOmittedExpression(element)) continue;
+    const key = element.propertyName ?? element.name;
+    const step = ts.isObjectBindingPattern(declared) && ts.isIdentifier(key) ? key.text : '[]';
+    const found = elementOf(element.name, element.initializer, name, [...path, step]);
+    if (found !== undefined) return found;
   }
-  if (!ts.isPropertyAccessExpression(callee)) return undefined;
-  const name = callee.name.text;
-  const receiver = unwrap(callee.expression);
+  return undefined;
+}
+
+/** The argument of the owner that an element path reads from the argument `index`, or undefined for a deeper or array path. */
+function argumentAt(index: number, path: readonly string[]): SpawnOverride | undefined {
+  const [property, ...rest] = path;
+  if (property === undefined) return { argument: index };
+  return rest.length === 0 && property !== '[]' ? { argument: index, property } : undefined;
+}
+
+/** The binding of `name` in one scope, or undefined when the scope does not declare it. */
+function bindingInScope(scope: ts.Node, name: string, owner: ts.SignatureDeclaration | undefined): Binding | undefined {
+  if (ts.isFunctionLike(scope)) {
+    for (const [index, parameter] of scope.parameters.entries()) {
+      const found = elementOf(parameter.name, parameter.initializer, name);
+      if (found === undefined) continue;
+      const argument = scope === owner ? argumentAt(index, found.path) : undefined;
+      return { ...(found.value === undefined ? { opaque: true } : { value: found.value }), ...(argument === undefined ? {} : { argument }) };
+    }
+    return undefined;
+  }
+  const isStatementList =
+    ts.isBlock(scope) || ts.isSourceFile(scope) || ts.isModuleBlock(scope) || ts.isCaseClause(scope) || ts.isDefaultClause(scope);
+  if (!isStatementList) return undefined;
+  for (const statement of scope.statements) {
+    if (ts.isFunctionDeclaration(statement) && statement.name?.text === name) {
+      return ts.isSourceFile(scope) ? { declaration: statement } : { value: statement };
+    }
+    if (!ts.isVariableStatement(statement)) continue;
+    for (const declaration of statement.declarationList.declarations) {
+      const found = elementOf(declaration.name, declaration.initializer, name);
+      if (found === undefined) continue;
+      const source = found.path.length === 0 || declaration.initializer === undefined ? undefined : ownerArgumentOf(declaration.initializer, owner);
+      const argument = source?.property === undefined && source !== undefined ? argumentAt(source.argument, found.path) : undefined;
+      const value = found.path.length === 0 ? declaration.initializer : found.value;
+      const fn = value === undefined ? undefined : functionValueOf(value);
+      if (fn !== undefined && ts.isSourceFile(scope)) return { declaration: fn };
+      const destructured =
+        value === undefined && declaration.initializer !== undefined ? { source: { initializer: declaration.initializer, path: found.path } } : {};
+      return { ...(value === undefined ? { opaque: true } : { value }), ...(argument === undefined ? {} : { argument }), ...destructured };
+    }
+  }
+  return undefined;
+}
+
+/** The function that a bound value is, when it is an arrow or a function expression. */
+function functionValueOf(value: ts.Expression): ts.ArrowFunction | ts.FunctionExpression | undefined {
+  const inner = unwrap(value);
+  return ts.isArrowFunction(inner) || ts.isFunctionExpression(inner) ? inner : undefined;
+}
+
+/**
+ * The binding of the nearest declaration of `name` around `at`.
+ * The search goes out through the enclosing functions and blocks to the module level, so an inner name hides an outer one.
+ */
+function bindingOf(name: string, at: ts.Node, owner: ts.SignatureDeclaration | undefined): Binding {
+  for (let scope: ts.Node | undefined = at.parent; scope !== undefined; scope = scope.parent) {
+    const found = bindingInScope(scope, name, owner);
+    if (found !== undefined) return found;
+  }
+  return {};
+}
+
+/** Removes a fallback to an empty object, as in `options ?? {}`, around an expression. */
+function withoutEmptyFallback(node: ts.Expression): ts.Expression {
+  const value = unwrap(node);
+  if (!ts.isBinaryExpression(value)) return value;
+  const operator = value.operatorToken.kind;
+  const isFallback = operator === ts.SyntaxKind.QuestionQuestionToken || operator === ts.SyntaxKind.BarBarToken;
+  const right = unwrap(value.right);
+  return isFallback && ts.isObjectLiteralExpression(right) && right.properties.length === 0 ? unwrap(value.left) : value;
+}
+
+/**
+ * The argument of the owner that an expression reads, as an override.
+ * The expression is a parameter, a destructured name of one, or a property of one such as `deps.run` or `options?.run`.
+ * Any other expression gives undefined.
+ */
+function ownerArgumentOf(node: ts.Expression, owner: ts.SignatureDeclaration | undefined): SpawnOverride | undefined {
+  if (owner === undefined) return undefined;
+  const value = withoutEmptyFallback(node);
+  if (ts.isIdentifier(value)) return bindingOf(value.text, value, owner).argument;
+  if (!ts.isPropertyAccessExpression(value)) return undefined;
+  const receiver = withoutEmptyFallback(value.expression);
+  if (!ts.isIdentifier(receiver)) return undefined;
+  const whole = bindingOf(receiver.text, receiver, owner).argument;
+  return whole === undefined || whole.property !== undefined ? undefined : { argument: whole.argument, property: value.name.text };
+}
+
+/** How many steps {@link objectLiteralOf} follows before it stops, so that a binding that refers to itself ends the search. */
+const MAX_LITERAL_STEPS = 8;
+
+/** The object literal that the property `key` of a literal holds, directly or through a local binding. */
+function propertyLiteralOf(
+  literal: ts.ObjectLiteralExpression,
+  key: string,
+  scope: SpawnScope,
+  steps: number,
+): ts.ObjectLiteralExpression | undefined {
+  for (const property of literal.properties) {
+    if (ts.isShorthandPropertyAssignment(property) && property.name.text === key) return objectLiteralOf(property.name, scope, steps);
+    if (ts.isPropertyAssignment(property) && propertyNameText(property.name) === key) return objectLiteralOf(property.initializer, scope, steps);
+  }
+  return undefined;
+}
+
+/** The object literal that a local function returns: the body of an arrow, or the value of the one `return` of a block. */
+function returnedLiteralOf(
+  fn: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression | ts.Expression,
+  scope: SpawnScope,
+  steps: number,
+): ts.ObjectLiteralExpression | undefined {
+  if (!ts.isFunctionDeclaration(fn) && !ts.isArrowFunction(fn) && !ts.isFunctionExpression(fn)) return undefined;
+  if (fn.body === undefined) return undefined;
+  if (!ts.isBlock(fn.body)) return objectLiteralOf(fn.body, scope, steps);
+  const returns: ts.ReturnStatement[] = [];
+  const step = (node: ts.Node): void => {
+    if (ts.isReturnStatement(node)) returns.push(node);
+    if (!ts.isFunctionLike(node)) ts.forEachChild(node, step);
+  };
+  ts.forEachChild(fn.body, step);
+  const [only] = returns;
+  return returns.length === 1 && only?.expression !== undefined ? objectLiteralOf(only.expression, scope, steps) : undefined;
+}
+
+/**
+ * The object literal that an argument is. It is a literal, a local binding of one, a name destructured from one, or a property of one.
+ * It can also be the literal that a local helper returns, as in `const { deps } = makeDeps()` or `makeDeps().deps`.
+ */
+function objectLiteralOf(node: ts.Expression, scope: SpawnScope, steps = MAX_LITERAL_STEPS): ts.ObjectLiteralExpression | undefined {
+  if (steps === 0) return undefined;
+  const value = unwrap(node);
+  if (ts.isObjectLiteralExpression(value)) return value;
+  if (ts.isPropertyAccessExpression(value)) {
+    const owner = objectLiteralOf(value.expression, scope, steps - 1);
+    return owner === undefined ? undefined : propertyLiteralOf(owner, value.name.text, scope, steps - 1);
+  }
+  if (ts.isCallExpression(value)) {
+    const callee = unwrap(value.expression);
+    if (!ts.isIdentifier(callee)) return undefined;
+    const helper = bindingOf(callee.text, callee, scope.owner);
+    const fn = helper.declaration ?? helper.value;
+    return fn === undefined ? undefined : returnedLiteralOf(fn, scope, steps - 1);
+  }
+  if (!ts.isIdentifier(value)) return undefined;
+  const binding = bindingOf(value.text, value, scope.owner);
+  if (binding.value !== undefined && !ts.isFunctionDeclaration(binding.value)) return objectLiteralOf(binding.value, scope, steps - 1);
+  if (binding.source === undefined) return undefined;
+  let literal = objectLiteralOf(binding.source.initializer, scope, steps - 1);
+  for (const key of binding.source.path) literal = literal === undefined ? undefined : propertyLiteralOf(literal, key, scope, steps - 1);
+  return literal;
+}
+
+/** The text of a property name that is an identifier or a string literal. */
+function propertyNameText(name: ts.PropertyName): string | undefined {
+  return ts.isIdentifier(name) || ts.isStringLiteralLike(name) ? name.text : undefined;
+}
+
+/**
+ * Whether a caller passes a dependency with `node`. The result is `passed`, or `fires` when the default runs or can run.
+ * It is the argument of the owner when the owner passes its own argument on.
+ * A value that can be undefined, or that spawns itself, does not pass.
+ */
+function dependencyPassage(node: ts.Expression, scope: SpawnScope): 'passed' | 'fires' | SpawnOverride {
+  const value = unwrap(node);
+  const fromOwner = ownerArgumentOf(value, scope.owner);
+  if (fromOwner !== undefined) return fromOwner;
+  if (ts.isIdentifier(value)) {
+    if (value.text === 'undefined') return 'fires';
+    const binding = bindingOf(value.text, value, scope.owner);
+    if (binding.opaque === true && scope.bindings.named.get(value.text) === undefined) return 'fires';
+  } else if (!ts.isArrowFunction(value) && !ts.isFunctionExpression(value) && !ts.isCallExpression(value) && !ts.isNewExpression(value)) {
+    return 'fires';
+  }
+  return valueHit(value, undefined, { ...scope, seen: new Set() }) === undefined ? 'passed' : 'fires';
+}
+
+/** Whether a call passes one override of its callee: `passed`, `fires`, or the argument of the owner that passes it on. */
+function overridePassage(call: ts.CallExpression, override: SpawnOverride, scope: SpawnScope): 'passed' | 'fires' | SpawnOverride {
+  const spreadAt = call.arguments.findIndex((argument) => ts.isSpreadElement(argument));
+  if (spreadAt >= 0 && spreadAt <= override.argument) return 'fires';
+  const argument = call.arguments[override.argument];
+  if (argument === undefined) return 'fires';
+  if (override.property === undefined) return dependencyPassage(argument, scope);
+  const whole = ownerArgumentOf(argument, scope.owner);
+  if (whole !== undefined) return whole.property === undefined ? { argument: whole.argument, property: override.property } : 'fires';
+  const literal = objectLiteralOf(argument, scope);
+  if (literal === undefined) return 'fires';
+  let passage: 'passed' | 'fires' | SpawnOverride = 'fires';
+  for (const property of literal.properties) {
+    if (ts.isShorthandPropertyAssignment(property) && property.name.text === override.property) {
+      passage = dependencyPassage(property.name, scope);
+    } else if (ts.isPropertyAssignment(property) && propertyNameText(property.name) === override.property) {
+      passage = dependencyPassage(property.initializer, scope);
+    } else if (ts.isMethodDeclaration(property) && propertyNameText(property.name) === override.property) {
+      passage = 'passed';
+    } else if (ts.isSpreadAssignment(property)) {
+      const spread = ownerArgumentOf(property.expression, scope.owner);
+      if (spread !== undefined && spread.property === undefined) passage = { argument: spread.argument, property: override.property };
+    }
+  }
+  return passage;
+}
+
+/**
+ * The condition of a spawn of a callee at one call, in terms of the arguments of the owner.
+ * A call that passes each override of the callee runs no spawn. An override that the call passes on from the owner
+ * becomes an override of the owner. With no call, as for a dependency value, each spawn counts.
+ */
+function conditionAtCall(callee: SpawnCondition, call: ts.CallExpression | undefined, scope: SpawnScope): SpawnCondition | undefined {
+  if (callee === 'always' || call === undefined) return 'always';
+  const passedOn: SpawnOverride[] = [];
+  for (const override of callee) {
+    const passage = overridePassage(call, override, scope);
+    if (passage === 'fires') return 'always';
+    if (passage !== 'passed') passedOn.push(passage);
+  }
+  return passedOn.length === 0 ? undefined : passedOn;
+}
+
+/** A hit for `api` at one call, or undefined when the call passes each override of the callee. */
+function hitAtCall(api: ImportedName, callee: SpawnCondition, call: ts.CallExpression | undefined, scope: SpawnScope): SpawnHit | undefined {
+  const condition = conditionAtCall(callee, call, scope);
+  return condition === undefined ? undefined : { api, condition };
+}
+
+/**
+ * The spawn that a value runs when `call` calls it, or undefined when no form of the value spawns.
+ * A value is a sync API, a wrapper, a module-level function that spawns, or a local binding of one of them.
+ * Each arm of `??`, `||` and `? :` counts. In `deps.run ?? defaultRun`, the right arm runs only when the caller
+ * does not pass `run`, so its spawn has that override.
+ */
+function valueHit(node: ts.Expression | ts.FunctionDeclaration, call: ts.CallExpression | undefined, scope: SpawnScope): SpawnHit | undefined {
+  if (scope.seen.has(node)) return undefined;
+  scope.seen.add(node);
+  if (ts.isFunctionDeclaration(node)) return functionHit(node, scope);
+  const value = unwrap(node);
+  if (ts.isIdentifier(value)) return nameHit(value, call, scope);
+  if (ts.isPropertyAccessExpression(value)) return memberHit(value, call, scope);
+  if (ts.isConditionalExpression(value)) return joinHits(valueHit(value.whenTrue, call, scope), valueHit(value.whenFalse, call, scope));
+  if (ts.isArrowFunction(value) || ts.isFunctionExpression(value)) return functionHit(value, scope);
+  if (!ts.isBinaryExpression(value)) return undefined;
+  const operator = value.operatorToken.kind;
+  if (operator !== ts.SyntaxKind.QuestionQuestionToken && operator !== ts.SyntaxKind.BarBarToken) return undefined;
+  const fallback = guardedHit(valueHit(value.right, call, scope), ownerArgumentOf(value.left, scope.owner));
+  return joinHits(valueHit(value.left, call, scope), fallback);
+}
+
+/** The spawn that a local function runs when it is called. Only the derivation follows a function, and never an `async` one. */
+function functionHit(fn: ts.FunctionDeclaration | ts.ArrowFunction | ts.FunctionExpression, scope: SpawnScope): SpawnHit | undefined {
+  if (scope.localSync === undefined || isAsync(fn) || fn.body === undefined) return undefined;
+  let hit: SpawnHit | undefined;
+  for (const inner of callsRunBy(fn.body)) hit = joinHits(hit, callHit(inner, scope));
+  return hit;
+}
+
+/** The spawn that a name runs when `call` calls it: a module-level function, an imported sync API, or a local binding of one. */
+function nameHit(name: ts.Identifier, call: ts.CallExpression | undefined, scope: SpawnScope): SpawnHit | undefined {
+  const local = scope.localSync?.get(name.text);
+  if (local !== undefined) return hitAtCall({ from: name.getSourceFile().fileName, name: name.text }, local, call, scope);
+  const imported = scope.bindings.named.get(name.text);
+  const importedCondition = imported === undefined ? undefined : wrapperCondition(imported.from, imported.name, scope.wrappers);
+  if (imported !== undefined && importedCondition !== undefined) {
+    const api = imported.name === 'default' ? { from: imported.from, name: name.text } : imported;
+    return hitAtCall(api, importedCondition, call, scope);
+  }
+  const binding = bindingOf(name.text, name, scope.owner);
+  if (binding.value === undefined) return undefined;
+  return guardedHit(valueHit(binding.value, call, scope), binding.argument);
+}
+
+/** The spawn that `receiver.name` runs, when the receiver is a namespace or a dynamic load of a module. */
+function memberHit(member: ts.PropertyAccessExpression, call: ts.CallExpression | undefined, scope: SpawnScope): SpawnHit | undefined {
+  const name = member.name.text;
+  const receiver = unwrap(member.expression);
   const from = ts.isIdentifier(receiver)
-    ? bindings.namespaces.get(receiver.text)
-    : resolveModuleKey(dynamicModuleOf(receiver), call.getSourceFile().fileName);
-  return from !== undefined && isSyncApi(from, name, wrappers) ? { from, name } : undefined;
+    ? scope.bindings.namespaces.get(receiver.text)
+    : resolveModuleKey(dynamicModuleOf(receiver), member.getSourceFile().fileName);
+  const condition = from === undefined ? undefined : wrapperCondition(from, name, scope.wrappers);
+  return from === undefined || condition === undefined ? undefined : hitAtCall({ from, name }, condition, call, scope);
+}
+
+/**
+ * The spawn that a call runs, with the condition of the spawn, or undefined when the call is not a sync spawn.
+ * A callee that is not a name or a member, such as `(deps.run ?? defaultRun)(cmd)`, is read as a value.
+ */
+function callHit(call: ts.CallExpression, scope: SpawnScope): SpawnHit | undefined {
+  const callee = unwrap(call.expression);
+  if (ts.isIdentifier(callee)) return nameHit(callee, call, scope);
+  return ts.isPropertyAccessExpression(callee) ? memberHit(callee, call, scope) : valueHit(callee, call, scope);
 }
 
 /** Whether a call loads a real module: `import()`, `require()`, `vi.importActual()` or the `importOriginal` of a factory. */
@@ -250,9 +619,12 @@ function isIsolated(call: ts.CallExpression, bindings: ImportBindings): boolean 
  * `execSync` or `spawnSync` from `node:child_process`, or an exported wrapper in
  * `wrappers`. `fileName` is the repository-relative path of the file, so that a
  * relative import resolves to a module key. Aliased, namespaced and dynamically
- * imported bindings count. A call that is the whole body of an arrow passed to
- * `isolatedSync` does not. A call of a wrapper in a file that mocks the whole of
- * `node:child_process` does not.
+ * imported bindings count, and so does a local binding of one, such as
+ * `const run = deps.run ?? execFileSync`. A call that passes each override of a
+ * wrapper does not count, unless a passed value can be undefined or spawns itself.
+ * A call that is the whole body of an arrow passed to `isolatedSync` does not
+ * count. A call of a wrapper in a file that mocks the whole of
+ * `node:child_process` does not count.
  */
 export function findSyncSpawnCalls(source: string, fileName: string, wrappers: SyncSpawnWrappers): RunnerDependence[] {
   const file = parse(source, fileName);
@@ -262,7 +634,7 @@ export function findSyncSpawnCalls(source: string, fileName: string, wrappers: S
   const findings: RunnerDependence[] = [];
   walk(file, (node) => {
     if (!ts.isCallExpression(node)) return;
-    const api = syncApiCalled(node, bindings, wrappers);
+    const api = callHit(node, { bindings, wrappers, seen: new Set() })?.api;
     if (api === undefined || isIsolated(node, bindings)) return;
     if (wrappersReachTheMock && api.from !== CHILD_PROCESS_KEY) return;
     const timeoutMs = statedTimeout(node, constants);
@@ -309,12 +681,20 @@ function hasModifier(statement: ts.Statement, kind: ts.SyntaxKind): boolean {
   return ts.canHaveModifiers(statement) && (ts.getModifiers(statement)?.some((modifier) => modifier.kind === kind) ?? false);
 }
 
+/** One module-level function: its node, whose parameters an override names, and the calls that it runs. */
+interface ModuleFunction {
+  readonly node: ts.SignatureDeclaration;
+  readonly calls: readonly ts.CallExpression[];
+}
+
 /** The module-level facts of one source module that the derivation reads. */
 interface ModuleFacts {
   readonly key: string;
   readonly bindings: ImportBindings;
-  /** The calls that each module-level function runs, by its local name. */
-  readonly functions: ReadonlyMap<string, readonly ts.CallExpression[]>;
+  /** Each module-level function, by its local name, with the calls that it runs. */
+  readonly functions: ReadonlyMap<string, ModuleFunction>;
+  /** The value of each module-level variable that is not a function, by its local name, such as `const run = execFileSync`. */
+  readonly aliases: ReadonlyMap<string, ts.Expression>;
   /** Each exported name and the local name that it exports. */
   readonly exports: ReadonlyMap<string, string>;
   /** Each exported name that the module re-exports from another module. */
@@ -324,13 +704,15 @@ interface ModuleFacts {
 }
 
 /**
- * Reads the module-level functions, the exports and the re-exports of one module.
+ * Reads the module-level functions, the aliases, the exports and the re-exports of one module.
  * A function is a function declaration, or a variable whose value is an arrow or a function expression.
  * An `async` function is not read, because its caller awaits a promise and does not call a synchronous API.
+ * An alias is a variable with another value, such as a sync API or a default dependency.
  */
 function moduleFactsOf(module: SourceModule): ModuleFacts {
   const file = parse(module.source, module.path);
-  const functions = new Map<string, readonly ts.CallExpression[]>();
+  const functions = new Map<string, ModuleFunction>();
+  const aliases = new Map<string, ts.Expression>();
   const exports = new Map<string, string>();
   const reexports = new Map<string, ImportedName>();
   const starExports: string[] = [];
@@ -338,15 +720,15 @@ function moduleFactsOf(module: SourceModule): ModuleFacts {
     const exported = hasModifier(statement, ts.SyntaxKind.ExportKeyword);
     if (ts.isFunctionDeclaration(statement) && statement.body !== undefined && !isAsync(statement)) {
       const local = statement.name?.text ?? 'default';
-      functions.set(local, callsRunBy(statement.body));
+      functions.set(local, { node: statement, calls: callsRunBy(statement.body) });
       if (exported) exports.set(hasModifier(statement, ts.SyntaxKind.DefaultKeyword) ? 'default' : local, local);
     } else if (ts.isVariableStatement(statement)) {
       for (const declaration of statement.declarationList.declarations) {
         if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) continue;
         const value = unwrap(declaration.initializer);
-        if ((!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) || isAsync(value)) continue;
-        functions.set(declaration.name.text, callsRunBy(value.body));
         if (exported) exports.set(declaration.name.text, declaration.name.text);
+        if (!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) aliases.set(declaration.name.text, value);
+        else if (!isAsync(value)) functions.set(declaration.name.text, { node: value, calls: callsRunBy(value.body) });
       }
     } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
       const from = resolveModuleKey(specifierText(statement.moduleSpecifier), module.path);
@@ -366,45 +748,72 @@ function moduleFactsOf(module: SourceModule): ModuleFacts {
       exports.set('default', statement.expression.text);
     }
   }
-  return { key: moduleKeyOf(module.path), bindings: importBindingsOf(file), functions, exports, reexports, starExports };
+  return { key: moduleKeyOf(module.path), bindings: importBindingsOf(file), functions, aliases, exports, reexports, starExports };
+}
+
+/** The condition of a spawn in one module-level function: the condition of each call that spawns, together. */
+function functionCondition(fn: ModuleFunction, scope: Omit<SpawnScope, 'seen' | 'owner'>): SpawnCondition | undefined {
+  let condition: SpawnCondition | undefined;
+  for (const call of fn.calls) {
+    const hit = callHit(call, { ...scope, owner: fn.node, seen: new Set() });
+    if (hit !== undefined) condition = condition === undefined ? hit.condition : combine(condition, hit.condition);
+  }
+  return condition;
+}
+
+/** Sets `name` to `condition` in `map` when the condition is new or wider, and tells whether it did. */
+function widen(map: Map<string, SpawnCondition>, name: string, condition: SpawnCondition | undefined): boolean {
+  if (condition === undefined) return false;
+  const known = map.get(name);
+  const next = known === undefined ? condition : combine(known, condition);
+  if (sameCondition(known, next)) return false;
+  map.set(name, next);
+  return true;
 }
 
 /**
- * The exported synchronous spawn wrappers of `modules`, by module key.
+ * The exported synchronous spawn wrappers of `modules`, by module key, each with the condition of its spawn.
  * A module-level function is a wrapper when its body runs a call of a sync spawn.
  * That call is a sync API of `node:child_process`, a wrapper that the module imports, or another wrapper of the module.
- * An export of such a function, a re-export of a wrapper and an `export *` of a module with wrappers each count.
- * The search repeats until it finds no new wrapper, so a wrapper of a wrapper counts too.
+ * A local binding of one of them also counts, such as `const run = deps.run ?? defaultRun` or a parameter default.
+ * A spawn through such a default dependency has an override: the wrapper spawns only when the caller does not pass it.
+ * An export of a wrapper, a re-export of a wrapper and an `export *` of a module with wrappers each count.
+ *
+ * The search repeats until no condition changes, so a wrapper of a wrapper counts too.
+ * A spawn through a class method, through a property of an object, or through a function that a call returns is not found.
  */
-export function deriveSyncSpawnWrappers(modules: readonly SourceModule[]): Map<string, Set<string>> {
+export function deriveSyncSpawnWrappers(modules: readonly SourceModule[]): Map<string, Map<string, SpawnCondition>> {
   const facts = modules.map(moduleFactsOf);
-  const localSync = facts.map(() => new Set<string>());
-  const wrappers = new Map<string, Set<string>>();
+  const localSync = facts.map(() => new Map<string, SpawnCondition>());
+  const wrappers = new Map<string, Map<string, SpawnCondition>>();
   let grew = true;
   while (grew) {
     grew = false;
     for (const [index, module] of facts.entries()) {
-      const sync = localSync[index] ?? new Set<string>();
-      for (const [local, calls] of module.functions) {
-        if (sync.has(local)) continue;
-        if (!calls.some((call) => syncApiCalled(call, module.bindings, wrappers, sync) !== undefined)) continue;
-        sync.add(local);
-        grew = true;
+      const sync = localSync[index] ?? new Map<string, SpawnCondition>();
+      const scope = { bindings: module.bindings, wrappers, localSync: sync };
+      for (const [local, fn] of module.functions) {
+        if (widen(sync, local, functionCondition(fn, scope))) grew = true;
       }
-      const exported = new Set(wrappers.get(module.key));
+      for (const [local, value] of module.aliases) {
+        if (widen(sync, local, valueHit(value, undefined, { ...scope, seen: new Set() })?.condition)) grew = true;
+      }
+      const exported = wrappers.get(module.key) ?? new Map<string, SpawnCondition>();
+      let exportsGrew = false;
       for (const [name, local] of module.exports) {
         const imported = module.bindings.named.get(local);
-        if (sync.has(local) || (imported !== undefined && isSyncApi(imported.from, imported.name, wrappers))) {
-          exported.add(name);
-        }
+        const condition = sync.get(local) ?? (imported === undefined ? undefined : wrapperCondition(imported.from, imported.name, wrappers));
+        if (widen(exported, name, condition)) exportsGrew = true;
       }
       for (const [name, target] of module.reexports) {
-        if (isSyncApi(target.from, target.name, wrappers)) exported.add(name);
+        if (widen(exported, name, wrapperCondition(target.from, target.name, wrappers))) exportsGrew = true;
       }
       for (const from of module.starExports) {
-        for (const name of wrappers.get(from) ?? []) if (name !== 'default') exported.add(name);
+        for (const [name, condition] of wrappers.get(from) ?? []) {
+          if (name !== 'default' && widen(exported, name, condition)) exportsGrew = true;
+        }
       }
-      if (exported.size > (wrappers.get(module.key)?.size ?? 0)) {
+      if (exportsGrew) {
         wrappers.set(module.key, exported);
         grew = true;
       }

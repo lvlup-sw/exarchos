@@ -41,6 +41,7 @@ import {
   ANTHROPIC_NATIVE_CACHING,
   createInMemoryResolver,
 } from '../../../src/workflow/capabilities/resolver.js';
+import { isolatedSync } from '../../../tools/test-helpers/spawn.js';
 
 function makeCtx(stateDir: string): DispatchContext {
   return { stateDir, eventStore: new EventStore(stateDir), enableTelemetry: false };
@@ -68,7 +69,7 @@ describe('handleWorkflow', () => {
         { featureId: 'test', workflowType: 'feature' },
         stateDir,
         ctx.eventStore,
-        deriveRepoKey(process.cwd()),
+        await isolatedSync(() => deriveRepoKey(process.cwd())),
       );
       expect(result.success).toBe(true);
       expect(result.data).toEqual({ phase: 'init-result' });
@@ -347,7 +348,7 @@ describe('HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)', 
       const data = events[0]!.data as { repoRoot?: string; featureId?: string };
 
       expect(typeof data.repoRoot).toBe('string');
-      expect(data.repoRoot).toBe(freshDeriveRepoKey(process.cwd()));
+      expect(data.repoRoot).toBe(await isolatedSync(() => freshDeriveRepoKey(process.cwd())));
     } finally {
       store.close();
     }

@@ -71,6 +71,7 @@ import type {
   ProcessRecord,
   ProcessTableSource,
 } from '../../../../src/verbs/worktree/pure/probe.js';
+import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 
 const STATE_DIR = '/tmp/test-state';
 
@@ -105,7 +106,7 @@ describe('handleView', () => {
         STATE_DIR,
         CTX.eventStore,
         CTX.config,
-        deriveRepoKey(process.cwd()),
+        await isolatedSync(() => deriveRepoKey(process.cwd())),
       );
     }, 20000);
   });

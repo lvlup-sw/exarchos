@@ -347,10 +347,17 @@ interface CarrierMembers {
   readonly skipListField: string;
   /** The fields of one advisory skip in that list. */
   readonly advisorySkipFields: readonly string[];
+  /** The verdicts that the mapping gives with `completeness: "complete"`. A skip gives `indeterminate` there. */
+  readonly completeVerdicts: readonly string[];
 }
 
 /** Derives the members from a complete carrier and a degraded carrier of the production mapping. */
 function staticAnalysisCarrierMembers(): CarrierMembers {
+  const statuses: ReadonlyArray<StaticAnalysisResult['status']> = ['pass', 'fail', 'skip'];
+  const completeVerdicts = statuses
+    .map((status) => carrierData(seededRun(status)))
+    .filter((data) => data.completeness === 'complete')
+    .map((data) => String(data.verdict));
   const complete = carrierData(seededRun('pass'));
   const degraded = carrierData(seededRun('pass', [SEEDED_ADVISORY_SKIP]));
   const degradedFields = Object.keys(degraded).filter((key) => !(key in complete));
@@ -363,6 +370,7 @@ function staticAnalysisCarrierMembers(): CarrierMembers {
     degradedFields,
     skipListField,
     advisorySkipFields: typeof first === 'object' && first !== null ? Object.keys(first) : [],
+    completeVerdicts,
   };
 }
 
@@ -404,6 +412,7 @@ function staticAnalysisReadingPassage(markdown: string): readonly string[] | str
  * How the reading passage disagrees with the carrier. The passage reads each closed verdict and each completeness
  * value once, and reads no other field. The degraded reading names each field that a degraded carrier adds.
  * It names each field of an advisory skip, and it tells the reader to read each skip.
+ * When the carrier gives `indeterminate` with `complete`, the complete reading names that verdict, so it does not read as proof.
  */
 function carrierReadingDisagreements(markdown: string, members: CarrierMembers): readonly string[] {
   const passage = staticAnalysisReadingPassage(markdown);
@@ -430,6 +439,10 @@ function carrierReadingDisagreements(markdown: string, members: CarrierMembers):
         .filter((value, index) => read.indexOf(value) !== index)
         .map((value) => `the passage reads \`${field}: "${value}"\` more than once`),
     );
+  }
+  const complete = readings.find((reading) => reading.field === 'completeness' && reading.value === 'complete');
+  if (complete !== undefined && members.completeVerdicts.includes('indeterminate') && !complete.text.includes('`verdict: "indeterminate"`')) {
+    problems.push('the complete reading does not name `verdict: "indeterminate"`, which the carrier gives with `completeness: "complete"`');
   }
   const degraded = readings.find((reading) => reading.field === 'completeness' && reading.value === 'degraded');
   if (degraded === undefined) return problems.sort();
@@ -702,6 +715,7 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
   /**
    * The members come from the production mapping. Its verdicts are the closed verdicts, and a complete and a degraded
    * run give the two completeness values. A degraded carrier adds `degraded` and the list of advisory skips.
+   * Each status with no advisory skip gives `complete`, so a skip gives `indeterminate` with `complete`.
    */
   it('SkillProse_CarrierMembers_ComeFromTheProductionMapping', () => {
     const statuses: ReadonlyArray<StaticAnalysisResult['status']> = ['pass', 'fail', 'skip'];
@@ -714,12 +728,14 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     expect(STATIC_ANALYSIS_MEMBERS.degradedFields).toEqual(['degraded', 'advisorySkips']);
     expect(STATIC_ANALYSIS_MEMBERS.skipListField).toBe('advisorySkips');
     expect(STATIC_ANALYSIS_MEMBERS.advisorySkipFields).toEqual(['name', 'cause', 'detail']);
+    expect(STATIC_ANALYSIS_MEMBERS.completeVerdicts).toEqual(['pass', 'fail', 'indeterminate']);
   });
 
   /**
    * The reading passage gets seeded drifts. The text before the closed verdict read `passed` and said that all analysis
    * passed, with no degraded case. The judge names each of these drifts too: a dropped skip field, a dropped
-   * instruction, a dropped degraded mark and an unknown value. It also names a missing call and a new degraded member.
+   * instruction, a dropped degraded mark and an unknown value. It also names a complete reading that claims each check
+   * gave a verdict, a missing call and a new degraded member.
    */
   it('SkillProse_SeededCarrierReadingDisagreement_NamesTheMissingReading', () => {
     const site = SITES.find((s) => s.shape === 'carrier-reading');
@@ -758,6 +774,15 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     expect(droppedMark).not.toBe(markdown);
     expect(disagreements(droppedMark, site.phase, site.shape)).toEqual([
       'the degraded reading does not name `degraded`, which a degraded carrier adds',
+    ]);
+
+    const completeAsProof = markdown.replace(
+      /^(\*\*On `completeness: "complete"`:\*\*).*$/m,
+      '$1 Each check that applies gave a verdict.',
+    );
+    expect(completeAsProof).not.toBe(markdown);
+    expect(disagreements(completeAsProof, site.phase, site.shape)).toEqual([
+      'the complete reading does not name `verdict: "indeterminate"`, which the carrier gives with `completeness: "complete"`',
     ]);
 
     const unknownValue = markdown.replace(/^(\*\*On `verdict: "fail"`:\*\*.*)$/m, '$1\n**On `verdict: "warn"`:** Read the warnings.');
