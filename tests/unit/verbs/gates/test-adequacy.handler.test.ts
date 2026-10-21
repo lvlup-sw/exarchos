@@ -28,7 +28,8 @@ import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js'
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { DEFAULTS } from '../../../../src/config/resolve.js';
 import { SKIPPED_BY_POLICY } from '../../../../src/verbs/gates/gate-utils.js';
-import { handleTestAdequacy } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { handleTestAdequacy, probeTestEnvironment } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -350,5 +351,44 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     );
     expect(mockRunProbe).toHaveBeenCalledOnce();
     expect(mockRunProbe.mock.calls[0]?.[0]).toMatchObject({ diffFailed: true, changedFiles: [] });
+  });
+});
+
+/** Each store key with its directory under `scratchDir`, as the probe environment sets it. */
+function scratchStoreKeys(scratchDir: string): Record<string, string> {
+  return Object.fromEntries(Object.entries(STORE_LOCATION_ENV_KEYS).map(([location, key]) => [key, path.join(scratchDir, location)]));
+}
+
+/** The environment of one probe test run, read without a process. */
+describe('probeTestEnvironment', () => {
+  /** On POSIX a key of another case is another variable, so it stays. Each store key gets a directory under the scratch directory. */
+  it('ProbeTestEnvironment_OnPosix_SetsEachStoreKeyAndDropsEachPluginKey', () => {
+    const parent = {
+      PATH: '/usr/bin',
+      CLAUDE_PLUGIN_ROOT: '/plugin',
+      EXARCHOS_PLUGIN_ROOT: '/plugin',
+      WORKFLOW_STATE_DIR: '/live/state',
+      EXARCHOS_INSTALL_STATE_DIR: '/live/install',
+      workflow_state_dir: '/other',
+    };
+
+    expect(probeTestEnvironment(parent, '/scratch', 'linux')).toEqual({
+      PATH: '/usr/bin',
+      workflow_state_dir: '/other',
+      ...scratchStoreKeys('/scratch'),
+    });
+  });
+
+  /** Windows reads environment keys without case, so a store key or a plugin-mode key of any case goes. */
+  it('ProbeTestEnvironment_OnWindows_DropsAStoreOrPluginKeyOfAnyCase', () => {
+    const parent = {
+      Path: 'C:\\bin',
+      Claude_Plugin_Root: 'C:\\plugin',
+      exarchos_plugin_root: 'C:\\plugin',
+      workflow_state_dir: 'C:\\live',
+      Exarchos_Cache_Dir: 'C:\\cache',
+    };
+
+    expect(probeTestEnvironment(parent, 'C:\\scratch', 'win32')).toEqual({ Path: 'C:\\bin', ...scratchStoreKeys('C:\\scratch') });
   });
 });

@@ -211,7 +211,18 @@ describe('run-test-files refusals', () => {
   it('RunTestFiles_OptionWithASeparateValue_RefusesBeforeVitestStarts', async () => {
     const result = await runCopy(['--config', 'vitest.config.ts', '-c', 'vitest.config.ts']);
     expect(result.status).toBe(REFUSED);
-    expect(result.stderr).toContain('refused. These options hold no =: --config, -c.');
+    expect(result.stderr).toContain('refused. These options hold no value after =: --config, -c.');
+    expect(readEcho(result.stdout)).toBeUndefined();
+  });
+
+  /**
+   * The argument parser of vitest reads an empty value after `=` as a missing value, and takes the next argument as the value.
+   * Thus `--config=` with `vitest.config.ts` gives a run with no file filter. The test file comes too, so only this refusal stops the run.
+   */
+  it('RunTestFiles_OptionWithAnEmptyValueAfterEquals_RefusesBeforeVitestStarts', async () => {
+    const result = await runCopy(['--config=', 'vitest.config.ts', '-c=', 'vitest.config.ts', 'tests/unit/sample.test.ts']);
+    expect(result.status).toBe(REFUSED);
+    expect(result.stderr).toContain('refused. These options hold no value after =: --config=, -c=.');
     expect(readEcho(result.stdout)).toBeUndefined();
   });
 

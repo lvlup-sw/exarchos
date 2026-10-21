@@ -10,7 +10,11 @@
  * The result is an advisory carrier: `success: true`, with `data.passed` set from the probe verdict. A failed probe is a finding, not a tool error.
  */
 
+import { mkdtempSync, rmSync, type RmOptions } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { execFailureFields, outputText, runCommandSync } from '../../utils/process.js';
+import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
@@ -137,6 +141,49 @@ function failedRunOutcome(err: unknown, testFailureExitCodes: readonly number[],
   };
 }
 
+/** The name prefix of the scratch directory of one probe test run, under the temporary directory of the system. */
+export const PROBE_SCRATCH_PREFIX = 'exarchos-probe-';
+
+/** The options of each delete of a probe scratch directory. The retries give a transient Windows lock time to end. */
+const PROBE_SCRATCH_REMOVE: RmOptions = { recursive: true, force: true, maxRetries: 10, retryDelay: 50 };
+
+/** True when `key` names the environment key `name`. Windows reads environment keys without case, so the match there ignores case. */
+function isEnvKey(key: string, name: string, platform: NodeJS.Platform): boolean {
+  return platform === 'win32' ? key.toUpperCase() === name.toUpperCase() : key === name;
+}
+
+/**
+ * Returns the environment of one probe test run: a copy of `parent` that reaches no live store.
+ * Each key of the store record gets a directory under `scratchDir`, and no plugin-mode key stays.
+ * A deleted store key is not enough, because the resolver then falls back to a store under the home directory.
+ * Thus the tests of a task cannot write the live store that settle writes in the same call.
+ *
+ * @internal Exported so that a test can read the environment without a process.
+ */
+export function probeTestEnvironment(
+  parent: NodeJS.ProcessEnv,
+  scratchDir: string,
+  platform: NodeJS.Platform = process.platform,
+): NodeJS.ProcessEnv {
+  const storeKeys = Object.entries(STORE_LOCATION_ENV_KEYS);
+  const removed = [...PLUGIN_MODE_ENV_KEYS, ...storeKeys.map(([, key]) => key)];
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(parent)) {
+    if (!removed.some((name) => isEnvKey(key, name, platform))) env[key] = value;
+  }
+  for (const [location, key] of storeKeys) env[key] = path.join(scratchDir, location);
+  return env;
+}
+
+/** Deletes a probe scratch directory. A failed delete leaves the directory, and the verdict of the run stays. */
+function removeProbeScratch(scratchDir: string): void {
+  try {
+    rmSync(scratchDir, PROBE_SCRATCH_REMOVE);
+  } catch {
+    return;
+  }
+}
+
 /**
  * Builds a test runner of the probe from a resolved scoped test command.
  * `splitCommand` tokenizes the command with quoted arguments, and the runner appends the scoped test files after `--`.
@@ -144,6 +191,8 @@ function failedRunOutcome(err: unknown, testFailureExitCodes: readonly number[],
  *
  * Exit 0 is a green run. A test-failure exit code of the toolchain is a red run. Every other end gives no verdict, with its cause.
  * The runner uses `runCommandSync`, not `execFileSync`. On Windows, `execFile` refuses a `.cmd` shim with EINVAL.
+ *
+ * Each run gets a new scratch directory and the environment of {@link probeTestEnvironment}. The runner deletes the directory after the run.
  *
  * @internal Exported so that a test can run real processes through the runner of the probe.
  */
@@ -176,9 +225,20 @@ export function buildScopedTestRunner(
     if (!bin) {
       return { kind: 'no-verdict', cause: 'no-command', detail: `the command "${scoped.command}" names no program` };
     }
+    let scratchDir: string;
+    try {
+      scratchDir = mkdtempSync(path.join(os.tmpdir(), PROBE_SCRATCH_PREFIX));
+    } catch (err) {
+      return {
+        kind: 'no-verdict',
+        cause: 'did-not-start',
+        detail: `the scratch directory of the run was not made: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
     try {
       const stdout = runCommandSync(bin, [...rest, '--', ...testFiles], {
         cwd: repoRoot,
+        env: probeTestEnvironment(process.env, scratchDir),
         timeout: resolvedLimits.timeoutMs,
         maxBuffer: resolvedLimits.maxOutputBytes,
         encoding: 'utf-8',
@@ -187,6 +247,8 @@ export function buildScopedTestRunner(
       return { kind: 'ran', result: 'green', stdout: outputText(stdout) };
     } catch (err) {
       return failedRunOutcome(err, scoped.testFailureExitCodes, resolvedLimits);
+    } finally {
+      removeProbeScratch(scratchDir);
     }
   };
 }

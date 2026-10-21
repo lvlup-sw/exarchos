@@ -6,10 +6,10 @@
  * The run has no `--project` filter, so vitest runs each file in the project that collects it.
  * The kill probe uses the script to run the changed test files of a task.
  *
- * It refuses to start when it gets no file, when an argument is not a file, or when an option holds no `=`.
+ * It refuses to start when it gets no file, when an argument is not a file, or when an option holds no value after `=`.
  * vitest reads a file argument as a substring filter. With no file, `vitest run` can start the whole root suite,
  * and a short filter can start a large part of it. vitest can read the argument after an option as the option value.
- * Thus `--config vitest.config.ts` gives a run with no file filter. Write an option value as `--name=value`.
+ * Thus `--config vitest.config.ts` and `--config= vitest.config.ts` give a run with no file filter. Write an option value as `--name=value`.
  *
  * The script runs the vitest of the nearest `node_modules` from the working directory up, as npm finds the binaries of a script.
  * A worktree inside a checkout with no install of its own uses the install of that checkout. The script never downloads a runner.
@@ -94,12 +94,15 @@ function findVitestEntry(cwd) {
 }
 
 /**
- * Returns true when `arg` is an option with no `=`. vitest can read the next argument as the value of such an option.
+ * Returns true when `arg` is an option with no value after its first `=`. vitest can read the next argument as the value of such an option.
+ * An empty value after `=` counts too, because the argument parser of vitest then reads the next argument as the value.
  * A bare `--` is a separator, not an option.
  * @param {string} arg
  */
 function isOptionWithoutValue(arg) {
-  return arg.startsWith('-') && arg !== '--' && !arg.includes('=');
+  if (!arg.startsWith('-') || arg === '--') return false;
+  const equals = arg.indexOf('=');
+  return equals < 0 || equals === arg.length - 1;
 }
 
 /**
@@ -333,7 +336,7 @@ async function main(argv) {
   }
   if (optionsWithoutValue.length > 0) {
     process.stderr.write(
-      `test:files: refused. These options hold no =: ${optionsWithoutValue.join(', ')}. ` +
+      `test:files: refused. These options hold no value after =: ${optionsWithoutValue.join(', ')}. ` +
         'vitest can read the next argument as the option value. Give the paths of test files. Write an option value as --name=value.\n',
     );
     return REFUSED;

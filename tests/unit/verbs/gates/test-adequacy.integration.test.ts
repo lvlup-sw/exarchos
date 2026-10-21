@@ -5,8 +5,21 @@
 // test stays green on the revert, so the probe fails with `redObserved: false`.
 // `test-adequacy.test.ts` holds the unit tests for the split, the snapshot and restore, and the probe.
 
-import { describe, it, expect, afterEach, afterAll, beforeAll } from 'vitest';
-import { copyFileSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { describe, it, expect, afterEach, afterAll, beforeAll, vi } from 'vitest';
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  symlinkSync,
+  unlinkSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -15,9 +28,11 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { resolveScopedTestCommand } from '../../../../src/config/test-runtime-resolver.js';
+import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
 import {
   buildDefaultRunTests,
   buildScopedTestRunner,
+  PROBE_SCRATCH_PREFIX,
   type ScopedTestRunLimits,
 } from '../../../../src/verbs/gates/test-adequacy-handler.js';
 import {
@@ -29,6 +44,7 @@ import {
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
+import { TEMP_VARIABLES } from '../../../../tools/test-helpers/temp-run-root.js';
 
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
@@ -71,6 +87,66 @@ async function writeBaseProject(
   await git(repoRoot, ['add', '.']);
   await git(repoRoot, ['commit', '-m', 'base: project scaffold', '-q']);
 }
+
+/** The file name of the `test:files` script that records each run. */
+const RECORDER_SCRIPT = 'record-run.mjs';
+
+/**
+ * Writes a `test:files` script that records each run, then runs `node --test` on its arguments and exits with its code.
+ * Each run appends one JSON line to `marker`: the arguments, the environment, and the probe scratch directories in the temporary directory.
+ * The marker is outside the repository, so the records never change the tree that the probe restores.
+ */
+function writeRecorderScript(repoRoot: string, marker: string): void {
+  writeFileSync(
+    path.join(repoRoot, RECORDER_SCRIPT),
+    [
+      "import { appendFileSync, readdirSync } from 'node:fs';",
+      "import { spawnSync } from 'node:child_process';",
+      "import os from 'node:os';",
+      'const args = process.argv.slice(2);',
+      `const scratch = readdirSync(os.tmpdir()).filter((name) => name.startsWith(${JSON.stringify(PROBE_SCRATCH_PREFIX)}));`,
+      `appendFileSync(${JSON.stringify(marker)}, JSON.stringify({ argv: args, env: process.env, scratch }) + '\\n');`,
+      "const run = spawnSync(process.execPath, ['--test', ...args], { stdio: 'inherit' });",
+      'process.exit(run.status === null ? 2 : run.status);',
+      '',
+    ].join('\n'),
+  );
+}
+
+/** One run that the recorder script wrote. */
+interface RecordedRun {
+  readonly argv: readonly string[];
+  readonly env: Readonly<Record<string, string>>;
+  readonly scratch: readonly string[];
+}
+
+/** Returns the strings of `value`, or an empty list when `value` is not an array. */
+function stringsOf(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+}
+
+/** Reads each run that the recorder script wrote into `marker`. A missing marker gives no run. */
+function readRecordedRuns(marker: string): RecordedRun[] {
+  if (!existsSync(marker)) return [];
+  return readFileSync(marker, 'utf8')
+    .split('\n')
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const parsed: unknown = JSON.parse(line);
+      const record = typeof parsed === 'object' && parsed !== null ? parsed : {};
+      const rawEnv: unknown = Reflect.get(record, 'env');
+      const env: Record<string, string> = {};
+      if (typeof rawEnv === 'object' && rawEnv !== null) {
+        for (const [key, value] of Object.entries(rawEnv)) {
+          if (typeof value === 'string') env[key] = value;
+        }
+      }
+      return { argv: stringsOf(Reflect.get(record, 'argv')), env, scratch: stringsOf(Reflect.get(record, 'scratch')) };
+    });
+}
+
+/** The text that each sentinel value of the parent environment holds. No probe test run can see it. */
+const LIVE_STORE_SENTINEL = 'sentinel-live-store';
 
 function makeCtx(stateDir: string, eventStore: EventStore): DispatchContext {
   return withTrustedCaller({ stateDir, eventStore, enableTelemetry: false } as DispatchContext);
@@ -254,13 +330,20 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
    * The project has a `test:files` script, and its `test:run` script fails on every run. The probe
    * must run `npm run test:files -- <files>`. The real test then goes red only after the revert, and the
    * probe passes. A probe on `test:run` gives `baseline-red`.
+   *
+   * The script records its arguments. Each run, on the task source and after the revert, gets exactly the changed test file.
+   * `node --test` with no file finds the same test, so only the record shows a runner that drops the file list.
    */
   it(
     'HandleOrchestrate_CheckTestAdequacy_TestFilesScript_IsTheCommandTheProbeRuns',
     async () => {
       const repoRoot = await initRepo('test-adequacy-test-files-');
       cleanups.push(() => rmrf(repoRoot));
-      await writeBaseProject(repoRoot, { 'test:run': 'node -e "process.exit(1)"', 'test:files': 'node --test' });
+      const markerDir = mkdtempSync(path.join(os.tmpdir(), 'test-adequacy-test-files-marker-'));
+      cleanups.push(() => rmrf(markerDir));
+      const marker = path.join(markerDir, 'runs.jsonl');
+      writeRecorderScript(repoRoot, marker);
+      await writeBaseProject(repoRoot, { 'test:run': 'node -e "process.exit(1)"', 'test:files': `node ${RECORDER_SCRIPT}` });
 
       await git(repoRoot, ['checkout', '-b', 'feature/test-files', '-q']);
       writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
@@ -288,7 +371,80 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
       expect(data.redObserved).toBe(true);
       expect(data.restoredClean).toBe(true);
       expect(data.probedTests).toEqual(['src/calc.test.js']);
+      expect(readRecordedRuns(marker).map((run) => run.argv)).toEqual([['src/calc.test.js'], ['src/calc.test.js']]);
       expect(await git(repoRoot, ['status', '--porcelain'])).toBe('');
+    },
+    120_000,
+  );
+
+  /**
+   * The parent sets each store key and each plugin-mode key to a sentinel path, as the plugin registration of the server does.
+   * Each probe test run must get each store key under its own scratch directory, no plugin-mode key and no sentinel.
+   * A key that is only deleted fails too, because the resolver then falls back to a live store under the home directory.
+   * The scratch directory exists during the run, and the runner deletes it after the run.
+   */
+  it(
+    'HandleOrchestrate_CheckTestAdequacy_ProbeTestRun_GetsAScratchStoreAndNoPluginKey',
+    async () => {
+      const repoRoot = await initRepo('test-adequacy-env-');
+      cleanups.push(() => rmrf(repoRoot));
+      const markerDir = mkdtempSync(path.join(os.tmpdir(), 'test-adequacy-env-marker-'));
+      cleanups.push(() => rmrf(markerDir));
+      const probeTmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'test-adequacy-env-tmp-')));
+      cleanups.push(() => rmrf(probeTmp));
+      const marker = path.join(markerDir, 'runs.jsonl');
+      writeRecorderScript(repoRoot, marker);
+      await writeBaseProject(repoRoot, { 'test:files': `node ${RECORDER_SCRIPT}` });
+
+      await git(repoRoot, ['checkout', '-b', 'feature/env', '-q']);
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export function value() {\n  return 2;\n}\n');
+      writeFileSync(
+        path.join(repoRoot, 'src', 'calc.test.js'),
+        [
+          "import { test } from 'node:test';",
+          "import assert from 'node:assert';",
+          "import { value } from './calc.js';",
+          '',
+          "test('value is 2', () => {",
+          '  assert.strictEqual(value(), 2);',
+          '});',
+          '',
+        ].join('\n'),
+      );
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat: bump value to 2 with test', '-q']);
+
+      const storeKeys = Object.values(STORE_LOCATION_ENV_KEYS);
+      try {
+        for (const key of [...storeKeys, ...PLUGIN_MODE_ENV_KEYS]) {
+          vi.stubEnv(key, path.join(markerDir, `${LIVE_STORE_SENTINEL}-${key}`));
+        }
+        for (const name of TEMP_VARIABLES) vi.stubEnv(name, probeTmp);
+
+        const { success } = await dispatch(repoRoot, 'feature/env', { riskTier: 'medium' });
+        expect(success).toBe(true);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+
+      const runs = readRecordedRuns(marker);
+      expect(runs).toHaveLength(2);
+      for (const run of runs) {
+        expect(JSON.stringify(run.env)).not.toContain(LIVE_STORE_SENTINEL);
+        for (const key of PLUGIN_MODE_ENV_KEYS) expect(run.env[key], key).toBeUndefined();
+        const scratchDirs = new Set<string>();
+        for (const key of storeKeys) {
+          const value = run.env[key];
+          expect(value, `${key} is set`).toBeDefined();
+          scratchDirs.add(path.dirname(value ?? ''));
+        }
+        expect([...scratchDirs]).toHaveLength(1);
+        const [scratchDir = ''] = scratchDirs;
+        expect(path.dirname(scratchDir)).toBe(probeTmp);
+        expect(path.basename(scratchDir).startsWith(PROBE_SCRATCH_PREFIX), scratchDir).toBe(true);
+        expect(run.scratch).toContain(path.basename(scratchDir));
+      }
+      expect(readdirSync(probeTmp).filter((name) => name.startsWith(PROBE_SCRATCH_PREFIX))).toEqual([]);
     },
     120_000,
   );
@@ -520,6 +676,27 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
     );
   }
 
+  /** Each run gets a scratch directory. When the runner cannot make it, the run gives no verdict and starts no command. */
+  it('ScopedTestRunner_ScratchDirectoryNotMade_IsNoVerdictAndStartsNoCommand', async () => {
+    const marker = path.join(workDir, 'started-with-no-scratch').split(path.sep).join('/');
+    const runner = buildScopedTestRunner(
+      { command: `${NODE} -e "require('node:fs').writeFileSync('${marker}', '')"`, testFailureExitCodes: [1] },
+      workDir,
+    );
+    let outcome: RunOutcome;
+    try {
+      for (const name of TEMP_VARIABLES) vi.stubEnv(name, path.join(workDir, 'missing-tmp'));
+      outcome = await runOnce(runner, workDir);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+
+    expect(outcome).toMatchObject({ kind: 'no-verdict', cause: 'did-not-start' });
+    if (outcome.kind !== 'no-verdict') return;
+    expect(outcome.detail).toContain('the scratch directory of the run was not made');
+    expect(existsSync(marker)).toBe(false);
+  });
+
   it('ScopedTestRunner_ExitZero_IsAGreenRun', async () => {
     const runner = buildScopedTestRunner({ command: `${NODE} -e "process.stdout.write('ok')"`, testFailureExitCodes: [1] }, workDir);
 
@@ -639,6 +816,103 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
     });
     expect(outcome.stderr).toContain('test:files: refused');
   }, 60_000);
+});
+
+/** The package directory of the vitest of this repository. The scratch package links it, so no run installs a runner. */
+const VITEST_PACKAGE_DIR = path.dirname(createRequire(import.meta.url).resolve('vitest/package.json'));
+
+/** The tracked `test:files` wrapper. The scratch package runs a copy of it as its `test:files` script. */
+const TEST_FILES_WRAPPER = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../tools/test-helpers/run-test-files.mjs');
+
+/**
+ * The vitest config of the scratch package: two projects in the shape of the `unit` and `core` projects of this repository.
+ * `unit` collects `tests/scripts`, and `core` collects `tests/unit` in forks with no isolation.
+ */
+const SCRATCH_VITEST_CONFIG = `export default ${JSON.stringify(
+  {
+    test: {
+      projects: [
+        { test: { name: 'unit', include: ['tests/scripts/**/*.test.mjs'] } },
+        { test: { name: 'core', pool: 'forks', isolate: false, include: ['tests/unit/**/*.test.mjs'] } },
+      ],
+    },
+  },
+  null,
+  2,
+)};\n`;
+
+/** A scratch test file that writes the name of its vitest project into `markers/<name>.json`, then asserts that `value()` is 2. */
+function scratchTestFile(name: string): string {
+  return [
+    "import { mkdirSync, writeFileSync } from 'node:fs';",
+    "import { it, expect } from 'vitest';",
+    "import { value } from '../../src/value.mjs';",
+    '',
+    "it('value is 2', (ctx) => {",
+    "  mkdirSync(new URL('../../markers/', import.meta.url), { recursive: true });",
+    `  writeFileSync(new URL('../../markers/${name}.json', import.meta.url), JSON.stringify({ project: ctx.task.file.projectName }));`,
+    '  expect(value()).toBe(2);',
+    '});',
+    '',
+  ].join('\n');
+}
+
+/** Reads the marker that the scratch test file `name` wrote, or `undefined` when the file did not run. */
+function readProjectMarker(pkg: string, name: string): unknown {
+  const marker = path.join(pkg, 'markers', `${name}.json`);
+  return existsSync(marker) ? JSON.parse(readFileSync(marker, 'utf8')) : undefined;
+}
+
+/**
+ * The production runner of the probe, the tracked `test:files` wrapper and the real vitest, in a scratch package.
+ * The package has its own config, so no run reads the root config of this repository.
+ */
+describe('buildDefaultRunTests — the test:files wrapper with a real vitest', () => {
+  /**
+   * The runner gets one file of each project. Each named file runs in the project that collects it, and a third file does not run.
+   * The green source gives a green run. A reverted source makes both files red, and the run is red.
+   */
+  it('DefaultRunTests_TestFilesWrapper_RunsEachNamedFileInItsProjectAndReadsItsResult', async () => {
+    const pkg = realpathSync(mkdtempSync(path.join(os.tmpdir(), 'probe-vitest-package-')));
+    const link = path.join(pkg, 'node_modules', 'vitest');
+    try {
+      mkdirSync(path.join(pkg, 'tools', 'test-helpers'), { recursive: true });
+      copyFileSync(TEST_FILES_WRAPPER, path.join(pkg, 'tools', 'test-helpers', 'run-test-files.mjs'));
+      writeFileSync(
+        path.join(pkg, 'package.json'),
+        JSON.stringify({ name: 'scratch', private: true, scripts: { 'test:files': 'node tools/test-helpers/run-test-files.mjs' } }),
+      );
+      mkdirSync(path.dirname(link), { recursive: true });
+      symlinkSync(VITEST_PACKAGE_DIR, link, 'junction');
+      writeFileSync(path.join(pkg, 'vitest.config.mjs'), SCRATCH_VITEST_CONFIG);
+      mkdirSync(path.join(pkg, 'src'), { recursive: true });
+      writeFileSync(path.join(pkg, 'src', 'value.mjs'), 'export function value() {\n  return 2;\n}\n');
+      const scratchFiles: ReadonlyArray<readonly [string, string]> = [['scripts', 'scripts'], ['unit', 'unit'], ['unit', 'other']];
+      for (const [dir, name] of scratchFiles) {
+        mkdirSync(path.join(pkg, 'tests', dir), { recursive: true });
+        writeFileSync(path.join(pkg, 'tests', dir, `${name}.test.mjs`), scratchTestFile(name));
+      }
+      const runner = buildDefaultRunTests(pkg);
+      const testFiles = ['tests/scripts/scripts.test.mjs', 'tests/unit/unit.test.mjs'];
+
+      const green = await isolatedSync(() => runner({ repoRoot: pkg, testFiles }));
+
+      expect(green, `${green.stdout ?? ''}\n${green.stderr ?? ''}`).toMatchObject({ kind: 'ran', result: 'green' });
+      expect(readProjectMarker(pkg, 'scripts')).toEqual({ project: 'unit' });
+      expect(readProjectMarker(pkg, 'unit')).toEqual({ project: 'core' });
+      expect(readProjectMarker(pkg, 'other')).toBeUndefined();
+
+      writeFileSync(path.join(pkg, 'src', 'value.mjs'), 'export function value() {\n  return 1;\n}\n');
+      const red = await isolatedSync(() => runner({ repoRoot: pkg, testFiles }));
+
+      expect(red, `${red.stdout ?? ''}\n${red.stderr ?? ''}`).toMatchObject({ kind: 'ran', result: 'red' });
+      expect(`${red.stdout ?? ''}${red.stderr ?? ''}`).toContain('expected 1 to be 2');
+      expect(`${red.stdout ?? ''}${red.stderr ?? ''}`).toContain('2 failed');
+    } finally {
+      if (lstatSync(link, { throwIfNoEntry: false })?.isSymbolicLink() === true) unlinkSync(link);
+      rmrf(pkg);
+    }
+  }, 120_000);
 });
 
 /** One key for each state directory and feature id, so each new store gets one seed. */
