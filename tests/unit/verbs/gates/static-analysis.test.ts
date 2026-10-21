@@ -17,6 +17,7 @@ import {
   runBoundaryLint,
   runRawIoTaint,
   type BoundaryLintResult,
+  type CommandResult,
   type RawIoTaintResult,
   type RunCommandFn,
   type StaticAnalysisInput,
@@ -525,32 +526,34 @@ describe('handleStaticAnalysis', () => {
  * really gave.
  */
 describe('execCommandRunner — the production runner of the static-analysis legs', () => {
-  function runNode(script: string) {
-    return execCommandRunner(process.execPath, ['-e', script], { cwd: process.cwd() });
+  function runNode(script: string): Promise<CommandResult> {
+    return isolatedSync(() => execCommandRunner(process.execPath, ['-e', script], { cwd: process.cwd() }));
   }
 
   /** A non-zero exit keeps its status and output and carries no signal and no runner error. */
-  it('ExecCommandRunner_NonZeroExit_KeepsTheStatusAndTheOutput', () => {
-    const result = runNode('process.stdout.write("out"); process.stderr.write("err"); process.exit(3);');
+  it('ExecCommandRunner_NonZeroExit_KeepsTheStatusAndTheOutput', async () => {
+    const result = await runNode('process.stdout.write("out"); process.stderr.write("err"); process.exit(3);');
 
     expect(result).toEqual({ exitCode: 3, stdout: 'out', stderr: 'err' });
   });
 
-  it('ExecCommandRunner_CleanExit_GivesExitZeroAndTheOutput', () => {
-    expect(runNode('process.stdout.write("ok")')).toEqual({ exitCode: 0, stdout: 'ok', stderr: '' });
+  it('ExecCommandRunner_CleanExit_GivesExitZeroAndTheOutput', async () => {
+    expect(await runNode('process.stdout.write("ok")')).toEqual({ exitCode: 0, stdout: 'ok', stderr: '' });
   });
 
   /** A process that a signal stopped has no exit status. The runner gives exit 1 and the signal. */
-  it.skipIf(process.platform === 'win32')('ExecCommandRunner_SignalDeath_CarriesTheSignal', () => {
-    const result = runNode('process.kill(process.pid, "SIGKILL")');
+  it.skipIf(process.platform === 'win32')('ExecCommandRunner_SignalDeath_CarriesTheSignal', async () => {
+    const result = await runNode('process.kill(process.pid, "SIGKILL")');
 
     expect(result.exitCode).toBe(1);
     expect(result.signal).toBe('SIGKILL');
     expect(result.spawnError).toBeUndefined();
   });
 
-  it('ExecCommandRunner_MissingCommand_CarriesTheSpawnError', () => {
-    const result = execCommandRunner('exarchos-no-such-command-for-this-test', [], { cwd: process.cwd() });
+  it('ExecCommandRunner_MissingCommand_CarriesTheSpawnError', async () => {
+    const result = await isolatedSync(() =>
+      execCommandRunner('exarchos-no-such-command-for-this-test', [], { cwd: process.cwd() }),
+    );
 
     expect(result.exitCode).toBe(1);
     expect(result.spawnError).toBe('ENOENT');
@@ -560,10 +563,10 @@ describe('execCommandRunner — the production runner of the static-analysis leg
    * The boundary JSON report of this repository is about 2 MB. The default output limit of 1 MiB
    * stops such a run with ENOBUFS, so the runner raises the limit.
    */
-  it('ExecCommandRunner_ReportOfSeveralMegabytes_IsReadInFull', () => {
+  it('ExecCommandRunner_ReportOfSeveralMegabytes_IsReadInFull', async () => {
     const bytes = 8 * 1024 * 1024;
 
-    const result = runNode(`process.stdout.write("x".repeat(${bytes}))`);
+    const result = await runNode(`process.stdout.write("x".repeat(${bytes}))`);
 
     expect(result.spawnError).toBeUndefined();
     expect(result.exitCode).toBe(0);
@@ -571,10 +574,10 @@ describe('execCommandRunner — the production runner of the static-analysis leg
   });
 
   /** Output past the raised limit is a runner error with the name ENOBUFS, not a clean run. */
-  it('ExecCommandRunner_OutputPastTheLimit_CarriesENOBUFS', () => {
+  it('ExecCommandRunner_OutputPastTheLimit_CarriesENOBUFS', async () => {
     const bytes = 65 * 1024 * 1024;
 
-    const result = runNode(`process.stdout.write("x".repeat(${bytes}))`);
+    const result = await runNode(`process.stdout.write("x".repeat(${bytes}))`);
 
     expect(result.spawnError).toBe('ENOBUFS');
     expect(result.exitCode).toBe(1);
@@ -1295,9 +1298,17 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
   });
 });
 
-/** Runs the semgrep arguments through the production runner with a command name that is on no PATH. */
-const missingSemgrepRunner: RunCommandFn = (_cmd, args, options) =>
-  execCommandRunner('exarchos-no-such-semgrep-for-this-test', args, options);
+/**
+ * The result of the production runner for a command name that is on no PATH.
+ * The taint suite gets it once before its tests, through `isolatedSync`, so no test spawns synchronously.
+ */
+let missingSemgrepResult: CommandResult | undefined;
+
+/** Gives the result of the production runner for the missing semgrep command. A missing command fails the same way for all arguments. */
+const missingSemgrepRunner: RunCommandFn = () => {
+  if (missingSemgrepResult === undefined) throw new Error('the taint suite did not run the missing semgrep command');
+  return missingSemgrepResult;
+};
 
 /**
  * Runs the real `runRawIoTaint` and `runStaticAnalysis` against temp fixtures on disk with an injected
@@ -1314,6 +1325,9 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
       '../../../../src/verbs/pure/static-analysis.js',
     );
     realRunStaticAnalysis = actual.runStaticAnalysis;
+    missingSemgrepResult = await isolatedSync(() =>
+      execCommandRunner('exarchos-no-such-semgrep-for-this-test', [], { cwd: process.cwd() }),
+    );
   });
 
   beforeEach(() => {

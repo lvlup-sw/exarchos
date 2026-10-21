@@ -16,7 +16,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { RENDER_SCOPES, findEmptyScopes, runRenderGuard } from '../../src/install/render-guard.js';
-import { execFileAsync } from '../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -89,12 +89,12 @@ describe('RenderGuard', () => {
   it('DriftInRenderedTree_FailsClosed', async () => {
     const root = await makeSandbox();
     try {
-      const clean = runRenderGuard({ cwd: root, regenerateAgents: () => {} });
+      const clean = await isolatedSync(() => runRenderGuard({ cwd: root, regenerateAgents: () => {} }));
       expect(clean.ok, `sandbox should start clean:\n${clean.message}`).toBe(true);
 
       await seedDrift(root, 'rendered/skills/standard/plan/SKILL.md', '\n<!-- seeded drift -->\n');
 
-      const drifted = runRenderGuard({ cwd: root, regenerateAgents: () => {} });
+      const drifted = await isolatedSync(() => runRenderGuard({ cwd: root, regenerateAgents: () => {} }));
       expect(drifted.ok, 'drift in the rendered tree must fail the guard').toBe(false);
       expect(drifted.exitCode).not.toBe(0);
       expect(drifted.message).toMatch(/stale|drift/i);
@@ -113,14 +113,14 @@ describe('RenderGuard', () => {
     try {
       await seedDrift(root, '.codex/agents/implementer.toml', '\n# seeded drift\n');
 
-      const drifted = runRenderGuard({
+      const drifted = await isolatedSync(() => runRenderGuard({
         cwd: root,
         regenerateAgents: (cwd: string) => {
           cpSync(join(REPO_ROOT, '.codex/agents'), join(cwd, '.codex/agents'), {
             recursive: true,
           });
         },
-      });
+      }));
       expect(drifted.ok, 'drift in a harness dot-directory must fail the guard').toBe(false);
       expect(drifted.message).toMatch(/stale|drift/i);
     } finally {

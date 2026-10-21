@@ -5,6 +5,8 @@
 // elapsed wall-clock time measures the runner, not the code. Both scans parse
 // the source with the TypeScript compiler, so text inside a string, a template
 // or a comment is never a finding.
+import { posix } from 'node:path';
+
 import ts from 'typescript';
 
 /** One finding: the 1-based line and what was found there. */
@@ -18,14 +20,28 @@ export interface RunnerDependence {
 /** The synchronous spawn APIs of `node:child_process`. */
 export const CHILD_PROCESS_SYNC_APIS: ReadonlySet<string> = new Set(['execFileSync', 'execSync', 'spawnSync']);
 
-/** The synchronous spawn wrappers in `src/utils/process.ts`. */
-export const PROCESS_UTIL_SYNC_APIS: ReadonlySet<string> = new Set(['runCommandSync', 'spawnCommandSync']);
+/**
+ * The exported synchronous spawn wrappers of a source tree, by module key.
+ * A module key is the repository-relative path of a module without its extension.
+ * {@link deriveSyncSpawnWrappers} derives the map from the source, so a new exported wrapper needs no edit here.
+ */
+export type SyncSpawnWrappers = ReadonlyMap<string, ReadonlySet<string>>;
 
+/** One module that the derivation reads: its repository-relative path, with forward slashes, and its text. */
+export interface SourceModule {
+  readonly path: string;
+  readonly source: string;
+}
+
+/** The module key of `node:child_process`, for both of its specifiers. */
+const CHILD_PROCESS_KEY = 'node:child_process';
 const CHILD_PROCESS_SPECIFIERS: ReadonlySet<string> = new Set(['node:child_process', 'child_process']);
-const PROCESS_UTIL_SPECIFIER = /(^|\/)utils\/process(\.[cm]?[jt]s)?$/;
 const SPAWN_HELPER_SPECIFIER = /(^|\/)test-helpers\/spawn(\.[cm]?[jt]s)?$/;
 const UPPER_BOUND_MATCHERS: ReadonlySet<string> = new Set(['toBeLessThan', 'toBeLessThanOrEqual']);
 const DURATION_PROPERTY = /^(duration|elapsed)(ms|_ms|millis|seconds)?$|(duration|elapsed)(ms|_ms)$/i;
+
+/** The extension of a source module, with the `.d` of a declaration file. */
+const SOURCE_EXTENSION = /(\.d)?\.[cm]?[jt]sx?$/;
 
 /** Parses one file as TypeScript, or as JavaScript for a `.js`-family name. */
 function parse(source: string, fileName: string): ts.SourceFile {
@@ -52,12 +68,26 @@ function specifierText(node: ts.Node | undefined): string | undefined {
   return node !== undefined && ts.isStringLiteralLike(node) ? node.text : undefined;
 }
 
-/** The sync API names a module specifier carries, or none. */
-function syncApisOf(specifier: string | undefined): ReadonlySet<string> | undefined {
+/** The module key of a repository-relative path: the path without its extension. */
+function moduleKeyOf(path: string): string {
+  return path.replace(SOURCE_EXTENSION, '');
+}
+
+/**
+ * The key of the module that `specifier` names from the file `fromFile`.
+ * A relative specifier resolves against the directory of the file. A package other than `node:child_process` has no key.
+ */
+function resolveModuleKey(specifier: string | undefined, fromFile: string): string | undefined {
   if (specifier === undefined) return undefined;
-  if (CHILD_PROCESS_SPECIFIERS.has(specifier)) return CHILD_PROCESS_SYNC_APIS;
-  if (PROCESS_UTIL_SPECIFIER.test(specifier)) return PROCESS_UTIL_SYNC_APIS;
-  return undefined;
+  if (CHILD_PROCESS_SPECIFIERS.has(specifier)) return CHILD_PROCESS_KEY;
+  if (!specifier.startsWith('.')) return undefined;
+  return moduleKeyOf(posix.normalize(posix.join(posix.dirname(fromFile), specifier)));
+}
+
+/** Whether the export `name` of the module `key` runs a synchronous spawn. A directory key also reads its `index` module. */
+function isSyncApi(key: string, name: string, wrappers: SyncSpawnWrappers): boolean {
+  if (key === CHILD_PROCESS_KEY) return CHILD_PROCESS_SYNC_APIS.has(name);
+  return (wrappers.get(key) ?? wrappers.get(`${key}/index`))?.has(name) === true;
 }
 
 /** Removes parentheses, `await`, type assertions and non-null marks around an expression. */
@@ -83,32 +113,39 @@ function dynamicModuleOf(node: ts.Expression): string | undefined {
   return isImport || isRequire || isImportActual ? specifierText(call.arguments[0]) : undefined;
 }
 
-/** Local names bound to sync spawn APIs, namespaces that carry them, and local names of `isolatedSync`. */
-interface SpawnBindings {
-  readonly direct: Map<string, string>;
-  readonly namespaces: Map<string, ReadonlySet<string>>;
+/** One name that an import binds: the key of its module and the name that the module exports. */
+interface ImportedName {
+  readonly from: string;
+  readonly name: string;
+}
+
+/** The import bindings of one file: the names it imports, its namespaces, and its local names of `isolatedSync`. */
+interface ImportBindings {
+  readonly named: Map<string, ImportedName>;
+  readonly namespaces: Map<string, string>;
   readonly isolators: Set<string>;
 }
 
-/** Collects the bindings that make a call a sync spawn. */
-function spawnBindingsOf(file: ts.SourceFile): SpawnBindings {
-  const bindings: SpawnBindings = { direct: new Map(), namespaces: new Map(), isolators: new Set() };
+/** Collects the static and dynamic import bindings of a file. A type-only import binds nothing. */
+function importBindingsOf(file: ts.SourceFile): ImportBindings {
+  const bindings: ImportBindings = { named: new Map(), namespaces: new Map(), isolators: new Set() };
   walk(file, (node) => {
     if (ts.isImportDeclaration(node)) {
       const clause = node.importClause;
       if (clause === undefined || clause.isTypeOnly) return;
       const specifier = specifierText(node.moduleSpecifier);
-      const apis = syncApisOf(specifier);
+      const from = resolveModuleKey(specifier, file.fileName);
       const named = clause.namedBindings;
-      if (apis !== undefined && clause.name !== undefined) bindings.namespaces.set(clause.name.text, apis);
-      if (apis !== undefined && named !== undefined && ts.isNamespaceImport(named)) {
-        bindings.namespaces.set(named.name.text, apis);
+      if (from === CHILD_PROCESS_KEY && clause.name !== undefined) bindings.namespaces.set(clause.name.text, from);
+      else if (from !== undefined && clause.name !== undefined) bindings.named.set(clause.name.text, { from, name: 'default' });
+      if (from !== undefined && named !== undefined && ts.isNamespaceImport(named)) {
+        bindings.namespaces.set(named.name.text, from);
       }
       if (named === undefined || !ts.isNamedImports(named)) return;
       for (const element of named.elements) {
         if (element.isTypeOnly) continue;
         const imported = (element.propertyName ?? element.name).text;
-        if (apis?.has(imported) === true) bindings.direct.set(element.name.text, imported);
+        if (from !== undefined) bindings.named.set(element.name.text, { from, name: imported });
         if (specifier !== undefined && SPAWN_HELPER_SPECIFIER.test(specifier) && imported === 'isolatedSync') {
           bindings.isolators.add(element.name.text);
         }
@@ -116,38 +153,87 @@ function spawnBindingsOf(file: ts.SourceFile): SpawnBindings {
       return;
     }
     if (ts.isVariableDeclaration(node) && node.initializer !== undefined) {
-      const apis = syncApisOf(dynamicModuleOf(node.initializer));
-      if (apis === undefined) return;
+      const from = resolveModuleKey(dynamicModuleOf(node.initializer), file.fileName);
+      if (from === undefined) return;
       if (ts.isIdentifier(node.name)) {
-        bindings.namespaces.set(node.name.text, apis);
+        bindings.namespaces.set(node.name.text, from);
         return;
       }
       if (!ts.isObjectBindingPattern(node.name)) return;
       for (const element of node.name.elements) {
         const key = element.propertyName ?? element.name;
         if (!ts.isIdentifier(key) || !ts.isIdentifier(element.name)) continue;
-        if (apis.has(key.text)) bindings.direct.set(element.name.text, key.text);
+        bindings.named.set(element.name.text, { from, name: key.text });
       }
     }
   });
   return bindings;
 }
 
-/** The sync API a call invokes, or undefined when the call is not a sync spawn. */
-function syncApiCalled(call: ts.CallExpression, bindings: SpawnBindings): string | undefined {
+/**
+ * The sync API that a call invokes, with the key of its module, or undefined when the call is not a sync spawn.
+ * `localSync` holds the module-level functions of the same file that the derivation already found to spawn.
+ */
+function syncApiCalled(
+  call: ts.CallExpression,
+  bindings: ImportBindings,
+  wrappers: SyncSpawnWrappers,
+  localSync?: ReadonlySet<string>,
+): ImportedName | undefined {
   const callee = unwrap(call.expression);
-  if (ts.isIdentifier(callee)) return bindings.direct.get(callee.text);
+  if (ts.isIdentifier(callee)) {
+    if (localSync?.has(callee.text) === true) return { from: call.getSourceFile().fileName, name: callee.text };
+    const imported = bindings.named.get(callee.text);
+    if (imported === undefined || !isSyncApi(imported.from, imported.name, wrappers)) return undefined;
+    return imported.name === 'default' ? { from: imported.from, name: callee.text } : imported;
+  }
   if (!ts.isPropertyAccessExpression(callee)) return undefined;
   const name = callee.name.text;
   const receiver = unwrap(callee.expression);
-  if (ts.isIdentifier(receiver)) {
-    return bindings.namespaces.get(receiver.text)?.has(name) === true ? name : undefined;
-  }
-  return syncApisOf(dynamicModuleOf(receiver))?.has(name) === true ? name : undefined;
+  const from = ts.isIdentifier(receiver)
+    ? bindings.namespaces.get(receiver.text)
+    : resolveModuleKey(dynamicModuleOf(receiver), call.getSourceFile().fileName);
+  return from !== undefined && isSyncApi(from, name, wrappers) ? { from, name } : undefined;
+}
+
+/** Whether a call loads a real module: `import()`, `require()`, `vi.importActual()` or the `importOriginal` of a factory. */
+function loadsAModule(node: ts.Node): boolean {
+  if (!ts.isCallExpression(node)) return false;
+  const callee = node.expression;
+  if (callee.kind === ts.SyntaxKind.ImportKeyword) return true;
+  if (ts.isIdentifier(callee)) return callee.text === 'require' || callee.text === 'importOriginal';
+  return ts.isPropertyAccessExpression(callee) && (callee.name.text === 'importActual' || callee.name.text === 'importOriginal');
+}
+
+/** Whether a `vi.mock` factory replaces the whole module. No factory is an automock. A factory with a parameter or a module load keeps real parts. */
+function replacesTheWholeModule(factory: ts.Expression | undefined): boolean {
+  if (factory === undefined) return true;
+  const value = unwrap(factory);
+  if (!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) return false;
+  return value.parameters.length === 0 && !contains(value.body, loadsAModule);
+}
+
+/**
+ * Whether a hoisted `vi.mock` replaces the whole of `node:child_process` in the file, and no `vi.unmock` undoes it.
+ * Each wrapper in the module graph of the file then calls the mock, so a call of a wrapper starts no process.
+ * A direct call of a sync API of `node:child_process` is still a finding.
+ */
+function mocksChildProcessWholly(file: ts.SourceFile): boolean {
+  let mocked = false;
+  let unmocked = false;
+  walk(file, (node) => {
+    if (!ts.isCallExpression(node) || !ts.isPropertyAccessExpression(node.expression)) return;
+    const callee = node.expression;
+    if (!ts.isIdentifier(callee.expression) || callee.expression.text !== 'vi') return;
+    if (!CHILD_PROCESS_SPECIFIERS.has(specifierText(node.arguments[0]) ?? '')) return;
+    if (callee.name.text === 'unmock' || callee.name.text === 'doUnmock') unmocked = true;
+    if (callee.name.text === 'mock' && replacesTheWholeModule(node.arguments[1])) mocked = true;
+  });
+  return mocked && !unmocked;
 }
 
 /** Whether the call is the whole body of an arrow passed first to `isolatedSync`. */
-function isIsolated(call: ts.CallExpression, bindings: SpawnBindings): boolean {
+function isIsolated(call: ts.CallExpression, bindings: ImportBindings): boolean {
   const arrow = call.parent;
   if (!ts.isArrowFunction(arrow) || arrow.body !== call) return false;
   const outer = arrow.parent;
@@ -161,25 +247,170 @@ function isIsolated(call: ts.CallExpression, bindings: SpawnBindings): boolean {
 
 /**
  * Every call in `source` that runs a synchronous spawn API: `execFileSync`,
- * `execSync` or `spawnSync` from `node:child_process`, or `runCommandSync` or
- * `spawnCommandSync` from `src/utils/process.ts`. Aliased, namespaced and
- * dynamically imported bindings count. A call that is the whole body of an
- * arrow passed to `isolatedSync` does not.
+ * `execSync` or `spawnSync` from `node:child_process`, or an exported wrapper in
+ * `wrappers`. `fileName` is the repository-relative path of the file, so that a
+ * relative import resolves to a module key. Aliased, namespaced and dynamically
+ * imported bindings count. A call that is the whole body of an arrow passed to
+ * `isolatedSync` does not. A call of a wrapper in a file that mocks the whole of
+ * `node:child_process` does not.
  */
-export function findSyncSpawnCalls(source: string, fileName = 'module.ts'): RunnerDependence[] {
+export function findSyncSpawnCalls(source: string, fileName: string, wrappers: SyncSpawnWrappers): RunnerDependence[] {
   const file = parse(source, fileName);
-  const bindings = spawnBindingsOf(file);
-  if (bindings.direct.size === 0 && bindings.namespaces.size === 0) return [];
+  const bindings = importBindingsOf(file);
   const constants = numericConstantsOf(file);
+  const wrappersReachTheMock = mocksChildProcessWholly(file);
   const findings: RunnerDependence[] = [];
   walk(file, (node) => {
     if (!ts.isCallExpression(node)) return;
-    const api = syncApiCalled(node, bindings);
+    const api = syncApiCalled(node, bindings, wrappers);
     if (api === undefined || isIsolated(node, bindings)) return;
+    if (wrappersReachTheMock && api.from !== CHILD_PROCESS_KEY) return;
     const timeoutMs = statedTimeout(node, constants);
-    findings.push({ line: lineOf(file, node), detail: api, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
+    findings.push({ line: lineOf(file, node), detail: api.name, ...(timeoutMs === undefined ? {} : { timeoutMs }) });
   });
   return findings;
+}
+
+/** Whether a function is `async`. Its caller gets a promise, so it is not a synchronous wrapper. */
+function isAsync(fn: ts.Node): boolean {
+  return ts.canHaveModifiers(fn) && (ts.getModifiers(fn)?.some((modifier) => modifier.kind === ts.SyntaxKind.AsyncKeyword) ?? false);
+}
+
+/** Whether a nested function runs where the source states it: it is a synchronous argument or the callee of a call. */
+function runsInPlace(fn: ts.Node): boolean {
+  if (isAsync(fn)) return false;
+  let child: ts.Node = fn;
+  let parent = fn.parent;
+  while (ts.isParenthesizedExpression(parent)) {
+    child = parent;
+    parent = parent.parent;
+  }
+  if (!ts.isCallExpression(parent) && !ts.isNewExpression(parent)) return false;
+  return parent.expression === child || (parent.arguments?.some((argument) => argument === child) ?? false);
+}
+
+/**
+ * The calls that a function body runs when the function runs. A nested function counts only when it runs in place,
+ * as a callback argument does. A function that the body returns or stores runs later, so its calls do not count.
+ */
+function callsRunBy(body: ts.Node): ts.CallExpression[] {
+  const calls: ts.CallExpression[] = [];
+  const step = (node: ts.Node): void => {
+    if (ts.isCallExpression(node)) calls.push(node);
+    if (ts.isFunctionLike(node) && !runsInPlace(node)) return;
+    ts.forEachChild(node, step);
+  };
+  step(body);
+  return calls;
+}
+
+/** Whether a statement carries the modifier `kind`, such as `export` or `default`. */
+function hasModifier(statement: ts.Statement, kind: ts.SyntaxKind): boolean {
+  return ts.canHaveModifiers(statement) && (ts.getModifiers(statement)?.some((modifier) => modifier.kind === kind) ?? false);
+}
+
+/** The module-level facts of one source module that the derivation reads. */
+interface ModuleFacts {
+  readonly key: string;
+  readonly bindings: ImportBindings;
+  /** The calls that each module-level function runs, by its local name. */
+  readonly functions: ReadonlyMap<string, readonly ts.CallExpression[]>;
+  /** Each exported name and the local name that it exports. */
+  readonly exports: ReadonlyMap<string, string>;
+  /** Each exported name that the module re-exports from another module. */
+  readonly reexports: ReadonlyMap<string, ImportedName>;
+  /** The keys of the modules whose every export the module re-exports. */
+  readonly starExports: readonly string[];
+}
+
+/**
+ * Reads the module-level functions, the exports and the re-exports of one module.
+ * A function is a function declaration, or a variable whose value is an arrow or a function expression.
+ * An `async` function is not read, because its caller awaits a promise and does not call a synchronous API.
+ */
+function moduleFactsOf(module: SourceModule): ModuleFacts {
+  const file = parse(module.source, module.path);
+  const functions = new Map<string, readonly ts.CallExpression[]>();
+  const exports = new Map<string, string>();
+  const reexports = new Map<string, ImportedName>();
+  const starExports: string[] = [];
+  for (const statement of file.statements) {
+    const exported = hasModifier(statement, ts.SyntaxKind.ExportKeyword);
+    if (ts.isFunctionDeclaration(statement) && statement.body !== undefined && !isAsync(statement)) {
+      const local = statement.name?.text ?? 'default';
+      functions.set(local, callsRunBy(statement.body));
+      if (exported) exports.set(hasModifier(statement, ts.SyntaxKind.DefaultKeyword) ? 'default' : local, local);
+    } else if (ts.isVariableStatement(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || declaration.initializer === undefined) continue;
+        const value = unwrap(declaration.initializer);
+        if ((!ts.isArrowFunction(value) && !ts.isFunctionExpression(value)) || isAsync(value)) continue;
+        functions.set(declaration.name.text, callsRunBy(value.body));
+        if (exported) exports.set(declaration.name.text, declaration.name.text);
+      }
+    } else if (ts.isExportDeclaration(statement) && !statement.isTypeOnly) {
+      const from = resolveModuleKey(specifierText(statement.moduleSpecifier), module.path);
+      const clause = statement.exportClause;
+      if (clause === undefined) {
+        if (from !== undefined) starExports.push(from);
+        continue;
+      }
+      if (!ts.isNamedExports(clause)) continue;
+      for (const element of clause.elements) {
+        if (element.isTypeOnly) continue;
+        const local = (element.propertyName ?? element.name).text;
+        if (from === undefined) exports.set(element.name.text, local);
+        else reexports.set(element.name.text, { from, name: local });
+      }
+    } else if (ts.isExportAssignment(statement) && ts.isIdentifier(statement.expression)) {
+      exports.set('default', statement.expression.text);
+    }
+  }
+  return { key: moduleKeyOf(module.path), bindings: importBindingsOf(file), functions, exports, reexports, starExports };
+}
+
+/**
+ * The exported synchronous spawn wrappers of `modules`, by module key.
+ * A module-level function is a wrapper when its body runs a call of a sync spawn.
+ * That call is a sync API of `node:child_process`, a wrapper that the module imports, or another wrapper of the module.
+ * An export of such a function, a re-export of a wrapper and an `export *` of a module with wrappers each count.
+ * The search repeats until it finds no new wrapper, so a wrapper of a wrapper counts too.
+ */
+export function deriveSyncSpawnWrappers(modules: readonly SourceModule[]): Map<string, Set<string>> {
+  const facts = modules.map(moduleFactsOf);
+  const localSync = facts.map(() => new Set<string>());
+  const wrappers = new Map<string, Set<string>>();
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [index, module] of facts.entries()) {
+      const sync = localSync[index] ?? new Set<string>();
+      for (const [local, calls] of module.functions) {
+        if (sync.has(local)) continue;
+        if (!calls.some((call) => syncApiCalled(call, module.bindings, wrappers, sync) !== undefined)) continue;
+        sync.add(local);
+        grew = true;
+      }
+      const exported = new Set(wrappers.get(module.key));
+      for (const [name, local] of module.exports) {
+        const imported = module.bindings.named.get(local);
+        if (sync.has(local) || (imported !== undefined && isSyncApi(imported.from, imported.name, wrappers))) {
+          exported.add(name);
+        }
+      }
+      for (const [name, target] of module.reexports) {
+        if (isSyncApi(target.from, target.name, wrappers)) exported.add(name);
+      }
+      for (const from of module.starExports) {
+        for (const name of wrappers.get(from) ?? []) if (name !== 'default') exported.add(name);
+      }
+      if (exported.size > (wrappers.get(module.key)?.size ?? 0)) {
+        wrappers.set(module.key, exported);
+        grew = true;
+      }
+    }
+  }
+  return wrappers;
 }
 
 /** The value of each `const NAME = <number>` in the file. */

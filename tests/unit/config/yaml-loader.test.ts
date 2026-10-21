@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import { execFileAsync } from '../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 import { toPosix } from '../../../src/utils/paths.js';
 
@@ -139,7 +139,7 @@ describe('discoverProjectRoot', () => {
   it('discoverProjectRoot_EnvVar_TakesPrecedence', async () => {
     const { discoverProjectRoot } = await import('../../../src/config/yaml-loader.js');
     process.env.EXARCHOS_PROJECT_ROOT = '/custom/project/root';
-    const result = discoverProjectRoot(tmpDir);
+    const result = await isolatedSync(() => discoverProjectRoot(tmpDir));
     expect(result).toBe('/custom/project/root');
   });
 
@@ -148,7 +148,7 @@ describe('discoverProjectRoot', () => {
     const childDir = path.join(tmpDir, 'src', 'deep');
     fs.mkdirSync(childDir, { recursive: true });
     fs.writeFileSync(path.join(tmpDir, '.exarchos.yml'), 'vcs:\n  provider: github\n', 'utf-8');
-    const result = discoverProjectRoot(childDir);
+    const result = await isolatedSync(() => discoverProjectRoot(childDir));
     expect(result).toBe(tmpDir);
   });
 
@@ -164,7 +164,7 @@ describe('discoverProjectRoot', () => {
       await execFileAsync('git', ['init'], { cwd: gitDir });
       const childDir = path.join(gitDir, 'src');
       fs.mkdirSync(childDir, { recursive: true });
-      const result = discoverProjectRoot(childDir);
+      const result = await isolatedSync(() => discoverProjectRoot(childDir));
       expect(result).toBe(toPosix(fs.realpathSync(gitDir)));
     } finally {
       rmrf(gitDir);
@@ -176,7 +176,7 @@ describe('discoverProjectRoot', () => {
     const { discoverProjectRoot } = await import('../../../src/config/yaml-loader.js');
     const isolatedDir = fs.mkdtempSync(path.join(os.tmpdir(), 'discover-isolated-'));
     try {
-      const result = discoverProjectRoot(isolatedDir);
+      const result = await isolatedSync(() => discoverProjectRoot(isolatedDir));
       expect(result).toBe(isolatedDir);
     } finally {
       rmrf(isolatedDir);

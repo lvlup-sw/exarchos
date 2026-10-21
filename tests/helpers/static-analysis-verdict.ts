@@ -15,6 +15,7 @@ import { runGate } from '../../src/verbs/gates/gate-runner.js';
 import { staticAnalysisCarrier, staticAnalysisSubjectScope } from '../../src/verbs/gates/static-analysis.js';
 import type { StaticAnalysisResult } from '../../src/verbs/pure/static-analysis.js';
 import { evidenceArtifactStore } from '../../src/workflow/admission/evidence-artifact.js';
+import { isolatedSync } from '../../tools/test-helpers/spawn.js';
 
 /** The gate class that `task_complete` requires. */
 const STATIC_ANALYSIS_GATE = 'static-analysis';
@@ -121,6 +122,7 @@ export async function seedStaticAnalysisVerdict(
   );
   const minted = mintDispatchContext(undefined, authorization);
   const context = seed.operationId === undefined ? minted : { ...minted, operationId: seed.operationId };
+  const subject = await isolatedSync(() => selectSubject(scope, phaseAttemptId));
   const result = await runWithDispatchContext(context, () =>
     runGate(
       {
@@ -128,7 +130,7 @@ export async function seedStaticAnalysisVerdict(
         gateClass: STATIC_ANALYSIS_GATE,
         phaseAttemptId,
         requirementId: ladderRequirementId(STATIC_ANALYSIS_GATE),
-        subject: selectSubject(scope, phaseAttemptId),
+        subject,
         providerInput: {
           featureId: seed.streamId,
           ...(seed.taskId === undefined ? {} : { taskId: seed.taskId }),

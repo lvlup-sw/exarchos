@@ -26,7 +26,7 @@ import {
   type RiskTier,
 } from '../../../../src/workflow/verification-policy.js';
 import { classifyTask } from '../../../../src/verbs/team/prepare-delegation.js';
-import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('emitGateEvent', () => {
@@ -529,7 +529,7 @@ describe('getDiff', () => {
   it('getDiff_DiffLargerThanNodeDefaultMaxBuffer_ReturnsTheDiff', async () => {
     const root = await repoWithDiffOfAtLeast(2 * 1024 * 1024);
     try {
-      const diff = getDiff(root, 'main');
+      const diff = await isolatedSync(() => getDiff(root, 'main'));
       expect(diff).not.toBeNull();
       expect(diff!.length).toBeGreaterThan(1024 * 1024);
       expect(diff).toContain('big.txt');
@@ -542,7 +542,7 @@ describe('getDiff', () => {
   it('getDiff_UnresolvableBaseRef_ReturnsNull', async () => {
     const root = await repoWithDiffOfAtLeast(1024);
     try {
-      expect(getDiff(root, 'no-such-base-ref')).toBeNull();
+      expect(await isolatedSync(() => getDiff(root, 'no-such-base-ref'))).toBeNull();
     } finally {
       rmrf(root);
     }

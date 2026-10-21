@@ -110,6 +110,7 @@ import { initStateFile, readStateFile } from '../../../../src/workflow/state-sto
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, seedGateEvidence } from '../../../../tools/test-helpers/trusted-context.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
+import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 
 const STREAM = 'feat-settle-unit';
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
@@ -893,10 +894,10 @@ describe('settle — the verification a settled batch runs', () => {
   it('Settle_ASkippedGateRowInTheSegment_MarksTheTraceAsSkipped', async () => {
     const probeSkip: LeafHandler = async (args, leafStateDir, ctx) => {
       const taskId = String(args.taskId);
-      const subject = selectSubject(
+      const subject = await isolatedSync(() => selectSubject(
         { gateClass: 'test-adequacy', featureId: STREAM, taskId, baseRef: 'main', repoRoot: stateDir },
         phaseAttemptId,
-      );
+      ));
       const operator = mintDispatchContext(
         undefined,
         snapshotCallerAuthorization(deriveLocalOperatorIdentity('/exarchos/settle-probe-skip'), undefined),

@@ -6,6 +6,9 @@
 // Second, no correctness test asserts on elapsed wall-clock time. A speed check
 // is a `*.bench.ts` file in the benchmark gate instead.
 //
+// A sync API is a sync spawn of `node:child_process`, or an exported wrapper of
+// one in `src`. The guard derives the wrappers from the source.
+//
 // Both scans parse the source, assert how much they scanned, and are proved
 // against seeded violations and their clean twins.
 import { readFile } from 'node:fs/promises';
@@ -15,11 +18,13 @@ import { fileURLToPath } from 'node:url';
 import { beforeAll, describe, expect, it } from 'vitest';
 
 import {
+  deriveSyncSpawnWrappers,
   findElapsedTimeAssertions,
   findSyncSpawnCalls,
   importsChildProcess,
   readsWallClock,
   type RunnerDependence,
+  type SyncSpawnWrappers,
 } from '../../tools/test-helpers/runner-dependence-scanner.js';
 import { listTrackedFiles } from '../../tools/test-helpers/tracked-population.js';
 
@@ -46,7 +51,24 @@ const POLICY = {
   minimumScannedFiles: 1200,
   minimumHelperSpawnFiles: 80,
   minimumWallClockFiles: 35,
+  minimumSourceModules: 600,
 } as const;
+
+/**
+ * Exported synchronous spawn wrappers that the derivation must find, by module key.
+ * The list is a deliberate subset: it is a floor for the derived map, not the map.
+ * Each entry is a wrapper that test code calls, so a derivation that loses one hides real calls.
+ */
+const KNOWN_WRAPPERS: ReadonlyArray<{ readonly module: string; readonly name: string }> = [
+  { module: 'src/utils/process', name: 'runCommandSync' },
+  { module: 'src/utils/process', name: 'spawnCommandSync' },
+  { module: 'src/verbs/gates/static-analysis', name: 'execCommandRunner' },
+  { module: 'src/verbs/gates/check-integration-suite', name: 'execCommandRunner' },
+  { module: 'src/verbs/vcs/git-exec-default', name: 'defaultGitExec' },
+];
+
+/** The file name that a seeded source has, so that its relative imports resolve as a test file under `tests/architecture/`. */
+const SEED_FILE = 'tests/architecture/seed.test.ts';
 
 /**
  * The longest `timeout` that an exempt sync spawn can state: a quarter of the 60 s RPC
@@ -100,6 +122,8 @@ const SYNC_SPAWN_EXEMPTIONS: ReadonlyArray<{ readonly file: string; readonly cal
 
 interface Scan {
   readonly scanned: number;
+  readonly sourceModules: number;
+  readonly wrappers: SyncSpawnWrappers;
   readonly helperSpawnFiles: number;
   readonly childProcessFiles: number;
   readonly wallClockFiles: number;
@@ -110,8 +134,16 @@ interface Scan {
 let scan: Scan;
 
 beforeAll(async () => {
+  const extensions = ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'];
+  const sourcePaths = await listTrackedFiles(REPO_ROOT, { extensions, exclude: (path) => !path.startsWith('src/') });
+  const sources = [];
+  for (const [index, path] of sourcePaths.entries()) {
+    if (index % 25 === 0) await yieldToEventLoop();
+    sources.push({ path, source: await readFile(join(REPO_ROOT, path), 'utf8') });
+  }
+  const wrappers = deriveSyncSpawnWrappers(sources);
   const files = await listTrackedFiles(REPO_ROOT, {
-    extensions: ['.ts', '.mts', '.cts', '.js', '.mjs', '.cjs'],
+    extensions,
     exclude: (path) => !isTestCode(path),
   });
   const syncSpawns = new Map<string, readonly RunnerDependence[]>();
@@ -125,7 +157,7 @@ beforeAll(async () => {
     if (/test-helpers\/spawn\.js['"]/.test(source)) helperSpawnFiles += 1;
     if (importsChildProcess(source, path)) childProcessFiles += 1;
     if (readsWallClock(source, path)) wallClockFiles += 1;
-    const spawns = findSyncSpawnCalls(source, path);
+    const spawns = findSyncSpawnCalls(source, path, wrappers);
     if (spawns.length > 0) syncSpawns.set(path, spawns);
     if (BENCH_FILE.test(path)) continue;
     for (const finding of findElapsedTimeAssertions(source, path)) {
@@ -134,6 +166,8 @@ beforeAll(async () => {
   }
   scan = {
     scanned: files.length,
+    sourceModules: sources.length,
+    wrappers,
     helperSpawnFiles,
     childProcessFiles,
     wallClockFiles,
@@ -151,6 +185,13 @@ describe('NoSyncSpawnInTestCode', () => {
       POLICY.minimumHelperSpawnFiles,
     );
     expect(scan.childProcessFiles, 'files that import node:child_process').toBeGreaterThan(0);
+  });
+
+  /** The derivation read the source tree and found each known exported wrapper. */
+  it('Denominator_DerivesTheKnownSpawnWrappersFromTheSource', () => {
+    expect(scan.sourceModules, 'source modules read').toBeGreaterThanOrEqual(POLICY.minimumSourceModules);
+    const missing = KNOWN_WRAPPERS.filter(({ module, name }) => scan.wrappers.get(module)?.has(name) !== true);
+    expect(missing).toEqual([]);
   });
 
   /** The live tree holds no synchronous spawn in test code outside the named exemptions. */
@@ -182,9 +223,9 @@ describe('NoSyncSpawnInTestCode', () => {
     const constant =
       "import { spawnSync } from 'node:child_process';\nconst LIMIT = 5000;\nspawnSync('git', [], { cwd: '.', timeout: LIMIT });";
     const none = "import { execSync } from 'node:child_process';\nexecSync('git status', { cwd: '.' });";
-    expect(findSyncSpawnCalls(literal, 'seed.test.ts')[0]?.timeoutMs).toBe(10_000);
-    expect(findSyncSpawnCalls(constant, 'seed.test.ts')[0]?.timeoutMs).toBe(5000);
-    expect(findSyncSpawnCalls(none, 'seed.test.ts')[0]?.timeoutMs).toBeUndefined();
+    expect(findSyncSpawnCalls(literal, SEED_FILE, scan.wrappers)[0]?.timeoutMs).toBe(10_000);
+    expect(findSyncSpawnCalls(constant, SEED_FILE, scan.wrappers)[0]?.timeoutMs).toBe(5000);
+    expect(findSyncSpawnCalls(none, SEED_FILE, scan.wrappers)[0]?.timeoutMs).toBeUndefined();
   });
 
   /** Each binding form of a sync API is a finding. */
@@ -196,12 +237,20 @@ describe('NoSyncSpawnInTestCode', () => {
       ["const { execSync } = await import('node:child_process');\nexecSync('git init');", 'execSync'],
       ["import { runCommandSync } from '../../src/utils/process.js';\nrunCommandSync('git', []);", 'runCommandSync'],
       [
+        "import { execCommandRunner } from '../../src/verbs/gates/static-analysis.js';\nexecCommandRunner('node', ['-e', '0']);",
+        'execCommandRunner',
+      ],
+      [
+        "const { defaultGitExec } = await import('../../src/verbs/vcs/git-exec-default.js');\ndefaultGitExec('.', ['status']);",
+        'defaultGitExec',
+      ],
+      [
         "const cp = await vi.importActual<typeof import('node:child_process')>('node:child_process');\ncp.spawnSync('git', []);",
         'spawnSync',
       ],
     ];
     for (const [source, api] of seeds) {
-      expect(findSyncSpawnCalls(source, 'seed.test.ts'), source).toEqual([{ line: 2, detail: api }]);
+      expect(findSyncSpawnCalls(source, SEED_FILE, scan.wrappers), source).toEqual([{ line: 2, detail: api }]);
     }
   });
 
@@ -218,7 +267,7 @@ describe('NoSyncSpawnInTestCode', () => {
       ].join('\n'),
     ];
     for (const source of twins) {
-      expect(findSyncSpawnCalls(source, 'twin.test.ts'), source).toEqual([]);
+      expect(findSyncSpawnCalls(source, SEED_FILE, scan.wrappers), source).toEqual([]);
     }
   });
 
@@ -229,7 +278,80 @@ describe('NoSyncSpawnInTestCode', () => {
       "import { execFileSync } from 'node:child_process';",
       "await isolatedSync(() => { execFileSync('git', ['a']); return execFileSync('git', ['b']); });",
     ].join('\n');
-    expect(findSyncSpawnCalls(source, 'seed.test.ts')).toHaveLength(2);
+    expect(findSyncSpawnCalls(source, SEED_FILE, scan.wrappers)).toHaveLength(2);
+  });
+
+  /**
+   * A seeded source tree exports a new synchronous wrapper, a wrapper of that wrapper, and a re-export.
+   * The derivation finds each one, and a test call of each is a finding with no edit to the scanner.
+   */
+  it('SeededExportedWrapper_IsDerivedAndItsTestCallIsAFinding', () => {
+    const wrappers = deriveSyncSpawnWrappers([
+      {
+        path: 'src/seeded/runner.ts',
+        source: [
+          "import { runCommandSync } from '../utils/process.js';",
+          "import { execFileSync } from 'node:child_process';",
+          'function runOnce(cmd: string): string { return String(execFileSync(cmd, [])); }',
+          'export const runSeeded = (cmd: string): string => String(runCommandSync(cmd, []));',
+          'export function retrySeeded(cmd: string): string { return [1, 2].map(() => runOnce(cmd)).join(); }',
+        ].join('\n'),
+      },
+      { path: 'src/seeded/index.ts', source: "export { runSeeded as runAgain } from './runner.js';" },
+      {
+        path: 'src/utils/process.ts',
+        source: "import { execFileSync } from 'node:child_process';\nexport function runCommandSync(c: string, a: string[]) { return execFileSync(c, a); }",
+      },
+    ]);
+    expect(wrappers.get('src/seeded/runner')).toEqual(new Set(['runSeeded', 'retrySeeded']));
+    expect(wrappers.get('src/seeded/index')).toEqual(new Set(['runAgain']));
+    const calls = [
+      "import { runSeeded, retrySeeded } from '../../src/seeded/runner.js';",
+      "import { runAgain } from '../../src/seeded/index.js';",
+      "runSeeded('git');",
+      "retrySeeded('git');",
+      "runAgain('git');",
+    ].join('\n');
+    expect(findSyncSpawnCalls(calls, SEED_FILE, wrappers).map((finding) => finding.detail)).toEqual([
+      'runSeeded',
+      'retrySeeded',
+      'runAgain',
+    ]);
+  });
+
+  /** A factory that returns a spawning closure, an async export and a type-only export are not wrappers. */
+  it('SeededNonWrappers_AreNotDerived', () => {
+    const wrappers = deriveSyncSpawnWrappers([
+      {
+        path: 'src/seeded/factory.ts',
+        source: [
+          "import { execFileSync } from 'node:child_process';",
+          'export function makeRunner() { return (cmd: string) => execFileSync(cmd, []); }',
+          'export async function runLater(cmd: string) { return execFileSync(cmd, []); }',
+          'export type Runner = (cmd: string) => string;',
+          'export const name = "factory";',
+        ].join('\n'),
+      },
+    ]);
+    expect(wrappers.get('src/seeded/factory')).toBeUndefined();
+  });
+
+  /**
+   * A file that replaces the whole of `node:child_process` with `vi.mock` calls the mock through every wrapper.
+   * A mock that keeps the real module, and a direct call of a sync API, are still findings.
+   */
+  it('WrapperCallUnderAWholeChildProcessMock_IsNotAFinding', () => {
+    const call = "import { execCommandRunner } from '../../src/verbs/gates/static-analysis.js';\nexecCommandRunner('node', []);";
+    const automock = `vi.mock('node:child_process');\n${call}`;
+    const factory = `vi.mock('node:child_process', () => ({ execFileSync: vi.fn() }));\n${call}`;
+    const partial = `vi.mock('node:child_process', async (importOriginal) => ({ ...(await importOriginal()) }));\n${call}`;
+    const unmocked = `vi.mock('node:child_process');\nvi.unmock('node:child_process');\n${call}`;
+    const direct = "vi.mock('node:child_process');\nimport { execFileSync } from 'node:child_process';\nexecFileSync('git', []);";
+    expect(findSyncSpawnCalls(automock, SEED_FILE, scan.wrappers)).toEqual([]);
+    expect(findSyncSpawnCalls(factory, SEED_FILE, scan.wrappers)).toEqual([]);
+    expect(findSyncSpawnCalls(partial, SEED_FILE, scan.wrappers)).toEqual([{ line: 3, detail: 'execCommandRunner' }]);
+    expect(findSyncSpawnCalls(unmocked, SEED_FILE, scan.wrappers)).toEqual([{ line: 4, detail: 'execCommandRunner' }]);
+    expect(findSyncSpawnCalls(direct, SEED_FILE, scan.wrappers)).toEqual([{ line: 3, detail: 'execFileSync' }]);
   });
 });
 

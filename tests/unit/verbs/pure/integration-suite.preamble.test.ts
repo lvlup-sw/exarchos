@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest';
 
 import { execCommandRunner } from '../../../../src/verbs/gates/check-integration-suite.js';
 import { parseVitestResult, runIntegrationSuite } from '../../../../src/verbs/pure/integration-suite.js';
+import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 
 /** A green vitest run: no failed tests, no failed suites. */
 const GREEN_REPORT = JSON.stringify({
@@ -98,17 +99,18 @@ describe('runIntegrationSuite through a real spawned runner (WFQ-003)', () => {
    * The production runner spawns a real child process whose stdout mixes banner
    * lines with the reporter output.
    */
-  it('IntegrationSuite_RealProcessWithPreamble_ReportsParseErrorFalse', () => {
+  it('IntegrationSuite_RealProcessWithPreamble_ReportsParseErrorFalse', async () => {
     const script =
       'process.stdout.write("\\n> pkg@1.0.0 test:run\\n> vitest run --reporter=json\\n\\n");' +
       `process.stdout.write(${JSON.stringify(RED_REPORT)});` +
       'process.stdout.write("\\nnpm notice trailing chatter\\n");' +
       'process.exit(1);';
 
+    const run = await isolatedSync(() => execCommandRunner(process.execPath, ['-e', script], { cwd: process.cwd() }));
+
     const result = runIntegrationSuite({
       repoRoot: process.cwd(),
-      runCommand: (_cmd, _args, options) =>
-        execCommandRunner(process.execPath, ['-e', script], options),
+      runCommand: () => run,
       testScript: 'test:run',
     });
 
@@ -121,16 +123,17 @@ describe('runIntegrationSuite through a real spawned runner (WFQ-003)', () => {
     expect(result.report).toContain('**Result: FAIL**');
   });
 
-  it('IntegrationSuite_RealProcessGreenWithPreamble_ReportsPass', () => {
+  it('IntegrationSuite_RealProcessGreenWithPreamble_ReportsPass', async () => {
     const script =
       'process.stdout.write("\\n> pkg@1.0.0 test:run\\n> vitest run --reporter=json\\n\\n");' +
       `process.stdout.write(${JSON.stringify(GREEN_REPORT)});` +
       'process.exit(0);';
 
+    const run = await isolatedSync(() => execCommandRunner(process.execPath, ['-e', script], { cwd: process.cwd() }));
+
     const result = runIntegrationSuite({
       repoRoot: process.cwd(),
-      runCommand: (_cmd, _args, options) =>
-        execCommandRunner(process.execPath, ['-e', script], options),
+      runCommand: () => run,
       testScript: 'test:run',
     });
 
