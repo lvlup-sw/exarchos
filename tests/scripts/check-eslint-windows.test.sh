@@ -51,5 +51,37 @@ export const c = loadExarchosConfigOutcome;
 EOF
 if npx eslint "$GX" >/dev/null 2>&1; then echo "  ok: gate module with the outcome reader is clean"; else echo "  FAIL: gate module with the outcome reader unexpectedly flagged"; fail=1; fi
 
+cat > "$GX" <<'EOF'
+import * as config from '../../config/load-exarchos-config.js';
+export const c = config.loadExarchosConfig;
+EOF
+mout="$(npx eslint "$GX" 2>&1 || true)"
+mcfg="$(printf '%s\n' "$mout" | grep -c 'loadExarchosConfigOutcome' || true)"
+if [ "$mcfg" -eq 1 ]; then echo "  ok: gate module flags a member access of the config loader (1)"; else echo "  FAIL: expected 1 config-loader flag for a member access, got $mcfg"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+import * as config from '../../config/load-exarchos-config.js';
+export const c = config.loadExarchosConfigOutcome;
+EOF
+if npx eslint "$GX" >/dev/null 2>&1; then echo "  ok: gate module with a member access of the outcome reader is clean"; else echo "  FAIL: gate module with a member access of the outcome reader unexpectedly flagged"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+export async function c(): Promise<unknown> {
+  const { loadExarchosConfig } = await import('../../config/load-exarchos-config.js');
+  return loadExarchosConfig;
+}
+EOF
+dout="$(npx eslint "$GX" 2>&1 || true)"
+dcfg="$(printf '%s\n' "$dout" | grep -c 'loadExarchosConfigOutcome' || true)"
+if [ "$dcfg" -eq 1 ]; then echo "  ok: gate module flags a destructured config loader (1)"; else echo "  FAIL: expected 1 config-loader flag for a destructured property, got $dcfg"; fail=1; fi
+
+cat > "$GX" <<'EOF'
+export async function c(): Promise<unknown> {
+  const { loadExarchosConfigOutcome } = await import('../../config/load-exarchos-config.js');
+  return loadExarchosConfigOutcome;
+}
+EOF
+if npx eslint "$GX" >/dev/null 2>&1; then echo "  ok: gate module with a destructured outcome reader is clean"; else echo "  FAIL: gate module with a destructured outcome reader unexpectedly flagged"; fail=1; fi
+
 echo "eslint-windows self-test: $([ "$fail" -eq 0 ] && echo PASS || echo FAIL)"
 [ "$fail" -eq 0 ]

@@ -517,6 +517,30 @@ describe('handleStaticAnalysis', () => {
       expect(callArgs.projectConfigError?.source).toBe(path.resolve(file));
       expect(callArgs.projectConfigError?.message).toMatch(/Invalid \.exarchos\.yml at .*notARealKey/s);
     });
+
+    /**
+     * A project config that cannot be read is not read as no config either. The handler passes the read error, so the
+     * boundary leg fails on it as on an invalid file.
+     */
+    it('handleStaticAnalysis_ProjectConfigThatCannotBeRead_PassesTheReadError', async () => {
+      const file = path.join(configDir, '.exarchos.yml');
+      fs.mkdirSync(file, { recursive: true });
+      mockRunStaticAnalysis.mockReturnValue(makePassingResult());
+
+      await handleStaticAnalysis(
+        { featureId: 'feat-1', repoRoot: configDir },
+        STATE_DIR,
+        mockStore as unknown as EventStore,
+      );
+
+      const callArgs = mockRunStaticAnalysis.mock.calls[0]?.[0] as {
+        firstPartyGlobs?: readonly string[];
+        projectConfigError?: { source: string; message: string };
+      };
+      expect(callArgs.firstPartyGlobs).toBeUndefined();
+      expect(callArgs.projectConfigError?.source).toBe(path.resolve(file));
+      expect(callArgs.projectConfigError?.message).toMatch(/^Failed to read \.exarchos\.yml at /);
+    });
   });
 });
 
@@ -923,6 +947,28 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
   });
 
   /**
+   * A project config that cannot be read fails the leg as an invalid file does. The detail says so and holds the read
+   * error, and the leg runs nothing.
+   */
+  it('BoundaryLint_ProjectConfigThatCannotBeRead_FailsWithTheReadError', () => {
+    const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 0, stdout: cruiseReport(0), stderr: '' }));
+    const source = path.join(repoRoot, '.exarchos.yml');
+    const projectConfigError = {
+      source,
+      message: `Failed to read .exarchos.yml at ${source}: EIO: i/o error, read`,
+    };
+
+    const result = runBoundaryLint({ repoRoot, runCommand: runner, projectConfigError });
+
+    expect(result.status === 'FAIL' ? result.cause : result.status).toBe('project-config');
+    expect(result.detail).toContain(`the project config ${source} does not load or cannot be read`);
+    expect(result.detail).toContain(`The load or read error: ${projectConfigError.message}.`);
+    expect(result.detail).toContain('Correct the file or the cause of the read error');
+    expect(vi.mocked(runner).mock.calls).toEqual([]);
+  });
+
+  /**
    * The lookup walks up from the repository root as npm does, and the nearest `node_modules/.bin` with the bin
    * wins. A directory with the bin name is not a bin. On win32 the bin is the `.cmd` shim.
    */
@@ -961,7 +1007,10 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     expect(result).toEqual({ status: 'PASS', cruised: 2, detail: '2 modules checked' });
   });
 
-  /** The roots hold no duplicate and no root inside another root. The detail names each glob that names no path. */
+  /**
+   * The roots hold no duplicate and no root inside another root. The detail names each glob that names no path. It
+   * names a negated glob apart from them, because the leg does not apply the exclusion and scans those paths.
+   */
   it('BoundaryLint_ConfiguredGlobs_ScanTheirRootsWithoutNestedDuplicates', () => {
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
     fs.mkdirSync(path.join(repoRoot, 'lib'), { recursive: true });
@@ -976,7 +1025,8 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
 
     expect(depcruiseArgs(runner, repoRoot).slice(4)).toEqual(['index.js', 'lib', 'src']);
     expect(result.detail).toBe(
-      '2 modules checked. ownership.firstParty globs that name no path, not scanned: missing/**, !lib/x/**.',
+      '2 modules checked. ownership.firstParty globs that name no path, not scanned: missing/**. ' +
+        'ownership.firstParty exclusions not applied: !lib/x/**.',
     );
   });
 

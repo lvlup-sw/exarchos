@@ -76,6 +76,9 @@ interface StaticAnalysisCarrierFields {
    * True when a check did not run or gave no verdict.
    * With `skipped: true`, a constituent check did not run. That is distinct from a no-toolchain skip, and it is never a pass.
    * Without `skipped`, an advisory check gave no verdict. `advisorySkips` names it, and `passed` is the verdict of the other checks.
+   *
+   * It is the older flag, and its values stay for stored rows and readers. `completeness` covers advisory checks only.
+   * Thus a constituent-skipped run states `degraded: true` and `completeness: 'complete'`.
    */
   readonly degraded?: boolean;
 }
@@ -215,7 +218,7 @@ export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolRe
 /**
  * Reads the boundary scope of the project at `repoRoot`: the `ownership.firstParty` globs of its `.exarchos.yml`.
  * No `.exarchos.yml`, or a file with no globs, gives no globs, and the boundary leg then uses the schema default.
- * A file that does not load gives the load failure, and the boundary leg then fails with the file and the error.
+ * A file that does not load or cannot be read gives the failure, and the boundary leg then fails with the file and the error.
  */
 function readBoundaryScope(repoRoot: string): Pick<StaticAnalysisInput, 'firstPartyGlobs' | 'projectConfigError'> {
   const outcome = loadExarchosConfigOutcome(repoRoot);

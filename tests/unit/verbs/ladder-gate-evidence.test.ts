@@ -411,7 +411,8 @@ describe('migrated ladder gate durable evidence', () => {
     expect(result.data).toMatchObject({
       passed: true,
       degraded: true,
-      advisorySkips: [{ name: 'Import boundaries' }],
+      completeness: 'degraded',
+      advisorySkips: [{ name: 'Import boundaries', cause: 'out-of-memory' }],
     });
     expect(result.data).not.toHaveProperty('skipped');
     expect(evidenceEvents()[0]?.data).toMatchObject({ evidence: { verdict: 'pass' } });

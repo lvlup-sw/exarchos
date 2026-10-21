@@ -4,7 +4,7 @@
  *
  * It carries three groups of rules:
  * - Windows portability: two `no-restricted-syntax` selectors for patterns that break on Windows.
- * - Gate config reads: under `src/verbs/gates/`, a third selector bans the throwing config loader.
+ * - Gate config reads: under `src/verbs/gates/`, three more selectors ban the throwing config loader.
  * - Comment governance: the `comments/*` rules, which read `.exarchos/comment-policy.json` and the
  *   baseline at `tools/audit/comment-quality/baseline.tsv`. Each rule checks its own exemptions.
  *
@@ -43,15 +43,21 @@ const WINDOWS_PORTABILITY_SELECTORS = [
   },
 ];
 
+/** The message of each selector that bans the throwing config loader in a gate module. */
+const GATE_CONFIG_READ_MESSAGE =
+  'A gate reads .exarchos.yml with loadExarchosConfigOutcome(), so a file that does not load is never read as no file.';
+
 /**
- * The selector that bans `loadExarchosConfig` in a gate module. That loader throws on a file that does not load,
+ * The selectors that ban `loadExarchosConfig` in a gate module. That loader throws on a file that does not load,
  * and a gate that catches the throw reads a broken file as no file. A gate reads `loadExarchosConfigOutcome`.
+ * The selectors match a named import, a member access such as `config.loadExarchosConfig`, and a destructured
+ * property such as `const { loadExarchosConfig } = await import(...)`.
  */
-const GATE_CONFIG_READ_SELECTOR = {
-  selector: "ImportSpecifier[imported.name='loadExarchosConfig']",
-  message:
-    'A gate reads .exarchos.yml with loadExarchosConfigOutcome(), so a file that does not load is never read as no file.',
-};
+const GATE_CONFIG_READ_SELECTORS = [
+  { selector: "ImportSpecifier[imported.name='loadExarchosConfig']", message: GATE_CONFIG_READ_MESSAGE },
+  { selector: "MemberExpression[property.name='loadExarchosConfig']", message: GATE_CONFIG_READ_MESSAGE },
+  { selector: "ObjectPattern > Property[key.name='loadExarchosConfig']", message: GATE_CONFIG_READ_MESSAGE },
+];
 
 export default [
   { ignores: [...LINT_IGNORES] },
@@ -93,7 +99,7 @@ export default [
      */
     files: ['src/verbs/gates/**/*.{ts,mts,cts,js,mjs,cjs}'],
     rules: {
-      'no-restricted-syntax': ['error', ...WINDOWS_PORTABILITY_SELECTORS, GATE_CONFIG_READ_SELECTOR],
+      'no-restricted-syntax': ['error', ...WINDOWS_PORTABILITY_SELECTORS, ...GATE_CONFIG_READ_SELECTORS],
     },
   },
 ];

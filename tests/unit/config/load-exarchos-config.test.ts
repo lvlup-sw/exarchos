@@ -279,4 +279,18 @@ describe('loadExarchosConfig', () => {
     expect(loaded.kind).toBe('loaded');
     expect(loaded.kind === 'loaded' ? loaded.result.config.test : undefined).toBe('bun test');
   });
+
+  /**
+   * A config path that exists and cannot be read is `invalid` with the read error, and never `absent`. A directory in
+   * the place of the file gives the read error on each platform.
+   */
+  it('loadConfigOutcome_FileThatCannotBeRead_IsInvalidWithTheReadError', () => {
+    const worktree = join(tmpRoot, 'wt');
+    mkdirSync(join(worktree, '.exarchos.yml'), { recursive: true });
+
+    const outcome = loadExarchosConfigOutcome(worktree, { findRepoRoot: () => null });
+
+    expect(outcome).toMatchObject({ kind: 'invalid', source: resolve(worktree, '.exarchos.yml') });
+    expect(outcome.kind === 'invalid' ? outcome.message : '').toMatch(/^Failed to read \.exarchos\.yml at .*: \S/s);
+  });
 });

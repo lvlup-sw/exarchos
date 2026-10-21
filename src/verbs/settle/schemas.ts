@@ -7,7 +7,7 @@
 import { z } from 'zod';
 import { EnvelopeSchema } from '../../contract/schemas/envelope.js';
 import { SETTLEMENT_OUTCOME_RULES, SETTLEMENT_OUTCOMES, type SettlementOutcome } from './adjudicate.js';
-import type { SettlementReceipt } from './types.js';
+import type { SettlementReceipt, SettlementVerificationTrace } from './types.js';
 
 const ReceiptBundleRefSchema = z
   .object({
@@ -50,6 +50,11 @@ const ReceiptCensusSchema = z
   })
   .passthrough();
 
+/**
+ * The receipt copy of one verification trace. It does not name `qualifiers`, because the `describe` response of
+ * `settle` has no room for it under the shared budget. The object is `.passthrough()`, so a trace with qualifiers
+ * still parses. The settlement bundle has its own strict trace schema, and this schema does not change it.
+ */
 const ReceiptVerificationSchema = z
   .object({
     taskId: z.string().min(1),
@@ -174,6 +179,12 @@ type Closed<T> = T extends readonly (infer Item)[]
 /** The receipt that the output schema admits, with no index signature. */
 type ReceiptOfOutputSchema = Closed<z.output<typeof SettlementReceiptData>>;
 
+/** One verification trace that the output schema admits, with no index signature. */
+type TraceOfOutputSchema = Closed<z.output<typeof ReceiptVerificationSchema>>;
+
+/** The trace fields that the output schema does not name. */
+type TraceFieldsTheSchemaDoesNotName = Exclude<keyof SettlementVerificationTrace, keyof TraceOfOutputSchema>;
+
 /**
  * Each receipt that this build writes is a value of the output schema. Each field type and each
  * enum member of the receipt type is one that the schema admits.
@@ -190,5 +201,21 @@ export type _SettlementReceiptIsAValueOfItsOutputSchema = Expect<
 export type _SettlementReceiptAndItsOutputSchemaNameTheSameFields = Expect<
   [Exclude<keyof ReceiptOfOutputSchema, keyof SettlementReceipt>, Exclude<keyof SettlementReceipt, keyof ReceiptOfOutputSchema>] extends [never, never]
     ? true
+    : false
+>;
+
+/**
+ * The trace type and the trace item of the output schema name the same fields, except `qualifiers`. The schema
+ * names no field that the type does not have. A new trace field that the schema does not name fails this proof.
+ * When the schema names `qualifiers`, this proof fails too, so the exception goes with it.
+ * @proof
+ */
+export type _SettlementTraceAndItsOutputSchemaNameTheSameFields = Expect<
+  [Exclude<keyof TraceOfOutputSchema, keyof SettlementVerificationTrace>] extends [never]
+    ? [TraceFieldsTheSchemaDoesNotName] extends ['qualifiers']
+      ? ['qualifiers'] extends [TraceFieldsTheSchemaDoesNotName]
+        ? true
+        : false
+      : false
     : false
 >;

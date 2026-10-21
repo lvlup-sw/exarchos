@@ -57,13 +57,15 @@ export interface StaticAnalysisInput {
   readonly skipTypecheck?: boolean | undefined;
   /**
    * The `ownership.firstParty` globs of the project. The import-boundary leg
-   * scans only these source trees. When absent, the leg uses the schema default.
+   * scans the source root of each glob that exists. A glob whose walk stops at
+   * its first segment widens the scan to the repository root. The leg does not
+   * apply a negated glob. When absent, the leg uses the schema default.
    */
   readonly firstPartyGlobs?: readonly string[] | undefined;
   /**
-   * The `.exarchos.yml` of the project that exists and does not load. The
-   * import-boundary leg then has no scope, so it fails and names the file and
-   * the error. It does not scan the default roots.
+   * The `.exarchos.yml` of the project that exists and does not load or cannot
+   * be read. The import-boundary leg then has no scope, so it fails and names
+   * the file and the error. It does not scan the default roots.
    */
   readonly projectConfigError?: ExarchosConfigLoadFailure | undefined;
   /** External command runner (dependency injection). */
@@ -189,11 +191,13 @@ export interface BoundaryLintInput {
   readonly runCommand: RunCommandFn;
   /**
    * The `ownership.firstParty` globs. The leg scans the source root of each
-   * glob that exists, not the whole checkout. When absent, the leg uses the
-   * schema default.
+   * glob that exists. A glob whose walk stops at its first segment widens the
+   * scan to the repository root, which takes in nested worktrees and build
+   * output. The leg does not apply a negated glob. When absent, the leg uses
+   * the schema default.
    */
   readonly firstPartyGlobs?: readonly string[] | undefined;
-  /** The project config that does not load. When it is present, the leg fails and does not scan. */
+  /** The project config that does not load or cannot be read. When it is present, the leg fails and does not scan. */
   readonly projectConfigError?: ExarchosConfigLoadFailure | undefined;
   /**
    * Finds the dependency-cruiser bin for `repoRoot`. The default is {@link findLocalDepcruise}.
@@ -237,7 +241,7 @@ export interface LegNoVerdict<Cause extends BoundaryNoVerdictCause> {
  * The verdict of the import-boundary leg. Each member is a closed state.
  * - `PASS`: no `error` violation, and the scan checked at least one module.
  * - `FAIL`: `error` violations, or a fault inside the repository. The faults are a broken boundary config, a usage
- *   error, and a project `.exarchos.yml` that does not load (`project-config`).
+ *   error, and a project `.exarchos.yml` that does not load or cannot be read (`project-config`).
  * - `NO_VERDICT`: a fault outside the repository, or a scan with nothing to check. The gate does not fail on it.
  * - `NOT_CONFIGURED`: the repository has no boundary config.
  */
@@ -338,38 +342,55 @@ function scanRootsOfGlob(repoRoot: string, glob: string): string[] {
 interface BoundaryScanScope {
   /** The existing roots, sorted, with no duplicate and no root inside another root. */
   readonly roots: readonly string[];
-  /** The globs that name no existing path. The scan drops them. */
+  /** The globs that name no existing path and are not negated. The scan drops them. */
   readonly dropped: readonly string[];
+  /**
+   * The negated globs. The leg does not apply them, so it scans their paths when the root of another glob holds
+   * those paths.
+   */
+  readonly excluded: readonly string[];
   /** The globs whose walk stops at the first segment. The scan widens them to the repository root. */
   readonly widened: readonly string[];
+}
+
+/** True when a glob is negated, that is, when it starts with `!`. */
+function isNegatedGlob(glob: string): boolean {
+  return glob.trim().startsWith('!');
 }
 
 /**
  * The scan scope of the import-boundary leg: the existing roots of the
  * `ownership.firstParty` globs. A root of `.` replaces all other roots.
- * The scope also names each dropped glob and each glob widened to `.`.
+ * The scope also names each dropped glob, each negated glob and each glob widened to `.`.
  */
 function firstPartyScanRoots(repoRoot: string, globs: readonly string[]): BoundaryScanScope {
   const rootsByGlob = globs.map((glob) => ({ glob, roots: scanRootsOfGlob(repoRoot, glob) }));
-  const dropped = rootsByGlob.filter((entry) => entry.roots.length === 0).map((entry) => entry.glob);
+  const excluded = globs.filter(isNegatedGlob);
+  const dropped = rootsByGlob
+    .filter((entry) => entry.roots.length === 0 && !isNegatedGlob(entry.glob))
+    .map((entry) => entry.glob);
   const widened = rootsByGlob.filter((entry) => entry.roots.includes('.')).map((entry) => entry.glob);
   const roots = [...new Set(rootsByGlob.flatMap((entry) => entry.roots))].sort();
-  if (roots.includes('.')) return { roots: ['.'], dropped, widened };
+  if (roots.includes('.')) return { roots: ['.'], dropped, excluded, widened };
   return {
     roots: roots.filter((root) => !roots.some((other) => other !== root && root.startsWith(`${other}/`))),
     dropped,
+    excluded,
     widened,
   };
 }
 
 /**
- * The sentence of the leg detail that names the dropped and the widened globs, or `undefined` when the scan
- * took each glob as written. The leg adds it to each verdict, a PASS too.
+ * The sentence of the leg detail that names the dropped, the negated and the widened globs. It is `undefined` when
+ * the scan took each glob as written. The leg adds it to each verdict, a PASS too.
  */
 function scopeNote(scope: BoundaryScanScope): string | undefined {
   const parts: string[] = [];
   if (scope.dropped.length > 0) {
     parts.push(`ownership.firstParty globs that name no path, not scanned: ${scope.dropped.join(', ')}`);
+  }
+  if (scope.excluded.length > 0) {
+    parts.push(`ownership.firstParty exclusions not applied: ${scope.excluded.join(', ')}`);
   }
   if (scope.widened.length > 0) {
     parts.push(`ownership.firstParty globs widened to the repository root: ${scope.widened.join(', ')}`);
@@ -552,9 +573,9 @@ export function findLocalDepcruise(
  * Runs the installed `node_modules/.bin/depcruise --validate <config> --output-type json` over the roots of the `ownership.firstParty`
  * globs. The leg never runs `npx`, so a missing install never fetches a package from the registry. A glob whose walk stops at its
  * first segment widens the scan to the repository root, which takes in nested worktrees and build output. The detail of each verdict
- * names such a glob and each glob with no path. The verdict comes from the JSON report, not from the exit code, because 256 errors wrap to exit 0.
+ * names such a glob, each glob with no path and each negated glob, which the leg does not apply. The verdict comes from the JSON report, not from the exit code, because 256 errors wrap to exit 0.
  * - No config: `NOT_CONFIGURED`, and depcruise does not run.
- * - A project `.exarchos.yml` that does not load: `FAIL` with the file and the error, and depcruise does not run.
+ * - A project `.exarchos.yml` that does not load or cannot be read: `FAIL` with the file and the error, and depcruise does not run.
  * - `summary.error` above 0: `FAIL` with the violations. 0 with modules checked: `PASS` with the count.
  * - No complete report and no fault outside the repository, such as a config error with exit 1: `FAIL`.
  * - No source root, no installed bin, a runner fault, a signal, a heap exhaustion, or zero modules checked: `NO_VERDICT` with its cause.
@@ -578,9 +599,10 @@ export function runBoundaryLint(input: BoundaryLintInput): BoundaryLintResult {
       status: 'FAIL',
       cause: 'project-config',
       detail:
-        `the project config ${projectConfigError.source} does not load, so the leg has no ownership.firstParty ` +
-        `scope and does not scan the default roots in its place: ${projectConfigError.message}. ` +
-        'Correct the file, then run the gate again',
+        `the project config ${projectConfigError.source} does not load or cannot be read, so the leg has no ` +
+        'ownership.firstParty scope and does not scan the default roots in its place. ' +
+        `The load or read error: ${projectConfigError.message}. ` +
+        'Correct the file or the cause of the read error, then run the gate again',
     };
   }
 

@@ -59,6 +59,7 @@ export interface ExarchosConfigLoadFailure {
  * - `absent`: no config file in the worktree or at the git repo root.
  * - `loaded`: the file loaded and passed the schema.
  * - `invalid`: the file exists and does not load. The caller decides what that does, and it never reads as `absent`.
+ *   A file that cannot be read is `invalid` too, and `message` holds the read error.
  */
 export type ExarchosConfigOutcome =
   | { readonly kind: 'absent' }
@@ -112,6 +113,9 @@ export function loadExarchosConfig(
  * Reads the config as {@link loadExarchosConfig} does, and returns the outcome as a closed union.
  * It does not throw for a file that does not load. It returns `invalid` with the path and the error.
  * A gate reads the config through this function, so a broken file cannot read as no file.
+ *
+ * A file that exists and cannot be read, for example after `EIO`, `EMFILE` or a delete race, is `invalid` too.
+ * Its message holds the read error. Thus a gate that fails on an invalid file also fails on an unreadable file.
  */
 export function loadExarchosConfigOutcome(
   worktreePath: string,
