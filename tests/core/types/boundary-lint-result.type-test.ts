@@ -44,6 +44,10 @@ void _failWithNoCause;
 const _taintZeroModules: RawIoTaintResult = { status: 'NO_VERDICT', cause: 'zero-modules', detail: 'no module' };
 void _taintZeroModules;
 
+// @ts-expect-error — a taint FAIL names a cause from its closed list.
+const _taintUnknownCause: RawIoTaintResult = { status: 'FAIL', cause: 'crashed', detail: 'semgrep exited 2' };
+void _taintUnknownCause;
+
 // @ts-expect-error — an advisory skip names the closed cause of its leg.
 const _skipWithNoCause: AdvisorySkip = { name: 'Import boundaries', detail: 'it ran out of memory' };
 void _skipWithNoCause;
@@ -89,9 +93,11 @@ const _zeroModules: BoundaryLintResult = {
 };
 const _configError: BoundaryLintResult = { status: 'FAIL', cause: 'config-or-usage', detail: 'ERROR: bad config' };
 const _taintRulesetError: RawIoTaintResult = { status: 'FAIL', cause: 'ruleset-or-usage', detail: 'semgrep exited 7' };
+const _taintUnknownExit: RawIoTaintResult = { status: 'FAIL', cause: 'unknown-exit', detail: 'semgrep exited 2' };
 const _skip: AdvisorySkip = { name: 'Import boundaries', cause: 'out-of-memory', detail: 'it ran out of memory' };
 void _configError;
 void _taintRulesetError;
+void _taintUnknownExit;
 void _skip;
 
 /** The anchor test, so that vitest collects the file. The proofs above are compile-time only. */

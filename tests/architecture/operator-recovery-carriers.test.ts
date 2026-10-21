@@ -113,6 +113,26 @@ const CARRIED: readonly CarriedRecovery[] = [
     },
   },
   {
+    id: 'boundary-local-depcruise',
+    notes: 'Recovery: when the report says that no local `depcruise` exists',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/gates/static-analysis.test.ts',
+      testCase: 'BoundaryLint_NoLocalBin_MissingToolWithoutARun',
+      phrases: ['npm install --save-dev dependency-cruiser', 'does not fetch it from the registry'],
+    },
+  },
+  {
+    id: 'taint-fail-rerun',
+    notes: 'Recovery: when the taint check fails, re-run the command that the report names without `--quiet`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/gates/static-analysis.test.ts',
+      testCase: 'RawIoTaint_FatalExitWithNoText_FailsWithTheExitStatus',
+      phrases: ['Re-run `semgrep --error --config', 'without --quiet to read its message'],
+    },
+  },
+  {
     id: 'probe-scoped-test-script',
     notes: 'The script must run only the files that it gets.',
     carrier: {

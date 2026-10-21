@@ -1327,14 +1327,14 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
   });
 
   /**
-   * An exit code other than 0 and 1, such as exit 2 for a ruleset error, is a fault inside the repository. The
-   * leg fails, and the detail is the stderr of the engine.
+   * Exit 4 is the status of semgrep for a rule that does not parse. A ruleset error is a fault inside the
+   * repository, so the leg fails. The detail quotes the stderr of the engine and the command to re-run.
    */
   it('RawIoTaint_EngineConfigError_Fails', () => {
     const repoRoot = makeTaintFixture({ withRuleset: true });
 
     const runner: RunCommandFn = vi.fn(() => ({
-      exitCode: 2,
+      exitCode: 4,
       stdout: '',
       stderr: 'semgrep: invalid rule schema\n',
     }));
@@ -1344,8 +1344,93 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     expect(result).toEqual({
       status: 'FAIL',
       cause: 'ruleset-or-usage',
-      detail: 'semgrep exited 2: semgrep: invalid rule schema. A ruleset or a usage error fails the leg',
+      detail:
+        'semgrep exited 4, its status for a rule that does not parse: semgrep: invalid rule schema. ' +
+        'A ruleset or a usage error fails the leg. ' +
+        'Re-run `semgrep --error --config .semgrep/no-raw-io-into-core.yml .` without --quiet to read its message',
     });
+  });
+
+  /**
+   * The `--quiet` flag hides the messages of semgrep, so a ruleset error comes with no stderr. Each status that
+   * semgrep gives for a ruleset or a usage error fails the leg, and the detail names the fault of the status.
+   */
+  it.each([
+    [4, 'a rule that does not parse'],
+    [5, 'a config that is not valid YAML'],
+    [7, 'a config that it did not find'],
+    [8, 'a language that it does not know'],
+  ])('RawIoTaint_RulesetErrorStatus%i_FailsWithNoStderr', (exitCode, fault) => {
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode, stdout: '', stderr: '' }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status === 'FAIL' ? result.cause : result.status).toBe('ruleset-or-usage');
+    expect(result.status === 'FAIL' ? result.detail : '').toMatch(
+      new RegExp(`^semgrep exited ${exitCode}, its status for ${fault} with no stderr\\. `),
+    );
+  });
+
+  /**
+   * Exit 2 is the fatal status of semgrep. When its engine runs out of memory, semgrep writes one of these texts
+   * and exits 2. That is a fault outside the repository, so the leg gives no verdict, and the gate does not fail.
+   */
+  it.each([
+    [
+      'the engine stopped with a signal',
+      'Error while matching: Semgrep exceeded system resources. This may be caused by\n' +
+        '    1. Stack overflow.\n    2. Out of memory. Try increasing the memory available to\n',
+    ],
+    [
+      'the engine output ended',
+      'You are seeing this because the engine was killed.\n\n' +
+        'The most common reason this happens is because it used too much memory.\n',
+    ],
+  ])('RawIoTaint_EngineOutOfResources_DegradedSkipNotFail (%s)', (_case, stderr) => {
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 2, stdout: '', stderr }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status === 'NO_VERDICT' ? result.cause : result.status).toBe('out-of-memory');
+    expect(result.status === 'NO_VERDICT' ? result.detail : '').toMatch(
+      /^semgrep gave no verdict: exit 2, the engine ran out of system resources: /,
+    );
+  });
+
+  /** The semgrep launcher exits 2 when the install has no engine binary. That is a missing tool, so the leg skips. */
+  it('RawIoTaint_InstallWithNoEngine_DegradedSkipNotFail', () => {
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({
+      exitCode: 2,
+      stdout: '',
+      stderr: 'Failed to find semgrep-core in PATH or in the semgrep package.\n',
+    }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result).toEqual({
+      status: 'NO_VERDICT',
+      cause: 'missing-tool',
+      detail:
+        'semgrep gave no verdict: exit 2, the semgrep install has no engine: ' +
+        'Failed to find semgrep-core in PATH or in the semgrep package.',
+    });
+  });
+
+  /** The text of an engine out of memory names a fault outside the repository only with the fatal exit 2. */
+  it('RawIoTaint_MemoryTextWithARulesetStatus_StaysARulesetFail', () => {
+    const repoRoot = makeTaintFixture({ withRuleset: true });
+
+    const runner: RunCommandFn = vi.fn(() => ({ exitCode: 4, stdout: '', stderr: 'rule message: too much memory\n' }));
+
+    const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
+
+    expect(result.status === 'FAIL' ? result.cause : result.status).toBe('ruleset-or-usage');
   });
 
   /**
@@ -1371,16 +1456,24 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     });
   });
 
-  /** Another exit code with an empty stderr fails the leg too, and the detail names the exit code. */
-  it('RawIoTaint_EngineErrorWithoutStderr_FailsWithTheExitStatus', () => {
+  /**
+   * A fatal exit 2 with no text names no fault, because `--quiet` hides the messages of semgrep. Only a known fault
+   * outside the repository gives no verdict, so the leg fails with the cause `unknown-exit` and the command to re-run.
+   */
+  it('RawIoTaint_FatalExitWithNoText_FailsWithTheExitStatus', () => {
     const repoRoot = makeTaintFixture({ withRuleset: true });
 
     const runner: RunCommandFn = vi.fn(() => ({ exitCode: 2, stdout: '', stderr: '' }));
 
     const result: RawIoTaintResult = runRawIoTaint({ repoRoot, runCommand: runner });
 
-    expect(result.status).toBe('FAIL');
-    expect(result.status === 'FAIL' ? result.detail : '').toMatch(/^semgrep exited 2 with no stderr\./);
+    expect(result).toEqual({
+      status: 'FAIL',
+      cause: 'unknown-exit',
+      detail:
+        'semgrep exited 2 with no stderr. The leg cannot tell a ruleset fault from an engine fault, so it fails. ' +
+        'Re-run `semgrep --error --config .semgrep/no-raw-io-into-core.yml .` without --quiet to read its message',
+    });
   });
 
   /** A shell status of a signal stop is a fault outside the repository, so the leg gives no verdict. */

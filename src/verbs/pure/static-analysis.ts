@@ -639,19 +639,57 @@ export interface RawIoTaintInput {
 /**
  * The verdict of the boundary-parse taint leg. Each member is a closed state.
  * - `PASS`: exit 0.
- * - `FAIL`: findings (exit 1), or a fault inside the repository, such as a ruleset or a usage error.
- * - `NO_VERDICT`: a fault outside the repository. The gate does not fail on it.
+ * - `FAIL`: findings (exit 1), a ruleset or a usage error, or an exit that the leg cannot read as a fault outside
+ *   the repository.
+ * - `NO_VERDICT`: a known fault outside the repository. The gate does not fail on it.
  * - `NOT_CONFIGURED`: the repository has no ruleset.
  */
 export type RawIoTaintResult =
   | { readonly status: 'PASS' }
-  | { readonly status: 'FAIL'; readonly cause: 'findings' | 'ruleset-or-usage'; readonly detail: string }
+  | {
+      readonly status: 'FAIL';
+      readonly cause: 'findings' | 'ruleset-or-usage' | 'unknown-exit';
+      readonly detail: string;
+    }
   | LegNoVerdict<ProcessNoVerdictCause>
   | LegNotConfigured;
 
 /** A `NO_VERDICT` of the taint leg, with the cause in its detail. */
 function taintNoVerdict(cause: ProcessNoVerdictCause, text: string): RawIoTaintResult {
   return { status: 'NO_VERDICT', cause, detail: `semgrep gave no verdict: ${text}` };
+}
+
+/** The fatal exit status of semgrep. A killed engine, an install with no engine and some config faults share it. */
+const SEMGREP_FATAL_EXIT = 2;
+
+/** The exit statuses of semgrep for a ruleset or a usage error, with the fault that each status names. */
+const SEMGREP_RULESET_EXITS: ReadonlyMap<number, string> = new Map([
+  [4, 'a rule that does not parse'],
+  [5, 'a config that is not valid YAML'],
+  [7, 'a config that it did not find'],
+  [8, 'a language that it does not know'],
+]);
+
+/** The text of semgrep for an engine that ran out of memory, or that a limit of the system stopped. */
+const SEMGREP_OUT_OF_RESOURCES = /exceeded system resources|engine was killed|too much memory|out of memory/i;
+
+/** The text of the semgrep launcher for an install that has no engine binary. */
+const SEMGREP_MISSING_ENGINE = /failed to find semgrep-core/i;
+
+/**
+ * Names the fault outside the repository that the stderr of a fatal semgrep exit shows. The faults are an engine
+ * that ran out of resources and an install with no engine. It gives `undefined` for each other run.
+ */
+function semgrepFatalFault(result: CommandResult): ProcessFault | undefined {
+  if (result.exitCode !== SEMGREP_FATAL_EXIT) return undefined;
+  const stderr = stderrExcerpt(result.stderr);
+  if (SEMGREP_OUT_OF_RESOURCES.test(result.stderr)) {
+    return { cause: 'out-of-memory', text: `exit 2, the engine ran out of system resources: ${stderr}` };
+  }
+  if (SEMGREP_MISSING_ENGINE.test(result.stderr)) {
+    return { cause: 'missing-tool', text: `exit 2, the semgrep install has no engine: ${stderr}` };
+  }
+  return undefined;
 }
 
 /**
@@ -673,15 +711,14 @@ function findTaintRuleset(repoRoot: string): string | null {
 }
 
 /**
- * Runs the boundary-parse taint leg with
- * `semgrep --error --quiet --config <ruleset> <coreSources...>`. The ruleset
- * checks that untrusted input passes a registered parser before it enters the
- * core. Import rules cannot see value flow, so this leg uses a dataflow engine.
- * - No ruleset: `NOT_CONFIGURED`, and the engine does not run.
- * - Exit 0: `PASS`. Exit 1: `FAIL`, with the findings in `detail`.
- * - A throw, a runner error, a signal, a heap exhaustion, or the exit status of a signal stop: `NO_VERDICT`.
- *   The exit status of a missing command is `NO_VERDICT` too. An engine that did not finish is not evidence.
- * - Any other exit code, such as a ruleset error: `FAIL`, with the stderr of the engine.
+ * Runs the boundary-parse taint leg with `semgrep --error --quiet --config <ruleset> <coreSources...>`. The ruleset
+ * checks that untrusted input passes a registered parser before it enters the core. Import rules cannot see that flow.
+ * No ruleset gives `NOT_CONFIGURED`, and the engine does not run. Exit 0 is `PASS`, and exit 1 is `FAIL` with findings.
+ * - `NO_VERDICT`: a throw, a runner error, a signal, a heap exhaustion, or the exit status of a signal stop or of a
+ *   missing command. Exit 2 with the text of an engine out of resources or of a missing engine is `NO_VERDICT` too.
+ * - `FAIL` with `ruleset-or-usage`: exit 4, 5, 7 or 8, the statuses of semgrep for a ruleset or a usage error.
+ * - `FAIL` with `unknown-exit`: each other exit, exit 2 without that text included. Only a known fault outside the
+ *   repository gives no verdict. The `--quiet` flag hides the messages of semgrep, so an engine fault can come here.
  */
 export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
   const { repoRoot, runCommand, coreSources = ['.'] } = input;
@@ -718,16 +755,29 @@ export function runRawIoTaint(input: RawIoTaintInput): RawIoTaintResult {
     return { status: 'FAIL', cause: 'findings', detail };
   }
 
-  const exitFault = noVerdictFault(result);
+  const exitFault = noVerdictFault(result) ?? semgrepFatalFault(result);
   if (exitFault !== undefined) return taintNoVerdict(exitFault.cause, exitFault.text);
 
   const stderr = stderrExcerpt(result.stderr);
+  const output = stderr ? `: ${stderr}` : ' with no stderr';
+  const command = `semgrep --error --config ${ruleset} ${coreSources.join(' ')}`;
+  const rerun = `Re-run \`${command}\` without --quiet to read its message`;
+  const rulesetFault = SEMGREP_RULESET_EXITS.get(result.exitCode);
+  if (rulesetFault !== undefined) {
+    return {
+      status: 'FAIL',
+      cause: 'ruleset-or-usage',
+      detail:
+        `semgrep exited ${result.exitCode}, its status for ${rulesetFault}${output}. ` +
+        `A ruleset or a usage error fails the leg. ${rerun}`,
+    };
+  }
   return {
     status: 'FAIL',
-    cause: 'ruleset-or-usage',
+    cause: 'unknown-exit',
     detail:
-      `semgrep exited ${result.exitCode}${stderr ? `: ${stderr}` : ' with no stderr'}. ` +
-      'A ruleset or a usage error fails the leg',
+      `semgrep exited ${result.exitCode}${output}. The leg cannot tell a ruleset fault from an engine fault, ` +
+      `so it fails. ${rerun}`,
   };
 }
 
