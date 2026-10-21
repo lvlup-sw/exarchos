@@ -123,6 +123,36 @@ const CARRIED: readonly CarriedRecovery[] = [
     },
   },
   {
+    id: 'boundary-no-source-root',
+    notes: 'Recovery: when the report says that no `ownership.firstParty` source root exists',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/gates/static-analysis.test.ts',
+      testCase: 'BoundaryLint_NoFirstPartyRootExists_DegradedSkipWithoutARun',
+      phrases: ['no ownership.firstParty source root exists'],
+    },
+  },
+  {
+    id: 'boundary-project-config',
+    notes: 'Recovery: correct `.exarchos.yml` or the cause of the read error',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/gates/static-analysis.test.ts',
+      testCase: 'BoundaryLint_ProjectConfigThatCannotBeRead_FailsWithTheReadError',
+      phrases: ['does not load or cannot be read', 'Correct the file or the cause of the read error'],
+    },
+  },
+  {
+    id: 'advisory-skip-cause',
+    notes: 'Recovery: when the result line says `degraded`, read the cause of each advisory skip',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/gates/static-analysis.test.ts',
+      testCase: 'StaticAnalysis_TaintEngineDidNotStart_PassesWithAVisibleDegradedSkip',
+      phrases: ['semgrep gave no verdict: the runner reported ENOENT', 'degraded: 1 advisory check gave no verdict'],
+    },
+  },
+  {
     id: 'taint-fail-rerun',
     notes: 'Recovery: when the taint check fails, re-run the command that the report names without `--quiet`',
     carrier: {
@@ -166,6 +196,14 @@ const REGISTERED: readonly RegisteredRecovery[] = [
     reason:
       'no shipped text names the directory segments of the table. The report says only that the probe keeps ' +
       'test-support files, and it names no file that the probe did not revert',
+  },
+  {
+    id: 'boundary-narrowed-scope',
+    notes: 'Recovery: when first-party sources are outside the roots of the globs',
+    owner: 'Reed, as the owner of the open question boundary-scope of the semantic-plane packet',
+    reason:
+      'the check scans only the roots of the globs, so no report can name a source directory outside them. ' +
+      'Whether a PASS names the roots that it scanned is an open design question',
   },
 ];
 

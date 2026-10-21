@@ -7,8 +7,8 @@
     "testFiles": 1325,
     "parsedFiles": 1279,
     "shellFiles": 46,
-    "cases": 14905,
-    "dynamicTitles": 172,
+    "cases": 14958,
+    "dynamicTitles": 178,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -6987,6 +6987,16 @@
           "suite": "SkillProse — the checked-by sentence names the gate row",
           "name": "SkillProse_EveryProbeCallPassageOfTheContent_HasAProbeCallSite",
           "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_CarrierMembers_ComeFromTheProductionMapping",
+          "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_SeededCarrierReadingDisagreement_NamesTheMissingReading",
+          "dynamic": false
         }
       ]
     },
@@ -7348,6 +7358,11 @@
         },
         {
           "suite": "NoSyncSpawnInTestCode",
+          "name": "Denominator_DerivesTheKnownSpawnWrappersFromTheSource",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
           "name": "TestCode_CallsNoSynchronousSpawnApi",
           "dynamic": false
         },
@@ -7374,6 +7389,31 @@
         {
           "suite": "NoSyncSpawnInTestCode",
           "name": "IsolatedSync_WithABlockBody_StillFindsEachCall",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "SeededExportedWrapper_IsDerivedAndItsTestCallIsAFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "SeededDefaultDependencyWrapper_IsDerivedWithTheOverrideThatKeepsItFromItsSpawn",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "SeededDefaultDependencyCall_IsAFindingOnlyWhenItKeepsTheDefault",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "SeededNonWrappers_AreNotDerived",
+          "dynamic": false
+        },
+        {
+          "suite": "NoSyncSpawnInTestCode",
+          "name": "WrapperCallUnderAWholeChildProcessMock_IsNotAFinding",
           "dynamic": false
         },
         {
@@ -7920,6 +7960,26 @@
           "suite": "governance — the boundary leg through the production composition",
           "name": "Governance_ProjectConfigThatDoesNotLoad_FailsTheBoundaryLegAndNamesTheFile",
           "dynamic": false
+        },
+        {
+          "suite": "governance — the boundary leg through the production composition",
+          "name": "Governance_BoundaryViolationWithTheInstalledTool_FailsTheGateAndTheRow",
+          "dynamic": false
+        },
+        {
+          "suite": "governance — the boundary leg through the production composition",
+          "name": "Governance_CleanTreeWithTheInstalledTool_PassesWithTheCountOfTheModules",
+          "dynamic": false
+        },
+        {
+          "suite": "governance — the boundary leg through the production composition",
+          "name": "Governance_BoundaryFilterThatKeepsNoModule_DegradedSkipKeepsItsMarkInTheRow",
+          "dynamic": false
+        },
+        {
+          "suite": "governance — the boundary leg through the production composition",
+          "name": "Governance_ConfiguredRootWithNoModule_DegradedSkipNotAPass",
+          "dynamic": false
         }
       ]
     },
@@ -8130,6 +8190,11 @@
         {
           "suite": "DR-30 part 1 — every detector is proved able to fire and able not to",
           "name": "SuiteInvariant_PassedTrueOnCouldNotRunVerdict_IsRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "DR-30 part 1 — every detector is proved able to fire and able not to",
+          "name": "SuiteInvariant_PassedTrueOnADegradedRun_IsRejected",
           "dynamic": false
         },
         {
@@ -19002,6 +19067,16 @@
         {
           "suite": "loadExarchosConfig",
           "name": "loadConfig_FieldsParsedCorrectly",
+          "dynamic": false
+        },
+        {
+          "suite": "loadExarchosConfig",
+          "name": "loadConfigOutcome_EachStateOfTheFile_IsTagged",
+          "dynamic": false
+        },
+        {
+          "suite": "loadExarchosConfig",
+          "name": "loadConfigOutcome_FileThatCannotBeRead_IsInvalidWithTheReadError",
           "dynamic": false
         }
       ]
@@ -51825,6 +51900,31 @@
           "dynamic": false
         },
         {
+          "suite": "runCommandSync with a win32 batch file",
+          "name": "IsWindowsBatchFile_CmdOrBatPathOnWin32_True",
+          "dynamic": false
+        },
+        {
+          "suite": "runCommandSync with a win32 batch file",
+          "name": "IsWindowsBatchFile_OtherCommandOrPosix_False",
+          "dynamic": false
+        },
+        {
+          "suite": "runCommandSync with a win32 batch file",
+          "name": "WindowsBatchLaunch_EscapesEachTokenIntoOneCmdBody",
+          "dynamic": false
+        },
+        {
+          "suite": "runCommandSync with a win32 batch file",
+          "name": "RunCommandSync_BatchFileOnWin32_RunsThroughCmd",
+          "dynamic": false
+        },
+        {
+          "suite": "runCommandSync with a win32 batch file",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
           "suite": "spawnCommandSync (#1623)",
           "name": "SpawnCommandSync_NativeCommand_ReturnsStdoutAndZeroStatus",
           "dynamic": false
@@ -56201,6 +56301,11 @@
           "dynamic": false
         },
         {
+          "suite": "DR-1 gate-executed signal ownership",
+          "name": "AppendGateExecutedSignal_DegradedCarrier_CopiesTheMarkAndTheCausesIntoTheRow",
+          "dynamic": false
+        },
+        {
           "suite": "DR-1 acceptance: check_static_analysis → task_complete",
           "name": "TaskComplete_StaticAnalysisPassed_SucceedsWithoutSeededEvent",
           "dynamic": false
@@ -56385,6 +56490,11 @@
         {
           "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
           "name": "ReadGateCompletenessDescriptor_StatedValue_IsReadAndOtherShapesAreNot",
+          "dynamic": false
+        },
+        {
+          "suite": "normalizeGateVerdict — an explicit skip is never proof (DR-7)",
+          "name": "ReadGateRowMarks_RowDetails_GiveTheSkipAndTheCompleteness",
           "dynamic": false
         },
         {
@@ -58201,12 +58311,32 @@
         },
         {
           "suite": "handleStaticAnalysis > advisory skips and first-party globs",
+          "name": "handleStaticAnalysis_ConstituentSkip_CompletenessFollowsTheAdvisorySkipsOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis > advisory skips and first-party globs",
+          "name": "handleStaticAnalysis_EachRunStatus_StatesTheClosedVerdictAndTheCompleteness",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis > advisory skips and first-party globs",
           "name": "handleStaticAnalysis_ProjectConfig_PassesItsFirstPartyGlobs",
           "dynamic": false
         },
         {
           "suite": "handleStaticAnalysis > advisory skips and first-party globs",
           "name": "handleStaticAnalysis_NoProjectConfig_PassesNoGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis > advisory skips and first-party globs",
+          "name": "handleStaticAnalysis_ProjectConfigThatDoesNotLoad_PassesTheLoadFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis > advisory skips and first-party globs",
+          "name": "handleStaticAnalysis_ProjectConfigThatCannotBeRead_PassesTheReadError",
           "dynamic": false
         },
         {
@@ -58266,7 +58396,12 @@
         },
         {
           "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
-          "name": "StaticAnalysis_NoBoundaryConfig_LegSkippedAdvisory",
+          "name": "BoundaryLint_ZeroModulesChecked_DegradedSkipNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "StaticAnalysis_NoBoundaryConfig_LegNotConfigured",
           "dynamic": false
         },
         {
@@ -58281,7 +58416,37 @@
         },
         {
           "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_RepositoryFault_FailsNotSkip [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
           "name": "BoundaryLint_RunnerThrows_DegradedSkipNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_NoLocalBin_MissingToolWithoutARun",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_ProjectConfigThatDoesNotLoad_FailsWithoutARun",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_ProjectConfigThatCannotBeRead_FailsWithTheReadError",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "FindLocalDepcruise_WalksUpFromTheRepositoryRootAsNpmDoes",
           "dynamic": false
         },
         {
@@ -58296,6 +58461,16 @@
         },
         {
           "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_GlobWithNoPath_PassReportNamesTheDroppedGlob",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_GlobWidenedToTheRoot_ReportNamesTheWidening",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
           "name": "BoundaryLint_NoFirstPartyRootExists_DegradedSkipWithoutARun",
           "dynamic": false
         },
@@ -58303,6 +58478,21 @@
           "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
           "name": "BoundaryLint_RealDependencyCruiser_ReadsTheVerdictFromTheJsonReport",
           "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_RealDependencyCruiserOnAnEmptyRoot_GivesZeroModulesNotPass",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "BoundaryLint_RealDependencyCruiserWithABrokenConfig_Fails [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
         },
         {
           "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
@@ -58317,6 +58507,16 @@
         {
           "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
           "name": "StaticAnalysis_BoundaryViolationInReport_FailsTheResult",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "StaticAnalysis_ProjectConfigThatDoesNotLoad_FailsTheResult",
+          "dynamic": false
+        },
+        {
+          "suite": "runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)",
+          "name": "StaticAnalysis_BoundaryConfigError_FailsTheResult",
           "dynamic": false
         },
         {
@@ -58336,7 +58536,7 @@
         },
         {
           "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
-          "name": "RawIoTaint_NoRuleset_LegSkippedAdvisory",
+          "name": "RawIoTaint_NoRuleset_LegNotConfigured",
           "dynamic": false
         },
         {
@@ -58346,7 +58546,37 @@
         },
         {
           "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
-          "name": "RawIoTaint_EngineConfigError_SkipsNotFail",
+          "name": "RawIoTaint_EngineConfigError_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "RawIoTaint_RulesetErrorStatus%i_FailsWithNoStderr",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "RawIoTaint_EngineOutOfResources_DegradedSkipNotFail (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "RawIoTaint_InstallWithNoEngine_DegradedSkipNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "RawIoTaint_MemoryTextWithARulesetStatus_StaysARulesetFail",
           "dynamic": false
         },
         {
@@ -58356,7 +58586,12 @@
         },
         {
           "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
-          "name": "RawIoTaint_EngineErrorWithoutStderr_SkipsWithTheExitStatus",
+          "name": "RawIoTaint_FatalExitWithNoText_FailsWithTheExitStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)",
+          "name": "RawIoTaint_SignalExitStatus_SkipsNotFail",
           "dynamic": false
         },
         {
@@ -60424,6 +60659,11 @@
         {
           "suite": "migrated ladder gate durable evidence",
           "name": "LadderGate_StaticAnalysisAdvisorySkip_RecordsPassEvidenceAndAPassedRow",
+          "dynamic": false
+        },
+        {
+          "suite": "migrated ladder gate durable evidence",
+          "name": "LadderGate_MockBoundaryConfigThatDoesNotLoad_KeepsTheVerdictAndNamesTheError",
           "dynamic": false
         },
         {
@@ -62879,6 +63119,16 @@
           "dynamic": false
         },
         {
+          "suite": "runStaticAnalysis > npm legs and the fault fields of the runner",
+          "name": "StaticAnalysis_NpmScriptsWithAFaultField_FailEachCheck [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > npm legs and the fault fields of the runner",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
           "suite": "runStaticAnalysis > structured output",
           "name": "output includes repository path",
           "dynamic": false
@@ -62971,6 +63221,11 @@
         {
           "suite": "runStaticAnalysis > advisory boundary skip",
           "name": "StaticAnalysis_FirstPartyGlobs_ReachTheBoundaryScan",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis > advisory boundary skip",
+          "name": "StaticAnalysis_BoundaryLegWithNoVerdict_KeepsTheStatusAndTheCountsOfTheNoConfigTwin",
           "dynamic": false
         }
       ]
@@ -64143,6 +64398,16 @@
         {
           "suite": "settle — the verification a settled batch runs",
           "name": "Settle_TheGateRows_AreTheEvidenceTheSegmentLeaves",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ADegradedGateLeaf_MarksTheReceiptTraceAndKeepsTheBundleShape",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the verification a settled batch runs",
+          "name": "Settle_ASkippedGateRowInTheSegment_MarksTheTraceAsSkipped",
           "dynamic": false
         },
         {
