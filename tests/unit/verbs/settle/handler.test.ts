@@ -1418,10 +1418,11 @@ describe('settle — the verification a settled batch runs', () => {
 
   /**
    * Another call completes the task while its segment runs. The completion leaf of the segment
-   * then finds the fact under another operation, so it breaks its postcondition and the segment
-   * halts. The stream records the task complete, so completion wins, and the batch settles.
+   * then returns the stored row of that call and appends nothing. The leaf reply acknowledges the
+   * stored row, so the emission check of the segment counts it, and the segment passes. The gates
+   * of the segment passed, so the trace says verified, and the batch settles with one completion row.
    */
-  it('Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsAlreadyComplete', async () => {
+  it('Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsVerifiedOnTheStoredRow', async () => {
     const completesFirst: LeafHandler = async (leafArgs, leafStateDir, ctx) => {
       const completed = await liveHandler('task_complete')(
         { taskId: leafArgs.taskId, featureId: leafArgs.featureId },
@@ -1438,10 +1439,10 @@ describe('settle — the verification a settled batch runs', () => {
       ),
     );
     expect(receipt.outcome).toBe('settled');
-    expect(receipt.verification).toEqual([{ taskId: 'task-verify', outcome: 'already-complete' }]);
+    expect(receipt.verification).toEqual([expect.objectContaining({ taskId: 'task-verify', outcome: 'verified' })]);
     expect(receipt).not.toHaveProperty('unresolved');
     const segments = (await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => OrchestrateIntentExecutedData.parse(row.data));
-    expect(segments.map((segment) => [segment.outcome, segment.failedLeaf])).toEqual([['failed', 'task_complete']]);
+    expect(segments.map((segment) => [segment.outcome, segment.failedLeaf])).toEqual([['committed', undefined]]);
     expect(await completionRows()).toHaveLength(1);
   });
 

@@ -19,6 +19,7 @@ import { resolveEmissionEnforcement } from '../../config/resolve.js';
 import {
   applicableEnsures,
   observeActionPostconditions,
+  replayedRowType,
   type ActionPostconditionObservation,
 } from '../../dispatch/core/action-postconditions.js';
 import { evaluateDispatchAdmission } from '../../dispatch/core/dispatch-admission.js';
@@ -628,6 +629,8 @@ function blockingGateRefusal(leaf: CompiledLeaf, result: ToolResult): string | u
  * The handler runs inside the append observer, and the verifier runs outside it. So the receipt counts the leaf appends and not the verifier row.
  * The held rows are read before the emission verifier runs, because the verifier appends its own finding under the same id.
  *
+ * A reply that acknowledges a stored keyed row delivers that row type, as the verifier counts it. The receipt does not list the row.
+ *
  * A postcondition failure, and an emission failure in `block` mode, halt even when `onFail` is `continue`.
  * `onFail` does not cover a broken emission or postcondition contract, because that breaks the integrity of the log.
  * A postcondition observation that throws counts as a violation, because the leaf already ran its effects.
@@ -806,6 +809,12 @@ async function runLeaf(input: RunLeafInput): Promise<LeafOutcome> {
         .filter((capture) => capture.streamId === leaf.observationStreamId)
         .map((capture) => capture.type),
     );
+    if ([...owed].some((type) => !landed.has(type))) {
+      const replayed = await replayedRowType(ctx.eventStore, leaf.observationStreamId, result.data).catch(
+        () => undefined,
+      );
+      if (replayed !== undefined) landed.add(replayed);
+    }
     const missing = [...owed].filter((type) => !landed.has(type));
     let emissionViolation: LeafOutcome['emissionViolation'];
     if (missing.length > 0 || verdict.status === 'violated') {

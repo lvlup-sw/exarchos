@@ -659,19 +659,29 @@ function completionResult(
   return { success: true, data: toEventAck(event) };
 }
 
+/** The `taskId` field of an event row, or undefined when the row has none. */
+function rowTaskId(row: WorkflowEvent): unknown {
+  const data: unknown = row.data;
+  return typeof data === 'object' && data !== null && 'taskId' in data ? data.taskId : undefined;
+}
+
 /**
  * The result for a stored `task.completed` row of the task while the state document lists the task with another status.
  * The sync brings the document level with the row, and the result returns the row with no gate check and no new row.
  * A failed sync returns `STATE_SYNC_FAILED`.
  * When the document already lists the task complete, or does not list the task, the function returns undefined.
- * The gate check then runs, so a fix of a completed task needs a passing run.
+ * It also returns undefined when a `task.failed` row of the task comes after the stored row, and it does not sync.
+ * The gate check then runs, so a fix of a completed or failed task needs a passing run.
  */
 async function repairStoredCompletion(
   stateDir: string,
   streamId: string,
   taskId: string,
   stored: WorkflowEvent,
+  store: EventStore,
 ): Promise<ToolResult | undefined> {
+  const laterFailures = await store.query(streamId, { type: 'task.failed', sinceSequence: stored.sequence });
+  if (laterFailures.some((row) => rowTaskId(row) === taskId)) return undefined;
   const sync = await syncTaskDocument(stateDir, streamId, taskId);
   if (sync.kind === 'synced' || sync.kind === 'failed') return completionResult(streamId, taskId, stored, sync);
   return undefined;
@@ -733,7 +743,7 @@ export async function handleTaskComplete(
   try {
     const stored = await storedCompletion(store, streamId, args.taskId);
     const repaired =
-      stored === undefined ? undefined : await repairStoredCompletion(stateDir, streamId, args.taskId, stored);
+      stored === undefined ? undefined : await repairStoredCompletion(stateDir, streamId, args.taskId, stored, store);
     if (repaired !== undefined) return repaired;
   } catch (err) {
     return completeFailed(err);

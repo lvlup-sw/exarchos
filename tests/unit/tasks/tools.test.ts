@@ -2176,6 +2176,50 @@ describe('handleTaskComplete workflow state sync', () => {
     expect((state.tasks as { status: string }[]).map((t) => t.status)).toEqual(['complete']);
   });
 
+  /**
+   * A task that failed after its completion does not take the repair path. The document lists the task failed, and a
+   * `task.failed` row of the task follows the stored completion. So the gate check runs: a later failing run refuses,
+   * and the document keeps the failure. A later pass returns the stored row and marks the task complete.
+   */
+  it('handleTaskComplete_TaskFailedAfterItsCompletion_RunsTheGateCheckBeforeTheStoredRow', async () => {
+    const featureId = 'wf-sync-7';
+    await initStateFile(tempDir, featureId, 'feature', {
+      tasks: [{ id: 'task-1', title: 'Test task', status: 'in_progress' }],
+    });
+    const stateFile = path.join(tempDir, `${featureId}.state.json`);
+    const store = new EventStore(tempDir);
+    await seedStaticAnalysisVerdict(store, { streamId: featureId, taskId: 'task-1', stateDir: tempDir });
+    const completed = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+    expect(completed.success, JSON.stringify(completed.error)).toBe(true);
+
+    const failedTask = await handleTaskFail({ taskId: 'task-1', error: 'review found a defect', streamId: featureId }, tempDir, store);
+    expect(failedTask.success).toBe(true);
+    const document = await readStateFile(stateFile);
+    await writeFile(
+      stateFile,
+      JSON.stringify({ ...document, tasks: [{ id: 'task-1', title: 'Test task', status: 'failed' }] }),
+      'utf-8',
+    );
+    await seedStaticAnalysisVerdict(store, { streamId: featureId, taskId: 'task-1', stateDir: tempDir, verdict: 'fail' });
+
+    const refused = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('GATE_NOT_PASSED');
+    const afterRefusal = await readStateFile(stateFile);
+    expect((afterRefusal.tasks as { status: string }[]).map((t) => t.status)).toEqual(['failed']);
+
+    await seedStaticAnalysisVerdict(store, { streamId: featureId, taskId: 'task-1', stateDir: tempDir });
+    const fixed = await handleTaskComplete({ taskId: 'task-1', streamId: featureId }, tempDir, store);
+
+    expect(fixed.success, JSON.stringify(fixed.error)).toBe(true);
+    const [stored] = await store.query(featureId, { type: 'task.completed' });
+    expect(fixed.data).toEqual({ streamId: featureId, sequence: stored?.sequence, type: 'task.completed' });
+    expect(await store.query(featureId, { type: 'task.completed' })).toHaveLength(1);
+    const afterFix = await readStateFile(stateFile);
+    expect((afterFix.tasks as { status: string }[]).map((t) => t.status)).toEqual(['complete']);
+  });
+
   /** A tracked workflow can have no state document, and then the handler has nothing to sync. */
   it('handleTaskComplete_WithNoStateDocument_CompletesTheTask', async () => {
     const featureId = 'wf-sync-4';

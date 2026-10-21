@@ -314,11 +314,11 @@ describe('task-completion leaf that returns a stored completion row', () => {
   /**
    * The task has its `task.completed` row from an earlier operation, and the state document lists the task in progress.
    * The leaf syncs the document and returns the stored row, so no row of the leaf operation exists.
-   * The emission verifier and the ensures check read the stored row that the reply acknowledges, so the verifier records no violation.
-   * The executor also checks the rows that the leaf appended, and the stored row is not one of them.
-   * Thus the segment halts with `INTENT_EMISSION_CONTRACT_VIOLATED` and appends no second completion row.
+   * The emission verifier, the ensures check and the owed-events check of the executor read the stored row that the reply acknowledges.
+   * Thus the segment passes, appends no second completion row and records no violation.
+   * The receipt lists no event, because the leaf appended none.
    */
-  it('StoredCompletionAndAStaleStateDocument_HaltsOnTheRowsOfTheLeafAndAppendsNoRow', async () => {
+  it('StoredCompletionAndAStaleStateDocument_PassesOnTheStoredRowAndAppendsNoRow', async () => {
     await initStateFile(executorDir, STREAM, 'feature', {
       tasks: [{ id: TASK_ID, title: 'Parity task', status: 'in_progress' }],
     });
@@ -342,14 +342,15 @@ describe('task-completion leaf that returns a stored completion row', () => {
       ),
     );
 
-    expect(executed.success).toBe(false);
-    expect(executed.error?.code).toBe('INTENT_EMISSION_CONTRACT_VIOLATED');
-    expect(executed.error?.message).toBe(
-      "leaf 'task_complete' completed without the events it declares unconditionally: task.completed",
-    );
-    const receipt = executed.error?.intentReceipt as { outcome: string; leaves: { action: string; status: string }[] };
-    expect(receipt.outcome).toBe('failed');
-    expect(receipt.leaves.map((leaf) => [leaf.action, leaf.status])).toEqual([['task_complete', 'failed']]);
+    expect(executed.success, JSON.stringify(executed.error)).toBe(true);
+    const receipt = executed.data as {
+      outcome: string;
+      leaves: { action: string; status: string; events: unknown[] }[];
+    };
+    expect(receipt.outcome).toBe('committed');
+    expect(receipt.leaves.map((leaf) => [leaf.action, leaf.status, leaf.events])).toEqual([
+      ['task_complete', 'passed', []],
+    ]);
     const completions = await executorStore.query(STREAM, { type: 'task.completed' });
     expect(completions.map((row) => row.sequence)).toEqual([stored.sequence]);
     expect(await executorStore.query(STREAM, { type: 'emission.violated' })).toEqual([]);
