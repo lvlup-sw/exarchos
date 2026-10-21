@@ -78,7 +78,8 @@ interface StaticAnalysisCarrierFields {
    * Without `skipped`, an advisory check gave no verdict. `advisorySkips` names it, and `passed` is the verdict of the other checks.
    *
    * It is the older flag, and its values stay for stored rows and readers. `completeness` covers advisory checks only.
-   * Thus a constituent-skipped run states `degraded: true` and `completeness: 'complete'`.
+   * Thus a constituent-skipped run with no advisory skip states `degraded: true` and `completeness: 'complete'`.
+   * A constituent-skipped run with an advisory skip states `completeness: 'degraded'` and names the advisory skip.
    */
   readonly degraded?: boolean;
 }

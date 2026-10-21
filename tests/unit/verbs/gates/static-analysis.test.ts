@@ -436,6 +436,46 @@ describe('handleStaticAnalysis', () => {
     });
 
     /**
+     * A constituent skip is degraded with or without an advisory skip, but `completeness` follows the advisory checks only.
+     * With no advisory skip it is `complete`. With an advisory skip it is `degraded` and names that skip.
+     */
+    it('handleStaticAnalysis_ConstituentSkip_CompletenessFollowsTheAdvisorySkipsOnly', async () => {
+      const advisorySkips = [
+        { name: 'Import boundaries', cause: 'missing-tool', detail: 'the runner reported ENOENT' },
+      ];
+      const constituentSkip = {
+        status: 'skip' as const,
+        output: '**Result: DEGRADED** (1/1 checks passed, 1 skipped — inconclusive, not a pass)',
+        skipReason: 'constituent-skipped' as const,
+        skippedChecks: [{ name: 'Lint' }],
+        passCount: 1,
+        failCount: 0,
+        skipCount: 1,
+        projectType: 'Node.js',
+      };
+      const runs = [
+        { label: 'no advisory skip', run: constituentSkip, completeness: 'complete', named: undefined },
+        { label: 'advisory skip', run: { ...constituentSkip, advisorySkips }, completeness: 'degraded', named: advisorySkips },
+      ];
+      for (const { label, run, completeness, named } of runs) {
+        mockRunStaticAnalysis.mockReturnValue(run);
+        const result = await handleStaticAnalysis(
+          { featureId: 'feat-1', repoRoot: '/home/user/project' },
+          STATE_DIR,
+          mockStore as unknown as EventStore,
+        );
+        expect(result.data, label).toMatchObject({
+          passed: false,
+          skipped: true,
+          degraded: true,
+          verdict: 'indeterminate',
+          completeness,
+        });
+        expect((result.data as { advisorySkips?: unknown }).advisorySkips, label).toEqual(named);
+      }
+    });
+
+    /**
      * The carrier states the closed verdict of each run status, as the adequacy carrier does. A run with no advisory skip
      * is `complete` and carries no list, and a skip is `indeterminate`.
      */
