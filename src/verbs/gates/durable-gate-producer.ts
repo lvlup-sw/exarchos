@@ -102,7 +102,7 @@ function fallbackArtifactId(scope: GateSubjectScope, phaseAttemptId: string): st
  * Other runs bind to the `HEAD` commit. When `HEAD` does not resolve, they bind to an artifact target.
  * Mutable workflow state is not a commit, so the producer never uses it as one.
  *
- * @internal Exported so that the static-analysis seed of the tests derives its subject here.
+ * The task_complete reader and the static-analysis seed of the tests also derive a subject here.
  */
 export function selectSubject(
   scope: GateSubjectScope,

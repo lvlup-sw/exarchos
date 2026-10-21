@@ -91,7 +91,8 @@ const execCommandRunner: RunCommandFn = (
 /**
  * The fields of one static-analysis run that select its evidence subject. The base defaults to `main`.
  *
- * @internal Exported so that the static-analysis seed of the tests derives its subject from the handler.
+ * The task_complete reader uses it to tell a run of the runbook step from other runs.
+ * The static-analysis seed of the tests derives its subject from it.
  */
 export function staticAnalysisSubjectScope(
   args: Pick<StaticAnalysisArgs, 'featureId' | 'taskId' | 'branch' | 'baseBranch'>,
