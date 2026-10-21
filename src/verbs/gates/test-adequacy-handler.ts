@@ -17,7 +17,13 @@ import { execFailureFields, outputText, runCommandSync } from '../../utils/proce
 import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import {
+  defaultGitExec,
+  resolvePolicySkip,
+  SKIPPED_BY_POLICY,
+  type ClosedGateVerdict,
+  type GateCarrierVerdict,
+} from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import { resolveScopedTestCommand, type ScopedTestCommand } from '../../config/test-runtime-resolver.js';
@@ -32,6 +38,8 @@ import {
   resolveProbeTestGlobs,
   interpretProbeVerdict,
   verdictOf,
+  type AdequacyDiscriminant,
+  type AdequacyDisposition,
   type ProbeResult,
   type RunOutcome,
   type TestRunFn,
@@ -410,12 +418,14 @@ export async function handleTestAdequacy(
             passed: true,
             skipped: true,
             disposition: 'advisory-skip',
+            verdict: 'indeterminate',
+            completeness: 'complete',
             redObserved: false,
             restoredClean: true,
             probedTests: [],
             discriminant: SKIPPED_BY_POLICY,
             reason: policySkip.reason,
-          },
+          } satisfies AdequacyCarrier,
         };
       }
 
@@ -456,22 +466,42 @@ export async function handleTestAdequacy(
   );
 }
 
-/** The advisory carrier the gate returns, derived from the probe's verdict. */
-interface AdequacyCarrier {
+/**
+ * The advisory carrier the gate returns, derived from the probe's verdict.
+ * It states the closed gate verdict, so the evidence verdict does not depend on how a reader combines the other fields.
+ */
+export interface AdequacyCarrier extends ClosedGateVerdict {
   readonly passed: boolean;
-  readonly disposition: string;
+  readonly disposition: AdequacyDisposition;
   readonly redObserved: boolean;
   readonly restoredClean: boolean;
   readonly probedTests: readonly string[];
   readonly skipped?: boolean;
   readonly discriminant?: string;
   readonly report?: string;
+  readonly reason?: string;
 }
+
+/**
+ * The carrier verdict of a probe that blocks on an indeterminate cause.
+ * A red run on the task source and a run with no verdict say nothing about the tests of the task, so they give `indeterminate`.
+ * The other causes keep the `fail` that they gave before the carrier stated a verdict. A change of them needs a decision of the owner.
+ */
+const BLOCKED_CAUSE_VERDICT: Readonly<Record<AdequacyDiscriminant, GateCarrierVerdict>> = {
+  'no-new-tests': 'fail',
+  'diff-failed': 'fail',
+  'revert-conflict': 'fail',
+  'restore-failed': 'fail',
+  'base-missing': 'fail',
+  'baseline-red': 'indeterminate',
+  'run-no-verdict': 'indeterminate',
+};
 
 /**
  * Translates a {@link ProbeResult} into the advisory carrier with an exhaustive switch on the verdict union.
  * An `indeterminate` verdict (the probe cannot run) must be handled here, so it cannot arrive as a success.
- * An indeterminate verdict that degrades to an advisory skip carries `skipped: true`, so a reader can tell a skip from a pass.
+ * An indeterminate verdict that degrades to an advisory skip carries `skipped: true` and the verdict `indeterminate`, so a reader can tell a skip from a pass.
+ * The probe is one check, so each carrier states the completeness `complete`.
  * `verdictOf` uses the stamped union, or rebuilds one fail-closed, so a legacy-shaped result is judged by the union too.
  * A new verdict variant fails the build at `assertNever`.
  */
@@ -482,20 +512,22 @@ function buildAdequacyCarrier(probe: ProbeResult, riskTier?: RiskTier): Adequacy
   const base = {
     passed: interpretation.passed,
     disposition: interpretation.disposition,
+    completeness: 'complete',
     redObserved: probe.redObserved === true,
     restoredClean: probe.restoredClean !== false,
     probedTests: probe.probedTests ?? [],
     ...(interpretation.report ? { report: interpretation.report } : {}),
-  };
+  } satisfies Omit<AdequacyCarrier, 'verdict'>;
 
   switch (verdict.kind) {
     case 'passed':
-      return base;
+      return { ...base, verdict: 'pass' };
     case 'failed':
-      return base;
+      return { ...base, verdict: 'fail' };
     case 'indeterminate':
       return {
         ...base,
+        verdict: interpretation.skipped ? 'indeterminate' : BLOCKED_CAUSE_VERDICT[verdict.cause],
         discriminant: verdict.cause,
         ...(interpretation.skipped ? { skipped: true } : {}),
       };

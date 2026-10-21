@@ -10,6 +10,7 @@ import {
   resolvePhaseMode,
   getDiff,
   normalizeGateVerdict,
+  readGateCompleteness,
   readGateSkipDescriptor,
   SKIPPED_BY_POLICY,
 } from '../../../../src/verbs/gates/gate-utils.js';
@@ -178,6 +179,54 @@ describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () =
     expect(normalizeGateVerdict(carrier({ verdict: 'BLOCKED' }))).toBe('fail');
     expect(normalizeGateVerdict({ success: false, error: { code: 'X', message: 'y' } }))
       .toBe('indeterminate');
+  });
+
+  /**
+   * A carrier that states a closed verdict gives that verdict, before the older fields. The blocked carrier of a red
+   * run on the task source says `passed: false`, which the older reading gives as `fail`. Its stated verdict is
+   * `indeterminate`, because the run says nothing about the tests of the task.
+   */
+  it('NormalizeGateVerdict_StatedClosedVerdict_IsReadBeforeTheOlderFields', () => {
+    const baselineRed = {
+      passed: false,
+      disposition: 'blocked',
+      discriminant: 'baseline-red',
+      completeness: 'complete',
+    };
+    expect(normalizeGateVerdict(carrier({ ...baselineRed, verdict: 'indeterminate' }))).toBe('indeterminate');
+    expect(normalizeGateVerdict(carrier({ passed: false, verdict: 'fail', completeness: 'complete' }))).toBe('fail');
+    expect(normalizeGateVerdict(carrier({ passed: true, verdict: 'pass', completeness: 'complete' }))).toBe('pass');
+    expect(normalizeGateVerdict(carrier({ passed: true, verdict: 'indeterminate', skipped: true }))).toBe('indeterminate');
+    expect(normalizeGateVerdict({ success: false, data: { verdict: 'pass' } })).toBe('indeterminate');
+  });
+
+  /** A stated pass on a carrier that also declares a skip or `passed: false` contradicts itself, so it fails closed. */
+  it('NormalizeGateVerdict_StatedPassThatContradictsTheCarrier_IsIndeterminate', () => {
+    expect(normalizeGateVerdict(carrier({ passed: true, skipped: true, verdict: 'pass' }))).toBe('indeterminate');
+    expect(normalizeGateVerdict(carrier({ passed: false, verdict: 'pass' }))).toBe('indeterminate');
+  });
+
+  /**
+   * A carrier with no closed verdict keeps the older reading. A stored carrier of a 2.12.x build has no `verdict`
+   * field. A review carrier states a review verdict, which is not a value of the closed verdict.
+   */
+  it('NormalizeGateVerdict_CarrierWithNoClosedVerdict_KeepsTheOlderReading', () => {
+    const earlierBuildBaselineRed = { passed: false, disposition: 'blocked', discriminant: 'baseline-red' };
+    expect(normalizeGateVerdict(carrier(earlierBuildBaselineRed))).toBe('fail');
+    expect(normalizeGateVerdict(carrier({ passed: true, disposition: 'proved' }))).toBe('pass');
+    expect(normalizeGateVerdict(carrier({ verdict: 'NEEDS_FIXES' }))).toBe('fail');
+    expect(normalizeGateVerdict(carrier({ verdict: 'passed', passed: true }))).toBe('pass');
+    expect(normalizeGateVerdict(carrier({ verdict: 'pass', completeness: 'complete' }))).toBe('pass');
+  });
+
+  /** The completeness reader returns a stated value of the closed set, and nothing for any other shape. */
+  it('ReadGateCompleteness_StatedValue_IsReadAndOtherShapesAreNot', () => {
+    expect(readGateCompleteness(carrier({ verdict: 'pass', completeness: 'complete' }))).toBe('complete');
+    expect(readGateCompleteness(carrier({ verdict: 'pass', completeness: 'degraded' }))).toBe('degraded');
+    expect(readGateCompleteness(carrier({ passed: true }))).toBeUndefined();
+    expect(readGateCompleteness(carrier({ completeness: 'partial' }))).toBeUndefined();
+    expect(readGateCompleteness(carrier([{ completeness: 'complete' }]))).toBeUndefined();
+    expect(readGateCompleteness(carrier(null))).toBeUndefined();
   });
 
   /**

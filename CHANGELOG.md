@@ -31,6 +31,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 - **The kill probe runs the scoped tests on the task source before it reverts the source.** This is a change of behavior. Before this change, the probe read each failed run after the revert as a kill. Thus a test command that failed for any reason passed every medium-tier and high-tier task.
   - A run that fails before the revert gives the indeterminate cause `baseline-red`. It blocks `check_test_adequacy` at every tier. The report ends with the tail of the runner output.
+  - The result of `check_test_adequacy` states its verdict in two fields: `verdict` (`pass`, `fail` or `indeterminate`) and `completeness`. The evidence verdict of `baseline-red` and of `run-no-verdict` is now `indeterminate`, not `fail`. Transition admission then reports `EVALUATOR_FAILED`, not `failed`, and still blocks. The other blocking causes keep `fail`. The runner row of the gate copies `completeness` into `details`, and the evidence record does not get it. A carrier with no `verdict` field, such as one of an earlier build, is read as before.
   - A task that changes only test files runs its tests once. Green tests give `failed`, as before.
   - The probe does not run a test file that the task deletes. When no other test file changes, the verdict is `no-new-tests`.
   - The probe reads the task diff with rename detection off. A renamed source file reverts to its path at the base for the run after the revert. A deleted source file comes back for that run too.

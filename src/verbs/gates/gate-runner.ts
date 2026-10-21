@@ -40,7 +40,9 @@ import { resolveWorkflowState } from '../resolve-state.js';
 import {
   attachGateEvidence,
   normalizeGateVerdict,
+  readGateCompleteness,
   readGateSkipDescriptor,
+  type GateCarrierCompleteness,
   type GateEvidenceReference,
   type GateSkipDescriptor,
 } from './gate-utils.js';
@@ -117,8 +119,8 @@ export const GATE_RUNNER_GATE_LAYER = 'verification-ladder';
  * Appends the `gate.executed` signal that `task_complete` reads, derived from the persisted
  * evidence record. Thus the proof and the signal agree. `passed` is true only for a `pass`
  * verdict. A task subject stamps `details.taskId`, and a row with no task completes no task.
- * A skipped gate stamps the skip descriptor of its carrier in `details`. The idempotency key
- * derives from the evidence id, so a same-operation retry collapses onto one row.
+ * The skip descriptor and the stated completeness of the carrier go into `details`. The
+ * idempotency key derives from the evidence id, so a same-operation retry collapses onto one row.
  */
 async function appendGateExecutedSignal(
   eventStore: Pick<EventStore, 'append' | 'query'>,
@@ -127,6 +129,7 @@ async function appendGateExecutedSignal(
   provider: GateProvider,
   record: AdmissionEvidenceRecorded,
   skip: GateSkipDescriptor | undefined,
+  completeness: GateCarrierCompleteness | undefined,
 ): Promise<void> {
   const { evidence } = record;
   const subject = evidence.subject;
@@ -151,6 +154,7 @@ async function appendGateExecutedSignal(
           phaseAttemptId: evidence.phaseAttemptId,
           requirementId: evidence.requirementId,
           ...(skip === undefined ? {} : skip),
+          ...(completeness === undefined ? {} : { completeness }),
         },
       },
     },
@@ -394,6 +398,7 @@ export async function runGate(
           provider,
           sameOperation.record,
           readGateSkipDescriptor(providerResult),
+          readGateCompleteness(providerResult),
         );
       }
       return attachGateEvidence(providerResult, [
@@ -490,6 +495,7 @@ export async function runGate(
         provider,
         persistedRecord,
         readGateSkipDescriptor(providerResult),
+        readGateCompleteness(providerResult),
       );
     }
     return attachGateEvidence(providerResult, [

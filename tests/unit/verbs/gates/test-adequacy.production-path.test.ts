@@ -52,6 +52,8 @@ async function initRepo(prefix: string): Promise<string> {
 /** The carrier that the gate returns. */
 interface AdequacyData {
   readonly passed: boolean;
+  readonly verdict?: string;
+  readonly completeness?: string;
   readonly disposition?: string;
   readonly skipped?: boolean;
   readonly probedTests?: readonly string[];
@@ -283,6 +285,68 @@ describe('check_test_adequacy production path', () => {
   }, 180_000);
 
   /**
+   * A red run on the task source gives `baseline-red`. The run says nothing about the tests of the task, so the
+   * carrier states the verdict `indeterminate`. The evidence verdict follows the carrier, not the older reading of
+   * `passed: false` as `fail`. The runner row carries the verdict and the completeness of the carrier.
+   */
+  it('ProductionPath_BaselineRed_DurableRowsRecordIndeterminateNotFail', async () => {
+    const repoRoot = await initRepo('prodpath-baseline-red-');
+    cleanups.push(() => rmrf(repoRoot));
+    writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"fx","version":"1.0.0"}\n');
+    mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+    writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 1;\n');
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'base', '-q']);
+    await git(repoRoot, ['checkout', '-b', 'feature/red', '-q']);
+    writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 2;\n');
+    writeFileSync(path.join(repoRoot, 'src', 'calc.test.js'), '// pins v() === 2\n');
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'feat + co-located test', '-q']);
+
+    const ctx = await makeCtx('prodpath-baseline-red-state-', 'feat-baseline-red');
+    const runs: string[] = [];
+    const result = await runAsTrustedCaller(ctx.stateDir, () =>
+      handleOrchestrate(
+        {
+          action: 'check_test_adequacy',
+          featureId: 'feat-baseline-red',
+          taskId: 'T-baseline-red',
+          branch: 'feature/red',
+          baseBranch: 'main',
+          repoRoot,
+          riskTier: 'medium',
+          runTests: async () => {
+            runs.push('run');
+            return { kind: 'ran', result: 'red' };
+          },
+        },
+        ctx,
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    const data = dataOf(result);
+    expect(runs).toEqual(['run']);
+    expect(data.discriminant).toBe('baseline-red');
+    expect(data.disposition).toBe('blocked');
+    expect(data.passed).toBe(false);
+    expect(data.verdict).toBe('indeterminate');
+    expect(data.completeness).toBe('complete');
+
+    const evidenceRows = await ctx.eventStore.query('feat-baseline-red', { type: 'admission.evidence-recorded' });
+    expect(evidenceRows).toHaveLength(1);
+    expect(evidenceRows.map((e) => (e.data as { evidence?: { verdict?: string } }).evidence?.verdict)).toEqual([
+      'indeterminate',
+    ]);
+    const adequacy = (await ctx.eventStore.query('feat-baseline-red', { type: 'gate.executed' }))
+      .map((e) => e.data as { gateName?: string; passed?: boolean; details?: Record<string, unknown> })
+      .filter((row) => row.gateName === 'test-adequacy');
+    expect(adequacy).toHaveLength(1);
+    expect(adequacy[0]?.passed).toBe(false);
+    expect(adequacy[0]?.details).toMatchObject({ verdict: 'indeterminate', completeness: 'complete' });
+  }, 180_000);
+
+  /**
    * `diff-failed` is an execution failure of the probe, not an empty subject.
    * It blocks the gate even at the low tier and is not a skip.
    */
@@ -310,6 +374,7 @@ describe('check_test_adequacy production path', () => {
     expect(data.disposition).toBe('blocked');
     expect(data.discriminant).toBe('diff-failed');
     expect(data.skipped).toBeUndefined();
+    expect(data.verdict).toBe('fail');
   }, 180_000);
 });
 

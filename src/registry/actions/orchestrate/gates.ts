@@ -435,10 +435,15 @@ export const gateActions: readonly BuiltinToolAction[] = [
   }),
   withContract({
     name: 'check_test_adequacy',
+    /**
+     * The text holds the summary of the kill-probe step of the task runbooks, word for word. The registry cannot
+     * import the runbooks, so a test compares the two.
+     */
     description:
-      'Per-task test-adequacy kill probe (mutation-testing-at-N=1): reverts the ' +
-      "task's source hunks (keeping tests), re-runs the new/changed tests, and " +
-      'asserts at least one goes red — proving the tests are not vacuous. ' +
+      'Per-task test-adequacy gate (mutation testing at N=1): ' +
+      'the kill probe runs the changed tests on the task source first, and a red first run is indeterminate ' +
+      '(baseline-red), not a kill. Then it reverts the source hunks, runs the tests again, and requires a red run' +
+      ', which proves that the tests are not vacuous. ' +
       'Restores the working tree unconditionally (INV-14) and persists canonical ' +
       'subject-bound evidence. Pass repoRoot ("auto" to resolve the calling ' +
       "delegation's worktree) and baseBranch, the branch the task forked from; " +
