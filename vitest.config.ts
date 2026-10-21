@@ -169,6 +169,7 @@ export default defineConfig({
             'tests/unit/**/*.test.ts',
             'tests/integration/**/*.test.ts',
             /** The test tiers need their own `*.type-test.ts` globs, as `src/` does. */
+            'tests/core/**/*.type-test.ts',
             'tests/unit/**/*.type-test.ts',
             'tests/integration/**/*.type-test.ts',
             /**

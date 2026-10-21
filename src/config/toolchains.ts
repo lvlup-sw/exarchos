@@ -46,6 +46,20 @@ export interface Toolchain {
   readonly markers: readonly string[];
   /** Resolver-canonical commands (test-runner perspective). */
   readonly commands: ToolchainCommands;
+  /**
+   * The exit codes of a test command run with a failing test. An absent field means {@link DEFAULT_TEST_FAILURE_EXIT_CODES}.
+   * The kill probe reads exit 0 as a green run and these codes as a red run. Every other end of a run gives no verdict.
+   * Only the built-in registry sets the field. A `.exarchos.yml` toolchain entry has no key for it, so it gets the default.
+   */
+  readonly testFailureExitCodes?: readonly number[];
+}
+
+/** The exit codes of a failing test run when the toolchain sets none, or when no toolchain is known. */
+export const DEFAULT_TEST_FAILURE_EXIT_CODES: readonly number[] = [1];
+
+/** Returns the exit codes of a failing test run for a toolchain. No toolchain, or no field, gives {@link DEFAULT_TEST_FAILURE_EXIT_CODES}. */
+export function testFailureExitCodesFor(toolchain: Toolchain | undefined): readonly number[] {
+  return toolchain?.testFailureExitCodes ?? DEFAULT_TEST_FAILURE_EXIT_CODES;
 }
 
 /**
@@ -91,6 +105,8 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: 'cargo clippy',
       contract: null,
     },
+    /** `cargo test` exits 101 when a test fails. */
+    testFailureExitCodes: [101],
   },
   {
     id: 'go',

@@ -10,13 +10,13 @@
  * The result is an advisory carrier: `success: true`, with `data.passed` set from the probe verdict. A failed probe is a finding, not a tool error.
  */
 
-import { runCommandSync } from '../../utils/process.js';
+import { execFailureFields, outputText, runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
-import { resolveScopedTestCommand } from '../../config/test-runtime-resolver.js';
+import { resolveScopedTestCommand, type ScopedTestCommand } from '../../config/test-runtime-resolver.js';
 import { splitCommand } from '../../config/tokenize-command.js';
 import { detectToolchain, testGlobsForToolchain } from '../../config/toolchains.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
@@ -29,6 +29,7 @@ import {
   interpretProbeVerdict,
   verdictOf,
   type ProbeResult,
+  type RunOutcome,
   type TestRunFn,
 } from './test-adequacy.js';
 import { assertNever } from '../../contract/error-families.js';
@@ -84,53 +85,118 @@ export interface TestAdequacyArgs {
   readonly runTests?: TestRunFn;
 }
 
+/** The time limit of one scoped test run of the probe. */
+const SCOPED_TEST_TIMEOUT_MS = 120_000;
+
+/** The output limit of one scoped test run of the probe. It is the default limit of `execFileSync`, written here so that the overflow end has a known size. */
+const SCOPED_TEST_MAX_OUTPUT_BYTES = 1024 * 1024;
+
+/** The limits of a scoped test run. A test sets short limits to drive a timeout or an overflow with a real process. */
+export interface ScopedTestRunLimits {
+  readonly timeoutMs?: number;
+  readonly maxOutputBytes?: number;
+}
+
+/** Writes a list of exit codes as text, such as `1` or `1 or 101`. */
+function exitCodeList(codes: readonly number[]): string {
+  return codes.join(' or ');
+}
+
 /**
- * Builds the production test runner from the scoped test command. A `test:files` package script comes first, and the resolved test command is the fallback.
+ * Reads the error of a scoped test run that did not exit 0. The order of the checks follows the fields that `execFileSync` sets.
+ * A timeout and an overflow carry a code and a signal, so the code comes first. A test-failure exit code of the toolchain is a red run.
+ * Every other end gives no verdict, with its cause and the fact that names it.
+ */
+function failedRunOutcome(err: unknown, testFailureExitCodes: readonly number[], limits: Required<ScopedTestRunLimits>): RunOutcome {
+  const failure = execFailureFields(err);
+  const output = { stdout: outputText(failure.stdout), stderr: outputText(failure.stderr) };
+  if (failure.code === 'ETIMEDOUT') {
+    return { kind: 'no-verdict', cause: 'timeout', detail: `the limit is ${limits.timeoutMs} ms`, ...output };
+  }
+  if (failure.code === 'ENOBUFS') {
+    return { kind: 'no-verdict', cause: 'overflow', detail: `the limit is ${limits.maxOutputBytes} bytes`, ...output };
+  }
+  if (typeof failure.code === 'string') {
+    return { kind: 'no-verdict', cause: 'did-not-start', detail: `the runner gave the error code ${failure.code}`, ...output };
+  }
+  if (typeof failure.signal === 'string') {
+    return { kind: 'no-verdict', cause: 'signal', detail: `the signal is ${failure.signal}`, ...output };
+  }
+  if (typeof failure.status !== 'number') {
+    const message = err instanceof Error ? err.message : String(err);
+    return { kind: 'no-verdict', cause: 'did-not-start', detail: `the runner gave no exit status: ${message}`, ...output };
+  }
+  if (testFailureExitCodes.includes(failure.status)) {
+    return { kind: 'ran', result: 'red', ...output };
+  }
+  return {
+    kind: 'no-verdict',
+    cause: 'unknown-exit-code',
+    detail: `the command exited ${failure.status}, and only exit ${exitCodeList(testFailureExitCodes)} reads as a red run`,
+    ...output,
+  };
+}
+
+/**
+ * Builds a test runner of the probe from a resolved scoped test command.
  * `splitCommand` tokenizes the command with quoted arguments, and the runner appends the scoped test files after `--`.
  * A package script gets the files as its arguments. vitest, jest, `node --test`, and pytest accept path arguments in this form.
  *
- * A missing, blank, or unparseable command counts as a passing run, so the probe reports `redObserved: false` and never a false kill.
+ * Exit 0 is a green run. A test-failure exit code of the toolchain is a red run. Every other end gives no verdict, with its cause.
  * The runner uses `runCommandSync`, not `execFileSync`. On Windows, `execFile` refuses a `.cmd` shim with EINVAL.
- * With `execFile`, the catch reads that error as a red test run on every call.
+ *
+ * @internal Exported so that a test can run real processes through the runner of the probe.
  */
-function buildDefaultRunTests(repoRoot: string): TestRunFn {
-  const testCmd = resolveScopedTestCommand(repoRoot);
+export function buildScopedTestRunner(
+  scoped: ScopedTestCommand | null,
+  repoRoot: string,
+  limits: ScopedTestRunLimits = {},
+): TestRunFn {
+  const resolvedLimits: Required<ScopedTestRunLimits> = {
+    timeoutMs: limits.timeoutMs ?? SCOPED_TEST_TIMEOUT_MS,
+    maxOutputBytes: limits.maxOutputBytes ?? SCOPED_TEST_MAX_OUTPUT_BYTES,
+  };
   return async ({ testFiles }) => {
-    if (!testCmd) {
-      return { passed: true, output: 'no resolvable test command' };
+    if (scoped === null || scoped.command.trim().length === 0) {
+      return { kind: 'no-verdict', cause: 'no-command', detail: 'the resolver gave no scoped test command' };
     }
     let bin: string;
     let rest: readonly string[];
     try {
-      const tokens = splitCommand(testCmd);
+      const tokens = splitCommand(scoped.command);
       bin = tokens.cmd;
       rest = tokens.args;
     } catch (err) {
       return {
-        passed: true,
-        output: `unparseable test command "${testCmd}": ${err instanceof Error ? err.message : String(err)}`,
+        kind: 'no-verdict',
+        cause: 'unparseable-command',
+        detail: `the command is "${scoped.command}": ${err instanceof Error ? err.message : String(err)}`,
       };
     }
     if (!bin) {
-      return { passed: true, output: 'no resolvable test command' };
+      return { kind: 'no-verdict', cause: 'no-command', detail: `the command "${scoped.command}" names no program` };
     }
-    const args = [...rest, '--', ...testFiles];
     try {
-      const output = runCommandSync(bin, args, {
+      const stdout = runCommandSync(bin, [...rest, '--', ...testFiles], {
         cwd: repoRoot,
-        timeout: 120_000,
+        timeout: resolvedLimits.timeoutMs,
+        maxBuffer: resolvedLimits.maxOutputBytes,
         encoding: 'utf-8',
         stdio: ['pipe', 'pipe', 'pipe'],
       });
-      return { passed: true, output: output.toString() };
+      return { kind: 'ran', result: 'green', stdout: outputText(stdout) };
     } catch (err) {
-      const e = err as { stdout?: string | Buffer; stderr?: string | Buffer };
-      const out =
-        (typeof e.stdout === 'string' ? e.stdout : e.stdout?.toString('utf-8') ?? '') +
-        (typeof e.stderr === 'string' ? e.stderr : e.stderr?.toString('utf-8') ?? '');
-      return { passed: false, output: out };
+      return failedRunOutcome(err, scoped.testFailureExitCodes, resolvedLimits);
     }
   };
+}
+
+/**
+ * Builds the production test runner from the scoped test command of `repoRoot`. A `test:files` package script comes first, and the resolved test command is the fallback.
+ * The toolchain registry gives the exit codes of a red run. With no known toolchain, only exit 1 is red.
+ */
+export function buildDefaultRunTests(repoRoot: string, limits: ScopedTestRunLimits = {}): TestRunFn {
+  return buildScopedTestRunner(resolveScopedTestCommand(repoRoot), repoRoot, limits);
 }
 
 /** The changed files and the deleted subset of them, or the detail of a git failure. */

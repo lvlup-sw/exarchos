@@ -19,6 +19,7 @@ import {
   restoreWorkingTree,
   runProbe,
   type ProbeResult,
+  type RunOutcome,
   type TestRunFn,
 } from '../../../../src/verbs/gates/test-adequacy.js';
 import { changedFilesFor } from '../../../../src/verbs/gates/test-adequacy-handler.js';
@@ -28,6 +29,11 @@ import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
+}
+
+/** A scoped test run with a verdict: green when `green` holds, and red otherwise. */
+function ran(green: boolean, stdout?: string): RunOutcome {
+  return { kind: 'ran', result: green ? 'green' : 'red', ...(stdout === undefined ? {} : { stdout }) };
 }
 
 /** Production-shaped GitExec over a real repo (mirrors merge-orchestrate's). */
@@ -272,7 +278,7 @@ describe('snapshot/revert/restore (INV-14: refuse-to-discard recovery)', () => {
         const source = readFileSync(path.join(rr, sourceFile), 'utf-8');
         sourcesSeen.push(source.includes('=> 1') ? 'reverted' : 'task');
         if (source.includes('=> 1')) throw new Error('injected crash of the post-revert run');
-        return { passed: true };
+        return ran(true);
       };
 
       await expect(
@@ -367,7 +373,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       let testRan = false;
       const testRun: TestRunFn = async () => {
         testRan = true;
-        return { passed: true };
+        return ran(true);
       };
 
       const result: ProbeResult = await runProbe({
@@ -402,7 +408,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       const runTests: TestRunFn = async ({ repoRoot: rr }) => {
         const src = (await git(rr, ['show', ':' + sourceFile])).trim();
         const reverted = src.includes('=> 1');
-        return { passed: !reverted };
+        return ran(!reverted);
       };
 
       const result = await runProbe({
@@ -434,7 +440,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
 
       const before = await workingTreeHash(repoRoot);
 
-      const runTests: TestRunFn = async () => ({ passed: true });
+      const runTests: TestRunFn = async () => ran(true);
 
       const result = await runProbe({
         gitExec: realGitExec,
@@ -461,9 +467,8 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       );
       repos.push(repoRoot);
 
-      const runTests: TestRunFn = async ({ repoRoot: rr }) => ({
-        passed: !readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1'),
-      });
+      const runTests: TestRunFn = async ({ repoRoot: rr }) =>
+        ran(!readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1'));
 
       const result = await runProbe({
         gitExec: realGitExec,
@@ -499,7 +504,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         const runTests: TestRunFn = async ({ repoRoot: rr }) => {
           const reverted = readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1');
           sourcesSeen.push(reverted ? 'reverted' : 'task');
-          return { passed: false, output: 'line one\nError: Cannot find module ./missing.js' };
+          return ran(false, 'line one\nError: Cannot find module ./missing.js');
         };
 
         const result = await runProbe({
@@ -542,7 +547,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         repoRoot,
         baseRef,
         changedFiles: [sourceFile, testFile],
-        runTests: async () => ({ passed: false, output }),
+        runTests: async () => ran(false, output),
       });
 
       expect(result.discriminant).toBe('baseline-red');
@@ -574,7 +579,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
           changedFiles: [testFile],
           runTests: async () => {
             calls += 1;
-            return { passed: green };
+            return ran(green);
           },
           riskTier: 'medium',
         });
@@ -609,7 +614,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
       const filesSeen: (readonly string[])[] = [];
       const runTests: TestRunFn = async ({ repoRoot: rr, testFiles }) => {
         filesSeen.push(testFiles);
-        return { passed: !readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1') };
+        return ran(!readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1'));
       };
 
       const mixed = await runProbe({
@@ -683,7 +688,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
           existsSync(path.join(rr, file)),
         );
         treesSeen.push(present.join(','));
-        return { passed: existsSync(path.join(rr, 'src', 'new.js')) };
+        return ran(existsSync(path.join(rr, 'src', 'new.js')));
       };
 
       const result = await runProbe({
@@ -726,13 +731,157 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         repoRoot,
         baseRef,
         changedFiles: [sourceFile, testFile],
-        runTests: async () => ({ passed: false, output: 'red on the task source' }),
+        runTests: async () => ran(false, 'red on the task source'),
         riskTier: 'low',
       });
 
       expect(result.discriminant).toBe('restore-failed');
       expect(result.restoredClean).toBe(false);
       expect(result.passed).toBe(false);
+    },
+    30_000,
+  );
+
+  /**
+   * The run on the task source ends with no verdict, for example at a timeout. That run is not a red run, so the probe must not
+   * call it `baseline-red`. The verdict is `run-no-verdict`, which blocks at every tier, and the probe does not revert the source.
+   */
+  it(
+    'Probe_RunOnTheTaskSourceWithNoVerdict_IsRunNoVerdictAndBlocksAtEveryTier',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-probe-pre-no-verdict-');
+      repos.push(repoRoot);
+
+      const before = await workingTreeHash(repoRoot);
+      for (const riskTier of [undefined, 'low', 'medium', 'high'] as const) {
+        const sourcesSeen: string[] = [];
+        const runTests: TestRunFn = async ({ repoRoot: rr }) => {
+          sourcesSeen.push(readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1') ? 'reverted' : 'task');
+          return { kind: 'no-verdict', cause: 'timeout', detail: 'the limit is 120000 ms', stdout: 'partial output' };
+        };
+
+        const result = await runProbe({
+          gitExec: realGitExec,
+          repoRoot,
+          baseRef,
+          changedFiles: [sourceFile, testFile],
+          runTests,
+          ...(riskTier === undefined ? {} : { riskTier }),
+        });
+
+        expect(result.discriminant, String(riskTier)).toBe('run-no-verdict');
+        expect(result.disposition, String(riskTier)).toBe('blocked');
+        expect(result.passed, String(riskTier)).toBe(false);
+        expect(result.redObserved, String(riskTier)).toBe(false);
+        expect(result.report, String(riskTier)).toContain('on the task source reached no verdict (timeout)');
+        expect(result.report, String(riskTier)).toContain('the limit is 120000 ms');
+        expect(result.report, String(riskTier)).toContain('partial output');
+        expect(result.report, String(riskTier)).not.toContain('failed on the task source');
+        expect(sourcesSeen, String(riskTier)).toEqual(['task']);
+        expect(await workingTreeHash(repoRoot), String(riskTier)).toBe(before);
+      }
+    },
+    30_000,
+  );
+
+  /**
+   * The run on the task source is green, and the run after the revert ends with no verdict. Before this change a timeout,
+   * a signal or an overflow of that run read as a kill, so a vacuous test passed. Each cause must give `run-no-verdict`, never `passed`.
+   */
+  it(
+    'Probe_RunAfterTheRevertWithNoVerdict_IsNeverAKill',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-probe-post-no-verdict-');
+      repos.push(repoRoot);
+
+      const before = await workingTreeHash(repoRoot);
+      for (const cause of ['timeout', 'signal', 'overflow', 'unknown-exit-code'] as const) {
+        const runTests: TestRunFn = async ({ repoRoot: rr }) =>
+          readFileSync(path.join(rr, sourceFile), 'utf-8').includes('=> 1')
+            ? { kind: 'no-verdict', cause, detail: `injected ${cause}` }
+            : ran(true);
+
+        const result = await runProbe({
+          gitExec: realGitExec,
+          repoRoot,
+          baseRef,
+          changedFiles: [sourceFile, testFile],
+          runTests,
+          riskTier: 'high',
+        });
+
+        expect(result.verdict.kind, cause).toBe('indeterminate');
+        expect(result.discriminant, cause).toBe('run-no-verdict');
+        expect(result.redObserved, cause).toBe(false);
+        expect(result.passed, cause).toBe(false);
+        expect(result.restoredClean, cause).toBe(true);
+        expect(result.report, cause).toContain(`after the revert reached no verdict (${cause})`);
+        expect(await workingTreeHash(repoRoot), cause).toBe(before);
+      }
+    },
+    30_000,
+  );
+
+  /** A failed restore wins over `run-no-verdict`, as it wins over `baseline-red`. */
+  it(
+    'Probe_RestoreFailsAfterARunWithNoVerdict_IsRestoreFailed',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-probe-restore-no-verdict-');
+      repos.push(repoRoot);
+
+      const restoreRefusingGitExec: GitExec = (root, args) =>
+        args[0] === 'checkout' && args.at(-1) === '.'
+          ? { stdout: 'injected restore failure', exitCode: 1 }
+          : realGitExec(root, args);
+
+      const result = await runProbe({
+        gitExec: restoreRefusingGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, testFile],
+        runTests: async () => ({ kind: 'no-verdict', cause: 'signal', detail: 'the signal is SIGKILL' }),
+        riskTier: 'low',
+      });
+
+      expect(result.discriminant).toBe('restore-failed');
+      expect(result.passed).toBe(false);
+    },
+    30_000,
+  );
+
+  /**
+   * vitest writes "No test files found" as the first stderr line, and more lines follow it. The tail of the last 20 lines
+   * lost that line, so the detail did not name the cause. The detail must keep the first non-empty stderr line ahead of the tail.
+   */
+  it(
+    'Probe_BaselineRed_DetailKeepsTheFirstStderrLineAheadOfTheTail',
+    async () => {
+      const { repoRoot, baseRef, sourceFile, testFile } = await setupTaskRepo('test-adequacy-probe-first-stderr-');
+      repos.push(repoRoot);
+
+      const stdout = Array.from({ length: 7 }, (_, i) => `stdout line ${i}`).join('\n');
+      const stderr = [
+        '',
+        'No test files found, exiting with code 1',
+        ...Array.from({ length: 30 }, (_, i) => `stderr line ${i}`),
+      ].join('\n');
+      const result = await runProbe({
+        gitExec: realGitExec,
+        repoRoot,
+        baseRef,
+        changedFiles: [sourceFile, testFile],
+        runTests: async () => ({ kind: 'ran', result: 'red', stdout, stderr }),
+      });
+
+      expect(result.discriminant).toBe('baseline-red');
+      expect(result.verdict.kind).toBe('indeterminate');
+      if (result.verdict.kind !== 'indeterminate') return;
+      const detail = result.verdict.detail;
+      expect(detail).toContain('No test files found, exiting with code 1');
+      expect(detail.indexOf('No test files found')).toBeLessThan(detail.indexOf('stderr line 29'));
+      expect(detail.endsWith('stderr line 29')).toBe(true);
+      expect(detail).not.toContain('stderr line 9\n');
+      expect(detail).not.toContain('stdout line 0');
     },
     30_000,
   );

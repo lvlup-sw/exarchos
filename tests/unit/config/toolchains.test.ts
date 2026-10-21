@@ -5,12 +5,15 @@ import { join } from 'node:path';
 import {
   detectToolchain,
   toolchainFromConfig,
+  testFailureExitCodesFor,
   BUILTIN_TOOLCHAINS,
+  DEFAULT_TEST_FAILURE_EXIT_CODES,
   classifyHermeticDependency,
   resolveHermeticDouble,
   type Toolchain,
   type HermeticDependencyClass,
 } from '../../../src/config/toolchains.js';
+import { ExarchosConfigSchema } from '../../../src/config/exarchos-config-schema.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 let dir: string;
@@ -180,6 +183,38 @@ describe('BUILTIN_TOOLCHAINS — registry integrity', () => {
     expect(dotnet?.markers).toEqual(
       expect.arrayContaining(['*.csproj', '*.sln', '*.slnx']),
     );
+  });
+});
+
+/**
+ * The kill probe reads exit 0 as green, these exit codes as red, and every other exit as a run with no verdict.
+ * `cargo test` exits 101 when a test fails. Every other built-in toolchain, and every user toolchain, reads only exit 1 as red.
+ */
+describe('testFailureExitCodesFor — the red exit codes of a test run', () => {
+  it('TestFailureExitCodes_Rust_Is101', () => {
+    expect(testFailureExitCodesFor(BUILTIN_TOOLCHAINS.find((t) => t.id === 'rust'))).toEqual([101]);
+  });
+
+  it('TestFailureExitCodes_EveryOtherBuiltin_IsTheDefault', () => {
+    const others = BUILTIN_TOOLCHAINS.filter((t) => t.id !== 'rust');
+    expect(others.length).toBeGreaterThan(0);
+    for (const toolchain of others) {
+      expect(testFailureExitCodesFor(toolchain), toolchain.id).toEqual([1]);
+    }
+    expect(DEFAULT_TEST_FAILURE_EXIT_CODES).toEqual([1]);
+  });
+
+  it('TestFailureExitCodes_NoToolchain_IsTheDefault', () => {
+    expect(testFailureExitCodesFor(undefined)).toEqual([1]);
+  });
+
+  /** The codes are not a config key: a user toolchain carries none, and the strict schema refuses the key. */
+  it('TestFailureExitCodes_UserToolchain_HasNoConfigKey', () => {
+    const entry = { id: 'rust-ws', markers: ['Cargo.toml'], commands: { test: 'cargo test --workspace' } };
+
+    expect(testFailureExitCodesFor(toolchainFromConfig(entry))).toEqual([1]);
+    expect(ExarchosConfigSchema.safeParse({ toolchains: [entry] }).success).toBe(true);
+    expect(ExarchosConfigSchema.safeParse({ toolchains: [{ ...entry, testFailureExitCodes: [101] }] }).success).toBe(false);
   });
 });
 

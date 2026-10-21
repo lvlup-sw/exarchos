@@ -15,6 +15,7 @@ import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import type { TestRunFn } from '../../../../src/verbs/gates/test-adequacy.js';
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -77,9 +78,9 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
         { stateDir, eventStore, enableTelemetry: false } as DispatchContext,
       );
 
-      const runTests = async () => {
+      const runTests: TestRunFn = async () => {
         const reverted = readFileSync(path.join(repoRoot, 'src', 'calc.py'), 'utf-8').includes('return 1');
-        return { passed: !reverted, output: reverted ? 'red on revert' : 'green on the task source' };
+        return { kind: 'ran', result: reverted ? 'red' : 'green', stdout: reverted ? 'red on revert' : 'green on the task source' };
       };
 
       const result = await orchestrate(

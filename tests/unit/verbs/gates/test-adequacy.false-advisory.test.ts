@@ -134,7 +134,8 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
       deletedFiles: changed.deletedFiles,
       riskTier: 'high',
       runTests: async () => ({
-        passed: readFileSync(path.join(repoRoot, 'src', 'kept.js'), 'utf-8').includes('=> 2'),
+        kind: 'ran',
+        result: readFileSync(path.join(repoRoot, 'src', 'kept.js'), 'utf-8').includes('=> 2') ? 'green' : 'red',
       }),
     });
     expect(result.probedTests).toEqual(['src/räkna.test.js']);
@@ -242,7 +243,7 @@ describe('TestAdequacy_TaskAddedSource_RealKillProbe (WFQ-005)', () => {
     if (!changed.ok) return;
 
     const runTests: TestRunFn = () =>
-      Promise.resolve({ passed: existsSync(path.join(repoRoot, 'src', 'added.js')) });
+      Promise.resolve({ kind: 'ran', result: existsSync(path.join(repoRoot, 'src', 'added.js')) ? 'green' : 'red' });
 
     const result = await runProbe({
       gitExec: realGitExec,

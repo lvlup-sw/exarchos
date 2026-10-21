@@ -88,6 +88,40 @@ export function runCommandSync(
   return execFileSync(command, args as string[], options);
 }
 
+/** The fields of a thrown `execFileSync` error that a runner reads. Each is `unknown` until the runner checks its type. */
+export interface ExecFailureFields {
+  readonly status: unknown;
+  readonly signal: unknown;
+  readonly code: unknown;
+  readonly stdout: unknown;
+  readonly stderr: unknown;
+}
+
+/**
+ * Reads the fields of an error that {@link runCommandSync} throws, without a cast. A value that is not an object has none.
+ * A timeout gives the code `ETIMEDOUT`, an output past `maxBuffer` gives `ENOBUFS`, and a command that does not start gives a code such as `ENOENT`.
+ * A process that a signal stopped has no `status` and gives its `signal`. A non-zero exit gives its `status`.
+ */
+export function execFailureFields(err: unknown): ExecFailureFields {
+  if (typeof err !== 'object' || err === null) {
+    return { status: undefined, signal: undefined, code: undefined, stdout: undefined, stderr: undefined };
+  }
+  return {
+    status: 'status' in err ? err.status : undefined,
+    signal: 'signal' in err ? err.signal : undefined,
+    code: 'code' in err ? err.code : undefined,
+    stdout: 'stdout' in err ? err.stdout : undefined,
+    stderr: 'stderr' in err ? err.stderr : undefined,
+  };
+}
+
+/** The text of a process output stream. A Buffer is decoded as UTF-8, and any other value gives an empty string. */
+export function outputText(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (Buffer.isBuffer(value)) return value.toString('utf-8');
+  return '';
+}
+
 /**
  * `spawnSync` that launches Windows package-manager shims, the non-throwing
  * sibling of {@link runCommandSync}. It returns the full `SpawnSyncReturns`, for

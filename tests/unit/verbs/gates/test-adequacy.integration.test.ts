@@ -5,17 +5,30 @@
 // test stays green on the revert, so the probe fails with `redObserved: false`.
 // `test-adequacy.test.ts` holds the unit tests for the split, the snapshot and restore, and the probe.
 
-import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { describe, it, expect, afterEach, afterAll, beforeAll } from 'vitest';
+import { copyFileSync, mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
+import { resolveScopedTestCommand } from '../../../../src/config/test-runtime-resolver.js';
+import {
+  buildDefaultRunTests,
+  buildScopedTestRunner,
+  type ScopedTestRunLimits,
+} from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import {
+  RUN_NO_VERDICT_CAUSES,
+  type RunNoVerdictCause,
+  type RunOutcome,
+  type TestRunFn,
+} from '../../../../src/verbs/gates/test-adequacy.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
-import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
@@ -279,6 +292,158 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
     },
     120_000,
   );
+});
+
+/** The node binary of this run, quoted for `splitCommand`. */
+const NODE = JSON.stringify(process.execPath);
+
+/** The test file list that each runner case passes. The runner appends it after `--`. */
+const TEST_FILES: readonly string[] = ['missing.test.ts'];
+
+/** Runs one scoped test run of a runner. The runner spawns synchronously, so the call is isolated from the event loop of the worker. */
+function runOnce(runner: TestRunFn, repoRoot: string): Promise<RunOutcome> {
+  return isolatedSync(() => runner({ repoRoot, testFiles: TEST_FILES }));
+}
+
+/** One row for each no-verdict cause: the command, the limits of the run, and a text that the detail must hold. */
+interface NoVerdictRow {
+  readonly cause: RunNoVerdictCause;
+  readonly command: string | null;
+  readonly limits?: ScopedTestRunLimits;
+  readonly detail: string;
+  readonly posixOnly?: boolean;
+}
+
+/** Every no-verdict cause, each with a real process or a command that the runner cannot run. */
+const NO_VERDICT_ROWS: readonly NoVerdictRow[] = [
+  { cause: 'no-command', command: null, detail: 'no scoped test command' },
+  { cause: 'unparseable-command', command: `${NODE} -e "process.exit(0)`, detail: 'unterminated quote' },
+  { cause: 'did-not-start', command: 'exarchos-no-such-test-runner-for-this-test', detail: 'ENOENT' },
+  {
+    cause: 'timeout',
+    command: `${NODE} -e "setTimeout(() => {}, 30000)"`,
+    limits: { timeoutMs: 2_000 },
+    detail: 'the limit is 2000 ms',
+  },
+  {
+    cause: 'signal',
+    command: `${NODE} -e "process.kill(process.pid, 'SIGKILL')"`,
+    detail: 'the signal is SIGKILL',
+    posixOnly: true,
+  },
+  {
+    cause: 'overflow',
+    command: `${NODE} -e "process.stdout.write('x'.repeat(2 * 1024 * 1024))"`,
+    detail: 'the limit is 1048576 bytes',
+  },
+  {
+    cause: 'unknown-exit-code',
+    command: `${NODE} -e "process.exit(2)"`,
+    detail: 'the command exited 2, and only exit 1 reads as a red run',
+  },
+];
+
+/**
+ * The default runner of the probe, driven with real processes. Exit 0 is green, and a test-failure exit code is red.
+ * Every other end of a run gives no verdict, with its cause. The table holds one row for each cause of the closed list.
+ */
+describe('buildScopedTestRunner — each end of a real test run', () => {
+  let workDir: string;
+  beforeAll(() => {
+    workDir = mkdtempSync(path.join(os.tmpdir(), 'probe-runner-'));
+  });
+  afterAll(() => {
+    rmrf(workDir);
+  });
+
+  /** The denominator: the table holds each cause of the closed list once, so a new cause without a row fails here. */
+  it('ScopedTestRunner_NoVerdictTable_HoldsEachCauseOnce', () => {
+    expect(NO_VERDICT_ROWS).toHaveLength(RUN_NO_VERDICT_CAUSES.length);
+    expect(NO_VERDICT_ROWS.map((row) => row.cause).sort()).toEqual([...RUN_NO_VERDICT_CAUSES].sort());
+  });
+
+  for (const row of NO_VERDICT_ROWS) {
+    it.skipIf(row.posixOnly === true && process.platform === 'win32')(
+      `ScopedTestRunner_${row.cause}_IsNoVerdictWithItsCause`,
+      async () => {
+        const scoped = row.command === null ? null : { command: row.command, testFailureExitCodes: [1] };
+
+        const outcome = await runOnce(buildScopedTestRunner(scoped, workDir, row.limits), workDir);
+
+        expect(outcome.kind).toBe('no-verdict');
+        if (outcome.kind !== 'no-verdict') return;
+        expect(outcome.cause).toBe(row.cause);
+        expect(outcome.detail).toContain(row.detail);
+      },
+      30_000,
+    );
+  }
+
+  it('ScopedTestRunner_ExitZero_IsAGreenRun', async () => {
+    const runner = buildScopedTestRunner({ command: `${NODE} -e "process.stdout.write('ok')"`, testFailureExitCodes: [1] }, workDir);
+
+    expect(await runOnce(runner, workDir)).toEqual({ kind: 'ran', result: 'green', stdout: 'ok' });
+  });
+
+  it('ScopedTestRunner_ExitOne_IsARedRunWithItsOutput', async () => {
+    const runner = buildScopedTestRunner(
+      { command: `${NODE} -e "process.stdout.write('out'); process.stderr.write('err'); process.exit(1)"`, testFailureExitCodes: [1] },
+      workDir,
+    );
+
+    expect(await runOnce(runner, workDir)).toEqual({ kind: 'ran', result: 'red', stdout: 'out', stderr: 'err' });
+  });
+
+  /**
+   * `cargo test` exits 101 when a test fails. The resolver gives a Cargo project the exit codes of the rust toolchain.
+   * With them, exit 101 is a red run, and exit 1 gives no verdict, with a detail that names both codes.
+   */
+  it('ScopedTestRunner_RustToolchain_ReadsExit101AsRedAndExit1AsNoVerdict', async () => {
+    const cargoRepo = mkdtempSync(path.join(workDir, 'cargo-'));
+    writeFileSync(path.join(cargoRepo, 'Cargo.toml'), '[package]\nname = "fixture"\nversion = "0.1.0"\n');
+    const resolved = resolveScopedTestCommand(cargoRepo);
+    expect(resolved).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
+    if (resolved === null) return;
+
+    const red = await runOnce(
+      buildScopedTestRunner({ ...resolved, command: `${NODE} -e "process.exit(101)"` }, cargoRepo),
+      cargoRepo,
+    );
+    const noVerdict = await runOnce(
+      buildScopedTestRunner({ ...resolved, command: `${NODE} -e "process.exit(1)"` }, cargoRepo),
+      cargoRepo,
+    );
+
+    expect(red).toEqual({ kind: 'ran', result: 'red', stdout: '', stderr: '' });
+    expect(noVerdict).toMatchObject({
+      kind: 'no-verdict',
+      cause: 'unknown-exit-code',
+      detail: 'the command exited 1, and only exit 101 reads as a red run',
+    });
+  });
+
+  /**
+   * A measurement: the `test:files` wrapper refuses an argument that is not a file with exit 2. The case records whether
+   * `npm run test:files` passes that exit through to the probe. npm 11 passes it through, so the run gives no verdict and is not red.
+   */
+  it('ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict', async () => {
+    const pkg = mkdtempSync(path.join(workDir, 'npm-wrapper-'));
+    const wrapper = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../tools/test-helpers/run-test-files.mjs');
+    copyFileSync(wrapper, path.join(pkg, 'run-test-files.mjs'));
+    writeFileSync(
+      path.join(pkg, 'package.json'),
+      JSON.stringify({ name: 'fixture', private: true, scripts: { 'test:files': 'node run-test-files.mjs' } }),
+    );
+
+    const outcome = await runOnce(buildDefaultRunTests(pkg), pkg);
+
+    expect(outcome).toMatchObject({
+      kind: 'no-verdict',
+      cause: 'unknown-exit-code',
+      detail: 'the command exited 2, and only exit 1 reads as a red run',
+    });
+    expect(outcome.stderr).toContain('test:files: refused');
+  }, 60_000);
 });
 
 /** One key for each state directory and feature id, so each new store gets one seed. */

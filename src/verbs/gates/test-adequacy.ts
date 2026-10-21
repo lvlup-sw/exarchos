@@ -118,14 +118,27 @@ export function resolveProbeTestGlobs(
   return merged;
 }
 
+/** Returns the listed names as a tuple of literal types, so one list can feed each closed type and each total table. */
+function closedNames<const Names extends readonly [string, ...string[]]>(...names: Names): Names {
+  return names;
+}
+
+/**
+ * Each cause of an indeterminate probe, in one list. A reader that needs every cause, such as a grader or a test table, reads this list.
+ * `run-no-verdict` means that a scoped test run ended with no green and no red result.
+ */
+export const ADEQUACY_DISCRIMINANTS = closedNames(
+  'no-new-tests',
+  'revert-conflict',
+  'restore-failed',
+  'diff-failed',
+  'base-missing',
+  'baseline-red',
+  'run-no-verdict',
+);
+
 /** Discriminants for the gate's failure modes (carried on the result). */
-export type AdequacyDiscriminant =
-  | 'no-new-tests'
-  | 'revert-conflict'
-  | 'restore-failed'
-  | 'diff-failed'
-  | 'base-missing'
-  | 'baseline-red';
+export type AdequacyDiscriminant = (typeof ADEQUACY_DISCRIMINANTS)[number];
 
 /**
  * Risk tiers that require the kill probe to run. On these tiers an indeterminate probe blocks and does not degrade to an advisory skip.
@@ -163,8 +176,10 @@ type IndeterminateHandling =
 /**
  * The handling policy for each cause. It is a total `Record`, so a new discriminant without a decision is a compile error, not a silent advisory default.
  * Only `no-new-tests` is advisory, because it means there was nothing to probe.
+ *
  * A diff, revert, or restore that fails is an execution failure of a probe that had to run. It fails closed on every tier, including low.
  * Tests that fail on the task source make a kill impossible to observe, so `baseline-red` also fails closed on every tier.
+ * A test run with no verdict is never a kill and never a pass, so `run-no-verdict` fails closed on every tier.
  */
 const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, IndeterminateHandling>> = {
   'no-new-tests': 'advisory-skippable',
@@ -173,6 +188,7 @@ const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, Indeterminat
   'restore-failed': 'always-blocking',
   'base-missing': 'always-blocking',
   'baseline-red': 'always-blocking',
+  'run-no-verdict': 'always-blocking',
 };
 
 /**
@@ -187,6 +203,8 @@ const INDETERMINATE_OUTCOME: Readonly<Record<AdequacyDiscriminant, string>> = {
   'restore-failed': 'the kill probe could not snapshot or restore the working tree, so its result is not trusted',
   'baseline-red':
     'the kill probe stopped before the revert, because a red run after the revert proves no kill when the tests are red before it',
+  'run-no-verdict':
+    'the kill probe reached no verdict, because a scoped test run ended with no green and no red result, and such a run is never a kill',
 };
 
 /**
@@ -278,9 +296,7 @@ function readNonEmptyString(value: unknown): string | undefined {
 }
 
 function readDiscriminant(value: unknown): AdequacyDiscriminant | undefined {
-  return typeof value === 'string' && Object.hasOwn(INDETERMINATE_HANDLING, value)
-    ? (value as AdequacyDiscriminant)
-    : undefined;
+  return ADEQUACY_DISCRIMINANTS.find((discriminant) => discriminant === value);
 }
 
 /**
@@ -496,13 +512,55 @@ export function restoreWorkingTree(
   }
 }
 
-/** Result of running the (scoped) test command during the probe. */
-export interface TestRunResult {
-  /** True when the scoped test run PASSED (all green). */
-  readonly passed: boolean;
-  /** Optional human-readable output for diagnostics. */
-  readonly output?: string;
-}
+/**
+ * Each end of a scoped test run that gives no verdict, in one list. {@link RUN_NO_VERDICT_TEXT} says what each cause means.
+ * `did-not-start` also covers a runner that failed with no exit status.
+ * `unknown-exit-code` is an exit code that is not 0 and not a test-failure code of the toolchain.
+ */
+export const RUN_NO_VERDICT_CAUSES = closedNames(
+  'no-command',
+  'unparseable-command',
+  'did-not-start',
+  'timeout',
+  'signal',
+  'overflow',
+  'unknown-exit-code',
+);
+
+/** An end of a scoped test run that gives no verdict. */
+export type RunNoVerdictCause = (typeof RUN_NO_VERDICT_CAUSES)[number];
+
+/** The words of the probe text for each no-verdict cause. It is a total `Record`, so a new cause without a text is a compile error. */
+const RUN_NO_VERDICT_TEXT: Readonly<Record<RunNoVerdictCause, string>> = {
+  'no-command': 'no test command resolves for the repository',
+  'unparseable-command': 'the test command does not split into a program and its arguments',
+  'did-not-start': 'the test command did not start',
+  timeout: 'the test command ran past its time limit',
+  signal: 'a signal stopped the test command',
+  overflow: 'the test command wrote more output than the runner reads',
+  'unknown-exit-code': 'the test command exited with a code that is not a test result',
+};
+
+/**
+ * The outcome of one scoped test run during the probe.
+ * `ran` is a run with a verdict: `green` for exit 0, and `red` for a test-failure exit code of the toolchain.
+ * `no-verdict` is every other end, with its cause and a detail that names the fact, such as the exit code or the signal.
+ * The probe never reads a `no-verdict` run as a kill or as a pass.
+ */
+export type RunOutcome =
+  | {
+      readonly kind: 'ran';
+      readonly result: 'green' | 'red';
+      readonly stdout?: string;
+      readonly stderr?: string;
+    }
+  | {
+      readonly kind: 'no-verdict';
+      readonly cause: RunNoVerdictCause;
+      readonly detail: string;
+      readonly stdout?: string;
+      readonly stderr?: string;
+    };
 
 /**
  * The injected runner of the resolved test command. It scopes the run to the new or changed test files where the runner allows.
@@ -510,7 +568,7 @@ export interface TestRunResult {
 export type TestRunFn = (input: {
   readonly repoRoot: string;
   readonly testFiles: readonly string[];
-}) => Promise<TestRunResult>;
+}) => Promise<RunOutcome>;
 
 export interface ProbeArgs {
   readonly gitExec: GitExec;
@@ -525,7 +583,7 @@ export interface ProbeArgs {
    * A deleted test file is not at the head, so the probe never runs it.
    */
   readonly deletedFiles?: readonly string[];
-  /** Runs the scoped test command and returns pass or fail. */
+  /** Runs the scoped test command and returns its run outcome. */
   readonly runTests: TestRunFn;
   /** Optional test-glob override forwarded to {@link splitHunks}. */
   readonly testGlobs?: readonly string[];
@@ -619,18 +677,98 @@ export function probeNotRun(cause: AdequacyDiscriminant, detail: string, riskTie
   );
 }
 
-/** The number of trailing lines of runner output that a `baseline-red` detail keeps. */
+/** The number of trailing lines of runner output that a `baseline-red` or `run-no-verdict` detail keeps. */
 const OUTPUT_TAIL_LINES = 20;
 
-/** The largest number of characters of runner output that a `baseline-red` detail keeps. */
+/** The largest number of characters of runner output that a `baseline-red` or `run-no-verdict` detail keeps. */
 const OUTPUT_TAIL_CHARS = 2_000;
 
-/** Returns the last lines of the runner output, or a note when the runner gave no output. */
-function outputTail(output: unknown): string {
-  const text = typeof output === 'string' ? output.trimEnd() : '';
+/** The largest number of characters of the first stderr line that a detail keeps ahead of the tail. */
+const FIRST_STDERR_LINE_CHARS = 500;
+
+/**
+ * Returns the last lines of the runner output, stdout and then stderr, or a note when the runner gave no output.
+ * The first non-empty stderr line comes first when the tail does not hold it. A runner often names its cause there, such as "No test files found".
+ */
+function outputTail(outcome: RunOutcome): string {
+  const stderr = outcome.stderr ?? '';
+  const text = [outcome.stdout ?? '', stderr].filter((part) => part.trim().length > 0).join('\n').trimEnd();
   if (text.length === 0) return '(the runner gave no output)';
   const lines = text.split('\n').slice(-OUTPUT_TAIL_LINES).join('\n');
-  return lines.length > OUTPUT_TAIL_CHARS ? lines.slice(-OUTPUT_TAIL_CHARS) : lines;
+  const tail = lines.length > OUTPUT_TAIL_CHARS ? lines.slice(-OUTPUT_TAIL_CHARS) : lines;
+  const firstStderrLine = stderr.split('\n').find((line) => line.trim().length > 0)?.trim();
+  if (firstStderrLine === undefined || tail.includes(firstStderrLine)) return tail;
+  return `${firstStderrLine.slice(0, FIRST_STDERR_LINE_CHARS)}\n...\n${tail}`;
+}
+
+/** Returns true for a run with a green verdict. A red run and a run with no verdict are not green. */
+function isGreenRun(outcome: RunOutcome): boolean {
+  switch (outcome.kind) {
+    case 'ran':
+      return outcome.result === 'green';
+    case 'no-verdict':
+      return false;
+    default:
+      return assertNever(outcome, 'RunOutcome');
+  }
+}
+
+/** The detail of a `run-no-verdict` verdict. It names the run, the cause, the fact of the runner and the tail of the output. */
+function noVerdictDetail(
+  run: string,
+  outcome: Extract<RunOutcome, { readonly kind: 'no-verdict' }>,
+): string {
+  return (
+    `the scoped test run ${run} reached no verdict (${outcome.cause}), because ` +
+    `${RUN_NO_VERDICT_TEXT[outcome.cause]}: ${outcome.detail}. ` +
+    `The runner output ends with:\n${outputTail(outcome)}`
+  );
+}
+
+/**
+ * Reads the run on the task source. A green run returns `undefined`, so the probe goes on to the revert.
+ * A red run gives `baseline-red`, and a run with no verdict gives `run-no-verdict`.
+ */
+function preRunVerdict(outcome: RunOutcome): ProbeVerdict | undefined {
+  switch (outcome.kind) {
+    case 'ran':
+      return outcome.result === 'green'
+        ? undefined
+        : {
+            kind: 'indeterminate',
+            cause: 'baseline-red',
+            detail:
+              'the scoped tests failed on the task source, before any revert. ' +
+              `The runner output ends with:\n${outputTail(outcome)}`,
+          };
+    case 'no-verdict':
+      return { kind: 'indeterminate', cause: 'run-no-verdict', detail: noVerdictDetail('on the task source', outcome) };
+    default:
+      return assertNever(outcome, 'RunOutcome');
+  }
+}
+
+/**
+ * Reads the run after the revert. A red run is a kill and gives `passed`. A green run gives `failed`, because the tests survived the revert.
+ * A run with no verdict gives `run-no-verdict`, never a kill.
+ */
+function postRevertVerdict(outcome: RunOutcome, probedTests: string[]): ProbeVerdict {
+  switch (outcome.kind) {
+    case 'ran':
+      return outcome.result === 'red'
+        ? { kind: 'passed', probedTests }
+        : {
+            kind: 'failed',
+            reason:
+              'the scoped tests stayed GREEN with the task source reverted — ' +
+              'they do not exercise the change (vacuous)',
+            probedTests,
+          };
+    case 'no-verdict':
+      return { kind: 'indeterminate', cause: 'run-no-verdict', detail: noVerdictDetail('after the revert', outcome) };
+    default:
+      return assertNever(outcome, 'RunOutcome');
+  }
 }
 
 /**
@@ -643,7 +781,8 @@ function outputTail(output: unknown): string {
  *   5. Restore the working tree in a `finally`, so the restore runs even when a test run throws.
  *
  * Red after green gives `passed`, and green after green gives `failed`. A failed revert or restore gives `indeterminate`.
- * A failed restore wins over `baseline-red`. {@link interpretProbeVerdict} applies the tier to derive the legacy `passed` boolean.
+ * A run with no verdict, such as a timeout, a signal or an unknown exit code, gives `run-no-verdict`. It is never a kill.
+ * A failed restore wins over `baseline-red` and `run-no-verdict`.
  * Limit: a reverted config file, such as `package.json`, can make the second run collect no test, and that run reads as a kill.
  */
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
@@ -695,20 +834,17 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   }
   const stashSha = snap.stashSha;
 
-  let baselineRed: TestRunResult | undefined;
-  let redObserved = false;
+  let preRun: RunOutcome | undefined;
+  let postRevert: RunOutcome | undefined;
   let revertDetail: string | undefined;
   let restore: RestoreResult = { restored: false, detail: 'restore did not run' };
 
   try {
-    const baseline = await runTests({ repoRoot, testFiles });
-    if (baseline.passed !== true) {
-      baselineRed = baseline;
-    } else if (sourceFiles.length > 0) {
+    preRun = await runTests({ repoRoot, testFiles });
+    if (isGreenRun(preRun) && sourceFiles.length > 0) {
       const reverted = revertSourceFiles(gitExec, repoRoot, baseRef, sourceFiles);
       if (reverted.ok) {
-        const runResult = await runTests({ repoRoot, testFiles });
-        redObserved = runResult.passed !== true;
+        postRevert = await runTests({ repoRoot, testFiles });
       } else {
         revertDetail = reverted.detail;
       }
@@ -718,6 +854,7 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   }
 
   const restoredClean = restore.restored;
+  const redObserved = postRevert !== undefined && postRevert.kind === 'ran' && postRevert.result === 'red';
 
   if (revertDetail !== undefined) {
     return toProbeResult(
@@ -743,21 +880,16 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
     );
   }
 
-  if (baselineRed !== undefined) {
+  const stoppedBeforeRevert = preRunVerdict(preRun);
+  if (stoppedBeforeRevert !== undefined) {
     return toProbeResult(
-      {
-        kind: 'indeterminate',
-        cause: 'baseline-red',
-        detail:
-          'the scoped tests failed on the task source, before any revert. ' +
-          `The runner output ends with:\n${outputTail(baselineRed.output)}`,
-      },
+      stoppedBeforeRevert,
       { probedTests: testFiles, redObserved: false, restoredClean },
       riskTier,
     );
   }
 
-  if (sourceFiles.length === 0) {
+  if (postRevert === undefined) {
     return toProbeResult(
       {
         kind: 'failed',
@@ -772,15 +904,7 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   }
 
   return toProbeResult(
-    redObserved
-      ? { kind: 'passed', probedTests: testFiles }
-      : {
-          kind: 'failed',
-          reason:
-            'the scoped tests stayed GREEN with the task source reverted — ' +
-            'they do not exercise the change (vacuous)',
-          probedTests: testFiles,
-        },
+    postRevertVerdict(postRevert, testFiles),
     { probedTests: testFiles, redObserved, restoredClean },
     riskTier,
   );

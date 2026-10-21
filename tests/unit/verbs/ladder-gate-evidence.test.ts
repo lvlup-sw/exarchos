@@ -252,7 +252,7 @@ describe('migrated ladder gate durable evidence', () => {
           return handleTestAdequacy({
             ...common,
             gitExec: () => ({ stdout: '', exitCode: 0 }),
-            runTests: async () => ({ passed: true, output: '' }),
+            runTests: async () => ({ kind: 'ran', result: 'green' }),
           }, root, eventStore);
         case 'integration-suite':
           return handleCheckIntegrationSuite(

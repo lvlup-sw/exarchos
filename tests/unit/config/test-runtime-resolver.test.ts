@@ -1394,22 +1394,22 @@ describe('resolveScopedTestCommand', () => {
     const dir = makeTmpDir();
     writeScripts(dir, { 'test:run': 'vitest run --project unit', 'test:files': 'vitest run' });
 
-    expect(resolveScopedTestCommand(dir)).toBe('npm run test:files');
+    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:files');
   });
 
   it('ScopedTestCommand_NpmProjectWithoutTheScript_IsTheResolvedTestCommand', () => {
     const dir = makeTmpDir();
     writeScripts(dir, { 'test:run': 'vitest run --project unit' });
 
-    expect(resolveScopedTestCommand(dir)).toBe('npm run test:run');
-    expect(resolveScopedTestCommand(dir)).toBe(resolveTestRuntime(dir).test);
+    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:run');
+    expect(resolveScopedTestCommand(dir)?.command).toBe(resolveTestRuntime(dir).test);
   });
 
   it('ScopedTestCommand_BlankScript_IsTheResolvedTestCommand', () => {
     const dir = makeTmpDir();
     writeScripts(dir, { 'test:run': 'vitest run', 'test:files': '   ' });
 
-    expect(resolveScopedTestCommand(dir)).toBe('npm run test:run');
+    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:run');
   });
 
   it.each([
@@ -1421,7 +1421,7 @@ describe('resolveScopedTestCommand', () => {
     writeScripts(dir, { test: 'vitest', 'test:run': 'vitest run', 'test:files': 'vitest run' });
     writeFileSync(join(dir, lockfile), '');
 
-    expect(resolveScopedTestCommand(dir)).toBe(expected);
+    expect(resolveScopedTestCommand(dir)?.command).toBe(expected);
   });
 
   it.each([
@@ -1433,7 +1433,7 @@ describe('resolveScopedTestCommand', () => {
     writeScripts(dir, { test: 'vitest' });
     writeFileSync(join(dir, lockfile), '');
 
-    expect(resolveScopedTestCommand(dir)).toBe(expected);
+    expect(resolveScopedTestCommand(dir)?.command).toBe(expected);
   });
 
   /** The script names a run of the given files. A configured `test` command names the whole suite, so the script comes first. */
@@ -1445,15 +1445,62 @@ describe('resolveScopedTestCommand', () => {
     writeScripts(withoutScript, { 'test:run': 'vitest run' });
     writeFileSync(join(withoutScript, '.exarchos.yml'), 'test: npm run test:unit\n');
 
-    expect(resolveScopedTestCommand(withScript)).toBe('npm run test:files');
-    expect(resolveScopedTestCommand(withoutScript)).toBe('npm run test:unit');
+    expect(resolveScopedTestCommand(withScript)?.command).toBe('npm run test:files');
+    expect(resolveScopedTestCommand(withoutScript)?.command).toBe('npm run test:unit');
   });
 
   it('ScopedTestCommand_NonNodeProject_IsTheDetectedTestCommand', () => {
     const dir = makeTmpDir();
     writeFileSync(join(dir, 'go.mod'), 'module example.com/fixture\n');
 
-    expect(resolveScopedTestCommand(dir)).toBe('go test ./...');
+    expect(resolveScopedTestCommand(dir)?.command).toBe('go test ./...');
+  });
+
+  /** A Node project reads only exit 1 as a red run, through the script and through the resolved test command. */
+  it('ScopedTestCommand_NodeProject_ReadsExit1AsRed', () => {
+    const withScript = makeTmpDir();
+    writeScripts(withScript, { 'test:run': 'vitest run', 'test:files': 'vitest run' });
+    const withoutScript = makeTmpDir();
+    writeScripts(withoutScript, { 'test:run': 'vitest run' });
+
+    expect(resolveScopedTestCommand(withScript)).toEqual({ command: 'npm run test:files', testFailureExitCodes: [1] });
+    expect(resolveScopedTestCommand(withoutScript)).toEqual({ command: 'npm run test:run', testFailureExitCodes: [1] });
+  });
+
+  /** `cargo test` exits 101 when a test fails, so the detected rust command carries the exit codes of the rust toolchain. */
+  it('ScopedTestCommand_RustProject_ReadsExit101AsRed', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+
+    expect(resolveScopedTestCommand(dir)).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
+  });
+
+  /**
+   * A configured command is not the command of a known toolchain, so only exit 1 reads as red, also in a Cargo project.
+   * The same text as the detected command keeps the exit codes of the detected toolchain.
+   */
+  it('ScopedTestCommand_ConfiguredCommand_HasNoKnownToolchainUnlessItIsTheDetectedCommand', () => {
+    const other = makeTmpDir();
+    writeFileSync(join(other, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+    writeFileSync(join(other, '.exarchos.yml'), 'test: cargo nextest run\n');
+    const same = makeTmpDir();
+    writeFileSync(join(same, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+    writeFileSync(join(same, '.exarchos.yml'), 'test: cargo test\n');
+
+    expect(resolveScopedTestCommand(other)).toEqual({ command: 'cargo nextest run', testFailureExitCodes: [1] });
+    expect(resolveScopedTestCommand(same)).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
+  });
+
+  /** A user toolchain of `.exarchos.yml` has no key for the exit codes, so its own command reads only exit 1 as red. */
+  it('ScopedTestCommand_UserToolchain_ReadsExit1AsRed', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+    writeFileSync(
+      join(dir, '.exarchos.yml'),
+      'toolchains:\n  - id: rust-workspace\n    markers: [Cargo.toml]\n    commands:\n      test: cargo test --workspace\n',
+    );
+
+    expect(resolveScopedTestCommand(dir)).toEqual({ command: 'cargo test --workspace', testFailureExitCodes: [1] });
   });
 
   it('ScopedTestCommand_MalformedPackageJson_IsNull', () => {
@@ -1489,7 +1536,7 @@ describe('resolveScopedTestCommand', () => {
 
   /** This repository runs `test:run` on the `unit` project only, so the probe needs the script to reach `tests/unit`. */
   it('ScopedTestCommand_ThisRepository_IsTheTestFilesScript', () => {
-    expect(resolveScopedTestCommand(REPO_ROOT)).toBe('npm run test:files');
+    expect(resolveScopedTestCommand(REPO_ROOT)).toEqual({ command: 'npm run test:files', testFailureExitCodes: [1] });
     expect(resolveTestRuntime(REPO_ROOT).test).toBe('npm run test:run');
     expect(resolveTestRuntime(REPO_ROOT).source).toBe('detection');
   });

@@ -30,6 +30,7 @@ import {
   interpretProbeVerdict,
   verdictOf,
   resolveProbeTestGlobs,
+  ADEQUACY_DISCRIMINANTS,
   DEFAULT_TEST_GLOBS,
   type AdequacyDiscriminant,
 } from '../../../../src/verbs/gates/test-adequacy.js';
@@ -263,7 +264,8 @@ describe('check_test_adequacy production path', () => {
           repoRoot,
           riskTier: 'high',
           runTests: async () => ({
-            passed: readFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'utf-8').includes('=> 2'),
+            kind: 'ran',
+            result: readFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'utf-8').includes('=> 2') ? 'green' : 'red',
           }),
         },
         ctx,
@@ -311,15 +313,9 @@ describe('check_test_adequacy production path', () => {
   }, 180_000);
 });
 
+/** `ALL_CAUSES` is the one list of causes beside the type, so a new cause joins each loop below with no edit here. */
 describe('ProbeVerdict algebra', () => {
-  const ALL_CAUSES: readonly AdequacyDiscriminant[] = [
-    'no-new-tests',
-    'revert-conflict',
-    'restore-failed',
-    'diff-failed',
-    'base-missing',
-    'baseline-red',
-  ];
+  const ALL_CAUSES: readonly AdequacyDiscriminant[] = ADEQUACY_DISCRIMINANTS;
 
   it('Indeterminate_AtRequiredTier_NeverPasses', () => {
     for (const cause of ALL_CAUSES) {
@@ -352,8 +348,11 @@ describe('ProbeVerdict algebra', () => {
     }
   });
 
+  /** Only `no-new-tests` means that there was nothing to probe. Every other cause is a probe that had to run and did not decide. */
   it('ExecutionFailureCauses_BlockOnEveryTier', () => {
-    for (const cause of ['revert-conflict', 'restore-failed', 'diff-failed', 'base-missing', 'baseline-red'] as const) {
+    const executionFailures = ALL_CAUSES.filter((cause) => cause !== 'no-new-tests');
+    expect(executionFailures).toContain('run-no-verdict');
+    for (const cause of executionFailures) {
       for (const tier of [undefined, 'low', 'medium', 'high']) {
         const interpretation = interpretProbeVerdict(
           { kind: 'indeterminate', cause, detail: 'probe could not execute' },
@@ -384,6 +383,10 @@ describe('ProbeVerdict algebra', () => {
     expect(
       interpretProbeVerdict({ kind: 'indeterminate', cause: 'baseline-red', detail: 'detail' }, 'low').report,
     ).toContain('before the revert');
+    const noVerdict = interpretProbeVerdict({ kind: 'indeterminate', cause: 'run-no-verdict', detail: 'detail' }, 'low');
+    expect(noVerdict.report).toContain('reached no verdict');
+    expect(noVerdict.report).toContain('never a kill');
+    expect(noVerdict.disposition).toBe('blocked');
   });
 
   it('Failed_IsNeverDowngradedByTier', () => {

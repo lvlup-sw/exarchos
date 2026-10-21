@@ -15,7 +15,13 @@ import { toPosix } from '../utils/paths.js';
 const pjoin = (...segments: string[]): string => toPosix(path.join(...segments));
 import { logger } from '../logger.js';
 import { loadExarchosConfig, type LoadResult } from './load-exarchos-config.js';
-import { detectToolchain, toolchainFromConfig, type ContractCommands, type Toolchain } from './toolchains.js';
+import {
+  detectToolchain,
+  testFailureExitCodesFor,
+  toolchainFromConfig,
+  type ContractCommands,
+  type Toolchain,
+} from './toolchains.js';
 import { resolveTaskRunner } from './task-runners.js';
 import { splitCommand } from './tokenize-command.js';
 import { LOCKS, INSTALL_METADATA } from './vendor/package-manager-detector/lockfiles.generated.js';
@@ -271,14 +277,29 @@ function detectScopedTest(repoRoot: string): string | null {
   return hasScript(pkg, profile.scopedTestScript) ? profile.scopedTest : null;
 }
 
+/** The command that the kill probe runs, and the exit codes that read as a red run of it. */
+export interface ScopedTestCommand {
+  readonly command: string;
+  /** The exit codes of a run with a failing test, from the toolchain registry. Exit 0 is green, and every other exit gives no verdict. */
+  readonly testFailureExitCodes: readonly number[];
+}
+
 /**
  * Resolves the command that the kill probe runs on a list of test files. The probe adds `-- <files>` to it.
  * A `test:files` package script comes first, because it runs only the files that it gets.
- * Without that script, the result is the `test` field of {@link resolveTestRuntime}.
+ * Without that script, the command is the `test` field of {@link resolveTestRuntime}.
  * The command is not a field of {@link ResolvedRuntime}. It has no source layer and no `command.resolved` event.
+ *
+ * The exit codes come from the detected built-in toolchain when the command is the command that its detection gives.
+ * Any other command has no known toolchain, so only exit 1 reads as red.
  */
-export function resolveScopedTestCommand(repoRoot: string): string | null {
-  return detectScopedTest(repoRoot) ?? resolveTestRuntime(repoRoot).test;
+export function resolveScopedTestCommand(repoRoot: string): ScopedTestCommand | null {
+  const scoped = detectScopedTest(repoRoot);
+  const command = scoped ?? resolveTestRuntime(repoRoot).test;
+  if (command === null) return null;
+  const detectedCommand = scoped ?? detect(repoRoot).test;
+  const toolchain = command === detectedCommand ? detectToolchain(repoRoot) : undefined;
+  return { command, testFailureExitCodes: testFailureExitCodesFor(toolchain) };
 }
 
 /**
