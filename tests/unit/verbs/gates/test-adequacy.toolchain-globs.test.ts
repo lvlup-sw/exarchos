@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -15,6 +15,7 @@ import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
+import type { TestRunFn } from '../../../../src/verbs/gates/test-adequacy.js';
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd: repoRoot, timeout: 30_000 });
@@ -44,7 +45,8 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
 
   /**
    * The Python repo keeps its tests under `tests/test_*.py`, which the co-located defaults do not match.
-   * The injected `runTests` fails on the reverted source, so the probe passes. The test checks only the classification.
+   * The injected `runTests` passes on the task source and fails on the reverted source, so the probe passes.
+   * The test checks the classification and that verdict.
    */
   it(
     'CheckTestAdequacy_PythonTestsLayout_ClassifiedAsTest',
@@ -76,7 +78,10 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
         { stateDir, eventStore, enableTelemetry: false } as DispatchContext,
       );
 
-      const runTests = async () => ({ passed: false, output: 'red on revert' });
+      const runTests: TestRunFn = async () => {
+        const reverted = readFileSync(path.join(repoRoot, 'src', 'calc.py'), 'utf-8').includes('return 1');
+        return { kind: 'ran', result: reverted ? 'red' : 'green', stdout: reverted ? 'red on revert' : 'green on the task source' };
+      };
 
       const result = await orchestrate(
         {
@@ -92,9 +97,11 @@ describe('check_test_adequacy toolchain test-glob threading (FIX-3)', () => {
       );
 
       expect(result.success).toBe(true);
-      const data = result.data as { probedTests: string[]; discriminant?: string };
-      expect(data.discriminant).not.toBe('no-new-tests');
+      const data = result.data as { probedTests: string[]; discriminant?: string; passed: boolean; redObserved: boolean };
+      expect(data.discriminant).toBeUndefined();
       expect(data.probedTests).toEqual(expect.arrayContaining(['tests/test_foo.py']));
+      expect(data.redObserved).toBe(true);
+      expect(data.passed).toBe(true);
     },
     120_000,
   );

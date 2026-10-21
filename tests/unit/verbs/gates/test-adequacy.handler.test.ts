@@ -27,8 +27,14 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { DEFAULTS } from '../../../../src/config/resolve.js';
-import { SKIPPED_BY_POLICY } from '../../../../src/verbs/gates/gate-utils.js';
-import { handleTestAdequacy } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { normalizeGateVerdict, SKIPPED_BY_POLICY } from '../../../../src/verbs/gates/gate-utils.js';
+import {
+  ADEQUACY_DISCRIMINANTS,
+  probeNotRun,
+  type AdequacyDiscriminant,
+} from '../../../../src/verbs/gates/test-adequacy.js';
+import { handleTestAdequacy, probeTestEnvironment } from '../../../../src/verbs/gates/test-adequacy-handler.js';
+import { STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
@@ -249,7 +255,7 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     const gitExec: GitExec = (_repoRoot, args) => {
       calls.push([...args]);
       if (args[0] === 'merge-base') return { stdout: `${sha}\n`, exitCode: 0 };
-      if (args[0] === 'diff') return { stdout: 'src/b.js\ntest/b.test.js\n', exitCode: 0 };
+      if (args[0] === 'diff') return { stdout: 'M\0src/b.js\0A\0test/b.test.js\0D\0test/old.test.js\0', exitCode: 0 };
       return { stdout: `unexpected git ${args.join(' ')}`, exitCode: 1 };
     };
     await handleTestAdequacy(
@@ -261,20 +267,47 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
         repoRoot: '/fake/repo',
         riskTier: 'medium',
         gitExec,
-        runTests: async () => ({ passed: true, output: '' }),
+        runTests: async () => ({ kind: 'ran', result: 'green' }),
       },
       ctx.stateDir,
       ctx.eventStore,
     );
     expect(calls).toEqual([
       ['merge-base', 'feature/x', 'task-2'],
-      ['diff', '--name-only', `${sha}...task-2`],
+      ['diff', '-z', '--no-renames', '--name-status', `${sha}...task-2`],
     ]);
     expect(mockRunProbe).toHaveBeenCalledOnce();
     expect(mockRunProbe.mock.calls[0]?.[0]).toMatchObject({
       baseRef: sha,
-      changedFiles: ['src/b.js', 'test/b.test.js'],
+      changedFiles: ['src/b.js', 'test/b.test.js', 'test/old.test.js'],
+      deletedFiles: ['test/old.test.js'],
     });
+  });
+
+  /** A diff output that is not NUL-separated name-status records is a diff failure, not a list of changed files. */
+  it('CheckTestAdequacy_ADiffThatDoesNotParse_IsADiffFailure', async () => {
+    const ctx = await makeCtx();
+    const sha = 'b'.repeat(40);
+    for (const stdout of ['src/b.js\ntest/b.test.js\n', 'R100\0src/a.js\0src/b.js\0', 'M\0\0']) {
+      const gitExec: GitExec = (_repoRoot, args) =>
+        args[0] === 'merge-base' ? { stdout: `${sha}\n`, exitCode: 0 } : { stdout, exitCode: 0 };
+      await handleTestAdequacy(
+        {
+          featureId: 'feat-unparsed-diff',
+          taskId: 'T-unparsed',
+          branch: 'task-2',
+          baseBranch: 'feature/x',
+          repoRoot: '/fake/repo',
+          riskTier: 'medium',
+          gitExec,
+          runTests: async () => ({ kind: 'ran', result: 'green' }),
+        },
+        ctx.stateDir,
+        ctx.eventStore,
+      );
+    }
+    expect(mockRunProbe).toHaveBeenCalledTimes(3);
+    for (const [args] of mockRunProbe.mock.calls) expect(args).toMatchObject({ diffFailed: true, changedFiles: [] });
   });
 
   it('CheckTestAdequacy_ARefGitWouldReadAsAnOption_NeverReachesGit', async () => {
@@ -294,7 +327,7 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
           repoRoot: '/fake/repo',
           riskTier: 'medium',
           gitExec,
-          runTests: async () => ({ passed: true, output: '' }),
+          runTests: async () => ({ kind: 'ran', result: 'green' }),
         },
         ctx.stateDir,
         ctx.eventStore,
@@ -316,12 +349,105 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
         repoRoot: '/fake/repo',
         riskTier: 'medium',
         gitExec,
-        runTests: async () => ({ passed: true, output: '' }),
+        runTests: async () => ({ kind: 'ran', result: 'green' }),
       },
       ctx.stateDir,
       ctx.eventStore,
     );
     expect(mockRunProbe).toHaveBeenCalledOnce();
     expect(mockRunProbe.mock.calls[0]?.[0]).toMatchObject({ diffFailed: true, changedFiles: [] });
+  });
+
+  /**
+   * The carrier verdict of each cause at each tier. A blocked probe states the verdict of its cause. A red run on the task
+   * source and a run with no verdict give `indeterminate`. The other causes give `fail`. An advisory skip gives
+   * `indeterminate`. A cause that is not in the table fails the test, so a new cause gets a verdict here.
+   */
+  it('CheckTestAdequacy_EachIndeterminateCause_StatesTheVerdictOfItsCause', async () => {
+    const ctx = await makeCtx();
+    const blockedVerdict: Readonly<Record<AdequacyDiscriminant, 'fail' | 'indeterminate'>> = {
+      'no-new-tests': 'fail',
+      'diff-failed': 'fail',
+      'revert-conflict': 'fail',
+      'restore-failed': 'fail',
+      'base-missing': 'fail',
+      'baseline-red': 'indeterminate',
+      'run-no-verdict': 'indeterminate',
+    };
+    expect(Object.keys(blockedVerdict)).toHaveLength(ADEQUACY_DISCRIMINANTS.length);
+    for (const cause of ADEQUACY_DISCRIMINANTS) expect(Object.keys(blockedVerdict)).toContain(cause);
+    const gitExec: GitExec = () => ({ stdout: 'fatal: no repository', exitCode: 128 });
+    let blockedRuns = 0;
+    for (const cause of ADEQUACY_DISCRIMINANTS) {
+      for (const riskTier of [undefined, 'low', 'medium', 'high'] as const) {
+        const label = `${cause} at ${String(riskTier)}`;
+        mockRunProbe.mockResolvedValueOnce(probeNotRun(cause, `injected ${cause}`, riskTier));
+        const result = await handleTestAdequacy(
+          {
+            featureId: 'feat-cause-verdict',
+            taskId: 'T-cause',
+            baseBranch: 'main',
+            repoRoot: '/fake/repo',
+            gitExec,
+            runTests: async () => ({ kind: 'ran', result: 'green' }),
+            ...(riskTier === undefined ? {} : { riskTier }),
+          },
+          ctx.stateDir,
+          ctx.eventStore,
+        );
+        expect(result.success, label).toBe(true);
+        const data = result.data as { passed: boolean; skipped?: boolean; verdict?: string; completeness?: string };
+        expect(data.completeness, label).toBe('complete');
+        expect(data.verdict, label).not.toBe('pass');
+        if (data.skipped === true) {
+          expect(data.verdict, label).toBe('indeterminate');
+        } else {
+          blockedRuns += 1;
+          expect(data.passed, label).toBe(false);
+          expect(data.verdict, label).toBe(blockedVerdict[cause]);
+        }
+        expect(normalizeGateVerdict(result), label).toBe(data.verdict);
+      }
+    }
+    expect(blockedRuns).toBeGreaterThanOrEqual((ADEQUACY_DISCRIMINANTS.length - 1) * 4);
+  });
+});
+
+/** Each store key with its directory under `scratchDir`, as the probe environment sets it. */
+function scratchStoreKeys(scratchDir: string): Record<string, string> {
+  return Object.fromEntries(Object.entries(STORE_LOCATION_ENV_KEYS).map(([location, key]) => [key, path.join(scratchDir, location)]));
+}
+
+/** The environment of one probe test run, read without a process. */
+describe('probeTestEnvironment', () => {
+  /** On POSIX a key of another case is another variable, so it stays. Each store key gets a directory under the scratch directory. */
+  it('ProbeTestEnvironment_OnPosix_SetsEachStoreKeyAndDropsEachPluginKey', () => {
+    const parent = {
+      PATH: '/usr/bin',
+      CLAUDE_PLUGIN_ROOT: '/plugin',
+      EXARCHOS_PLUGIN_ROOT: '/plugin',
+      WORKFLOW_STATE_DIR: '/live/state',
+      EXARCHOS_INSTALL_STATE_DIR: '/live/install',
+      workflow_state_dir: '/other',
+    };
+
+    expect(probeTestEnvironment(parent, '/scratch', 'linux')).toEqual({
+      PATH: '/usr/bin',
+      workflow_state_dir: '/other',
+      ...scratchStoreKeys('/scratch'),
+    });
+  });
+
+  /** Windows reads environment keys without case, so a store key or a plugin-mode key of any case goes. */
+  it('ProbeTestEnvironment_OnWindows_DropsAStoreOrPluginKeyOfAnyCase', () => {
+    const parent = {
+      Path: 'C:\\bin',
+      Claude_Plugin_Root: 'C:\\plugin',
+      exarchos_plugin_root: 'C:\\plugin',
+      workflow_state_dir: 'C:\\live',
+      Exarchos_Cache_Dir: 'C:\\cache',
+    };
+
+    expect(probeTestEnvironment(parent, 'C:\\scratch', 'win32')).toEqual({ Path: 'C:\\bin', ...scratchStoreKeys('C:\\scratch') });
   });
 });

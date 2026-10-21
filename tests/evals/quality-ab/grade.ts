@@ -21,9 +21,11 @@ import { execFileAsync, spawnAsync, SpawnFailure } from '../../../tools/test-hel
 
 import {
   runProbe,
+  type AdequacyDiscriminant,
   type ProbeResult,
   type TestRunFn,
 } from '../../../src/verbs/gates/test-adequacy.js';
+import { execFailureFields } from '../../../src/utils/process.js';
 import type { GitExec } from '../../../src/verbs/pure/execute-merge.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
@@ -158,20 +160,43 @@ async function evalGitAsync(repoRoot: string, args: readonly string[]): Promise<
 
 /**
  * Builds the test runner of the probe. The runner starts each test file of the run with `tsx` in the throwaway repo.
- * A test file is a `node:assert` script that exits non-zero on a failure. The run passes only when every file exits 0.
+ * A test file is a `node:assert` script that exits 1 on a failure. The run is green only when every file exits 0.
+ * Exit 1 is a red run. A timeout, a signal, a start failure or another exit code gives no verdict, as in the production runner.
  */
 export function makeEvalRunTests(tsx: string = TSX): TestRunFn {
   return async ({ repoRoot, testFiles }) => {
     for (const tf of testFiles) {
-      try {
-        await execFileAsync(tsx, [tf], { cwd: repoRoot, timeout: 120_000 });
-      } catch {
-        return { passed: false };
+      const run = await spawnAsync(tsx, [tf], { cwd: repoRoot, timeout: 120_000 });
+      const output = { stdout: run.stdout, stderr: run.stderr };
+      if (run.error !== undefined) {
+        const timedOut = execFailureFields(run.error).code === 'ETIMEDOUT';
+        return { kind: 'no-verdict', cause: timedOut ? 'timeout' : 'did-not-start', detail: run.error.message, ...output };
+      }
+      if (run.signal !== null) {
+        return { kind: 'no-verdict', cause: 'signal', detail: `the signal is ${run.signal}`, ...output };
+      }
+      if (run.status === 1) return { kind: 'ran', result: 'red', ...output };
+      if (run.status !== 0) {
+        return { kind: 'no-verdict', cause: 'unknown-exit-code', detail: `${tf} exited ${String(run.status)}`, ...output };
       }
     }
-    return { passed: true };
+    return { kind: 'ran', result: 'green' };
   };
 }
+
+/**
+ * Whether the probe measured the suite, for each indeterminate cause. It is a total `Record`, so a new cause without a value does not compile.
+ * No indeterminate cause measures the suite, because the probe observed no kill and no survival.
+ */
+const PROBE_CAUSE_MEASUREMENT: Readonly<Record<AdequacyDiscriminant, 'probed' | 'not-probed'>> = {
+  'no-new-tests': 'not-probed',
+  'revert-conflict': 'not-probed',
+  'restore-failed': 'not-probed',
+  'diff-failed': 'not-probed',
+  'base-missing': 'not-probed',
+  'baseline-red': 'not-probed',
+  'run-no-verdict': 'not-probed',
+};
 
 /** The injectable probe seam. The default is the production {@link runProbe}. */
 export type ProbeFn = (args: Parameters<typeof runProbe>[0]) => Promise<ProbeResult>;
@@ -189,7 +214,8 @@ export interface GradeAdequacyOptions {
 /**
  * Measures the test adequacy of a run with the diff-scoped kill probe.
  * A failed setup step or a failed probe gives `score: null` and an `error`, not a throw.
- * A run with no tests gives `no-new-tests` and no score. A revert conflict or a failed restore also gives no score.
+ * A run with no tests gives `no-new-tests` and no score. Every other indeterminate cause also gives no score, as `PROBE_CAUSE_MEASUREMENT` states.
+ * Tests that fail on the impl before the revert give `baseline-red` and no score, because the probe observes no kill.
  *
  * The probe needs a diff, so the function builds a throwaway git repo for each run and always removes it.
  * The base commit holds the task stub as `impl.ts`. The working tree holds the impl and the tests of the run.
@@ -257,7 +283,7 @@ export async function gradeAdequacy(
     if (probe.discriminant === 'no-new-tests') {
       return { probed: false, redObserved: false, score: null, discriminant: 'no-new-tests' };
     }
-    if (probe.discriminant === 'revert-conflict' || probe.discriminant === 'restore-failed') {
+    if (probe.discriminant !== undefined && PROBE_CAUSE_MEASUREMENT[probe.discriminant] === 'not-probed') {
       return { probed: false, redObserved: probe.redObserved, score: null, discriminant: probe.discriminant, error: `probe ${probe.discriminant}` };
     }
     return { probed: true, redObserved: probe.redObserved, score: probe.redObserved ? 1 : 0, ...(probe.discriminant ? { discriminant: probe.discriminant } : {}) };

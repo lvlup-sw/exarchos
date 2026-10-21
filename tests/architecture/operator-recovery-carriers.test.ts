@@ -68,7 +68,10 @@ interface RegisteredRecovery {
   readonly reason: string;
 }
 
-/** The recoveries that a shipped surface carries. Add a row with the notes line that states the recovery. */
+/**
+ * The recoveries that a shipped surface carries. Add a row with the notes line that states the recovery.
+ * A row can also name a remedy line with no `Recovery:` marker, such as the rule for the `test:files` script.
+ */
 const CARRIED: readonly CarriedRecovery[] = [
   {
     id: 'completion-skipped-check',
@@ -90,6 +93,37 @@ const CARRIED: readonly CarriedRecovery[] = [
       phrases: ['then call task_complete again', 'settle the claim under a new batch id'],
     },
   },
+  {
+    id: 'probe-unread-exit-code',
+    notes: 'Recovery: set a `test` command in `.exarchos.yml`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/gates/test-adequacy.integration.test.ts',
+      testCase: 'ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict',
+      phrases: ['the command exited 2', 'only exit 1 reads as a red run'],
+    },
+  },
+  {
+    id: 'probe-baseline-red',
+    notes: 'Recovery: make the scoped tests pass on the task source',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/references/testing-patterns.md',
+      phrases: ['make the scoped tests pass on the task source', 'then run `check_test_adequacy` again'],
+    },
+  },
+  {
+    id: 'probe-scoped-test-script',
+    notes: 'The script must run only the files that it gets.',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/references/testing-patterns.md',
+      phrases: [
+        'When `package.json` has a `test:files` script, the probe runs',
+        'The script must run only the files that it gets.',
+      ],
+    },
+  },
 ];
 
 /**
@@ -104,6 +138,14 @@ const REGISTERED: readonly RegisteredRecovery[] = [
     reason:
       'a human control: no row names the build that wrote it, so no reader can refuse a row of an earlier build. ' +
       'A stamp with the build commit is a follow-up',
+  },
+  {
+    id: 'probe-test-support-path',
+    notes: 'Recovery: when the report says that the task changes no source file',
+    owner: '#1540, which makes the test-support table of the probe configurable',
+    reason:
+      'no shipped text names the directory segments of the table. The report says only that the probe keeps ' +
+      'test-support files, and it names no file that the probe did not revert',
   },
 ];
 
@@ -377,7 +419,7 @@ describe('OperatorRecoveryCarriers — each recovery of the notes reaches a ship
     const [entry] = REGISTERED;
     expect(entry).toBeDefined();
     if (entry === undefined) return;
-    expect(disagreements(world, CARRIED, [{ ...entry, owner: ' ', reason: '' }])).toEqual([
+    expect(disagreements(world, CARRIED, [{ ...entry, owner: ' ', reason: '' }, ...REGISTERED.slice(1)])).toEqual([
       `${entry.id}: the register entry names no owner`,
       `${entry.id}: the register entry names no reason`,
     ]);

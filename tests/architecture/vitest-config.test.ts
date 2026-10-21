@@ -2,7 +2,13 @@ import { describe, it, expect } from 'vitest';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import vitestConfig, { CLOSE_SQLITE, FILE_BOUNDARY_RESET, WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
+import vitestConfig, {
+  CLOSE_SQLITE,
+  FILE_BOUNDARY_RESET,
+  PATH_BINARY_PREFLIGHT,
+  WIN32_SPAWN_HEADROOM,
+} from '../../vitest.config.js';
+import { PATH_BINARY_TEST_GLOBS } from '../../tools/test-helpers/run-test-files.mjs';
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../..');
 const PACKAGE_JSON = join(REPO_ROOT, 'package.json');
@@ -63,6 +69,35 @@ function fileBoundaryViolations(blocks: ReadonlyArray<Record<string, unknown>>):
     if (sharesAProcess(block) && !setupFiles.includes(CLOSE_SQLITE)) {
       violations.push(`${name}: files share a process but ${CLOSE_SQLITE} is not a setup file`);
     }
+  }
+  return violations;
+}
+
+function includesOf(block: Record<string, unknown>): string[] {
+  const include = block['include'];
+  return Array.isArray(include) ? include.filter((glob): glob is string => typeof glob === 'string') : [];
+}
+
+/**
+ * The drift between the glob table of the `test:files` script and the projects whose setup checks the PATH binary.
+ * It names each include glob of such a project that the table does not hold. It also names each table glob that no such project includes.
+ */
+function pathBinaryGlobViolations(
+  blocks: ReadonlyArray<Record<string, unknown>>,
+  scriptGlobs: readonly string[],
+): string[] {
+  const violations: string[] = [];
+  const projectGlobs = new Set<string>();
+  for (const block of blocks) {
+    if (!setupFilesOf(block).includes(PATH_BINARY_PREFLIGHT)) continue;
+    const name = typeof block['name'] === 'string' ? block['name'] : '(unnamed)';
+    for (const glob of includesOf(block)) {
+      projectGlobs.add(glob);
+      if (!scriptGlobs.includes(glob)) violations.push(`${name}: ${glob} is not in the test:files glob table`);
+    }
+  }
+  for (const glob of scriptGlobs) {
+    if (!projectGlobs.has(glob)) violations.push(`test:files: ${glob} is in no project with ${PATH_BINARY_PREFLIGHT}`);
   }
   return violations;
 }
@@ -257,5 +292,37 @@ describe('vitest.config', () => {
       `single: files share a process but ${CLOSE_SQLITE} is not a setup file`,
     ]);
     expect(fileBoundaryViolations([twin, isolated])).toEqual([]);
+  });
+
+  /**
+   * The setup of the `process` project checks the `exarchos` binary on PATH. The `test:files` script builds the binary of the
+   * working tree only for a file that its glob table matches. So the table holds the include globs of each project with that setup.
+   */
+  it('VitestConfig_PathBinaryProjects_HaveEachIncludeGlobInTheTestFilesScript', () => {
+    const blocks = projectTestBlocks();
+    const binaryProjects = blocks
+      .filter((block) => setupFilesOf(block).includes(PATH_BINARY_PREFLIGHT))
+      .map((block) => block['name']);
+
+    expect(existsSync(join(REPO_ROOT, PATH_BINARY_PREFLIGHT))).toBe(true);
+    expect(binaryProjects).toContain('process');
+    expect(PATH_BINARY_TEST_GLOBS.length).toBeGreaterThan(0);
+    expect(pathBinaryGlobViolations(blocks, PATH_BINARY_TEST_GLOBS)).toEqual([]);
+  });
+
+  /** A project with the PATH check and a glob that the table lacks appears by name, and so does a stale table glob. Their twin passes. */
+  it('VitestConfig_PathBinaryGlobRule_NamesASeededProjectAndPassesItsTwin', () => {
+    const setupFiles = [FILE_BOUNDARY_RESET, PATH_BINARY_PREFLIGHT];
+    const seeded = { name: 'seeded', include: ['tests/seeded/**/*.test.ts'], setupFiles };
+    const twin = { name: 'twin', include: [...PATH_BINARY_TEST_GLOBS], setupFiles };
+    const noCheck = { name: 'no-check', include: ['tests/other/**/*.test.ts'], setupFiles: [FILE_BOUNDARY_RESET] };
+
+    expect(pathBinaryGlobViolations([twin, seeded, noCheck], PATH_BINARY_TEST_GLOBS)).toEqual([
+      'seeded: tests/seeded/**/*.test.ts is not in the test:files glob table',
+    ]);
+    expect(pathBinaryGlobViolations([twin], [...PATH_BINARY_TEST_GLOBS, 'tests/stale/**/*.test.ts'])).toEqual([
+      `test:files: tests/stale/**/*.test.ts is in no project with ${PATH_BINARY_PREFLIGHT}`,
+    ]);
+    expect(pathBinaryGlobViolations([twin, noCheck], PATH_BINARY_TEST_GLOBS)).toEqual([]);
   });
 });

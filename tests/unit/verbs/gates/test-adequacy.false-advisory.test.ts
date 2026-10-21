@@ -7,7 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync, existsSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -94,6 +94,53 @@ describe('TestAdequacy_CommittedBranchDiscovery (WFQ-005)', () => {
     expect(viaHead.ok).toBe(true);
     if (!viaHead.ok) return;
     expect(viaHead.files).toEqual([]);
+  });
+
+  /**
+   * The branch deletes a test file of the base, so the diff marks it deleted and the probe never runs it.
+   * The new test file is almost the same as the deleted one, so git with rename detection reports a rename.
+   * The diff turns rename detection off and is NUL-separated, so git does not quote a path with non-ASCII characters.
+   */
+  it('marks a deleted test file as deleted, keeps a non-ASCII path unquoted, and probes only the tests at the head', async () => {
+    const repoRoot = await initRepo('wfq005-deleted-');
+    mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+    writeFileSync(path.join(repoRoot, 'src', 'kept.js'), 'export const kept = () => 1;\n');
+    const sharedLines = Array.from({ length: 12 }, (_, i) => `// shared line ${i}\n`).join('');
+    writeFileSync(path.join(repoRoot, 'src', 'old.test.js'), `${sharedLines}// pins kept()===1\n`);
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'base', '-q']);
+    const baseRef = (await git(repoRoot, ['rev-parse', 'HEAD'])).trim();
+    await git(repoRoot, ['checkout', '-b', 'feature/replace', '-q']);
+    writeFileSync(path.join(repoRoot, 'src', 'kept.js'), 'export const kept = () => 2;\n');
+    await git(repoRoot, ['rm', '-q', 'src/old.test.js']);
+    writeFileSync(path.join(repoRoot, 'src', 'räkna.test.js'), `${sharedLines}// pins kept()===2\n`);
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'task: replace the test', '-q']);
+
+    const changed = changedFilesFor(realGitExec, repoRoot, baseRef, 'feature/replace');
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) return;
+    expect(changed.files).toHaveLength(3);
+    for (const file of ['src/kept.js', 'src/old.test.js', 'src/räkna.test.js']) {
+      expect(changed.files).toContain(file);
+    }
+    expect(changed.deletedFiles).toEqual(['src/old.test.js']);
+
+    const result = await runProbe({
+      gitExec: realGitExec,
+      repoRoot,
+      baseRef,
+      changedFiles: changed.files,
+      deletedFiles: changed.deletedFiles,
+      riskTier: 'high',
+      runTests: async () => ({
+        kind: 'ran',
+        result: readFileSync(path.join(repoRoot, 'src', 'kept.js'), 'utf-8').includes('=> 2') ? 'green' : 'red',
+      }),
+    });
+    expect(result.probedTests).toEqual(['src/räkna.test.js']);
+    expect(result.passed).toBe(true);
+    expect(existsSync(path.join(repoRoot, 'src', 'old.test.js'))).toBe(false);
   });
 
   it('reports a git failure as a failure rather than an empty file list', async () => {
@@ -196,7 +243,7 @@ describe('TestAdequacy_TaskAddedSource_RealKillProbe (WFQ-005)', () => {
     if (!changed.ok) return;
 
     const runTests: TestRunFn = () =>
-      Promise.resolve(existsSync(path.join(repoRoot, 'src', 'added.js')));
+      Promise.resolve({ kind: 'ran', result: existsSync(path.join(repoRoot, 'src', 'added.js')) ? 'green' : 'red' });
 
     const result = await runProbe({
       gitExec: realGitExec,

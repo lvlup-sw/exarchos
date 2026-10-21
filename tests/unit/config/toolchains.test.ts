@@ -5,12 +5,15 @@ import { join } from 'node:path';
 import {
   detectToolchain,
   toolchainFromConfig,
+  testFailureExitCodesFor,
   BUILTIN_TOOLCHAINS,
+  DEFAULT_TEST_FAILURE_EXIT_CODES,
   classifyHermeticDependency,
   resolveHermeticDouble,
   type Toolchain,
   type HermeticDependencyClass,
 } from '../../../src/config/toolchains.js';
+import { ExarchosConfigSchema } from '../../../src/config/exarchos-config-schema.js';
 import { rmrf } from '../../../tools/test-helpers/temp-dir.js';
 
 let dir: string;
@@ -180,6 +183,71 @@ describe('BUILTIN_TOOLCHAINS — registry integrity', () => {
     expect(dotnet?.markers).toEqual(
       expect.arrayContaining(['*.csproj', '*.sln', '*.slnx']),
     );
+  });
+});
+
+/**
+ * The red exit codes of each built-in toolchain. Each description says where its codes come from: a measured run, the documentation or the source.
+ * A row with no description holds the default, and no run measured it.
+ */
+const RED_EXIT_CODES_BY_TOOLCHAIN: Readonly<Record<string, readonly number[]>> = {
+  /** Measured: a failing test and a test file that does not import both exit 1, in vitest and in `node --test`. */
+  node: [1],
+  /** Measured: a build error and a failing VSTest test exit 1. A failing Microsoft.Testing.Platform test exits 2. */
+  dotnet: [1, 2],
+  /** Measured: a failing test and a compile error of the reverted source both exit 101. */
+  rust: [101],
+  /** Measured: a failing test and a build error of the reverted source both exit 1. */
+  go: [1],
+  /** Measured: a failing test exits 1, and a test module that does not import exits 2. */
+  python: [1, 2],
+  'java-gradle': [1],
+  'java-maven': [1],
+  ruby: [1],
+  /** From the source of PHPUnit and Composer: a failing test exits 1, a test error exits 2, and Composer passes the code through. */
+  php: [1, 2],
+  /** From the documentation of `mix test`: a failing test exits 2 by default, and a compile error exits 1. */
+  elixir: [1, 2],
+  swift: [1],
+  /** Measured: a failing test and a test that does not run both exit 8. */
+  cmake: [8],
+};
+
+/**
+ * The kill probe reads exit 0 as green, these exit codes as red, and every other exit as a run with no verdict.
+ * A runner whose failure code is not 1 needs its own row, or each honest kill gives no verdict and blocks.
+ */
+describe('testFailureExitCodesFor — the red exit codes of a test run', () => {
+  /** The denominator: the table holds each built-in toolchain once, so a new toolchain without a row fails here. */
+  it('TestFailureExitCodes_Table_HoldsEachBuiltinOnce', () => {
+    const ids = BUILTIN_TOOLCHAINS.map((t) => t.id);
+
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids.filter((id) => RED_EXIT_CODES_BY_TOOLCHAIN[id] === undefined)).toEqual([]);
+    expect(Object.keys(RED_EXIT_CODES_BY_TOOLCHAIN).filter((id) => !ids.includes(id))).toEqual([]);
+  });
+
+  for (const toolchain of BUILTIN_TOOLCHAINS) {
+    it(`TestFailureExitCodes_${toolchain.id}_IsTheCodesOfItsRunner`, () => {
+      expect(testFailureExitCodesFor(toolchain)).toEqual(RED_EXIT_CODES_BY_TOOLCHAIN[toolchain.id]);
+    });
+  }
+
+  it('TestFailureExitCodes_Default_IsExit1', () => {
+    expect(DEFAULT_TEST_FAILURE_EXIT_CODES).toEqual([1]);
+  });
+
+  it('TestFailureExitCodes_NoToolchain_IsTheDefault', () => {
+    expect(testFailureExitCodesFor(undefined)).toEqual([1]);
+  });
+
+  /** The codes are not a config key: a user toolchain carries none, and the strict schema refuses the key. */
+  it('TestFailureExitCodes_UserToolchain_HasNoConfigKey', () => {
+    const entry = { id: 'rust-ws', markers: ['Cargo.toml'], commands: { test: 'cargo test --workspace' } };
+
+    expect(testFailureExitCodesFor(toolchainFromConfig(entry))).toEqual([1]);
+    expect(ExarchosConfigSchema.safeParse({ toolchains: [entry] }).success).toBe(true);
+    expect(ExarchosConfigSchema.safeParse({ toolchains: [{ ...entry, testFailureExitCodes: [101] }] }).success).toBe(false);
   });
 });
 

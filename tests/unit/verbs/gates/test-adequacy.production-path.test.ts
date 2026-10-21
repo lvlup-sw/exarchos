@@ -11,7 +11,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
-import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
@@ -30,6 +30,7 @@ import {
   interpretProbeVerdict,
   verdictOf,
   resolveProbeTestGlobs,
+  ADEQUACY_DISCRIMINANTS,
   DEFAULT_TEST_GLOBS,
   type AdequacyDiscriminant,
 } from '../../../../src/verbs/gates/test-adequacy.js';
@@ -51,6 +52,8 @@ async function initRepo(prefix: string): Promise<string> {
 /** The carrier that the gate returns. */
 interface AdequacyData {
   readonly passed: boolean;
+  readonly verdict?: string;
+  readonly completeness?: string;
   readonly disposition?: string;
   readonly skipped?: boolean;
   readonly probedTests?: readonly string[];
@@ -232,8 +235,9 @@ describe('check_test_adequacy production path', () => {
   /**
    * The root marker `pyproject.toml` selects python, but the task adds the
    * co-located test `src/calc.test.ts`. The probe must include that file. The
-   * injected `runTests` reports red on the reverted source, so the disposition
-   * is `proved`. The test enters at `handleOrchestrate` to inject `runTests`.
+   * injected `runTests` reports green on the task source and red on the
+   * reverted source, so the disposition is `proved`. The test enters at
+   * `handleOrchestrate` to inject `runTests`.
    */
   it('ProductionPath_ColocatedTestsUnderLayoutToolchain_ResolvesNonEmptyProbedTests', async () => {
     const repoRoot = await initRepo('prodpath-subject-');
@@ -261,7 +265,10 @@ describe('check_test_adequacy production path', () => {
           baseBranch: 'main',
           repoRoot,
           riskTier: 'high',
-          runTests: async () => ({ passed: false, output: 'red on revert' }),
+          runTests: async () => ({
+            kind: 'ran',
+            result: readFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'utf-8').includes('=> 2') ? 'green' : 'red',
+          }),
         },
         ctx,
       ),
@@ -275,6 +282,131 @@ describe('check_test_adequacy production path', () => {
     expect(data.disposition).toBe('proved');
     expect(data.passed).toBe(true);
     expect(data.skipped).toBeUndefined();
+  }, 180_000);
+
+  /**
+   * A red run on the task source gives `baseline-red`. The run says nothing about the tests of the task, so the
+   * carrier states the verdict `indeterminate`. The evidence verdict follows the carrier, not the older reading of
+   * `passed: false` as `fail`. The runner row carries the verdict and the completeness of the carrier.
+   */
+  it('ProductionPath_BaselineRed_DurableRowsRecordIndeterminateNotFail', async () => {
+    const repoRoot = await initRepo('prodpath-baseline-red-');
+    cleanups.push(() => rmrf(repoRoot));
+    writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"fx","version":"1.0.0"}\n');
+    mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+    writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 1;\n');
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'base', '-q']);
+    await git(repoRoot, ['checkout', '-b', 'feature/red', '-q']);
+    writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 2;\n');
+    writeFileSync(path.join(repoRoot, 'src', 'calc.test.js'), '// pins v() === 2\n');
+    await git(repoRoot, ['add', '.']);
+    await git(repoRoot, ['commit', '-m', 'feat + co-located test', '-q']);
+
+    const ctx = await makeCtx('prodpath-baseline-red-state-', 'feat-baseline-red');
+    const runs: string[] = [];
+    const result = await runAsTrustedCaller(ctx.stateDir, () =>
+      handleOrchestrate(
+        {
+          action: 'check_test_adequacy',
+          featureId: 'feat-baseline-red',
+          taskId: 'T-baseline-red',
+          branch: 'feature/red',
+          baseBranch: 'main',
+          repoRoot,
+          riskTier: 'medium',
+          runTests: async () => {
+            runs.push('run');
+            return { kind: 'ran', result: 'red' };
+          },
+        },
+        ctx,
+      ),
+    );
+
+    expect(result.success).toBe(true);
+    const data = dataOf(result);
+    expect(runs).toEqual(['run']);
+    expect(data.discriminant).toBe('baseline-red');
+    expect(data.disposition).toBe('blocked');
+    expect(data.passed).toBe(false);
+    expect(data.verdict).toBe('indeterminate');
+    expect(data.completeness).toBe('complete');
+
+    const evidenceRows = await ctx.eventStore.query('feat-baseline-red', { type: 'admission.evidence-recorded' });
+    expect(evidenceRows).toHaveLength(1);
+    expect(evidenceRows.map((e) => (e.data as { evidence?: { verdict?: string } }).evidence?.verdict)).toEqual([
+      'indeterminate',
+    ]);
+    const adequacy = (await ctx.eventStore.query('feat-baseline-red', { type: 'gate.executed' }))
+      .map((e) => e.data as { gateName?: string; passed?: boolean; details?: Record<string, unknown> })
+      .filter((row) => row.gateName === 'test-adequacy');
+    expect(adequacy).toHaveLength(1);
+    expect(adequacy[0]?.passed).toBe(false);
+    expect(adequacy[0]?.details).toMatchObject({ verdict: 'indeterminate', completeness: 'complete' });
+  }, 180_000);
+
+  /**
+   * A run with no verdict gives `run-no-verdict`, on the task source and after the revert. Neither run says anything
+   * about the tests of the task, so the carrier, the evidence and the runner row record `indeterminate`, never `fail`.
+   */
+  it('ProductionPath_RunNoVerdict_DurableRowsRecordIndeterminateNotFail', async () => {
+    for (const run of ['on the task source', 'after the revert'] as const) {
+      const repoRoot = await initRepo('prodpath-no-verdict-');
+      cleanups.push(() => rmrf(repoRoot));
+      writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"fx","version":"1.0.0"}\n');
+      mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 1;\n');
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'base', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/no-verdict', '-q']);
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 2;\n');
+      writeFileSync(path.join(repoRoot, 'src', 'calc.test.js'), '// pins v() === 2\n');
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat + co-located test', '-q']);
+
+      const featureId = run === 'on the task source' ? 'feat-no-verdict-pre' : 'feat-no-verdict-post';
+      const ctx = await makeCtx('prodpath-no-verdict-state-', featureId);
+      const result = await runAsTrustedCaller(ctx.stateDir, () =>
+        handleOrchestrate(
+          {
+            action: 'check_test_adequacy',
+            featureId,
+            taskId: 'T-no-verdict',
+            branch: 'feature/no-verdict',
+            baseBranch: 'main',
+            repoRoot,
+            riskTier: 'medium',
+            runTests: async ({ repoRoot: runRoot }) =>
+              run === 'after the revert' && readFileSync(path.join(runRoot, 'src', 'calc.js'), 'utf-8').includes('=> 2')
+                ? { kind: 'ran', result: 'green' }
+                : { kind: 'no-verdict', cause: 'timeout', detail: 'the limit is 120000 ms' },
+          },
+          ctx,
+        ),
+      );
+
+      expect(result.success, run).toBe(true);
+      const data = dataOf(result);
+      expect(data.discriminant, run).toBe('run-no-verdict');
+      expect(data.report, run).toContain(`${run} reached no verdict (timeout)`);
+      expect(data.disposition, run).toBe('blocked');
+      expect(data.passed, run).toBe(false);
+      expect(data.redObserved, run).toBe(false);
+      expect(data.verdict, run).toBe('indeterminate');
+      expect(data.completeness, run).toBe('complete');
+
+      const evidenceRows = await ctx.eventStore.query(featureId, { type: 'admission.evidence-recorded' });
+      expect(evidenceRows.map((e) => (e.data as { evidence?: { verdict?: string } }).evidence?.verdict), run).toEqual([
+        'indeterminate',
+      ]);
+      const adequacy = (await ctx.eventStore.query(featureId, { type: 'gate.executed' }))
+        .map((e) => e.data as { gateName?: string; passed?: boolean; details?: Record<string, unknown> })
+        .filter((row) => row.gateName === 'test-adequacy');
+      expect(adequacy, run).toHaveLength(1);
+      expect(adequacy[0]?.passed, run).toBe(false);
+      expect(adequacy[0]?.details, run).toMatchObject({ verdict: 'indeterminate', completeness: 'complete' });
+    }
   }, 180_000);
 
   /**
@@ -305,16 +437,13 @@ describe('check_test_adequacy production path', () => {
     expect(data.disposition).toBe('blocked');
     expect(data.discriminant).toBe('diff-failed');
     expect(data.skipped).toBeUndefined();
+    expect(data.verdict).toBe('fail');
   }, 180_000);
 });
 
+/** `ALL_CAUSES` is the one list of causes beside the type, so a new cause joins each loop below with no edit here. */
 describe('ProbeVerdict algebra', () => {
-  const ALL_CAUSES: readonly AdequacyDiscriminant[] = [
-    'no-new-tests',
-    'revert-conflict',
-    'restore-failed',
-    'diff-failed',
-  ];
+  const ALL_CAUSES: readonly AdequacyDiscriminant[] = ADEQUACY_DISCRIMINANTS;
 
   it('Indeterminate_AtRequiredTier_NeverPasses', () => {
     for (const cause of ALL_CAUSES) {
@@ -347,8 +476,11 @@ describe('ProbeVerdict algebra', () => {
     }
   });
 
+  /** Only `no-new-tests` means that there was nothing to probe. Every other cause is a probe that had to run and did not decide. */
   it('ExecutionFailureCauses_BlockOnEveryTier', () => {
-    for (const cause of ['revert-conflict', 'restore-failed', 'diff-failed'] as const) {
+    const executionFailures = ALL_CAUSES.filter((cause) => cause !== 'no-new-tests');
+    expect(executionFailures).toContain('run-no-verdict');
+    for (const cause of executionFailures) {
       for (const tier of [undefined, 'low', 'medium', 'high']) {
         const interpretation = interpretProbeVerdict(
           { kind: 'indeterminate', cause, detail: 'probe could not execute' },
@@ -358,6 +490,31 @@ describe('ProbeVerdict algebra', () => {
         expect(interpretation.disposition).toBe('blocked');
       }
     }
+  });
+
+  /**
+   * The report states what the probe did for each cause. A probe that stopped on `baseline-red` ran the tests,
+   * so its report must not say that the probe did not run. A probe that never started must say so.
+   */
+  it('Indeterminate_Report_StatesWhatTheProbeDidForEachCause', () => {
+    const neverStarted: readonly AdequacyDiscriminant[] = ['no-new-tests', 'diff-failed', 'base-missing'];
+    for (const cause of ALL_CAUSES) {
+      for (const tier of [undefined, 'low', 'medium', 'high']) {
+        const report = interpretProbeVerdict({ kind: 'indeterminate', cause, detail: 'detail' }, tier).report ?? '';
+        if (neverStarted.includes(cause)) {
+          expect(report, `${cause} at ${String(tier)}`).toContain('the kill probe did not run');
+        } else {
+          expect(report, `${cause} at ${String(tier)}`).not.toContain('did not run');
+        }
+      }
+    }
+    expect(
+      interpretProbeVerdict({ kind: 'indeterminate', cause: 'baseline-red', detail: 'detail' }, 'low').report,
+    ).toContain('before the revert');
+    const noVerdict = interpretProbeVerdict({ kind: 'indeterminate', cause: 'run-no-verdict', detail: 'detail' }, 'low');
+    expect(noVerdict.report).toContain('reached no verdict');
+    expect(noVerdict.report).toContain('never a kill');
+    expect(noVerdict.disposition).toBe('blocked');
   });
 
   it('Failed_IsNeverDowngradedByTier', () => {

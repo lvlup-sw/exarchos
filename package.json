@@ -57,6 +57,7 @@
     "test:core": "vitest run --project core",
     "test:coverage": "vitest run --project core --coverage",
     "test:run": "npm run test:unit",
+    "test:files": "node tools/test-helpers/run-test-files.mjs",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tools/conformance && tsc --noEmit -p tests",
     "version:sync": "bash tools/release/sync-versions.sh",
     "version:check": "bash tools/release/sync-versions.sh --check",

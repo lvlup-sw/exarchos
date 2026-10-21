@@ -159,13 +159,18 @@ export function expandTilde(p: string, home: string = os.homedir()): string {
 }
 
 /**
- * True when the process runs as a Claude Code plugin, which `CLAUDE_PLUGIN_ROOT`
- * or `EXARCHOS_PLUGIN_ROOT` signals. `env` defaults to the live `process.env`.
+ * The environment keys that turn on plugin mode. A child process that must not select the plugin store gets none of them.
+ */
+export const PLUGIN_MODE_ENV_KEYS: readonly string[] = ['CLAUDE_PLUGIN_ROOT', 'EXARCHOS_PLUGIN_ROOT'];
+
+/**
+ * True when the process runs as a Claude Code plugin, which a key of
+ * {@link PLUGIN_MODE_ENV_KEYS} signals. `env` defaults to the live `process.env`.
  */
 export function isClaudeCodePlugin(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): boolean {
-  return !!(env['CLAUDE_PLUGIN_ROOT'] || env['EXARCHOS_PLUGIN_ROOT']);
+  return PLUGIN_MODE_ENV_KEYS.some((key) => !!env[key]);
 }
 
 /**
@@ -184,6 +189,23 @@ export interface StorePathResolutionInputs {
   /** Home directory. Default: `os.homedir()`. */
   readonly homedir?: string;
 }
+
+/** A store location that an environment key can set. */
+export type StoreLocation = 'state' | 'teams' | 'tasks' | 'cache' | 'installIdentity';
+
+/**
+ * The environment key of each store location. Each store resolver of this file reads its key from this record.
+ * A child process that must not reach a live store gets each key set to a scratch directory.
+ * A key that is only deleted is not safe, because the resolver then falls back to a store under the home directory.
+ * The record leaves out `XDG_STATE_HOME` and the home directory on purpose. A resolver reads them only when its own key is absent.
+ */
+export const STORE_LOCATION_ENV_KEYS: Readonly<Record<StoreLocation, string>> = {
+  state: 'WORKFLOW_STATE_DIR',
+  teams: 'EXARCHOS_TEAMS_DIR',
+  tasks: 'EXARCHOS_TASKS_DIR',
+  cache: 'EXARCHOS_CACHE_DIR',
+  installIdentity: 'EXARCHOS_INSTALL_STATE_DIR',
+};
 
 /**
  * Resolve a directory with this precedence:
@@ -227,7 +249,7 @@ function resolveDir(
  * Env: `WORKFLOW_STATE_DIR` | Claude: `~/.claude/workflow-state` | Default: `~/.exarchos/state`
  */
 export function resolveStateDir(inputs?: StorePathResolutionInputs): string {
-  return resolveDir('WORKFLOW_STATE_DIR', 'workflow-state', 'state', inputs);
+  return resolveDir(STORE_LOCATION_ENV_KEYS.state, 'workflow-state', 'state', inputs);
 }
 
 /**
@@ -370,7 +392,7 @@ export function describeStoreDivergence(d: ActiveStoreDivergence): string {
  * Env: `EXARCHOS_TEAMS_DIR` | Claude: `~/.claude/teams` | Default: `~/.exarchos/teams`
  */
 export function resolveTeamsDir(): string {
-  return resolveDir('EXARCHOS_TEAMS_DIR', 'teams', 'teams');
+  return resolveDir(STORE_LOCATION_ENV_KEYS.teams, 'teams', 'teams');
 }
 
 /**
@@ -378,7 +400,7 @@ export function resolveTeamsDir(): string {
  * Env: `EXARCHOS_TASKS_DIR` | Claude: `~/.claude/tasks` | Default: `~/.exarchos/tasks`
  */
 export function resolveTasksDir(): string {
-  return resolveDir('EXARCHOS_TASKS_DIR', 'tasks', 'tasks');
+  return resolveDir(STORE_LOCATION_ENV_KEYS.tasks, 'tasks', 'tasks');
 }
 
 /**
@@ -387,7 +409,7 @@ export function resolveTasksDir(): string {
  * Env: `EXARCHOS_CACHE_DIR` | Claude: `~/.claude/cache` | Default: `~/.exarchos/cache`
  */
 export function resolveCacheDir(inputs?: StorePathResolutionInputs): string {
-  return resolveDir('EXARCHOS_CACHE_DIR', 'cache', 'cache', inputs);
+  return resolveDir(STORE_LOCATION_ENV_KEYS.cache, 'cache', 'cache', inputs);
 }
 
 /**
@@ -404,7 +426,7 @@ export function resolveInstallIdentityDir(
   const env = inputs?.env ?? process.env;
   const home = inputs?.homedir ?? os.homedir();
 
-  const explicit = env['EXARCHOS_INSTALL_STATE_DIR'];
+  const explicit = env[STORE_LOCATION_ENV_KEYS.installIdentity];
   if (explicit) return toPosix(expandTilde(explicit, home));
 
   const xdgStateHome = env['XDG_STATE_HOME'];

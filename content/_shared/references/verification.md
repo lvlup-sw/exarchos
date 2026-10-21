@@ -24,8 +24,9 @@ When a task is high-tier (or you have chosen to write a test for a medium-tier b
 3. Property tests (where they fit) are written alongside the example tests
 
 ### Prove the tests are not vacuous
-1. The `check_test_adequacy` gate reverts your source hunks (keeping the tests) and re-runs them, asserting at least one goes red
-2. A test that still passes against the reverted source is vacuous — strengthen it
+1. The `check_test_adequacy` gate runs your tests on the task source first. A red run there is `baseline-red`, which blocks and is not a kill
+2. Then it reverts your source hunks (keeping the tests) and re-runs them, asserting at least one goes red
+3. A test that still passes against the reverted source is vacuous — strengthen it
 
 ### Integration coverage (high tier)
 1. Real-collaborator coverage across the seam belongs in the task's own scoped tests — write them at the layer the seam lives at
@@ -60,6 +61,10 @@ install: bun install
 When no `.exarchos.yml` is present and detection cannot resolve a command (e.g.,
 an npm project missing a `test:run` script), the relevant gate is skipped with
 remediation text rather than failed.
+
+The `check_test_adequacy` kill probe runs only the changed test files of the task.
+The test command that it runs, and the `test:files` script that selects it, are in
+`@skills/delegate/references/testing-patterns.md`, which every runtime ships.
 
 For test code patterns and examples, see `@skills/delegate/references/testing-patterns.md`.
 For property-based testing templates, see `@skills/delegate/references/pbt-patterns.md`.

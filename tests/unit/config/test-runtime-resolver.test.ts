@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 
 import {
   resolveRunnableCommand,
+  resolveScopedTestCommand,
   resolveTestRuntime,
   resolveVerificationRuntime,
 } from '../../../src/config/test-runtime-resolver.js';
@@ -1365,5 +1366,178 @@ describe('resolveRunnableCommand', () => {
 
     expect(result.kind).toBe('invalid');
     expect(result.kind !== 'runnable' && result.reason).toMatch(/cannot be parsed/);
+  });
+});
+
+/**
+ * The kill probe runs the scoped test command with `-- <files>` after it. A `test:files` package script
+ * is that command when it exists. Otherwise the command is the resolved `test` field, as before.
+ */
+describe('resolveScopedTestCommand', () => {
+  const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
+  const tmpDirs: string[] = [];
+  function makeTmpDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), 'scoped-'));
+    tmpDirs.push(dir);
+    return dir;
+  }
+  afterEach(() => {
+    for (const dir of tmpDirs) rmrf(dir);
+    tmpDirs.length = 0;
+  });
+
+  function writeScripts(dir: string, scripts: Readonly<Record<string, string>>): void {
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ scripts }));
+  }
+
+  it('ScopedTestCommand_NpmProjectWithTheScript_IsTheTestFilesScript', () => {
+    const dir = makeTmpDir();
+    writeScripts(dir, { 'test:run': 'vitest run --project unit', 'test:files': 'vitest run' });
+
+    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:files');
+  });
+
+  it('ScopedTestCommand_NpmProjectWithoutTheScript_IsTheResolvedTestCommand', () => {
+    const dir = makeTmpDir();
+    writeScripts(dir, { 'test:run': 'vitest run --project unit' });
+
+    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:run');
+    expect(resolveScopedTestCommand(dir)?.command).toBe(resolveTestRuntime(dir).test);
+  });
+
+  it('ScopedTestCommand_BlankScript_IsTheResolvedTestCommand', () => {
+    const dir = makeTmpDir();
+    writeScripts(dir, { 'test:run': 'vitest run', 'test:files': '   ' });
+
+    expect(resolveScopedTestCommand(dir)?.command).toBe('npm run test:run');
+  });
+
+  it.each([
+    ['pnpm-lock.yaml', 'pnpm run test:files'],
+    ['yarn.lock', 'yarn run test:files'],
+    ['bun.lock', 'bun run test:files'],
+  ])('ScopedTestCommand_%s_WithTheScript_RunsItThroughThatPackageManager', (lockfile, expected) => {
+    const dir = makeTmpDir();
+    writeScripts(dir, { test: 'vitest', 'test:run': 'vitest run', 'test:files': 'vitest run' });
+    writeFileSync(join(dir, lockfile), '');
+
+    expect(resolveScopedTestCommand(dir)?.command).toBe(expected);
+  });
+
+  it.each([
+    ['pnpm-lock.yaml', 'pnpm test'],
+    ['yarn.lock', 'yarn test'],
+    ['bun.lock', 'bun test'],
+  ])('ScopedTestCommand_%s_WithoutTheScript_KeepsTheTestCommand', (lockfile, expected) => {
+    const dir = makeTmpDir();
+    writeScripts(dir, { test: 'vitest' });
+    writeFileSync(join(dir, lockfile), '');
+
+    expect(resolveScopedTestCommand(dir)?.command).toBe(expected);
+  });
+
+  /** The script names a run of the given files. A configured `test` command names the whole suite, so the script comes first. */
+  it('ScopedTestCommand_ConfiguredTestCommand_TheScriptComesFirst', () => {
+    const withScript = makeTmpDir();
+    writeScripts(withScript, { 'test:run': 'vitest run', 'test:files': 'vitest run' });
+    writeFileSync(join(withScript, '.exarchos.yml'), 'test: npm run test:unit\n');
+    const withoutScript = makeTmpDir();
+    writeScripts(withoutScript, { 'test:run': 'vitest run' });
+    writeFileSync(join(withoutScript, '.exarchos.yml'), 'test: npm run test:unit\n');
+
+    expect(resolveScopedTestCommand(withScript)?.command).toBe('npm run test:files');
+    expect(resolveScopedTestCommand(withoutScript)?.command).toBe('npm run test:unit');
+  });
+
+  it('ScopedTestCommand_NonNodeProject_IsTheDetectedTestCommand', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'go.mod'), 'module example.com/fixture\n');
+
+    expect(resolveScopedTestCommand(dir)?.command).toBe('go test ./...');
+  });
+
+  /** A Node project reads only exit 1 as a red run, through the script and through the resolved test command. */
+  it('ScopedTestCommand_NodeProject_ReadsExit1AsRed', () => {
+    const withScript = makeTmpDir();
+    writeScripts(withScript, { 'test:run': 'vitest run', 'test:files': 'vitest run' });
+    const withoutScript = makeTmpDir();
+    writeScripts(withoutScript, { 'test:run': 'vitest run' });
+
+    expect(resolveScopedTestCommand(withScript)).toEqual({ command: 'npm run test:files', testFailureExitCodes: [1] });
+    expect(resolveScopedTestCommand(withoutScript)).toEqual({ command: 'npm run test:run', testFailureExitCodes: [1] });
+  });
+
+  /** `cargo test` exits 101 when a test fails, so the detected rust command carries the exit codes of the rust toolchain. */
+  it('ScopedTestCommand_RustProject_ReadsExit101AsRed', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+
+    expect(resolveScopedTestCommand(dir)).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
+  });
+
+  /**
+   * A configured command is not the command of a known toolchain, so only exit 1 reads as red, also in a Cargo project.
+   * The same text as the detected command keeps the exit codes of the detected toolchain.
+   */
+  it('ScopedTestCommand_ConfiguredCommand_HasNoKnownToolchainUnlessItIsTheDetectedCommand', () => {
+    const other = makeTmpDir();
+    writeFileSync(join(other, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+    writeFileSync(join(other, '.exarchos.yml'), 'test: cargo nextest run\n');
+    const same = makeTmpDir();
+    writeFileSync(join(same, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+    writeFileSync(join(same, '.exarchos.yml'), 'test: cargo test\n');
+
+    expect(resolveScopedTestCommand(other)).toEqual({ command: 'cargo nextest run', testFailureExitCodes: [1] });
+    expect(resolveScopedTestCommand(same)).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
+  });
+
+  /** A user toolchain of `.exarchos.yml` has no key for the exit codes, so its own command reads only exit 1 as red. */
+  it('ScopedTestCommand_UserToolchain_ReadsExit1AsRed', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'Cargo.toml'), '[package]\nname = "fixture"\n');
+    writeFileSync(
+      join(dir, '.exarchos.yml'),
+      'toolchains:\n  - id: rust-workspace\n    markers: [Cargo.toml]\n    commands:\n      test: cargo test --workspace\n',
+    );
+
+    expect(resolveScopedTestCommand(dir)).toEqual({ command: 'cargo test --workspace', testFailureExitCodes: [1] });
+  });
+
+  it('ScopedTestCommand_MalformedPackageJson_IsNull', () => {
+    const dir = makeTmpDir();
+    writeFileSync(join(dir, 'package.json'), '{ "scripts": { "test:files": ');
+
+    expect(resolveScopedTestCommand(dir)).toBeNull();
+  });
+
+  /**
+   * The scoped command is not a field of the resolved runtime. The runtime, its source and its three
+   * `command.resolved` events stay the same when the script exists.
+   */
+  it('ScopedTestCommand_TheScript_ChangesNoRuntimeFieldSourceOrEvent', () => {
+    const dir = makeTmpDir();
+    writeScripts(dir, { 'test:run': 'vitest run', 'test:files': 'vitest run', typecheck: 'tsc --noEmit' });
+    const append = vi.fn();
+
+    const result = resolveTestRuntime(dir, { eventStore: { append }, stream: 'feat-scoped' });
+
+    expect(result).toEqual({
+      test: 'npm run test:run',
+      typecheck: 'npm run typecheck',
+      install: 'npm install',
+      source: 'detection',
+    });
+    expect(append.mock.calls.map((c) => (c[1] as { data: { field: string; command: string } }).data)).toEqual([
+      expect.objectContaining({ field: 'test', command: 'npm run test:run' }),
+      expect.objectContaining({ field: 'typecheck', command: 'npm run typecheck' }),
+      expect.objectContaining({ field: 'install', command: 'npm install' }),
+    ]);
+  });
+
+  /** This repository runs `test:run` on the `unit` project only, so the probe needs the script to reach `tests/unit`. */
+  it('ScopedTestCommand_ThisRepository_IsTheTestFilesScript', () => {
+    expect(resolveScopedTestCommand(REPO_ROOT)).toEqual({ command: 'npm run test:files', testFailureExitCodes: [1] });
+    expect(resolveTestRuntime(REPO_ROOT).test).toBe('npm run test:run');
+    expect(resolveTestRuntime(REPO_ROOT).source).toBe('detection');
   });
 });

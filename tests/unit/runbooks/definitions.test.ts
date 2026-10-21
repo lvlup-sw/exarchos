@@ -4,7 +4,9 @@ import type { TaskInput, TaskClassification } from '../../../src/verbs/team/prep
 import { resolvePolicySkip } from '../../../src/verbs/gates/gate-utils.js';
 import { runProbe, interpretProbeVerdict } from '../../../src/verbs/gates/test-adequacy.js';
 import type { RunbookDefinition, RunbookStep } from '../../../src/runbooks/types.js';
+import { findActionInRegistry } from '../../../src/registry.js';
 import {
+  KILL_PROBE_STEP_SUMMARY,
   TASK_COMPLETION,
   QUALITY_EVALUATION,
   AGENT_TEAMS_SAGA,
@@ -335,6 +337,26 @@ describe('Runbook definitions', () => {
       'seeded-unbound: the check_static_analysis step does not bind repoRoot, worktreePath, taskId',
       'seeded-stepless: no check_static_analysis step',
     ]);
+  });
+
+  /**
+   * The description of `check_test_adequacy` and the note of each kill-probe step hold the step summary, word for word.
+   * The summary names the run on the task source before the revert, so no text describes a probe without that run.
+   */
+  it('KillProbeTexts_DescriptionAndStepNotes_HoldTheStepSummary', () => {
+    const description = findActionInRegistry('exarchos_orchestrate', 'check_test_adequacy')?.description;
+    const probeSteps = ALL_RUNBOOKS.flatMap((runbook) =>
+      runbook.steps
+        .filter((step) => step.action === 'check_test_adequacy')
+        .map((step) => ({ name: `${runbook.id} note`, text: step.note })),
+    );
+    expect(probeSteps.map((step) => step.name)).toEqual(
+      expect.arrayContaining([`${TASK_COMPLETION.id} note`, `${TASK_FIX.id} note`]),
+    );
+    expect(KILL_PROBE_STEP_SUMMARY).toContain('on the task source first');
+    expect(KILL_PROBE_STEP_SUMMARY).toContain('baseline-red');
+    const texts = [{ name: 'check_test_adequacy description', text: description }, ...probeSteps];
+    expect(texts.filter(({ text }) => !(text ?? '').includes(KILL_PROBE_STEP_SUMMARY)).map(({ name }) => name)).toEqual([]);
   });
 
   /**

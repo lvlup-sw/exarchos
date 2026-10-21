@@ -1,6 +1,6 @@
 # Testing Patterns
 
-Code patterns for test implementation. Referenced from `@skills/_shared/references/verification.md`.
+Code patterns for test implementation, and the test command that the kill probe runs.
 
 ## Test File Co-location
 
@@ -18,6 +18,27 @@ Tests use `Method_Scenario_Outcome` format:
 - TypeScript: `it('GetOrder_InvalidId_ReturnsNotFound', ...)`
 - C#: `public async Task GetOrder_InvalidId_ReturnsNotFound()`
 - Bash: function name `test_no_args_exit_2`
+
+## The Test Command of the Kill Probe
+
+The `check_test_adequacy` kill probe runs only the changed test files of the task.
+It runs them on the task source first. A red run there gives the indeterminate
+cause `baseline-red`. In `enforce` mode with a blocking severity, the gate blocks at
+every tier. Then the probe reverts the
+source hunks and runs the tests again.
+
+When the gate gives `baseline-red`, make the scoped tests pass on the task source,
+then run `check_test_adequacy` again. If the tests pass when you run them, the probe
+can run a different command. The probe selects its command in this order:
+
+1. When `package.json` has a `test:files` script, the probe runs
+   `npm run test:files -- <files>`. A pnpm, yarn or bun project uses its own
+   `run test:files` form. The script comes first, also when `.exarchos.yml` sets `test`.
+2. Without the script, the probe runs the resolved `test` command with `-- <files>` after it.
+
+The script must run only the files that it gets. Add the script when the `test`
+command does not run each file that it gets, for example a vitest command with a
+`--project` filter.
 
 ## TypeScript (Vitest)
 

@@ -209,32 +209,79 @@ export function readGateSkipDescriptor(result: ToolResult): GateSkipDescriptor |
   };
 }
 
+/** The closed verdict that a gate carrier states about itself. It has the values of the evidence verdict of a gate. */
+export type GateCarrierVerdict = 'pass' | 'fail' | 'indeterminate';
+
+/** Each value of {@link GateCarrierVerdict}, in one list. */
+const GATE_CARRIER_VERDICTS: readonly GateCarrierVerdict[] = ['pass', 'fail', 'indeterminate'];
+
 /**
- * Maps a gate carrier to the proof verdict. It reads boolean `passed`, then boolean `ready`, then
- * a `verdict` of `APPROVED`, `NEEDS_FIXES` or `BLOCKED`. A provider error, a non-object data
- * value, or data with none of these values gives `indeterminate`.
- *
- * A skipped carrier is `indeterminate`, even with `passed: true`, because the gate produced no
- * proof and no finding. Ladder gates return `{ passed: true, skipped: true }` when the policy
- * excludes them. `indeterminate` fails closed in transition admission. The carrier does not
- * change, so the runbook still reads `data.passed: true`.
+ * Whether the verdict of a gate rests on each check that applies. `degraded` marks a pass with a check that gave no verdict.
+ * A gate with one check states `complete`, because a check with no verdict makes its whole verdict `indeterminate`.
  */
-export function normalizeGateVerdict(result: ToolResult): 'pass' | 'fail' | 'indeterminate' {
+export type GateCarrierCompleteness = 'complete' | 'degraded';
+
+/** Each value of {@link GateCarrierCompleteness}, in one list. */
+const GATE_CARRIER_COMPLETENESS: readonly GateCarrierCompleteness[] = ['complete', 'degraded'];
+
+/**
+ * The closed verdict fields of a gate carrier. The producer derives them from its own verdict authority.
+ * {@link normalizeGateVerdict} reads `verdict` before the older fields. The runner copies `completeness` into the
+ * `gate.executed` details, and the strict evidence record does not get it.
+ */
+export interface ClosedGateVerdict {
+  readonly verdict: GateCarrierVerdict;
+  readonly completeness: GateCarrierCompleteness;
+}
+
+/** True for an object record. An array and null are not records. */
+function isDataRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** True for a value of the closed carrier verdict. The review verdicts, such as `APPROVED`, are not values of it. */
+function isGateCarrierVerdict(value: unknown): value is GateCarrierVerdict {
+  return GATE_CARRIER_VERDICTS.some((verdict) => verdict === value);
+}
+
+/** Reads the completeness that a carrier states, or undefined when it states none. */
+export function readGateCompleteness(result: ToolResult): GateCarrierCompleteness | undefined {
+  const data = result.data;
+  if (!isDataRecord(data)) return undefined;
+  return GATE_CARRIER_COMPLETENESS.find((completeness) => completeness === data.completeness);
+}
+
+/**
+ * Maps a gate carrier to the proof verdict. A provider error or a non-object data value gives
+ * `indeterminate`. A skipped carrier gives `indeterminate`, whatever `passed` or `verdict` it states,
+ * because the gate produced no proof and no finding. Thus the runner row and the evidence agree.
+ * Otherwise a stated closed `verdict` gives that verdict. A stated `pass` with `passed: false` gives `indeterminate`.
+ *
+ * A carrier with no closed verdict, such as a carrier of an earlier build, keeps the older reading.
+ * It reads boolean `passed`, then boolean `ready`, then a `verdict` of `APPROVED`, `NEEDS_FIXES` or
+ * `BLOCKED`. Data with none of these values gives `indeterminate`.
+ *
+ * A ladder gate that the policy excludes returns `{ passed: true, skipped: true }`, so the runbook still reads `data.passed: true`.
+ * Its evidence is `indeterminate`, which fails closed in transition admission.
+ */
+export function normalizeGateVerdict(result: ToolResult): GateCarrierVerdict {
   if (!result.success) return 'indeterminate';
   const data = result.data;
-  if (data === null || typeof data !== 'object' || Array.isArray(data)) {
-    return 'indeterminate';
-  }
+  if (!isDataRecord(data)) return 'indeterminate';
   if (readGateSkipDescriptor(result) !== undefined) return 'indeterminate';
-  const passed = (data as { readonly passed?: unknown }).passed;
+  const stated = data.verdict;
+  if (isGateCarrierVerdict(stated)) {
+    return stated === 'pass' && data.passed === false ? 'indeterminate' : stated;
+  }
+  const passed = data.passed;
   if (passed === true) return 'pass';
   if (passed === false) return 'fail';
 
-  const ready = (data as { readonly ready?: unknown }).ready;
+  const ready = data.ready;
   if (ready === true) return 'pass';
   if (ready === false) return 'fail';
 
-  const verdict = (data as { readonly verdict?: unknown }).verdict;
+  const verdict = data.verdict;
   if (verdict === 'APPROVED') return 'pass';
   if (verdict === 'NEEDS_FIXES' || verdict === 'BLOCKED') return 'fail';
   return 'indeterminate';

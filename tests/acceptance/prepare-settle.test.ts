@@ -920,16 +920,18 @@ describe('prepare then settle, through the dispatcher', () => {
   });
 
   /**
-   * Two medium-tier tasks in git worktrees go through the shipped runbook. The test of the first task
-   * fails on the reverted source, so its probe passes. The test of the second asserts nothing, so its
-   * probe halts the segment with a gate verdict. The receipt names the halted task, its cause and its
-   * leaf. The `execution.settled` row names the task and its cause only.
+   * Two medium-tier tasks in git worktrees go through the shipped runbook. The test of the first task fails on the
+   * reverted source, so its probe passes. The test of the second asserts nothing, so its probe halts the segment with a
+   * gate verdict. The receipt names the halted task, its cause and its leaf. The `execution.settled` row names the task
+   * and its cause only.
    *
-   * Only the first task is complete on the stream and on the state document. The next call is a
-   * correction, so the guard refuses the transition until a batch built from the unresolved list settles.
+   * Only the first task is complete on the stream and on the state document. The next call is a correction, so the
+   * guard refuses the transition until a batch built from the unresolved list settles.
    *
-   * Limit: the probe counts each failed run of the test command as a kill. It cannot tell a failed
-   * assertion from a run that collected no test, so this case does not prove the difference.
+   * Limit: a red run on the task source gives `baseline-red`, and a run with no verdict gives `run-no-verdict`.
+   * The probe reads each red run after the revert as a kill, also a test that does not load or a reverted config file.
+   * `dotnet test` on Microsoft.Testing.Platform and a `conftest.py` that does not load give no verdict. `cargo test`
+   * and `ctest` can run no test and stay green.
    */
   it('PrepareSettle_AMediumTierBatchThroughTheShippedRunbook_CompletesThePassingTaskAndCorrectsTheHaltedOne', async () => {
     const [first, second] = TASKS;
