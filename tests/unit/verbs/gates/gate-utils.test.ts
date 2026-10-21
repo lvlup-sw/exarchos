@@ -207,6 +207,19 @@ describe('normalizeGateVerdict — an explicit skip is never proof (DR-7)', () =
   });
 
   /**
+   * A declared skip wins over each stated verdict. A skipped carrier that states `fail` gives `indeterminate`, so the
+   * runner row that says `skipped: true` and the evidence agree. A skip is no proof and no finding.
+   */
+  it('NormalizeGateVerdict_DeclaredSkipWithAStatedVerdict_IsIndeterminate', () => {
+    for (const verdict of ['pass', 'fail', 'indeterminate'] as const) {
+      for (const passed of [true, false]) {
+        const skipped = carrier({ passed, skipped: true, verdict, completeness: 'complete' });
+        expect(normalizeGateVerdict(skipped), `${verdict} with passed ${String(passed)}`).toBe('indeterminate');
+      }
+    }
+  });
+
+  /**
    * A carrier with no closed verdict keeps the older reading. A stored carrier of a 2.12.x build has no `verdict`
    * field. A review carrier states a review verdict, which is not a value of the closed verdict.
    */

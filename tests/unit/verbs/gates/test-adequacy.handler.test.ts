@@ -27,7 +27,12 @@ import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
 import { DEFAULTS } from '../../../../src/config/resolve.js';
-import { SKIPPED_BY_POLICY } from '../../../../src/verbs/gates/gate-utils.js';
+import { normalizeGateVerdict, SKIPPED_BY_POLICY } from '../../../../src/verbs/gates/gate-utils.js';
+import {
+  ADEQUACY_DISCRIMINANTS,
+  probeNotRun,
+  type AdequacyDiscriminant,
+} from '../../../../src/verbs/gates/test-adequacy.js';
 import { handleTestAdequacy, probeTestEnvironment } from '../../../../src/verbs/gates/test-adequacy-handler.js';
 import { STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
@@ -351,6 +356,59 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
     );
     expect(mockRunProbe).toHaveBeenCalledOnce();
     expect(mockRunProbe.mock.calls[0]?.[0]).toMatchObject({ diffFailed: true, changedFiles: [] });
+  });
+
+  /**
+   * The carrier verdict of each cause at each tier. A blocked probe states the verdict of its cause. A red run on the task
+   * source and a run with no verdict give `indeterminate`. The other causes give `fail`. An advisory skip gives
+   * `indeterminate`. A cause that is not in the table fails the test, so a new cause gets a verdict here.
+   */
+  it('CheckTestAdequacy_EachIndeterminateCause_StatesTheVerdictOfItsCause', async () => {
+    const ctx = await makeCtx();
+    const blockedVerdict: Readonly<Record<AdequacyDiscriminant, 'fail' | 'indeterminate'>> = {
+      'no-new-tests': 'fail',
+      'diff-failed': 'fail',
+      'revert-conflict': 'fail',
+      'restore-failed': 'fail',
+      'base-missing': 'fail',
+      'baseline-red': 'indeterminate',
+      'run-no-verdict': 'indeterminate',
+    };
+    expect(Object.keys(blockedVerdict).sort()).toEqual([...ADEQUACY_DISCRIMINANTS].sort());
+    const gitExec: GitExec = () => ({ stdout: 'fatal: no repository', exitCode: 128 });
+    let blockedRuns = 0;
+    for (const cause of ADEQUACY_DISCRIMINANTS) {
+      for (const riskTier of [undefined, 'low', 'medium', 'high'] as const) {
+        const label = `${cause} at ${String(riskTier)}`;
+        mockRunProbe.mockResolvedValueOnce(probeNotRun(cause, `injected ${cause}`, riskTier));
+        const result = await handleTestAdequacy(
+          {
+            featureId: 'feat-cause-verdict',
+            taskId: 'T-cause',
+            baseBranch: 'main',
+            repoRoot: '/fake/repo',
+            gitExec,
+            runTests: async () => ({ kind: 'ran', result: 'green' }),
+            ...(riskTier === undefined ? {} : { riskTier }),
+          },
+          ctx.stateDir,
+          ctx.eventStore,
+        );
+        expect(result.success, label).toBe(true);
+        const data = result.data as { passed: boolean; skipped?: boolean; verdict?: string; completeness?: string };
+        expect(data.completeness, label).toBe('complete');
+        expect(data.verdict, label).not.toBe('pass');
+        if (data.skipped === true) {
+          expect(data.verdict, label).toBe('indeterminate');
+        } else {
+          blockedRuns += 1;
+          expect(data.passed, label).toBe(false);
+          expect(data.verdict, label).toBe(blockedVerdict[cause]);
+        }
+        expect(normalizeGateVerdict(result), label).toBe(data.verdict);
+      }
+    }
+    expect(blockedRuns).toBeGreaterThanOrEqual((ADEQUACY_DISCRIMINANTS.length - 1) * 4);
   });
 });
 

@@ -253,28 +253,26 @@ export function readGateCompleteness(result: ToolResult): GateCarrierCompletenes
 
 /**
  * Maps a gate carrier to the proof verdict. A provider error or a non-object data value gives
- * `indeterminate`. A carrier that states a closed `verdict` gives that verdict. A stated `pass` on
- * a carrier that declares a skip or `passed: false` contradicts itself, so it gives `indeterminate`.
+ * `indeterminate`. A skipped carrier gives `indeterminate`, whatever `passed` or `verdict` it states,
+ * because the gate produced no proof and no finding. Thus the runner row and the evidence agree.
+ * Otherwise a stated closed `verdict` gives that verdict. A stated `pass` with `passed: false` gives `indeterminate`.
  *
  * A carrier with no closed verdict, such as a carrier of an earlier build, keeps the older reading.
  * It reads boolean `passed`, then boolean `ready`, then a `verdict` of `APPROVED`, `NEEDS_FIXES` or
  * `BLOCKED`. Data with none of these values gives `indeterminate`.
  *
- * A skipped carrier is `indeterminate`, even with `passed: true`, because the gate produced no
- * proof and no finding. Ladder gates return `{ passed: true, skipped: true }` when the policy
- * excludes them. `indeterminate` fails closed in transition admission. The carrier does not
- * change, so the runbook still reads `data.passed: true`.
+ * A ladder gate that the policy excludes returns `{ passed: true, skipped: true }`, so the runbook still reads `data.passed: true`.
+ * Its evidence is `indeterminate`, which fails closed in transition admission.
  */
 export function normalizeGateVerdict(result: ToolResult): GateCarrierVerdict {
   if (!result.success) return 'indeterminate';
   const data = result.data;
   if (!isDataRecord(data)) return 'indeterminate';
-  const skipped = readGateSkipDescriptor(result) !== undefined;
+  if (readGateSkipDescriptor(result) !== undefined) return 'indeterminate';
   const stated = data.verdict;
   if (isGateCarrierVerdict(stated)) {
-    return stated === 'pass' && (skipped || data.passed === false) ? 'indeterminate' : stated;
+    return stated === 'pass' && data.passed === false ? 'indeterminate' : stated;
   }
-  if (skipped) return 'indeterminate';
   const passed = data.passed;
   if (passed === true) return 'pass';
   if (passed === false) return 'fail';

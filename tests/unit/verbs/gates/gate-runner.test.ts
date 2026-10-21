@@ -637,6 +637,42 @@ describe('DR-1 gate-executed signal ownership', () => {
     expect(rows[0]?.details).toMatchObject({ verdict: 'indeterminate', completeness: 'complete' });
     expect(rows[0]?.details).not.toHaveProperty('skipped');
   });
+
+  /**
+   * A skipped carrier that states `fail` gives `indeterminate` evidence. The row keeps the skip descriptor, so the row and
+   * the evidence agree that the gate gave no finding. A fault of the infrastructure is never recorded as a product failure.
+   */
+  it('AppendGateExecutedSignal_SkippedCarrierThatStatesFail_RecordsIndeterminate', async () => {
+    const skippedFailProvider: GateProviderExecutor = async () => ({
+      success: true,
+      data: {
+        passed: false,
+        skipped: true,
+        discriminant: 'no-toolchain',
+        verdict: 'fail',
+        completeness: 'complete',
+      },
+    });
+
+    await runWithDispatchContext(trusted('skipped-fail'), () =>
+      runGate(taskRequest('task-skipped-fail'), deps(skippedFailProvider)),
+    );
+
+    const [evidence] = await eventStore.query(streamId, {
+      type: 'admission.evidence-recorded',
+    });
+    expect(AdmissionEvidenceRecordedData.parse(evidence?.data).evidence.verdict).toBe('indeterminate');
+
+    const rows = await gateExecutedRows();
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.passed).toBe(false);
+    expect(rows[0]?.details).toMatchObject({
+      verdict: 'indeterminate',
+      skipped: true,
+      discriminant: 'no-toolchain',
+      completeness: 'complete',
+    });
+  });
 });
 
 /**

@@ -347,6 +347,69 @@ describe('check_test_adequacy production path', () => {
   }, 180_000);
 
   /**
+   * A run with no verdict gives `run-no-verdict`, on the task source and after the revert. Neither run says anything
+   * about the tests of the task, so the carrier, the evidence and the runner row record `indeterminate`, never `fail`.
+   */
+  it('ProductionPath_RunNoVerdict_DurableRowsRecordIndeterminateNotFail', async () => {
+    for (const run of ['on the task source', 'after the revert'] as const) {
+      const repoRoot = await initRepo('prodpath-no-verdict-');
+      cleanups.push(() => rmrf(repoRoot));
+      writeFileSync(path.join(repoRoot, 'package.json'), '{"name":"fx","version":"1.0.0"}\n');
+      mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 1;\n');
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'base', '-q']);
+      await git(repoRoot, ['checkout', '-b', 'feature/no-verdict', '-q']);
+      writeFileSync(path.join(repoRoot, 'src', 'calc.js'), 'export const v = () => 2;\n');
+      writeFileSync(path.join(repoRoot, 'src', 'calc.test.js'), '// pins v() === 2\n');
+      await git(repoRoot, ['add', '.']);
+      await git(repoRoot, ['commit', '-m', 'feat + co-located test', '-q']);
+
+      const featureId = run === 'on the task source' ? 'feat-no-verdict-pre' : 'feat-no-verdict-post';
+      const ctx = await makeCtx('prodpath-no-verdict-state-', featureId);
+      const result = await runAsTrustedCaller(ctx.stateDir, () =>
+        handleOrchestrate(
+          {
+            action: 'check_test_adequacy',
+            featureId,
+            taskId: 'T-no-verdict',
+            branch: 'feature/no-verdict',
+            baseBranch: 'main',
+            repoRoot,
+            riskTier: 'medium',
+            runTests: async ({ repoRoot: runRoot }) =>
+              run === 'after the revert' && readFileSync(path.join(runRoot, 'src', 'calc.js'), 'utf-8').includes('=> 2')
+                ? { kind: 'ran', result: 'green' }
+                : { kind: 'no-verdict', cause: 'timeout', detail: 'the limit is 120000 ms' },
+          },
+          ctx,
+        ),
+      );
+
+      expect(result.success, run).toBe(true);
+      const data = dataOf(result);
+      expect(data.discriminant, run).toBe('run-no-verdict');
+      expect(data.report, run).toContain(`${run} reached no verdict (timeout)`);
+      expect(data.disposition, run).toBe('blocked');
+      expect(data.passed, run).toBe(false);
+      expect(data.redObserved, run).toBe(false);
+      expect(data.verdict, run).toBe('indeterminate');
+      expect(data.completeness, run).toBe('complete');
+
+      const evidenceRows = await ctx.eventStore.query(featureId, { type: 'admission.evidence-recorded' });
+      expect(evidenceRows.map((e) => (e.data as { evidence?: { verdict?: string } }).evidence?.verdict), run).toEqual([
+        'indeterminate',
+      ]);
+      const adequacy = (await ctx.eventStore.query(featureId, { type: 'gate.executed' }))
+        .map((e) => e.data as { gateName?: string; passed?: boolean; details?: Record<string, unknown> })
+        .filter((row) => row.gateName === 'test-adequacy');
+      expect(adequacy, run).toHaveLength(1);
+      expect(adequacy[0]?.passed, run).toBe(false);
+      expect(adequacy[0]?.details, run).toMatchObject({ verdict: 'indeterminate', completeness: 'complete' });
+    }
+  }, 180_000);
+
+  /**
    * `diff-failed` is an execution failure of the probe, not an empty subject.
    * It blocks the gate even at the low tier and is not a skip.
    */
