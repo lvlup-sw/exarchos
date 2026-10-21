@@ -19,6 +19,7 @@
  *
  * The exit code is the exit code of vitest. A refusal, a failed build, a vitest that does not start and each other error of the script exit 2.
  * A temporary directory that the script cannot delete gives a warning, and the exit code of vitest stays.
+ * The script forwards `SIGINT` and `SIGTERM` to the child that runs, and waits for it to end. Then it stops on the same signal.
  */
 import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, realpathSync, renameSync, rmSync, statSync } from 'node:fs';
@@ -42,6 +43,24 @@ const REFUSED = 2;
  */
 export const PATH_BINARY_TEST_GLOBS = Object.freeze(['tests/process/**/*.test.ts']);
 
+/**
+ * The signals that stop a run. The script forwards each one to the child that runs, so no child outlives the script.
+ * @type {readonly NodeJS.Signals[]}
+ */
+const STOP_SIGNALS = Object.freeze(['SIGINT', 'SIGTERM']);
+
+/**
+ * On POSIX, each child starts in its own process group, and a forwarded signal goes to the whole group.
+ * Thus the signal also reaches a process that the shell of the build starts. Windows has no process groups.
+ */
+const OWN_PROCESS_GROUP = process.platform !== 'win32';
+
+/**
+ * The first stop signal that the script got, or `undefined`. After the child ends and the cleanup runs, the script stops on it.
+ * @type {NodeJS.Signals | undefined}
+ */
+let stopSignal;
+
 /** The name prefix of the binaries that `tools/release/build-binary.ts` writes, such as `exarchos-linux-x64`. */
 const BUILT_BINARY_PREFIX = 'exarchos-';
 
@@ -62,6 +81,40 @@ const BUILD_DIR_REMOVE = Object.freeze({ recursive: true, force: true, maxRetrie
  */
 function errorText(error) {
   return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Sends `signal` to the process group of `child` on POSIX, or to `child` on Windows. A child that already ended gets nothing.
+ * A send that fails writes a warning and never throws.
+ * @param {import('node:child_process').ChildProcess} child
+ * @param {NodeJS.Signals} signal
+ */
+function signalChild(child, signal) {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return;
+  try {
+    if (OWN_PROCESS_GROUP) process.kill(-child.pid, signal);
+    else child.kill(signal);
+  } catch (error) {
+    process.stderr.write(`test:files: warning: ${signal} did not reach the child ${child.pid}: ${errorText(error)}\n`);
+  }
+}
+
+/**
+ * Records each stop signal in {@link stopSignal} and forwards it to the child that `active` returns, until `release` runs.
+ * While a listener is set, a signal does not stop the script, so the script can wait for the child and clean up.
+ * @param {() => import('node:child_process').ChildProcess | undefined} active
+ * @returns {() => void} the release
+ */
+function relayStopSignals(active) {
+  const onSignal = (/** @type {NodeJS.Signals} */ signal) => {
+    stopSignal ??= signal;
+    const child = active();
+    if (child !== undefined) signalChild(child, signal);
+  };
+  for (const signal of STOP_SIGNALS) process.on(signal, onSignal);
+  return () => {
+    for (const signal of STOP_SIGNALS) process.removeListener(signal, onSignal);
+  };
 }
 
 /**
@@ -180,6 +233,7 @@ function withFirstOnPath(env, dir) {
 /**
  * Runs `tools/release/build-binary.ts` with `bun` in `cwd`, with `dir` as the output directory, and collects the output.
  * The command runs through a shell on each platform, so Windows resolves a `bun.cmd` shim as `runCommandSync` does.
+ * A stop signal goes to the shell and the processes that it starts.
  * The only value in the command is the quoted temporary directory. A missing `bun` gives the exit code of the shell.
  * @param {string} dir
  * @param {string} cwd
@@ -194,12 +248,20 @@ function runBuild(dir, cwd) {
       cwd,
       shell: true,
       windowsHide: true,
+      detached: OWN_PROCESS_GROUP,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
+    const release = relayStopSignals(() => child);
     child.stdout.on('data', (chunk) => chunks.push(chunk));
     child.stderr.on('data', (chunk) => chunks.push(chunk));
-    child.on('error', (error) => resolve({ code: null, signal: null, output: Buffer.concat(chunks).toString('utf-8'), error }));
-    child.on('close', (code, signal) => resolve({ code, signal, output: Buffer.concat(chunks).toString('utf-8') }));
+    child.on('error', (error) => {
+      release();
+      resolve({ code: null, signal: null, output: Buffer.concat(chunks).toString('utf-8'), error });
+    });
+    child.on('close', (code, signal) => {
+      release();
+      resolve({ code, signal, output: Buffer.concat(chunks).toString('utf-8') });
+    });
   });
 }
 
@@ -259,6 +321,7 @@ async function buildPathBinary(dir, cwd) {
 
 /**
  * Runs the vitest entry point `entry` with inherited stdio and the given environment. It resolves to the exit code for the process.
+ * A stop signal goes to vitest and its workers, and the run then has no verdict, whatever vitest exits with.
  * @param {string} entry
  * @param {readonly string[]} forwarded
  * @param {NodeJS.ProcessEnv} env
@@ -266,12 +329,20 @@ async function buildPathBinary(dir, cwd) {
  */
 function runVitest(entry, forwarded, env) {
   return new Promise((resolve) => {
-    const child = spawn(process.execPath, [entry, 'run', ...forwarded], { stdio: 'inherit', env });
+    const child = spawn(process.execPath, [entry, 'run', ...forwarded], { stdio: 'inherit', env, detached: OWN_PROCESS_GROUP });
+    const release = relayStopSignals(() => child);
     child.on('error', (error) => {
+      release();
       process.stderr.write(`test:files: vitest did not start: ${error.message}\n`);
       resolve(REFUSED);
     });
     child.on('exit', (code, signal) => {
+      release();
+      if (stopSignal !== undefined) {
+        process.stderr.write(`test:files: ${stopSignal} stopped the run, and the run has no verdict.\n`);
+        resolve(REFUSED);
+        return;
+      }
       if (code === null) {
         process.stderr.write(`test:files: vitest stopped on signal ${String(signal)}.\n`);
         resolve(REFUSED);
@@ -284,8 +355,8 @@ function runVitest(entry, forwarded, env) {
 
 /**
  * Builds the binary for the files of the `process` project, then runs vitest with that binary first on PATH.
- * It removes the build directory when vitest ends or the build fails.
- * It also removes the directory when `SIGINT` or `SIGTERM` stops the script during the build or during vitest.
+ * It removes the build directory when vitest ends or the build fails, after the child ends.
+ * A stop signal before vitest starts is a refusal, so vitest does not start after it.
  * @param {string} entry
  * @param {readonly string[]} forwarded
  * @param {readonly string[]} binaryFiles
@@ -302,20 +373,15 @@ async function runWithPathBinary(entry, forwarded, binaryFiles) {
   const made = makeBuildDir();
   if ('error' in made) return refuse(made.error);
   const { dir } = made;
-  /** @type {NodeJS.Signals[]} */
-  const signals = ['SIGINT', 'SIGTERM'];
-  const onSignal = (/** @type {NodeJS.Signals} */ signal) => {
-    removeBuildDir(dir);
-    process.kill(process.pid, signal);
-  };
-  for (const signal of signals) process.once(signal, onSignal);
+  const release = relayStopSignals(() => undefined);
   try {
     const failure = await buildPathBinary(dir, process.cwd());
     if (failure !== undefined) return refuse(failure);
+    if (stopSignal !== undefined) return refuse(`${stopSignal} stopped the run before vitest started`);
     process.stdout.write(`test:files: the exarchos binary of the working tree is first on PATH, from ${dir}.\n`);
     return await runVitest(entry, forwarded, withFirstOnPath(process.env, dir));
   } finally {
-    for (const signal of signals) process.removeListener(signal, onSignal);
+    release();
     removeBuildDir(dir);
   }
 }
@@ -388,4 +454,15 @@ async function runEntry(argv) {
   }
 }
 
-if (isEntryScript()) process.exitCode = await runEntry(process.argv.slice(2));
+/**
+ * Stops the script on the stop signal that it got, after the child ended and the cleanup ran, so the parent sees the signal.
+ * The listeners are released at this point, so the signal takes its default action.
+ */
+function stopOnReceivedSignal() {
+  if (stopSignal !== undefined) process.kill(process.pid, stopSignal);
+}
+
+if (isEntryScript()) {
+  process.exitCode = await runEntry(process.argv.slice(2));
+  stopOnReceivedSignal();
+}
