@@ -7,7 +7,7 @@
     "testFiles": 1322,
     "parsedFiles": 1276,
     "shellFiles": 46,
-    "cases": 14775,
+    "cases": 14778,
     "dynamicTitles": 164,
     "unparseableFiles": 0
   },
@@ -6519,6 +6519,11 @@
           "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
           "name": "OperatorRecoveryCarriers_SeededRegisterEntryWithNoOwner_IsNamed",
           "dynamic": false
+        },
+        {
+          "suite": "OperatorRecoveryCarriers — each recovery of the notes reaches a shipped surface",
+          "name": "OperatorRecoveryCarriers_SeededNegativeAssertionTwin_IsNamed",
+          "dynamic": false
         }
       ]
     },
@@ -6940,6 +6945,11 @@
         {
           "suite": "SkillProse — the checked-by sentence names the gate row",
           "name": "SkillProse_SeededProbeCallDisagreement_NamesTheUnboundField",
+          "dynamic": false
+        },
+        {
+          "suite": "SkillProse — the checked-by sentence names the gate row",
+          "name": "SkillProse_EveryProbeCallPassageOfTheContent_HasAProbeCallSite",
           "dynamic": false
         }
       ]
@@ -54728,6 +54738,11 @@
         {
           "suite": "task-completion over the no-shell leaf subset",
           "name": "BothPathsLeaveTheSameWorkflowProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "task-completion leaf that returns a stored completion row",
+          "name": "StoredCompletionAndAStaleStateDocument_HaltsOnTheRowsOfTheLeafAndAppendsNoRow",
           "dynamic": false
         }
       ]

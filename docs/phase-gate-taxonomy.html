@@ -2038,10 +2038,13 @@
       path the system drives.)
     </p>
     <p>
-      <strong>Note, 2026-10-20.</strong> The hand-append route in the parenthesis above is closed. The generic
-      append and the batch append of <code>exarchos_event</code> now refuse <code>gate.executed</code> with
+      <strong>Note, 2026-10-20.</strong> This build closes the hand-append route in the parenthesis above. The
+      generic append and the batch append of <code>exarchos_event</code> now refuse <code>gate.executed</code> with
       <code>RESERVED_EVENT_TYPE</code>, and the refusal tells the caller to run the gate. Only the handlers
-      of the server write the row.
+      of the server write the row. An earlier build that uses the same state directory, such as 2.12.x, still
+      accepts a generic append of <code>gate.executed</code> into the shared store. The route is closed only when
+      every server, hook and CLI of the store runs this build (the CHANGELOG note &ldquo;Use one Exarchos build
+      for each store&rdquo;).
     </p>
   </div>
 

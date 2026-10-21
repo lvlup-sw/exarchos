@@ -6,7 +6,7 @@
  *
  * @oracle-sources: ../../CHANGELOG.md, ../../package.json
  *
- * A produced carrier is a test case that asserts each phrase in the text that the code produces, for example a refusal.
+ * A produced carrier is a test case that asserts each phrase in a positive matcher on the text that the code produces.
  * A produced text is stronger proof than a phrase in source. A shipped-text carrier is a file that a package ships.
  * A change of the release notes alone runs no root test lane, so the `grep-gates` job also runs this file.
  */
@@ -33,7 +33,7 @@ const RECOVERY_BULLET = /^\s*- Recovery: /;
 /** A surface that ships and carries a recovery to the operator. */
 type Carrier =
   | {
-      /** A test case that asserts each phrase in the text that the code produces. */
+      /** A test case that asserts each phrase in a positive matcher on the text that the code produces. */
       readonly kind: 'produced';
       /** The repo-relative path of the test file. */
       readonly test: string;
@@ -134,6 +134,40 @@ function caseText(testFile: string, testCase: string): string | undefined {
   return next < 0 ? testFile.slice(start) : testFile.slice(start, start + 1 + next);
 }
 
+/** A matcher call of an assertion. The first group is `.not` when the assertion is negative. */
+const MATCHER_CALL = /(\.not)?\.(?:toContain|toBe|toEqual|toStrictEqual|toMatch|toMatchObject)\(/g;
+
+/**
+ * The argument text of the call whose open parenthesis is at `open`, up to the parenthesis that closes it.
+ * A parenthesis inside a string literal does not count.
+ */
+function callArgument(text: string, open: number): string {
+  let depth = 0;
+  let quote: string | undefined;
+  for (let index = open; index < text.length; index += 1) {
+    const char = text[index];
+    if (quote !== undefined) {
+      if (char === '\\') index += 1;
+      else if (char === quote) quote = undefined;
+      continue;
+    }
+    if (char === "'" || char === '"' || char === '`') quote = char;
+    else if (char === '(') depth += 1;
+    else if (char === ')') {
+      depth -= 1;
+      if (depth === 0) return text.slice(open + 1, index);
+    }
+  }
+  return text.slice(open + 1);
+}
+
+/** The arguments of the positive matcher calls of a case. A matcher after `.not` is a negative assertion and does not count. */
+function positiveAssertionArguments(text: string): readonly string[] {
+  return [...text.matchAll(MATCHER_CALL)]
+    .filter((match) => match[1] === undefined)
+    .map((match) => callArgument(text, match.index + match[0].length - 1));
+}
+
 /** The inputs that the judge reads, so the live tree and a seeded defect go through the same judge. */
 interface CarrierWorld {
   readonly notes: string;
@@ -150,8 +184,9 @@ function carrierProblems(id: string, carrier: Carrier, world: CarrierWorld): rea
     if (testFile === undefined) return [`${id}: the test file ${carrier.test} does not exist`];
     const text = caseText(testFile, carrier.testCase);
     if (text === undefined) return [`${id}: ${carrier.test} has no case ${carrier.testCase}`];
+    const asserted = positiveAssertionArguments(text);
     return carrier.phrases
-      .filter((phrase) => !text.includes(phrase))
+      .filter((phrase) => !asserted.some((argument) => argument.includes(phrase)))
       .map((phrase) => `${id}: the case ${carrier.testCase} does not assert "${phrase}"`);
   }
   if (!world.shipped.some((root) => carrier.path === root || carrier.path.startsWith(`${root}/`))) {
@@ -346,5 +381,35 @@ describe('OperatorRecoveryCarriers — each recovery of the notes reaches a ship
       `${entry.id}: the register entry names no owner`,
       `${entry.id}: the register entry names no reason`,
     ]);
+  });
+
+  /**
+   * A produced carrier counts a phrase only in a positive matcher of the named case.
+   * The seeded twin asserts the phrase only in `.not.toContain`, so the text holds the phrase and the case does not assert it.
+   * The judge names the twin. A phrase in a positive matcher with a parenthesis in a string literal still counts.
+   */
+  it('OperatorRecoveryCarriers_SeededNegativeAssertionTwin_IsNamed', () => {
+    const world = liveWorld();
+    const [first] = CARRIED;
+    expect(first?.carrier.kind).toBe('produced');
+    if (first === undefined || first.carrier.kind !== 'produced') return;
+    const producedCarrier = first.carrier;
+    const testFile = world.read(producedCarrier.test) ?? '';
+    const [phrase] = producedCarrier.phrases;
+    const positive = `.toContain('${phrase}')`;
+    expect(caseText(testFile, producedCarrier.testCase) ?? '').toContain(positive);
+    const negated = testFile.replace(positive, `.not.toContain('${phrase}')`);
+    expect(negated).not.toBe(testFile);
+    expect(caseText(negated, producedCarrier.testCase) ?? '').toContain(phrase);
+    const negatedWorld: CarrierWorld = {
+      ...world,
+      read: (path) => (path === producedCarrier.test ? negated : world.read(path)),
+    };
+    expect(disagreements(negatedWorld, CARRIED, REGISTERED)).toEqual([
+      `${first.id}: the case ${producedCarrier.testCase} does not assert "${phrase}"`,
+    ]);
+
+    expect(positiveAssertionArguments("expect(message).toContain('a (b) c');")).toEqual(["'a (b) c'"]);
+    expect(positiveAssertionArguments("expect(message).not.toContain('a (b) c');")).toEqual([]);
   });
 });

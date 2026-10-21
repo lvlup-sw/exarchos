@@ -18,8 +18,9 @@ import type { WorkflowState } from '../../workflow/types.js';
 import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
-import { ladderRequirementId, readGateEvidenceRecords } from '../gates/durable-gate-producer.js';
+import { ladderRequirementId, readGateEvidenceRecords, selectSubject } from '../gates/durable-gate-producer.js';
 import { gateRunnerObservationSource, gateSignalIdempotencyKey } from '../gates/gate-runner.js';
+import { staticAnalysisSubjectScope } from '../gates/static-analysis.js';
 import type { StaticAnalysisSkipReason } from '../pure/static-analysis.js';
 import { STATIC_ANALYSIS_STEP_PARAMS } from '../../runbooks/definitions.js';
 import { assertNever } from '../../contract/error-families.js';
@@ -342,10 +343,23 @@ function sameChain(left: AdmissionEvidenceRecorded, right: AdmissionEvidenceReco
 /**
  * The evidence record that gives the cause of a refusal.
  * `inLatestChain` is true when the record is in the chain of the latest static-analysis record of the task.
+ * `stepParamsOnly` is true when the record has the subject of a run with only the step params: no branch and the default base.
  */
 interface CauseRecord {
   readonly evidenceId: string;
   readonly inLatestChain: boolean;
+  readonly stepParamsOnly: boolean;
+}
+
+/**
+ * Whether the record has the subject that a run with only the step params gives: the task, no branch and the default base.
+ * The subject keeps only a digest of the branch and the base, so the function compares the record with the subject of that run.
+ * The handler and this function derive the subject with the same scope builder.
+ */
+function hasStepParamsSubject(record: AdmissionEvidenceRecorded, streamId: string, taskId: string): boolean {
+  const scope = staticAnalysisSubjectScope({ featureId: streamId, taskId }, '');
+  const subject = selectSubject(scope, record.evidence.phaseAttemptId);
+  return JSON.stringify(record.evidence.subject) === JSON.stringify(subject);
 }
 
 /**
@@ -396,9 +410,15 @@ function recordCause(
   record: AdmissionEvidenceRecorded,
   latest: AdmissionEvidenceRecorded,
   signals: readonly RunnerSignal[],
+  streamId: string,
+  taskId: string,
 ): StaticAnalysisRefusalCause {
   const { evidenceId } = record.evidence;
-  const cause: CauseRecord = { evidenceId, inLatestChain: sameChain(record, latest) };
+  const cause: CauseRecord = {
+    evidenceId,
+    inLatestChain: sameChain(record, latest),
+    stepParamsOnly: hasStepParamsSubject(record, streamId, taskId),
+  };
   if (record.evidence.verdict === 'fail') return { kind: 'failed', record: cause };
   const skip = lastMatch(signals, (signal) => signal.evidenceId === evidenceId)?.skip;
   if (skip?.discriminant === CONSTITUENT_SKIPPED) {
@@ -438,7 +458,7 @@ async function staticAnalysisPrerequisite(
   if (cited === undefined || latestRecord === undefined) {
     return { kind: 'no-runner-verdict', latestRow: latestSignal !== undefined };
   }
-  return recordCause(cited, latestRecord, signals);
+  return recordCause(cited, latestRecord, signals, streamId, taskId);
 }
 
 /** The template variable of the static-analysis step that the refusal fills with the task id. */
@@ -447,22 +467,45 @@ const TASK_ID_VARIABLE = '<taskId>';
 /** A step param value that is a template variable, for example `<worktreePath>`. */
 const TEMPLATE_VARIABLE = /^<[A-Za-z]+>$/;
 
+/** How a rerun binds the branch and the base of a record: a clause in the call, and a sentence after the call. */
+interface ChainBinding {
+  readonly clause: string;
+  readonly sentence: string;
+}
+
+/**
+ * How the rerun binds the branch and the base of a record outside the chain of the latest run.
+ * A record with the subject of the step params has no branch and the default base, so the rerun passes neither.
+ * Any other record keeps only a digest of its branch and its base. The rerun then tells the caller to pass the values of that run.
+ */
+function otherChainBinding(otherChain: CauseRecord | undefined): ChainBinding {
+  if (otherChain === undefined) return { clause: '', sentence: '' };
+  if (otherChain.stepParamsOnly) return { clause: ' and no branch and no baseBranch, as in that run', sentence: '' };
+  return {
+    clause: ' and the branch and baseBranch of that run',
+    sentence: 'The record keeps only a digest of that branch and base, so pass the values of the call that recorded it. ',
+  };
+}
+
 /**
  * The rerun of the static-analysis step for one task, built from the params of the runbook step.
  * The task id fills its variable. The text tells the caller to fill each other variable.
- * For a record outside the chain of the latest run, the rerun also names the branch and the base of that record.
+ *
+ * For a record outside the chain of the latest run, the rerun also binds the branch and the base of that record.
+ * The record keeps only a digest of them. The rerun says "no branch" for a run with only the step params.
+ * For any other run, it tells the caller to pass the values of that run.
  */
 function staticAnalysisRerun(taskId: string, otherChain: CauseRecord | undefined): string {
   const entries = Object.entries(STATIC_ANALYSIS_STEP_PARAMS);
   const params = entries.map(([name, value]) => `${name} '${value.replaceAll(TASK_ID_VARIABLE, taskId)}'`);
-  const chain = otherChain === undefined ? '' : ' and the branch and baseBranch of that run';
+  const chain = otherChainBinding(otherChain);
   const unfilled = entries
     .map(([, value]) => value)
     .filter((value) => TEMPLATE_VARIABLE.test(value) && value !== TASK_ID_VARIABLE);
   const fill = unfilled.length === 0 ? '' : ` (replace ${unfilled.join(' and ')} with the value for this task)`;
   return (
-    `run exarchos_orchestrate check_static_analysis with ${params.join(', ')}${chain}${fill}, ` +
-    'then call task_complete again. ' +
+    `run exarchos_orchestrate check_static_analysis with ${params.join(', ')}${chain.clause}${fill}, ` +
+    `then call task_complete again. ${chain.sentence}` +
     'Under settle, correct the cause and settle the claim under a new batch id instead.'
   );
 }

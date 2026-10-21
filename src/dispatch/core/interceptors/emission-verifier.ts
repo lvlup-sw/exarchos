@@ -453,6 +453,7 @@ export interface EmissionVerifierCall {
   /**
    * The reply data of the handler. It can acknowledge a stored keyed row of a required event type.
    * The verifier then reads that row from the store, and the row counts as the emission of a replay.
+   * No declaration names the idempotency key of its emission, so the verifier does not bind the key of the row to this call.
    */
   readonly reply?: unknown;
   /** Registration table for the lifecycle axis. Injectable for tests. */

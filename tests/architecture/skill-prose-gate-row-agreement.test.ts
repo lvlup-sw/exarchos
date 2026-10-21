@@ -3,7 +3,7 @@
  * expectation row of the gate for its phase. The outcome table of the delegate skill names each
  * settlement outcome, which outcomes verify, and the next call of each, as the outcome rules state.
  * Each passage that binds the template variables of a completion runbook binds each variable of its static-analysis step.
- * Each passage that tells the reader to run the kill probe binds the task tree, as the probe step of the completion runbook does.
+ * Each passage of `content/` that gives a call of the kill probe has a site, and binds the task tree as the probe step does.
  *
  * @oracle-sources: ../../src/verbs/gates/check-event-emissions.ts, ../../content/synthesis/skills/synthesize/SKILL.md, ../../src/verbs/settle/adjudicate.ts
  *
@@ -15,7 +15,7 @@
  * The test reads only the content source. `render:guard` pins `rendered/` to `content/`.
  */
 
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -67,7 +67,40 @@ const SITES: readonly ProseSite[] = [
     shape: 'probe-call',
     runbook: TASK_COMPLETION,
   },
+  { skill: 'content/design/skills/plan/SKILL.md', phase: 'delegate', shape: 'probe-call', runbook: TASK_COMPLETION },
 ];
+
+/** The root of the content source that the census of probe-call passages reads. */
+const CONTENT_ROOT = 'content';
+
+/**
+ * How the probe-call sites disagree with the content files. A file with a call of the kill probe needs a site.
+ * A site needs a file with a call. The census reads each file with the passage reader of the judge.
+ */
+function probeCallCensus(files: ReadonlyMap<string, string>, listed: readonly string[]): readonly string[] {
+  const calling = [...files]
+    .filter(([, markdown]) => probeCallPassages(markdown).length > 0)
+    .map(([file]) => file);
+  return [
+    ...calling
+      .filter((file) => !listed.includes(file))
+      .map((file) => `${file} calls check_test_adequacy, and no probe-call site lists it`),
+    ...listed
+      .filter((file) => !calling.includes(file))
+      .map((file) => `${file} is a probe-call site and holds no call of check_test_adequacy`),
+  ];
+}
+
+/** The repo-relative paths of the Markdown files under a repo-relative directory, sorted. */
+function markdownFilesUnder(directory: string): readonly string[] {
+  const found: string[] = [];
+  for (const entry of readdirSync(join(REPO_ROOT, directory), { withFileTypes: true })) {
+    const relative = `${directory}/${entry.name}`;
+    if (entry.isDirectory()) found.push(...markdownFilesUnder(relative));
+    else if (entry.isFile() && entry.name.endsWith('.md')) found.push(relative);
+  }
+  return found.sort();
+}
 
 /**
  * The only shape of the sentence. The pattern matches the whole line, so the list ends where
@@ -462,6 +495,7 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
     expect(sites.map((s) => s.skill)).toEqual([
       'content/review/skills/review/SKILL.md',
       'content/review/skills/review/references/spec-compliance-checklist.md',
+      'content/design/skills/plan/SKILL.md',
     ]);
     for (const site of sites) {
       expect(site.runbook, site.skill).toBeDefined();
@@ -489,5 +523,35 @@ describe('SkillProse — the checked-by sentence names the gate row', () => {
         'expected exactly one passage that calls `check_test_adequacy`, found 0',
       ]);
     }
+  });
+
+  /**
+   * The census reads each Markdown file of `content/` with the passage reader of the judge.
+   * Each file that holds a call of the kill probe must have a probe-call site, so no such passage escapes the judge.
+   * A seeded file with an unlisted call and a site list without the plan skill are each named.
+   */
+  it('SkillProse_EveryProbeCallPassageOfTheContent_HasAProbeCallSite', () => {
+    const files = new Map(
+      markdownFilesUnder(CONTENT_ROOT).map((file): [string, string] => [file, readFileSync(join(REPO_ROOT, file), 'utf8')]),
+    );
+    expect(files.size).toBeGreaterThan(0);
+    const listed = SITES.filter((site) => site.shape === 'probe-call').map((site) => site.skill);
+    expect(probeCallCensus(files, listed)).toEqual([]);
+
+    const seeded = new Map(files).set(
+      'content/seeded/SKILL.md',
+      '```typescript\nexarchos_orchestrate({\n  action: "check_test_adequacy",\n})\n```\n',
+    );
+    expect(probeCallCensus(seeded, listed)).toEqual([
+      'content/seeded/SKILL.md calls check_test_adequacy, and no probe-call site lists it',
+    ]);
+
+    const withoutPlan = listed.filter((file) => file !== 'content/design/skills/plan/SKILL.md');
+    expect(probeCallCensus(files, withoutPlan)).toEqual([
+      'content/design/skills/plan/SKILL.md calls check_test_adequacy, and no probe-call site lists it',
+    ]);
+    expect(probeCallCensus(new Map(), listed)).toEqual(
+      listed.map((file) => `${file} is a probe-call site and holds no call of check_test_adequacy`),
+    );
   });
 });

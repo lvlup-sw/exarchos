@@ -60,7 +60,7 @@ For a **high-tier** task, the discipline is **outcome-based** (write the behavio
 2. Let the `check_test_adequacy` kill-probe prove the tests can actually fail (it reverts your source and asserts at least one test goes red)
 3. Add real-collaborator integration coverage across the seam
 
-**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate `check_tdd_compliance` was retired):
+**Verify high-tier test adequacy** after implementation — the keeper gate (the test-FIRST ordering gate `check_tdd_compliance` was retired). Pass `repoRoot: "auto"` and the worktree of the task. The probe reverts and then restores the source of the tree it runs in. Without these two fields, that tree is the directory of the server, usually your own checkout. Also pass `baseBranch`, the branch the task forked from. Without it, the gate blocks with `base-missing`:
 
 ```typescript
 exarchos_orchestrate({
@@ -68,6 +68,9 @@ exarchos_orchestrate({
   featureId: "<featureId>",
   taskId: "<taskId>",
   branch: "feature/<name>",
+  baseBranch: "<branch the task forked from>",
+  repoRoot: "auto",
+  worktreePath: "<worktreePath>",
   riskTier: "high"
 })
 ```

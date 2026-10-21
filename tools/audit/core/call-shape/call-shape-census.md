@@ -16,18 +16,18 @@ Counts read `fixed + k*tasks + m*prs`. The N=1 columns set every loop variable t
 
 ## plan
 
-Ends at: transition plan -> plan-review (`content/design/skills/plan/SKILL.md:249`)
+Ends at: transition plan -> plan-review (`content/design/skills/plan/SKILL.md:252`)
 
-1. `exarchos_orchestrate.generate_traceability` (work) `content/design/skills/plan/SKILL.md:98`
-2. `exarchos_orchestrate.check_plan_coverage` (work) `content/design/skills/plan/SKILL.md:145`
-3. `exarchos_orchestrate.check_provenance_chain` (work) `content/design/skills/plan/SKILL.md:160`
-4. `exarchos_orchestrate.check_task_decomposition` (work) `content/design/skills/plan/SKILL.md:175`
-5. `exarchos_orchestrate.spec_coverage_check` (work) `content/design/skills/plan/SKILL.md:191`
-6. `exarchos_orchestrate.check_coverage_thresholds` (work) `content/design/skills/plan/SKILL.md:275`
-7. `exarchos_workflow.update` (work) `content/design/skills/plan/SKILL.md:238`
-8. `exarchos_workflow.transition` (work) `content/design/skills/plan/SKILL.md:242`
+1. `exarchos_orchestrate.generate_traceability` (work) `content/design/skills/plan/SKILL.md:101`
+2. `exarchos_orchestrate.check_plan_coverage` (work) `content/design/skills/plan/SKILL.md:148`
+3. `exarchos_orchestrate.check_provenance_chain` (work) `content/design/skills/plan/SKILL.md:163`
+4. `exarchos_orchestrate.check_task_decomposition` (work) `content/design/skills/plan/SKILL.md:178`
+5. `exarchos_orchestrate.spec_coverage_check` (work) `content/design/skills/plan/SKILL.md:194`
+6. `exarchos_orchestrate.check_coverage_thresholds` (work) `content/design/skills/plan/SKILL.md:278`
+7. `exarchos_workflow.update` (work) `content/design/skills/plan/SKILL.md:241`
+8. `exarchos_workflow.transition` (work) `content/design/skills/plan/SKILL.md:245`
 
-Exception `coverage-gaps-revise`: the coverage gate fails, so the plan is revised and re-run (`content/design/skills/plan/SKILL.md:295`)
+Exception `coverage-gaps-revise`: the coverage gate fails, so the plan is revised and re-run (`content/design/skills/plan/SKILL.md:298`)
 
 - Runs the normal path through `exarchos_orchestrate.check_plan_coverage`, adds `exarchos_workflow.update`, then the whole normal path again, at most 3 times (`content/design/skills/plan/SKILL.md:37`).
 - Exarchos 11; describe 0; runbook fetch 0; harness 0.
@@ -158,10 +158,10 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 ## Findings
 
-- Unregistered: `exarchos_workflow.set` (unregistered) at `content/design/skills/plan/SKILL.md:299`, plan:excluded:stale-unregistered.
+- Unregistered: `exarchos_workflow.set` (unregistered) at `content/design/skills/plan/SKILL.md:302`, plan:excluded:stale-unregistered.
 - synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:53` but spells a different path. Only in the runbook: `exarchos_orchestrate.validate_pr_stack`, `native:bash.gh_pr_create`. Only in the prose: `exarchos_orchestrate.create_pr`, `exarchos_orchestrate.list_prs`, `exarchos_orchestrate.merge_pr`, `exarchos_workflow.update`, `native:Bash`.
-- plan, `exarchos_orchestrate.check_coverage_thresholds` at `content/design/skills/plan/SKILL.md:279`: A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.
-- plan, `exarchos_workflow.set` at `content/design/skills/plan/SKILL.md:299`: The plan skill says phase transitions emit through `exarchos_workflow` `set`, an action the registry does not serve; the same skill prescribes `transition` for the phase change.
+- plan, `exarchos_orchestrate.check_coverage_thresholds` at `content/design/skills/plan/SKILL.md:282`: A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.
+- plan, `exarchos_workflow.set` at `content/design/skills/plan/SKILL.md:302`: The plan skill says phase transitions emit through `exarchos_workflow` `set`, an action the registry does not serve; the same skill prescribes `transition` for the phase change.
 - review, `exarchos_orchestrate.check_test_adequacy` at `content/review/skills/review/SKILL.md:62`: The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.
 
 ## Scope
@@ -178,7 +178,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 - Registry: 127 actions over 5 tools (4 visible), action ids sha256 `912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `tools/audit/registered-actions-snapshot.json`.
 - Contract authority `action-id-registry` digest `sha256:912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `src/contract/contract-authority.lock.json`.
 - `content/delivery/skills/delegate/SKILL.md` sha256 `cce475b5e86d5a84d4f020998933f9cdac8809a0c9e4d59ee31d7cccb37a429a`
-- `content/design/skills/plan/SKILL.md` sha256 `9d3591bf30492e6f36be249da667fc37b396e47964e9eb6d11d043ed8066696d`
+- `content/design/skills/plan/SKILL.md` sha256 `9a2570c714172a108502486d7f6e138cd4ef4d84ade159f699663002132f6c6b`
 - `content/review/skills/review/SKILL.md` sha256 `a852d4c7bb7c36028d70382057470504550295bbfb561974d9990094b696369d`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `22c020a7069bbd9a5ec0ee443a8599af683eb830441e38c442db4d4307b66960`
 - `src/runbooks/definitions.ts` sha256 `359661893827780529e2568085ffa2dc8084d9487056330ba39bdc8c15cff521`

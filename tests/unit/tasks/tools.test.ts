@@ -1782,6 +1782,9 @@ describe('handleTaskComplete reads the active record of the task', () => {
     expect(refused.error?.message).toContain(`The static-analysis verdict of evidence '${failId}'`);
     expect(refused.error?.message).toContain("for task 'T-01' is a fail. That run is on another branch or base");
     expect(refused.error?.message).toContain("taskId 'T-01' and the branch and baseBranch of that run");
+    expect(refused.error?.message).toContain(
+      'The record keeps only a digest of that branch and base, so pass the values of the call that recorded it.',
+    );
 
     await seedStaticAnalysisVerdict(store, { ...seed, baseBranch: 'develop' });
     const admitted = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-bases' }, tempDir, store);
@@ -1871,6 +1874,7 @@ describe('handleTaskComplete reads the active record of the task', () => {
   /**
    * One task has two chains by path. The runbook steps pass no `branch`, and settle passes the `branch` of the claim.
    * A failing runbook-path run and a later passing settle-path run refuse while the failing chain has no later pass.
+   * The rerun names no branch and no base, because the failing run had only the step params.
    * A passing runbook-path run supersedes the fail, and the task completes.
    */
   it('HandleTaskComplete_RunbookPathFailAndSettlePathPass_RefusesWhileTheFailingChainHasNoLaterPass', async () => {
@@ -1883,6 +1887,9 @@ describe('handleTaskComplete reads the active record of the task', () => {
 
     expect(refused.error?.code).toBe('GATE_NOT_PASSED');
     expect(refused.error?.message).toContain(`The static-analysis verdict of evidence '${runbookFail}' for task 'T-01' is a fail.`);
+    expect(refused.error?.message).toContain("taskId 'T-01' and no branch and no baseBranch, as in that run");
+    expect(refused.error?.message).not.toContain('the branch and baseBranch of that run');
+    expect(refused.error?.message).not.toContain('keeps only a digest');
     expect((await recordsOf(store, 'wf-paths')).map((record) => record.supersedes)).toEqual([undefined, undefined]);
 
     await seedStaticAnalysisVerdict(store, seed);

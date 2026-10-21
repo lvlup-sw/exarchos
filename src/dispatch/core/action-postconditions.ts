@@ -64,6 +64,10 @@ function rowAcknowledgement(reply: unknown): RowAcknowledgement | undefined {
  * A keyed append that finds its key appends nothing and returns the stored row, so the reply acknowledges that row.
  * The store must hold the row on the stream at the acknowledged sequence, with the acknowledged type and an idempotency key.
  * The store is the observation. The acknowledgement only names the row.
+ *
+ * Limit: no declaration names the idempotency key of its emission, so the check does not bind the key of the row to the call.
+ * A stored keyed row of the acknowledged type passes, also when the key belongs to another call, such as another task.
+ * The handler that builds the reply chooses the row.
  */
 export async function replayedRowType(
   store: PostconditionStore,
@@ -108,6 +112,7 @@ export interface ObserveActionPostconditionsInput {
   /**
    * The reply data of the handler. When it acknowledges a stored keyed row, {@link replayedRowType}
    * reads that row from the store, and the row satisfies an `event-append` ensure of its type.
+   * The check does not bind the key of the row to this call. {@link replayedRowType} states the limit.
    */
   readonly reply?: unknown;
 }
