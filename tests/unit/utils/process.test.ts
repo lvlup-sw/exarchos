@@ -93,25 +93,33 @@ describe('runCommandSync with a win32 batch file', () => {
     expect(isWindowsBatchFile('/repo/build.cmd', 'linux')).toBe(false);
   });
 
-  /** The launch is `cmd.exe /d /c` with one body. A token with whitespace or a cmd metacharacter is escaped. */
+  /**
+   * The launch is `cmd.exe /d /c` with one body. The path keeps each space and metacharacter as one token with a caret.
+   * It gets no quotes, because cmd.exe does not group a path with escaped quotes. An argument is quoted and escaped.
+   */
   it('WindowsBatchLaunch_EscapesEachTokenIntoOneCmdBody', () => {
-    const launch = windowsBatchLaunch('C:\\my repo\\node_modules\\.bin\\depcruise.cmd', ['--validate', 'a&b']);
+    const launch = windowsBatchLaunch('C:\\my repo (x86)\\node_modules\\.bin\\depcruise.cmd', ['--validate', 'a&b', 'two words']);
 
     expect(launch.file.toLowerCase()).toContain('cmd');
     expect(launch.args.slice(0, 2)).toEqual(['/d', '/c']);
-    expect(launch.args[2]).toBe('^"C:\\my repo\\node_modules\\.bin\\depcruise.cmd^" --validate a^&b');
+    expect(launch.args[2]).toBe(
+      'C:\\my^ repo^ ^(x86^)\\node_modules\\.bin\\depcruise.cmd --validate a^&b ^"two words^"',
+    );
   });
 
-  /** On a win32 host, a real batch file runs through `runCommandSync` and gives its stdout and its arguments. */
+  /**
+   * On a win32 host, a real batch file runs through `runCommandSync` and gives its stdout and its arguments.
+   * The file is in a directory with a space and parentheses, as a shim under a user profile with a space is.
+   */
   it.runIf(process.platform === 'win32')('RunCommandSync_BatchFileOnWin32_RunsThroughCmd', async () => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'batch-file-'));
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'batch file (x86)-'));
     try {
       const batch = path.join(dir, 'echo-args.cmd');
-      fs.writeFileSync(batch, '@echo off\r\necho got %1 %2\r\n', 'utf-8');
+      fs.writeFileSync(batch, '@echo off\r\necho got %~1 %~2\r\n', 'utf-8');
 
-      const out = String(await isolatedSync(() => runCommandSync(batch, ['one', 'two'], { encoding: 'utf-8' })));
+      const out = String(await isolatedSync(() => runCommandSync(batch, ['one', 'two words'], { encoding: 'utf-8' })));
 
-      expect(out.trim()).toBe('got one two');
+      expect(out.trim()).toBe('got one two words');
     } finally {
       rmrf(dir);
     }

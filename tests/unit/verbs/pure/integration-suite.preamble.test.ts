@@ -3,7 +3,7 @@
 // parser must find the report inside runner noise. These tests pin that at the
 // pure parser and through a real spawned process.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 
 import { execCommandRunner } from '../../../../src/verbs/gates/check-integration-suite.js';
 import { parseVitestResult, runIntegrationSuite } from '../../../../src/verbs/pure/integration-suite.js';
@@ -108,11 +108,15 @@ describe('runIntegrationSuite through a real spawned runner (WFQ-003)', () => {
 
     const run = await isolatedSync(() => execCommandRunner(process.execPath, ['-e', script], { cwd: process.cwd() }));
 
+    const runCommand = vi.fn(() => run);
     const result = runIntegrationSuite({
       repoRoot: process.cwd(),
-      runCommand: () => run,
+      runCommand,
       testScript: 'test:run',
     });
+
+    expect(runCommand).toHaveBeenCalledOnce();
+    expect(runCommand).toHaveBeenCalledWith('npm', ['run', 'test:run', '--', '--reporter=json'], { cwd: process.cwd() });
 
     expect(result.parseError).toBe(false);
     expect(result.parseFailureKind).toBeUndefined();
@@ -131,11 +135,15 @@ describe('runIntegrationSuite through a real spawned runner (WFQ-003)', () => {
 
     const run = await isolatedSync(() => execCommandRunner(process.execPath, ['-e', script], { cwd: process.cwd() }));
 
+    const runCommand = vi.fn(() => run);
     const result = runIntegrationSuite({
       repoRoot: process.cwd(),
-      runCommand: () => run,
+      runCommand,
       testScript: 'test:run',
     });
+
+    expect(runCommand).toHaveBeenCalledOnce();
+    expect(runCommand).toHaveBeenCalledWith('npm', ['run', 'test:run', '--', '--reporter=json'], { cwd: process.cwd() });
 
     expect(result.parseError).toBe(false);
     expect(result.passed).toBe(true);

@@ -86,12 +86,13 @@ export interface WindowsBatchLaunch {
 }
 
 /**
- * The `cmd.exe /d /c` launch of a win32 batch file. Each token is escaped by {@link escapeForCmd}.
+ * The `cmd.exe /d /c` launch of a win32 batch file. The path is escaped by {@link escapeProgramForCmd}.
+ * Each argument is escaped by {@link escapeForCmd}.
  * The caller sets `windowsVerbatimArguments`, so Node adds no quotes of its own.
  */
 export function windowsBatchLaunch(file: string, args: readonly string[]): WindowsBatchLaunch {
   const comspec = process.env['ComSpec'] || 'cmd.exe';
-  const body = [escapeForCmd(file), ...args.map(escapeForCmd)].join(' ');
+  const body = [escapeProgramForCmd(file), ...args.map(escapeForCmd)].join(' ');
   return { file: comspec, args: ['/d', '/c', body] };
 }
 
@@ -341,6 +342,15 @@ function quoteArgvToken(arg: string): string {
  */
 function caretEscapeForCmd(token: string): string {
   return token.replace(/[()%!^"<>&|]/g, (ch) => `^${ch}`);
+}
+
+/**
+ * Escape the program path of a `cmd.exe` line. Each space and each cmd metacharacter gets a caret, and no quotes are added.
+ * cmd.exe does not group a path with escaped quotes, so an escaped quoted path splits at its first space.
+ * A Windows path holds no double quote, so the path needs no `CommandLineToArgvW` quoting.
+ */
+function escapeProgramForCmd(file: string): string {
+  return file.replace(/[()[\]%!^"`<>&|;,= ]/g, (ch) => `^${ch}`);
 }
 
 /**
