@@ -18,7 +18,7 @@ packet:
   id: exarchos-semantic-plane
   version: 2
   as_of: 2026-10-22
-  main_at: b6e339fd9
+  main_at: 36bcf73cd
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -516,6 +516,10 @@ decisions:
     source: "Reed, backlog triage of the 273 open issues: 'Both passes, about 40-50 open', 'Trackers plus scheduled work', 'Ensure we lose no signal but are simply reducing administrative friction'"
     decision: "An issue stays open only when it is a tracker (a leg, or an epic that still owns open work), a decision or roadmap record (#1875, #1599), or scheduled work of the current leg. Every other item is one checklist line in one tracker. Its issue closes as not planned with the label tracked-in-checklist, and it keeps its detail, labels and milestone. A line that grows into design work reopens its issue. A sweep files one tracker with a line for each finding, not one issue for each finding."
     known: "Two read-only passes judged each issue against main 79f59577a, and Reed approved the plan as proposed. 20 issues closed as fixed, superseded or duplicate. A duplicate's unique detail was copied to its survivor first. 226 issues became lines in 26 trackers, 10 of them new (issue_map.backlog_trackers). A defect closed as superseded is a line under 'Closed as superseded by this leg' in #1927, #1928 or #1877, so the leg confirms that the code is gone. Milestones stay on the closed issues, so a milestone percentage counts a folded line as closed: count open work by tracker lines. #1460 and #1461 (Azure runner configuration) stay open for Reed."
+  - date: "2026-10-22"
+    source: "Reed: 'Please parent all the tracker issues under the relevant milestones'"
+    decision: "Each tracker has a milestone. A tracker is on v3.0.0 when that release needs it: an exit criterion names it, one of its lines has a CI-enforced date in 2026, or it holds a breaking change. Every other tracker is on v3.1.0. A tracker that has open lines when its release ships moves to the next milestone. The description of each tracker says why it is on its milestone."
+    known: "12 trackers had no milestone. #1599, #1744, #2139, #2140 and #2143 went to v3.0.0. #1763, #1946, #2141, #2142, #2145, #2146 and #2148 went to v3.1.0. After this, v3.0.0 has 22 open issues, v3.1.0 has 12 and v3.2.0 has 1. #1460 and #1461 are not trackers and have no milestone."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -544,7 +548,7 @@ build_order:
       refs: "#1926; landed on main 2026-10-16 in PRs #2130, #2131 and #2132 (one stack merge, main b6e339fd9). The build made no Exarchos call, so it is not a real settlement of the loop."
       deferred: "reopening finished work and the settlement-time comparison for a race (#1929); the race where a second batch finishes a task that a held deviation names, so that the accepted decision revises a finished task, because the decision round does not read the standing of the named tasks (#1929); the completion read that moved ahead of the shape pass, drift row completion-read-before-shape-pass (#1929); quarantine (no owner); a deferred decision (no owner); a detector for a prohibited change, which today is found only by the gates and by the report of the worker (no owner); binding the reasons of unresolved tasks into the next capsule (#1930); a limit on the number of corrections of one task (no owner); a task.failed row for a claim that reports failed, because the status is on the claim and in the bundle, and tasks[].status does not change (no owner); a SCHEMA_VERSION step, after the freshness gate of #2106 is repaired (no owner)"
     - leg: "conformance: verification scope (per-task repoRoot, worktreePath, baseRef in the capsule; worktree identity checked)"
-      status: "in progress, and the next leg (decision of 2026-10-16). #1925 landed via #1974 (the kill-probe base, frozen in the capsule). The plan of 2026-10-16 cuts the rest into four slices, by name. 'Honest verdicts' (no capsule change) is built and verified: the forged-row half of #1886 defect 2, #2062 and the first half of #1721. It lands in a stack of three pull requests (the reserved gate.executed row and the task_complete reader, then the kill probe, then the boundary check of static analysis): #2135, #2136 and #2137. 'Settlement reads inside its commit' (no capsule change) is next: drift row completion-read-before-shape-pass and the race at settlement time. 'The capsule pins the scope' (exarchos-prepare-4): the per-task scope in the capsule and the worktree identity check (#1526), with the wrong-tree half of #1886 defect 2, #1886 defect 1, #1813 and #1753. 'No per-language code': #1540 and #1814."
+      status: "in progress, and the next leg (decision of 2026-10-16). #1925 landed via #1974 (the kill-probe base, frozen in the capsule). The plan of 2026-10-16 cuts the rest into four slices, by name. 'Honest verdicts' (no capsule change) is done: the forged-row half of #1886 defect 2, #2062 and the first half of #1721. It landed on main on 2026-10-21 in a stack of three pull requests (the reserved gate.executed row and the task_complete reader, then the kill probe, then the boundary check of static analysis): #2135, #2136 and #2137, main 79f59577a. 'Settlement reads inside its commit' (no capsule change) is next: drift row completion-read-before-shape-pass and the race at settlement time. 'The capsule pins the scope' (exarchos-prepare-4): the per-task scope in the capsule and the worktree identity check (#1526), with the wrong-tree half of #1886 defect 2, #1886 defect 1, #1813 and #1753. 'No per-language code': #1540 and #1814."
       refs: "#1929 (children #1925, #1526, #1753, #1813, #1814, #1540, #1886, #1721); gate verdict enforcement #1943 (done, #1975)"
     - leg: "conformance: VCS demotion (serialize_merge, setup_worktree, create_pr off the governance surface)"
       status: "decided"
@@ -682,8 +686,8 @@ drift:
 # ─── measured facts (re-check before relying on them) ────────────────────────
 
 measured:
-  as_of: 2026-10-16
-  main_at: b6e339fd9       # each check below was run again on this commit of main
+  as_of: 2026-10-22
+  main_at: 36bcf73cd       # each check below was run again on this commit of main
   facts:
     - fact: prepare refuses non-feature workflows and non-delegate phases
       check: "grep -n -E 'WORKFLOW_TYPE_UNSUPPORTED|PHASE_NOT_PREPARABLE' src/verbs/prepare/handler.ts"
@@ -715,6 +719,14 @@ measured:
       check: "grep -n BASE_UNRESOLVED src/verbs/prepare/handler.ts; grep -n NO_READY_TASKS src/verbs/prepare/partition-tasks.ts"
     - fact: "a blocking gate that blocks (success carrier, passed: false, not a skip) fails its executor leaf, so settle leaves the task unresolved and leaves no task.completed for it (since #1943, 2026-10-01; the outcome of the batch is corrective-capsule since the settlement vocabulary)"
       check: "grep -n -A16 'function blockingGateRefusal' src/verbs/execute/executor.ts; npx vitest run --project core tests/unit/verbs/settle/blocking-gate.test.ts"
+    - fact: "gate.executed is reserved to the gate handlers (since 'honest verdicts'): the packaged generic append refuses the type and writes no row, and a forged row does not complete a task. task_complete completes the task after a real gate run of that task."
+      check: "npx vitest run --project core tests/core/process/reserved-event-append.test.ts"
+    - fact: "task_complete completes a task only on a passing static-analysis run of that task. A blocking gate that is red, or evidence that the caller supplies, does not complete it. A skipped constituent gives a degraded result, not a pass."
+      check: "npx vitest run --project core tests/core/integration/governance/gate-before-completion.test.ts"
+    - fact: "the kill probe gives baseline-red for a red run on the task source and run-no-verdict for a run with no verdict (an exit code that it does not read, a signal, a timeout, an output overflow, a spawn error, no command). Both always block."
+      check: "grep -n -E \"'(baseline-red|run-no-verdict)': 'always-blocking'\" src/verbs/gates/test-adequacy.ts; npx vitest run --project core tests/unit/verbs/gates/test-adequacy.integration.test.ts -t ScopedTestRunner_"
+    - fact: "the import-boundary leg of static analysis reads summary.error from the depcruise JSON report, not the exit code. A fault outside the repository (a missing tool, a run that did not start, a signal, out of memory, the output limit), no first-party root, or a scan that checked no module is a degraded skip in advisorySkips. An incomplete report with no such fault is a FAIL with the cause config-or-usage."
+      check: "grep -n -E 'summary\\.error;|--output-type json' src/verbs/pure/static-analysis.ts; npx vitest run --project core tests/unit/verbs/gates/static-analysis.test.ts -t BoundaryLint_"
     - fact: "gates still carry per-language code (static analysis hardcodes dotnet build -warnaserror; test globs come from a per-toolchain table)"
       check: "grep -n warnaserror src/verbs/pure/static-analysis.ts; grep -n testGlobsForToolchain src/verbs/gates/test-adequacy-handler.ts"
     - fact: "C2 knowledge binding is the design of record and, on a capsule at design version 2 or later, the accepted design changes: one rationale statement for each, for at most eight, then one that counts the rest. No per-task slice is bound."
@@ -793,7 +805,7 @@ milestones:
     outcome: "One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane."
   v3.2.0:
     outcome: Design rationale as typed claims, the claims being the source of truth (beyond v3.0's C2 minimum).
-  none: "Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries: 2026-10-31 (the three suite-invariant gaps of the #1742 line in #1744, and the RESERVED headers of src/adapters/mcp/remote-mcp.ts and tools/evals/benchmarks/baselines-schema.ts) and 2026-11-30 (61 knip entries in #1744, and two date tests in the #2122 line of #2140). The 51 knip entries that expired on 2026-10-31 were exported types that nothing used, and their code was deleted on 2026-10-22."
+  none: "Only #1460 and #1461, which are not trackers (decision of 2026-10-22). Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries: 2026-10-31 (the three suite-invariant gaps of the #1742 line in #1744, and the RESERVED headers of src/adapters/mcp/remote-mcp.ts and tools/evals/benchmarks/baselines-schema.ts), 2026-11-23 (the reachable-controls exemption of the #1860 line in #2139) and 2026-11-30 (61 knip entries in #1744, and two date tests in the #2122 line of #2140). 51 knip entries were due to expire on 2026-10-31. They were exported types that nothing used, and their code was deleted on 2026-10-22."
 
 # ─── where things are tracked ────────────────────────────────────────────────
 
@@ -838,6 +850,9 @@ issue_map:
     views: 2146
     gates: 2147
     hardening: 2148
+  tracker_milestones:                # decision of 2026-10-22; GitHub holds the live value
+    v3.0.0: [1599, 1744, 2139, 2140, 2143, 2144]
+    v3.1.0: [1763, 1946, 2141, 2142, 2145, 2146, 2147, 2148]
   awaiting_owner: [1460, 1461]       # Azure runner configuration outside the repository; Reed decides
 
 # ─── traps that misled earlier sessions ──────────────────────────────────────
