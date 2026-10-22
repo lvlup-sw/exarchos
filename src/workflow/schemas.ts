@@ -142,8 +142,6 @@ export const PerformanceSLASchema = z.object({
   unit: z.enum(['ms', 'ops/s', 'MB']),
 });
 
-export type PerformanceSLA = z.infer<typeof PerformanceSLASchema>;
-
 export const TestingStrategySchema = z.object({
   exampleTests: z.literal(true),
   propertyTests: z.boolean(),
@@ -151,8 +149,6 @@ export const TestingStrategySchema = z.object({
   properties: z.array(z.string()).optional(),
   performanceSLAs: z.array(PerformanceSLASchema).optional(),
 });
-
-export type TestingStrategy = z.infer<typeof TestingStrategySchema>;
 
 export const TaskStatusSchema = z.preprocess(
   (val) => (val === 'completed' ? 'complete' : val),

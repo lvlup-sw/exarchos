@@ -63,9 +63,6 @@ export const LauncherVerbSchema = z.object({
   dryRun: z.boolean().optional().default(false),
 });
 
-/** Parsed, validated launcher verb input. */
-export type LauncherVerbInput = z.infer<typeof LauncherVerbSchema>;
-
 /**
  * The conformance metadata of the CLI-only launcher verb. The launcher is a process-supervisor CLI verb,
  * not an MCP action, so it declares this surface here and not in `TOOL_REGISTRY`.

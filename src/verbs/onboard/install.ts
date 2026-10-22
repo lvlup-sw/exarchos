@@ -212,9 +212,6 @@ export const RENAMED_AWAY_SKILL_DIRS: readonly string[] = [
   'workflow-state',
 ];
 
-/** Install scope for the canonical `.agents/skills` convention path. */
-export type SkillsScope = 'user' | 'project';
-
 /** The subset of a runtime map the migration reads (its native skills dir). */
 export interface RuntimeSkillsTarget {
   readonly name: string;

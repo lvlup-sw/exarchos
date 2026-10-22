@@ -31,7 +31,7 @@ interface CompactPipelineEntry {
   readonly repoRoot?: string;
 }
 
-/** The compact form of `PipelineSummary`: the same group counts, with compact `firstPage` rows. */
+/** The pipeline summary: the workflow counts by phase and by type, and a first page of compact rows. */
 interface CompactPipelineSummary {
   readonly total: number;
   readonly byPhase: Record<string, number>;

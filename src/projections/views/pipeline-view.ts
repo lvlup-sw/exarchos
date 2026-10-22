@@ -25,21 +25,6 @@ export interface StackPosition {
   prUrl?: string | undefined;
 }
 
-/**
- * A counts-by-group summary with a first page of full {@link PipelineViewState} rows.
- * `handleViewPipeline` returns a local variant of this shape with compact rows.
- */
-export interface PipelineSummary {
-  /** Total workflows in the filtered inventory (pre-cap). */
-  total: number;
-  /** Count of workflows per lifecycle phase across the whole inventory. */
-  byPhase: Record<string, number>;
-  /** Count of workflows per workflow type across the whole inventory. */
-  byWorkflowType: Record<string, number>;
-  /** A bounded first page of full detail rows so the summary is still actionable. */
-  firstPage: PipelineViewState[];
-}
-
 export interface PipelineViewState {
   featureId: string;
   workflowType: string;
