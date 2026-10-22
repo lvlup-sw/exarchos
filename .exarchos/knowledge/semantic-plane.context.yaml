@@ -17,7 +17,7 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-10-20
+  as_of: 2026-10-21
   main_at: b6e339fd9
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
@@ -512,6 +512,10 @@ decisions:
     source: "Reed, verification of honest verdicts (#1929): 'Proceed with recommendations', the build stamp"
     decision: "A stamp that names the build of a stored record is the build commit, not a hand-bumped epoch."
     known: "Not built. The stamp on the evidence record and a check that refuses a record of another build are a follow-up, open with no owner. Until then, one build for each store is a human control (decision of 2026-10-18)."
+  - date: "2026-10-21"
+    source: "Reed, backlog triage of the 273 open issues: 'Both passes, about 40-50 open', 'Trackers plus scheduled work', 'Ensure we lose no signal but are simply reducing administrative friction'"
+    decision: "An issue stays open only when it is a tracker (a leg, or an epic that still owns open work), a decision or roadmap record (#1875, #1599), or scheduled work of the current leg. Every other item is one checklist line in one tracker. Its issue closes as not planned with the label tracked-in-checklist, and it keeps its detail, labels and milestone. A line that grows into design work reopens its issue. A sweep files one tracker with a line for each finding, not one issue for each finding."
+    known: "Two read-only passes judged each issue against main 79f59577a, and Reed approved the plan as proposed. 20 issues closed as fixed, superseded or duplicate. A duplicate's unique detail was copied to its survivor first. 226 issues became lines in 26 trackers, 10 of them new (issue_map.backlog_trackers). A defect closed as superseded is a line under 'Closed as superseded by this leg' in #1927, #1928 or #1877, so the leg confirms that the code is gone. Milestones stay on the closed issues, so a milestone percentage counts a folded line as closed: count open work by tracker lines. #1460 and #1461 (Azure runner configuration) stay open for Reed."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -789,7 +793,7 @@ milestones:
     outcome: "One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane."
   v3.2.0:
     outcome: Design rationale as typed claims, the claims being the source of truth (beyond v3.0's C2 minimum).
-  none: "63 issues of hygiene and small bugs. CI-dated expiries 2026-10-31 (#1742, 51 knip entries in #1744) and 2026-11-30 (#1736, 61 knip entries in #1744)."
+  none: "Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries: 2026-10-31 (the #1742 line and 51 knip entries in #1744) and 2026-11-30 (61 knip entries in #1744, and two date tests in the #2122 line of #2140)."
 
 # ─── where things are tracked ────────────────────────────────────────────────
 
@@ -806,18 +810,35 @@ issue_map:
   verification_scope_leg: 1929
   knowledge_binding_leg: 1930
   stranded_bundle_ports: 1931
-  measurement: 1687
-  settlement_continuation: 1824
-  ir_kernel_and_definitions: [1258, 1247, 1248, 1249, 1250, 1251, 1253, 1254]
-  knowledge: [1745, 1746, 1747, 1748, 1749, 1750, 1816]
-  distribution: [1877, 1601, 1737, 1690]
-  transport: [1604, 1283, 1780]
-  verification_scope: [1925, 1526, 1753, 1813, 1814, 1540, 1886, 1721]
+  measurement: "1687 (a line of #1927 since 2026-10-21; it stays the spec of the call-budget measure)"
+  settlement_continuation: "1824 (a line of #1604 since 2026-10-21)"
+  ir_kernel_and_definitions: "1249 (open; the #1249 laws). 1258, 1248, 1250, 1251, 1253 and 1254 are lines of #1927 since 2026-10-21; 1247 is closed."
+  knowledge: "1745 (open; the v3.2.0 part: 1748, 1749, 1750 and 1816 are its lines). 1746 and 1747 are lines of #1930."
+  distribution: "1877 (open; 1601 and 1690 are its lines). 1737 is closed."
+  transport: "1604 (open; 1283, 1780 and 1824 are its lines)."
+  verification_scope: [1526, 1753, 1813, 1814, 1540, 1886]   # scheduled #1929 work; 1925 closed; 1721 and 1976 are lines of #1929
   kill_probe_base: "1925 (a child of 1929; base frozen at prepare; closed by PR 1974)"
-  gate_verdict_enforcement: "1943 (closed by PR 1975); verdict-shaped gates 1976"
-  vcs_effects: [1626, 1884, 1835]       # 1402, 1496, 1351, 1722 closed as superseded by #1928
-  second_runtime_candidate: [1661, 1662, 1663, 1665, 1666, 1667, 1668]
+  gate_verdict_enforcement: "1943 (closed by PR 1975); verdict-shaped gates 1976 (a line of #1929)"
+  vcs_effects: "1626 and 1884 are lines of #1928; 1835 is a line of #2144. 1402, 1496, 1351, 1722, and since 2026-10-21 1633, 1991, 1992, 2010, 2067 and 2068, closed as superseded by #1928."
+  second_runtime_candidate: "1661 (open; 1662, 1663, 1665, 1666, 1667 and 1668 are its lines)."
   stranded_branch: "feat/v2-12-bundle is deleted; the tag archive/feat-v2-12-bundle keeps its tip e9a6209e. Every issue records its disposition; #1931 is closed."
+  # Backlog triage of 2026-10-21: each open issue is in this map. A finding that no tracker below owns
+  # is a line in the nearest tracker. File an issue only for a new tracker, record or scheduled item.
+  register_burn_down: 1744           # the CI-enforced registers (knip and the others), with CI-dated expiries
+  comment_cleanup: 1946
+  epics: {sdk_combinators: 1249, evals: 1403, pi: 1661, benchmark: 1677, knowledge_graph: 1745, imo_replan: 1763}
+  backlog_trackers:
+    dead_code_stale_strings: 2139
+    test_claims_unchecked: 2140
+    test_passes_when_broken: 2141
+    gate_reports_unmade_check: 2142
+    cli: 2143
+    ci: 2144
+    store: 2145
+    views: 2146
+    gates: 2147
+    hardening: 2148
+  awaiting_owner: [1460, 1461]       # Azure runner configuration outside the repository; Reed decides
 
 # ─── traps that misled earlier sessions ──────────────────────────────────────
 
@@ -831,6 +852,7 @@ traps:
   - A re-charter block at the top of an issue does not cancel contradicting sections below it. The description is the source of truth; strike the stale sections.
   - The state document is not an existence signal (rehydrate/get _meta.workflowExists is), yet transition guards read it. Both are true until it retires.
   - Issues that say "closes via the feat/v2-12-bundle PR" are not closed by anything; that branch cannot merge.
+  - "A closed issue with the label tracked-in-checklist is open work. Its unticked line in a tracker is the open item, and a milestone percentage counts it as closed. Count open work by tracker lines, not by open issues."
   - A scope registry in .npmrc outranks publishConfig.registry. Publishing a scoped package needs the scope key in publishConfig too; tests/scripts/npm-publish-target.test.ts holds it.
   - "The static census counts what skills prescribe, not what agents do. The observed half of #1687 needs transcripts recorded after the skill rewrite."
   - "The description budget of an action (280 tokens) does not measure its schema text. describe returns the output schema twice, and the describe response has a budget of its own (8000 tokens) that a registry test measures. An earlier commit moved text into the settle output schema and said that no budget measures it."
