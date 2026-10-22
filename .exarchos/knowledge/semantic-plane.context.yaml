@@ -725,7 +725,7 @@ measured:
       check: "npx vitest run --project core tests/core/integration/governance/gate-before-completion.test.ts"
     - fact: "the kill probe gives baseline-red for a red run on the task source and run-no-verdict for a run with no verdict (an exit code that it does not read, a signal, a timeout, an output overflow, a spawn error, no command). Both always block."
       check: "grep -n -E \"'(baseline-red|run-no-verdict)': 'always-blocking'\" src/verbs/gates/test-adequacy.ts; npx vitest run --project core tests/unit/verbs/gates/test-adequacy.integration.test.ts -t ScopedTestRunner_"
-    - fact: "the import-boundary leg of static analysis reads summary.error from the depcruise JSON report, not the exit code. A run that does not finish, or no first-party root, is a degraded skip in advisorySkips, not a FAIL and not a PASS."
+    - fact: "the import-boundary leg of static analysis reads summary.error from the depcruise JSON report, not the exit code. A fault outside the repository (a missing tool, a run that did not start, a signal, out of memory, the output limit), no first-party root, or a scan that checked no module is a degraded skip in advisorySkips. An incomplete report with no such fault is a FAIL with the cause config-or-usage."
       check: "grep -n -E 'summary\\.error;|--output-type json' src/verbs/pure/static-analysis.ts; npx vitest run --project core tests/unit/verbs/gates/static-analysis.test.ts -t BoundaryLint_"
     - fact: "gates still carry per-language code (static analysis hardcodes dotnet build -warnaserror; test globs come from a per-toolchain table)"
       check: "grep -n warnaserror src/verbs/pure/static-analysis.ts; grep -n testGlobsForToolchain src/verbs/gates/test-adequacy-handler.ts"
