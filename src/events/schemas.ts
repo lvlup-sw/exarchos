@@ -1186,7 +1186,6 @@ export const TurnCompletedDataSchema = z.object({
   turnId: z.string().min(1).describe('Stable identifier for the turn (typically a UUID).'),
   outputTokens: z.number().nonnegative().describe('Total output tokens consumed by the turn.'),
 }).passthrough();
-export type TurnCompletedData = z.infer<typeof TurnCompletedDataSchema>;
 
 /**
  * The output-token total of one subagent, from the SubagentStop hook. The hook matches the subagent
@@ -1202,7 +1201,6 @@ export const SubagentTokensUsedDataSchema = z.object({
   sessionId: z.string().optional().describe('Parent session id (subagents share the parent session).'),
   cwd: z.string().optional().describe('Subagent working directory; the worktree path for isolated teammates.'),
 }).passthrough();
-export type SubagentTokensUsedData = z.infer<typeof SubagentTokensUsedDataSchema>;
 
 export const BenchmarkCompletedData = z.object({
   taskId: z.string(),
@@ -3671,7 +3669,6 @@ export type TaskClaimed = z.infer<typeof TaskClaimedData>;
 export type TaskProgressed = z.infer<typeof TaskProgressedData>;
 export type TaskCompleted = z.infer<typeof TaskCompletedData>;
 export type TaskFailed = z.infer<typeof TaskFailedData>;
-export type GateExecutedDetails = z.infer<typeof GateExecutedDetailsSchema>;
 export type GateExecuted = z.infer<typeof GateExecutedData>;
 export type StackPositionFilled = z.infer<typeof StackPositionFilledData>;
 export type StackRestacked = z.infer<typeof StackRestackedData>;
@@ -3757,8 +3754,6 @@ export type HsmDeprecatedActionInvoked = z.infer<typeof HsmDeprecatedActionInvok
 export type SpecLegacyCapabilitiesArray = z.infer<typeof SpecLegacyCapabilitiesArrayData>;
 export type PhaseContractMissing = z.infer<typeof PhaseContractMissingData>;
 export type PhaseBlocked = z.infer<typeof PhaseBlockedData>;
-export type PhaseEntered = z.infer<typeof PhaseEnteredData>;
-export type PhaseExited = z.infer<typeof PhaseExitedData>;
 export type MigrationLegacyJsonlImported = z.infer<typeof MigrationLegacyJsonlImportedData>;
 export type MigrationCompleted = z.infer<typeof MigrationCompletedData>;
 export type MigrationFailed = z.infer<typeof MigrationFailedData>;
@@ -4030,8 +4025,6 @@ export const AGENT_EVENT_TYPES = [
   'team.task.completed',
   'team.task.failed',
 ] as const;
-
-export type AgentEventType = typeof AGENT_EVENT_TYPES[number];
 
 /**
  * Validates that an agent event has its required metadata fields.

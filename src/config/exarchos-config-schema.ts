@@ -61,12 +61,6 @@ const CatalogRegistrationSchema = z.union([
 ]);
 
 /**
- * One entry in `invariants.catalogs`: a bare string path or a `{ path, tier? }` object.
- * `resolveCatalogSources` converts both forms into a `CatalogSource`. A bare string gets `tier: user`.
- */
-export type CatalogRegistration = z.infer<typeof CatalogRegistrationSchema>;
-
-/**
  * The repo-root-relative path for the retired `invariants.devCatalog: 'enabled'` alias.
  * The constant stays on the config side. Catalog discovery must not know about a privileged path.
  */
@@ -224,9 +218,6 @@ const ToolchainConfigSchema = z
   })
   .strict();
 
-/** A single `.exarchos.yml` `toolchains:` entry. */
-export type ToolchainConfig = z.infer<typeof ToolchainConfigSchema>;
-
 /**
  * The default `ownership.firstParty` globs: the first-party source trees that the import-boundary lint and ownership-aware gates scan.
  * Ownership has no opt-in, so an absent block gets these globs. The default is not empty, because an empty scope silently turns off every ownership-aware check.
@@ -242,9 +233,6 @@ const OwnershipConfigSchema = z
   })
   .strict()
   .default({ firstParty: [...DEFAULT_FIRST_PARTY_GLOBS] });
-
-/** Validated `.exarchos.yml` `ownership:` block (firstParty globs + default). */
-export type OwnershipConfig = z.infer<typeof OwnershipConfigSchema>;
 
 /**
  * The top-level `contract:` block: the codegen and breaking-diff commands for one schema boundary.
@@ -268,8 +256,6 @@ export const StorageConfigSchema = z
   })
   .strict();
 
-export type StorageConfig = z.infer<typeof StorageConfigSchema>;
-
 /**
  * `synthesis.documentLeg` tunes the `document` readiness leg of synthesis.
  * `severity` selects whether a doc-bearing change with no doc change blocks synthesis or only warns.
@@ -288,8 +274,6 @@ export const SynthesisConfigSchema = z
   })
   .strict();
 
-export type SynthesisConfig = z.infer<typeof SynthesisConfigSchema>;
-
 /**
  * `escalation` tunes the escalation policy of the review and shepherd fix loops.
  * `maxIterations` is the number of auto-fixes that a loop can do on a mechanical finding before it escalates to the user.
@@ -301,8 +285,6 @@ export const EscalationConfigSchema = z
   })
   .strict();
 
-export type EscalationConfig = z.infer<typeof EscalationConfigSchema>;
-
 /**
  * `feedback.upstream` is an endpoint that receives each `feedback.recorded` payload after the local event write.
  * The POST is best-effort. With no endpoint, feedback stays local and needs no network.
@@ -313,8 +295,6 @@ export const FeedbackConfigSchema = z
     upstream: z.string().url().optional(),
   })
   .strict();
-
-export type FeedbackConfig = z.infer<typeof FeedbackConfigSchema>;
 
 export const ExarchosConfigSchema = z
   .object({

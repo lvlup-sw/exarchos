@@ -7,8 +7,6 @@
  */
 export const TERMINAL_PHASES = ['completed', 'cancelled'] as const;
 
-export type TerminalPhase = (typeof TERMINAL_PHASES)[number];
-
 /** True when `phase` is a terminal phase (completed or cancelled). */
 export function isTerminalPhase(phase: string): boolean {
   return (TERMINAL_PHASES as readonly string[]).includes(phase);

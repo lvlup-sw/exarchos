@@ -19,13 +19,6 @@ import type {
 } from './harness-registry.js';
 
 /**
- * Injection channel discriminant. Authority is a property of the channel, and this seam does not enforce
- * it. `orientation` is non-authoritative context that the launcher injects. `directive` is the
- * authoritative channel, which the launcher does not emit.
- */
-export type InjectionChannel = 'orientation' | 'directive';
-
-/**
  * An ephemeral orientation payload, non-authoritative by construction. The type fixes
  * `channel: 'orientation'` and `authoritative: false`, so the tag cannot collapse into
  * {@link DirectivePayload}. `content` is opaque here.
@@ -46,9 +39,6 @@ export interface DirectivePayload {
   readonly authoritative: true;
   readonly content: string;
 }
-
-/** Either injection channel's payload — discriminated by `channel`. */
-export type InjectionPayload = OrientationPayload | DirectivePayload;
 
 /** Env var for the orientation content, distinct from {@link DIRECTIVE_ENV_KEY}. */
 export const ORIENTATION_ENV_KEY = 'EXARCHOS_ORIENTATION' as const;
