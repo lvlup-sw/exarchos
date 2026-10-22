@@ -17,7 +17,7 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-10-21
+  as_of: 2026-10-22
   main_at: b6e339fd9
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
@@ -516,6 +516,10 @@ decisions:
     source: "Reed, backlog triage of the 273 open issues: 'Both passes, about 40-50 open', 'Trackers plus scheduled work', 'Ensure we lose no signal but are simply reducing administrative friction'"
     decision: "An issue stays open only when it is a tracker (a leg, or an epic that still owns open work), a decision or roadmap record (#1875, #1599), or scheduled work of the current leg. Every other item is one checklist line in one tracker. Its issue closes as not planned with the label tracked-in-checklist, and it keeps its detail, labels and milestone. A line that grows into design work reopens its issue. A sweep files one tracker with a line for each finding, not one issue for each finding."
     known: "Two read-only passes judged each issue against main 79f59577a, and Reed approved the plan as proposed. 20 issues closed as fixed, superseded or duplicate. A duplicate's unique detail was copied to its survivor first. 226 issues became lines in 26 trackers, 10 of them new (issue_map.backlog_trackers). A defect closed as superseded is a line under 'Closed as superseded by this leg' in #1927, #1928 or #1877, so the leg confirms that the code is gone. Milestones stay on the closed issues, so a milestone percentage counts a folded line as closed: count open work by tracker lines. #1460 and #1461 (Azure runner configuration) stay open for Reed."
+  - date: "2026-10-22"
+    source: "Reed: 'Please parent all the tracker issues under the relevant milestones'"
+    decision: "Each tracker has a milestone. A tracker is on v3.0.0 when that release needs it: an exit criterion names it, one of its lines has a CI-enforced date in 2026, or it holds a breaking change. Every other tracker is on v3.1.0. A tracker that has open lines when its release ships moves to the next milestone. The description of each tracker says why it is on its milestone."
+    known: "12 trackers had no milestone. #1599, #1744, #2139, #2140 and #2143 went to v3.0.0. #1763, #1946, #2141, #2142, #2145, #2146 and #2148 went to v3.1.0. After this, v3.0.0 has 22 open issues, v3.1.0 has 12 and v3.2.0 has 1. #1460 and #1461 are not trackers and have no milestone."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -793,7 +797,7 @@ milestones:
     outcome: "One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane."
   v3.2.0:
     outcome: Design rationale as typed claims, the claims being the source of truth (beyond v3.0's C2 minimum).
-  none: "Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries: 2026-10-31 (the #1742 line and 51 knip entries in #1744) and 2026-11-30 (61 knip entries in #1744, and two date tests in the #2122 line of #2140)."
+  none: "Only #1460 and #1461, which are not trackers (decision of 2026-10-22). Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries: 2026-10-31 (the #1742 line and 51 knip entries in #1744), 2026-11-23 (the reachable-controls exemption of the #1860 line in #2139) and 2026-11-30 (61 knip entries in #1744, and two date tests in the #2122 line of #2140)."
 
 # ─── where things are tracked ────────────────────────────────────────────────
 
