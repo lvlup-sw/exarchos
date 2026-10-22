@@ -12,7 +12,8 @@
 //
 // Each test carries its NEGATIVE TWIN: a distinct request identity that must
 // not be deduped. Without the twin, a handler that never acts twice passes.
-// This file builds its own `DispatchContext` and does not use `_harness.ts`.
+// Each test gets its dispatch context from the production composition root,
+// through `createPublicRootHarness()` in `_harness.ts`.
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
@@ -23,28 +24,25 @@ import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 vi.mock('../../../../src/vcs/shell.js', () => ({ exec: vi.fn() }));
 
 import { exec as ghBoundary } from '../../../../src/vcs/shell.js';
-import { EventStore } from '../../../../src/events/store.js';
 import { handleExecuteMerge } from '../../../../src/verbs/merge/execute-merge.js';
 import { handleCreatePr } from '../../../../src/verbs/vcs/create-pr.js';
-import { initStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
-import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
-import type { ResolvedProjectConfig } from '../../../../src/config/resolve.js';
+import { createPublicRootHarness, type PublicRootHarness } from '../_harness.js';
 import type { WorkflowEvent } from '../../../../src/events/schemas.js';
 
 const scratchDirs: string[] = [];
-const openStores: EventStore[] = [];
+const openHarnesses: PublicRootHarness[] = [];
 
 /**
- * Closes the SQLite handles first: on Windows an open connection blocks the
- * removal of its directory (EPERM). Teardown ignores its own errors, so a
+ * Disposes each harness first, which closes its SQLite handles: on Windows an
+ * open connection blocks the removal of its directory (EPERM). Teardown ignores its own errors, so a
  * leftover Windows file lock never shows as a test failure.
  */
-afterEach(() => {
+afterEach(async () => {
   vi.clearAllMocks();
-  while (openStores.length > 0) {
+  while (openHarnesses.length > 0) {
     try {
-      openStores.pop()?.close();
+      await openHarnesses.pop()?.dispose();
     } catch {
     }
   }
@@ -120,27 +118,23 @@ async function revParse(repoRoot: string, rev: string): Promise<string> {
   return (await git(repoRoot, ['rev-parse', rev])).trim();
 }
 
-interface Harness {
-  readonly ctx: DispatchContext;
-  readonly eventStore: EventStore;
-  readonly stateDir: string;
+/**
+ * Builds a public-root harness over an empty project root. The resolved config of an empty root
+ * has the default VCS provider, GitHub, so the production context builds the real `GitHubProvider`.
+ * Each test makes one harness. A harness starts the storage backend of the process, so a second
+ * harness replaces the backend of the first.
+ */
+async function makeHarness(): Promise<PublicRootHarness> {
+  const projectRoot = await mkTemp('dr12-project-');
+  const harness = await createPublicRootHarness({ projectRoot });
+  openHarnesses.push(harness);
+  return harness;
 }
 
-/** Builds a `DispatchContext` from an object literal over a real `EventStore` in a temp state directory. */
-async function makeHarness(): Promise<Harness> {
-  const stateDir = await mkTemp('dr12-state-');
-  await fs.mkdir(path.join(stateDir, 'workflow-state'), { recursive: true });
-  const eventStore = new EventStore(stateDir);
-  openStores.push(eventStore);
-  const ctx = {
-    stateDir,
-    eventStore,
-    enableTelemetry: false,
-    projectConfig: {
-      vcs: { provider: 'github', settings: {} },
-    } as unknown as ResolvedProjectConfig,
-  } as unknown as DispatchContext;
-  return { ctx, eventStore, stateDir };
+/** Starts a feature workflow through `dispatch`, so the store of the harness holds its state. */
+async function initFeature(harness: PublicRootHarness, featureId: string): Promise<void> {
+  const init = await harness.runAction('exarchos_workflow', 'init', { featureId, workflowType: 'feature' });
+  expect(init.success, `init of ${featureId} failed: ${init.errorCode ?? init.rejection ?? ''}`).toBe(true);
 }
 
 function countEvents(events: readonly WorkflowEvent[], type: string): number {
@@ -240,9 +234,10 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     const repoRoot = await makeGitRepo();
     await makeFeatureBranch(repoRoot, 'feat/dup', 'dup.txt');
 
-    const { ctx, eventStore, stateDir } = await makeHarness();
+    const harness = await makeHarness();
+    const { ctx, eventStore } = harness;
     const featureId = 'dr12-merge-dup';
-    await initStateFile(stateDir, featureId, 'feature');
+    await initFeature(harness, featureId);
 
     const baseMergeCommits = await mergeCommitCount(repoRoot, TARGET_BRANCH);
     const baseRevs = await revCount(repoRoot, TARGET_BRANCH);
@@ -280,9 +275,8 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
 
     const raceRepo = await makeGitRepo();
     await makeFeatureBranch(raceRepo, 'feat/race', 'race.txt');
-    const raceHarness = await makeHarness();
     const raceFeatureId = 'dr12-merge-race';
-    await initStateFile(raceHarness.stateDir, raceFeatureId, 'feature');
+    await initFeature(harness, raceFeatureId);
 
     const raceRequest = {
       featureId: raceFeatureId,
@@ -293,8 +287,8 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
       repoRoot: raceRepo,
     };
     const [raceA, raceB] = await Promise.all([
-      handleExecuteMerge({ ...raceRequest }, raceHarness.ctx),
-      handleExecuteMerge({ ...raceRequest }, raceHarness.ctx),
+      handleExecuteMerge({ ...raceRequest }, ctx),
+      handleExecuteMerge({ ...raceRequest }, ctx),
     ]);
 
     expect(typeof raceA.success).toBe('boolean');
@@ -302,7 +296,7 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     expect([raceA, raceB].filter((r) => r.success).length).toBeGreaterThanOrEqual(1);
 
     expect(await mergeCommitCount(raceRepo, TARGET_BRANCH)).toBe(1);
-    const raceEvents = await raceHarness.eventStore.query(raceFeatureId);
+    const raceEvents = await eventStore.query(raceFeatureId);
     expect(countEvents(raceEvents, 'merge.executed')).toBe(1);
     expect(countEvents(raceEvents, 'merge.requested')).toBe(1);
 
@@ -335,7 +329,7 @@ describe('DR-12 — duplicate merge and duplicate PR prevention (shipped path)',
     ).toEqual(['feat/dup', 'feat/other']);
 
     const otherFeatureId = 'dr12-merge-other-feature';
-    await initStateFile(stateDir, otherFeatureId, 'feature');
+    await initFeature(harness, otherFeatureId);
     await makeFeatureBranch(repoRoot, 'feat/third', 'third.txt');
     const third = await handleExecuteMerge(
       {

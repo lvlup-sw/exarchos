@@ -288,8 +288,9 @@ describe('DR-30 part 2 — the real corpus', () => {
           g.suppresses.includes('composite-module-mocked'),
       ).flatMap((g) => g.files),
     );
-    const offenders = corpus
-      .filter((f) => f.rel.includes('/test/integration/'))
+    const tier = corpus.filter((f) => f.rel.startsWith('tests/core/integration/'));
+    expect(tier.length, 'the corpus holds no file of the integration tier').toBeGreaterThan(0);
+    const offenders = tier
       .filter((f) => !suppressed.has(f.rel))
       .flatMap((f) => checkNoSynthesizedRoot(f.abs, f.source).map((v) => `${f.rel} ${v.detail}`));
     expect(offenders).toEqual([]);
