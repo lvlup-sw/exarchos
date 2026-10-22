@@ -48,8 +48,6 @@ export const StalenessSignalSchema = z
   })
   .strict();
 
-export type StalenessSignal = z.infer<typeof StalenessSignalSchema>;
-
 /**
  * The staleness contract of one phase. Duplicate signal names fail the load,
  * because the scorer in `pruner/score.ts` keys verdicts by `signal.name`. A
@@ -88,8 +86,6 @@ export const PhaseEntrySchema = z
     staleness: PhaseContractSchema.optional(),
   })
   .strict();
-
-export type PhaseEntry = z.infer<typeof PhaseEntrySchema>;
 
 export const TopologySchema = z
   .object({

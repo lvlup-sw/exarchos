@@ -66,8 +66,6 @@ export const ShapeTwoSchema = z
 /** The two recognized workflow-context payload shapes. */
 export const ResultDataSchema = z.union([ShapeOneSchema, ShapeTwoSchema]);
 
-export type ResultData = z.infer<typeof ResultDataSchema>;
-
 /**
  * Discriminator keys of shape 1. A payload advertises a shape when it carries every key of that
  * shape, and an advertised shape must then parse. A check on some keys is wrong: `handleCheckpoint`

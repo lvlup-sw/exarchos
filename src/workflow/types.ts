@@ -39,27 +39,8 @@ export type Event = z.infer<typeof EventSchema>;
 export type CheckpointState = z.infer<typeof CheckpointStateSchema>;
 export type CheckpointMeta = z.infer<typeof CheckpointMetaSchema>;
 
-export type FeaturePhase = z.infer<typeof FeaturePhaseSchema>;
-export type DebugPhase = z.infer<typeof DebugPhaseSchema>;
-export type RefactorPhase = z.infer<typeof RefactorPhaseSchema>;
-
-export type TaskStatus = z.infer<typeof TaskStatusSchema>;
-export type Task = z.infer<typeof TaskSchema>;
-
-export type WorktreeStatus = z.infer<typeof WorktreeStatusSchema>;
-export type Worktree = z.infer<typeof WorktreeSchema>;
-
-export type MergeOrchestratorState = z.infer<typeof MergeOrchestratorStateSchema>;
-
-export type Synthesis = z.infer<typeof SynthesisSchema>;
-export type Artifacts = z.infer<typeof ArtifactsSchema>;
-
-export type FeatureId = z.infer<typeof FeatureIdSchema>;
 export type WorkflowType = z.infer<typeof WorkflowTypeSchema>;
 
-export type FeatureWorkflowState = z.infer<typeof FeatureWorkflowStateSchema>;
-export type DebugWorkflowState = z.infer<typeof DebugWorkflowStateSchema>;
-export type RefactorWorkflowState = z.infer<typeof RefactorWorkflowStateSchema>;
 export type WorkflowState = z.infer<typeof WorkflowStateSchema>;
 
 export type InitInput = z.infer<typeof InitInputSchema>;
@@ -68,10 +49,8 @@ export type GetInput = z.infer<typeof GetInputSchema>;
 export type SetInput = z.infer<typeof SetInputSchema>;
 export type SummaryInput = z.infer<typeof SummaryInputSchema>;
 export type ReconcileInput = z.infer<typeof ReconcileInputSchema>;
-export type NextActionInput = z.infer<typeof NextActionInputSchema>;
 export type TransitionsInput = z.infer<typeof TransitionsInputSchema>;
 export type CancelInput = z.infer<typeof CancelInputSchema>;
 export type CleanupInput = z.infer<typeof CleanupInputSchema>;
 export type CheckpointInput = z.infer<typeof CheckpointInputSchema>;
 
-export type ErrorCodeValue = typeof ErrorCode[keyof typeof ErrorCode];

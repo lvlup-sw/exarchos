@@ -49,5 +49,4 @@ export const InitOutputSchema = z.object({
 });
 
 export type ConfigWriteResult = z.infer<typeof ConfigWriteResultSchema>;
-export type InitOutput = z.infer<typeof InitOutputSchema>;
 

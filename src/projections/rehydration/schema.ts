@@ -53,8 +53,6 @@ export const PhasePlaybookSchema = z
   .strict()
   .nullable();
 
-export type PhasePlaybook = z.infer<typeof PhasePlaybookSchema>;
-
 /**
  * Merge orchestrator state on the envelope. With it, a `next_actions` consumer decides on the `merge_orchestrate` verb without an event store query.
  * The reducer sets it on a `task.completed` with a worktree. `merge.executed`, `merge.recovered`, `merge.rollback` and `merge.aborted` update it.
@@ -82,8 +80,6 @@ export const WorkflowStateSchema = z.object({
 export const StableSectionsSchema = z.object({
   workflowState: WorkflowStateSchema,
 });
-
-export type StableSections = z.infer<typeof StableSectionsSchema>;
 
 /** Stable sections of the v:1 and v:2 envelopes, for read-back only. */
 const StableSectionsSchemaV2 = z.object({
@@ -205,8 +201,6 @@ const VolatileSectionsSchemaV2 = z
     recentHandoffs: z.array(HandoffEntrySchemaV2).max(3).default([]),
   })
   .strict();
-
-export type VolatileSections = z.infer<typeof VolatileSectionsSchema>;
 
 /**
  * The rehydration document envelope, v:4. Writers use this schema.
