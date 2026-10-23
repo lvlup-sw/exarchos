@@ -90,6 +90,41 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - Only a run from source has no build version. There a version of release form installs its tag. A version that is not of release form installs the default branch, and the installer says so.
   - A 2.12.1 binary has no ref in that command, and it installs the skills of the default branch until a 3.x binary replaces it.
 
+- **`task_complete` refuses a task that a later design revision names.** This is a change of behavior. When a design revision after the capsule of the task names the task, the call refuses with `TASK_SUPERSEDED_BY_REVISION` and writes no row.
+  - `task_complete` takes an optional `capsuleVersion`. The check reads the revisions after the prepared record of that capsule. With no `capsuleVersion`, it reads the revisions after the latest prepared record. A stream with no prepared record holds no revision, so there the check passes.
+  - A `capsuleVersion` with no prepared record refuses with `CAPSULE_NOT_PREPARED`. The refusal tells the caller to pass the `capsuleVersion` that `prepare` returned.
+  - A retry of a recorded completion returns the stored row, also after a later revision. When a `task.failed` row follows the stored completion, the revision check and the gate check run again.
+  - Each attempt reads the tail of the stream first, and its append expects that tail. Any append to the stream between the read and the append starts the next attempt. After eight attempts, the call returns `CONCURRENCY_CONFLICT`, and the next call starts again.
+  - `settle` sends the capsule version of its batch to the completion leaf of each segment. The `task.completed` row does not record the version.
+  - The merged input schema of `exarchos_orchestrate` in `tools/list` now gives `capsuleVersion` the shorter text of `task_complete`: "The capsule version prepare returned". The describe of `settle` keeps its own text.
+  - Recovery: when `task_complete` refuses with `TASK_SUPERSEDED_BY_REVISION`, run `prepare` again. Then complete the task under the new capsule.
+  - Limit: a direct `task_complete` with no `capsuleVersion` checks against the latest prepared record. After a continuation is prepared, it thus completes a task also for work done under the earlier terms. Only `settle` pins the capsule of the work.
+  - Limit: a task can have a completion row and then a `task.failed` row. The next `task_complete` of that task runs the revision check, but its append finds the stored completion key. Thus the pinned tail does not apply, and a revision between the read and the append is not caught. No row is written, but the state document marks the task complete.
+
+- **`settle` judges its batch again inside its commit.** This is a change of behavior. Before this change, `settle` read the completion rows and the design revisions before its commit, and the commit compared none of them. When another call appended a row in that window, the record was wrong.
+  - `settle` judges the batch from the rows of the stream before its segments and again after them. Inside its write transaction, it judges the batch a third time. When that judgement differs, the commit appends nothing, and the call reads and judges again. A redo runs only the segments that the new judgement needs and that the call did not run.
+  - A completion row that another call appends before the commit is read inside the commit. A required task that the row completes needs no claim. A claim with a status for that task gives `already-complete`.
+  - A revision that commits while `settle` works makes the batch `recompile-required` when it names a claimed task or an unfinished required task.
+  - After three attempts, the call returns `CONCURRENCY_CONFLICT` and records no verdict. The tasks that its segments verified stay complete.
+  - Recovery: when `settle` returns `CONCURRENCY_CONFLICT`, settle the same batchId again. The retry replays the segments that the batch committed, and it runs none of their gates again.
+  - A task that a segment verified before a read changed stays complete. Thus a `recompile-required` or `rejected` receipt can list such tasks in `verification`. Under such an outcome, `acceptedTasks` lists the claims with no finding. These outcomes verify nothing at the read of the batch.
+  - Under every outcome, `settle` updates the state document before it records the verdict for each task that its own halted segment completed. When the document cannot be updated, the call returns `STATE_SYNC_FAILED` and records no verdict.
+  - Recovery: when `settle` returns `STATE_SYNC_FAILED`, run `exarchos_workflow reconcile`, then settle the same batchId again.
+  - A completion leaf inside a segment can halt in two more ways. `task_complete` refuses the task, or it loses the tail of the stream eight times in a row. Every append to the stream moves its tail, also an append of a parallel teammate. When the batch still verifies at the read after the segments, the call fails with `INTENT_SEGMENT_FAILED`.
+  - Recovery: when a completion leaf halts the segment, settle the claims under a new batchId.
+  - Limit: a retry of the same batchId gets the recorded halt of a completion leaf again. A halt that a retry of the same batch can clear needs a change of the executor, a follow-up of [#1929](https://github.com/lvlup-sw/exarchos/issues/1929).
+  - Limit: the plan half of the standing of a task that a deviation names comes from `tasks[]` of the workflow state. `settle` reads it before the commit only. A `state.patched` row that marks such a task complete inside the window is not compared ([#1927](https://github.com/lvlup-sw/exarchos/issues/1927)).
+
+- **A decision round that accepts a deviation naming a finished task is `rejected`.** This is a change of behavior. Before this change, the decision round did not read the standing of the tasks that a held deviation names. When a second batch finished such a task while the first batch was held, the accepted decision revised a finished task.
+  - The round reads the decision of each deviation first. A rejected deviation gives `deviation-rejected`, as before. An accepted deviation that names a finished task gives `deviation-names-finished-task`, and the outcome is `rejected`.
+  - A task is finished when the stream holds its completion row, or when the plan shows it complete. Each other task is pending, also a task that left the plan. When the plan does not resolve, the round reads the completion rows alone.
+  - That deviation records no design revision. Each other accepted material deviation of the round still records its revision.
+  - The round judges again inside its commit. Thus a task that completes between the read of the round and its commit gives the same finding.
+  - Recovery: plan the rework as a new task, and name the new task.
+
+- **A batch whose segments an earlier build ran gets `OPERATION_DIGEST_MISMATCH` when it is settled again, unless its verdict was recorded.** The arguments of each segment now hold `capsuleVersion`, and the request digest of a segment covers each argument. The request of a segment of an earlier build has no such argument. The executor reports `INTENT_REPLAY_DIGEST_MISMATCH` for the segment, and `settle` refuses the call. A batch with a recorded verdict replays that verdict, as before.
+  - Recovery: when a batch of an earlier build gets this refusal, settle its claims under a new batchId.
+
 ## [2.10.0-preview.4] - 2026-05-24
 
 Final feature-work batch of the v2.10.0 line before RC. Ships the substrate that consumes the v2.10.0-preview.3 Wave 0 carrier — Roots-based workspace discovery, three-field correlation, Tasks (SEP-1686) dispatch-core, Elicitation form-mode, quality hints, plus the authoring substrate (`/ideate` first-turn invariants, designs/plans sidecar, handoff lint). The substrate landed first (PRs #1421–#1435), then an immediate post-bundle audit cycle closed three HIGH-severity TaskStore correctness findings, the correlation contract end-to-end (storage + filter layer + consumer wiring), substrate hygiene, elicitation E2E verification (which surfaced and fixed a wired-but-not-invoked Zod-v4 narrowing bug mid-bundle), and an invariants-catalog rewrite (schema v1→v2).

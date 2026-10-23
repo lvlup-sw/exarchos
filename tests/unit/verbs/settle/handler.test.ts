@@ -95,8 +95,8 @@ import {
 import {
   deviationIdOf,
   handleSettle,
-  TASK_COMPLETION_LEAF_CLASSES,
 } from '../../../../src/verbs/settle/handler.js';
+import { TASK_COMPLETION_LEAF_CLASSES } from '../../../../src/verbs/settle/settlement-reads.js';
 import { summarizeSettlementReceipt } from '../../../../src/verbs/settle/economy.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
 import {
@@ -3307,6 +3307,42 @@ describe('settle — a claim that a later revision supersedes', () => {
     return acceptRevision(batchId, await proposeRevision(batchId, affectedTasks));
   }
 
+  async function acceptRevisionAsAnEarlierBuild(
+    batchId: string,
+    held: SettlementReceipt,
+  ): Promise<{ readonly sequence: number; readonly data: DesignRevised }> {
+    const settlement = {
+      operationId: `settle:decided-by-an-earlier-build-${batchId}`,
+      workflowId: held.capsule.workflowId,
+      capsuleVersion: REVISING_VERSION,
+      batchId,
+    };
+    const decisions = accepting(held);
+    for (const decision of decisions) {
+      await store.append(STREAM, {
+        type: 'deviation.decided',
+        data: DeviationDecidedData.parse({ ...settlement, ...decision }),
+      });
+    }
+    const priorDesignVersion = (await revisions()).at(-1)?.data.nextDesignVersion ?? 1;
+    await store.append(STREAM, {
+      type: 'design.revised',
+      data: DesignRevisedData.parse({
+        ...settlement,
+        priorDesignVersion,
+        nextDesignVersion: priorDesignVersion + 1,
+        deviationIds: decisions.map((decision) => decision.deviationId).sort(),
+        affectedTasks: [...new Set((held.pendingDeviations ?? []).flatMap((pending) => pending.affectedTasks ?? []))].sort(),
+        [BUNDLE_REF_FIELD]: held.bundleRefs,
+      }),
+    });
+    const row = (await revisions()).at(-1);
+    if (row === undefined || row.data.batchId !== batchId) {
+      throw new Error(`the appends for '${batchId}' left no revision`);
+    }
+    return row;
+  }
+
   /**
    * The base capsule was prepared before the revision that names its task. The finding names the
    * design version of the revision and says to prepare again. The refusal leaves the settlement
@@ -3437,7 +3473,8 @@ describe('settle — a claim that a later revision supersedes', () => {
 
   /**
    * The revising batch is held while the named task is pending. The base capsule then settles the
-   * task, and the decision records the revision after that. A batch that omits the finished task
+   * task, and the decision records the revision after that. The stream stands for an earlier build,
+   * so direct appends record that decision. A batch that omits the finished task
    * settles, because its recorded completion is the result. A batch on the same capsule that
    * claims the task needs a recompile, so the revision does name the task after that capsule.
    */
@@ -3446,7 +3483,7 @@ describe('settle — a claim that a later revision supersedes', () => {
     await seedPrepared(requiringBoth(SIBLING_TASK, 31));
     const proposed = await proposeRevision('batch-revising', ['task-verify']);
     receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-finishes-it', claims: [passingClaim()] }));
-    const revision = await acceptRevision('batch-revising', proposed);
+    const revision = await acceptRevisionAsAnEarlierBuild('batch-revising', proposed);
     expect(revision.data.affectedTasks).toEqual(['task-verify']);
     expect(await preparedSequence(31)).toBeLessThan(revision.sequence);
 
@@ -3577,7 +3614,8 @@ describe('settle — a claim that a later revision supersedes', () => {
 
   /**
    * The revising batch is held while the task is pending. The base capsule then settles the task,
-   * and only after that does the decision record the revision that names it. The retry of the
+   * and only after that does the decision record the revision that names it. The stream stands for
+   * an earlier build, so direct appends record that decision. The retry of the
    * settled batch gets its first receipt and appends nothing. The same claim as a new batch
    * needs a recompile, so the persisted claim answered the retry and the lookup did not.
    */
@@ -3586,7 +3624,7 @@ describe('settle — a claim that a later revision supersedes', () => {
     const args = { featureId: STREAM, capsuleVersion: 7, batchId: 'batch-settled-earlier', claims: [passingClaim()] };
     const first = receiptOf(await settle(args));
     expect(first.outcome).toBe('settled');
-    const revision = await acceptRevision('batch-revising', proposed);
+    const revision = await acceptRevisionAsAnEarlierBuild('batch-revising', proposed);
     expect(revision.data.affectedTasks).toEqual(['task-verify']);
     const tail = (await store.query(STREAM)).length;
     const blobs = await bundleBlobCount();
@@ -5749,6 +5787,7 @@ describe('settle — the receipts that the MCP output gate admits', () => {
               boundaryTouching: terms.boundaryTouching,
               baseRef: terms.baseRef,
               result,
+              capsuleVersion: DELEGATING_VERSION,
             },
           },
           stateDir,
@@ -5870,7 +5909,7 @@ describe('settle — the text of the action', () => {
    * The text counts twice against the response budget of `describe`, so it is short. The delegate
    * skill gives each outcome in full.
    *
-   * Three outcomes follow one sentence, which says that they verify nothing in this build and what
+   * Three outcomes follow one sentence, which says that they verify nothing at their read and what
    * `acceptedTasks` lists under them. A receipt of an earlier build can carry `rejected` after a
    * verification. A claim with a status has no shape fault. The entry of `accepted-with-rationale`
    * does not say that no batch gets it. Each call comes from the outcome rules, and the
@@ -5898,7 +5937,7 @@ describe('settle — the text of the action', () => {
     expect(guide).toContain('`deviation-pending`: settle the same batchId with `decisions` only');
     expect(guide).toContain('`recompile-required`: prepare, then settle under the new capsule');
     const entries = new Map(
-      guide.split(/(?=`[a-z-]+`: |In this build |Any outcome )/).map((part) => [part.slice(0, part.indexOf(': ')), part]),
+      guide.split(/(?=`[a-z-]+`: |At their read |Any outcome )/).map((part) => [part.slice(0, part.indexOf(': ')), part]),
     );
     for (const outcome of SETTLEMENT_OUTCOMES) {
       const entry = entries.get(`\`${outcome}\``) ?? '';
@@ -5916,7 +5955,7 @@ describe('settle — the text of the action', () => {
 
     expect(guide).not.toContain('no shape fault');
     expect(guide).not.toContain('The next three verify nothing');
-    const unverified = 'In this build the next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
+    const unverified = 'At their read the next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
     const [verifiedPart, unverifiedPart, ...rest] = guide.split(unverified);
     expect(rest).toEqual([]);
     const entriesIn = (part: string | undefined): SettlementOutcome[] =>
