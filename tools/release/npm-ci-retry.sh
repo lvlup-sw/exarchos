@@ -42,9 +42,14 @@ export PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD="${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-1}"
 # aborts the process when the garbage collector frees a better-sqlite3 statement
 # (nodejs/node#65446). On a Node 24 runtime, a source build therefore compiles
 # against the 24.18.1 headers. All Node 24 releases share one ABI, so the addon
-# loads on the newer runtime. A target that the caller sets is kept.
+# loads on the newer runtime. A source build is `true` or the package name, as
+# prebuild-install reads it. A target that the caller sets is kept.
 # Remove this block when a Node 24 release with the fix ships.
-if [ "${npm_config_build_from_source:-}" = "true" ] && [ -z "${npm_config_target:-}" ] &&
+case "${npm_config_build_from_source:-}" in
+  true | better-sqlite3) source_build=1 ;;
+  *) source_build=0 ;;
+esac
+if [ "$source_build" = "1" ] && [ -z "${npm_config_target:-}" ] &&
   [ "$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null)" = "24" ]; then
   export npm_config_target=24.18.1
   echo "==> native addons build against the Node ${npm_config_target} headers (nodejs/node#65446)"
