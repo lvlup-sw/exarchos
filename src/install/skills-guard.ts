@@ -14,6 +14,7 @@ import { buildAllSkills } from './build-skills.js';
 import { emitCommandAliases } from './build-command-aliases.js';
 import { emitAuthoredArtifacts } from './build-authored-artifacts.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
+import { isMainModule } from '../utils/main-module.js';
 
 /**
  * Outcome of a guard run. `ok` is false when a build failed or a `git diff` found drift.
@@ -316,6 +317,6 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
   exit(result.exitCode);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main(process.argv.slice(2));
 }

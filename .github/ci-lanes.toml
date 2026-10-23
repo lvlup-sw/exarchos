@@ -24,6 +24,7 @@ paths = [
   ".github/workflows/release.yml",
   "tools/**",
   ".github/CODEOWNERS",
+  ".bun-version",
   "knip.json",
   ".exarchos/**",
   "manifest.json",
@@ -53,6 +54,7 @@ paths = [
   "tools/evals/evals/**",
   "tools/evals-pkg/**",
   "src/workflow/playbooks.ts",
+  ".bun-version",
 ]
 
 # Always-on jobs that CI Gate still aggregates. `**` keeps the lane true on
@@ -65,7 +67,7 @@ paths = ["**"]
 
 [gates.ci-gate]
 workflow = "ci.yml"
-jobs = { test-root = "root", test-windows-root = "root", test-mcp = "mcp", test-windows = "mcp", validate-no-legacy = "always", manifest-gate = "always", grep-gates = "always", outcome-tests = "always" }
+jobs = { test-root = "root", test-windows-root = "root", test-mcp = "mcp", test-windows = "mcp", validate-no-legacy = "always", manifest-gate = "always", grep-gates = "always", outcome-tests = "always", e2e-process = "always" }
 
 [[fixtures]]
 name = "docs-only"

@@ -2,8 +2,7 @@
 //
 // A string name or a plain object cannot become an `ImplementationBinding`.
 // Each `@ts-expect-error` line marks a statement that the compiler must reject.
-// The proof holds only in a `tsc` program that includes this file.
-// `tests/tsconfig.json` excludes `unit/**`, so `npm run typecheck` does not compile this file.
+// `tests/tsconfig.json` names this file in `files`, so `npm run typecheck` compiles it.
 
 import {
   implementationBinding,

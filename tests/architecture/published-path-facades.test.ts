@@ -37,7 +37,8 @@ describe('published-path facades', () => {
     }
 
     const skills = read('src/install/build-skills.ts');
-    expect(skills).toMatch(/import\.meta\.url === pathToFileURL\(/);
+    expect(skills).toMatch(/^if \(isMainModule\(import\.meta\.url\)\) \{\s*runMain\(process\.argv\.slice\(2\)\);\s*\}$/m);
+    expect(skills.match(/\brunMain\(/g) ?? []).toHaveLength(1);
     expect(skills).toMatch(/export \{ main \} from '\.\/build-skills\/main\.js'/);
     expect(skills).not.toMatch(/\bexport class\b/);
 

@@ -85,7 +85,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
 
       - run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
@@ -191,7 +191,7 @@ jobs:
       # be on PATH or the spawn fails with `exit null`.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
 
       # One install: the product is one package, so the core and the installer share
       # one dependency closure.
@@ -330,7 +330,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
 
       - name: Install dependencies
         shell: bash
@@ -422,7 +422,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
 
       - name: Install root dependencies
         shell: bash
@@ -480,7 +480,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
 
       - uses: actions/setup-node@v6
         with:
@@ -872,6 +872,11 @@ jobs:
       - name: CI-topology conformance test (DR-2)
         run: npx --no-install vitest run tests/scripts/ci-topology.test.ts
 
+      # The Bun pin guard on the unfiltered host. A pull request that edits only a workflow,
+      # `.cursor/install.sh` or `renovate.json` sets no lane, so a lane-filtered host skips it.
+      - name: Bun version pin
+        run: npx --no-install vitest run tests/scripts/bun-version-pin.test.ts
+
       # Typecheck of the `tsconfig.scripts.json` project. Root `tsconfig.json` includes
       # only `src/**/*`, so this step typechecks the guards in that project.
       #
@@ -903,7 +908,7 @@ jobs:
       # re-asserts (type-debt, coverage-ratchet) are zero-dep node in the prefix above.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
       - name: check-mutation-gate self-test re-assert (DR-10)
         run: bash tests/scripts/check-mutation-gate.test.sh
 
@@ -1194,18 +1199,16 @@ jobs:
   #
   # Linux only. No job covers Windows process fidelity.
   #
-  # DISPOSITION: NON-BLOCKING. The job is not in `ci-gate.needs`. Over 60 completed
-  # `ci.yml` runs (2026-07-17) it ran 60 times (no path filter) and failed 2 times, a
-  # 3.33% failure rate. Both failures were in the "Run process-fidelity suite" step,
-  # consistent with the known SQLITE_BUSY flake cluster. That rate is above the 2%
-  # blocking threshold, so the non-blocking allowlist in
-  # `tests/scripts/ci-topology.test.ts` records the job with this rate. Burn-down:
-  # lvlup-sw/exarchos#1718. Host class: deps, unfiltered, suite-shaped.
-  # See docs/guides/ci-gate-hosting.md.
+  # DISPOSITION: BLOCKING, on lane `always`. On 2026-10-22 the last 100 completed
+  # `ci.yml` runs (2026-10-02 to 2026-10-22) held 99 runs of this job and 0 failures.
+  # One run was cancelled. That rate is below the 2% blocking threshold. Earlier, on
+  # 2026-07-17, the rate was 3.33%, and lvlup-sw/exarchos#1718 tracked it.
+  # Host class: deps, unfiltered, suite-shaped. See docs/guides/ci-gate-hosting.md.
   # ─────────────────────────────────────────────────────────────────────
   e2e-process:
     name: E2E Process (linux-x64)
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    needs: plan
+    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -1218,7 +1221,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
 
       # One closure: vitest and the build-binary toolchain are in the same manifest as
       # pino, commander, @modelcontextprotocol, zod and yaml.
@@ -1234,8 +1237,59 @@ jobs:
       - name: Verify exarchos on PATH
         run: which exarchos && exarchos --version
 
+      # `test:process` passes with no tests. The floor is the executed-test count on
+      # 2026-10-22, so a run that loses test files fails here.
       - name: Run process-fidelity suite
-        run: npm run test:process
+        shell: bash
+        run: |
+          npm run test:process -- --reporter=default --reporter=json --outputFile=.process-report.json
+          count=$(node -e "const r=require('./.process-report.json');process.stdout.write(String((r.numPassedTests||0)+(r.numFailedTests||0)))")
+          echo "process tests executed: $count"
+          if [ "$count" -lt 23 ]; then
+            echo "::error::the process tier executed $count tests, below the floor of 23"
+            exit 1
+          fi
+
+  # ─────────────────────────────────────────────────────────────────────
+  # startup-budget
+  # ─────────────────────────────────────────────────────────────────────
+  # Times the compiled host binary against the cold-start budgets in
+  # `tools/evals/bench/cli-startup.bench.ts`. The job runs only that file, so no other test
+  # file competes for the CPU. It fails on a budget breach and on a skipped or missing case.
+  #
+  # DISPOSITION: NON-BLOCKING while the budgets soak. A wall-clock gate on a shared runner
+  # needs a measured failure rate under the 2% threshold before CI Gate can require it.
+  # ─────────────────────────────────────────────────────────────────────
+  startup-budget:
+    name: Startup Budget (linux-x64)
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
+
+      - name: Build host binary (linux-x64)
+        run: bun run tools/release/build-binary.ts --target linux-x64
+
+      - name: Run cold-start budgets
+        shell: bash
+        env:
+          BENCH_STRICT: '1'
+        run: |
+          EXARCHOS_BENCH_BIN="$PWD/dist/bin/exarchos-linux-x64" npx --no-install vitest run --project core tools/evals/bench/cli-startup.bench.ts --reporter=default --reporter=json --outputFile=.startup-report.json
+          node -e "const r=require('./.startup-report.json');const bad=(r.numPendingTests||0)+(r.numTodoTests||0)+(r.numFailedTests||0);console.log('passed',r.numPassedTests,'not passed',bad);if(r.numPassedTests!==4||bad!==0)process.exit(1)"
 
   # ─────────────────────────────────────────────────────────────────────
   # outcome-tests
@@ -1267,7 +1321,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
 
       # One closure: vitest, the `bun:sqlite` alias target of the outcome project, and
       # `better-sqlite3` (the runtime dependency of the shim) come from one manifest.
@@ -1296,7 +1350,7 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
-    needs: [plan, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests]
+    needs: [plan, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests, e2e-process]
     if: always()
     steps:
       # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the
