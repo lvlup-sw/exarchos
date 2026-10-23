@@ -103,8 +103,8 @@ export interface SettlementReceipt {
   readonly outcome: SettlementOutcome;
   /**
    * Under `settled`, `accepted-with-rationale` and `corrective-capsule`, the claimed tasks that
-   * are recorded complete. Under each other outcome this build verifies nothing, and the list
-   * holds the tasks whose claims the shape pass found no fault in.
+   * are recorded complete. Under each other outcome the batch verifies nothing at its read. The list
+   * holds the claims with no finding, plus the tasks that settlement verified before a read changed.
    *
    * A replay can return a `rejected` receipt that an earlier build stored after a failed
    * verification. The list of that receipt holds the tasks that are recorded complete.
@@ -122,9 +122,9 @@ export interface SettlementReceipt {
   readonly tailSequence: number;
   /**
    * How each accepted claim was verified. It also holds an `already-complete` entry for each
-   * required task that the batch does not claim and the stream shows complete. It is empty when
-   * adjudication stopped the batch before verification. It is optional for the same reason as
-   * `bundleRefs`.
+   * required task that the batch does not claim and the stream shows complete. When adjudication
+   * stopped the batch, it holds only the segments that ran before a read changed, and it is often
+   * empty. It is optional for the same reason as `bundleRefs`.
    */
   readonly verification?: readonly SettlementVerificationTrace[];
   /**

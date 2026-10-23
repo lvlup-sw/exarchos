@@ -4,6 +4,7 @@ import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import {
   AdmissionEvidenceRecordedData,
   type AdmissionEvidenceRecorded,
+  type EventType,
 } from '../../events/schemas.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
@@ -45,6 +46,27 @@ export function ladderRequirementId(gateClass: string): string {
   return `verification-ladder:${gateClass}`;
 }
 
+/** The event that records one evidence fact. */
+const EVIDENCE_RECORDED_TYPE = 'admission.evidence-recorded' satisfies EventType;
+
+/**
+ * The gate evidence records of a list of stream rows, keyed by evidence id, in the order of the rows.
+ * `rows` can hold rows of any type. A later row with the same evidence id replaces the earlier record.
+ * A row that fails the evidence schema, or that is not a gate record, is not in the map.
+ */
+export function gateEvidenceRecordsOf(
+  rows: readonly { readonly type: string; readonly data?: unknown }[],
+): ReadonlyMap<string, AdmissionEvidenceRecorded> {
+  const records = new Map<string, AdmissionEvidenceRecorded>();
+  for (const row of rows) {
+    if (row.type !== EVIDENCE_RECORDED_TYPE) continue;
+    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
+    if (!parsed.success || parsed.data.evidence.kind !== 'gate') continue;
+    records.set(parsed.data.evidence.evidenceId, parsed.data);
+  }
+  return records;
+}
+
 /**
  * The gate evidence records of one stream, keyed by evidence id, in the stream order of their rows.
  * A row that fails the evidence schema, or that is not a gate record, is not in the map.
@@ -55,14 +77,7 @@ export async function readGateEvidenceRecords(
   eventStore: Pick<EventStore, 'query'>,
   streamId: string,
 ): Promise<ReadonlyMap<string, AdmissionEvidenceRecorded>> {
-  const rows = await eventStore.query(streamId, { type: 'admission.evidence-recorded' });
-  const records = new Map<string, AdmissionEvidenceRecorded>();
-  for (const row of rows) {
-    const parsed = AdmissionEvidenceRecordedData.safeParse(row.data);
-    if (!parsed.success || parsed.data.evidence.kind !== 'gate') continue;
-    records.set(parsed.data.evidence.evidenceId, parsed.data);
-  }
-  return records;
+  return gateEvidenceRecordsOf(await eventStore.query(streamId, { type: EVIDENCE_RECORDED_TYPE }));
 }
 
 function scopeError(code: string, message: string): ToolResult {

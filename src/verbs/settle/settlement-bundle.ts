@@ -126,8 +126,9 @@ export const SettlementBundleV1Schema = z
     adjudicated: CensusSchema,
     /**
      * Optional only for a bundle written before settlement verified anything.
-     * This build always writes the list. It is empty when adjudication stopped
-     * the batch before verification ran.
+     * This build always writes the list. When adjudication stopped the batch,
+     * it holds only the traces of the segments that ran before a read changed,
+     * and it is often empty.
      */
     verification: z.array(VerificationTraceSchema).optional(),
     settledAt: z.iso.datetime({ offset: true }),
