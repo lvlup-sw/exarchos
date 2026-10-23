@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1330,
-    "parsedFiles": 1284,
+    "testFiles": 1333,
+    "parsedFiles": 1287,
     "shellFiles": 46,
-    "cases": 15006,
+    "cases": 15014,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -5328,6 +5328,27 @@
         }
       ]
     },
+    "tests/acceptance/settle-races.test.ts": {
+      "file": "tests/acceptance/settle-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle races, through the dispatcher",
+          "name": "SettleRaces_ACompletionThatLandsBeforeTheCommit_IsReadInsideIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle races, through the dispatcher",
+          "name": "SettleRaces_ADecisionWhoseDeviationNamesATaskASecondBatchFinished_IsRejectedAndRevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle races, through the dispatcher",
+          "name": "SettleRaces_ARevisionThatLandsWhileABatchVerifies_NeedsARecompileThenSettlesUnderTheContinuation",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/action-contract-closure-kill-fixtures.test.ts": {
       "file": "tests/architecture/action-contract-closure-kill-fixtures.test.ts",
       "runner": "vitest:root",
@@ -6904,6 +6925,22 @@
         {
           "suite": "repo-local skills",
           "name": "RepoLocalSkills_EveryRuleThatThePolicyCites_IsInTheVendoredSkill",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/settlement-read-commit.test.ts": {
+      "file": "tests/architecture/settlement-read-commit.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the census of the reads that decide a settlement verdict",
+          "name": "SettlementReads_EveryReadHasARole",
+          "dynamic": false
+        },
+        {
+          "suite": "the census of the reads that decide a settlement verdict",
+          "name": "SettlementReads_ASeededReadWithNoRole_FailsByName",
           "dynamic": false
         }
       ]
@@ -65282,6 +65319,27 @@
         {
           "suite": "settle — the custody of a discarded attempt",
           "name": "Settle_ARedoneAttempt_LeavesOnlyAnUnreferencedBlob",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-revision-race.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-revision-race.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a revision that commits while a segment runs",
+          "name": "Settle_ARevisionOfAClaimedTaskWhileItsSegmentRuns_GivesRecompileRequiredWithNoCompletionRow",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits while a segment runs",
+          "name": "Settle_AContinuationPreparedWhileABatchVerifies_DoesNotLetItCompleteTheRevisedTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the arguments of the completion leaf",
+          "name": "Settle_TheCompletionLeaf_CarriesTheCapsuleVersion",
           "dynamic": false
         }
       ]

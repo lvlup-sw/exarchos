@@ -5787,6 +5787,7 @@ describe('settle — the receipts that the MCP output gate admits', () => {
               boundaryTouching: terms.boundaryTouching,
               baseRef: terms.baseRef,
               result,
+              capsuleVersion: DELEGATING_VERSION,
             },
           },
           stateDir,

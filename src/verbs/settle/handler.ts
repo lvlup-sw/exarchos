@@ -614,8 +614,15 @@ interface VerificationTerms {
  * the gates and the start of the diff. The worktree and the branch come from the claim. The claim
  * fields are the completion `result`, as on the `task_complete` path.
  * The function does not read the rationale of the claim, so a recorded choice changes no gate.
+ *
+ * `capsuleVersion` is the capsule that the batch settles under. The completion leaf refuses a task
+ * that a revision names after that capsule, also when a later prepare records a continuation.
  */
-function verificationArgsOf(claim: SegmentClaim, terms: VerificationTerms): Record<string, unknown> {
+function verificationArgsOf(
+  claim: SegmentClaim,
+  terms: VerificationTerms,
+  capsuleVersion: number,
+): Record<string, unknown> {
   const { worktreePath, branch } = claim.fields;
   return {
     taskId: claim.taskId,
@@ -625,6 +632,7 @@ function verificationArgsOf(claim: SegmentClaim, terms: VerificationTerms): Reco
     boundaryTouching: terms.boundaryTouching,
     baseRef: terms.baseRef,
     result: { ...claim.fields },
+    capsuleVersion,
   };
 }
 
@@ -646,6 +654,7 @@ function compileSegments(
   taskIds: readonly string[],
   claims: readonly SegmentClaim[],
   verificationTerms: Readonly<Record<string, VerificationTerms>>,
+  capsuleVersion: number,
   operationId: string,
   streamId: string,
   execute: ExecuteIntentDeps,
@@ -656,7 +665,7 @@ function compileSegments(
     const claim = byTask.get(taskId);
     const terms = verificationTerms[taskId];
     if (claim === undefined || terms === undefined) continue;
-    const args = verificationArgsOf(claim, terms);
+    const args = verificationArgsOf(claim, terms, capsuleVersion);
     const segment = compileIntent(TASK_COMPLETION_INTENT, { streamId }, args, execute);
     if (!segment.ok) {
       return {
@@ -1018,6 +1027,7 @@ function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledS
     taskIds,
     call.inputs.claims,
     call.verificationTerms,
+    call.identity.capsuleVersion,
     call.operationId,
     call.streamId,
     call.deps.execute,
