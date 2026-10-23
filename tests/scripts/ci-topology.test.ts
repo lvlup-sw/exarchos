@@ -70,6 +70,10 @@ interface AllowlistEntry {
  * `docs/guides/ci-gate-hosting.md` states the contract for an entry.
  */
 const NON_BLOCKING_ALLOWLIST: Record<string, AllowlistEntry> = {
+  'startup-budget': {
+    rationale:
+      'Wall-clock cold-start budgets of the compiled binary. Soaking: no measured failure rate yet against the 2% blocking threshold.',
+  },
   'binary-matrix': {
     rationale:
       'Release-lane compile evidence, not a per-PR gate (standing reason the --minify A/B was dropped).',

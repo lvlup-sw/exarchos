@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1337,
-    "parsedFiles": 1291,
+    "testFiles": 1339,
+    "parsedFiles": 1293,
     "shellFiles": 46,
-    "cases": 15034,
-    "dynamicTitles": 178,
+    "cases": 15045,
+    "dynamicTitles": 176,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -6057,6 +6057,32 @@
         }
       ]
     },
+    "tests/architecture/entry-static-imports.test.ts": {
+      "file": "tests/architecture/entry-static-imports.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "entry static imports",
+          "name": "EntryModule_TransitiveStaticClosure_StaysInAllowlist",
+          "dynamic": false
+        },
+        {
+          "suite": "entry static imports",
+          "name": "EntryModule_SeededTransitiveHeavyEdge_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "entry static imports",
+          "name": "EntryModule_TypeAndDynamicImports_AreNotStatic",
+          "dynamic": false
+        },
+        {
+          "suite": "entry static imports",
+          "name": "EntryModule_AllowlistMembers_Exist",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/event-authority-contracts.test.ts": {
       "file": "tests/architecture/event-authority-contracts.test.ts",
       "runner": "vitest:root",
@@ -8474,6 +8500,47 @@
         {
           "suite": "Compiled binary MCP integration (task 1.6)",
           "name": "CompiledBinary_McpWorkflowInit_ReturnsExpectedShape",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/process/fast-paths.test.ts": {
+      "file": "tests/core/process/fast-paths.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "VersionForms_CompiledBinary_PrintPackageVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "SessionStartHook_EmptyPayload_ContinuesWithExitZero",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "SubagentStopHook_EmptyPayload_ContinuesWithExitZero",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "SessionEndHook_NoSessionId_ReportsMissingSessionId",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "RunTests_FixtureCommand_ReturnsItsExitCode",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "WorktreeBoundaryHook_WriteOutsideWorktree_ExitsTwo",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "WorktreeBoundaryHook_WriteInsideWorktree_ExitsZero",
           "dynamic": false
         }
       ]
@@ -84995,24 +85062,24 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "cli-cold-start benchmark",
-          "name": "CliColdStart_TelemetryOff_50Runs_P95Under250ms",
+          "suite": "cli cold start of the compiled binary",
+          "name": "CliColdStart_StatusTelemetryOff_P95UnderBudget",
           "dynamic": false
         },
         {
-          "suite": "cli-cold-start benchmark",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "cli-cold-start benchmark",
-          "name": "CliColdStart_TelemetryOn_50Runs_P95Under350ms",
+          "suite": "cli cold start of the compiled binary",
+          "name": "CliColdStart_StatusTelemetryOn_P95UnderBudget",
           "dynamic": false
         },
         {
-          "suite": "cli-cold-start benchmark",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
+          "suite": "cli cold start of the compiled binary",
+          "name": "CliColdStart_VersionFlag_P95UnderBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "cli cold start of the compiled binary",
+          "name": "CliColdStart_WorktreeBoundaryHook_P95UnderBudget",
+          "dynamic": false
         }
       ]
     },

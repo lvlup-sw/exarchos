@@ -2,8 +2,9 @@
 
 /**
  * The entry point of the `exarchos` binary. `exarchos mcp` starts the MCP server, and every other command runs as a CLI command.
- * This module does not import `./adapters/mcp/mcp.js` or the MCP SDK at the top level, because CLI cold start has a 250ms p95 budget.
- * Only `createServer()` and the `mcp` action in `adapters/cli/cli.ts` load them, with a dynamic import.
+ * The top-level imports are light, because Claude Code runs a hook command on every session event and every subagent write.
+ * The store, the registry, the dispatch context and the CLI builder load with a dynamic import after the fast-path checks.
+ * `tests/architecture/entry-static-imports.test.ts` keeps them out of the static import graph.
  */
 
 import type { V2McpServer } from './contract/sdk/seam.js';
@@ -14,17 +15,10 @@ import { fileURLToPath } from 'node:url';
 
 import { logger } from './logger.js';
 import { resolveStateDir as resolveStateDirFromPaths, STORE_DB_FILENAME } from './utils/paths.js';
-import { EventStore } from './events/store.js';
-import { SnapshotStore } from './projections/views/snapshot-store.js';
-import { buildDefaultProcessResolver } from './workflow/capabilities/resolver.js';
 
 import type { StorageBackend } from './storage/backend.js';
 
-import { configureCleanupSnapshotStore } from './workflow/cleanup.js';
-import { configureStateStoreBackend } from './workflow/state-store.js';
-
-import { initializeContext } from './dispatch/core/context.js';
-import { buildCli, runCli, resolvePackageVersion } from './adapters/cli/cli.js';
+import { resolvePackageVersion } from './adapters/cli/version.js';
 import { isHookCommand, handleHookCommand } from './adapters/cli/hooks.js';
 import type { DispatchContext } from './dispatch/core/dispatch.js';
 
@@ -138,6 +132,15 @@ export async function createServer(
 ): Promise<V2McpServer> {
   const backend = options?.backend;
 
+  const [{ configureStateStoreBackend }, { EventStore }, { configureCleanupSnapshotStore }, { SnapshotStore }, { buildDefaultProcessResolver }] =
+    await Promise.all([
+      import('./workflow/state-store.js'),
+      import('./events/store.js'),
+      import('./workflow/cleanup.js'),
+      import('./projections/views/snapshot-store.js'),
+      import('./workflow/capabilities/resolver.js'),
+    ]);
+
   configureStateStoreBackend(backend);
 
   const eventStore = new EventStore(stateDir, { backend });
@@ -246,6 +249,9 @@ async function main() {
 
   const backend = await initializeBackend(stateDir);
   registerBackendCleanup(backend);
+
+  const { initializeContext } = await import('./dispatch/core/context.js');
+  const { buildCli, runCli } = await import('./adapters/cli/cli.js');
 
   const ctx: DispatchContext = {
     ...(await initializeContext(stateDir, {
