@@ -108,6 +108,8 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - After three attempts, the call returns `CONCURRENCY_CONFLICT` and records no verdict. The tasks that its segments verified stay complete.
   - Recovery: when `settle` returns `CONCURRENCY_CONFLICT`, settle the same batchId again. The retry replays the segments that the batch committed, and it runs none of their gates again.
   - A task that a segment verified before a read changed stays complete. Thus a `recompile-required` or `rejected` receipt can list such tasks in `verification`. Under such an outcome, `acceptedTasks` lists the claims with no finding. These outcomes verify nothing at the read of the batch.
+  - Under every outcome, `settle` updates the state document before it records the verdict for each task that its own halted segment completed. When the document cannot be updated, the call returns `STATE_SYNC_FAILED` and records no verdict.
+  - Recovery: when `settle` returns `STATE_SYNC_FAILED`, run `exarchos_workflow reconcile`, then settle the same batchId again.
   - A completion leaf inside a segment can halt in two more ways. `task_complete` refuses the task, or it loses the tail of the stream eight times in a row. Every append to the stream moves its tail, also an append of a parallel teammate. When the batch still verifies at the read after the segments, the call fails with `INTENT_SEGMENT_FAILED`.
   - Recovery: when a completion leaf halts the segment, settle the claims under a new batchId.
   - Limit: a retry of the same batchId gets the recorded halt of a completion leaf again. A halt that a retry of the same batch can clear needs a change of the executor, a follow-up of [#1929](https://github.com/lvlup-sw/exarchos/issues/1929).

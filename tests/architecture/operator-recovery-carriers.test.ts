@@ -197,6 +197,16 @@ const CARRIED: readonly CarriedRecovery[] = [
     },
   },
   {
+    id: 'settle-document-not-level',
+    notes: 'Recovery: when `settle` returns `STATE_SYNC_FAILED`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/settle/settle-in-commit.test.ts',
+      testCase: 'Settle_ACompletionLeafThatCannotWriteTheDocumentUnderAStaleVerdict_RecordsNoVerdict',
+      phrases: ['exarchos_workflow reconcile'],
+    },
+  },
+  {
     id: 'completion-leaf-halt',
     notes: 'Recovery: when a completion leaf halts the segment',
     carrier: {
