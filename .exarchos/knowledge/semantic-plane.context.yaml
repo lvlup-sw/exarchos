@@ -839,7 +839,7 @@ milestones:
     outcome: "One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane."
   v3.2.0:
     outcome: Design rationale as typed claims, the claims being the source of truth (beyond v3.0's C2 minimum).
-  none: "Only #1460 and #1461, which are not trackers (decision of 2026-10-22). Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries: 2026-10-31 (the three suite-invariant gaps of the #1742 line in #1744, and the RESERVED headers of src/adapters/mcp/remote-mcp.ts and tools/evals/benchmarks/baselines-schema.ts), 2026-11-23 (the reachable-controls exemption of the #1860 line in #2139) and 2026-11-30 (61 knip entries in #1744, and two date tests in the #2122 line of #2140). 51 knip entries were due to expire on 2026-10-31. They were exported types that nothing used, and their code was deleted on 2026-10-22."
+  none: "Only #1460 and #1461, which are not trackers (decision of 2026-10-22). Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries: 2026-10-31 (the RESERVED headers of src/adapters/mcp/remote-mcp.ts and tools/evals/benchmarks/baselines-schema.ts), 2026-11-23 (the reachable-controls exemption of the #1860 line in #2139) and 2026-11-30 (61 knip entries in #1744, and two date tests in the #2122 line of #2140). 51 knip entries were due to expire on 2026-10-31. They were exported types that nothing used, and their code was deleted on 2026-10-22. The three suite-invariant gaps of the #1742 line, also due on 2026-10-31, were closed on 2026-10-22."
 
 # ─── where things are tracked ────────────────────────────────────────────────
 
