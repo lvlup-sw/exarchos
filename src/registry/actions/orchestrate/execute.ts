@@ -54,7 +54,7 @@ export const executeActions: readonly BuiltinToolAction[] = [
       'actions and run it leaf by leaf, committing one orchestrate.intent_executed record ' +
       "on either outcome. `args` is validated against that intent's own typed schema, never " +
       "an action array. Intents: 'task-completion' (delegate) " +
-      '{ taskId, worktreePath, riskTier, boundaryTouching, baseRef, branch?, result? }, whose riskTier/' +
+      '{ taskId, worktreePath, riskTier, boundaryTouching, baseRef, branch?, result?, capsuleVersion? }, whose riskTier/' +
       "boundaryTouching are recorded as steering.source:'caller-args'; 'quality-evaluation' " +
       '(review) { high, medium, low, diffContent, diff?, repoRoot?, worktreePath?, ' +
       'blockedReason? }, which REQUIRES passing gate evidence on the stream for the active ' +

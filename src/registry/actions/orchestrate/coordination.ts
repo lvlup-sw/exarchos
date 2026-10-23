@@ -79,6 +79,12 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
         passed: z.boolean(),
       }).optional(),
       /**
+       * The capsule that the task compiled in. A design revision after that capsule that names the task
+       * refuses the completion. With no version, the latest prepared record of the stream is the reference.
+       * The constraints match the declaration of `settle`, because the registration schema keeps the first declaration.
+       */
+      capsuleVersion: z.number().int().min(1).optional().describe('The capsule version prepare returned'),
+      /**
        * `streamId` is the bare featureId, and the schema accepts both names. `resolveStreamIdentity`
        * in `verbs/tasks/tools.ts` needs at least one, and `streamId` wins when both are present.
        */

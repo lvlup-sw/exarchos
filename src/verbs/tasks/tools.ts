@@ -22,6 +22,8 @@ import { ladderRequirementId, readGateEvidenceRecords, selectSubject } from '../
 import { gateRunnerObservationSource, gateSignalIdempotencyKey } from '../gates/gate-runner.js';
 import { staticAnalysisSubjectScope } from '../gates/static-analysis.js';
 import type { StaticAnalysisSkipReason } from '../pure/static-analysis.js';
+import { DESIGN_REVISED_TYPE, designVersionId, revisedTasksAfter } from '../prepare/design-version.js';
+import { WORKFLOW_PREPARED_TYPE, latestPreparedRecordOf, preparedRecordOf } from '../prepare/prepared-record.js';
 import { STATIC_ANALYSIS_STEP_PARAMS } from '../../runbooks/definitions.js';
 import { assertNever } from '../../contract/error-families.js';
 
@@ -665,23 +667,30 @@ function rowTaskId(row: WorkflowEvent): unknown {
   return typeof data === 'object' && data !== null && 'taskId' in data ? data.taskId : undefined;
 }
 
+/** Whether a `task.failed` row of the task comes after its stored `task.completed` row. Such a row reopens the task. */
+async function failedAfterCompletion(
+  store: EventStore,
+  streamId: string,
+  taskId: string,
+  stored: WorkflowEvent,
+): Promise<boolean> {
+  const laterFailures = await store.query(streamId, { type: 'task.failed', sinceSequence: stored.sequence });
+  return laterFailures.some((row) => rowTaskId(row) === taskId);
+}
+
 /**
  * The result for a stored `task.completed` row of the task while the state document lists the task with another status.
+ * The caller gives only a stored row that no `task.failed` row of the task follows.
  * The sync brings the document level with the row, and the result returns the row with no gate check and no new row.
  * A failed sync returns `STATE_SYNC_FAILED`.
  * When the document already lists the task complete, or does not list the task, the function returns undefined.
- * It also returns undefined when a `task.failed` row of the task comes after the stored row, and it does not sync.
- * The gate check then runs, so a fix of a completed or failed task needs a passing run.
  */
 async function repairStoredCompletion(
   stateDir: string,
   streamId: string,
   taskId: string,
   stored: WorkflowEvent,
-  store: EventStore,
 ): Promise<ToolResult | undefined> {
-  const laterFailures = await store.query(streamId, { type: 'task.failed', sinceSequence: stored.sequence });
-  if (laterFailures.some((row) => rowTaskId(row) === taskId)) return undefined;
   const sync = await syncTaskDocument(stateDir, streamId, taskId);
   if (sync.kind === 'synced' || sync.kind === 'failed') return completionResult(streamId, taskId, stored, sync);
   return undefined;
@@ -698,57 +707,136 @@ function completeFailed(err: unknown): ToolResult {
   };
 }
 
+/** The `CAPSULE_NOT_PREPARED` refusal for a capsule version that has no prepared record on the stream. */
+function capsuleNotPrepared(streamId: string, capsuleVersion: number): ToolResult {
+  return {
+    success: false,
+    error: {
+      code: 'CAPSULE_NOT_PREPARED',
+      message:
+        `No capsule v${capsuleVersion} was prepared for '${streamId}', so task_complete cannot read the design ` +
+        'revisions after it. Pass the capsuleVersion that prepare returned for the batch of the task.',
+    },
+  };
+}
+
 /**
- * Records `task.completed` when the gate runner recorded a passing static-analysis verdict for the task.
+ * The capsule that a revision check reads from. `named` is the capsule version of the call. `latest` is
+ * the latest prepared record of the stream, for a call with no capsule version.
+ */
+interface RevisionReference {
+  readonly kind: 'named' | 'latest';
+  readonly capsuleVersion: number;
+}
+
+/**
+ * The `TASK_SUPERSEDED_BY_REVISION` refusal. It names the task, the capsule of the check, the design version of the
+ * revision and the recovery. With no capsule version, the message names the latest prepared capsule of the stream.
+ */
+function supersededByRevision(taskId: string, reference: RevisionReference, designVersion: number): ToolResult {
+  const recovery = 'Run prepare again, then complete the task under the new capsule.';
+  const message =
+    reference.kind === 'named'
+      ? `Task '${taskId}' compiled in capsule v${reference.capsuleVersion}, and a later design revision to ` +
+        `${designVersionId(designVersion)} names it. ${recovery}`
+      : `The call gives no capsule version for task '${taskId}', and a design revision after the latest prepared ` +
+        `capsule v${reference.capsuleVersion} of the stream names it. The revision moves the design to ` +
+        `${designVersionId(designVersion)}. ${recovery}`;
+  return { success: false, error: { code: 'TASK_SUPERSEDED_BY_REVISION', message } };
+}
+
+/**
+ * The refusal of a completion that a design revision supersedes, or undefined when nothing refuses.
+ * The reference is the prepared record of `capsuleVersion`, or the latest prepared record of the stream with no version.
+ * A revision row after the reference that names the task refuses. A version with no prepared record refuses.
+ * A stream with no prepared record holds no revision, so with no version nothing refuses there.
+ */
+async function revisionRefusal(
+  store: EventStore,
+  streamId: string,
+  taskId: string,
+  capsuleVersion: number | undefined,
+): Promise<ToolResult | undefined> {
+  const prepared = await store.query(streamId, { type: WORKFLOW_PREPARED_TYPE });
+  const reference =
+    capsuleVersion === undefined ? latestPreparedRecordOf(prepared) : preparedRecordOf(prepared, capsuleVersion);
+  if (reference === undefined) {
+    return capsuleVersion === undefined ? undefined : capsuleNotPrepared(streamId, capsuleVersion);
+  }
+  const revisions = await store.query(streamId, { type: DESIGN_REVISED_TYPE, sinceSequence: reference.sequence });
+  const designVersion = revisedTasksAfter(revisions, reference.sequence).get(taskId);
+  return designVersion === undefined
+    ? undefined
+    : supersededByRevision(
+        taskId,
+        { kind: capsuleVersion === undefined ? 'latest' : 'named', capsuleVersion: reference.record.capsuleVersion },
+        designVersion,
+      );
+}
+
+/** The most attempts that one completion makes. A sequence conflict on the append starts the next attempt. */
+const MAX_COMPLETE_ATTEMPTS = 8;
+
+/** The base delay of the exponential backoff between two completion attempts, in milliseconds. */
+const COMPLETE_BASE_DELAY_MS = 20;
+
+/** The args of `task_complete`. `capsuleVersion` names the capsule that the task compiled in. */
+interface TaskCompleteArgs {
+  taskId: string;
+  result?: Record<string, unknown>;
+  evidence?: {
+    type: 'test' | 'build' | 'typecheck' | 'manual';
+    output: string;
+    passed: boolean;
+  };
+  capsuleVersion?: number;
+  streamId?: string;
+  featureId?: string;
+}
+
+/** The reads before the gate check: a result that ends the attempt, or the pinned tail for the append. */
+type CompletionStanding =
+  | { readonly kind: 'result'; readonly result: ToolResult }
+  | { readonly kind: 'open'; readonly tail: number };
+
+/** The end of one completion attempt: a result, or a sequence conflict on the append that starts the next attempt. */
+type CompletionAttempt =
+  | { readonly kind: 'result'; readonly result: ToolResult }
+  | { readonly kind: 'conflict' };
+
+/**
+ * Pins the stream tail, then reads the stored completion and the design revisions of the task.
+ * A stored completion that no later `task.failed` row of the task follows skips the revision check.
+ * A failure after the stored completion reopens the task, so the revision check runs and the gate check runs after it.
+ * An error of a read returns `COMPLETE_FAILED`.
+ */
+async function completionStanding(
+  args: TaskCompleteArgs,
+  streamId: string,
+  stateDir: string,
+  store: EventStore,
+): Promise<CompletionStanding> {
+  try {
+    const tail = await store.tailSequence(streamId);
+    const stored = await storedCompletion(store, streamId, args.taskId);
+    const reopened = stored !== undefined && (await failedAfterCompletion(store, streamId, args.taskId, stored));
+    const early =
+      stored !== undefined && !reopened
+        ? await repairStoredCompletion(stateDir, streamId, args.taskId, stored)
+        : await revisionRefusal(store, streamId, args.taskId, args.capsuleVersion);
+    return early === undefined ? { kind: 'open', tail } : { kind: 'result', result: early };
+  } catch (err) {
+    return { kind: 'result', result: completeFailed(err) };
+  }
+}
+
+/**
+ * The `GATE_NOT_PASSED` refusal of the completion, or undefined when the static-analysis prerequisite holds.
  * Caller evidence never satisfies a blocking gate. For an advisory gate, it needs passing output and an operator capability.
  * The transport puts that capability in the dispatch context, so the caller cannot assert it.
- *
- * The gate check reads the latest runner row for this task and the active evidence records of the task.
- * A refusal names its cause and the recovery of that cause.
- * The generic append refuses `gate.executed`, so only a gate handler writes the row.
- * The task-completion runbook runs the tier-scaled kill probe before this step.
- *
- * The handler forwards `worktree` and `worktreePath` for the `mergePendingEntry` guard.
- * After the append, it syncs the state document that the transition guards read. A failed sync returns `STATE_SYNC_FAILED`.
- * Before the gate check, a retry syncs the document and returns the stored row when the document shows the task with another status.
+ * The generic append refuses `gate.executed`, so only a gate handler writes the row that the check reads.
  */
-export async function handleTaskComplete(
-  args: {
-    taskId: string;
-    result?: Record<string, unknown>;
-    evidence?: {
-      type: 'test' | 'build' | 'typecheck' | 'manual';
-      output: string;
-      passed: boolean;
-    };
-    streamId?: string;
-    featureId?: string;
-  },
-  stateDir: string,
-  eventStore: EventStore,
-): Promise<ToolResult> {
-  if (!args.taskId) {
-    return {
-      success: false,
-      error: { code: 'INVALID_INPUT', message: 'taskId is required' },
-    };
-  }
-
-  const identity = resolveStreamIdentity(args);
-  if (!identity.ok) return identity.error;
-  const streamId = identity.streamId;
-
-  const store = eventStore;
-
-  try {
-    const stored = await storedCompletion(store, streamId, args.taskId);
-    const repaired =
-      stored === undefined ? undefined : await repairStoredCompletion(stateDir, streamId, args.taskId, stored, store);
-    if (repaired !== undefined) return repaired;
-  } catch (err) {
-    return completeFailed(err);
-  }
-
+async function gateRefusal(args: TaskCompleteArgs, streamId: string, store: EventStore): Promise<ToolResult | undefined> {
   const evidenceIsSubstantive =
     args.evidence?.passed === true && (args.evidence.output ?? '').trim().length > 0;
 
@@ -767,10 +855,16 @@ export async function handleTaskComplete(
   const prerequisite = evidenceMaySatisfy(STATIC_ANALYSIS_GATE)
     ? undefined
     : await staticAnalysisPrerequisite(store, streamId, args.taskId);
-  if (prerequisite !== undefined && prerequisite.kind !== 'pass') {
-    return gateNotPassed(prerequisite, args.taskId);
-  }
+  return prerequisite !== undefined && prerequisite.kind !== 'pass'
+    ? gateNotPassed(prerequisite, args.taskId)
+    : undefined;
+}
 
+/**
+ * The data of the `task.completed` row: the task, the provenance fields of `result`, and the caller evidence.
+ * It forwards `worktree` and `worktreePath` for the `mergePendingEntry` guard. It does not record `capsuleVersion`.
+ */
+function completionData(args: TaskCompleteArgs): Record<string, unknown> {
   const data: Record<string, unknown> = { taskId: args.taskId };
   if (args.result) {
     if (args.result.artifacts) {
@@ -805,16 +899,91 @@ export async function handleTaskComplete(
   } else {
     data.verified = false;
   }
+  return data;
+}
+
+/**
+ * One completion attempt. The gate check runs after the pin, and the append expects the pinned tail.
+ * A row that lands after the pin thus fails the append with a sequence conflict, and the next attempt reads that row.
+ * The appender reads the completion key before it compares the sequence. A retry of a recorded completion thus returns the stored row.
+ */
+async function attemptTaskComplete(
+  args: TaskCompleteArgs,
+  streamId: string,
+  stateDir: string,
+  store: EventStore,
+): Promise<CompletionAttempt> {
+  const standing = await completionStanding(args, streamId, stateDir, store);
+  if (standing.kind === 'result') return standing;
+
+  const refusal = await gateRefusal(args, streamId, store);
+  if (refusal !== undefined) return { kind: 'result', result: refusal };
+
+  let event: WorkflowEvent;
+  try {
+    event = await store.append(
+      streamId,
+      { type: 'task.completed', data: completionData(args) },
+      { idempotencyKey: completionKey(streamId, args.taskId), expectedSequence: standing.tail },
+    );
+  } catch (err) {
+    if (err instanceof SequenceConflictError) return { kind: 'conflict' };
+    return { kind: 'result', result: completeFailed(err) };
+  }
 
   try {
-    const event = await store.append(streamId, {
-      type: 'task.completed',
-      data,
-    }, { idempotencyKey: completionKey(streamId, args.taskId) });
-    return completionResult(streamId, args.taskId, event, await syncTaskDocument(stateDir, streamId, args.taskId));
+    const sync = await syncTaskDocument(stateDir, streamId, args.taskId);
+    return { kind: 'result', result: completionResult(streamId, args.taskId, event, sync) };
   } catch (err) {
-    return completeFailed(err);
+    return { kind: 'result', result: completeFailed(err) };
   }
+}
+
+/**
+ * Records `task.completed` when the gate runner recorded a passing static-analysis verdict for the task.
+ * Caller evidence never satisfies a blocking gate. A gate refusal names its cause and the recovery of that cause.
+ * A design revision after the capsule of the task that names the task refuses with `TASK_SUPERSEDED_BY_REVISION`.
+ * The capsule is the prepared record of `capsuleVersion`, or the latest prepared record of the stream with no version.
+ * A version with no prepared record refuses with `CAPSULE_NOT_PREPARED`.
+ *
+ * Each attempt pins the stream tail before its reads, and the append expects that tail.
+ * A sequence conflict starts the next attempt after a backoff. After the last attempt, the result is `CONCURRENCY_CONFLICT`.
+ * After the append, the handler syncs the state document that the transition guards read.
+ * The task-completion runbook runs the tier-scaled kill probe before this step.
+ */
+export async function handleTaskComplete(
+  args: TaskCompleteArgs,
+  stateDir: string,
+  eventStore: EventStore,
+): Promise<ToolResult> {
+  if (!args.taskId) {
+    return {
+      success: false,
+      error: { code: 'INVALID_INPUT', message: 'taskId is required' },
+    };
+  }
+
+  const identity = resolveStreamIdentity(args);
+  if (!identity.ok) return identity.error;
+  const streamId = identity.streamId;
+
+  for (let attempt = 0; attempt < MAX_COMPLETE_ATTEMPTS; attempt++) {
+    const outcome = await attemptTaskComplete(args, streamId, stateDir, eventStore);
+    if (outcome.kind === 'result') return outcome.result;
+    if (attempt + 1 < MAX_COMPLETE_ATTEMPTS) {
+      await sleep(COMPLETE_BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * COMPLETE_BASE_DELAY_MS);
+    }
+  }
+
+  return {
+    success: false,
+    error: {
+      code: 'CONCURRENCY_CONFLICT',
+      message:
+        `task_complete for task '${args.taskId}' lost the tail of stream '${streamId}' to concurrent appends ` +
+        `in ${MAX_COMPLETE_ATTEMPTS} attempts. Call task_complete again.`,
+    },
+  };
 }
 
 export async function handleTaskFail(
