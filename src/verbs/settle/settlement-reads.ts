@@ -1,0 +1,378 @@
+/**
+ * The reads that decide a settlement verdict, as pure folds over the rows of a stream.
+ *
+ * `settlementFactsOf` takes the facts of one batch from the rows. The facts are the completed
+ * tasks, the revisions after the prepared record and the records of the cited evidence.
+ * `judgeSettlement` judges the batch from those facts and from the runs of its segments.
+ * Both functions are synchronous, so a write transaction can fold its own rows and judge again.
+ *
+ * The module also holds the type of a segment run and the classes of a halt. It imports nothing
+ * from the settle handler.
+ */
+
+import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
+import { canonicalJson } from '../../contract/request-context.js';
+import type { AdmissionEvidenceRecorded } from '../../events/schemas.js';
+import type { ToolResult } from '../../format.js';
+import type { TASK_COMPLETION } from '../../runbooks/definitions.js';
+import type { IntentReceipt } from '../execute/types.js';
+import { gateEvidenceRecordsOf, ladderRequirementId } from '../gates/durable-gate-producer.js';
+import { revisedTasksAfter } from '../prepare/design-version.js';
+import {
+  acceptedMaterialDeviations,
+  adjudicateSettlement,
+  type AdjudicationContext,
+  type ProposedDeviation,
+  type SettlementClaim,
+  type SettlementEvidence,
+  type SettlementVerdict,
+  type TaskStanding,
+  type TaskVerificationOutcome,
+  verificationRuns,
+} from './adjudicate.js';
+import type { SettlementVerificationTrace } from './types.js';
+
+/** A leaf of the task-completion runbook, as the runbook names it. */
+type TaskCompletionLeaf = (typeof TASK_COMPLETION)['steps'][number]['action'];
+
+/**
+ * The class of each leaf of the task-completion runbook. A `gate` leaf judges the work of the task.
+ * The `completion` leaf records the result after the gates, so its halt is not a verdict about
+ * the work. The record is exhaustive, so a new leaf without a class does not compile.
+ */
+export const TASK_COMPLETION_LEAF_CLASSES: Readonly<Record<TaskCompletionLeaf, 'gate' | 'completion'>> = {
+  check_test_adequacy: 'gate',
+  check_contract_drift: 'gate',
+  check_mock_boundary: 'gate',
+  check_static_analysis: 'gate',
+  task_complete: 'completion',
+};
+
+/** Whether an action is a leaf of the task-completion runbook. */
+function isTaskCompletionLeaf(action: string): action is TaskCompletionLeaf {
+  return Object.hasOwn(TASK_COMPLETION_LEAF_CLASSES, action);
+}
+
+/**
+ * Whether the halt of a segment is a gate verdict about the work of its task. It is a verdict
+ * when a gate leaf stopped the segment and the leaf kept its contract. A halt at the completion
+ * leaf, at a leaf that the runbook does not name, or on a broken contract is not a verdict.
+ */
+export function haltIsGateVerdict(receipt: IntentReceipt): boolean {
+  if (receipt.failure?.code === 'INTENT_EMISSION_CONTRACT_VIOLATED') return false;
+  const leaf = receipt.failedLeaf;
+  return leaf !== undefined && isTaskCompletionLeaf(leaf) && TASK_COMPLETION_LEAF_CLASSES[leaf] === 'gate';
+}
+
+/**
+ * The verification of one task. A `refused` run is not an answer about the task, so the call
+ * records no verdict. `halted` says that the segment ran and halted, so the stream can hold the
+ * completion of the task.
+ */
+export type VerificationRun =
+  | {
+      readonly kind: 'ran';
+      readonly outcome: TaskVerificationOutcome;
+      readonly trace: SettlementVerificationTrace;
+    }
+  | { readonly kind: 'refused'; readonly result: ToolResult; readonly halted: boolean };
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** The tasks a stream already shows complete, read from the rows themselves. */
+export function completedTaskIds(events: readonly { readonly type: string; readonly data?: unknown }[]): Set<string> {
+  const ids = new Set<string>();
+  for (const event of events) {
+    if (event.type !== 'task.completed' || !isRecord(event.data)) continue;
+    const taskId = event.data.taskId;
+    if (typeof taskId === 'string') ids.add(taskId);
+  }
+  return ids;
+}
+
+/**
+ * The tasks that a verified round finds complete on the stream.
+ * They are the required tasks of the capsule and the accepted tasks of the batch that `completed` holds.
+ * The round brings the state document level for each of them.
+ * A required task in the list needs no claim. The list is sorted, and it holds each task once.
+ */
+export function recordedCompleteTasks(
+  capsule: ExarchosCapsuleV1,
+  acceptedTasks: readonly string[],
+  completed: ReadonlySet<string>,
+): string[] {
+  const candidates = new Set([...capsule.settlementContract.requiredResults, ...acceptedTasks]);
+  return [...candidates].filter((taskId) => completed.has(taskId)).sort();
+}
+
+/** The evidence key of a citation: the kind and the reference together. */
+function evidenceKey(evidence: SettlementEvidence): string {
+  return `${evidence.kind}\u0000${evidence.ref}`;
+}
+
+/** The record of one cited evidence reference. `key` is the evidence key of the citation. */
+export interface CitedRecord {
+  readonly key: string;
+  readonly record: AdmissionEvidenceRecorded;
+}
+
+/**
+ * The blob check of one cited record, as the call made it before it judged. `record` is the record
+ * that the check read. `intact` says that each blob that the record names resolves.
+ */
+export interface EvidenceCheck {
+  readonly record: AdmissionEvidenceRecorded;
+  readonly intact: boolean;
+}
+
+/** The facts of one batch that the fold takes from the rows of its stream. */
+export interface SettlementFacts {
+  /** The tasks that a `task.completed` row names. */
+  readonly completed: ReadonlySet<string>;
+  /** Each task that a revision after the prepared record names, with the next version of the latest such revision. */
+  readonly revisions: ReadonlyMap<string, number>;
+  /**
+   * The record of each cited reference, by evidence key. A reference has a record when a gate row holds its
+   * evidence id under the ladder requirement of the cited kind. The rows that no claim cites are not facts.
+   */
+  readonly cited: ReadonlyMap<string, CitedRecord>;
+}
+
+/**
+ * The facts of one batch, folded from the rows of its stream. `rows` is the whole stream in commit
+ * order, after the event migration, and it can hold rows of any type.
+ *
+ * `pinnedSequence` is the sequence of the prepared record of the capsule. `cited` holds the evidence
+ * references that the claims carry. A revision row that its schema refuses throws.
+ */
+export function settlementFactsOf(
+  rows: readonly { readonly type: string; readonly sequence: number; readonly data?: unknown }[],
+  reads: { readonly pinnedSequence: number; readonly cited: readonly SettlementEvidence[] },
+): SettlementFacts {
+  const completed = completedTaskIds(rows);
+  const revisions = revisedTasksAfter(rows, reads.pinnedSequence);
+  const cited = new Map<string, CitedRecord>();
+  if (reads.cited.length > 0) {
+    const recorded = gateEvidenceRecordsOf(rows);
+    for (const evidence of reads.cited) {
+      const record = recorded.get(evidence.ref);
+      if (record === undefined || record.evidence.requirementId !== ladderRequirementId(evidence.kind)) continue;
+      const key = evidenceKey(evidence);
+      cited.set(key, { key, record });
+    }
+  }
+  return { completed, revisions, cited };
+}
+
+/** What stays fixed for one attempt of a settlement call. */
+export interface SettlementInputs {
+  readonly capsule: ExarchosCapsuleV1;
+  readonly claims: readonly SettlementClaim[];
+  readonly deviations: readonly ProposedDeviation[];
+  /** The decision for each deviation. It returns undefined for a deviation that no decision answers. */
+  readonly decided: NonNullable<AdjudicationContext['decided']>;
+  /** The round of the call: 0 for the round that submits the batch, 1 for the decision round. */
+  readonly round: number;
+  /**
+   * How a task stands in the plan, read before the commit. It is absent when no deviation names a task.
+   * On the decision round, it is also absent when the plan does not resolve.
+   */
+  readonly planStanding?: (taskId: string) => TaskStanding;
+  /** The blob checks of the cited records, by evidence key. */
+  readonly evidenceChecks: ReadonlyMap<string, EvidenceCheck>;
+}
+
+/** The judgement of one batch from one read of its stream. */
+export interface SettlementJudgement {
+  /** The final verdict when verification runs, and the verdict of the shape pass when it does not. */
+  readonly verdict: SettlementVerdict;
+  /** Whether the shape pass lets verification run. */
+  readonly verifies: boolean;
+  /**
+   * The verification outcome of each task that the final pass reads. When verification does not run,
+   * it holds only the runs that the call made before a read changed.
+   */
+  readonly outcomes: ReadonlyMap<string, TaskVerificationOutcome>;
+  /**
+   * The traces in the order of the receipt. First come the complete tasks with no run, sorted. Then
+   * come the runs in their order. When verification does not run, only the runs give traces.
+   */
+  readonly traces: readonly SettlementVerificationTrace[];
+  /** The tasks that the judgement settles as already complete, sorted. */
+  readonly alreadyComplete: readonly string[];
+  /** The accepted tasks with no run and no completion row, in the order of the accepted tasks. Each needs a segment. */
+  readonly needsSegment: readonly string[];
+  /** The cited records whose blob check is not in the inputs, or that changed after the check. */
+  readonly needsEvidenceCheck: readonly CitedRecord[];
+  /** The accepted material deviations that name no finished task. A decision round records one design revision for them. */
+  readonly revising: readonly ProposedDeviation[];
+  /** The result of the first refused run, in run order, whose task the facts do not show complete. */
+  readonly refusal?: ToolResult;
+}
+
+/**
+ * How a task that a deviation names stands on the round of the inputs, or undefined when the round reads no standing.
+ * A task that the facts show complete is finished, whatever the plan says.
+ * On the round that submits the batch, each other task stands as the plan says, and there is no standing without the plan.
+ * On the decision round, each other task is finished when the plan shows it complete, and pending in all other cases.
+ * Thus a decision still settles after a later plan drops a named task, and when the plan does not resolve.
+ */
+function roundStanding(
+  inputs: SettlementInputs,
+  completed: ReadonlySet<string>,
+): ((taskId: string) => TaskStanding) | undefined {
+  const plan = inputs.planStanding;
+  if (inputs.round === 0) {
+    if (plan === undefined) return undefined;
+    return (taskId) => (completed.has(taskId) ? { kind: 'finished' } : plan(taskId));
+  }
+  return (taskId) =>
+    completed.has(taskId) || plan?.(taskId).kind === 'finished' ? { kind: 'finished' } : { kind: 'pending' };
+}
+
+/** Whether a run halted: a refused run that ran and halted, or a run whose gate verdict failed. */
+function runHalted(run: VerificationRun): boolean {
+  return run.kind === 'refused' ? run.halted : run.outcome.kind === 'failed';
+}
+
+/** The outcomes, the traces and the already-complete tasks of one judgement, in the order of the receipt. */
+interface JudgedTraces {
+  readonly outcomes: Map<string, TaskVerificationOutcome>;
+  readonly traces: SettlementVerificationTrace[];
+  readonly alreadyComplete: string[];
+}
+
+/**
+ * The traces of the complete tasks with no run, then the traces of the runs in their order.
+ * A run that halted or failed on a task that the facts show complete is already complete.
+ * A refused run of a task that is not complete gives no trace.
+ */
+function judgedTraces(
+  complete: readonly string[],
+  runs: ReadonlyMap<string, VerificationRun>,
+  completed: ReadonlySet<string>,
+): JudgedTraces {
+  const judged: JudgedTraces = { outcomes: new Map(), traces: [], alreadyComplete: [] };
+  const settleComplete = (taskId: string): void => {
+    judged.outcomes.set(taskId, { kind: 'already-complete' });
+    judged.traces.push({ taskId, outcome: 'already-complete' });
+    judged.alreadyComplete.push(taskId);
+  };
+  for (const taskId of complete) settleComplete(taskId);
+  for (const [taskId, run] of runs) {
+    if (runHalted(run) && completed.has(taskId)) {
+      settleComplete(taskId);
+      continue;
+    }
+    if (run.kind === 'refused') continue;
+    judged.outcomes.set(taskId, run.outcome);
+    judged.traces.push(run.trace);
+  }
+  return judged;
+}
+
+/**
+ * Judges one batch from the facts of one read and from the runs of its segments. The function is
+ * pure, so each read of the stream gets the same judgement from the same facts.
+ *
+ * A run that verified keeps `verified`, also when another writer stored the completion. A task whose
+ * run halted or failed is already complete when the facts show it complete. So is a task whose claim
+ * reports a status, because adjudication accepts such a claim when the task is complete.
+ * A judgement that does not verify still gives the traces of the runs that the call made before a read changed.
+ * A judgement that names a needed segment or a needed evidence check is not final.
+ * The standing of a task that a deviation names takes its completion from the facts, so the commit compares it too.
+ */
+export function judgeSettlement(
+  inputs: SettlementInputs,
+  facts: SettlementFacts,
+  runs: ReadonlyMap<string, VerificationRun>,
+): SettlementJudgement {
+  const { capsule, claims, deviations, decided } = inputs;
+  const checkedIntact = (cited: CitedRecord): boolean | undefined => {
+    const check = inputs.evidenceChecks.get(cited.key);
+    if (check === undefined || canonicalJson(check.record) !== canonicalJson(cited.record)) return undefined;
+    return check.intact;
+  };
+  const taskStanding = roundStanding(inputs, facts.completed);
+  const context: AdjudicationContext = {
+    evidenceResolves: (evidence) => {
+      const cited = facts.cited.get(evidenceKey(evidence));
+      return cited !== undefined && checkedIntact(cited) === true;
+    },
+    ...(inputs.round === 0 ? {} : { decided }),
+    supersedingDesignVersion: (taskId) => facts.revisions.get(taskId),
+    taskComplete: (taskId) => facts.completed.has(taskId),
+    ...(taskStanding !== undefined ? { taskStanding } : {}),
+  };
+
+  const needsEvidenceCheck = [...facts.cited.values()].filter((cited) => checkedIntact(cited) === undefined);
+  const revising = acceptedMaterialDeviations(capsule, deviations, decided, taskStanding);
+  let refusal: ToolResult | undefined;
+  for (const [taskId, run] of runs) {
+    if (run.kind === 'refused' && !(run.halted && facts.completed.has(taskId))) {
+      refusal = run.result;
+      break;
+    }
+  }
+  const refused = refusal !== undefined ? { refusal } : {};
+
+  const shape = adjudicateSettlement(capsule, claims, deviations, context);
+  if (!verificationRuns(shape.findings)) {
+    const ran = judgedTraces([], runs, facts.completed);
+    return {
+      verdict: shape,
+      verifies: false,
+      outcomes: ran.outcomes,
+      traces: ran.traces,
+      alreadyComplete: [...ran.alreadyComplete].sort(),
+      needsSegment: [],
+      needsEvidenceCheck,
+      revising,
+      ...refused,
+    };
+  }
+
+  const complete = recordedCompleteTasks(capsule, shape.acceptedTasks, facts.completed).filter(
+    (taskId) => !runs.has(taskId),
+  );
+  const { outcomes, traces, alreadyComplete } = judgedTraces(complete, runs, facts.completed);
+  const terms = capsule.settlementContract.taskVerification ?? {};
+  const needsSegment = shape.acceptedTasks.filter(
+    (taskId) => !runs.has(taskId) && !facts.completed.has(taskId) && terms[taskId] !== undefined,
+  );
+  return {
+    verdict: adjudicateSettlement(capsule, claims, deviations, { ...context, verification: outcomes }),
+    verifies: true,
+    outcomes,
+    traces,
+    alreadyComplete: [...alreadyComplete].sort(),
+    needsSegment,
+    needsEvidenceCheck,
+    revising,
+    ...refused,
+  };
+}
+
+/**
+ * The part of a judgement that the record holds, as canonical JSON. Two judgements with one key
+ * record the same verdict, the same verification outcomes and the same revision.
+ *
+ * The key holds the outcome, the accepted and unresolved tasks, the findings and the rationales. It
+ * also holds the decision count, the outcome of each task and the revising deviations. It holds no
+ * bundle byte and no bundle reference, because the bundle holds the time of the settlement.
+ */
+export function judgementKey(judgement: SettlementJudgement): string {
+  const { verdict } = judgement;
+  return canonicalJson({
+    outcome: verdict.outcome,
+    acceptedTasks: verdict.acceptedTasks,
+    unresolved: verdict.unresolved,
+    findings: verdict.findings,
+    rationales: verdict.rationales,
+    decisions: verdict.adjudicated.decisions,
+    outcomes: [...judgement.outcomes],
+    revising: judgement.revising,
+  });
+}

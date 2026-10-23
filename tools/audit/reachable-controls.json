@@ -204,6 +204,21 @@
         }
       },
       {
+        "file": "tests/acceptance/settle-races.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases race a write against the settle commit, through a spy on `decideOnce` and a wrapper of the live gate leaf. The cases read only rows of the settle vocabulary. No twin runs the races with the default, and the wrapper then appends an emissions gate row after each dispatched call, also after a call inside a race. The twin is owed, and this record keeps the gap visible."
+      },
+      {
+        "file": "tests/acceptance/settle-races.test.ts",
+        "default": "state-document-file",
+        "twin": {
+          "file": "tests/core/integration/governance/gate-before-completion.test.ts",
+          "test": "Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel",
+          "keeps": "harness.storage.getState(SETTLE_FEATURE_ID)"
+        }
+      },
+      {
         "file": "tests/unit/verbs/settle/blocking-gate.test.ts",
         "default": "telemetry",
         "owner": "@rsalus",
@@ -235,6 +250,39 @@
         "default": "state-document-file",
         "owner": "@rsalus",
         "reason": "The parity compares the documents of two stores that both use the JSON file form, so the form is the same on both sides. No case compares the two paths in the row form. The row form of settle levelling has its twin in the governance tier."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settlement-reads.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-in-commit.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "Each case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-in-commit.test.ts",
+        "default": "state-document-file",
+        "twin": {
+          "file": "tests/core/integration/governance/gate-before-completion.test.ts",
+          "test": "Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel",
+          "keeps": "harness.storage.getState(SETTLE_FEATURE_ID)"
+        }
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-decision-standing.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "Each case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-revision-race.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "Each case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
       }
     ],
     "contextSchema": {
