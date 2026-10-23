@@ -12,6 +12,8 @@
 // 3. The ratchet has two sources. The denominator is
 //    `derivePackagedDenominators().actions`, and the numerator is the runtime
 //    ledger `harness.reachedActionIds()`.
+//
+// @oracle-sources: ../../../../tools/conformance/src/parity/__tests__/packaged-proof.ts, the actions that dispatch reached at run time
 
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as os from 'node:os';

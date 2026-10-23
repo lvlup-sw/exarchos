@@ -13,6 +13,8 @@
  *
  * The second case builds a divergence between the gate and the tail on disk and starts a fresh
  * process. It observes from outside that the repair lands before that process accepts a write.
+ *
+ * @oracle-sources: ./multi-process-append.driver.mjs, the events table that better-sqlite3 reads from the SQLite file
  */
 
 import { spawn } from 'node:child_process';

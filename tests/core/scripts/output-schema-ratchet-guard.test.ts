@@ -114,6 +114,21 @@ function slot(rank: number): OwnerCohort {
   return cohort;
 }
 
+/**
+ * The earliest cohort that still holds a live waiver. A paid-off cohort has no entry to expire or
+ * re-date, so the fixtures that need a due waiver use this slot. Throws when every cohort is paid off.
+ */
+function firstLiveSlot(): OwnerCohort {
+  const cohort = LIVE_COHORTS.find((candidate) => candidate.live > 0);
+  if (cohort === undefined) {
+    throw new Error(
+      'no cohort of the derived schedule holds a live waiver, so this fixture cannot be posed. ' +
+        'The legitimate zero state deletes the allowlist module, its pin and the guard.',
+    );
+  }
+  return cohort;
+}
+
 /** Every live waiver of `cohort`, keyed by id. */
 function liveEntriesOf(cohort: OwnerCohort): Readonly<Record<string, VacuityWaiverEntry>> {
   const out: Record<string, VacuityWaiverEntry> = {};
@@ -236,17 +251,18 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
   /**
    * The green side of the kill fixture: the same live seed and code path, before any deadline.
    *
-   * - The schedule is staggered, so the last day on which every waiver is live is the slot of the
-   *   first cohort. The test derives that day from the schedule.
+   * - The schedule is staggered. Thus every waiver is live up to the slot of the first cohort
+   *   that holds a live waiver. The test derives that day from the schedule.
    * - `205` is the count of days from `SEEDED_ON` to the pinned anchor. A new anchor changes it.
    * - The report states its denominator. Both counts come from the live artifacts, because a
    *   paydown or a new action changes a literal count.
    * - The report names each cohort with its live count over its seeded count.
-   * - One day after the first slot the guard is red, and only that cohort is due. On the anchor
-   *   the guard is red too.
+   * - One day after that slot the guard is red, and only that cohort is due. On the anchor the
+   *   guard is red too.
+   * - A paid-off cohort before that slot comes due with no finding, because it has no live waiver.
    */
   it('OutputSchemaExpiry_UnexpiredEntry_PassesTheGuard', () => {
-    const firstSlot = slot(0);
+    const firstSlot = firstLiveSlot();
     const wholeSeedLive = auditLiveVacuityExpiry(firstSlot.horizon);
     expect(wholeSeedLive.entryCount).toBe(VACUITY_ALLOWLIST_IDS.length);
     expect(wholeSeedLive.ok).toBe(true);
@@ -289,6 +305,10 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(seededTotal).toBe(VACUITY_ALLOWLIST_IDS.length + VACUITY_RETIRED_IDS.length);
     expect(seededTotal).toBeGreaterThan(liveTotalByOwner);
 
+    for (const paidOff of LIVE_COHORTS.slice(0, firstSlot.rank)) {
+      expect(paidOff.live, paidOff.owner).toBe(0);
+      expect(invoke({ today: dayAfter(paidOff.horizon) }).code, paidOff.owner).toBe(0);
+    }
     expect(invoke({ today: firstSlot.horizon }).code).toBe(0);
     const afterFirstSlot = invoke({ today: dayAfter(firstSlot.horizon) });
     expect(afterFirstSlot.code).toBe(1);
@@ -354,8 +374,8 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
   });
 
   /**
-   * The kill fixture for the per-owner schedule. An entry of the first cohort moves to the anchor,
-   * a date that the global cap accepts. The anchor comes from the pin, not from the schedule.
+   * The kill fixture for the per-owner schedule. An entry of the first cohort that holds a live
+   * waiver moves to the anchor, a date that the global cap accepts. The anchor comes from the pin, not from the schedule.
    *
    * - Red: the global expiry audit is clean on this input, so only the per-owner slot can fail
    *   the guard. The report holds no drift, unwaived or expired finding.
@@ -365,7 +385,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
    * - Each live owner has a slot, so no waiver skips the comparison.
    */
   it('OutputSchemaExpiry_EntryDatedBeyondItsOwnerHorizon_FailsTheGuard', () => {
-    const early = slot(0);
+    const early = firstLiveSlot();
     const last = slot(LIVE_COHORTS.length - 1);
     expect(last.horizon).toBe(VACUITY_EXPIRY_HORIZON);
     expect(early.horizon < last.horizon).toBe(true);
@@ -465,17 +485,18 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     const sizes = LIVE_COHORTS.map((cohort) => cohort.seeded);
     expect([...sizes].sort((left, right) => left - right)).toEqual(sizes);
 
-    const paidId = anyLiveIdOf(slot(0));
+    const payer = firstLiveSlot();
+    const paidId = anyLiveIdOf(payer);
     const afterPaydown = deriveOwnerCohorts(
       Object.fromEntries(Object.entries(VACUITY_ALLOWLIST).filter(([id]) => id !== paidId)),
-      { ...VACUITY_RETIRED, [paidId]: { owner: slot(0).owner, retiredAt: SEEDED_ON } },
+      { ...VACUITY_RETIRED, [paidId]: { owner: payer.owner, retiredAt: SEEDED_ON } },
       VACUITY_EXPIRY_HORIZON,
       VACUITY_STAGGER_STEP_DAYS,
     );
     expect(afterPaydown.map((cohort) => [cohort.owner, cohort.horizon, cohort.seeded])).toEqual(
       LIVE_COHORTS.map((cohort) => [cohort.owner, cohort.horizon, cohort.seeded]),
     );
-    expect(afterPaydown[0]?.live).toBe(slot(0).live - 1);
+    expect(afterPaydown[payer.rank]?.live).toBe(payer.live - 1);
 
     const rankedOnLive = deriveOwnerCohorts(
       Object.fromEntries(Object.entries(VACUITY_ALLOWLIST).filter(([id]) => id !== paidId)),
@@ -642,7 +663,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
   /**
    * The other tests inject their inputs, so they do not show what the defaults are. This test
    * pins the defaults by reference identity to the modules that own them. With only the day
-   * injected, the guard also reports real live ids.
+   * injected, the guard also reports real live ids. It reports no retired id as expired.
    *
    * The clock check compares `resolveToday(now)` with a UTC day that the test computes itself.
    * It asserts no verdict from the wall clock.
@@ -658,8 +679,13 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(LIVE_SUBJECT.runwayBudgetDays).toBe(VACUITY_RUNWAY_BUDGET_DAYS);
 
     const red = invoke({ today: FIRST_DEAD_DAY });
-    for (const id of ['exarchos_workflow.init', 'exarchos_view.tasks', 'exarchos_event.append']) {
+    for (const id of ['exarchos_workflow.init', 'exarchos_view.tasks', 'exarchos_orchestrate.task_claim']) {
       expect(red.err, id).toContain(id);
+    }
+    expect(red.err).toContain("'exarchos_workflow.init' (owner:");
+    expect(VACUITY_RETIRED_IDS.length).toBeGreaterThan(0);
+    for (const id of VACUITY_RETIRED_IDS) {
+      expect(red.err, id).not.toContain(`'${id}' (owner:`);
     }
 
     const now = new Date();

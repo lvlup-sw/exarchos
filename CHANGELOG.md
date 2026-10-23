@@ -125,6 +125,11 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - **A batch whose segments an earlier build ran gets `OPERATION_DIGEST_MISMATCH` when it is settled again, unless its verdict was recorded.** The arguments of each segment now hold `capsuleVersion`, and the request digest of a segment covers each argument. The request of a segment of an earlier build has no such argument. The executor reports `INTENT_REPLAY_DIGEST_MISMATCH` for the segment, and `settle` refuses the call. A batch with a recorded verdict replays that verdict, as before.
   - Recovery: when a batch of an earlier build gets this refusal, settle its claims under a new batchId.
 
+- **The four `exarchos_event` actions declare the shape of their success data.** The `outputSchema` of `append`, `batch_append`, `query` and `describe` no longer gives `data` as an unknown value. `describe` shows each shape, and the MCP adapter checks each reply against it.
+  - A `query` row that holds `streamId`, `sequence`, `type` or `timestamp` must give it its stored type. A `fields` projection can omit each of them.
+  - The `describe` data must hold one of `actions`, `eventTypes` or `emissionGuide`, and no other key.
+  - The economy budget of the event `describe` is now 16000 tokens, up from 12000. Thus a describe of the four actions with their larger schemas is not marked `economyDegraded`.
+
 ### Fixed
 
 - `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file. The `agent-mcp-registered` doctor check now gives Warning for that stale entry, so onboard and `doctor --fix` replace it without `--force`. They write no entry when an enabled exarchos plugin already starts the server in this project: a `user` or `managed` install, or a `project` or `local` install for this project. The doctor fix text now names `exarchos onboard`, not the `exarchos init` rename stub.

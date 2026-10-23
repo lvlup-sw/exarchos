@@ -1,5 +1,5 @@
 /**
- * The output schemas of some workflow and telemetry actions. Each action schema wraps
+ * The output schemas of some workflow, telemetry and event actions. Each action schema wraps
  * `EnvelopeSchema`. The module also re-exports `CappedDataSchema` and `withCappedShape` from
  * `output-schema-declaration.ts`, which keeps the brand mint private. Thus `withCappedShape` is the
  * only constructor of a substantive `outputSchema`.
@@ -95,5 +95,58 @@ const TelemetryViewDataSchema = z.object({
 }).passthrough();
 
 export const TelemetryViewOutputSchema = EnvelopeSchema(TelemetryViewDataSchema);
+
+/**
+ * The acknowledgement of one appended event, as `toEventAck` returns it. An idempotent replay
+ * returns the acknowledgement of the stored event, so the shape is the same. The `type` is a
+ * string, so a new event type needs no schema edit.
+ */
+const EventAckDataSchema = z
+  .object({
+    streamId: z.string(),
+    sequence: z.number(),
+    type: z.string(),
+  })
+  .passthrough();
+
+/** The `outputSchema` of `exarchos_event.append`: the acknowledgement of the event. */
+export const EventAppendOutputSchema = EnvelopeSchema(EventAckDataSchema);
+
+/** The `outputSchema` of `exarchos_event.batch_append`: one acknowledgement for each appended event. */
+export const EventBatchAppendOutputSchema = EnvelopeSchema(z.array(EventAckDataSchema));
+
+/** The paging metadata of `exarchos_event.query`. It mirrors `EventQueryPage` in `events/tools.ts`. */
+const EventQueryPageDataSchema = z
+  .object({
+    total: z.number(),
+    offset: z.number(),
+    limit: z.number(),
+    hasMore: z.boolean(),
+  })
+  .passthrough();
+
+/**
+ * One event row of `exarchos_event.query`. A `fields` projection keeps only the keys that the caller
+ * names, so each field is optional. A field that is present must have its stored type.
+ */
+const EventQueryRowDataSchema = z
+  .object({
+    streamId: z.string().optional(),
+    sequence: z.number().optional(),
+    type: z.string().optional(),
+    timestamp: z.string().optional(),
+  })
+  .passthrough();
+
+/** The success data of `exarchos_event.query`: the event rows of one page and the paging metadata. */
+const EventQueryDataSchema = z
+  .object({
+    events: z.array(EventQueryRowDataSchema),
+    page: EventQueryPageDataSchema,
+  })
+  .passthrough();
+
+/** The `outputSchema` of `exarchos_event.query`: one page of event rows and its paging metadata. */
+export const EventQueryOutputSchema = EnvelopeSchema(EventQueryDataSchema);
 
 export { CappedDataSchema, withCappedShape } from '../output-schema-declaration.js';

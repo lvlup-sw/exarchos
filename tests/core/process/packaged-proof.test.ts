@@ -13,6 +13,8 @@
  * The baseline records the accepted gaps: the error families `authorization`, `output`,
  * `presenter` and `task`, and the effect family `network`. To write a new baseline, set
  * `EXARCHOS_WRITE_PACKAGED_BASELINE=1` and run this file with `--project core`.
+ *
+ * @oracle-sources: ../../../tools/conformance/src/parity/__tests__/packaged-proof.ts, the envelopes and exit codes that the shipped binary returns
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';

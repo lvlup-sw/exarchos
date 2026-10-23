@@ -71,9 +71,10 @@ export const DESCRIBE_ECONOMY_BUDGET_TOKENS = 8000;
 
 /**
  * The budget for event `describe`. It is above {@link DESCRIBE_ECONOMY_BUDGET_TOKENS}, because its
- * `emissionGuide` parameter adds the full event catalog to the action schemas.
+ * `emissionGuide` parameter adds the full event catalog to the action schemas. Each event action
+ * declares a typed output schema, so a describe of the four actions is near 14000 tokens.
  */
-export const EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS = 12000;
+export const EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS = 16000;
 
 /** The budget for `runbook`, which returns a resolved runbook with step schemas. */
 export const RUNBOOK_ECONOMY_BUDGET_TOKENS = 4000;
