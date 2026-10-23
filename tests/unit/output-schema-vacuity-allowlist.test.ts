@@ -284,6 +284,10 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(liveSeed.ok).toBe(true);
 
     const retiredIds: readonly string[] = [
+      'exarchos_event.append',
+      'exarchos_event.batch_append',
+      'exarchos_event.describe',
+      'exarchos_event.query',
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',

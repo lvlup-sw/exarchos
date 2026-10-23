@@ -12,7 +12,9 @@ import {
   EVENT_QUERY_DEFAULT_LIMIT,
   type EventQueryPage,
 } from '../../../src/events/tools.js';
-import type { EventAck, ToolResult } from '../../../src/format.js';
+import { toEnvelope, type EventAck, type ToolResult } from '../../../src/format.js';
+import { envelopeWrap } from '../../../src/envelope-wrap.js';
+import { TOOL_REGISTRY } from '../../../src/registry.js';
 import { runWithDispatchContext } from '../../../src/dispatch/dispatch-context.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { estimateOutputTokens } from '../../../src/dispatch/core/economy.js';
@@ -1115,5 +1117,153 @@ describe('handleEventAppend team.disbanded routing (C11, #1224)', () => {
     expect(workflowStarted).toBeDefined();
     const wfData = workflowStarted!.data as Record<string, unknown>;
     expect(wfData.featureId).toBe('pinning-feat');
+  });
+});
+
+/**
+ * Parses a handler reply against the `outputSchema` of its `exarchos_event` action, after the same
+ * wrap that the composite and the MCP adapter apply. It returns `ok`, or the issues as JSON.
+ */
+function outputSchemaVerdict(actionName: string, result: ToolResult): string {
+  const action = TOOL_REGISTRY.find((tool) => tool.name === 'exarchos_event')?.actions.find(
+    (candidate) => candidate.name === actionName,
+  );
+  if (action === undefined) throw new Error(`exarchos_event.${actionName} is not registered`);
+  const parsed = action.outputSchema.safeParse(toEnvelope(envelopeWrap(result, Date.now())));
+  return parsed.success ? 'ok' : JSON.stringify(parsed.error.issues);
+}
+
+/**
+ * Each success path of the three event handlers must parse against the `outputSchema` of its
+ * action. The MCP adapter replaces a reply that does not parse with an `INTERNAL_ERROR`. Thus a
+ * schema that is stricter than a real reply breaks the action.
+ */
+describe('event handler replies parse against the declared output schemas', () => {
+  /**
+   * The append paths are a fresh append, an idempotent replay and the `team.disbanded` count.
+   * The batch paths are a fresh batch and a cached batch. A reply with a wrong shape fails the
+   * same parse, so the schemas are not vacuous.
+   */
+  it('EventOutputSchemas_AppendAndBatchAppendSuccessPaths_ParseAgainstTheDeclaredSchemas', async () => {
+    const appendArgs = {
+      stream: 'schema-append',
+      event: { type: 'task.assigned', data: { taskId: 't1', title: 'Task t1' } },
+      idempotencyKey: 'schema-append-1',
+    };
+    const fresh = await handleEventAppend(appendArgs, tempDir, eventStore);
+    expect(fresh.success).toBe(true);
+    expect(outputSchemaVerdict('append', fresh)).toBe('ok');
+
+    const replay = await handleEventAppend(appendArgs, tempDir, eventStore);
+    expect(replay.success).toBe(true);
+    expect(replay.data).toEqual(fresh.data);
+    expect(outputSchemaVerdict('append', replay)).toBe('ok');
+
+    const disbanded = await handleEventAppend(
+      {
+        stream: 'schema-append',
+        event: {
+          type: 'team.disbanded',
+          data: { teamId: 'team-s', tasksCompleted: 0, tasksFailed: 0, totalDurationMs: 0 },
+        },
+      },
+      tempDir,
+      eventStore,
+    );
+    expect(disbanded.success).toBe(true);
+    expect(outputSchemaVerdict('append', disbanded)).toBe('ok');
+
+    const batchEvents = [
+      { type: 'task.assigned', data: { taskId: 'b1', title: 'Task b1' }, idempotencyKey: 'schema-batch' },
+      { type: 'task.assigned', data: { taskId: 'b2', title: 'Task b2' }, idempotencyKey: 'schema-batch' },
+    ];
+    const freshBatch = await handleBatchAppend(
+      {
+        stream: 'schema-batch',
+        events: [
+          { type: 'task.assigned', data: { taskId: 'a1', title: 'Task a1' } },
+          { type: 'task.assigned', data: { taskId: 'a2', title: 'Task a2' } },
+        ],
+      },
+      tempDir,
+      eventStore,
+    );
+    expect(freshBatch.success).toBe(true);
+    expect(outputSchemaVerdict('batch_append', freshBatch)).toBe('ok');
+
+    const keyedBatch = await handleBatchAppend(
+      { stream: 'schema-batch', events: batchEvents },
+      tempDir,
+      eventStore,
+    );
+    expect(keyedBatch.success).toBe(true);
+    const cachedBatch = await handleBatchAppend(
+      { stream: 'schema-batch', events: batchEvents },
+      tempDir,
+      eventStore,
+    );
+    expect(cachedBatch.success).toBe(true);
+    expect(cachedBatch.data).toEqual(keyedBatch.data);
+    expect(outputSchemaVerdict('batch_append', cachedBatch)).toBe('ok');
+
+    expect(
+      outputSchemaVerdict('append', { success: true, data: { streamId: 's', type: 'task.assigned' } }),
+    ).not.toBe('ok');
+    expect(
+      outputSchemaVerdict('batch_append', {
+        success: true,
+        data: { streamId: 's', sequence: 1, type: 'task.assigned' },
+      }),
+    ).not.toBe('ok');
+  });
+
+  /**
+   * The query paths are a stream with no rows, a page of a longer stream and an offset past the
+   * end. A type filter and a `fields` projection that keeps some keys or none are paths too. A
+   * projected row has a null prototype, and the schema must admit it.
+   */
+  it('EventOutputSchemas_QuerySuccessPaths_ParseAgainstTheDeclaredSchema', async () => {
+    const empty = await handleEventQuery({ stream: 'schema-query-empty' }, tempDir, eventStore);
+    expect(empty.success).toBe(true);
+    expect(queryEvents(empty)).toEqual([]);
+    expect(outputSchemaVerdict('query', empty)).toBe('ok');
+
+    const seeded = await handleBatchAppend(
+      {
+        stream: 'schema-query',
+        events: Array.from({ length: 25 }, (_, i) => ({
+          type: 'task.assigned',
+          data: { taskId: `q${i + 1}`, title: `Task q${i + 1}` },
+        })),
+      },
+      tempDir,
+      eventStore,
+    );
+    expect(seeded.success).toBe(true);
+
+    const queries = [
+      { stream: 'schema-query' },
+      { stream: 'schema-query', limit: 5, offset: 3 },
+      { stream: 'schema-query', offset: 100 },
+      { stream: 'schema-query', filter: { type: 'task.assigned', sinceSequence: 10 } },
+      { stream: 'schema-query', fields: ['type', 'sequence', 'data.taskId'] },
+      { stream: 'schema-query', fields: ['noSuchField'] },
+    ];
+    for (const args of queries) {
+      const result = await handleEventQuery(args, tempDir, eventStore);
+      expect(result.success, JSON.stringify(args)).toBe(true);
+      expect(outputSchemaVerdict('query', result), JSON.stringify(args)).toBe('ok');
+    }
+
+    const projected = await handleEventQuery(
+      { stream: 'schema-query', fields: ['type'] },
+      tempDir,
+      eventStore,
+    );
+    const firstRow = queryEvents(projected)[0];
+    expect(firstRow).toBeDefined();
+    expect(Object.getPrototypeOf(firstRow)).toBeNull();
+
+    expect(outputSchemaVerdict('query', { success: true, data: { events: [] } })).not.toBe('ok');
   });
 });

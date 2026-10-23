@@ -2454,7 +2454,7 @@ describe('validateAction', () => {
       makeDescribeAction('exarchos_view.describe'),
       makeDescribeAction('exarchos_orchestrate.describe'),
       makeWorkflowDescribeAction('exarchos_workflow.describe'),
-      makeEventDescribeAction('exarchos_event.describe'),
+      makeEventDescribeAction(),
     ];
     for (const action of factories) {
       expect('actionContract' in action).toBe(true);
@@ -3126,7 +3126,15 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
     dispositionTally: {},
   };
 
-  const baselineDataByAction: Record<string, Record<string, unknown>> = {
+  const baselineDataByAction: Record<string, Record<string, unknown> | readonly Record<string, unknown>[]> = {
+    'exarchos_event.append': { streamId: 'f', sequence: 1, type: 'task.progressed' },
+    'exarchos_event.batch_append': [{ streamId: 'f', sequence: 1, type: 'task.assigned' }],
+    'exarchos_event.query': {
+      events: [], page: { total: 0, offset: 0, limit: 20, hasMore: false },
+    },
+    'exarchos_event.describe': {
+      eventTypes: { 'task.assigned': { schema: { type: 'object' }, source: 'model', isBuiltIn: true } },
+    },
     'exarchos_orchestrate.acquire_worktree': {
       worktreeId: 'wt', path: '/tmp/wt', featureId: null, reserved: true, adopted: true,
     },
@@ -3202,7 +3210,9 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       capsule: {}, tailSequence: 0,
     },
   };
-  function baselineEnvelope(data: Record<string, unknown>): Record<string, unknown> {
+  function baselineEnvelope(
+    data: Record<string, unknown> | readonly Record<string, unknown>[],
+  ): Record<string, unknown> {
     return {
       success: true,
       data,
@@ -3345,7 +3355,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      expect(actions.length).toBe(19);
+      expect(actions.length).toBe(23);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

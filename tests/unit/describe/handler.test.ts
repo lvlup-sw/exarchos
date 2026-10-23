@@ -3,6 +3,9 @@ import { z } from 'zod';
 import { handleDescribe, handleEventTypeDescribe, handleEventDescribe } from '../../../src/describe/handler.js';
 import { TOOL_REGISTRY } from '../../../src/registry.js';
 import type { ToolAction } from '../../../src/registry.js';
+import { getValidEventTypes } from '../../../src/events/schemas.js';
+import { envelopeWrap } from '../../../src/envelope-wrap.js';
+import { toEnvelope, type ToolResult } from '../../../src/format.js';
 
 const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
 const eventTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_event')!;
@@ -269,6 +272,76 @@ describe('handleEventDescribe emissionGuide', () => {
     const data = result.data as Record<string, unknown>;
     expect(data).toHaveProperty('actions');
     expect(data).not.toHaveProperty('emissionGuide');
+  });
+});
+
+/**
+ * Parses a reply against the `outputSchema` of `exarchos_event.describe`, after the same wrap that
+ * the composite and the MCP adapter apply. It returns `ok`, or the issues as JSON.
+ */
+function eventDescribeVerdict(result: ToolResult): string {
+  const action = eventTool.actions.find((candidate) => candidate.name === 'describe');
+  if (action === undefined) throw new Error('exarchos_event.describe is not registered');
+  const parsed = action.outputSchema.safeParse(toEnvelope(envelopeWrap(result, Date.now())));
+  return parsed.success ? 'ok' : JSON.stringify(parsed.error.issues);
+}
+
+/**
+ * Each success reply of the event `describe` must parse against its declared `outputSchema`. The
+ * MCP adapter replaces a reply that does not parse with an `INTERNAL_ERROR`.
+ */
+describe('handleEventDescribe output schema', () => {
+  /**
+   * The requests are each event action, every event type, the emission guide, and the three
+   * together. A reply with a wrong shape fails the same parse, so the schema is not vacuous.
+   */
+  it('EventDescribe_EverySuccessReply_ParsesAgainstTheDeclaredSchema', async () => {
+    const actionNames = eventTool.actions.map((action) => action.name);
+    expect(actionNames.length).toBe(4);
+    const eventTypes = getValidEventTypes();
+    expect(eventTypes.length).toBeGreaterThan(20);
+
+    const requests = [
+      { actions: actionNames },
+      { eventTypes },
+      { emissionGuide: true },
+      { actions: actionNames, eventTypes: eventTypes.slice(0, 20), emissionGuide: true },
+    ];
+    for (const request of requests) {
+      const result = await handleEventDescribe(request, eventTool.actions);
+      expect(result.success, Object.keys(request).join(',')).toBe(true);
+      expect(eventDescribeVerdict(result), Object.keys(request).join(',')).toBe('ok');
+    }
+
+    expect(
+      eventDescribeVerdict({ success: true, data: { actions: { append: { description: 'x' } } } }),
+    ).not.toBe('ok');
+    expect(eventDescribeVerdict({ success: true, data: 'catalog' })).not.toBe('ok');
+  });
+
+  /**
+   * The action entry schema of the event `describe` must admit the entry of every registered
+   * action. Thus a gate, an emission list, a deprecation or a dispatch hint does not break it.
+   * The event `describe` reads only event actions, so the test builds the reply from every tool.
+   */
+  it('EventDescribe_ActionEntryOfEveryRegisteredAction_ParsesAgainstTheDeclaredSchema', async () => {
+    const actions: Record<string, unknown> = {};
+    for (const tool of TOOL_REGISTRY) {
+      const described = await handleDescribe(
+        { actions: tool.actions.map((action) => action.name) },
+        tool.actions,
+      );
+      expect(described.success, tool.name).toBe(true);
+      const entries: unknown = described.data;
+      if (typeof entries !== 'object' || entries === null) throw new Error(`${tool.name}: no entries`);
+      for (const [name, entry] of Object.entries(entries)) {
+        actions[`${tool.name}.${name}`] = entry;
+      }
+    }
+    expect(Object.keys(actions).length).toBe(
+      TOOL_REGISTRY.reduce((count, tool) => count + tool.actions.length, 0),
+    );
+    expect(eventDescribeVerdict({ success: true, data: { actions } })).toBe('ok');
   });
 });
 
