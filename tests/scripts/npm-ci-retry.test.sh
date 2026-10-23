@@ -130,7 +130,7 @@ else
   fail "opt-out respected" "got: $(printf '%s\n' "$OUT6" | grep 'ENV PLAYWRIGHT' || echo none)"
 fi
 
-# ── Tests 7-10: the Node 24 header pin for source builds ────────────────────
+# ── Tests 7-11: the Node 24 header pin for source builds ────────────────────
 # Node 24.19 and later headers make better-sqlite3 abort during garbage
 # collection (nodejs/node#65446). The wrapper pins the headers to 24.18.1 only
 # for a source build on a Node 24 runtime, and keeps a target that the caller
@@ -156,6 +156,13 @@ if printf '%s\n' "$OUTP" | grep -q 'ENV npm_config_target=24.18.1'; then
   pass "source build on Node 24 → headers pinned to 24.18.1"
 else
   fail "Node 24 header pin" "got: $(printf '%s\n' "$OUTP" | grep 'ENV npm_config_target' || echo none)"
+fi
+
+run_pin 24 better-sqlite3 ""
+if printf '%s\n' "$OUTP" | grep -q 'ENV npm_config_target=24.18.1'; then
+  pass "package-only source build on Node 24 → headers pinned to 24.18.1"
+else
+  fail "package-only source build pin" "got: $(printf '%s\n' "$OUTP" | grep 'ENV npm_config_target' || echo none)"
 fi
 
 run_pin 22 true ""
