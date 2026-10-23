@@ -59,7 +59,7 @@ import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor
 import type { IntentReceipt } from '../execute/types.js';
 import { ladderRequirementId, readGateEvidenceRecords } from '../gates/durable-gate-producer.js';
 import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
-import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
+import { DESIGN_REVISED_TYPE, designVersionOf, revisedTasksAfter } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
 import { resolveWorkflowState } from '../resolve-state.js';
@@ -491,7 +491,7 @@ async function taskStandingLookup(ctx: DispatchContext, streamId: string): Promi
 /**
  * The tasks that a design revision names after one position of the stream, each with the design
  * version of the latest such revision. `afterSequence` is the sequence of the prepared record, so
- * the lookup counts only a revision that the capsule did not see.
+ * the lookup counts only a revision that the capsule did not see. `revisedTasksAfter` folds the rows.
  *
  * A capsule holds the terms of a task as they were at its compilation. A later revision that
  * names the task changes those terms, so the task settles under a later capsule. The read is
@@ -504,11 +504,7 @@ async function laterRevisionLookup(
   afterSequence: number,
 ): Promise<(taskId: string) => number | undefined> {
   const rows = await ctx.eventStore.query(streamId, { type: DESIGN_REVISED_TYPE, sinceSequence: afterSequence });
-  const latest = new Map<string, number>();
-  for (const row of rows) {
-    const revision = DesignRevisedData.parse(row.data);
-    for (const taskId of revision.affectedTasks) latest.set(taskId, revision.nextDesignVersion);
-  }
+  const latest = revisedTasksAfter(rows, afterSequence);
   return (taskId: string): number | undefined => latest.get(taskId);
 }
 

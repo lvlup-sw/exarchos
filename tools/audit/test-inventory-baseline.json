@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1325,
-    "parsedFiles": 1279,
+    "testFiles": 1326,
+    "parsedFiles": 1280,
     "shellFiles": 46,
-    "cases": 14958,
+    "cases": 14963,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -61975,6 +61975,37 @@
         {
           "suite": "the pending revision of a stream",
           "name": "PendingRevision_APendingRowOrTheLatestRecordTheSchemaRefuses_ThrowsAndIsNotSkipped",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/stream-row-folds.test.ts": {
+      "file": "tests/unit/verbs/prepare/stream-row-folds.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "RevisedTasksAfter_TakesTheLatestVersionOfEachTaskAfterTheSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "RevisedTasksAfter_ARefusedRowThrows",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "RevisedTasksAfter_ARefusedRowAtOrBeforeTheSequenceOrOfAnotherType_IsNotRead",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "PreparedRecordOf_TwoRecordsOfOneVersion_GivesTheLatest",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "GateEvidenceRecordsOf_SeededRows_GiveTheExpectedRecords",
           "dynamic": false
         }
       ]

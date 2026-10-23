@@ -226,6 +226,25 @@ export type PreparedLookup =
   | { readonly found: false };
 
 /**
+ * The latest prepared record of one capsule version, with its stream sequence, or `undefined` with
+ * no such record. `rows` is the stream in commit order, and it can hold rows of any type. A record
+ * that the row schema refuses is skipped.
+ */
+export function preparedRecordOf(
+  rows: readonly { readonly type: string; readonly sequence: number; readonly data?: unknown }[],
+  capsuleVersion: number,
+): { readonly record: WorkflowPrepared; readonly sequence: number } | undefined {
+  let latest: { readonly record: WorkflowPrepared; readonly sequence: number } | undefined;
+  for (const row of rows) {
+    if (row.type !== WORKFLOW_PREPARED_TYPE) continue;
+    const parsed = WorkflowPreparedData.safeParse(row.data);
+    if (!parsed.success || parsed.data.capsuleVersion !== capsuleVersion) continue;
+    latest = { record: parsed.data, sequence: row.sequence };
+  }
+  return latest;
+}
+
+/**
  * Finds the prepared record for one capsule version on one workflow stream, and reads the capsule
  * and definition back from custody. It matches by version alone, because versions are per stream.
  * The digest comparison checks which workflow a submitted capsule claims to be.
@@ -242,12 +261,7 @@ export async function findPreparedCapsule(
   bundleStore?: RunBundleStore,
 ): Promise<PreparedLookup> {
   const rows = await ctx.eventStore.query(streamId, { type: WORKFLOW_PREPARED_TYPE });
-  let latest: { readonly record: WorkflowPrepared; readonly sequence: number } | undefined;
-  for (const row of rows) {
-    const parsed = WorkflowPreparedData.safeParse(row.data);
-    if (!parsed.success || parsed.data.capsuleVersion !== capsuleVersion) continue;
-    latest = { record: parsed.data, sequence: row.sequence };
-  }
+  const latest = preparedRecordOf(rows, capsuleVersion);
   if (latest === undefined) return { found: false };
   const { record, sequence } = latest;
 
