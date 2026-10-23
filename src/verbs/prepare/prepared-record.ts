@@ -45,7 +45,9 @@ export const PREPARED_BUNDLE_VERSION = '1.0';
 /** The payload version `workflow.prepared` rows are stamped with. */
 export const WORKFLOW_PREPARED_SCHEMA_VERSION = '1.0';
 
-const WORKFLOW_PREPARED_TYPE = 'workflow.prepared';
+/** The event of one prepared record. `commitPreparedCapsule` is its one writer. */
+export const WORKFLOW_PREPARED_TYPE = 'workflow.prepared' satisfies EventType;
+
 const TASK_ASSIGNED_TYPE = 'task.assigned';
 
 /** The event that records one recompile. This commit is its one writer. */
@@ -242,6 +244,23 @@ export function preparedRecordOf(
     latest = { record: parsed.data, sequence: row.sequence };
   }
   return latest;
+}
+
+/**
+ * The last prepared record of the stream, of any capsule version, with its stream sequence, or
+ * `undefined` with no record. `rows` is the stream in commit order, and it can hold rows of any
+ * type. A record that the row schema refuses is skipped.
+ */
+export function latestPreparedRecordOf(
+  rows: readonly { readonly type: string; readonly sequence: number; readonly data?: unknown }[],
+): { readonly record: WorkflowPrepared; readonly sequence: number } | undefined {
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    if (row === undefined || row.type !== WORKFLOW_PREPARED_TYPE) continue;
+    const parsed = WorkflowPreparedData.safeParse(row.data);
+    if (parsed.success) return { record: parsed.data, sequence: row.sequence };
+  }
+  return undefined;
 }
 
 /**

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1326,
-    "parsedFiles": 1280,
+    "testFiles": 1327,
+    "parsedFiles": 1281,
     "shellFiles": 46,
-    "cases": 14963,
+    "cases": 14976,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -50710,6 +50710,77 @@
         {
           "suite": "handleTaskClaim TOCTOU protection",
           "name": "queries all events (not just task.claimed) to get accurate sequence",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/tasks/task-complete-revision.test.ts": {
+      "file": "tests/unit/tasks/task-complete-revision.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_ATaskARevisionNamedAfterItsCapsule_IsRefusedWithNoRow",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_ATaskRevisedBeforeItsCapsule_Completes",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_WithNoCapsuleVersion_ATaskRecompiledAfterItsRevision_Completes",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_AnUnpreparedCapsuleVersion_IsRefusedAsNotPrepared",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_OnAStreamWithNoPreparedRecord_Completes",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_AStoredCompletion_IsReturnedAfterALaterRevision",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_AStoredCompletionThenAFailure_StillNeedsAPassingGate",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_ARevisionBetweenTheReadAndTheAppend_IsReadOnTheRetryAndRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_AStoredCompletionAndAStaleTail_ReturnsTheStoredRow",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_EightLostRaces_ReturnAConcurrencyConflict",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_ADamagedRevisionAfterTheCapsule_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_TheCompletionRow_CarriesNoCapsuleVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "the latest prepared record of a stream",
+          "name": "LatestPreparedRecordOf_GivesTheLastRecordOfTheStream",
           "dynamic": false
         }
       ]
