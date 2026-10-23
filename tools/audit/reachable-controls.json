@@ -264,6 +264,15 @@
         "reason": "Each case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
       },
       {
+        "file": "tests/unit/verbs/settle/settle-in-commit.test.ts",
+        "default": "state-document-file",
+        "twin": {
+          "file": "tests/core/integration/governance/gate-before-completion.test.ts",
+          "test": "Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel",
+          "keeps": "harness.storage.getState(SETTLE_FEATURE_ID)"
+        }
+      },
+      {
         "file": "tests/unit/verbs/settle/settle-decision-standing.test.ts",
         "default": "telemetry",
         "owner": "@rsalus",

@@ -10,6 +10,8 @@
  */
 
 import { createHash } from 'node:crypto';
+import { readFile, writeFile } from 'node:fs/promises';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
@@ -35,6 +37,7 @@ import type { RunbookDefinition, RunbookStep } from '../../../../src/runbooks/ty
 import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js';
 import { INTENT_EXECUTED_EVENT, type ExecuteIntentDeps, type LeafHandler } from '../../../../src/verbs/execute/executor.js';
+import { ladderRequirementId } from '../../../../src/verbs/gates/durable-gate-producer.js';
 import { designVersionOf } from '../../../../src/verbs/prepare/design-version.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
@@ -42,8 +45,9 @@ import { decodeSettlementBundle, type SettlementBundleV1 } from '../../../../src
 import type { SettlementReceipt, SettlementVerificationTrace } from '../../../../src/verbs/settle/types.js';
 import type { ArtifactId } from '../../../../src/workflow/admission/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
+import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
-import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
+import { seedActivePhaseAttempt, seedGateEvidence } from '../../../../tools/test-helpers/trusted-context.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settle-in-commit';
@@ -88,6 +92,7 @@ const WORKFLOW_ID = twoTaskCapsule().identity.workflowId;
 
 let stateDir: string;
 let store: EventStore;
+let phaseAttemptId: string;
 
 function wiring(): DispatchContext {
   return { stateDir, eventStore: store, enableTelemetry: false };
@@ -347,7 +352,7 @@ beforeEach(async () => {
   stateDir = makeTempDir('settle-in-commit-');
   store = new EventStore(stateDir);
   await store.initialize();
-  const phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
+  phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
   await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId });
   await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId });
   const capsule = twoTaskCapsule();
@@ -438,6 +443,39 @@ describe('settle — a completion row that commits before the settle commit', ()
   });
 });
 
+describe('settle — a cited record that commits before the settle commit', () => {
+  /**
+   * The claim of `task-verify` cites a gate record that the stream does not hold at the first read, so the first
+   * attempt is rejected. The record lands before the commit. The judgement key does not change, because the record
+   * has no blob check. The commit sees that it needs that check and rolls back. The redo checks the record, runs the
+   * segments and settles the batch.
+   */
+  it('Settle_ACitedRecordThatAppearsBeforeTheCommit_RedoesAndSettles', async () => {
+    const seed = { streamId: STREAM, requirementId: ladderRequirementId('test'), phaseAttemptId };
+    const evidenceId = await seedGateEvidence({ append: () => Promise.resolve(undefined) }, seed);
+    const commits = raceSettleCommits(1, async () => {
+      expect(await seedGateEvidence(store, seed)).toBe(evidenceId);
+    });
+    const bundles = new RacingBundleStore(() => Promise.resolve());
+    const gate = gateLeaf();
+    const cited = { ...completedClaim(VERIFY), evidence: [{ kind: 'test', ref: evidenceId }] };
+
+    const receipt = receiptOf(await settle('batch-cited-race', [cited, completedClaim(SECOND)], gate, bundles));
+
+    expect(commits.count()).toBe(2);
+    expect(bundles.puts.map((put) => [put.outcome, put.findings.map((finding) => [finding.kind, finding.subject])])).toEqual([
+      ['rejected', [['inadmissible-evidence', evidenceId]]],
+      ['settled', []],
+    ]);
+    expect(receipt).toMatchObject({ outcome: 'settled', acceptedTasks: [SECOND, VERIFY], findings: [] });
+    expect(receipt.adjudicated.evidence).toBe(1);
+    expect(gate.runs).toEqual([SECOND, VERIFY]);
+    expect((await settledRecords()).map((record) => [record.batchId, record.outcome, record.findingCounts])).toEqual([
+      ['batch-cited-race', 'settled', []],
+    ]);
+  });
+});
+
 describe('settle — a revision that commits before the settle commit', () => {
   /**
    * A claim reports `task-second` as blocked, and `task-verify` verifies. A revision that names
@@ -523,6 +561,62 @@ describe('settle — a revision that commits before the settle commit', () => {
     expect(halt?.failedLeaf).toBe('task_complete');
     expect(await completionRows()).toEqual([]);
     expect((await settledRecords()).map((record) => record.outcome)).toEqual(['recompile-required']);
+  });
+
+  /**
+   * The gate refuses `task-second`. The completion leaf of `task-verify` appends its row but cannot write the
+   * corrupt document, so the segment halts. A revision that names `task-second` commits while that segment runs.
+   * The stale judgement settles `task-verify` as already complete, and the document cannot follow, so no verdict
+   * is recorded. After the repair, the same batch records the stale verdict and the document shows the task complete.
+   */
+  it('Settle_ACompletionLeafThatCannotWriteTheDocumentUnderAStaleVerdict_RecordsNoVerdict', async () => {
+    await initStateFile(stateDir, STREAM, 'feature', {
+      tasks: [
+        { id: VERIFY, title: 'verify', status: 'in_progress' },
+        { id: SECOND, title: 'second', status: 'in_progress' },
+      ],
+    });
+    const stateFile = path.join(stateDir, `${STREAM}.state.json`);
+    const intact = await readFile(stateFile, 'utf-8');
+    await writeFile(stateFile, '{ not a document', 'utf-8');
+    const claims = [completedClaim(VERIFY), completedClaim(SECOND)];
+    const gate = gateLeaf({
+      refuse: SECOND,
+      before: (taskId) => (taskId === VERIFY ? reviseDesign([SECOND]) : Promise.resolve()),
+    });
+
+    const halted = await settle('batch-stale-unwritable', claims, gate);
+
+    expect(halted.success).toBe(false);
+    expect(halted.error?.code).toBe('STATE_SYNC_FAILED');
+    expect(halted.error?.message).toContain(`the stream records "${VERIFY}" complete`);
+    expect(halted.error?.message).toContain('exarchos_workflow reconcile');
+    expect(halted).not.toHaveProperty('data');
+    expect(gate.runs).toEqual([SECOND, VERIFY]);
+    const segment = segmentOperationOf(settleOperationOf('batch-stale-unwritable'), VERIFY);
+    expect(await segmentOutcomes(segment)).toEqual(['failed']);
+    expect(await completionRows()).toEqual([VERIFY]);
+    expect(await settledRecords()).toEqual([]);
+    expect(settleClaimOf('batch-stale-unwritable')).toBeUndefined();
+
+    await writeFile(stateFile, intact, 'utf-8');
+    const receipt = receiptOf(await settle('batch-stale-unwritable', claims, gateLeaf()));
+
+    expect(receipt.outcome).toBe('recompile-required');
+    expect(receipt.findings.map((finding) => [finding.kind, finding.subject])).toEqual([
+      ['claim-superseded-by-revision', SECOND],
+    ]);
+    expect(receipt.acceptedTasks).toEqual([VERIFY]);
+    expect(traceOf(receipt, VERIFY)).toEqual({ taskId: VERIFY, outcome: 'already-complete' });
+    expect((await settledRecords()).map((record) => [record.batchId, record.outcome])).toEqual([
+      ['batch-stale-unwritable', 'recompile-required'],
+    ]);
+    expect(await completionRows()).toEqual([VERIFY]);
+    const state = await readStateFile(stateFile);
+    expect(state.tasks.map((task) => [task.id, task.status])).toEqual([
+      [VERIFY, 'complete'],
+      [SECOND, 'in_progress'],
+    ]);
   });
 });
 

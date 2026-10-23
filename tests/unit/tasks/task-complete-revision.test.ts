@@ -137,7 +137,10 @@ describe('task_complete refuses a task that a revision names after its capsule',
     expect(completed.data).toEqual({ streamId: STREAM, sequence: row?.sequence, type: 'task.completed' });
   });
 
-  /** Before the continuation prepare, the latest record is capsule v1, so the call refuses. After it, the call completes. */
+  /**
+   * Before the continuation prepare, the latest record is capsule v1, so the call refuses. The refusal names that
+   * record as the latest prepared capsule, not as the capsule of the task. After the prepare, the call completes.
+   */
   it('TaskComplete_WithNoCapsuleVersion_ATaskRecompiledAfterItsRevision_Completes', async () => {
     await prepare(1);
     await revise(2, [TASK]);
@@ -145,7 +148,10 @@ describe('task_complete refuses a task that a revision names after its capsule',
 
     const refused = await complete(TASK);
     expect(refused.error?.code).toBe('TASK_SUPERSEDED_BY_REVISION');
-    expect(refused.error?.message).toContain('capsule v1');
+    expect(refused.error?.message).toContain(
+      'a design revision after the latest prepared capsule v1 of the stream names it',
+    );
+    expect(refused.error?.message).toContain('Run prepare again, then complete the task under the new capsule.');
 
     await prepare(2);
     const completed = await complete(TASK);

@@ -720,17 +720,29 @@ function capsuleNotPrepared(streamId: string, capsuleVersion: number): ToolResul
   };
 }
 
-/** The `TASK_SUPERSEDED_BY_REVISION` refusal. It names the task, its capsule, the design version of the revision and the recovery. */
-function supersededByRevision(taskId: string, capsuleVersion: number, designVersion: number): ToolResult {
-  return {
-    success: false,
-    error: {
-      code: 'TASK_SUPERSEDED_BY_REVISION',
-      message:
-        `Task '${taskId}' compiled in capsule v${capsuleVersion}, and a later design revision to ` +
-        `${designVersionId(designVersion)} names it. Run prepare again, then complete the task under the new capsule.`,
-    },
-  };
+/**
+ * The capsule that a revision check reads from. `named` is the capsule version of the call. `latest` is
+ * the latest prepared record of the stream, for a call with no capsule version.
+ */
+interface RevisionReference {
+  readonly kind: 'named' | 'latest';
+  readonly capsuleVersion: number;
+}
+
+/**
+ * The `TASK_SUPERSEDED_BY_REVISION` refusal. It names the task, the capsule of the check, the design version of the
+ * revision and the recovery. With no capsule version, the message names the latest prepared capsule of the stream.
+ */
+function supersededByRevision(taskId: string, reference: RevisionReference, designVersion: number): ToolResult {
+  const recovery = 'Run prepare again, then complete the task under the new capsule.';
+  const message =
+    reference.kind === 'named'
+      ? `Task '${taskId}' compiled in capsule v${reference.capsuleVersion}, and a later design revision to ` +
+        `${designVersionId(designVersion)} names it. ${recovery}`
+      : `The call gives no capsule version for task '${taskId}', and a design revision after the latest prepared ` +
+        `capsule v${reference.capsuleVersion} of the stream names it. The revision moves the design to ` +
+        `${designVersionId(designVersion)}. ${recovery}`;
+  return { success: false, error: { code: 'TASK_SUPERSEDED_BY_REVISION', message } };
 }
 
 /**
@@ -755,7 +767,11 @@ async function revisionRefusal(
   const designVersion = revisedTasksAfter(revisions, reference.sequence).get(taskId);
   return designVersion === undefined
     ? undefined
-    : supersededByRevision(taskId, reference.record.capsuleVersion, designVersion);
+    : supersededByRevision(
+        taskId,
+        { kind: capsuleVersion === undefined ? 'latest' : 'named', capsuleVersion: reference.record.capsuleVersion },
+        designVersion,
+      );
 }
 
 /** The most attempts that one completion makes. A sequence conflict on the append starts the next attempt. */

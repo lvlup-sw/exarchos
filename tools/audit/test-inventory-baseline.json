@@ -7,7 +7,7 @@
     "testFiles": 1333,
     "parsedFiles": 1287,
     "shellFiles": 46,
-    "cases": 15014,
+    "cases": 15016,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -65272,6 +65272,11 @@
           "dynamic": false
         },
         {
+          "suite": "settle — a cited record that commits before the settle commit",
+          "name": "Settle_ACitedRecordThatAppearsBeforeTheCommit_RedoesAndSettles",
+          "dynamic": false
+        },
+        {
           "suite": "settle — a revision that commits before the settle commit",
           "name": "Settle_ARevisionOfAStatusClaimTaskBeforeTheCommit_GivesRecompileRequired",
           "dynamic": false
@@ -65284,6 +65289,11 @@
         {
           "suite": "settle — a revision that commits before the settle commit",
           "name": "Settle_ALeafRefusedUnderAStaleJudgement_DoesNotFailTheCall",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits before the settle commit",
+          "name": "Settle_ACompletionLeafThatCannotWriteTheDocumentUnderAStaleVerdict_RecordsNoVerdict",
           "dynamic": false
         },
         {

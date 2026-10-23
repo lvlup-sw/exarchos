@@ -11,8 +11,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtemp, realpath, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { realpath, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
@@ -31,7 +30,7 @@ import type { SettlementReceipt } from '../../src/verbs/settle/types.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
 import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
-import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
+import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
 
 const STREAM = 'feat-settle-races-acceptance';
 const TASK_A = 'task-a';
@@ -65,10 +64,10 @@ function plannedTask(id: string): PlannedTask {
 }
 
 beforeEach(async () => {
-  stateDir = await mkdtemp(path.join(tmpdir(), 'settle-races-acceptance-'));
+  stateDir = makeTempDir('settle-races-acceptance-');
   eventStore = new EventStore(stateDir);
   await eventStore.initialize();
-  greenWorktree = await realpath(await mkdtemp(path.join(tmpdir(), 'settle-races-worktree-')));
+  greenWorktree = await realpath(makeTempDir('settle-races-worktree-'));
   scratchDirs.push(greenWorktree);
   await writeFile(
     path.join(greenWorktree, 'package.json'),

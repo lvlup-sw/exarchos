@@ -1054,16 +1054,17 @@ async function runCompiled(
  * Replays the segments that an earlier call of this batch committed, before the first attempt.
  * The segment claim of a completed claim shows its segment, whatever row the stream stores as the
  * completion of the task. The executor returns the recorded receipt and runs no gate. Thus the trace
- * keeps the segment operation, and a replayed halt follows the rules of a run.
+ * keeps the segment operation, and a replayed halt follows the rules of a run. The replay runs in
+ * task-id order, as a new call does, so the trace order is the same.
  */
 async function replayCommittedSegments(call: SettlementCall): Promise<ToolResult | undefined> {
   const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
   const completed = new Set(
     call.inputs.claims.filter((claim) => claim.status === undefined).map((claim) => claim.taskId),
   );
-  const committed = [...completed].filter(
-    (taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined,
-  );
+  const committed = [...completed]
+    .filter((taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined)
+    .sort();
   if (committed.length === 0) return undefined;
   const segments = compileFor(call, committed);
   if (!segments.ok) return segments.refusal;
@@ -1129,9 +1130,11 @@ async function levelSettledComplete(
  * and names a segment that the call did not run, the attempt runs that segment, then reads and judges
  * again. Each pass puts at least one task in the run map, so the loop ends.
  *
- * A judgement that does not verify decides the record, also when a leaf refused a run. A judgement that
- * verifies fails the call on a refused run. The commit throws `SettlementReadsChanged` when the rows of
- * its write transaction give another judgement.
+ * A judgement that does not verify decides the record, also when a leaf refused a run. Before that record,
+ * the attempt levels the state document for each task that the judgement settles as already complete.
+ * A judgement that verifies fails the call on a refused run. On each path, a document that cannot follow
+ * the facts gives the same refusal, and no verdict is recorded. The commit throws `SettlementReadsChanged`
+ * when the rows of its write transaction give another judgement.
  */
 async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
   const warnings: string[] = [];
@@ -1150,6 +1153,10 @@ async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
     judgement = (await readAndJudge(call)).judgement;
   }
   if (judgement.verifies && judgement.refusal !== undefined) return judgement.refusal;
+  if (!judgement.verifies) {
+    const levelRefusal = await levelSettledComplete(call, judgement.alreadyComplete, levelled, warnings);
+    if (levelRefusal !== undefined) return levelRefusal;
+  }
   return commitJudgement(call, judgement, warnings);
 }
 
