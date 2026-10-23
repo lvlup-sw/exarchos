@@ -95,8 +95,8 @@ import {
 import {
   deviationIdOf,
   handleSettle,
-  TASK_COMPLETION_LEAF_CLASSES,
 } from '../../../../src/verbs/settle/handler.js';
+import { TASK_COMPLETION_LEAF_CLASSES } from '../../../../src/verbs/settle/settlement-reads.js';
 import { summarizeSettlementReceipt } from '../../../../src/verbs/settle/economy.js';
 import { decodeSettlementBundle } from '../../../../src/verbs/settle/settlement-bundle.js';
 import {

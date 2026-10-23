@@ -51,32 +51,24 @@ import {
 } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
-import type { TASK_COMPLETION } from '../../runbooks/definitions.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
 import { compileIntent } from '../execute/compile.js';
 import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
 import type { IntentReceipt } from '../execute/types.js';
-import { ladderRequirementId, readGateEvidenceRecords } from '../gates/durable-gate-producer.js';
 import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
-import { DESIGN_REVISED_TYPE, designVersionOf, revisedTasksAfter } from '../prepare/design-version.js';
+import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
-  acceptedMaterialDeviations,
-  adjudicateSettlement,
-  type AdjudicationContext,
   outcomeVerifies,
   type ProposedDeviation,
   type SettlementClaim,
-  type SettlementEvidence,
   type SettlementOutcome,
   SETTLEMENT_OUTCOME_RULES,
   type TaskStanding,
-  type TaskVerificationOutcome,
   type UnresolvedTask,
-  verificationRuns,
 } from './adjudicate.js';
 import { claimOfRequest, claimOfTrace, claimTraceOf } from './claim-codec.js';
 import { settlementReceiptWithinBudget } from './economy.js';
@@ -88,6 +80,17 @@ import {
   SETTLEMENT_BUNDLE_VERSION,
   type SettlementBundleV1,
 } from './settlement-bundle.js';
+import {
+  completedTaskIds,
+  haltIsGateVerdict,
+  judgeSettlement,
+  recordedCompleteTasks,
+  settlementFactsOf,
+  type CitedRecord,
+  type EvidenceCheck,
+  type SettlementInputs,
+  type VerificationRun,
+} from './settlement-reads.js';
 import {
   MAX_AFFECTED_TASKS_PER_DEVIATION,
   MAX_DEVIATIONS_PER_BATCH,
@@ -103,38 +106,6 @@ import {
 
 /** The runbook every accepted task's verification is compiled from. */
 const TASK_COMPLETION_INTENT = 'task-completion';
-
-/** A leaf of the task-completion runbook, as the runbook names it. */
-type TaskCompletionLeaf = (typeof TASK_COMPLETION)['steps'][number]['action'];
-
-/**
- * The class of each leaf of the task-completion runbook. A `gate` leaf judges the work of the task.
- * The `completion` leaf records the result after the gates, so its halt is not a verdict about
- * the work. The record is exhaustive, so a new leaf without a class does not compile.
- */
-export const TASK_COMPLETION_LEAF_CLASSES: Readonly<Record<TaskCompletionLeaf, 'gate' | 'completion'>> = {
-  check_test_adequacy: 'gate',
-  check_contract_drift: 'gate',
-  check_mock_boundary: 'gate',
-  check_static_analysis: 'gate',
-  task_complete: 'completion',
-};
-
-/** Whether an action is a leaf of the task-completion runbook. */
-function isTaskCompletionLeaf(action: string): action is TaskCompletionLeaf {
-  return Object.hasOwn(TASK_COMPLETION_LEAF_CLASSES, action);
-}
-
-/**
- * Whether the halt of a segment is a gate verdict about the work of its task. It is a verdict
- * when a gate leaf stopped the segment and the leaf kept its contract. A halt at the completion
- * leaf, at a leaf that the runbook does not name, or on a broken contract is not a verdict.
- */
-function haltIsGateVerdict(receipt: IntentReceipt): boolean {
-  if (receipt.failure?.code === 'INTENT_EMISSION_CONTRACT_VIOLATED') return false;
-  const leaf = receipt.failedLeaf;
-  return leaf !== undefined && isTaskCompletionLeaf(leaf) && TASK_COMPLETION_LEAF_CLASSES[leaf] === 'gate';
-}
 
 /** The divergence facts a settlement leaves, stamped from one place. */
 const DEVIATION_PROPOSED_TYPE = 'deviation.proposed';
@@ -410,46 +381,7 @@ function receiptResult(receipt: SettlementReceipt, warnings: readonly string[] =
   return { success: true, data: receipt, ...(warnings.length > 0 ? { warnings } : {}) };
 }
 
-/** The tasks a stream already shows complete, read from the rows themselves. */
-function completedTaskIds(events: readonly { readonly type: string; readonly data?: unknown }[]): Set<string> {
-  const ids = new Set<string>();
-  for (const event of events) {
-    if (event.type !== 'task.completed' || !isRecord(event.data)) continue;
-    const taskId = event.data.taskId;
-    if (typeof taskId === 'string') ids.add(taskId);
-  }
-  return ids;
-}
-
-/**
- * The halted tasks that the stream records complete when the segments end, sorted. The completion
- * leaf can append the fact and halt after it, and another call can complete the task while its
- * segment runs. Completion wins, so each such task is complete and not unresolved.
- */
-function completedAfterHalt(
-  halted: readonly string[],
-  events: readonly { readonly type: string; readonly data?: unknown }[],
-): string[] {
-  const completed = completedTaskIds(events);
-  return halted.filter((taskId) => completed.has(taskId)).sort();
-}
-
-/**
- * The tasks that a verified round finds complete on the stream before it runs a segment.
- * They are the required tasks of the capsule and the accepted tasks of the batch that `completed` holds.
- * The round brings the state document level for each of them, after every segment compiles.
- * A required task in the list needs no claim. The list is sorted, and it holds each task once.
- */
-function recordedCompleteTasks(
-  capsule: ExarchosCapsuleV1,
-  acceptedTasks: readonly string[],
-  completed: ReadonlySet<string>,
-): string[] {
-  const candidates = new Set([...capsule.settlementContract.requiredResults, ...acceptedTasks]);
-  return [...candidates].filter((taskId) => completed.has(taskId)).sort();
-}
-
-type TaskStandingLookup =
+type PlanStandingLookup =
   | { readonly ok: true; readonly standingOf: (taskId: string) => TaskStanding }
   | { readonly ok: false; readonly error: ToolResult };
 
@@ -457,12 +389,12 @@ type TaskStandingLookup =
  * How each task stands in the current plan, for the tasks that a deviation names. The plan is the
  * resolved workflow state, not the capsule, so a task planned after the compilation can be named.
  *
- * A task is finished when the plan reader shows it complete, or when the stream holds its
- * completion row. The reader takes one entry at a time. A refused entry is skipped, so it cannot
+ * A task is finished when the plan reader shows it complete. The judgement adds the completion rows
+ * from its facts. The reader takes one entry at a time. A refused entry is skipped, so it cannot
  * hide another task, and its own id is unknown with the refusal. A state that does not resolve
  * returns the error of the resolver.
  */
-async function taskStandingLookup(ctx: DispatchContext, streamId: string): Promise<TaskStandingLookup> {
+async function planStandingLookup(ctx: DispatchContext, streamId: string): Promise<PlanStandingLookup> {
   const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: ctx.eventStore });
   if ('error' in resolved) return { ok: false, error: resolved.error };
   const entries: readonly unknown[] = Array.isArray(resolved.state.tasks) ? resolved.state.tasks : [];
@@ -476,11 +408,10 @@ async function taskStandingLookup(ctx: DispatchContext, streamId: string): Promi
     }
     complete.set(read.id, read.complete || complete.get(read.id) === true);
   }
-  const completed = completedTaskIds(await ctx.eventStore.query(streamId, { type: 'task.completed' }));
   return {
     ok: true,
     standingOf: (taskId: string): TaskStanding => {
-      if (completed.has(taskId) || complete.get(taskId) === true) return { kind: 'finished' };
+      if (complete.get(taskId) === true) return { kind: 'finished' };
       if (complete.has(taskId)) return { kind: 'pending' };
       const unreadable = refusals.get(taskId);
       return unreadable === undefined ? { kind: 'unknown' } : { kind: 'unknown', unreadable };
@@ -489,36 +420,16 @@ async function taskStandingLookup(ctx: DispatchContext, streamId: string): Promi
 }
 
 /**
- * The tasks that a design revision names after one position of the stream, each with the design
- * version of the latest such revision. `afterSequence` is the sequence of the prepared record, so
- * the lookup counts only a revision that the capsule did not see. `revisedTasksAfter` folds the rows.
- *
- * A capsule holds the terms of a task as they were at its compilation. A later revision that
- * names the task changes those terms, so the task settles under a later capsule. The read is
- * outside the write transaction, so it is a check and not a lock. A revision row that the schema
- * refuses throws, because a skipped row lets a task settle under terms that a revision replaced.
- */
-async function laterRevisionLookup(
-  ctx: DispatchContext,
-  streamId: string,
-  afterSequence: number,
-): Promise<(taskId: string) => number | undefined> {
-  const rows = await ctx.eventStore.query(streamId, { type: DESIGN_REVISED_TYPE, sinceSequence: afterSequence });
-  const latest = revisedTasksAfter(rows, afterSequence);
-  return (taskId: string): number | undefined => latest.get(taskId);
-}
-
-/**
  * Folds the design revision rows of a stream, and throws on a row that the row schema refuses.
  * A round that revises the design numbers its revision with the same fold inside its write
- * transaction, and verification completes tasks before that transaction. This read runs before
- * verification, so a damaged row fails the call before any task completes.
+ * transaction, and verification completes tasks before that transaction. The call folds the rows
+ * that it reads before verification, so a damaged row fails the call before any task completes.
  *
  * It is a check and not a lock. The number of the revision still comes from the rows that the
  * write transaction reads.
  */
-async function checkRevisionRowsFold(ctx: DispatchContext, streamId: string): Promise<void> {
-  designVersionOf(await ctx.eventStore.query(streamId, { type: DESIGN_REVISED_TYPE }));
+function checkRevisionRowsFold(rows: readonly { readonly type: string; readonly data?: unknown }[]): void {
+  designVersionOf(rows);
 }
 
 /**
@@ -590,38 +501,58 @@ function documentNotLevel(
   };
 }
 
-/** The evidence key the resolution set is built over: the kind and the reference together. */
-function evidenceKey(evidence: SettlementEvidence): string {
-  return `${evidence.kind}\u0000${evidence.ref}`;
+/** The task ids of a message, each in quotes, in the order of the list. */
+function namedTasks(taskIds: readonly string[]): string {
+  return taskIds.map((taskId) => JSON.stringify(taskId)).join(', ');
 }
 
 /**
- * The cited references of the batch that resolve, computed once before
- * adjudication.
- *
- * A reference resolves when the stream holds an `admission.evidence-recorded`
- * gate row with that evidence id and the ladder requirement of the cited kind.
- * Each blob that the row names must also resolve in the evidence store. A row
- * that names a missing blob is not evidence.
+ * Brings the state document level for the tasks that a round settles as already complete, and adds
+ * the warnings of the sync. It returns the refusal when the document cannot follow the facts, and
+ * undefined otherwise. `what` says how the stream records the tasks, and it starts the refusal.
  */
-async function resolvedEvidence(
-  ctx: DispatchContext,
+async function levelCompleteTasks(
   stateDir: string,
   streamId: string,
-  claims: readonly SettlementClaim[],
-): Promise<ReadonlySet<string>> {
-  const cited = new Map<string, SettlementEvidence>();
-  for (const claim of claims) {
-    for (const evidence of claim.evidence) cited.set(evidenceKey(evidence), evidence);
+  taskIds: readonly string[],
+  what: string,
+  warnings: string[],
+): Promise<ToolResult | undefined> {
+  if (taskIds.length === 0) return undefined;
+  const sync = await bringDocumentLevel(stateDir, streamId, taskIds);
+  switch (sync.kind) {
+    case 'failed':
+      return documentNotLevel(sync, what, `Nothing was adjudicated. ${DOCUMENT_REPAIR_STEPS}`);
+    case 'synced':
+    case 'unchanged':
+    case 'skipped':
+      warnings.push(...missingTaskWarnings(sync));
+      return undefined;
+    default:
+      return assertNever(sync, 'state document sync outcome');
   }
-  const resolved = new Set<string>();
-  if (cited.size === 0) return resolved;
+}
 
-  const recorded = await readGateEvidenceRecords(ctx.eventStore, streamId);
+/**
+ * The most passes of segments in one call. A read after the first pass can name an accepted task
+ * with no run, and the second pass runs its segment. The verdict of the last read is final.
+ */
+const SEGMENT_PASSES = 2;
+
+/**
+ * The blob checks of cited records, added to the checks that the call made before. A record is
+ * intact when each blob that it names resolves in the evidence store. A record that names a missing
+ * blob is not evidence. The fold of the stream decides which cited reference has a record.
+ */
+async function checkedEvidence(
+  stateDir: string,
+  records: readonly CitedRecord[],
+  earlier: ReadonlyMap<string, EvidenceCheck>,
+): Promise<ReadonlyMap<string, EvidenceCheck>> {
+  if (records.length === 0) return earlier;
+  const checks = new Map(earlier);
   const resolver = evidenceArtifactResolver(stateDir);
-  for (const [key, evidence] of cited) {
-    const record = recorded.get(evidence.ref);
-    if (record === undefined || record.evidence.requirementId !== ladderRequirementId(evidence.kind)) continue;
+  for (const { key, record } of records) {
     let intact = true;
     for (const reference of record.evidence.artifactRefs ?? []) {
       try {
@@ -631,9 +562,9 @@ async function resolvedEvidence(
         break;
       }
     }
-    if (intact) resolved.add(key);
+    checks.set(key, { record, intact });
   }
-  return resolved;
+  return checks;
 }
 
 /**
@@ -652,6 +583,13 @@ function verificationOperationId(operationId: string, taskId: string): string {
  */
 type SegmentClaim = Pick<SettlementClaim, 'taskId' | 'fields'>;
 
+/** The verification terms that the capsule freezes for one task. */
+interface VerificationTerms {
+  readonly riskTier: string;
+  readonly boundaryTouching: boolean;
+  readonly baseRef: string;
+}
+
 /**
  * The intent arguments for one accepted claim.
  *
@@ -660,10 +598,7 @@ type SegmentClaim = Pick<SettlementClaim, 'taskId' | 'fields'>;
  * fields are the completion `result`, as on the `task_complete` path.
  * The function does not read the rationale of the claim, so a recorded choice changes no gate.
  */
-function verificationArgsOf(
-  claim: SegmentClaim,
-  terms: { readonly riskTier: string; readonly boundaryTouching: boolean; readonly baseRef: string },
-): Record<string, unknown> {
+function verificationArgsOf(claim: SegmentClaim, terms: VerificationTerms): Record<string, unknown> {
   const { worktreePath, branch } = claim.fields;
   return {
     taskId: claim.taskId,
@@ -682,6 +617,43 @@ interface CompiledVerification {
   readonly args: Record<string, unknown>;
 }
 
+type CompiledSegments =
+  | { readonly ok: true; readonly compiled: readonly CompiledVerification[] }
+  | { readonly ok: false; readonly refusal: ToolResult };
+
+/**
+ * Compiles the verification segment of each task, in the order of the list, before any segment runs.
+ * A claim that does not compile refuses the call, so it leaves no segment of the list run.
+ */
+function compileSegments(
+  taskIds: readonly string[],
+  claims: readonly SegmentClaim[],
+  verificationTerms: Readonly<Record<string, VerificationTerms>>,
+  operationId: string,
+  streamId: string,
+  execute: ExecuteIntentDeps,
+): CompiledSegments {
+  const byTask = new Map(claims.map((claim): [string, SegmentClaim] => [claim.taskId, claim]));
+  const compiled: CompiledVerification[] = [];
+  for (const taskId of taskIds) {
+    const claim = byTask.get(taskId);
+    const terms = verificationTerms[taskId];
+    if (claim === undefined || terms === undefined) continue;
+    const args = verificationArgsOf(claim, terms);
+    const segment = compileIntent(TASK_COMPLETION_INTENT, { streamId }, args, execute);
+    if (!segment.ok) {
+      return {
+        ok: false,
+        refusal: invalid(
+          `the accepted claim for task ${JSON.stringify(taskId)} cannot be verified: ` + segment.refusal.message,
+        ),
+      };
+    }
+    compiled.push({ taskId, operationId: verificationOperationId(operationId, taskId), args });
+  }
+  return { ok: true, compiled };
+}
+
 /** A receipt, on either outcome, as the executor hands one back inside `data`. */
 function isIntentReceipt(value: unknown): value is IntentReceipt {
   return (
@@ -691,19 +663,6 @@ function isIntentReceipt(value: unknown): value is IntentReceipt {
     Array.isArray(value.leaves)
   );
 }
-
-/**
- * The verification of one task. A `refused` run is not an answer about the task, so the call
- * records no verdict. `halted` says that the segment ran and halted, so the stream can hold the
- * completion of the task.
- */
-type VerificationRun =
-  | {
-      readonly kind: 'ran';
-      readonly outcome: TaskVerificationOutcome;
-      readonly trace: SettlementVerificationTrace;
-    }
-  | { readonly kind: 'refused'; readonly result: ToolResult; readonly halted: boolean };
 
 /** The event type of the gate rows whose marks become trace qualifiers. */
 const GATE_EXECUTED_TYPE = 'gate.executed';
@@ -1248,121 +1207,99 @@ export async function handleSettle(
     const decided = (deviation: ProposedDeviation): 'accepted' | 'rejected' | undefined =>
       decidedOf.get(deviationIdOf(identity, deviation));
 
-    const resolved = await resolvedEvidence(ctx, stateDir, streamId, claims);
-    const evidenceResolves = (evidence: SettlementEvidence): boolean => resolved.has(evidenceKey(evidence));
-
-    const supersedingDesignVersion = await laterRevisionLookup(ctx, streamId, pinned.sequence);
-
-    const revising = acceptedMaterialDeviations(capsule, deviations, decided);
-    if (revising.length > 0) await checkRevisionRowsFold(ctx, streamId);
-
-    const completed = completedTaskIds(await ctx.eventStore.query(streamId, { type: 'task.completed' }));
-    const taskComplete = (taskId: string): boolean => completed.has(taskId);
-
-    let context: AdjudicationContext = { evidenceResolves, decided, supersedingDesignVersion, taskComplete };
+    const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
+    const rows = await ctx.eventStore.query(streamId);
+    const before = settlementFactsOf(rows, reads);
+    let inputs: SettlementInputs = {
+      capsule,
+      claims,
+      deviations,
+      decided,
+      round,
+      evidenceChecks: await checkedEvidence(stateDir, [...before.cited.values()], new Map()),
+    };
     if (!deciding && deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
-      const standing = await taskStandingLookup(ctx, streamId);
+      const standing = await planStandingLookup(ctx, streamId);
       if (!standing.ok) return standing.error;
-      context = { ...context, taskStanding: standing.standingOf };
+      inputs = { ...inputs, planStanding: standing.standingOf };
     }
 
-    const shape = adjudicateSettlement(capsule, claims, deviations, context);
-    let verdict = shape;
-    const traces: SettlementVerificationTrace[] = [];
+    const first = judgeSettlement(inputs, before, new Map());
+    if (first.revising.length > 0) checkRevisionRowsFold(rows);
+
+    let judgement = first;
     const warnings: string[] = [];
+    if (first.verifies) {
+      const firstSegments = compileSegments(
+        first.needsSegment,
+        claims,
+        verificationTerms,
+        operationId,
+        streamId,
+        deps.execute,
+      );
+      if (!firstSegments.ok) return firstSegments.refusal;
+      const recordedRefusal = await levelCompleteTasks(
+        stateDir,
+        streamId,
+        first.alreadyComplete,
+        `the stream already records ${namedTasks(first.alreadyComplete)} complete for ${batchLabel}`,
+        warnings,
+      );
+      if (recordedRefusal !== undefined) return recordedRefusal;
 
-    if (verificationRuns(shape.findings)) {
-      const byTask = new Map(claims.map((claim): [string, SegmentClaim] => [claim.taskId, claim]));
-
-      const compiled: CompiledVerification[] = [];
-      const outcomes = new Map<string, TaskVerificationOutcome>();
-      for (const taskId of shape.acceptedTasks) {
-        if (completed.has(taskId)) continue;
-        const claim = byTask.get(taskId);
-        const terms = verificationTerms[taskId];
-        if (claim === undefined || terms === undefined) continue;
-        const args = verificationArgsOf(claim, terms);
-        const segment = compileIntent(TASK_COMPLETION_INTENT, { streamId }, args, deps.execute);
-        if (!segment.ok) {
-          return invalid(
-            `the accepted claim for task ${JSON.stringify(taskId)} cannot be verified: ` +
-              segment.refusal.message,
-          );
+      const runs = new Map<string, VerificationRun>();
+      let compiled = firstSegments.compiled;
+      for (let pass = 1; compiled.length > 0; pass += 1) {
+        for (const task of compiled) {
+          const run = await verifyTask(task, streamId, batchLabel, stateDir, ctx, deps.execute);
+          if (run.kind === 'refused' && !run.halted) return run.result;
+          runs.set(task.taskId, run);
         }
-        compiled.push({ taskId, operationId: verificationOperationId(operationId, taskId), args });
-      }
-
-      const recorded = recordedCompleteTasks(capsule, shape.acceptedTasks, completed);
-      if (recorded.length > 0) {
-        const sync = await bringDocumentLevel(stateDir, streamId, recorded);
-        switch (sync.kind) {
-          case 'failed':
-            return documentNotLevel(
-              sync,
-              `the stream already records ${recorded.map((taskId) => JSON.stringify(taskId)).join(', ')} ` +
-                `complete for ${batchLabel}`,
-              `Nothing was adjudicated. ${DOCUMENT_REPAIR_STEPS}`,
-            );
-          case 'synced':
-          case 'unchanged':
-          case 'skipped':
-            warnings.push(...missingTaskWarnings(sync));
-            break;
-          default:
-            return assertNever(sync, 'state document sync outcome');
+        const after = settlementFactsOf(await ctx.eventStore.query(streamId), reads);
+        judgement = judgeSettlement(inputs, after, runs);
+        if (judgement.needsEvidenceCheck.length > 0) {
+          inputs = {
+            ...inputs,
+            evidenceChecks: await checkedEvidence(stateDir, judgement.needsEvidenceCheck, inputs.evidenceChecks),
+          };
+          judgement = judgeSettlement(inputs, after, runs);
         }
-      }
-      for (const taskId of recorded) {
-        outcomes.set(taskId, { kind: 'already-complete' });
-        traces.push({ taskId, outcome: 'already-complete' });
-      }
-
-      const runs: { readonly taskId: string; readonly run: VerificationRun }[] = [];
-      for (const task of compiled) {
-        const run = await verifyTask(task, streamId, batchLabel, stateDir, ctx, deps.execute);
-        if (run.kind === 'refused' && !run.halted) return run.result;
-        runs.push({ taskId: task.taskId, run });
-      }
-
-      const halted = runs
-        .filter(({ run }) => run.kind === 'refused' || run.outcome.kind === 'failed')
-        .map(({ taskId }) => taskId);
-      const completeAfterHalt =
-        halted.length === 0
-          ? []
-          : completedAfterHalt(halted, await ctx.eventStore.query(streamId, { type: 'task.completed' }));
-      if (completeAfterHalt.length > 0) {
-        const sync = await bringDocumentLevel(stateDir, streamId, completeAfterHalt);
-        switch (sync.kind) {
-          case 'failed':
-            return documentNotLevel(
-              sync,
-              `the stream records ${completeAfterHalt.map((taskId) => JSON.stringify(taskId)).join(', ')} ` +
-                `complete for ${batchLabel} after the segment of each one halted`,
-              `Nothing was adjudicated. ${DOCUMENT_REPAIR_STEPS}`,
-            );
-          case 'synced':
-          case 'unchanged':
-          case 'skipped':
-            warnings.push(...missingTaskWarnings(sync));
-            break;
-          default:
-            return assertNever(sync, 'state document sync outcome');
-        }
-      }
-      for (const { taskId, run } of runs) {
-        if (completeAfterHalt.includes(taskId)) {
-          outcomes.set(taskId, { kind: 'already-complete' });
-          traces.push({ taskId, outcome: 'already-complete' });
-          continue;
-        }
-        if (run.kind === 'refused') return run.result;
-        outcomes.set(taskId, run.outcome);
-        traces.push(run.trace);
+        const next = compileSegments(
+          pass < SEGMENT_PASSES ? judgement.needsSegment : [],
+          claims,
+          verificationTerms,
+          operationId,
+          streamId,
+          deps.execute,
+        );
+        if (!next.ok) return next.refusal;
+        compiled = next.compiled;
       }
 
-      verdict = adjudicateSettlement(capsule, claims, deviations, { ...context, verification: outcomes });
+      const became = judgement.alreadyComplete.filter((taskId) => !first.alreadyComplete.includes(taskId));
+      const halted = became.filter((taskId) => runs.has(taskId));
+      const haltedRefusal = await levelCompleteTasks(
+        stateDir,
+        streamId,
+        halted,
+        `the stream records ${namedTasks(halted)} complete for ${batchLabel} after the segment of each one halted`,
+        warnings,
+      );
+      if (haltedRefusal !== undefined) return haltedRefusal;
+      const unrun = became.filter((taskId) => !runs.has(taskId));
+      const unrunRefusal = await levelCompleteTasks(
+        stateDir,
+        streamId,
+        unrun,
+        `the stream already records ${namedTasks(unrun)} complete for ${batchLabel}`,
+        warnings,
+      );
+      if (unrunRefusal !== undefined) return unrunRefusal;
+      if (judgement.refusal !== undefined) return judgement.refusal;
     }
+
+    const { verdict, traces, revising } = judgement;
 
     const unresolved = unresolvedOnReceipt(verdict.unresolved, traces);
     const settledAt = new Date().toISOString();

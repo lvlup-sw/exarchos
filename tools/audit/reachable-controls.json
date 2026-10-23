@@ -235,6 +235,12 @@
         "default": "state-document-file",
         "owner": "@rsalus",
         "reason": "The parity compares the documents of two stores that both use the JSON file form, so the form is the same on both sides. No case compares the two paths in the row form. The row form of settle levelling has its twin in the governance tier."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settlement-reads.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
       }
     ],
     "contextSchema": {

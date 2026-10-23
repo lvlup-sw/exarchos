@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1327,
-    "parsedFiles": 1281,
+    "testFiles": 1328,
+    "parsedFiles": 1282,
     "shellFiles": 46,
-    "cases": 14976,
+    "cases": 14986,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -65237,6 +65237,62 @@
         {
           "suite": "settlement composition — parity with completing each task by hand",
           "name": "SettlementParity_ASettledBatch_LeavesTheSameStateDocument",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settlement-reads.test.ts": {
+      "file": "tests/unit/verbs/settle/settlement-reads.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_AnAcceptedTaskWithNoRunOrCompletion_NeedsASegment",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_AHaltedOrFailedRunWhoseTaskIsNowComplete_IsAlreadyComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_ARefusedRunThatDidNotHalt_IsTheRefusalAlsoWhenItsTaskIsComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_AVerifiedRunWhoseTaskIsNowComplete_StaysVerified",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_AStatusClaimWhoseTaskIsNowComplete_IsAlreadyComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_ATaskThatTheFactsShowComplete_StandsFinishedWhateverThePlanSays",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "SettlementFactsOf_ARevisionAfterThePin_MakesTheBatchStale",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the cited evidence",
+          "name": "JudgeSettlement_AnUncitedEvidenceRow_ChangesNoFact",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the cited evidence",
+          "name": "JudgeSettlement_ACitedRecordThatChangedAfterItsCheck_NeedsANewCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the read after the segments",
+          "name": "Settle_AStatusClaimWhoseTaskAnotherCallCompletesWhileASegmentRuns_SettlesItAlreadyComplete",
           "dynamic": false
         }
       ]
