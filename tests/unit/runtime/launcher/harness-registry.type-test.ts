@@ -2,8 +2,8 @@
 // at any depth. A runtime value check cannot prove this, because a function-typed field with a data
 // default passes it. Thus the assertions are conditional types.
 //
-// The assertions fail only as a compile error, in a `tsc` program that includes this file.
-// `tests/tsconfig.json` excludes `unit/**`, so `npm run typecheck` does not compile this file.
+// The assertions fail only as a compile error. `tests/tsconfig.json` names this file in `files`,
+// so `npm run typecheck` compiles it.
 // Vitest strips types, so the runtime `it` block is only an anchor.
 
 import { describe, it, expect } from 'vitest';

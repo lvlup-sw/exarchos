@@ -7,8 +7,7 @@
  *
  * `main()` runs only when Node runs this file directly, so an import from a test starts no build.
  * The guard is in this file because `package.json` runs `dist/install/build-skills.js`. It compares
- * `import.meta.url` with `pathToFileURL(argv[1])`, because a raw `file://` string of a Windows path
- * never matches.
+ * real paths, so a Windows path, a space or a symlink still matches.
  */
 
 export {
@@ -43,9 +42,9 @@ export { assertRuntimeTokenCoverage } from './build-skills/token-coverage.js';
 export { main } from './build-skills/main.js';
 export type { MainDeps } from './cli-helpers.js';
 
-import { pathToFileURL } from 'node:url';
+import { isMainModule } from '../utils/main-module.js';
 import { main as runMain } from './build-skills/main.js';
 
-if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+if (isMainModule(import.meta.url)) {
   runMain(process.argv.slice(2));
 }

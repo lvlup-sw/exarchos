@@ -21,6 +21,7 @@ import type { RuntimeMap, HooksProfile } from './runtimes/types.js';
 import { render, STANDARD_TREE_NAME } from './build-skills.js';
 import { renderBindingBlock, BINDING_SOURCE_FILE } from './binding.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
+import { isMainModule } from '../utils/main-module.js';
 
 /** The Claude-schema hooks.json template filename (profile `claude-json`). */
 export const HOOKS_SOURCE_FILE = 'hooks.json';
@@ -269,6 +270,6 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main(process.argv.slice(2));
 }

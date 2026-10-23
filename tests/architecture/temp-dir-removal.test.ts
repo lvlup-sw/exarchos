@@ -62,6 +62,12 @@ const MIN_INCLUDE_GLOBS = 20;
  */
 const MIN_DELETE_CALLS_SEEN = 20;
 
+/**
+ * The time for the parse of every scanned file. It took 4.2 to 4.7 s on CI runners, close to the
+ * `unit` default of 5 s, and one run took 5.3 s.
+ */
+const SCAN_TIMEOUT_MS = 60_000;
+
 /** A call to a delete function, with the guard's verdict on it. */
 interface DeleteCall {
   /** The 1-based line of the call. */
@@ -304,7 +310,7 @@ describe('test-code temp-dir removal guard (#2027)', () => {
       result.violations,
       'Delete a temp tree with rmrf/rmrfAsync from tools/test-helpers/temp-dir.ts, not with a recursive fs call',
     ).toEqual([]);
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it('VitestIncludeGlobs_EachStartInsideAScannedRoot', () => {
     const globs = projects.flatMap((project) => project.include.map((glob) => `${project.name}: ${glob}`));

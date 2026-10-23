@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1333,
-    "parsedFiles": 1287,
+    "testFiles": 1336,
+    "parsedFiles": 1290,
     "shellFiles": 46,
-    "cases": 15016,
+    "cases": 15028,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -6466,6 +6466,27 @@
         }
       ]
     },
+    "tests/architecture/main-module-check.test.ts": {
+      "file": "tests/architecture/main-module-check.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "main-module check",
+          "name": "MainModuleCheck_SrcAndTools_HoldNoRawFileUrlForm",
+          "dynamic": false
+        },
+        {
+          "suite": "main-module check",
+          "name": "MainModuleCheck_SeededUnsafeForms_AreFound",
+          "dynamic": false
+        },
+        {
+          "suite": "main-module check",
+          "name": "MainModuleCheck_SafeForms_AreNotFound",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/no-live-checkout-writes.test.ts": {
       "file": "tests/architecture/no-live-checkout-writes.test.ts",
       "runner": "vitest:root",
@@ -7314,6 +7335,27 @@
         {
           "suite": "top-level contract",
           "name": "TopLevel_HoldsNoEmptyDirectory",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/type-test-coverage.test.ts": {
+      "file": "tests/architecture/type-test-coverage.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "type-test coverage",
+          "name": "TypeTestFiles_EveryFile_InATypecheckProgram",
+          "dynamic": false
+        },
+        {
+          "suite": "type-test coverage",
+          "name": "TypeTestFiles_SeededUnlistedPath_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "type-test coverage",
+          "name": "TypecheckPrograms_ScriptWithThreeCommands_ReturnsEachProject",
           "dynamic": false
         }
       ]
@@ -8902,6 +8944,42 @@
         {
           "suite": "run root in a core worker (#2027)",
           "name": "TempRunRoot_CoreWorker_TmpdirIsInsideTheRunRoot",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/utils/main-module.test.ts": {
+      "file": "tests/core/utils/main-module.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_SameFile_ReturnsTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_PathWithSpace_ReturnsTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_ThroughSymlink_ReturnsTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_OtherFile_ReturnsFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_UnresolvablePath_ReturnsFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_NoArgv_ReturnsFalse",
           "dynamic": false
         }
       ]
