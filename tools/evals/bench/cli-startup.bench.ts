@@ -4,14 +4,14 @@
  * Each case spawns the binary named by `EXARCHOS_BENCH_BIN` many times after two warmup runs, and
  * checks the exit code of every sample. The cases are a full CLI command with telemetry off and on,
  * `--version`, and the PreToolUse hook `verify-worktree-boundary`.
- * The tests skip when `EXARCHOS_BENCH_BIN` is unset, so the parallel `core` lane does no timing.
+ * Each test skips from its body when `EXARCHOS_BENCH_BIN` is unset, so the parallel `core` lane does no timing.
  * The `startup-budget` CI job sets it and `BENCH_STRICT`, and fails when a test skips.
  */
 import { spawn } from 'node:child_process';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, type TestContext } from 'vitest';
 import { execFileAsync } from '../../test-helpers/spawn.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
@@ -138,9 +138,13 @@ async function measure(bin: string, benchCase: BenchCase): Promise<number[]> {
   }
 }
 
-/** Measures one case, logs its numbers and checks its budget. The log line sets the budgets. */
-async function runCase(benchCase: BenchCase): Promise<void> {
-  const samples = await measure(BENCH_BIN as string, benchCase);
+/**
+ * Measures one case, logs its numbers and checks its budget. The log line sets the budgets.
+ * The skip is in the body, not in an `it.skipIf` wrapper, because the test inventory counts the wrapper call as a second case.
+ */
+async function runCase(ctx: TestContext, benchCase: BenchCase): Promise<void> {
+  if (BENCH_BIN === undefined || BENCH_BIN === '') ctx.skip('EXARCHOS_BENCH_BIN is not set');
+  const samples = await measure(BENCH_BIN, benchCase);
   const p50 = percentile(samples, 0.5);
   const p95 = percentile(samples, 0.95);
   // eslint-disable-next-line no-console
@@ -157,32 +161,21 @@ async function runCase(benchCase: BenchCase): Promise<void> {
   }
 }
 
-/** True when no binary is named, so the tests skip. */
-const NO_BINARY = BENCH_BIN === undefined || BENCH_BIN === '';
-
 /** `.sequential` keeps the cases from running at the same time and competing for the CPU. */
 describe.sequential('cli cold start of the compiled binary', () => {
   /** A full CLI command with telemetry off. */
-  it.skipIf(NO_BINARY)(
-    'CliColdStart_StatusTelemetryOff_P95UnderBudget',
-    () => runCase(STATUS_TELEMETRY_OFF),
-    CASE_TIMEOUT_MS,
-  );
+  it('CliColdStart_StatusTelemetryOff_P95UnderBudget', (ctx) => runCase(ctx, STATUS_TELEMETRY_OFF), CASE_TIMEOUT_MS);
 
   /** A full CLI command with telemetry on. */
-  it.skipIf(NO_BINARY)(
-    'CliColdStart_StatusTelemetryOn_P95UnderBudget',
-    () => runCase(STATUS_TELEMETRY_ON),
-    CASE_TIMEOUT_MS,
-  );
+  it('CliColdStart_StatusTelemetryOn_P95UnderBudget', (ctx) => runCase(ctx, STATUS_TELEMETRY_ON), CASE_TIMEOUT_MS);
 
   /** The `--version` fast path. */
-  it.skipIf(NO_BINARY)('CliColdStart_VersionFlag_P95UnderBudget', () => runCase(VERSION_FLAG), CASE_TIMEOUT_MS);
+  it('CliColdStart_VersionFlag_P95UnderBudget', (ctx) => runCase(ctx, VERSION_FLAG), CASE_TIMEOUT_MS);
 
   /** The PreToolUse hook fast path. */
-  it.skipIf(NO_BINARY)(
+  it(
     'CliColdStart_WorktreeBoundaryHook_P95UnderBudget',
-    () => runCase(WORKTREE_BOUNDARY_HOOK),
+    (ctx) => runCase(ctx, WORKTREE_BOUNDARY_HOOK),
     CASE_TIMEOUT_MS,
   );
 });
