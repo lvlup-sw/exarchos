@@ -18,6 +18,34 @@ function enoentFs(): NonNullable<DetectorDeps['fs']> {
   };
 }
 
+/**
+ * The files of a home with an `exarchos@lvlup-sw` plugin whose manifest wires the server.
+ * `record` holds the scope fields of the `installed_plugins.json` record. `extra` adds files, for example settings files.
+ */
+function pluginHome(home: string, record: Record<string, unknown>, extra: Record<string, string> = {}): Record<string, string> {
+  const installPath = `${home}/.claude/plugins/cache/lvlup-sw/exarchos/2.12.1`;
+  return {
+    [`${home}/.claude.json`]: JSON.stringify({ mcpServers: {} }),
+    [`${home}/.claude/plugins/installed_plugins.json`]: JSON.stringify({
+      version: 2,
+      plugins: { 'exarchos@lvlup-sw': [{ ...record, installPath, version: '2.12.1' }] },
+    }),
+    [`${installPath}/.claude-plugin/plugin.json`]: JSON.stringify({
+      name: 'exarchos',
+      mcpServers: { exarchos: { command: 'exarchos', args: ['mcp'] } },
+    }),
+    ...extra,
+  };
+}
+
+/** The `mcpRegistered` value that the detector reports for claude-code with this fs, this home and this project. */
+async function claudeMcpRegistered(fs: NonNullable<DetectorDeps['fs']>, home: string, cwd: string): Promise<boolean> {
+  const result = await detectAgentEnvironments({ fs, home: () => home, cwd: () => cwd });
+  const claude = result.find((r) => r.name === 'claude-code');
+  if (claude === undefined) throw new Error('the detector reported no claude-code record');
+  return claude.mcpRegistered;
+}
+
 describe('detectAgentEnvironments — baseline', () => {
   it('DetectAgentEnvironments_EmptyProject_ReturnsAllRuntimesWithConfigAbsent', async () => {
     const deps: DetectorDeps = {
@@ -203,6 +231,89 @@ describe('detectAgentEnvironments — claude-code', () => {
     const claude = result.find((r) => r.name === 'claude-code')!;
     expect(claude.configPresent).toBe(true);
     expect(claude.mcpRegistered).toBe(false);
+  });
+
+  /**
+   * An older installer pointed the entry at `~/.claude/mcp-servers/exarchos-mcp.js`, which starts no server.
+   * The detector reports it as not registered, so the doctor check warns and onboard starts the writer.
+   */
+  it('DetectAgentEnvironments_StaleBundleEntry_ReturnsMcpRegisteredFalse', async () => {
+    const home = '/tmp/home-stale-entry';
+    const body = JSON.stringify({
+      mcpServers: {
+        exarchos: { type: 'stdio', command: 'node', args: [`${home}/.claude/mcp-servers/exarchos-mcp.js`] },
+      },
+    });
+
+    expect(await claudeMcpRegistered(mapFs({ [`${home}/.claude.json`]: body }), home, '/tmp/proj')).toBe(false);
+  });
+
+  /** The stale rule matches the `node` command only. Another command with the same argument is a hand edit, and it counts as registered. */
+  it('DetectAgentEnvironments_NonNodeEntryInTheBundleDir_ReturnsMcpRegisteredTrue', async () => {
+    const home = '/tmp/home-bun-entry';
+    const body = JSON.stringify({
+      mcpServers: {
+        exarchos: { type: 'stdio', command: 'bun', args: [`${home}/.claude/mcp-servers/exarchos-mcp.js`] },
+      },
+    });
+
+    expect(await claudeMcpRegistered(mapFs({ [`${home}/.claude.json`]: body }), home, '/tmp/proj')).toBe(true);
+  });
+
+  /** A `project` install serves only its own `projectPath`. It does not register the server in another project. */
+  it('DetectAgentEnvironments_ProjectScopePluginForAnotherProject_ReturnsMcpRegisteredFalse', async () => {
+    const home = '/tmp/home-plugin-other-project';
+    const files = pluginHome(home, { scope: 'project', projectPath: '/tmp/other-proj' });
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(false);
+  });
+
+  /** A `local` install whose `projectPath` is this project registers the server here. */
+  it('DetectAgentEnvironments_LocalScopePluginForThisProject_ReturnsMcpRegisteredTrue', async () => {
+    const home = '/tmp/home-plugin-this-project';
+    const files = pluginHome(home, { scope: 'local', projectPath: '/tmp/proj' });
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(true);
+  });
+
+  /** A `managed` install serves every project, like a `user` install. */
+  it('DetectAgentEnvironments_ManagedScopePlugin_ReturnsMcpRegisteredTrue', async () => {
+    const home = '/tmp/home-plugin-managed';
+    const files = pluginHome(home, { scope: 'managed' });
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(true);
+  });
+
+  /** A plugin that the user settings turn off starts no server. */
+  it('DetectAgentEnvironments_PluginTurnedOffInUserSettings_ReturnsMcpRegisteredFalse', async () => {
+    const home = '/tmp/home-plugin-off';
+    const files = pluginHome(home, { scope: 'user' }, {
+      [`${home}/.claude/settings.json`]: JSON.stringify({ enabledPlugins: { 'exarchos@lvlup-sw': false } }),
+    });
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(false);
+  });
+
+  /** The project settings have precedence over the user settings, so they can turn off a plugin that the user settings turn on. */
+  it('DetectAgentEnvironments_PluginTurnedOffInProjectSettings_ReturnsMcpRegisteredFalse', async () => {
+    const home = '/tmp/home-plugin-project-off';
+    const files = pluginHome(home, { scope: 'user' }, {
+      [`${home}/.claude/settings.json`]: JSON.stringify({ enabledPlugins: { 'exarchos@lvlup-sw': true } }),
+      ['/tmp/proj/.claude/settings.json']: JSON.stringify({ enabledPlugins: { 'exarchos@lvlup-sw': false } }),
+    });
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(false);
+  });
+
+  /** The local settings have the highest precedence, so they can turn on a plugin that the user settings turn off. */
+  it('DetectAgentEnvironments_LocalSettingsTurnOnAPluginThatUserSettingsTurnOff_ReturnsMcpRegisteredTrue', async () => {
+    const home = '/tmp/home-plugin-local-on';
+    const files = pluginHome(home, { scope: 'user' }, {
+      [`${home}/.claude/settings.json`]: JSON.stringify({ enabledPlugins: { 'exarchos@lvlup-sw': false } }),
+      ['/tmp/proj/.claude/settings.local.json']: JSON.stringify({ enabledPlugins: { 'exarchos@lvlup-sw': true } }),
+    });
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(true);
   });
 
   it('DetectAgentEnvironments_ClaudeJsonMalformed_ReturnsConfigValidFalse', async () => {

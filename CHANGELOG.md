@@ -127,7 +127,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Fixed
 
-- `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file. They now replace that stale entry without `--force`, and they write no entry when the exarchos plugin already starts the server. The doctor fix text now names `exarchos onboard`, not the `exarchos init` rename stub.
+- `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file. The `agent-mcp-registered` doctor check now gives Warning for that stale entry, so onboard and `doctor --fix` replace it without `--force`. They write no entry when an enabled exarchos plugin already starts the server in this project: a `user` or `managed` install, or a `project` or `local` install for this project. The doctor fix text now names `exarchos onboard`, not the `exarchos init` rename stub.
 
 ### Removed
 

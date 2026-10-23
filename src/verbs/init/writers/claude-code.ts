@@ -18,7 +18,7 @@ import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
 import { deployOnrampBlocks } from './onramp-block.js';
 import { fsyncDir, publishTempFile } from '../../../utils/atomic-write.js';
 import type { PromotionIo } from '../../../install/atomic-promotion.js';
-import { probeExarchosPluginInstall } from '../../../runtime/agent-environment-detector.js';
+import { isStaleBundleEntry, probeExarchosPluginInstall } from '../../../runtime/agent-environment-detector.js';
 import {
   promoteConfigFile,
   recoverInterruptedConfigPromotions,
@@ -152,21 +152,6 @@ function buildExarchosEntry(home: string): McpServerEntry {
   };
 }
 
-/**
- * True for an `exarchos` entry that an older writer made: the command is `node` and the first argument is under `~/.claude/mcp-servers/`.
- * No install step creates a file in that directory, so the entry starts a server that fails.
- * Any other entry is a hand edit.
- */
-function isStaleBundleEntry(entry: unknown, home: string): boolean {
-  if (typeof entry !== 'object' || entry === null) return false;
-  if (!('command' in entry) || entry.command !== 'node') return false;
-  if (!('args' in entry) || !Array.isArray(entry.args)) return false;
-  const first: unknown = entry.args[0];
-  if (typeof first !== 'string') return false;
-  const bundleDir = toPosix(join(home, '.claude', 'mcp-servers'));
-  return toPosix(first).startsWith(`${bundleDir}/`);
-}
-
 /** Check if a directory exists at the given path. */
 async function dirExists(fs: WriterFs, p: string): Promise<boolean> {
   try {
@@ -221,8 +206,9 @@ interface McpDeployResult {
 
 /**
  * Merges the exarchos entry into `~/.claude.json` and promotes the result: stage, verify, journal, backup, and commit.
- * An installed exarchos plugin that wires the server skips the phase, because a second user-scope server is a duplicate.
- * A stale bundle entry is replaced. Any other existing entry stays unless `forceOverwrite` is set.
+ * An enabled exarchos plugin that serves the project and wires the server skips the phase, because a second server is a duplicate.
+ * The skip applies with `forceOverwrite` too.
+ * A stale bundle entry ({@link isStaleBundleEntry}) is replaced. Any other existing entry stays unless `forceOverwrite` is set.
  *
  * `stagePath` pins the staged copy at `<target>.tmp`, because `claude-code.test.ts` asserts that path.
  * The verify comes before the publish. So a concurrent writer that clobbers the staged copy makes the verify refuse.
@@ -236,7 +222,7 @@ async function deployMcpConfig(
   const home = deps.home();
   const configPath = claudeConfigPath(home);
 
-  if (await probeExarchosPluginInstall(deps.fs, home)) {
+  if (await probeExarchosPluginInstall(deps.fs, home, options.projectRoot)) {
     return { wrote: false, skipped: 'plugin' };
   }
 

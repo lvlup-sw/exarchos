@@ -7,7 +7,7 @@
     "testFiles": 1338,
     "parsedFiles": 1292,
     "shellFiles": 46,
-    "cases": 15031,
+    "cases": 15045,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -10043,6 +10043,11 @@
         {
           "suite": "Claude Code MCP registration parity",
           "name": "OnboardGenerate_ClaudeCodeEntry_EqualsTheInstallRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "Claude Code MCP registration parity",
+          "name": "OnboardGenerate_StaleBundleEntry_IsReplacedByTheInstallRegistration",
           "dynamic": false
         }
       ]
@@ -46639,6 +46644,46 @@
         },
         {
           "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_StaleBundleEntry_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_NonNodeEntryInTheBundleDir_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_ProjectScopePluginForAnotherProject_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_LocalScopePluginForThisProject_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_ManagedScopePlugin_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginTurnedOffInUserSettings_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginTurnedOffInProjectSettings_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_LocalSettingsTurnOnAPluginThatUserSettingsTurnOff_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
           "name": "DetectAgentEnvironments_ClaudeJsonMalformed_ReturnsConfigValidFalse",
           "dynamic": false
         },
@@ -59973,6 +60018,11 @@
         },
         {
           "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_NonNodeEntryInTheBundleDir_IsKeptWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
           "name": "ClaudeCodeWriter_WithCommandsInProject_CopiesCommandsToClaudeHome",
           "dynamic": false
         },
@@ -60039,6 +60089,26 @@
         {
           "suite": "claudeCodeWriter with the exarchos plugin installed",
           "name": "ClaudeCodeWriter_PluginWiresExarchos_SkipsMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginWiresExarchosAndForceOverwrite_StillSkipsMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_ProjectScopePluginForAnotherProject_WritesMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_ProjectScopePluginForThisProject_SkipsMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginTurnedOffInSettings_WritesMcpConfig",
           "dynamic": false
         },
         {
