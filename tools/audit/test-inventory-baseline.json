@@ -7,7 +7,7 @@
     "testFiles": 1338,
     "parsedFiles": 1292,
     "shellFiles": 46,
-    "cases": 15045,
+    "cases": 15059,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -10048,6 +10048,11 @@
         {
           "suite": "Claude Code MCP registration parity",
           "name": "OnboardGenerate_StaleBundleEntry_IsReplacedByTheInstallRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "Claude Code MCP registration parity",
+          "name": "OnboardGenerate_StaleBundleEntryForAPluginUser_IsRemoved",
           "dynamic": false
         }
       ]
@@ -46684,6 +46689,36 @@
         },
         {
           "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginThatNoSettingsFileNames_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginTurnedOnByAnArrayValue_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginRecordWithNoOrUnknownScope_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_ProjectPathWithATrailingSlash_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_StaleBundleEntryWithAPluginThatServesTheProject_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_NodeEntryForAnotherFileInTheBundleDir_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
           "name": "DetectAgentEnvironments_ClaudeJsonMalformed_ReturnsConfigValidFalse",
           "dynamic": false
         },
@@ -60023,6 +60058,16 @@
         },
         {
           "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_NodeEntryForAnotherFileInTheBundleDir_IsKeptWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_NodeEntryWithNoStringFirstArgument_IsKeptWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
           "name": "ClaudeCodeWriter_WithCommandsInProject_CopiesCommandsToClaudeHome",
           "dynamic": false
         },
@@ -60108,12 +60153,37 @@
         },
         {
           "suite": "claudeCodeWriter with the exarchos plugin installed",
-          "name": "ClaudeCodeWriter_PluginTurnedOffInSettings_WritesMcpConfig",
+          "name": "ClaudeCodeWriter_PluginTurnedOffInAHigherPrecedenceFile_WritesMcpConfig",
           "dynamic": false
         },
         {
           "suite": "claudeCodeWriter with the exarchos plugin installed",
           "name": "ClaudeCodeWriter_PluginWithoutExarchosServer_WritesMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginThatNoSettingsFileNames_WritesMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginTurnedOnInProjectSettings_SkipsMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginServesAndStaleBundleEntry_RemovesTheStaleEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginServesAndHandEditedEntry_KeepsTheEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginServesAndConfigIsMalformed_SkipsMcpConfigWithoutAFailure",
           "dynamic": false
         }
       ]

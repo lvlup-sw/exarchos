@@ -38,6 +38,11 @@ function pluginHome(home: string, record: Record<string, unknown>, extra: Record
   };
 }
 
+/** The user settings file of `home`, with an `enabledPlugins` value of `value` for the `exarchos@lvlup-sw` plugin. */
+function userPluginSetting(home: string, value: unknown): Record<string, string> {
+  return { [`${home}/.claude/settings.json`]: JSON.stringify({ enabledPlugins: { 'exarchos@lvlup-sw': value } }) };
+}
+
 /** The `mcpRegistered` value that the detector reports for claude-code with this fs, this home and this project. */
 async function claudeMcpRegistered(fs: NonNullable<DetectorDeps['fs']>, home: string, cwd: string): Promise<boolean> {
   const result = await detectAgentEnvironments({ fs, home: () => home, cwd: () => cwd });
@@ -172,6 +177,7 @@ describe('detectAgentEnvironments — claude-code', () => {
         [claudeJson]: claudeJsonBody,
         [installedPluginsJson]: installedPluginsBody,
         [pluginManifest]: manifestBody,
+        ...userPluginSetting(home, true),
       }),
       home: () => home,
       cwd: () => '/tmp/proj',
@@ -205,6 +211,7 @@ describe('detectAgentEnvironments — claude-code', () => {
         [claudeJson]: JSON.stringify({ mcpServers: {} }),
         [installedPluginsJson]: installedPluginsBody,
         [pluginManifest]: manifestBody,
+        ...userPluginSetting(home, true),
       }),
       home: () => home,
       cwd: () => '/tmp/proj',
@@ -263,7 +270,7 @@ describe('detectAgentEnvironments — claude-code', () => {
   /** A `project` install serves only its own `projectPath`. It does not register the server in another project. */
   it('DetectAgentEnvironments_ProjectScopePluginForAnotherProject_ReturnsMcpRegisteredFalse', async () => {
     const home = '/tmp/home-plugin-other-project';
-    const files = pluginHome(home, { scope: 'project', projectPath: '/tmp/other-proj' });
+    const files = pluginHome(home, { scope: 'project', projectPath: '/tmp/other-proj' }, userPluginSetting(home, true));
 
     expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(false);
   });
@@ -271,15 +278,15 @@ describe('detectAgentEnvironments — claude-code', () => {
   /** A `local` install whose `projectPath` is this project registers the server here. */
   it('DetectAgentEnvironments_LocalScopePluginForThisProject_ReturnsMcpRegisteredTrue', async () => {
     const home = '/tmp/home-plugin-this-project';
-    const files = pluginHome(home, { scope: 'local', projectPath: '/tmp/proj' });
+    const files = pluginHome(home, { scope: 'local', projectPath: '/tmp/proj' }, userPluginSetting(home, true));
 
     expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(true);
   });
 
-  /** A `managed` install serves every project, like a `user` install. */
+  /** A `managed` install serves every project, like a `user` install. A settings file must turn it on, as for each other scope. */
   it('DetectAgentEnvironments_ManagedScopePlugin_ReturnsMcpRegisteredTrue', async () => {
     const home = '/tmp/home-plugin-managed';
-    const files = pluginHome(home, { scope: 'managed' });
+    const files = pluginHome(home, { scope: 'managed' }, userPluginSetting(home, true));
 
     expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(true);
   });
@@ -314,6 +321,68 @@ describe('detectAgentEnvironments — claude-code', () => {
     });
 
     expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(true);
+  });
+
+  /** Claude Code loads a marketplace plugin only when a settings file turns it on. An install record that no settings file names starts no server. */
+  it('DetectAgentEnvironments_PluginThatNoSettingsFileNames_ReturnsMcpRegisteredFalse', async () => {
+    const home = '/tmp/home-plugin-unnamed';
+    const files = pluginHome(home, { scope: 'user' });
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(false);
+  });
+
+  /** Claude Code also turns a plugin on when its `enabledPlugins` value is an array. */
+  it('DetectAgentEnvironments_PluginTurnedOnByAnArrayValue_ReturnsMcpRegisteredTrue', async () => {
+    const home = '/tmp/home-plugin-array';
+    const files = pluginHome(home, { scope: 'user' }, userPluginSetting(home, ['exarchos']));
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(true);
+  });
+
+  /** A record with no scope, or with a scope that Claude Code does not define, serves no project. */
+  it('DetectAgentEnvironments_PluginRecordWithNoOrUnknownScope_ReturnsMcpRegisteredFalse', async () => {
+    const home = '/tmp/home-plugin-scopes';
+    const noScope = pluginHome(home, {}, userPluginSetting(home, true));
+    const unknownScope = pluginHome(home, { scope: 'global', projectPath: '/tmp/proj' }, userPluginSetting(home, true));
+
+    expect(await claudeMcpRegistered(mapFs(noScope), home, '/tmp/proj')).toBe(false);
+    expect(await claudeMcpRegistered(mapFs(unknownScope), home, '/tmp/proj')).toBe(false);
+  });
+
+  /** The project match resolves both paths, so a `projectPath` with a trailing slash names this project. */
+  it('DetectAgentEnvironments_ProjectPathWithATrailingSlash_ReturnsMcpRegisteredTrue', async () => {
+    const home = '/tmp/home-plugin-trailing-slash';
+    const files = pluginHome(home, { scope: 'project', projectPath: '/tmp/proj/' }, userPluginSetting(home, true));
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(true);
+  });
+
+  /**
+   * Claude Code starts the stale bundle entry next to the plugin server, and that entry fails.
+   * The detector reports it as not registered also when the plugin serves the project, so onboard and `doctor --fix` remove it.
+   */
+  it('DetectAgentEnvironments_StaleBundleEntryWithAPluginThatServesTheProject_ReturnsMcpRegisteredFalse', async () => {
+    const home = '/tmp/home-plugin-stale-entry';
+    const files = pluginHome(home, { scope: 'user' }, {
+      ...userPluginSetting(home, true),
+      [`${home}/.claude.json`]: JSON.stringify({
+        mcpServers: { exarchos: { type: 'stdio', command: 'node', args: [`${home}/.claude/mcp-servers/exarchos-mcp.js`] } },
+      }),
+    });
+
+    expect(await claudeMcpRegistered(mapFs(files), home, '/tmp/proj')).toBe(false);
+  });
+
+  /** The older installer wrote only `exarchos-mcp.js` in the bundle directory. A `node` entry that starts another file there is a hand edit, and it counts as registered. */
+  it('DetectAgentEnvironments_NodeEntryForAnotherFileInTheBundleDir_ReturnsMcpRegisteredTrue', async () => {
+    const home = '/tmp/home-node-other-file';
+    const body = JSON.stringify({
+      mcpServers: {
+        exarchos: { type: 'stdio', command: 'node', args: [`${home}/.claude/mcp-servers/my-exarchos.js`] },
+      },
+    });
+
+    expect(await claudeMcpRegistered(mapFs({ [`${home}/.claude.json`]: body }), home, '/tmp/proj')).toBe(true);
   });
 
   it('DetectAgentEnvironments_ClaudeJsonMalformed_ReturnsConfigValidFalse', async () => {

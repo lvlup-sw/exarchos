@@ -132,7 +132,12 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Fixed
 
-- `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file. The `agent-mcp-registered` doctor check now gives Warning for that stale entry, so onboard and `doctor --fix` replace it without `--force`. They write no entry when an enabled exarchos plugin already starts the server in this project: a `user` or `managed` install, or a `project` or `local` install for this project. The doctor fix text now names `exarchos onboard`, not the `exarchos init` rename stub.
+- `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file.
+  - The `agent-mcp-registered` doctor check now gives Warning for that stale entry, also when the exarchos plugin serves the project. Onboard and `doctor --fix` replace the entry without `--force`. When the plugin serves the project, they remove the entry and add none.
+  - They add no entry when the exarchos plugin already starts the server in this project. This needs an install record for this project and a settings file that turns the plugin on. A `user` or `managed` install serves each project, and a `project` or `local` install serves its own project. The doctor check uses the same rule.
+  - A plugin that no settings file names in `enabledPlugins` does not count, because Claude Code does not load it. Onboard then writes the `~/.claude.json` entry.
+  - Each other existing `exarchos` entry stays unless `--force` is given. When the plugin serves the project, it stays also with `--force`.
+  - The doctor fix text now names `exarchos onboard`, not the `exarchos init` rename stub.
 
 ### Removed
 

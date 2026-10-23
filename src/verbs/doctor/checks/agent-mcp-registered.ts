@@ -1,7 +1,8 @@
 /**
  * Doctor check: does each detected runtime config list exarchos in `mcpServers`?
  * Only configs that are present and valid count. Another check reports malformed configs.
- * The detector does not count a stale Claude Code entry that starts a file under `~/.claude/mcp-servers/`.
+ * The detector does not count the stale Claude Code entry that starts `~/.claude/mcp-servers/exarchos-mcp.js`.
+ * It reports that entry as not registered also when the exarchos plugin serves the project, so onboard removes it.
  *
  * The check gives Pass when all list exarchos. It gives Warning with an `exarchos onboard` fix
  * when some do not. It gives Skipped when no config is present or all are malformed.

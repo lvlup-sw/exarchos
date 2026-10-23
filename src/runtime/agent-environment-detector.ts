@@ -101,9 +101,10 @@ async function probeRuntime(
   const configPath = configPathFor(name, home, cwd);
 
   if (name === 'claude-code') {
-    const probed = await probeJsonMcpConfig(fs, configPath, (entry) => !isStaleBundleEntry(entry, home));
+    const probed = await probeJsonMcpConfig(fs, configPath);
+    const stale = probed.hasEntry && isStaleBundleEntry(probed.entry, home);
     const mcpRegistered =
-      probed.mcpRegistered || (await probeExarchosPluginInstall(fs, home, cwd));
+      !stale && (probed.hasEntry || (await probeExarchosPluginInstall(fs, home, cwd)));
     return {
       name,
       configPath,
@@ -115,7 +116,13 @@ async function probeRuntime(
   }
   if (name === 'cursor' || name === 'opencode') {
     const probed = await probeJsonMcpConfig(fs, configPath);
-    return { name, configPath, ...probed };
+    return {
+      name,
+      configPath,
+      configPresent: probed.configPresent,
+      configValid: probed.configValid,
+      mcpRegistered: probed.hasEntry,
+    };
   }
   if (name === 'codex') {
     const present = await dirExists(fs, configPath);
@@ -140,10 +147,12 @@ async function probeRuntime(
 }
 
 /**
- * True for an `exarchos` entry that an older Exarchos installer wrote: the command is `node` and the first argument is under `<home>/.claude/mcp-servers/`.
- * The current installers put no server file in that directory, and `exarchos mcp` supersedes any file there.
- * The detector reports this entry as not registered. The Claude Code writer replaces it without `forceOverwrite`.
- * Any other entry is a hand edit.
+ * True for the `exarchos` entry that an older Exarchos installer wrote: the command is `node`, and the first argument is `<home>/.claude/mcp-servers/exarchos-mcp.js`.
+ * That installer wrote only this file in that directory, and `exarchos mcp` supersedes it.
+ * The rule does not read the file. Any other entry is a hand edit.
+ *
+ * The detector reports this entry as not registered, also when the exarchos plugin serves the project.
+ * The Claude Code writer replaces it without `forceOverwrite`, or removes it when the plugin serves the project.
  */
 export function isStaleBundleEntry(entry: unknown, home: string): boolean {
   if (typeof entry !== 'object' || entry === null) return false;
@@ -151,38 +160,38 @@ export function isStaleBundleEntry(entry: unknown, home: string): boolean {
   if (!('args' in entry) || !Array.isArray(entry.args)) return false;
   const first: unknown = entry.args[0];
   if (typeof first !== 'string') return false;
-  const bundleDir = toPosix(path.join(home, '.claude', 'mcp-servers'));
-  return toPosix(first).startsWith(`${bundleDir}/`);
+  return toPosix(first) === toPosix(path.join(home, '.claude', 'mcp-servers', 'exarchos-mcp.js'));
+}
+
+/** The result of {@link probeJsonMcpConfig}. `hasEntry` is true when `mcpServers` has an `exarchos` key, and `entry` is then its value. */
+interface JsonMcpConfigProbe {
+  readonly configPresent: boolean;
+  readonly configValid: boolean;
+  readonly hasEntry: boolean;
+  readonly entry?: unknown;
 }
 
 /**
- * Read a JSON config file and report presence, JSON validity, and whether
- * `mcpServers.exarchos` is registered. The claude-code, cursor and opencode probes use it.
- * An `exarchos` entry counts as registered only when `isUsable` accepts it.
+ * Read a JSON config file and report presence, JSON validity, and the `mcpServers.exarchos` entry.
+ * The claude-code, cursor and opencode probes use it.
  */
-async function probeJsonMcpConfig(
-  fs: DetectorFs,
-  configPath: string,
-  isUsable: (entry: unknown) => boolean = () => true,
-): Promise<{ configPresent: boolean; configValid: boolean; mcpRegistered: boolean }> {
+async function probeJsonMcpConfig(fs: DetectorFs, configPath: string): Promise<JsonMcpConfigProbe> {
   const raw = await readOrNull(fs, configPath);
   if (raw === null) {
-    return { configPresent: false, configValid: false, mcpRegistered: false };
+    return { configPresent: false, configValid: false, hasEntry: false };
   }
   try {
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== 'object' || parsed === null) {
-      return { configPresent: true, configValid: false, mcpRegistered: false };
+      return { configPresent: true, configValid: false, hasEntry: false };
     }
     const mcpServers = (parsed as { mcpServers?: unknown }).mcpServers;
-    const mcpRegistered =
-      typeof mcpServers === 'object' &&
-      mcpServers !== null &&
-      'exarchos' in mcpServers &&
-      isUsable(mcpServers.exarchos);
-    return { configPresent: true, configValid: true, mcpRegistered };
+    if (typeof mcpServers !== 'object' || mcpServers === null || !('exarchos' in mcpServers)) {
+      return { configPresent: true, configValid: true, hasEntry: false };
+    }
+    return { configPresent: true, configValid: true, hasEntry: true, entry: mcpServers.exarchos };
   } catch {
-    return { configPresent: true, configValid: false, mcpRegistered: false };
+    return { configPresent: true, configValid: false, hasEntry: false };
   }
 }
 
@@ -190,7 +199,7 @@ async function probeJsonMcpConfig(
  * Return `true` when an enabled `exarchos@*` plugin serves the project at `cwd`, and its manifest
  * declares `mcpServers.exarchos`. A marketplace install wires the MCP server in
  * `<installPath>/.claude-plugin/plugin.json`, not in `~/.claude.json`.
- * Without this probe, `exarchos doctor` reports a false negative for that install.
+ * The probe needs positive evidence: an install record for this project, and a settings file that turns the plugin on.
  * Any read or parse failure gives `false`.
  */
 export async function probeExarchosPluginInstall(
@@ -208,7 +217,7 @@ export async function probeExarchosPluginInstall(
   for (const [key, value] of Object.entries(plugins as Record<string, unknown>)) {
     if (!key.startsWith('exarchos@')) continue;
     if (!Array.isArray(value)) continue;
-    if (await pluginTurnedOff(fs, key, home, cwd)) continue;
+    if (!(await pluginTurnedOn(fs, key, home, cwd))) continue;
     for (const entry of value) {
       if (typeof entry !== 'object' || entry === null) continue;
       if (!installServesProject(entry, cwd)) continue;
@@ -224,7 +233,7 @@ export async function probeExarchosPluginInstall(
 /**
  * True when one `installed_plugins.json` record serves the project at `cwd`.
  * A `user` or `managed` install serves every project. A `project` or `local` install serves only its `projectPath`.
- * A record with an unknown scope serves no project.
+ * A record with no scope or an unknown scope serves no project. The settings rule applies to each scope.
  */
 function installServesProject(entry: object, cwd: string): boolean {
   const scope = 'scope' in entry ? entry.scope : undefined;
@@ -240,11 +249,12 @@ function samePath(a: string, b: string): boolean {
 }
 
 /**
- * True when the `enabledPlugins` setting turns off `pluginId` for the project at `cwd`.
+ * True when the `enabledPlugins` setting turns on `pluginId` for the project at `cwd`.
  * The local settings file has the highest precedence, then the project file, then the user file.
- * The first file that names the plugin decides. A plugin that no file names stays on.
+ * The first file that names the plugin decides. Claude Code turns a plugin on for the value `true` or an array, and this rule does the same.
+ * A plugin that no file names is off, because Claude Code does not load it.
  */
-async function pluginTurnedOff(fs: DetectorFs, pluginId: string, home: string, cwd: string): Promise<boolean> {
+async function pluginTurnedOn(fs: DetectorFs, pluginId: string, home: string, cwd: string): Promise<boolean> {
   const settingsFiles = [
     path.join(cwd, '.claude', 'settings.local.json'),
     path.join(cwd, '.claude', 'settings.json'),
@@ -252,7 +262,7 @@ async function pluginTurnedOff(fs: DetectorFs, pluginId: string, home: string, c
   ];
   for (const file of settingsFiles) {
     const setting = enabledPluginSetting(await readJsonOrUndefined(fs, toPosix(file)), pluginId);
-    if (setting !== undefined) return setting === false;
+    if (setting !== undefined) return setting === true || Array.isArray(setting);
   }
   return false;
 }

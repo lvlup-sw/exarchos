@@ -1,12 +1,15 @@
 /**
  * The onboard GENERATE step and the install path register the same Claude Code MCP entry.
  * The test runs `diff` and `apply` with the production writer list in a temp HOME and a temp project.
- * Then it compares the `~/.claude.json` entry with the entry of `registerExarchosInClaudeJson`.
- * A stale bundle entry from an older installer also gets a generate step, and `apply` replaces it.
+ * Then it compares the `~/.claude.json` entry with the entry of `registerExarchosInClaudeJson` and with the plugin manifest.
+ * A stale bundle entry from an older installer also gets a generate step. `apply` replaces it, or removes it for a plugin user.
+ *
+ * @oracle-sources: ../../src/install/install-skills.ts, ../../.claude-plugin/plugin.json
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, mkdir, readFile, writeFile } from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
@@ -25,6 +28,15 @@ function field(value: unknown, key: string): unknown {
   if (typeof value !== 'object' || value === null) return undefined;
   const entries: ReadonlyArray<readonly [string, unknown]> = Object.entries(value);
   return entries.find(([k]) => k === key)?.[1];
+}
+
+/** The plugin manifest of this repository. Its `mcpServers.exarchos` entry starts the server for a plugin user. */
+const PLUGIN_MANIFEST = path.resolve(import.meta.dirname, '../../.claude-plugin/plugin.json');
+
+/** The `mcpServers` value of `<home>/.claude.json`. */
+async function mcpServersOf(home: string): Promise<unknown> {
+  const config: unknown = JSON.parse(await readFile(path.join(home, '.claude.json'), 'utf8'));
+  return field(config, 'mcpServers');
 }
 
 /** Reads `mcpServers.exarchos` from `<home>/.claude.json`, with the state directory in POSIX form. The read fails when the entry has no state directory. */
@@ -85,6 +97,10 @@ describe('Claude Code MCP registration parity', () => {
 
     expect(generated).toEqual(installed);
     expect(JSON.stringify(generated)).not.toContain('mcp-servers');
+
+    const pluginEntry = field(field(JSON.parse(readFileSync(PLUGIN_MANIFEST, 'utf8')), 'mcpServers'), 'exarchos');
+    expect(field(generated, 'command')).toBe(field(pluginEntry, 'command'));
+    expect(field(generated, 'args')).toEqual(field(pluginEntry, 'args'));
   });
 
   /**
@@ -124,5 +140,52 @@ describe('Claude Code MCP registration parity', () => {
 
     registerExarchosInClaudeJson(home);
     expect(generated).toEqual(await exarchosEntry(home));
+  });
+
+  /**
+   * A plugin user who ran an older onboard has the stale bundle entry next to the plugin server.
+   * The doctor check must warn on it, so `diff` plans the generate step. `apply` removes the entry and keeps the other servers.
+   * After `apply` the plugin alone registers the server, and the check passes.
+   */
+  it('OnboardGenerate_StaleBundleEntryForAPluginUser_IsRemoved', async () => {
+    const installPath = path.join(home, '.claude', 'plugins', 'cache', 'lvlup-sw', 'exarchos', '2.12.1');
+    await mkdir(path.join(installPath, '.claude-plugin'), { recursive: true });
+    await writeFile(path.join(installPath, '.claude-plugin', 'plugin.json'), readFileSync(PLUGIN_MANIFEST, 'utf8'), 'utf8');
+    await writeFile(
+      path.join(home, '.claude', 'plugins', 'installed_plugins.json'),
+      JSON.stringify({ version: 2, plugins: { 'exarchos@lvlup-sw': [{ scope: 'user', installPath, version: '2.12.1' }] } }),
+      'utf8',
+    );
+    await writeFile(
+      path.join(home, '.claude', 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'exarchos@lvlup-sw': true } }),
+      'utf8',
+    );
+    const other = { type: 'stdio', command: 'other-server', args: [] };
+    const staleEntry = {
+      type: 'stdio',
+      command: 'node',
+      args: [toPosix(path.join(home, '.claude', 'mcp-servers', 'exarchos-mcp.js'))],
+    };
+    await writeFile(path.join(home, '.claude.json'), JSON.stringify({ mcpServers: { exarchos: staleEntry, other } }), 'utf8');
+    const probes = makeStubProbes({
+      detector: (signal) => detectAgentEnvironments({ home: () => home, cwd: () => project }, signal),
+    });
+    const check = await agentMcpRegistered(probes, new AbortController().signal);
+    expect(check.status).toBe('Warning');
+
+    const plan = diff({ runtimes: [], vcs: 'none', commands: {} }, [check]);
+    expect(plan.steps.map((s) => `${s.kind}:${s.key}`)).toEqual(['generate:agent-mcp-registered']);
+
+    await apply(plan, {
+      repoRoot: project,
+      surface: 'cli',
+      writerDeps: { ...buildWriterDeps(), home: () => home, cwd: () => project },
+      writers: getAllWriters(),
+    });
+    expect(await mcpServersOf(home)).toEqual({ other });
+
+    const recheck = await agentMcpRegistered(probes, new AbortController().signal);
+    expect(recheck.status).toBe('Pass');
   });
 });

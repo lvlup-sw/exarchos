@@ -197,18 +197,23 @@ async function copyDirRecursive(
   }
 }
 
-/** The outcome of the MCP phase. `skipped` names the reason when the phase writes nothing and has no error. */
+/**
+ * The outcome of the MCP phase. `skipped` names the reason when the phase writes nothing and has no error.
+ * `removedStaleEntry` is true when the phase removed a stale bundle entry, because the exarchos plugin serves the project.
+ */
 interface McpDeployResult {
   readonly wrote: boolean;
   readonly error?: string;
   readonly skipped?: 'plugin' | 'registered';
+  readonly removedStaleEntry?: boolean;
 }
 
 /**
  * Merges the exarchos entry into `~/.claude.json` and promotes the result: stage, verify, journal, backup, and commit.
- * An enabled exarchos plugin that serves the project and wires the server skips the phase, because a second server is a duplicate.
- * The skip applies with `forceOverwrite` too.
- * A stale bundle entry ({@link isStaleBundleEntry}) is replaced. Any other existing entry stays unless `forceOverwrite` is set.
+ * When an enabled exarchos plugin serves the project and wires the server, the phase adds no entry, because a second server is a duplicate.
+ * In that case it removes a stale bundle entry ({@link isStaleBundleEntry}) and keeps each other entry, also with `forceOverwrite`.
+ * It also writes nothing when it cannot read the config, because the plugin already starts the server.
+ * Without that plugin, the phase replaces a stale bundle entry. Any other existing entry stays unless `forceOverwrite` is set.
  *
  * `stagePath` pins the staged copy at `<target>.tmp`, because `claude-code.test.ts` asserts that path.
  * The verify comes before the publish. So a concurrent writer that clobbers the staged copy makes the verify refuse.
@@ -222,12 +227,11 @@ async function deployMcpConfig(
   const home = deps.home();
   const configPath = claudeConfigPath(home);
 
-  if (await probeExarchosPluginInstall(deps.fs, home, options.projectRoot)) {
-    return { wrote: false, skipped: 'plugin' };
-  }
+  const pluginServes = await probeExarchosPluginInstall(deps.fs, home, options.projectRoot);
 
   const { config, error } = await readExistingConfig(deps, configPath);
   if (config === null) {
+    if (pluginServes) return { wrote: false, skipped: 'plugin' };
     return { wrote: false, error: error ?? 'Unknown error reading config' };
   }
 
@@ -236,9 +240,16 @@ async function deployMcpConfig(
     ? rawServers as Record<string, unknown>
     : {};
   const alreadyRegistered = 'exarchos' in existingServers;
-  const keep = alreadyRegistered && !isStaleBundleEntry(existingServers.exarchos, home);
+  const stale = alreadyRegistered && isStaleBundleEntry(existingServers.exarchos, home);
 
-  if (keep && !options.forceOverwrite) {
+  if (pluginServes) {
+    if (!stale) return { wrote: false, skipped: 'plugin' };
+    const otherServers = Object.fromEntries(Object.entries(existingServers).filter(([name]) => name !== 'exarchos'));
+    await promoteClaudeConfig(deps, configPath, { ...config, mcpServers: otherServers }, promotionIo);
+    return { wrote: true, removedStaleEntry: true };
+  }
+
+  if (alreadyRegistered && !stale && !options.forceOverwrite) {
     return { wrote: false, skipped: 'registered' };
   }
 
@@ -250,17 +261,27 @@ async function deployMcpConfig(
     },
   };
 
+  await promoteClaudeConfig(deps, configPath, mergedConfig, promotionIo);
+
+  return { wrote: true };
+}
+
+/** Promotes `config` to `configPath` through {@link promoteConfigFile}, with the staged copy at `<target>.tmp`. */
+async function promoteClaudeConfig(
+  deps: WriterDeps,
+  configPath: string,
+  config: Readonly<Record<string, unknown>>,
+  promotionIo?: PromotionIo,
+): Promise<void> {
   await promoteConfigFile(
     configPath,
-    JSON.stringify(mergedConfig, null, 2),
+    JSON.stringify(config, null, 2),
     claudeConfigPromotionFs(deps, configPath),
     {
       stagePath: `${configPath}.tmp`,
       ...(promotionIo ? { io: promotionIo } : {}),
     },
   );
-
-  return { wrote: true };
 }
 
 async function deployCommands(
@@ -348,7 +369,10 @@ export async function writeClaudeCode(
       error: mcpResult.error,
     };
   }
-  if (mcpResult.wrote) {
+  if (mcpResult.removedStaleEntry) {
+    componentsWritten.push('mcp-config');
+    warnings.push('removed the stale exarchos entry from ~/.claude.json, because the exarchos plugin registers the MCP server');
+  } else if (mcpResult.wrote) {
     componentsWritten.push('mcp-config');
   } else if (mcpResult.skipped === 'plugin') {
     warnings.push('exarchos MCP server is registered by the exarchos plugin; ~/.claude.json is unchanged');
