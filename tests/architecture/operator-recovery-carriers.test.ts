@@ -174,6 +174,62 @@ const CARRIED: readonly CarriedRecovery[] = [
       ],
     },
   },
+  {
+    id: 'completion-superseded-by-revision',
+    notes: 'Recovery: when `task_complete` refuses with `TASK_SUPERSEDED_BY_REVISION`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/tasks/task-complete-revision.test.ts',
+      testCase: 'TaskComplete_ATaskARevisionNamedAfterItsCapsule_IsRefusedWithNoRow',
+      phrases: ['Run prepare again, then complete the task under the new capsule.'],
+    },
+  },
+  {
+    id: 'settle-reads-kept-changing',
+    notes: 'Recovery: when `settle` returns `CONCURRENCY_CONFLICT`',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/SKILL.md',
+      phrases: [
+        '`CONCURRENCY_CONFLICT`: the reads that decide the verdict changed before each of three commits',
+        'Settle the same batch id again. The retry replays the segments that verified tasks',
+      ],
+    },
+  },
+  {
+    id: 'completion-leaf-halt',
+    notes: 'Recovery: when a completion leaf halts the segment',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/SKILL.md',
+      phrases: [
+        'The completion leaf halts so when `task_complete` refuses the task, or after eight sequence conflicts in a row.',
+        'settle the claims once under a new batch id',
+      ],
+    },
+  },
+  {
+    id: 'decision-names-finished-task',
+    notes: 'Recovery: plan the rework as a new task',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/settle/settle-decision-standing.test.ts',
+      testCase: 'Settle_ADecisionWhoseDeviationNamesAFinishedTask_IsRejectedVerifiesNothingAndRevisesNothing',
+      phrases: ['plan the rework as a new task'],
+    },
+  },
+  {
+    id: 'earlier-build-segment-digest',
+    notes: 'Recovery: when a batch of an earlier build gets this refusal',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/SKILL.md',
+      phrases: [
+        'A batch with no verdict whose segments an earlier build ran gets this code too',
+        'Settle the claims of such a batch under a new batch id.',
+      ],
+    },
+  },
 ];
 
 /**

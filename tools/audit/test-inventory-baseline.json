@@ -64661,7 +64661,7 @@
         },
         {
           "suite": "settle — the verification a settled batch runs",
-          "name": "Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsAlreadyComplete",
+          "name": "Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsVerifiedOnTheStoredRow",
           "dynamic": false
         },
         {

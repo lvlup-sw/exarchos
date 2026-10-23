@@ -242,7 +242,8 @@ describe('judgeSettlement — the outcome of each task from the facts and the ru
 
   /**
    * A deviation names `task-second`, and the plan says that the task is pending. When the facts show the
-   * task complete, it is finished. The decision round gets no plan standing, so no task gets the check.
+   * task complete, it is finished. The decision round reads the decision first. No decision answers the
+   * deviation, so it waits for approval, and its task gets no check.
    */
   it('JudgeSettlement_ATaskThatTheFactsShowComplete_StandsFinishedWhateverThePlanSays', () => {
     const deviation = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite', affectedTasks: [SECOND] };
