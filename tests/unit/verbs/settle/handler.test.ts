@@ -5870,7 +5870,7 @@ describe('settle — the text of the action', () => {
    * The text counts twice against the response budget of `describe`, so it is short. The delegate
    * skill gives each outcome in full.
    *
-   * Three outcomes follow one sentence, which says that they verify nothing in this build and what
+   * Three outcomes follow one sentence, which says that they verify nothing at their read and what
    * `acceptedTasks` lists under them. A receipt of an earlier build can carry `rejected` after a
    * verification. A claim with a status has no shape fault. The entry of `accepted-with-rationale`
    * does not say that no batch gets it. Each call comes from the outcome rules, and the
@@ -5898,7 +5898,7 @@ describe('settle — the text of the action', () => {
     expect(guide).toContain('`deviation-pending`: settle the same batchId with `decisions` only');
     expect(guide).toContain('`recompile-required`: prepare, then settle under the new capsule');
     const entries = new Map(
-      guide.split(/(?=`[a-z-]+`: |In this build |Any outcome )/).map((part) => [part.slice(0, part.indexOf(': ')), part]),
+      guide.split(/(?=`[a-z-]+`: |At their read |Any outcome )/).map((part) => [part.slice(0, part.indexOf(': ')), part]),
     );
     for (const outcome of SETTLEMENT_OUTCOMES) {
       const entry = entries.get(`\`${outcome}\``) ?? '';
@@ -5916,7 +5916,7 @@ describe('settle — the text of the action', () => {
 
     expect(guide).not.toContain('no shape fault');
     expect(guide).not.toContain('The next three verify nothing');
-    const unverified = 'In this build the next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
+    const unverified = 'At their read the next three verify nothing, and `acceptedTasks` lists claims with no finding. ';
     const [verifiedPart, unverifiedPart, ...rest] = guide.split(unverified);
     expect(rest).toEqual([]);
     const entriesIn = (part: string | undefined): SettlementOutcome[] =>

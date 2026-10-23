@@ -190,11 +190,14 @@ export interface SettlementJudgement {
   readonly verdict: SettlementVerdict;
   /** Whether the shape pass lets verification run. */
   readonly verifies: boolean;
-  /** The verification outcome of each task that the final pass reads. It is empty when verification does not run. */
+  /**
+   * The verification outcome of each task that the final pass reads. When verification does not run,
+   * it holds only the runs that the call made before a read changed.
+   */
   readonly outcomes: ReadonlyMap<string, TaskVerificationOutcome>;
   /**
    * The traces in the order of the receipt. First come the complete tasks with no run, sorted. Then
-   * come the runs in their order. It is empty when verification does not run.
+   * come the runs in their order. When verification does not run, only the runs give traces.
    */
   readonly traces: readonly SettlementVerificationTrace[];
   /** The tasks that the judgement settles as already complete, sorted. */
@@ -214,6 +217,42 @@ function runHalted(run: VerificationRun): boolean {
   return run.kind === 'refused' ? run.halted : run.outcome.kind === 'failed';
 }
 
+/** The outcomes, the traces and the already-complete tasks of one judgement, in the order of the receipt. */
+interface JudgedTraces {
+  readonly outcomes: Map<string, TaskVerificationOutcome>;
+  readonly traces: SettlementVerificationTrace[];
+  readonly alreadyComplete: string[];
+}
+
+/**
+ * The traces of the complete tasks with no run, then the traces of the runs in their order.
+ * A run that halted or failed on a task that the facts show complete is already complete.
+ * A refused run of a task that is not complete gives no trace.
+ */
+function judgedTraces(
+  complete: readonly string[],
+  runs: ReadonlyMap<string, VerificationRun>,
+  completed: ReadonlySet<string>,
+): JudgedTraces {
+  const judged: JudgedTraces = { outcomes: new Map(), traces: [], alreadyComplete: [] };
+  const settleComplete = (taskId: string): void => {
+    judged.outcomes.set(taskId, { kind: 'already-complete' });
+    judged.traces.push({ taskId, outcome: 'already-complete' });
+    judged.alreadyComplete.push(taskId);
+  };
+  for (const taskId of complete) settleComplete(taskId);
+  for (const [taskId, run] of runs) {
+    if (runHalted(run) && completed.has(taskId)) {
+      settleComplete(taskId);
+      continue;
+    }
+    if (run.kind === 'refused') continue;
+    judged.outcomes.set(taskId, run.outcome);
+    judged.traces.push(run.trace);
+  }
+  return judged;
+}
+
 /**
  * Judges one batch from the facts of one read and from the runs of its segments. The function is
  * pure, so each read of the stream gets the same judgement from the same facts.
@@ -221,6 +260,7 @@ function runHalted(run: VerificationRun): boolean {
  * A run that verified keeps `verified`, also when another writer stored the completion. A task whose
  * run halted or failed is already complete when the facts show it complete. So is a task whose claim
  * reports a status, because adjudication accepts such a claim when the task is complete.
+ * A judgement that does not verify still gives the traces of the runs that the call made before a read changed.
  * A judgement that names a needed segment or a needed evidence check is not final.
  */
 export function judgeSettlement(
@@ -264,12 +304,13 @@ export function judgeSettlement(
 
   const shape = adjudicateSettlement(capsule, claims, deviations, context);
   if (!verificationRuns(shape.findings)) {
+    const ran = judgedTraces([], runs, facts.completed);
     return {
       verdict: shape,
       verifies: false,
-      outcomes: new Map(),
-      traces: [],
-      alreadyComplete: [],
+      outcomes: ran.outcomes,
+      traces: ran.traces,
+      alreadyComplete: [...ran.alreadyComplete].sort(),
       needsSegment: [],
       needsEvidenceCheck,
       revising,
@@ -277,27 +318,10 @@ export function judgeSettlement(
     };
   }
 
-  const outcomes = new Map<string, TaskVerificationOutcome>();
-  const traces: SettlementVerificationTrace[] = [];
-  const alreadyComplete: string[] = [];
-  const settleComplete = (taskId: string): void => {
-    outcomes.set(taskId, { kind: 'already-complete' });
-    traces.push({ taskId, outcome: 'already-complete' });
-    alreadyComplete.push(taskId);
-  };
-  for (const taskId of recordedCompleteTasks(capsule, shape.acceptedTasks, facts.completed)) {
-    if (!runs.has(taskId)) settleComplete(taskId);
-  }
-  for (const [taskId, run] of runs) {
-    if (runHalted(run) && facts.completed.has(taskId)) {
-      settleComplete(taskId);
-      continue;
-    }
-    if (run.kind === 'refused') continue;
-    outcomes.set(taskId, run.outcome);
-    traces.push(run.trace);
-  }
-
+  const complete = recordedCompleteTasks(capsule, shape.acceptedTasks, facts.completed).filter(
+    (taskId) => !runs.has(taskId),
+  );
+  const { outcomes, traces, alreadyComplete } = judgedTraces(complete, runs, facts.completed);
   const terms = capsule.settlementContract.taskVerification ?? {};
   const needsSegment = shape.acceptedTasks.filter(
     (taskId) => !runs.has(taskId) && !facts.completed.has(taskId) && terms[taskId] !== undefined,
@@ -313,4 +337,26 @@ export function judgeSettlement(
     revising,
     ...refused,
   };
+}
+
+/**
+ * The part of a judgement that the record holds, as canonical JSON. Two judgements with one key
+ * record the same verdict, the same verification outcomes and the same revision.
+ *
+ * The key holds the outcome, the accepted and unresolved tasks, the findings and the rationales. It
+ * also holds the decision count, the outcome of each task and the revising deviations. It holds no
+ * bundle byte and no bundle reference, because the bundle holds the time of the settlement.
+ */
+export function judgementKey(judgement: SettlementJudgement): string {
+  const { verdict } = judgement;
+  return canonicalJson({
+    outcome: verdict.outcome,
+    acceptedTasks: verdict.acceptedTasks,
+    unresolved: verdict.unresolved,
+    findings: verdict.findings,
+    rationales: verdict.rationales,
+    decisions: verdict.adjudicated.decisions,
+    outcomes: [...judgement.outcomes],
+    revising: judgement.revising,
+  });
 }

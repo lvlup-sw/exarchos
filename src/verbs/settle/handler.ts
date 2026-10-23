@@ -41,6 +41,7 @@ import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
 import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
+import { migrateEvents } from '../../events/event-migration.js';
 import type { EventStore } from '../../events/store.js';
 import {
   DesignRevisedData,
@@ -65,6 +66,7 @@ import {
   outcomeVerifies,
   type ProposedDeviation,
   type SettlementClaim,
+  type SettlementEvidence,
   type SettlementOutcome,
   SETTLEMENT_OUTCOME_RULES,
   type TaskStanding,
@@ -83,12 +85,14 @@ import {
 import {
   completedTaskIds,
   haltIsGateVerdict,
+  judgementKey,
   judgeSettlement,
   recordedCompleteTasks,
   settlementFactsOf,
   type CitedRecord,
   type EvidenceCheck,
   type SettlementInputs,
+  type SettlementJudgement,
   type VerificationRun,
 } from './settlement-reads.js';
 import {
@@ -425,8 +429,8 @@ async function planStandingLookup(ctx: DispatchContext, streamId: string): Promi
  * transaction, and verification completes tasks before that transaction. The call folds the rows
  * that it reads before verification, so a damaged row fails the call before any task completes.
  *
- * It is a check and not a lock. The number of the revision still comes from the rows that the
- * write transaction reads.
+ * The commit folds the rows again inside its write transaction. The number of the revision comes
+ * from those rows.
  */
 function checkRevisionRowsFold(rows: readonly { readonly type: string; readonly data?: unknown }[]): void {
   designVersionOf(rows);
@@ -534,10 +538,21 @@ async function levelCompleteTasks(
 }
 
 /**
- * The most passes of segments in one call. A read after the first pass can name an accepted task
- * with no run, and the second pass runs its segment. The verdict of the last read is final.
+ * The most attempts of one settle call. An attempt whose reads change before its commit appends
+ * nothing, and the next attempt reads again. The runs of the segments stay with the call.
  */
-const SEGMENT_PASSES = 2;
+const MAX_SETTLE_ATTEMPTS = 3;
+
+/**
+ * The signal that the reads of an attempt changed before its commit. The commit throws it inside its
+ * write transaction, so the transaction appends nothing. The call then starts its next attempt.
+ */
+class SettlementReadsChanged extends Error {
+  constructor(batchLabel: string) {
+    super(`the reads that decide the verdict of ${batchLabel} changed before its commit`);
+    this.name = 'SettlementReadsChanged';
+  }
+}
 
 /**
  * The blob checks of cited records, added to the checks that the call made before. A record is
@@ -969,19 +984,369 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
   return decisions;
 }
 
+/** What the fold of the stream reads for one batch: the sequence of the capsule pin and the cited evidence. */
+interface SettlementReads {
+  readonly pinnedSequence: number;
+  readonly cited: readonly SettlementEvidence[];
+}
+
+/**
+ * What one settle call keeps over its attempts. `runs` holds the run of each segment that the call
+ * made or replayed, so no attempt runs a segment twice. `inputs` gains the blob checks of each attempt.
+ */
+interface SettlementCall {
+  readonly ctx: DispatchContext;
+  readonly stateDir: string;
+  readonly deps: SettleDeps;
+  readonly streamId: string;
+  readonly identity: SettledCapsuleIdentity;
+  readonly operationId: string;
+  readonly requestDigest: string;
+  readonly batchLabel: string;
+  readonly decisions: readonly SettlementDecision[];
+  readonly verificationTerms: Readonly<Record<string, VerificationTerms>>;
+  readonly reads: SettlementReads;
+  readonly runs: Map<string, VerificationRun>;
+  inputs: SettlementInputs;
+}
+
+/** Compiles the segments of the tasks from the claims of the call, so each segment gets the same arguments on each run. */
+function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledSegments {
+  return compileSegments(
+    taskIds,
+    call.inputs.claims,
+    call.verificationTerms,
+    call.operationId,
+    call.streamId,
+    call.deps.execute,
+  );
+}
+
+/**
+ * Runs the compiled segments in their order, and puts the run of each one in the map of the call.
+ * A refused run that did not halt is not an answer about its task, so it is the refusal of the call.
+ */
+async function runCompiled(
+  call: SettlementCall,
+  compiled: readonly CompiledVerification[],
+): Promise<ToolResult | undefined> {
+  for (const task of compiled) {
+    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, call.ctx, call.deps.execute);
+    if (run.kind === 'refused' && !run.halted) return run.result;
+    call.runs.set(task.taskId, run);
+  }
+  return undefined;
+}
+
+/**
+ * Replays the segments that an earlier call of this batch committed, before the first attempt.
+ * The segment claim of a completed claim shows its segment, whatever row the stream stores as the
+ * completion of the task. The executor returns the recorded receipt and runs no gate. Thus the trace
+ * keeps the segment operation, and a replayed halt follows the rules of a run.
+ */
+async function replayCommittedSegments(call: SettlementCall): Promise<ToolResult | undefined> {
+  const backend = call.ctx.eventStore.getAppender().ensureSqliteBackendSync();
+  const completed = new Set(
+    call.inputs.claims.filter((claim) => claim.status === undefined).map((claim) => claim.taskId),
+  );
+  const committed = [...completed].filter(
+    (taskId) => backend.lookupOperationClaim(verificationOperationId(call.operationId, taskId)) !== undefined,
+  );
+  if (committed.length === 0) return undefined;
+  const segments = compileFor(call, committed);
+  if (!segments.ok) return segments.refusal;
+  return runCompiled(call, segments.compiled);
+}
+
+/** One read of the whole stream, after the event migration, and the judgement of the batch from it. */
+interface JudgedRead {
+  readonly rows: readonly { readonly type: string; readonly data?: unknown }[];
+  readonly judgement: SettlementJudgement;
+}
+
+/**
+ * Reads the whole stream and judges the batch from its facts. When the judgement names a cited record
+ * with no blob check, the call checks the record, keeps the check, and judges again.
+ */
+async function readAndJudge(call: SettlementCall): Promise<JudgedRead> {
+  const rows = await call.ctx.eventStore.query(call.streamId);
+  const facts = settlementFactsOf(rows, call.reads);
+  const judgement = judgeSettlement(call.inputs, facts, call.runs);
+  if (judgement.needsEvidenceCheck.length === 0) return { rows, judgement };
+  call.inputs = {
+    ...call.inputs,
+    evidenceChecks: await checkedEvidence(call.stateDir, judgement.needsEvidenceCheck, call.inputs.evidenceChecks),
+  };
+  return { rows, judgement: judgeSettlement(call.inputs, facts, call.runs) };
+}
+
+/**
+ * Levels the state document for the tasks that a judgement settles as already complete. Each task is
+ * levelled once in an attempt, and a task whose segment halted gets its own message. It returns the
+ * refusal when the document cannot follow the facts.
+ */
+async function levelSettledComplete(
+  call: SettlementCall,
+  alreadyComplete: readonly string[],
+  levelled: Set<string>,
+  warnings: string[],
+): Promise<ToolResult | undefined> {
+  const next = alreadyComplete.filter((taskId) => !levelled.has(taskId));
+  for (const taskId of next) levelled.add(taskId);
+  const halted = next.filter((taskId) => call.runs.has(taskId));
+  const haltedRefusal = await levelCompleteTasks(
+    call.stateDir,
+    call.streamId,
+    halted,
+    `the stream records ${namedTasks(halted)} complete for ${call.batchLabel} after the segment of each one halted`,
+    warnings,
+  );
+  if (haltedRefusal !== undefined) return haltedRefusal;
+  const unrun = next.filter((taskId) => !call.runs.has(taskId));
+  return levelCompleteTasks(
+    call.stateDir,
+    call.streamId,
+    unrun,
+    `the stream already records ${namedTasks(unrun)} complete for ${call.batchLabel}`,
+    warnings,
+  );
+}
+
+/**
+ * One attempt of a settle call. It reads the stream and judges the batch. While the judgement verifies
+ * and names a segment that the call did not run, the attempt runs that segment, then reads and judges
+ * again. Each pass puts at least one task in the run map, so the loop ends.
+ *
+ * A judgement that does not verify decides the record, also when a leaf refused a run. A judgement that
+ * verifies fails the call on a refused run. The commit throws `SettlementReadsChanged` when the rows of
+ * its write transaction give another judgement.
+ */
+async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
+  const warnings: string[] = [];
+  const levelled = new Set<string>();
+  const first = await readAndJudge(call);
+  if (first.judgement.revising.length > 0) checkRevisionRowsFold(first.rows);
+  let judgement = first.judgement;
+  while (judgement.verifies) {
+    const segments = compileFor(call, judgement.needsSegment);
+    if (!segments.ok) return segments.refusal;
+    const levelRefusal = await levelSettledComplete(call, judgement.alreadyComplete, levelled, warnings);
+    if (levelRefusal !== undefined) return levelRefusal;
+    if (segments.compiled.length === 0) break;
+    const runRefusal = await runCompiled(call, segments.compiled);
+    if (runRefusal !== undefined) return runRefusal;
+    judgement = (await readAndJudge(call)).judgement;
+  }
+  if (judgement.verifies && judgement.refusal !== undefined) return judgement.refusal;
+  return commitJudgement(call, judgement, warnings);
+}
+
+/**
+ * Puts the bundle of a judgement in custody, then commits its record. The commit folds the rows of its
+ * write transaction after the event migration, as each read before it does, and judges the batch
+ * again. A changed key, a needed segment or a needed evidence check throws `SettlementReadsChanged`.
+ * Then the transaction appends nothing, and the bundle stays as an orphan blob.
+ *
+ * The revision of a decision round takes its content from the judgement inside the commit, and its
+ * number from the same rows. The record is the last event, and the tail sequence comes from a read
+ * inside the write lock.
+ */
+async function commitJudgement(
+  call: SettlementCall,
+  judgement: SettlementJudgement,
+  warnings: readonly string[],
+): Promise<ToolResult> {
+  const { ctx, deps, streamId, identity, operationId, requestDigest, batchLabel, decisions, reads, runs, inputs } =
+    call;
+  const { claims, deviations, round } = inputs;
+  const deciding = round === DECISION_ROUND;
+  const key = judgementKey(judgement);
+  const { verdict, traces } = judgement;
+
+  const unresolved = unresolvedOnReceipt(verdict.unresolved, traces);
+  const settledAt = new Date().toISOString();
+
+  const bytes = encodeSettlementBundle({
+    bundleVersion: SETTLEMENT_BUNDLE_VERSION,
+    kind: SETTLEMENT_BUNDLE_KIND,
+    operationId,
+    streamId,
+    requestDigest,
+    capsule: identity,
+    outcome: verdict.outcome,
+    acceptedTasks: [...verdict.acceptedTasks],
+    findings: [...verdict.findings],
+    claims: claims.map(claimTraceOf),
+    deviations: deviations.map((deviation) => ({
+      deviationKind: deviation.deviationKind,
+      statement: deviation.statement,
+      ...(deviation.affectedTasks !== undefined ? { affectedTasks: [...deviation.affectedTasks] } : {}),
+      ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
+    })),
+    decisions: [...decisions],
+    ...(round > 0 ? { round } : {}),
+    adjudicated: verdict.adjudicated,
+    verification: traces.map(bundleTraceOf),
+    settledAt,
+  });
+
+  const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
+  const artifactId = settlementBundleArtifactId(identity.batchId, identity.capsuleVersion);
+  const outer = outerCorrelation(ctx);
+
+  const countsByKind = new Map<string, number>();
+  for (const finding of verdict.findings) {
+    countsByKind.set(finding.kind, (countsByKind.get(finding.kind) ?? 0) + 1);
+  }
+  const findingCounts = [...countsByKind.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([kind, count]) => ({ kind, count }));
+
+  return bundles.putThenReference(artifactId, bytes, async (ref: BundleRefV1) => {
+    const data: Record<string, unknown> = ExecutionSettledData.parse({
+      operationId,
+      workflowId: identity.workflowId,
+      capsuleVersion: identity.capsuleVersion,
+      batchId: identity.batchId,
+      definitionVersion: identity.definitionVersion,
+      outcome: verdict.outcome,
+      ...(round > 0 ? { round } : {}),
+      acceptedTasks: verdict.acceptedTasks,
+      ...(verdict.unresolved.length > 0 ? { unresolvedTasks: verdict.unresolved } : {}),
+      ...(verdict.rationales.length > 0 ? { rationales: verdict.rationales } : {}),
+      findingCounts,
+      adjudicated: verdict.adjudicated,
+      requestDigest,
+      bundleRefs: [ref],
+    });
+
+    return runWithDispatchContext(outer, async (): Promise<ToolResult> => {
+      const record = stampFromAmbient({
+        type: EXECUTION_SETTLED_SETTLEMENT.type,
+        data,
+        timestamp: settledAt,
+        schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
+      });
+      const pending = SETTLEMENT_OUTCOME_RULES[verdict.outcome].holds && !deciding
+        ? pendingDeviationsOf(identity, deviations)
+        : [];
+      const settlement: SettlementOfFact = {
+        operationId,
+        workflowId: identity.workflowId,
+        capsuleVersion: identity.capsuleVersion,
+        batchId: identity.batchId,
+      };
+      const proposals = pending.map((proposal) =>
+        stampFromAmbient({
+          type: DEVIATION_PROPOSED_TYPE,
+          data: DeviationProposedData.parse({
+            operationId: settlement.operationId,
+            workflowId: settlement.workflowId,
+            capsuleVersion: settlement.capsuleVersion,
+            batchId: settlement.batchId,
+            deviationId: proposal.deviationId,
+            deviationKind: proposal.deviationKind,
+            statement: proposal.statement,
+            ...(proposal.affectedTasks !== undefined ? { affectedTasks: proposal.affectedTasks } : {}),
+          }),
+          timestamp: settledAt,
+        }),
+      );
+      const decidedRows = decisions.map((decision) =>
+        stampFromAmbient({
+          type: DEVIATION_DECIDED_TYPE,
+          data: DeviationDecidedData.parse({ ...settlement, ...decision }),
+          timestamp: settledAt,
+        }),
+      );
+      const revisionStamp = stampFromAmbient({ type: DESIGN_REVISED_TYPE, timestamp: settledAt });
+
+      try {
+        const persisted = await ctx.eventStore
+          .getAppender()
+          .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
+            const snapshot = tx.readStream(streamId);
+            const committed = judgeSettlement(inputs, settlementFactsOf(migrateEvents(snapshot.events), reads), runs);
+            if (
+              judgementKey(committed) !== key ||
+              committed.needsSegment.length > 0 ||
+              committed.needsEvidenceCheck.length > 0
+            ) {
+              throw new SettlementReadsChanged(batchLabel);
+            }
+            const revised = designRevisionContentOf(identity, committed.revising);
+            const revision =
+              revised === undefined
+                ? undefined
+                : designRevisionOf(snapshot.events, revised, revisionStamp, settlement, ref);
+            const events = [
+              ...proposals,
+              ...decidedRows,
+              ...(revision !== undefined ? [revision.row] : []),
+              record,
+            ];
+            return {
+              streamId,
+              events,
+              result: {
+                operationId,
+                streamId,
+                capsule: identity,
+                outcome: verdict.outcome,
+                round,
+                acceptedTasks: verdict.acceptedTasks,
+                ...(unresolved.length > 0 ? { unresolved } : {}),
+                findings: verdict.findings,
+                adjudicated: verdict.adjudicated,
+                requestDigest,
+                tailSequence: snapshot.version + events.length,
+                verification: traces,
+                bundleRefs: [ref],
+                ...(pending.length > 0 ? { pendingDeviations: pending } : {}),
+                ...(deciding ? { decisions } : {}),
+                ...(revision !== undefined ? { designRevision: revision.receipt } : {}),
+              },
+            };
+          });
+        return receiptResult(persisted, warnings);
+      } catch (error) {
+        if (error instanceof OperationDigestMismatchError) {
+          return refused(
+            'OPERATION_DIGEST_MISMATCH',
+            `${batchLabel} was settled under a different request while this call was ` +
+              'adjudicating. Its verdict was NOT persisted.',
+          );
+        }
+        throw error;
+      }
+    });
+  });
+}
+
+/**
+ * The refusal when the reads of a batch changed before each commit of the call. Nothing was recorded.
+ * The segments that verified tasks stay recorded, and a retry of the batch replays them.
+ */
+function readsKeptChanging(batchLabel: string): ToolResult {
+  return refused(
+    'CONCURRENCY_CONFLICT',
+    `the reads that decide the verdict of ${batchLabel} changed before each of its ` +
+      `${MAX_SETTLE_ATTEMPTS} commits, so nothing was recorded: no verdict and no settlement claim. The ` +
+      'segments that verified tasks stay recorded. Settle the same batchId again: the retry replays those ' +
+      'segments and runs none of their gates again.',
+  );
+}
+
 /**
  * Settle one batch, or decide the deviations of a held batch.
  *
  * Before any effect, it refuses a malformed request, and a capsule that is invalid, not prepared,
  * unresolved, or without verification terms. Calls for one batch run one at a time in a process,
  * and the commit serializes them across processes. On a race, the caller gets the receipt that
- * `decideOnce` persisted. Every segment compiles before any runs, so a claim that cannot compile
- * leaves the batch unclaimed. A task that the stream already shows complete passed its gates, so
- * it needs no claim and no second verification. Each round that adjudicates reads the later design
- * revisions, and one that names a claimed or an unfinished task makes the batch stale.
+ * `decideOnce` persisted. The call replays the segments that an earlier call of the batch committed.
+ * Then it runs at most three attempts, and a read that changes before a commit starts the next one.
  *
  * The emitter-closure census does not read `decideOnce`, so an allowance row covers this append.
- * The record is the last event, and the tail sequence comes from a read inside the write lock.
  */
 export async function handleSettle(
   raw: Record<string, unknown>,
@@ -1208,248 +1573,37 @@ export async function handleSettle(
       decidedOf.get(deviationIdOf(identity, deviation));
 
     const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
-    const rows = await ctx.eventStore.query(streamId);
-    const before = settlementFactsOf(rows, reads);
-    let inputs: SettlementInputs = {
-      capsule,
-      claims,
-      deviations,
-      decided,
-      round,
-      evidenceChecks: await checkedEvidence(stateDir, [...before.cited.values()], new Map()),
-    };
+    let inputs: SettlementInputs = { capsule, claims, deviations, decided, round, evidenceChecks: new Map() };
     if (!deciding && deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await planStandingLookup(ctx, streamId);
       if (!standing.ok) return standing.error;
       inputs = { ...inputs, planStanding: standing.standingOf };
     }
 
-    const first = judgeSettlement(inputs, before, new Map());
-    if (first.revising.length > 0) checkRevisionRowsFold(rows);
-
-    let judgement = first;
-    const warnings: string[] = [];
-    if (first.verifies) {
-      const firstSegments = compileSegments(
-        first.needsSegment,
-        claims,
-        verificationTerms,
-        operationId,
-        streamId,
-        deps.execute,
-      );
-      if (!firstSegments.ok) return firstSegments.refusal;
-      const recordedRefusal = await levelCompleteTasks(
-        stateDir,
-        streamId,
-        first.alreadyComplete,
-        `the stream already records ${namedTasks(first.alreadyComplete)} complete for ${batchLabel}`,
-        warnings,
-      );
-      if (recordedRefusal !== undefined) return recordedRefusal;
-
-      const runs = new Map<string, VerificationRun>();
-      let compiled = firstSegments.compiled;
-      for (let pass = 1; compiled.length > 0; pass += 1) {
-        for (const task of compiled) {
-          const run = await verifyTask(task, streamId, batchLabel, stateDir, ctx, deps.execute);
-          if (run.kind === 'refused' && !run.halted) return run.result;
-          runs.set(task.taskId, run);
-        }
-        const after = settlementFactsOf(await ctx.eventStore.query(streamId), reads);
-        judgement = judgeSettlement(inputs, after, runs);
-        if (judgement.needsEvidenceCheck.length > 0) {
-          inputs = {
-            ...inputs,
-            evidenceChecks: await checkedEvidence(stateDir, judgement.needsEvidenceCheck, inputs.evidenceChecks),
-          };
-          judgement = judgeSettlement(inputs, after, runs);
-        }
-        const next = compileSegments(
-          pass < SEGMENT_PASSES ? judgement.needsSegment : [],
-          claims,
-          verificationTerms,
-          operationId,
-          streamId,
-          deps.execute,
-        );
-        if (!next.ok) return next.refusal;
-        compiled = next.compiled;
-      }
-
-      const became = judgement.alreadyComplete.filter((taskId) => !first.alreadyComplete.includes(taskId));
-      const halted = became.filter((taskId) => runs.has(taskId));
-      const haltedRefusal = await levelCompleteTasks(
-        stateDir,
-        streamId,
-        halted,
-        `the stream records ${namedTasks(halted)} complete for ${batchLabel} after the segment of each one halted`,
-        warnings,
-      );
-      if (haltedRefusal !== undefined) return haltedRefusal;
-      const unrun = became.filter((taskId) => !runs.has(taskId));
-      const unrunRefusal = await levelCompleteTasks(
-        stateDir,
-        streamId,
-        unrun,
-        `the stream already records ${namedTasks(unrun)} complete for ${batchLabel}`,
-        warnings,
-      );
-      if (unrunRefusal !== undefined) return unrunRefusal;
-      if (judgement.refusal !== undefined) return judgement.refusal;
-    }
-
-    const { verdict, traces, revising } = judgement;
-
-    const unresolved = unresolvedOnReceipt(verdict.unresolved, traces);
-    const settledAt = new Date().toISOString();
-
-    const bytes = encodeSettlementBundle({
-      bundleVersion: SETTLEMENT_BUNDLE_VERSION,
-      kind: SETTLEMENT_BUNDLE_KIND,
-      operationId,
+    const call: SettlementCall = {
+      ctx,
+      stateDir,
+      deps,
       streamId,
+      identity,
+      operationId,
       requestDigest,
-      capsule: identity,
-      outcome: verdict.outcome,
-      acceptedTasks: [...verdict.acceptedTasks],
-      findings: [...verdict.findings],
-      claims: claims.map(claimTraceOf),
-      deviations: deviations.map((deviation) => ({
-        deviationKind: deviation.deviationKind,
-        statement: deviation.statement,
-        ...(deviation.affectedTasks !== undefined ? { affectedTasks: [...deviation.affectedTasks] } : {}),
-        ...(deviation.proposedChange !== undefined ? { proposedChange: deviation.proposedChange } : {}),
-      })),
-      decisions: [...decisions],
-      ...(round > 0 ? { round } : {}),
-      adjudicated: verdict.adjudicated,
-      verification: traces.map(bundleTraceOf),
-      settledAt,
-    });
-
-    const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
-    const artifactId = settlementBundleArtifactId(identity.batchId, identity.capsuleVersion);
-    const outer = outerCorrelation(ctx);
-
-    const countsByKind = new Map<string, number>();
-    for (const finding of verdict.findings) {
-      countsByKind.set(finding.kind, (countsByKind.get(finding.kind) ?? 0) + 1);
+      batchLabel,
+      decisions,
+      verificationTerms,
+      reads,
+      runs: new Map(),
+      inputs,
+    };
+    const replayRefusal = await replayCommittedSegments(call);
+    if (replayRefusal !== undefined) return replayRefusal;
+    for (let attempt = 1; attempt <= MAX_SETTLE_ATTEMPTS; attempt += 1) {
+      try {
+        return await settleAttempt(call);
+      } catch (error) {
+        if (!(error instanceof SettlementReadsChanged)) throw error;
+      }
     }
-    const findingCounts = [...countsByKind.entries()]
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([kind, count]) => ({ kind, count }));
-
-    return bundles.putThenReference(artifactId, bytes, async (ref: BundleRefV1) => {
-      const data: Record<string, unknown> = ExecutionSettledData.parse({
-        operationId,
-        workflowId: identity.workflowId,
-        capsuleVersion: identity.capsuleVersion,
-        batchId: identity.batchId,
-        definitionVersion: identity.definitionVersion,
-        outcome: verdict.outcome,
-        ...(round > 0 ? { round } : {}),
-        acceptedTasks: verdict.acceptedTasks,
-        ...(verdict.unresolved.length > 0 ? { unresolvedTasks: verdict.unresolved } : {}),
-        ...(verdict.rationales.length > 0 ? { rationales: verdict.rationales } : {}),
-        findingCounts,
-        adjudicated: verdict.adjudicated,
-        requestDigest,
-        bundleRefs: [ref],
-      });
-
-      return runWithDispatchContext(outer, async (): Promise<ToolResult> => {
-        const record = stampFromAmbient({
-          type: EXECUTION_SETTLED_SETTLEMENT.type,
-          data,
-          timestamp: settledAt,
-          schemaVersion: EXECUTION_SETTLED_SETTLEMENT.custodyFromSchemaVersion,
-        });
-        const pending = SETTLEMENT_OUTCOME_RULES[verdict.outcome].holds && !deciding
-          ? pendingDeviationsOf(identity, deviations)
-          : [];
-        const settlement: SettlementOfFact = {
-          operationId,
-          workflowId: identity.workflowId,
-          capsuleVersion: identity.capsuleVersion,
-          batchId: identity.batchId,
-        };
-        const proposals = pending.map((proposal) =>
-          stampFromAmbient({
-            type: DEVIATION_PROPOSED_TYPE,
-            data: DeviationProposedData.parse({
-              operationId: settlement.operationId,
-              workflowId: settlement.workflowId,
-              capsuleVersion: settlement.capsuleVersion,
-              batchId: settlement.batchId,
-              deviationId: proposal.deviationId,
-              deviationKind: proposal.deviationKind,
-              statement: proposal.statement,
-              ...(proposal.affectedTasks !== undefined ? { affectedTasks: proposal.affectedTasks } : {}),
-            }),
-            timestamp: settledAt,
-          }),
-        );
-        const decidedRows = decisions.map((decision) =>
-          stampFromAmbient({
-            type: DEVIATION_DECIDED_TYPE,
-            data: DeviationDecidedData.parse({ ...settlement, ...decision }),
-            timestamp: settledAt,
-          }),
-        );
-        const revised = designRevisionContentOf(identity, revising);
-        const revisionStamp = stampFromAmbient({ type: DESIGN_REVISED_TYPE, timestamp: settledAt });
-
-        try {
-          const persisted = await ctx.eventStore
-            .getAppender()
-            .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
-              const snapshot = tx.readStream(streamId);
-              const revision =
-                revised === undefined
-                  ? undefined
-                  : designRevisionOf(snapshot.events, revised, revisionStamp, settlement, ref);
-              const events = [
-                ...proposals,
-                ...decidedRows,
-                ...(revision !== undefined ? [revision.row] : []),
-                record,
-              ];
-              return {
-                streamId,
-                events,
-                result: {
-                  operationId,
-                  streamId,
-                  capsule: identity,
-                  outcome: verdict.outcome,
-                  round,
-                  acceptedTasks: verdict.acceptedTasks,
-                  ...(unresolved.length > 0 ? { unresolved } : {}),
-                  findings: verdict.findings,
-                  adjudicated: verdict.adjudicated,
-                  requestDigest,
-                  tailSequence: snapshot.version + events.length,
-                  verification: traces,
-                  bundleRefs: [ref],
-                  ...(pending.length > 0 ? { pendingDeviations: pending } : {}),
-                  ...(deciding ? { decisions } : {}),
-                  ...(revision !== undefined ? { designRevision: revision.receipt } : {}),
-                },
-              };
-            });
-          return receiptResult(persisted, warnings);
-        } catch (error) {
-          if (error instanceof OperationDigestMismatchError) {
-            return refused(
-              'OPERATION_DIGEST_MISMATCH',
-              `${batchLabel} was settled under a different request while this call was ` +
-                'adjudicating. Its verdict was NOT persisted.',
-            );
-          }
-          throw error;
-        }
-      });
-    });
+    return readsKeptChanging(batchLabel);
   });
 }

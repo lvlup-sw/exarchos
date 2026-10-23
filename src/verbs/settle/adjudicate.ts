@@ -228,7 +228,10 @@ export type SettlementOutcome = (typeof SETTLEMENT_OUTCOMES)[number];
 
 /** What one outcome does to its batch, and the call that follows it. */
 export interface SettlementOutcomeRule {
-  /** Whether settlement verified the batch. The tasks that passed are then recorded complete. */
+  /**
+   * Whether settlement verifies the batch at its read. The tasks that passed are then recorded complete.
+   * Under an outcome that does not verify, a task that settlement verified before a read changed stays complete.
+   */
   readonly verifies: boolean;
   /** Whether the batch waits on decisions. Only a batch that waits takes a decision round. */
   readonly holds: boolean;
@@ -267,7 +270,7 @@ interface FindingClassEffect {
 /**
  * The effect of each finding class. The record is exhaustive, so a class with no effect does not compile.
  * The rule of the outcome of a class says whether settlement still verifies the clean claims of its batch.
- * A stale, refused or held batch is stopped before verification, so nothing in it is verified.
+ * A stale, refused or held batch is stopped before verification, so nothing in it is verified at its read.
  * An unresolved task does not stop its batch, so the other tasks of the batch can still complete.
  */
 const FINDING_CLASS_EFFECTS: Readonly<Record<SettlementFindingClass, FindingClassEffect>> = {
@@ -447,7 +450,7 @@ export interface SettlementVerdict {
   readonly findings: readonly SettlementFinding[];
   /**
    * The tasks to correct, sorted by task id. The list has entries only when an unresolved task decides the outcome.
-   * Under each outcome that stops verification nothing was verified, so the findings of the batch are not the list of work to do.
+   * Under each outcome that stops verification, the batch verified nothing at its read. Thus its findings are not the list of work to do.
    */
   readonly unresolved: readonly UnresolvedTask[];
   /**

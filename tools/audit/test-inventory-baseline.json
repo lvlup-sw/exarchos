@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1328,
-    "parsedFiles": 1282,
+    "testFiles": 1329,
+    "parsedFiles": 1283,
     "shellFiles": 46,
-    "cases": 14986,
+    "cases": 14999,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -65170,6 +65170,77 @@
         {
           "suite": "settle — the text of the action",
           "name": "SettleAction_ItsRequiresRationale_NoLongerSaysTheVerdictReadsNoCurrentState",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-in-commit.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-in-commit.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a completion row that commits before the settle commit",
+          "name": "Settle_ACompletionRowAppendedBeforeTheCommit_IsReadByTheCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a completion row that commits before the settle commit",
+          "name": "Settle_ARequiredTaskCompletedBeforeTheCommit_NeedsNoClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a completion row that commits before the settle commit",
+          "name": "Settle_AStatusClaimWhoseTaskIsCompletedBeforeTheCommit_IsAlreadyComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits before the settle commit",
+          "name": "Settle_ARevisionOfAStatusClaimTaskBeforeTheCommit_GivesRecompileRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits before the settle commit",
+          "name": "Settle_ARevisionOfTheOtherTaskAfterASegment_KeepsTheVerifiedTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits before the settle commit",
+          "name": "Settle_ALeafRefusedUnderAStaleJudgement_DoesNotFailTheCall",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the attempts of one call",
+          "name": "Settle_UnchangedReads_CommitOnTheFirstAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the attempts of one call",
+          "name": "Settle_ARedoRunsEachSegmentAtMostOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the attempts of one call",
+          "name": "Settle_ReadsThatChangeBeforeThreeCommits_GiveConcurrencyConflictAndRecordNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a retry of the same batch",
+          "name": "Settle_ARetryAfterARedoneCommit_ReturnsTheVerdictAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a retry of the same batch",
+          "name": "Settle_ARetryAfterAConcurrencyConflict_ReplaysItsSegmentsWithTheirOperations",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a retry of the same batch",
+          "name": "Settle_ARetryAfterAForeignCompletion_StillReplaysItsOwnSegment",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the custody of a discarded attempt",
+          "name": "Settle_ARedoneAttempt_LeavesOnlyAnUnreferencedBlob",
           "dynamic": false
         }
       ]
