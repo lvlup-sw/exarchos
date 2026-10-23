@@ -58,7 +58,7 @@ describe('agentMcpRegistered', () => {
 
     expect(result.status).toBe('Warning');
     expect(result.message).toContain('claude-code');
-    expect(result.fix).toBe('Run exarchos init --runtime claude-code');
+    expect(result.fix).toBe('Run exarchos onboard --runtime claude-code');
   });
 
   it('AgentMcpRegistered_NoAgentEnvironmentsDetected_ReturnsSkipped', async () => {

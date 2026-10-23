@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import * as path from 'node:path';
 import { claudeCodeWriter, writeClaudeCode, ClaudeCodeWriter, type OnrampSeam } from '../../../../../src/verbs/init/writers/claude-code.js';
 import { atomicWriteJson } from '../../../../../src/verbs/init/writers/claude-code.js';
 import { makeStubWriterDeps } from '../../../../../src/verbs/init/probes.js';
@@ -87,6 +89,46 @@ function defaultOptions(overrides?: Partial<WriteOptions>): WriteOptions {
     nonInteractive: false,
     forceOverwrite: false,
     ...overrides,
+  };
+}
+
+/** The plugin manifest of this repository. Its `mcpServers.exarchos` entry is the one registration that the writer must copy. */
+const PLUGIN_MANIFEST = path.resolve(import.meta.dirname, '../../../../../.claude-plugin/plugin.json');
+
+/** The entry that the writer must put in `/home/user/.claude.json`. */
+const EXPECTED_ENTRY = {
+  type: 'stdio',
+  command: 'exarchos',
+  args: ['mcp'],
+  env: { WORKFLOW_STATE_DIR: '/home/user/.claude/workflow-state' },
+};
+
+/** Parses the JSON that the writer staged at `p`. The test fails when the writer staged nothing there. */
+function stagedJson(written: Readonly<Record<string, string>>, p: string): unknown {
+  const raw = written[p];
+  if (raw === undefined) throw new Error(`nothing staged at ${p}`);
+  return JSON.parse(raw);
+}
+
+/** The `mcpServers.exarchos` value of a parsed config, or `undefined` when the config has none. */
+function exarchosEntryOf(config: unknown): unknown {
+  if (typeof config !== 'object' || config === null || !('mcpServers' in config)) return undefined;
+  const servers = config.mcpServers;
+  if (typeof servers !== 'object' || servers === null || !('exarchos' in servers)) return undefined;
+  return servers.exarchos;
+}
+
+/** The files of an installed `exarchos` plugin under `/home/user`, with a manifest that declares `mcpServers`. */
+function pluginFiles(mcpServers: Record<string, unknown>): Record<string, string> {
+  const installPath = '/home/user/.claude/plugins/cache/lvlup-sw/exarchos/2.12.1';
+  return {
+    '/home/user/.claude/plugins/installed_plugins.json': JSON.stringify({
+      version: 2,
+      plugins: {
+        'exarchos@lvlup-sw': [{ scope: 'user', installPath, version: '2.12.1' }],
+      },
+    }),
+    [`${installPath}/.claude-plugin/plugin.json`]: JSON.stringify({ name: 'exarchos', mcpServers }),
   };
 }
 
@@ -280,6 +322,109 @@ describe('claudeCodeWriter', () => {
     expect(entry.command).toBeDefined();
     expect(entry.args).toBeDefined();
     expect(Array.isArray(entry.args)).toBe(true);
+  });
+
+  /**
+   * The user-scope entry and the plugin manifest start the same server.
+   * The test reads the shipped manifest, so the two registrations cannot drift apart.
+   */
+  it('ClaudeCodeWriter_McpServerEntry_MatchesThePluginRegistration', async () => {
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    await claudeCodeWriter.write(deps, defaultOptions());
+
+    const plugin = JSON.parse(readFileSync(PLUGIN_MANIFEST, 'utf8'));
+    const entry = exarchosEntryOf(stagedJson(fs.written, '/home/user/.claude.json.tmp'));
+    expect(entry).toMatchObject({
+      command: plugin.mcpServers.exarchos.command,
+      args: plugin.mcpServers.exarchos.args,
+    });
+    expect(entry).toEqual(EXPECTED_ENTRY);
+  });
+
+  /** No install step puts a file under `~/.claude/mcp-servers/`, so an entry that names that directory starts nothing. */
+  it('ClaudeCodeWriter_McpServerEntry_NamesNoMcpServersBundle', async () => {
+    const fs = makeMemFs();
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    await claudeCodeWriter.write(deps, defaultOptions());
+
+    const entry = exarchosEntryOf(stagedJson(fs.written, '/home/user/.claude.json.tmp'));
+    expect(entry).toBeDefined();
+    expect(JSON.stringify(entry)).not.toContain('mcp-servers');
+  });
+
+  /**
+   * An older writer pointed the entry at `~/.claude/mcp-servers/exarchos-mcp.js`, which nothing installs.
+   * The writer replaces that entry without `forceOverwrite`, and it keeps the other servers.
+   */
+  it('ClaudeCodeWriter_StaleBundleEntry_IsRewrittenWithoutForce', async () => {
+    const other = { type: 'stdio', command: 'node', args: ['other.js'] };
+    const existingConfig = JSON.stringify({
+      mcpServers: {
+        exarchos: {
+          type: 'stdio',
+          command: 'node',
+          args: ['/home/user/.claude/mcp-servers/exarchos-mcp.js'],
+          env: { WORKFLOW_STATE_DIR: '/home/user/.claude/workflow-state' },
+        },
+        other,
+      },
+    });
+    const fs = makeMemFs({
+      '/home/user/.claude.json': existingConfig,
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('written');
+    expect(result.componentsWritten).toContain('mcp-config');
+    const content = stagedJson(fs.written, '/home/user/.claude.json.tmp');
+    expect(exarchosEntryOf(content)).toEqual(EXPECTED_ENTRY);
+    expect(content).toMatchObject({ mcpServers: { other } });
+  });
+
+  /**
+   * The repair matches the bundle directory only.
+   * A `node` entry in a sibling directory is a hand edit, so the writer keeps it without `forceOverwrite`.
+   */
+  it('ClaudeCodeWriter_NodeEntryOutsideTheBundleDir_IsKeptWithoutForce', async () => {
+    const existingConfig = JSON.stringify({
+      mcpServers: {
+        exarchos: {
+          type: 'stdio',
+          command: 'node',
+          args: ['/home/user/.claude/mcp-servers-dev/exarchos-mcp.js'],
+        },
+      },
+    });
+    const fs = makeMemFs({
+      '/home/user/.claude.json': existingConfig,
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.status).toBe('skipped');
+    expect(fs.written['/home/user/.claude.json.tmp']).toBeUndefined();
   });
 
   it('ClaudeCodeWriter_WithCommandsInProject_CopiesCommandsToClaudeHome', async () => {
@@ -509,5 +654,52 @@ describe('claudeCodeWriter on-ramp phase (DR-5)', () => {
     const result = await writer.write(deps, defaultOptions());
 
     expect(result.componentsWritten).toContain('onramp');
+  });
+});
+
+describe('claudeCodeWriter with the exarchos plugin installed', () => {
+  /**
+   * The plugin manifest already starts the server, so a user-scope entry is a second `exarchos` server.
+   * The writer does not touch `~/.claude.json`, and the content phases still run.
+   */
+  it('ClaudeCodeWriter_PluginWiresExarchos_SkipsMcpConfig', async () => {
+    const fs = makeMemFs({
+      ...pluginFiles({ exarchos: { type: 'stdio', command: 'exarchos', args: ['mcp'] } }),
+      '/home/user/.claude.json': JSON.stringify({ numStartups: 3 }),
+      '/project/commands/workflow.md': '# Workflow',
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(fs.written['/home/user/.claude.json.tmp']).toBeUndefined();
+    expect(fs.written['/home/user/.claude.json']).toBeUndefined();
+    expect(result.componentsWritten).not.toContain('mcp-config');
+    expect(result.componentsWritten).toContain('commands');
+    expect(result.warnings?.some((w) => w.includes('registered by the exarchos plugin'))).toBe(true);
+  });
+
+  /** A plugin manifest that declares no `exarchos` server does not start it, so the writer still writes the entry. */
+  it('ClaudeCodeWriter_PluginWithoutExarchosServer_WritesMcpConfig', async () => {
+    const fs = makeMemFs({
+      ...pluginFiles({}),
+      '/home/user/.claude.json': JSON.stringify({ numStartups: 3 }),
+    });
+    const deps = makeStubWriterDeps({
+      fs,
+      home: () => '/home/user',
+      cwd: () => '/project',
+    });
+
+    const result = await claudeCodeWriter.write(deps, defaultOptions());
+
+    expect(result.componentsWritten).toContain('mcp-config');
+    const content = stagedJson(fs.written, '/home/user/.claude.json.tmp');
+    expect(exarchosEntryOf(content)).toEqual(EXPECTED_ENTRY);
+    expect(content).toMatchObject({ numStartups: 3 });
   });
 });

@@ -174,7 +174,7 @@ async function probeJsonMcpConfig(
  * Without this probe, `exarchos doctor` reports a false negative for that install.
  * Any read or parse failure gives `false`.
  */
-async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise<boolean> {
+export async function probeExarchosPluginInstall(fs: DetectorFs, home: string): Promise<boolean> {
   const installedPluginsPath = toPosix(path.join(home, '.claude', 'plugins', 'installed_plugins.json'));
   let raw: string | null;
   try {

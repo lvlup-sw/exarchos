@@ -18,6 +18,7 @@ import type { RuntimeConfigWriter, WriteOptions } from './writer.js';
 import { deployOnrampBlocks } from './onramp-block.js';
 import { fsyncDir, publishTempFile } from '../../../utils/atomic-write.js';
 import type { PromotionIo } from '../../../install/atomic-promotion.js';
+import { probeExarchosPluginInstall } from '../../../runtime/agent-environment-detector.js';
 import {
   promoteConfigFile,
   recoverInterruptedConfigPromotions,
@@ -136,15 +137,34 @@ async function readExistingConfig(
   }
 }
 
+/**
+ * The user-scope entry. Its command and arguments are the same as `mcpServers.exarchos` in `.claude-plugin/plugin.json`.
+ * The entry starts the `exarchos` binary on PATH with the `mcp` subcommand.
+ */
 function buildExarchosEntry(home: string): McpServerEntry {
   return {
     type: 'stdio',
-    command: 'node',
-    args: [toPosix(join(home, '.claude', 'mcp-servers', 'exarchos-mcp.js'))],
+    command: 'exarchos',
+    args: ['mcp'],
     env: {
       WORKFLOW_STATE_DIR: toPosix(join(home, '.claude', 'workflow-state')),
     },
   };
+}
+
+/**
+ * True for an `exarchos` entry that an older writer made: the command is `node` and the first argument is under `~/.claude/mcp-servers/`.
+ * No install step creates a file in that directory, so the entry starts a server that fails.
+ * Any other entry is a hand edit.
+ */
+function isStaleBundleEntry(entry: unknown, home: string): boolean {
+  if (typeof entry !== 'object' || entry === null) return false;
+  if (!('command' in entry) || entry.command !== 'node') return false;
+  if (!('args' in entry) || !Array.isArray(entry.args)) return false;
+  const first: unknown = entry.args[0];
+  if (typeof first !== 'string') return false;
+  const bundleDir = toPosix(join(home, '.claude', 'mcp-servers'));
+  return toPosix(first).startsWith(`${bundleDir}/`);
 }
 
 /** Check if a directory exists at the given path. */
@@ -192,9 +212,17 @@ async function copyDirRecursive(
   }
 }
 
+/** The outcome of the MCP phase. `skipped` names the reason when the phase writes nothing and has no error. */
+interface McpDeployResult {
+  readonly wrote: boolean;
+  readonly error?: string;
+  readonly skipped?: 'plugin' | 'registered';
+}
+
 /**
  * Merges the exarchos entry into `~/.claude.json` and promotes the result: stage, verify, journal, backup, and commit.
- * An existing entry stays unless `forceOverwrite` is set.
+ * An installed exarchos plugin that wires the server skips the phase, because a second user-scope server is a duplicate.
+ * A stale bundle entry is replaced. Any other existing entry stays unless `forceOverwrite` is set.
  *
  * `stagePath` pins the staged copy at `<target>.tmp`, because `claude-code.test.ts` asserts that path.
  * The verify comes before the publish. So a concurrent writer that clobbers the staged copy makes the verify refuse.
@@ -204,9 +232,13 @@ async function deployMcpConfig(
   deps: WriterDeps,
   options: WriteOptions,
   promotionIo?: PromotionIo,
-): Promise<{ wrote: boolean; error?: string }> {
+): Promise<McpDeployResult> {
   const home = deps.home();
   const configPath = claudeConfigPath(home);
+
+  if (await probeExarchosPluginInstall(deps.fs, home)) {
+    return { wrote: false, skipped: 'plugin' };
+  }
 
   const { config, error } = await readExistingConfig(deps, configPath);
   if (config === null) {
@@ -218,9 +250,10 @@ async function deployMcpConfig(
     ? rawServers as Record<string, unknown>
     : {};
   const alreadyRegistered = 'exarchos' in existingServers;
+  const keep = alreadyRegistered && !isStaleBundleEntry(existingServers.exarchos, home);
 
-  if (alreadyRegistered && !options.forceOverwrite) {
-    return { wrote: false };
+  if (keep && !options.forceOverwrite) {
+    return { wrote: false, skipped: 'registered' };
   }
 
   const mergedConfig: ClaudeConfig = {
@@ -331,6 +364,8 @@ export async function writeClaudeCode(
   }
   if (mcpResult.wrote) {
     componentsWritten.push('mcp-config');
+  } else if (mcpResult.skipped === 'plugin') {
+    warnings.push('exarchos MCP server is registered by the exarchos plugin; ~/.claude.json is unchanged');
   } else {
     warnings.push('exarchos MCP server already registered; use forceOverwrite to update');
   }

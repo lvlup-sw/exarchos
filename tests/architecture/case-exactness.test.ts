@@ -51,8 +51,8 @@ interface Declared {
 /**
  * Each declared path, with the config key that declares it. Only literal paths
  * count, because a glob or a negation has no single spelling. The list omits
- * `bundlePath`, which `McpBundlePath_IsAFilenameCarrier_NotAResolvablePath`
- * covers.
+ * the manifest `bundlePath`, because no build step emits it and no production
+ * code reads it.
  */
 function declaredPaths(): Declared[] {
   const out: Declared[] = [];
@@ -143,29 +143,6 @@ describe('case exactness', () => {
     expect(resolvesWithExactCase('rendered')).toBe(true);
     expect(resolvesWithExactCase('src/index.ts')).toBe(true);
     expect(resolvesWithExactCase('package.json')).toBe(true);
-  });
-
-  /**
-   * No build step emits the declared `bundlePath`, so it does not resolve on a
-   * built tree. `generateMcpEntry` reads only its basename, which names the
-   * installed server, and no production code opens the path. Thus the
-   * basename is the contract. It must equal the fallback name of the
-   * installer, so the declaration and the default give one install location.
-   */
-  it('McpBundlePath_IsAFilenameCarrier_NotAResolvablePath', () => {
-    const manifest = readJson('manifest.json');
-    const servers = ((manifest.components ?? {}) as Record<string, unknown>).mcpServers;
-    const bundled = (servers as Record<string, unknown>[]).filter((s) => s.type === 'bundled');
-
-    expect(bundled.length, 'no bundled MCP server declared — nothing to check').toBeGreaterThan(0);
-
-    for (const server of bundled) {
-      const declaredPath = server.bundlePath;
-      if (typeof declaredPath !== 'string') continue;
-
-      expect(path.posix.basename(declaredPath)).toBe(`${String(server.id)}-mcp.js`);
-      expect(declaredPath.includes('\\'), 'bundlePath must be POSIX-shaped').toBe(false);
-    }
   });
 
   /**

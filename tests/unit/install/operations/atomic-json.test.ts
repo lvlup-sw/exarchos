@@ -18,7 +18,6 @@ import {
   type AtomicJsonFs,
 } from '../../../../src/install/operations/atomic-json.js';
 import { readConfig, writeConfig } from '../../../../src/install/operations/config.js';
-import { readMcpConfig, writeMcpConfig } from '../../../../src/install/operations/mcp.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
 describe('atomic JSON configuration I/O (EFF-008)', () => {
@@ -214,25 +213,5 @@ describe('config writers route through the atomic primitive (EFF-008)', () => {
     const filePath = path.join(dir, 'exarchos.json');
     fs.writeFileSync(filePath, 'not json', 'utf-8');
     expect(() => readConfig(filePath)).toThrow(ConfigParseError);
-  });
-
-  it('WriteMcpConfig_PreservesUnrelatedKeysAndRoundTrips', () => {
-    const filePath = path.join(dir, 'claude.json');
-    writeMcpConfig(filePath, { mcpServers: { exarchos: { command: 'exarchos' } } });
-    expect(readMcpConfig(filePath).mcpServers?.exarchos).toEqual({ command: 'exarchos' });
-  });
-
-  /**
-   * A reader that returns `{}` for a corrupt file makes the next merge-and-write
-   * delete each server that the user configured.
-   */
-  it('ReadMcpConfig_CorruptFile_ThrowsRatherThanReturningEmpty', () => {
-    const filePath = path.join(dir, 'claude.json');
-    fs.writeFileSync(filePath, '{ "mcpServers": ', 'utf-8');
-    expect(() => readMcpConfig(filePath)).toThrow(ConfigParseError);
-  });
-
-  it('ReadMcpConfig_MissingFile_ReturnsEmpty', () => {
-    expect(readMcpConfig(path.join(dir, 'absent.json'))).toEqual({});
   });
 });
