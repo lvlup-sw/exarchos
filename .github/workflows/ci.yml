@@ -1251,6 +1251,47 @@ jobs:
           fi
 
   # ─────────────────────────────────────────────────────────────────────
+  # startup-budget
+  # ─────────────────────────────────────────────────────────────────────
+  # Times the compiled host binary against the cold-start budgets in
+  # `tools/evals/bench/cli-startup.bench.ts`. The job runs only that file, so no other test
+  # file competes for the CPU. It fails on a budget breach and on a skipped or missing case.
+  #
+  # DISPOSITION: NON-BLOCKING while the budgets soak. A wall-clock gate on a shared runner
+  # needs a measured failure rate under the 2% threshold before CI Gate can require it.
+  # ─────────────────────────────────────────────────────────────────────
+  startup-budget:
+    name: Startup Budget (linux-x64)
+    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+
+      - name: Install dependencies
+        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
+
+      - name: Build host binary (linux-x64)
+        run: bun run tools/release/build-binary.ts --target linux-x64
+
+      - name: Run cold-start budgets
+        shell: bash
+        env:
+          BENCH_STRICT: '1'
+        run: |
+          EXARCHOS_BENCH_BIN="$PWD/dist/bin/exarchos-linux-x64" npx --no-install vitest run --project core tools/evals/bench/cli-startup.bench.ts --reporter=default --reporter=json --outputFile=.startup-report.json
+          node -e "const r=require('./.startup-report.json');const bad=(r.numPendingTests||0)+(r.numTodoTests||0)+(r.numFailedTests||0);console.log('passed',r.numPassedTests,'not passed',bad);if(r.numPassedTests!==4||bad!==0)process.exit(1)"
+
+  # ─────────────────────────────────────────────────────────────────────
   # outcome-tests
   # ─────────────────────────────────────────────────────────────────────
   # Runs the `outcome` vitest project (the data-safety substrate). The tier exercises

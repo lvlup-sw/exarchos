@@ -1,90 +1,102 @@
 /**
- * Cold-start benchmark for the CLI. It measures the full boot time of one CLI process against a p95 budget.
+ * Cold-start budgets for the compiled `exarchos` binary, the artifact that users run.
  *
- * Each test spawns `node dist/index.js wf status -f <nonexistent> --json` 50 times after two discarded warmup runs.
- * Each spawn pays the Node start, the module load, the dispatch and the exit cost.
- * The telemetry-off test holds the hard budget. The telemetry-on test holds a soft ceiling for the production configuration.
- * The subprocess uses an isolated temporary `WORKFLOW_STATE_DIR`, so it does not touch the real state.
- * The tests skip when `dist/index.js` is missing.
+ * Each case spawns the binary named by `EXARCHOS_BENCH_BIN` many times after two warmup runs, and
+ * checks the exit code of every sample. The cases are a full CLI command with telemetry off and on,
+ * `--version`, and the PreToolUse hook `verify-worktree-boundary`.
+ * The tests skip when `EXARCHOS_BENCH_BIN` is unset, so the parallel `core` lane does no timing.
+ * The `startup-budget` CI job sets it and `BENCH_STRICT`, and fails when a test skips.
  */
-import { describe, it, expect } from 'vitest';
 import { spawn } from 'node:child_process';
-import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { execFileAsync } from '../../test-helpers/spawn.js';
 import { rmrfAsync } from '../../test-helpers/temp-dir.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+/** The binary under test. The tests skip without it. */
+const BENCH_BIN = process.env['EXARCHOS_BENCH_BIN'];
 
-/** Absolute path to the compiled CLI entry, `dist/index.js`. */
-const CLI_BIN = path.resolve(__dirname, '../../../dist/index.js');
+/** Timed samples per case, after the warmup runs. */
+const SAMPLE_COUNT = 40;
 
-const SAMPLE_COUNT = 50;
-
-/** Warmup samples that the statistics ignore. They prime the file-system cache and the JIT. */
+/** Warmup runs that the statistics ignore. They prime the file-system cache. */
 const WARMUP_COUNT = 2;
 
-/** The hard p95 budget in ms for the telemetry-off path. */
-const P95_BUDGET_TELEMETRY_OFF_MS = 250;
-
-/** The soft p95 ceiling in ms for the telemetry-on path. */
-const P95_BUDGET_TELEMETRY_ON_MS = 350;
-
-/** The time limit for one process. When a sample passes it, the bench kills the process and fails. */
+/** The time limit for one process. A sample over it fails the case. */
 const PER_SAMPLE_TIMEOUT_MS = 10_000;
 
+/** The time limit for one case: all of its samples and the warmup. */
+const CASE_TIMEOUT_MS = 180_000;
+
 /**
- * Strict mode turns on the p95 assertions. It is on when `CI` or `BENCH_STRICT` is `1`.
- * Without it, a test logs the measurements and warns over budget, but does not fail.
- * Parallel workers on a busy laptop compress the headroom too much for a hard assertion.
+ * Strict mode turns the budgets into assertions. It reads `BENCH_STRICT` with the rule the installer
+ * tests use for `CI`: any value except empty, `0` and `false` is true. Without it, a case over budget
+ * logs a warning, so a busy laptop does not fail.
  */
-const STRICT = process.env.CI === '1' || process.env.BENCH_STRICT === '1';
+const STRICT = !['', '0', 'false'].includes((process.env['BENCH_STRICT'] ?? '').toLowerCase());
+
+interface BenchCase {
+  readonly name: string;
+  readonly args: readonly string[];
+  readonly telemetry: boolean;
+  readonly expectedExit: number;
+  /** The p95 budget in ms. The first CI runs set it from their p95 plus headroom. */
+  readonly p95BudgetMs: number;
+  /** Builds the stdin text of one sample. */
+  readonly input?: (fixture: string) => string;
+}
+
+/** `wf status` on a missing feature with telemetry off. A missing feature makes it exit 2. */
+const STATUS_TELEMETRY_OFF: BenchCase = {
+  name: 'status, telemetry off',
+  args: ['wf', 'status', '-f', 'cold-start-bench-nonexistent', '--json'],
+  telemetry: false,
+  expectedExit: 2,
+  p95BudgetMs: 500,
+};
+
+/** The same command with telemetry on, the production default. */
+const STATUS_TELEMETRY_ON: BenchCase = { ...STATUS_TELEMETRY_OFF, name: 'status, telemetry on', telemetry: true, p95BudgetMs: 600 };
+
+/** The `--version` fast path. */
+const VERSION_FLAG: BenchCase = {
+  name: '--version',
+  args: ['--version'],
+  telemetry: false,
+  expectedExit: 0,
+  p95BudgetMs: 300,
+};
+
+/** The PreToolUse hook with a write inside the fixture worktree. */
+const WORKTREE_BOUNDARY_HOOK: BenchCase = {
+  name: 'verify-worktree-boundary',
+  args: ['verify-worktree-boundary'],
+  telemetry: false,
+  expectedExit: 0,
+  p95BudgetMs: 300,
+  input: (fixture) => JSON.stringify({ cwd: fixture, tool_input: { file_path: path.join(fixture, 'a.txt') } }),
+};
 
 interface SpawnTiming {
   readonly elapsedMs: number;
   readonly exitCode: number | null;
 }
 
-interface BenchOptions {
-  readonly telemetry: boolean;
-}
-
-/**
- * Spawns one CLI process and measures the wall-clock time until its `close` event.
- * The child ignores stdout and stderr, so pipe draining stays out of the measurement.
- * It removes the parent value of `EXARCHOS_TELEMETRY`, so that value cannot change the variant.
- * The telemetry-off variant sets it to `false`, which turns telemetry off. The telemetry-on variant leaves it unset, so the default applies.
- */
-function spawnOnce(stateDir: string, opts: BenchOptions): Promise<SpawnTiming> {
+/** Spawns the binary once and measures the wall-clock time until its `close` event. */
+function spawnOnce(bin: string, benchCase: BenchCase, stateDir: string, fixture: string): Promise<SpawnTiming> {
   return new Promise((resolve, reject) => {
-    const t0 = performance.now();
-
     const { EXARCHOS_TELEMETRY: _stripped, ...baseEnv } = process.env;
-    const env: NodeJS.ProcessEnv = {
-      ...baseEnv,
-      WORKFLOW_STATE_DIR: stateDir,
-    };
-    if (!opts.telemetry) {
-      env.EXARCHOS_TELEMETRY = 'false';
-    }
+    const env: NodeJS.ProcessEnv = { ...baseEnv, WORKFLOW_STATE_DIR: stateDir };
+    if (!benchCase.telemetry) env['EXARCHOS_TELEMETRY'] = 'false';
 
-    const child = spawn(
-      process.execPath,
-      [CLI_BIN, 'wf', 'status', '-f', 'cold-start-bench-nonexistent', '--json'],
-      {
-        stdio: 'ignore',
-        env,
-      },
-    );
-
+    const t0 = performance.now();
+    const child = spawn(bin, [...benchCase.args], { cwd: fixture, env, stdio: ['pipe', 'ignore', 'ignore'] });
     const killer = setTimeout(() => {
       child.kill('SIGKILL');
-      reject(new Error(`cli-cold-start: sample exceeded ${PER_SAMPLE_TIMEOUT_MS}ms`));
+      reject(new Error(`${benchCase.name}: a sample exceeded ${PER_SAMPLE_TIMEOUT_MS} ms`));
     }, PER_SAMPLE_TIMEOUT_MS);
-
     child.on('error', (err) => {
       clearTimeout(killer);
       reject(err);
@@ -93,104 +105,84 @@ function spawnOnce(stateDir: string, opts: BenchOptions): Promise<SpawnTiming> {
       clearTimeout(killer);
       resolve({ elapsedMs: performance.now() - t0, exitCode: code });
     });
+    child.stdin.end(benchCase.input?.(fixture) ?? '');
   });
 }
 
-/** Returns the sample at percentile `p` of an ascending array, with the nearest-rank index `Math.ceil(p * n) - 1`. */
+/** Returns the sample at percentile `p` of an ascending array, with the nearest-rank index. */
 function percentile(sortedAsc: readonly number[], p: number): number {
-  if (sortedAsc.length === 0) throw new Error('percentile: empty sample set');
-  const idx = Math.max(0, Math.ceil(p * sortedAsc.length) - 1);
-  return sortedAsc[idx] as number;
+  const index = Math.max(0, Math.ceil(p * sortedAsc.length) - 1);
+  return sortedAsc[index] as number;
 }
 
-/**
- * Runs the warmup and the timed samples in a temporary state directory, and returns the timings in ascending order.
- * It accepts any exit code, because only the boot time counts. A sample without an exit code fails the test.
- */
-async function runBench(opts: BenchOptions): Promise<readonly number[]> {
-  const stateDir = await fsp.mkdtemp(path.join(os.tmpdir(), 'exarchos-cold-bench-'));
+/** Runs the warmup and the samples of one case in a fresh state directory and git repository. */
+async function measure(bin: string, benchCase: BenchCase): Promise<number[]> {
+  const root = await fsp.mkdtemp(path.join(os.tmpdir(), 'exarchos-cold-bench-'));
   try {
-    for (let i = 0; i < WARMUP_COUNT; i++) {
-      await spawnOnce(stateDir, opts);
-    }
+    const stateDir = path.join(root, 'state');
+    const fixture = path.join(root, 'repo');
+    await fsp.mkdir(stateDir, { recursive: true });
+    await fsp.mkdir(fixture, { recursive: true });
+    await execFileAsync('git', ['init', '-q'], { cwd: fixture });
 
+    for (let i = 0; i < WARMUP_COUNT; i++) await spawnOnce(bin, benchCase, stateDir, fixture);
     const samples: number[] = [];
     for (let i = 0; i < SAMPLE_COUNT; i++) {
-      const { elapsedMs, exitCode } = await spawnOnce(stateDir, opts);
-      expect(exitCode).not.toBeNull();
+      const { elapsedMs, exitCode } = await spawnOnce(bin, benchCase, stateDir, fixture);
+      expect(exitCode, `${benchCase.name}: sample ${i} exit code`).toBe(benchCase.expectedExit);
       samples.push(elapsedMs);
     }
-
-    samples.sort((a, b) => a - b);
-    return samples;
+    return samples.sort((a, b) => a - b);
   } finally {
-    await rmrfAsync(stateDir);
+    await rmrfAsync(root);
   }
 }
 
-const cliBinExists = fs.existsSync(CLI_BIN);
+/** Measures one case, logs its numbers and checks its budget. The log line sets the budgets. */
+async function runCase(benchCase: BenchCase): Promise<void> {
+  const samples = await measure(BENCH_BIN as string, benchCase);
+  const p50 = percentile(samples, 0.5);
+  const p95 = percentile(samples, 0.95);
+  // eslint-disable-next-line no-console
+  console.log(
+    `[cli-cold-start] ${benchCase.name} n=${samples.length} p50=${p50.toFixed(1)}ms ` +
+      `p95=${p95.toFixed(1)}ms max=${samples[samples.length - 1]?.toFixed(1)}ms ` +
+      `budget=${benchCase.p95BudgetMs}ms strict=${STRICT}`,
+  );
+  if (STRICT) {
+    expect(p95, `${benchCase.name}: p95 over budget`).toBeLessThan(benchCase.p95BudgetMs);
+  } else if (p95 >= benchCase.p95BudgetMs) {
+    // eslint-disable-next-line no-console
+    console.warn(`[cli-cold-start] ${benchCase.name}: p95 over budget. Strict mode fails this.`);
+  }
+}
 
-/** `.sequential` keeps the two 50-sample runs from running at the same time, so they do not compete for the CPU. */
-describe.sequential('cli-cold-start benchmark', () => {
-  it.skipIf(!cliBinExists)(
-    'CliColdStart_TelemetryOff_50Runs_P95Under250ms',
-    async () => {
-      const samples = await runBench({ telemetry: false });
-      const p50 = percentile(samples, 0.5);
-      const p95 = percentile(samples, 0.95);
-      const p99 = percentile(samples, 0.99);
+/** True when no binary is named, so the tests skip. */
+const NO_BINARY = BENCH_BIN === undefined || BENCH_BIN === '';
 
-      // eslint-disable-next-line no-console
-      console.log(
-        `[cli-cold-start telemetry=off] n=${samples.length} ` +
-          `p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms p99=${p99.toFixed(1)}ms ` +
-          `min=${samples[0]!.toFixed(1)}ms max=${samples[samples.length - 1]!.toFixed(1)}ms ` +
-          `budget=${P95_BUDGET_TELEMETRY_OFF_MS}ms strict=${STRICT}`,
-      );
-
-      if (STRICT) {
-        expect(p95).toBeLessThan(P95_BUDGET_TELEMETRY_OFF_MS);
-      } else {
-        if (p95 >= P95_BUDGET_TELEMETRY_OFF_MS) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[cli-cold-start telemetry=off] p95=${p95.toFixed(1)}ms exceeds budget ` +
-              `${P95_BUDGET_TELEMETRY_OFF_MS}ms — would fail under CI/BENCH_STRICT`,
-          );
-        }
-      }
-    },
-    120_000,
+/** `.sequential` keeps the cases from running at the same time and competing for the CPU. */
+describe.sequential('cli cold start of the compiled binary', () => {
+  /** A full CLI command with telemetry off. */
+  it.skipIf(NO_BINARY)(
+    'CliColdStart_StatusTelemetryOff_P95UnderBudget',
+    () => runCase(STATUS_TELEMETRY_OFF),
+    CASE_TIMEOUT_MS,
   );
 
-  it.skipIf(!cliBinExists)(
-    'CliColdStart_TelemetryOn_50Runs_P95Under350ms',
-    async () => {
-      const samples = await runBench({ telemetry: true });
-      const p50 = percentile(samples, 0.5);
-      const p95 = percentile(samples, 0.95);
-      const p99 = percentile(samples, 0.99);
+  /** A full CLI command with telemetry on. */
+  it.skipIf(NO_BINARY)(
+    'CliColdStart_StatusTelemetryOn_P95UnderBudget',
+    () => runCase(STATUS_TELEMETRY_ON),
+    CASE_TIMEOUT_MS,
+  );
 
-      // eslint-disable-next-line no-console
-      console.log(
-        `[cli-cold-start telemetry=on] n=${samples.length} ` +
-          `p50=${p50.toFixed(1)}ms p95=${p95.toFixed(1)}ms p99=${p99.toFixed(1)}ms ` +
-          `min=${samples[0]!.toFixed(1)}ms max=${samples[samples.length - 1]!.toFixed(1)}ms ` +
-          `budget=${P95_BUDGET_TELEMETRY_ON_MS}ms strict=${STRICT}`,
-      );
+  /** The `--version` fast path. */
+  it.skipIf(NO_BINARY)('CliColdStart_VersionFlag_P95UnderBudget', () => runCase(VERSION_FLAG), CASE_TIMEOUT_MS);
 
-      if (STRICT) {
-        expect(p95).toBeLessThan(P95_BUDGET_TELEMETRY_ON_MS);
-      } else {
-        if (p95 >= P95_BUDGET_TELEMETRY_ON_MS) {
-          // eslint-disable-next-line no-console
-          console.warn(
-            `[cli-cold-start telemetry=on] p95=${p95.toFixed(1)}ms exceeds budget ` +
-              `${P95_BUDGET_TELEMETRY_ON_MS}ms — would fail under CI/BENCH_STRICT`,
-          );
-        }
-      }
-    },
-    120_000,
+  /** The PreToolUse hook fast path. */
+  it.skipIf(NO_BINARY)(
+    'CliColdStart_WorktreeBoundaryHook_P95UnderBudget',
+    () => runCase(WORKTREE_BOUNDARY_HOOK),
+    CASE_TIMEOUT_MS,
   );
 });
