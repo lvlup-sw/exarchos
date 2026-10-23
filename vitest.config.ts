@@ -215,8 +215,9 @@ export default defineConfig({
       },
       {
         /**
-         * The outcome tier exercises real OS state: CLI binaries, git, and MCP handlers. It needs
-         * the `bun:sqlite` alias, because the SQLite backend of the MCP server imports `bun:sqlite`.
+         * The outcome tier exercises real OS state: real git repos and a temporary HOME. Most of its
+         * tests dispatch handlers in-process, and a few spawn the CLI. It needs the `bun:sqlite`
+         * alias, because the SQLite backend of the MCP server imports `bun:sqlite`.
          */
         resolve: {
           alias: {
