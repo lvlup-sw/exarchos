@@ -29,8 +29,9 @@ suite passes when it never runs.
 ## Verifying
 
 `npx vitest run` runs every root project. `npm run test:run` is the `unit`
-project ONLY — narrower than it sounds, and it omits the outcome lane that
-exercises the built binary. Prefer the former before claiming green.
+project ONLY — narrower than it sounds. It omits the `outcome` lane, which runs
+handlers in-process against real git repos, and the `process` lane, which runs
+the built binary. Prefer the former before claiming green.
 
 ## Guards, and how they die
 

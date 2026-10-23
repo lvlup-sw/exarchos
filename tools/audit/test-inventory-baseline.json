@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1336,
-    "parsedFiles": 1290,
+    "testFiles": 1337,
+    "parsedFiles": 1291,
     "shellFiles": 46,
-    "cases": 15028,
+    "cases": 15034,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -11810,6 +11810,42 @@
         {
           "suite": "DR-20 release manifest producer",
           "name": "ReleaseWorkflow_PublishesSignedManifestAsset",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/bun-version-pin.test.ts": {
+      "file": "tests/scripts/bun-version-pin.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_EveryWorkflow_ReadsVersionFile",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_VersionFile_IsExactSemver",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_CursorInstallScript_MatchesFile",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_RenovateRule_DisablesBunUpdates",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_LiteralVersionInStep_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_SetupBeforeCheckout_Fails",
           "dynamic": false
         }
       ]

@@ -65,7 +65,7 @@ jobs:
       # TypeScript entry directly.
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.3.13
+          bun-version-file: .bun-version
 
       # Product deps only — promptfoo is NOT here; it lives in the
       # opt-in eval package installed below. Retry-with-timeout so a transient
