@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1329,
-    "parsedFiles": 1283,
+    "testFiles": 1330,
+    "parsedFiles": 1284,
     "shellFiles": 46,
-    "cases": 14999,
+    "cases": 15006,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -65170,6 +65170,47 @@
         {
           "suite": "settle — the text of the action",
           "name": "SettleAction_ItsRequiresRationale_NoLongerSaysTheVerdictReadsNoCurrentState",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-decision-standing.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-decision-standing.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — the decision round reads the standing of the named tasks",
+          "name": "Settle_ADecisionWhoseDeviationNamesAFinishedTask_IsRejectedVerifiesNothingAndRevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round reads the standing of the named tasks",
+          "name": "Settle_TwoAcceptedMaterialDeviations_RevisesOnlyForTheOneThatNamesNoFinishedTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round reads the standing of the named tasks",
+          "name": "Settle_ARejectedDeviationNamingAFinishedTask_KeepsDeviationRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round reads the standing of the named tasks",
+          "name": "Settle_ADecisionWhenThePlanDoesNotResolve_UsesTheCompletionRows",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a named task that completes before the commit of the decision round",
+          "name": "Settle_ADecisionWhoseNamedTaskIsCompletedBeforeTheCommit_IsRejectedAndRevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a named task that completes before the commit of the decision round",
+          "name": "Settle_ADecisionWhoseNamedTaskIsCompletedAfterItsSegments_KeepsTheVerifiedTasks",
+          "dynamic": false
+        },
+        {
+          "suite": "the accepted material deviations of a decision round",
+          "name": "AcceptedMaterialDeviations_ADeviationNamingAFinishedTask_IsNotSelected",
           "dynamic": false
         }
       ]

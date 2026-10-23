@@ -176,8 +176,8 @@ export interface SettlementInputs {
   /** The round of the call: 0 for the round that submits the batch, 1 for the decision round. */
   readonly round: number;
   /**
-   * How a task stands in the plan, read before the commit. It applies on the round that submits the batch only.
-   * A task that the facts show complete is finished, whatever the plan says.
+   * How a task stands in the plan, read before the commit. It is absent when no deviation names a task.
+   * On the decision round, it is also absent when the plan does not resolve.
    */
   readonly planStanding?: (taskId: string) => TaskStanding;
   /** The blob checks of the cited records, by evidence key. */
@@ -206,10 +206,30 @@ export interface SettlementJudgement {
   readonly needsSegment: readonly string[];
   /** The cited records whose blob check is not in the inputs, or that changed after the check. */
   readonly needsEvidenceCheck: readonly CitedRecord[];
-  /** The accepted material deviations. A decision round records one design revision for them. */
+  /** The accepted material deviations that name no finished task. A decision round records one design revision for them. */
   readonly revising: readonly ProposedDeviation[];
   /** The result of the first refused run, in run order, whose task the facts do not show complete. */
   readonly refusal?: ToolResult;
+}
+
+/**
+ * How a task that a deviation names stands on the round of the inputs, or undefined when the round reads no standing.
+ * A task that the facts show complete is finished, whatever the plan says.
+ * On the round that submits the batch, each other task stands as the plan says, and there is no standing without the plan.
+ * On the decision round, each other task is finished when the plan shows it complete, and pending in all other cases.
+ * Thus a decision still settles after a later plan drops a named task, and when the plan does not resolve.
+ */
+function roundStanding(
+  inputs: SettlementInputs,
+  completed: ReadonlySet<string>,
+): ((taskId: string) => TaskStanding) | undefined {
+  const plan = inputs.planStanding;
+  if (inputs.round === 0) {
+    if (plan === undefined) return undefined;
+    return (taskId) => (completed.has(taskId) ? { kind: 'finished' } : plan(taskId));
+  }
+  return (taskId) =>
+    completed.has(taskId) || plan?.(taskId).kind === 'finished' ? { kind: 'finished' } : { kind: 'pending' };
 }
 
 /** Whether a run halted: a refused run that ran and halted, or a run whose gate verdict failed. */
@@ -262,6 +282,7 @@ function judgedTraces(
  * reports a status, because adjudication accepts such a claim when the task is complete.
  * A judgement that does not verify still gives the traces of the runs that the call made before a read changed.
  * A judgement that names a needed segment or a needed evidence check is not final.
+ * The standing of a task that a deviation names takes its completion from the facts, so the commit compares it too.
  */
 export function judgeSettlement(
   inputs: SettlementInputs,
@@ -274,25 +295,20 @@ export function judgeSettlement(
     if (check === undefined || canonicalJson(check.record) !== canonicalJson(cited.record)) return undefined;
     return check.intact;
   };
-  const planStanding = inputs.round === 0 ? inputs.planStanding : undefined;
+  const taskStanding = roundStanding(inputs, facts.completed);
   const context: AdjudicationContext = {
     evidenceResolves: (evidence) => {
       const cited = facts.cited.get(evidenceKey(evidence));
       return cited !== undefined && checkedIntact(cited) === true;
     },
-    decided,
+    ...(inputs.round === 0 ? {} : { decided }),
     supersedingDesignVersion: (taskId) => facts.revisions.get(taskId),
     taskComplete: (taskId) => facts.completed.has(taskId),
-    ...(planStanding !== undefined
-      ? {
-          taskStanding: (taskId: string): TaskStanding =>
-            facts.completed.has(taskId) ? { kind: 'finished' } : planStanding(taskId),
-        }
-      : {}),
+    ...(taskStanding !== undefined ? { taskStanding } : {}),
   };
 
   const needsEvidenceCheck = [...facts.cited.values()].filter((cited) => checkedIntact(cited) === undefined);
-  const revising = acceptedMaterialDeviations(capsule, deviations, decided);
+  const revising = acceptedMaterialDeviations(capsule, deviations, decided, taskStanding);
   let refusal: ToolResult | undefined;
   for (const [taskId, run] of runs) {
     if (run.kind === 'refused' && !(run.halted && facts.completed.has(taskId))) {

@@ -415,11 +415,14 @@ export interface AdjudicationContext {
    * The decision for a proposed deviation on the round that decides a held batch.
    * `accepted` admits the deviation, and `rejected` refuses the batch.
    * It returns undefined for an undecided deviation. The round that proposes the deviations has no `decided` function.
+   * With this function, the loop reads the decision of a deviation before the standing of its tasks.
    */
   readonly decided?: (deviation: ProposedDeviation) => 'accepted' | 'rejected' | undefined;
   /**
-   * How a task that a deviation names stands. The handler supplies it only on the first submission of a batch whose deviations name tasks.
-   * Without it, the affected tasks get no check. Thus a decision still settles after a later plan drops an affected task.
+   * How a task that a deviation names stands. Settlement supplies it on each round whose deviations name tasks.
+   * On the round that submits the batch, each named task gets the checks for an unknown, a finished and a claimed task.
+   * On the decision round, only an accepted deviation gets a check, and a finished task refuses it.
+   * Without the function, the named tasks get no check.
    */
   readonly taskStanding?: (taskId: string) => TaskStanding;
   /**
@@ -584,6 +587,45 @@ function typeOfValue(value: unknown): string {
 }
 
 /**
+ * The finding for a task that a deviation names and that is finished.
+ * `named` is the deviation kind as JSON, and `taskAt` is the place of the task in the deviation.
+ */
+function namesFinishedTask(named: string, taskId: string, taskAt: string): SettlementFinding {
+  return {
+    kind: 'deviation-names-finished-task',
+    subject: taskId,
+    at: taskAt,
+    message:
+      `${named} names task ${JSON.stringify(taskId)} as affected, and that task is finished. A finished ` +
+      'task is not reopened: plan the rework as a new task, and name the new task',
+  };
+}
+
+/** The finding for a deviation that the decision refused. */
+function deviationRejected(deviation: ProposedDeviation, at: string): SettlementFinding {
+  return {
+    kind: 'deviation-rejected',
+    subject: deviation.deviationKind,
+    at,
+    message:
+      `${JSON.stringify(deviation.deviationKind)} was proposed and the decision refused it, ` +
+      'so the batch is rejected: the work that stood on the deviation is not accepted',
+  };
+}
+
+/** The finding for a deviation inside an envelope that requires approval, when no decision answers it. */
+function deviationAwaitingApproval(deviation: ProposedDeviation, at: string): SettlementFinding {
+  return {
+    kind: 'deviation-awaiting-approval',
+    subject: deviation.deviationKind,
+    at,
+    message:
+      `${JSON.stringify(deviation.deviationKind)} is inside the envelope and the envelope ` +
+      'requires approval, so the batch is held rather than settled',
+  };
+}
+
+/**
  * Adjudicates one batch of claims against a pinned capsule.
  * The capsule must be valid already: the caller parses it with `ExarchosCapsuleV1Schema` and resolves its references.
  *
@@ -592,7 +634,7 @@ function typeOfValue(value: unknown): string {
  * On the final pass, a claim is accepted only when its verification passed.
  * A rejected deviation refuses the batch, because the decision is made and the next batch is a correction.
  * A deviation inside the envelope can affect only a pending task that the batch does not claim as completed.
- * Each other task that it names refuses the batch, so the batch is not held.
+ * Each other task that it names refuses the batch, but the decision round refuses only an accepted deviation that names a finished task.
  *
  * A claim for a task that a later revision names is refused whole, because the capsule holds the earlier terms of the task.
  * The finding is stale, so the whole batch waits for the capsule that the next preparation compiles.
@@ -806,12 +848,34 @@ export function adjudicateSettlement(
       });
       return;
     }
+    const named = JSON.stringify(deviation.deviationKind);
+    const affected = (deviation.affectedTasks ?? []).map((taskId, j) => ({
+      taskId,
+      taskAt: `deviations[${i}].affectedTasks[${j}]`,
+    }));
     const standingOf = context.taskStanding;
+    const decidedOf = context.decided;
+    if (decidedOf !== undefined) {
+      if (!capsule.contracts.deviationEnvelope.requiresApproval) return;
+      const decision = decidedOf(deviation);
+      if (decision === undefined) {
+        findings.push(deviationAwaitingApproval(deviation, at));
+        return;
+      }
+      census.decisions += 1;
+      if (decision === 'rejected') {
+        findings.push(deviationRejected(deviation, at));
+        return;
+      }
+      if (standingOf === undefined) return;
+      for (const { taskId, taskAt } of affected) {
+        if (standingOf(taskId).kind === 'finished') findings.push(namesFinishedTask(named, taskId, taskAt));
+      }
+      return;
+    }
     if (standingOf !== undefined) {
       const before = findings.length;
-      const named = JSON.stringify(deviation.deviationKind);
-      (deviation.affectedTasks ?? []).forEach((taskId, j) => {
-        const taskAt = `deviations[${i}].affectedTasks[${j}]`;
+      for (const { taskId, taskAt } of affected) {
         const task = JSON.stringify(taskId);
         const standing = standingOf(taskId);
         if (standing.kind === 'unknown') {
@@ -826,16 +890,7 @@ export function adjudicateSettlement(
                   `not be read: ${standing.unreadable}`,
           });
         }
-        if (standing.kind === 'finished') {
-          findings.push({
-            kind: 'deviation-names-finished-task',
-            subject: taskId,
-            at: taskAt,
-            message:
-              `${named} names task ${task} as affected, and that task is finished. A finished ` +
-              'task is not reopened: plan the rework as a new task, and name the new task',
-          });
-        }
+        if (standing.kind === 'finished') findings.push(namesFinishedTask(named, taskId, taskAt));
         if (claimedAsCompleted.has(taskId)) {
           findings.push({
             kind: 'deviation-names-claimed-task',
@@ -846,32 +901,11 @@ export function adjudicateSettlement(
               'deviation affects work that is still to do, not a result that the batch returns',
           });
         }
-      });
+      }
       if (findings.length !== before) return;
     }
     if (!capsule.contracts.deviationEnvelope.requiresApproval) return;
-    const decision = context.decided?.(deviation);
-    if (decision !== undefined) census.decisions += 1;
-    if (decision === 'accepted') return;
-    if (decision === 'rejected') {
-      findings.push({
-        kind: 'deviation-rejected',
-        subject: deviation.deviationKind,
-        at,
-        message:
-          `${JSON.stringify(deviation.deviationKind)} was proposed and the decision refused it, ` +
-          'so the batch is rejected: the work that stood on the deviation is not accepted',
-      });
-      return;
-    }
-    findings.push({
-      kind: 'deviation-awaiting-approval',
-      subject: deviation.deviationKind,
-      at,
-      message:
-        `${JSON.stringify(deviation.deviationKind)} is inside the envelope and the envelope ` +
-        'requires approval, so the batch is held rather than settled',
-    });
+    findings.push(deviationAwaitingApproval(deviation, at));
   });
 
   const outcome = outcomeOf(findings, recorded.length > 0);
@@ -891,14 +925,19 @@ export function adjudicateSettlement(
  * A deviation is in the list when the decision accepted it and the pinned capsule lists its kind as material.
  * A capsule with no list of material kinds selects none, so a capsule stored without the list keeps its meaning.
  * The kinds come from the capsule that judges the batch, never from the current compiler.
+ * With `standingOf`, a deviation that names a finished task is not in the list, because a finished task is not revised.
  */
 export function acceptedMaterialDeviations(
   capsule: ExarchosCapsuleV1,
   deviations: readonly ProposedDeviation[],
   decided: NonNullable<AdjudicationContext['decided']>,
+  standingOf?: (taskId: string) => TaskStanding,
 ): ProposedDeviation[] {
   const material = new Set(capsule.contracts.deviationEnvelope.materialDeviationKinds ?? []);
+  const namesFinished = (deviation: ProposedDeviation): boolean =>
+    standingOf !== undefined && (deviation.affectedTasks ?? []).some((taskId) => standingOf(taskId).kind === 'finished');
   return deviations.filter(
-    (deviation) => material.has(deviation.deviationKind) && decided(deviation) === 'accepted',
+    (deviation) =>
+      material.has(deviation.deviationKind) && decided(deviation) === 'accepted' && !namesFinished(deviation),
   );
 }

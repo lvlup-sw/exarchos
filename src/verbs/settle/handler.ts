@@ -258,7 +258,7 @@ interface DesignRevisionContent {
 
 /**
  * The content of the design revision of one round, or undefined when the round revises nothing.
- * `revising` is the accepted material deviations of the round. One revision covers them all.
+ * `revising` is the accepted material deviations of the round that name no finished task. One revision covers them all.
  */
 function designRevisionContentOf(
   identity: SettledCapsuleIdentity,
@@ -395,8 +395,10 @@ type PlanStandingLookup =
  *
  * A task is finished when the plan reader shows it complete. The judgement adds the completion rows
  * from its facts. The reader takes one entry at a time. A refused entry is skipped, so it cannot
- * hide another task, and its own id is unknown with the refusal. A state that does not resolve
- * returns the error of the resolver.
+ * hide another task, and its own id is unknown with the refusal.
+ *
+ * A state that does not resolve returns the error of the resolver. The round that submits the batch
+ * fails on that error. The decision round reads the standing from the completion facts only.
  */
 async function planStandingLookup(ctx: DispatchContext, streamId: string): Promise<PlanStandingLookup> {
   const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: ctx.eventStore });
@@ -1574,10 +1576,10 @@ export async function handleSettle(
 
     const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
     let inputs: SettlementInputs = { capsule, claims, deviations, decided, round, evidenceChecks: new Map() };
-    if (!deciding && deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
+    if (deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await planStandingLookup(ctx, streamId);
-      if (!standing.ok) return standing.error;
-      inputs = { ...inputs, planStanding: standing.standingOf };
+      if (standing.ok) inputs = { ...inputs, planStanding: standing.standingOf };
+      else if (!deciding) return standing.error;
     }
 
     const call: SettlementCall = {

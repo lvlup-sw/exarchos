@@ -247,6 +247,12 @@
         "default": "telemetry",
         "owner": "@rsalus",
         "reason": "Each case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-decision-standing.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "Each case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
       }
     ],
     "contextSchema": {
