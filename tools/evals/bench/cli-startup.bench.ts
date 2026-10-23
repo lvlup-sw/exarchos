@@ -42,7 +42,7 @@ interface BenchCase {
   readonly args: readonly string[];
   readonly telemetry: boolean;
   readonly expectedExit: number;
-  /** The p95 budget in ms. The first CI runs set it from their p95 plus headroom. */
+  /** The p95 budget in ms: the p95 of the first `startup-budget` CI run times 1.5, rounded up to 5 ms. */
   readonly p95BudgetMs: number;
   /** Builds the stdin text of one sample. */
   readonly input?: (fixture: string) => string;
@@ -54,11 +54,11 @@ const STATUS_TELEMETRY_OFF: BenchCase = {
   args: ['wf', 'status', '-f', 'cold-start-bench-nonexistent', '--json'],
   telemetry: false,
   expectedExit: 2,
-  p95BudgetMs: 500,
+  p95BudgetMs: 620,
 };
 
 /** The same command with telemetry on, the production default. */
-const STATUS_TELEMETRY_ON: BenchCase = { ...STATUS_TELEMETRY_OFF, name: 'status, telemetry on', telemetry: true, p95BudgetMs: 600 };
+const STATUS_TELEMETRY_ON: BenchCase = { ...STATUS_TELEMETRY_OFF, name: 'status, telemetry on', telemetry: true, p95BudgetMs: 850 };
 
 /** The `--version` fast path. */
 const VERSION_FLAG: BenchCase = {
@@ -66,7 +66,7 @@ const VERSION_FLAG: BenchCase = {
   args: ['--version'],
   telemetry: false,
   expectedExit: 0,
-  p95BudgetMs: 300,
+  p95BudgetMs: 230,
 };
 
 /** The PreToolUse hook with a write inside the fixture worktree. */
@@ -75,7 +75,7 @@ const WORKTREE_BOUNDARY_HOOK: BenchCase = {
   args: ['verify-worktree-boundary'],
   telemetry: false,
   expectedExit: 0,
-  p95BudgetMs: 300,
+  p95BudgetMs: 245,
   input: (fixture) => JSON.stringify({ cwd: fixture, tool_input: { file_path: path.join(fixture, 'a.txt') } }),
 };
 
