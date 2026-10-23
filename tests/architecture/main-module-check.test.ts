@@ -31,11 +31,12 @@ const SCAN_TIMEOUT_MS = 60_000;
 
 /**
  * The two spellings of the unsafe check: a template literal and a string concatenation.
- * Each matches only when `argv[1]` is part of the `file://` string.
+ * Each matches only when `argv[1]` is part of the `file://` string, also across line breaks.
+ * The concatenation form stops at a semicolon or after 200 characters.
  */
 const UNSAFE_FORMS: readonly RegExp[] = [
   /`file:\/\/\$\{[^`}]*argv\[1\][^`}]*\}`/,
-  /['"]file:\/\/['"]\s*\+\s*[^;\n]*argv\[1\]/,
+  /['"]file:\/\/['"]\s*\+[^;]{0,200}?argv\[1\]/,
 ];
 
 /** Returns true when the source text holds an unsafe main-module check. */
@@ -70,18 +71,21 @@ describe('main-module check', () => {
     SCAN_TIMEOUT_MS,
   );
 
-  /** Both unsafe spellings are found, so the live scan can fail. */
+  /** Both unsafe spellings are found, on one line and across line breaks, so the live scan can fail. */
   it('MainModuleCheck_SeededUnsafeForms_AreFound', () => {
     expect(hasUnsafeForm('if (import.meta.url === `file://${process.argv[1]}`) main();')).toBe(true);
     expect(hasUnsafeForm("if (import.meta.url === 'file://' + process.argv[1]) main();")).toBe(true);
+    expect(hasUnsafeForm("const entry = 'file://' +\n  resolve(\n    process.argv[1],\n  );")).toBe(true);
+    expect(hasUnsafeForm('const entry = `file://${\n  process.argv[1]\n}`;')).toBe(true);
   });
 
-  /** The safe checks and plain prose about the rule are not reported. */
+  /** The safe checks, plain prose about the rule and a `file://` string that ends before `argv[1]` are not reported. */
   it('MainModuleCheck_SafeForms_AreNotFound', () => {
     expect(hasUnsafeForm('if (isMainModule(import.meta.url)) main();')).toBe(false);
     expect(
       hasUnsafeForm('return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));'),
     ).toBe(false);
     expect(hasUnsafeForm('A raw `file://` string of `argv[1]` fails on Windows.')).toBe(false);
+    expect(hasUnsafeForm("const uri = 'file://' + root;\nconst entry = process.argv[1];")).toBe(false);
   });
 });
