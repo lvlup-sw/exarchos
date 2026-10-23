@@ -376,10 +376,10 @@ describe('handleDoctor — verification-toolchain roster (task 009)', () => {
       () => benignProbes(),
     );
 
-    expect(ALL_CHECKS).toHaveLength(20);
+    expect(ALL_CHECKS).toHaveLength(19);
     expect(result.success).toBe(true);
     const data = result.data as { checks: CheckResult[] };
-    expect(data.checks).toHaveLength(20);
+    expect(data.checks).toHaveLength(19);
 
     const vt = data.checks.find((c) => c.name === 'verification-toolchain');
     expect(vt).toBeDefined();

@@ -519,14 +519,12 @@ invariants:
       - capabilities-resolver
       - runtime-yaml
       - mcp-transport
-      - remote-mcp-adapter
     summary: >
       No design decision presumes MCP is local-only. Workflow and Ontology
       channels have independent client lifecycles, handshake-authoritative
       capability resolution, and .exarchos.yml-only configuration. Workspace
       discovery prefers the MCP roots capability over cwd heuristics
-      (post-#1269). The remote-MCP surface throws-not-degrades when called
-      (#1081).
+      (post-#1269).
     citations:
       - "Jim Waldo et al., *A Note on Distributed Computing* (Sun Microsystems
         1994):
@@ -542,7 +540,6 @@ invariants:
       - lvlup-sw/docs:exarchos/docs/architecture/invariants/references/INV-3-basileus-forward.md
       - src/verbs/gates/check-invariant-conformance.ts
       - src/workflow/capabilities/resolver.ts
-      - src/adapters/mcp/remote-mcp.ts
 
   - id: INV-4
     dimension: platform-agnosticity

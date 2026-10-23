@@ -40,7 +40,6 @@ const PINNED_ROSTER: ReadonlyArray<{
   { category: 'plugin', name: 'plugin-skill-hash-sync' },
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'plugin', name: 'install-freshness' },
-  { category: 'remote', name: 'remote-mcp' },
   { category: 'invariants', name: 'invariants-catalog' },
   { category: 'invariants', name: 'action-contract-closure' },
   { category: 'verification', name: 'verification-toolchain' },
@@ -127,12 +126,12 @@ describe('doctor roster characterization (T0 baseline)', () => {
    * The test reads each identity off the result of the real check, not off a copied literal.
    * The schema check proves that each entry returns a valid `CheckResult`.
    */
-  it('DoctorRoster_CurrentBuild_ExactlyTwentyChecksWithStableNames', async () => {
-    expect(ALL_CHECKS).toHaveLength(20);
-    expect(PINNED_ROSTER).toHaveLength(20);
+  it('DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames', async () => {
+    expect(ALL_CHECKS).toHaveLength(19);
+    expect(PINNED_ROSTER).toHaveLength(19);
 
     const results = await runRoster();
-    expect(results).toHaveLength(20);
+    expect(results).toHaveLength(19);
 
     const observedIdentity = results.map((r) => ({
       category: r.category,
@@ -141,7 +140,7 @@ describe('doctor roster characterization (T0 baseline)', () => {
     expect(observedIdentity).toEqual(PINNED_ROSTER);
 
     const observedNames = new Set(results.map((r) => r.name));
-    expect(observedNames.size).toBe(20);
+    expect(observedNames.size).toBe(19);
     for (const { name } of PINNED_ROSTER) {
       expect(observedNames.has(name)).toBe(true);
     }
