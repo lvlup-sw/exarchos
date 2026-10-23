@@ -31,6 +31,8 @@ export const TaskCompletionArgs = z
     baseRef: CapsuleBaseRefSchema,
     /** The completion provenance. Only the `task_complete` leaf declares `result`, so it alone gets this value. */
     result: z.record(z.string(), z.unknown()).optional(),
+    /** The capsule that the task compiled in. Only the `task_complete` leaf declares `capsuleVersion`, so it alone gets this value. */
+    capsuleVersion: z.number().int().min(1).optional(),
   })
   .strict();
 

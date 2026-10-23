@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1331,
-    "parsedFiles": 1285,
+    "testFiles": 1339,
+    "parsedFiles": 1293,
     "shellFiles": 46,
-    "cases": 14991,
+    "cases": 15049,
     "dynamicTitles": 180,
     "unparseableFiles": 0
   },
@@ -5328,6 +5328,27 @@
         }
       ]
     },
+    "tests/acceptance/settle-races.test.ts": {
+      "file": "tests/acceptance/settle-races.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle races, through the dispatcher",
+          "name": "SettleRaces_ACompletionThatLandsBeforeTheCommit_IsReadInsideIt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle races, through the dispatcher",
+          "name": "SettleRaces_ADecisionWhoseDeviationNamesATaskASecondBatchFinished_IsRejectedAndRevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle races, through the dispatcher",
+          "name": "SettleRaces_ARevisionThatLandsWhileABatchVerifies_NeedsARecompileThenSettlesUnderTheContinuation",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/action-contract-closure-kill-fixtures.test.ts": {
       "file": "tests/architecture/action-contract-closure-kill-fixtures.test.ts",
       "runner": "vitest:root",
@@ -6951,6 +6972,22 @@
         {
           "suite": "repo-local skills",
           "name": "RepoLocalSkills_EveryRuleThatThePolicyCites_IsInTheVendoredSkill",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/settlement-read-commit.test.ts": {
+      "file": "tests/architecture/settlement-read-commit.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the census of the reads that decide a settlement verdict",
+          "name": "SettlementReads_EveryReadHasARole",
+          "dynamic": false
+        },
+        {
+          "suite": "the census of the reads that decide a settlement verdict",
+          "name": "SettlementReads_ASeededReadWithNoRole_FailsByName",
           "dynamic": false
         }
       ]
@@ -50895,6 +50932,77 @@
         }
       ]
     },
+    "tests/unit/tasks/task-complete-revision.test.ts": {
+      "file": "tests/unit/tasks/task-complete-revision.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_ATaskARevisionNamedAfterItsCapsule_IsRefusedWithNoRow",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_ATaskRevisedBeforeItsCapsule_Completes",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_WithNoCapsuleVersion_ATaskRecompiledAfterItsRevision_Completes",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_AnUnpreparedCapsuleVersion_IsRefusedAsNotPrepared",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_OnAStreamWithNoPreparedRecord_Completes",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_AStoredCompletion_IsReturnedAfterALaterRevision",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_AStoredCompletionThenAFailure_StillNeedsAPassingGate",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_ARevisionBetweenTheReadAndTheAppend_IsReadOnTheRetryAndRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_AStoredCompletionAndAStaleTail_ReturnsTheStoredRow",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_EightLostRaces_ReturnAConcurrencyConflict",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_ADamagedRevisionAfterTheCapsule_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete refuses a task that a revision names after its capsule",
+          "name": "TaskComplete_TheCompletionRow_CarriesNoCapsuleVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "the latest prepared record of a stream",
+          "name": "LatestPreparedRecordOf_GivesTheLastRecordOfTheStream",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/tasks/tools.evidence-bypass.test.ts": {
       "file": "tests/unit/tasks/tools.evidence-bypass.test.ts",
       "runner": "vitest:root",
@@ -62160,6 +62268,37 @@
         }
       ]
     },
+    "tests/unit/verbs/prepare/stream-row-folds.test.ts": {
+      "file": "tests/unit/verbs/prepare/stream-row-folds.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "RevisedTasksAfter_TakesTheLatestVersionOfEachTaskAfterTheSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "RevisedTasksAfter_ARefusedRowThrows",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "RevisedTasksAfter_ARefusedRowAtOrBeforeTheSequenceOrOfAnotherType_IsNotRead",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "PreparedRecordOf_TwoRecordsOfOneVersion_GivesTheLatest",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure folds over the rows of a stream",
+          "name": "GateEvidenceRecordsOf_SeededRows_GiveTheExpectedRecords",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/pure/context-economy.parity.test.ts": {
       "file": "tests/unit/verbs/pure/context-economy.parity.test.ts",
       "runner": "vitest:root",
@@ -64703,7 +64842,7 @@
         },
         {
           "suite": "settle — the verification a settled batch runs",
-          "name": "Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsAlreadyComplete",
+          "name": "Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsVerifiedOnTheStoredRow",
           "dynamic": false
         },
         {
@@ -65253,6 +65392,149 @@
         }
       ]
     },
+    "tests/unit/verbs/settle/settle-decision-standing.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-decision-standing.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — the decision round reads the standing of the named tasks",
+          "name": "Settle_ADecisionWhoseDeviationNamesAFinishedTask_IsRejectedVerifiesNothingAndRevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round reads the standing of the named tasks",
+          "name": "Settle_TwoAcceptedMaterialDeviations_RevisesOnlyForTheOneThatNamesNoFinishedTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round reads the standing of the named tasks",
+          "name": "Settle_ARejectedDeviationNamingAFinishedTask_KeepsDeviationRejected",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the decision round reads the standing of the named tasks",
+          "name": "Settle_ADecisionWhenThePlanDoesNotResolve_UsesTheCompletionRows",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a named task that completes before the commit of the decision round",
+          "name": "Settle_ADecisionWhoseNamedTaskIsCompletedBeforeTheCommit_IsRejectedAndRevisesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a named task that completes before the commit of the decision round",
+          "name": "Settle_ADecisionWhoseNamedTaskIsCompletedAfterItsSegments_KeepsTheVerifiedTasks",
+          "dynamic": false
+        },
+        {
+          "suite": "the accepted material deviations of a decision round",
+          "name": "AcceptedMaterialDeviations_ADeviationNamingAFinishedTask_IsNotSelected",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-in-commit.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-in-commit.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a completion row that commits before the settle commit",
+          "name": "Settle_ACompletionRowAppendedBeforeTheCommit_IsReadByTheCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a completion row that commits before the settle commit",
+          "name": "Settle_ARequiredTaskCompletedBeforeTheCommit_NeedsNoClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a completion row that commits before the settle commit",
+          "name": "Settle_AStatusClaimWhoseTaskIsCompletedBeforeTheCommit_IsAlreadyComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a cited record that commits before the settle commit",
+          "name": "Settle_ACitedRecordThatAppearsBeforeTheCommit_RedoesAndSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits before the settle commit",
+          "name": "Settle_ARevisionOfAStatusClaimTaskBeforeTheCommit_GivesRecompileRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits before the settle commit",
+          "name": "Settle_ARevisionOfTheOtherTaskAfterASegment_KeepsTheVerifiedTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits before the settle commit",
+          "name": "Settle_ALeafRefusedUnderAStaleJudgement_DoesNotFailTheCall",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits before the settle commit",
+          "name": "Settle_ACompletionLeafThatCannotWriteTheDocumentUnderAStaleVerdict_RecordsNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the attempts of one call",
+          "name": "Settle_UnchangedReads_CommitOnTheFirstAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the attempts of one call",
+          "name": "Settle_ARedoRunsEachSegmentAtMostOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the attempts of one call",
+          "name": "Settle_ReadsThatChangeBeforeThreeCommits_GiveConcurrencyConflictAndRecordNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a retry of the same batch",
+          "name": "Settle_ARetryAfterARedoneCommit_ReturnsTheVerdictAndAppendsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a retry of the same batch",
+          "name": "Settle_ARetryAfterAConcurrencyConflict_ReplaysItsSegmentsWithTheirOperations",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a retry of the same batch",
+          "name": "Settle_ARetryAfterAForeignCompletion_StillReplaysItsOwnSegment",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the custody of a discarded attempt",
+          "name": "Settle_ARedoneAttempt_LeavesOnlyAnUnreferencedBlob",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-revision-race.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-revision-race.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a revision that commits while a segment runs",
+          "name": "Settle_ARevisionOfAClaimedTaskWhileItsSegmentRuns_GivesRecompileRequiredWithNoCompletionRow",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a revision that commits while a segment runs",
+          "name": "Settle_AContinuationPreparedWhileABatchVerifies_DoesNotLetItCompleteTheRevisedTask",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the arguments of the completion leaf",
+          "name": "Settle_TheCompletionLeaf_CarriesTheCapsuleVersion",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/settle/settlement-bundle.test.ts": {
       "file": "tests/unit/verbs/settle/settlement-bundle.test.ts",
       "runner": "vitest:root",
@@ -65316,6 +65598,62 @@
         {
           "suite": "settlement composition — parity with completing each task by hand",
           "name": "SettlementParity_ASettledBatch_LeavesTheSameStateDocument",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settlement-reads.test.ts": {
+      "file": "tests/unit/verbs/settle/settlement-reads.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_AnAcceptedTaskWithNoRunOrCompletion_NeedsASegment",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_AHaltedOrFailedRunWhoseTaskIsNowComplete_IsAlreadyComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_ARefusedRunThatDidNotHalt_IsTheRefusalAlsoWhenItsTaskIsComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_AVerifiedRunWhoseTaskIsNowComplete_StaysVerified",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_AStatusClaimWhoseTaskIsNowComplete_IsAlreadyComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "JudgeSettlement_ATaskThatTheFactsShowComplete_StandsFinishedWhateverThePlanSays",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the outcome of each task from the facts and the runs",
+          "name": "SettlementFactsOf_ARevisionAfterThePin_MakesTheBatchStale",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the cited evidence",
+          "name": "JudgeSettlement_AnUncitedEvidenceRow_ChangesNoFact",
+          "dynamic": false
+        },
+        {
+          "suite": "judgeSettlement — the cited evidence",
+          "name": "JudgeSettlement_ACitedRecordThatChangedAfterItsCheck_NeedsANewCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the read after the segments",
+          "name": "Settle_AStatusClaimWhoseTaskAnotherCallCompletesWhileASegmentRuns_SettlesItAlreadyComplete",
           "dynamic": false
         }
       ]

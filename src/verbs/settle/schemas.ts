@@ -86,7 +86,7 @@ function nextCallSentence(outcome: SettlementOutcome): string {
 }
 
 /**
- * The outcomes that verify nothing in this build, each with the call that follows it.
+ * The outcomes that verify nothing at their read, each with the call that follows it.
  * The rule of each outcome gives both facts, so the text follows the record.
  */
 const UNVERIFIED_ENTRIES = SETTLEMENT_OUTCOMES.filter((outcome) => !SETTLEMENT_OUTCOME_RULES[outcome].verifies)
@@ -99,15 +99,17 @@ const UNVERIFIED_ENTRIES = SETTLEMENT_OUTCOMES.filter((outcome) => !SETTLEMENT_O
  * response budget of `describe` (`DESCRIBE_ECONOMY_BUDGET_TOKENS`). The text is short for that
  * reason: the name of an outcome gives its meaning. Each call comes from the outcome rules.
  *
- * The text also says what `acceptedTasks` lists under an outcome that verifies nothing. A receipt of
- * an earlier build can carry `rejected` after a verification, so the text says "in this build".
+ * The text also says what `acceptedTasks` lists under an outcome that verifies nothing. Such a batch
+ * verifies nothing at its read. The tasks that settlement verified before a read changed stay
+ * complete, and a receipt of an earlier build can carry `rejected` after a verification. Thus the
+ * text says "at their read".
  * The `designRevision` rule is stated once, for all outcomes.
  */
 const OUTCOME_GUIDE =
   '`settled`: each required task is complete. ' +
   '`accepted-with-rationale`: `settled`, and a claim records a delegated choice. ' +
   `\`corrective-capsule\`: the tasks that passed are complete. ${nextCallSentence('corrective-capsule')}. ` +
-  'In this build the next three verify nothing, and `acceptedTasks` lists claims with no finding. ' +
+  'At their read the next three verify nothing, and `acceptedTasks` lists claims with no finding. ' +
   UNVERIFIED_ENTRIES +
   'Any outcome with a `designRevision`: as `recompile-required`';
 
