@@ -43,6 +43,16 @@
   // exactly the wrong module to leave unchecked: it is trusted by the gate that
   // reads it, and it cannot be trusted by the compiler if no compiler reads it.
   "include": ["**/*.ts", "../src/**/*.d.ts", "../tools/test-helpers/**/*.ts"],
+  // The type tests in `unit/` hold compile-time proofs, so this program must read them.
+  // A name in `files` stays in the program although `unit/**` is excluded below.
+  // `TypeTestFiles_EveryFile_InATypecheckProgram` fails when a type test is in no program.
+  "files": [
+    "unit/runtime/launcher/harness-registry.type-test.ts",
+    "unit/contract/error-families.type-test.ts",
+    "unit/contract/bindings/binding-table.type-test.ts",
+    "unit/workflow/admission/remediation.type-test.ts",
+    "unit/workflow/admission/workflow-builder.type-test.ts"
+  ],
   // `unit/` and `integration/` arrived wholesale in task 030 and are NOT yet
   // checked. The 925 files it moved had never been type-checked anywhere — the
   // root config excludes `**/*.test.ts` — and putting them under this program

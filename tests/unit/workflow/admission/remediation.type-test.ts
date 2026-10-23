@@ -1,7 +1,7 @@
 /**
  * Compile-time totality checks for the deny-reason census, the stable-code map and the verdict union.
- * Vitest strips types, so only a `tsc` program that includes this file reports these failures.
- * `tests/tsconfig.json` excludes `unit/**`.
+ * Vitest strips types, so only `tsc` reports these failures.
+ * `tests/tsconfig.json` names this file in `files`, so `npm run typecheck` checks it.
  */
 import { it, expect } from 'vitest';
 

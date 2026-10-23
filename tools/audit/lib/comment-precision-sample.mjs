@@ -15,6 +15,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { loadPolicy, isExempt } from './comment-policy.mjs';
 import { extractComments, CommentExtractionError } from './comment-prose.mjs';
 import { classifyText } from './comment-classifier.mjs';
@@ -235,4 +236,18 @@ function main() {
   else process.stdout.write(`${json}\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main();
+/**
+ * Returns true when `node` runs this file directly.
+ * It compares real paths, so a Windows path, a space or a symlink still matches.
+ */
+function invokedDirectly() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return fs.realpathSync(entry) === fs.realpathSync(fileURLToPath(import.meta.url));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) main();

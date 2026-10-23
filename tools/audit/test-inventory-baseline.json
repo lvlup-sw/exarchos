@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1333,
-    "parsedFiles": 1287,
+    "testFiles": 1339,
+    "parsedFiles": 1293,
     "shellFiles": 46,
-    "cases": 15016,
-    "dynamicTitles": 178,
+    "cases": 15045,
+    "dynamicTitles": 176,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -6057,6 +6057,32 @@
         }
       ]
     },
+    "tests/architecture/entry-static-imports.test.ts": {
+      "file": "tests/architecture/entry-static-imports.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "entry static imports",
+          "name": "EntryModule_TransitiveStaticClosure_StaysInAllowlist",
+          "dynamic": false
+        },
+        {
+          "suite": "entry static imports",
+          "name": "EntryModule_SeededTransitiveHeavyEdge_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "entry static imports",
+          "name": "EntryModule_TypeAndDynamicImports_AreNotStatic",
+          "dynamic": false
+        },
+        {
+          "suite": "entry static imports",
+          "name": "EntryModule_AllowlistMembers_Exist",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/architecture/event-authority-contracts.test.ts": {
       "file": "tests/architecture/event-authority-contracts.test.ts",
       "runner": "vitest:root",
@@ -6462,6 +6488,27 @@
         {
           "suite": "locality",
           "name": "Locality_SeededOverflow_IsRejected",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/main-module-check.test.ts": {
+      "file": "tests/architecture/main-module-check.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "main-module check",
+          "name": "MainModuleCheck_SrcAndTools_HoldNoRawFileUrlForm",
+          "dynamic": false
+        },
+        {
+          "suite": "main-module check",
+          "name": "MainModuleCheck_SeededUnsafeForms_AreFound",
+          "dynamic": false
+        },
+        {
+          "suite": "main-module check",
+          "name": "MainModuleCheck_SafeForms_AreNotFound",
           "dynamic": false
         }
       ]
@@ -7314,6 +7361,27 @@
         {
           "suite": "top-level contract",
           "name": "TopLevel_HoldsNoEmptyDirectory",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/type-test-coverage.test.ts": {
+      "file": "tests/architecture/type-test-coverage.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "type-test coverage",
+          "name": "TypeTestFiles_EveryFile_InATypecheckProgram",
+          "dynamic": false
+        },
+        {
+          "suite": "type-test coverage",
+          "name": "TypeTestFiles_SeededUnlistedPath_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "type-test coverage",
+          "name": "TypecheckPrograms_ScriptWithThreeCommands_ReturnsEachProject",
           "dynamic": false
         }
       ]
@@ -8436,6 +8504,47 @@
         }
       ]
     },
+    "tests/core/process/fast-paths.test.ts": {
+      "file": "tests/core/process/fast-paths.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "VersionForms_CompiledBinary_PrintPackageVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "SessionStartHook_EmptyPayload_ContinuesWithExitZero",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "SubagentStopHook_EmptyPayload_ContinuesWithExitZero",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "SessionEndHook_NoSessionId_ReportsMissingSessionId",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "RunTests_FixtureCommand_ReturnsItsExitCode",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "WorktreeBoundaryHook_WriteOutsideWorktree_ExitsTwo",
+          "dynamic": false
+        },
+        {
+          "suite": "fast paths of the compiled binary",
+          "name": "WorktreeBoundaryHook_WriteInsideWorktree_ExitsZero",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/core/process/multi-process-append.test.ts": {
       "file": "tests/core/process/multi-process-append.test.ts",
       "runner": "vitest:root",
@@ -8902,6 +9011,42 @@
         {
           "suite": "run root in a core worker (#2027)",
           "name": "TempRunRoot_CoreWorker_TmpdirIsInsideTheRunRoot",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/utils/main-module.test.ts": {
+      "file": "tests/core/utils/main-module.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_SameFile_ReturnsTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_PathWithSpace_ReturnsTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_ThroughSymlink_ReturnsTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_OtherFile_ReturnsFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_UnresolvablePath_ReturnsFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "isMainModule",
+          "name": "IsMainModule_NoArgv_ReturnsFalse",
           "dynamic": false
         }
       ]
@@ -11732,6 +11877,42 @@
         {
           "suite": "DR-20 release manifest producer",
           "name": "ReleaseWorkflow_PublishesSignedManifestAsset",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/bun-version-pin.test.ts": {
+      "file": "tests/scripts/bun-version-pin.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_EveryWorkflow_ReadsVersionFile",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_VersionFile_IsExactSemver",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_CursorInstallScript_MatchesFile",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_RenovateRule_DisablesBunUpdates",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_LiteralVersionInStep_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "Bun version pin",
+          "name": "BunVersionPin_SetupBeforeCheckout_Fails",
           "dynamic": false
         }
       ]
@@ -84881,24 +85062,24 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "cli-cold-start benchmark",
-          "name": "CliColdStart_TelemetryOff_50Runs_P95Under250ms",
+          "suite": "cli cold start of the compiled binary",
+          "name": "CliColdStart_StatusTelemetryOff_P95UnderBudget",
           "dynamic": false
         },
         {
-          "suite": "cli-cold-start benchmark",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "cli-cold-start benchmark",
-          "name": "CliColdStart_TelemetryOn_50Runs_P95Under350ms",
+          "suite": "cli cold start of the compiled binary",
+          "name": "CliColdStart_StatusTelemetryOn_P95UnderBudget",
           "dynamic": false
         },
         {
-          "suite": "cli-cold-start benchmark",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
+          "suite": "cli cold start of the compiled binary",
+          "name": "CliColdStart_VersionFlag_P95UnderBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "cli cold start of the compiled binary",
+          "name": "CliColdStart_WorktreeBoundaryHook_P95UnderBudget",
+          "dynamic": false
         }
       ]
     },

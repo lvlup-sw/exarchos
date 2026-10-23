@@ -70,10 +70,9 @@ interface AllowlistEntry {
  * `docs/guides/ci-gate-hosting.md` states the contract for an entry.
  */
 const NON_BLOCKING_ALLOWLIST: Record<string, AllowlistEntry> = {
-  'e2e-process': {
+  'startup-budget': {
     rationale:
-      'Measured 3.33% failure-when-executed over last 60 completed ci.yml runs (> 2% blocking threshold); known SQLITE_BUSY flake cluster.',
-    issue: '#1718',
+      'Wall-clock cold-start budgets of the compiled binary. Soaking: no measured failure rate yet against the 2% blocking threshold.',
   },
   'binary-matrix': {
     rationale:
@@ -522,9 +521,10 @@ describe('CI-gate execution policy (DR-10)', () => {
         'manifest-gate',
         'grep-gates',
         'outcome-tests',
+        'e2e-process',
       ]),
     );
-    expect(needs).toHaveLength(9);
+    expect(needs).toHaveLength(10);
   });
 
   it('Planner_IsUnconditionalFullHistoryPlan', () => {
@@ -553,6 +553,7 @@ describe('CI-gate execution policy (DR-10)', () => {
       'manifest-gate': 'always',
       'grep-gates': 'always',
       'outcome-tests': 'always',
+      'e2e-process': 'always',
     };
     for (const [jobName, lane] of Object.entries(mapped)) {
       const job = workflow.jobs[jobName];

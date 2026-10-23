@@ -28,6 +28,7 @@ echo "$count" > "$FAKE_COUNT_FILE"
 # Surface the env the wrapper handed us so tests can assert install-time policy
 # (e.g. the Playwright browser-download skip). Captured in OUT.
 echo "ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=${PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD:-<unset>}"
+echo "ENV npm_config_target=${npm_config_target:-<unset>}"
 case "$FAKE_MODE" in
   succeed)            exit 0 ;;
   fail)               exit 1 ;;
@@ -127,6 +128,62 @@ if printf '%s\n' "$OUT6" | grep -q 'ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0'; the
   pass "caller-set PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0 is respected (not overridden)"
 else
   fail "opt-out respected" "got: $(printf '%s\n' "$OUT6" | grep 'ENV PLAYWRIGHT' || echo none)"
+fi
+
+# ── Tests 7-11: the Node 24 header pin for source builds ────────────────────
+# Node 24.19 and later headers make better-sqlite3 abort during garbage
+# collection (nodejs/node#65446). The wrapper pins the headers to 24.18.1 only
+# for a source build on a Node 24 runtime, and keeps a target that the caller
+# sets. A fake `node` on PATH prints the major version that the test chooses.
+# run_pin <node-major> <build-from-source> <caller-target>; sets OUTP.
+run_pin() {
+  local major="$1" from_source="$2" target="$3" tmp
+  tmp="$(mktemp -d)"; : > "$tmp/count"; make_fake_npm "$tmp"
+  printf '#!/usr/bin/env bash\necho "%s"\n' "$major" > "$tmp/node"
+  chmod +x "$tmp/node"
+  OUTP="$(env -u npm_config_target -u npm_config_build_from_source \
+         PATH="$tmp:$PATH" FAKE_MODE=succeed FAKE_COUNT_FILE="$tmp/count" \
+         NPM_CI_ATTEMPTS=1 NPM_CI_TIMEOUT_SECONDS=5 NPM_CI_KILL_AFTER_SECONDS=1 \
+         NPM_CI_RETRY_SLEEP_SECONDS=0 \
+         ${from_source:+npm_config_build_from_source=$from_source} \
+         ${target:+npm_config_target=$target} \
+         timeout 30 bash "$SUT" ci 2>&1)"
+  rm -rf "$tmp"
+}
+
+run_pin 24 true ""
+if printf '%s\n' "$OUTP" | grep -q 'ENV npm_config_target=24.18.1'; then
+  pass "source build on Node 24 → headers pinned to 24.18.1"
+else
+  fail "Node 24 header pin" "got: $(printf '%s\n' "$OUTP" | grep 'ENV npm_config_target' || echo none)"
+fi
+
+run_pin 24 better-sqlite3 ""
+if printf '%s\n' "$OUTP" | grep -q 'ENV npm_config_target=24.18.1'; then
+  pass "package-only source build on Node 24 → headers pinned to 24.18.1"
+else
+  fail "package-only source build pin" "got: $(printf '%s\n' "$OUTP" | grep 'ENV npm_config_target' || echo none)"
+fi
+
+run_pin 22 true ""
+if printf '%s\n' "$OUTP" | grep -q 'ENV npm_config_target=<unset>'; then
+  pass "source build on Node 22 → no header pin"
+else
+  fail "Node 22 no pin" "got: $(printf '%s\n' "$OUTP" | grep 'ENV npm_config_target' || echo none)"
+fi
+
+run_pin 24 false ""
+if printf '%s\n' "$OUTP" | grep -q 'ENV npm_config_target=<unset>'; then
+  pass "prebuilt install on Node 24 → no header pin"
+else
+  fail "prebuilt no pin" "got: $(printf '%s\n' "$OUTP" | grep 'ENV npm_config_target' || echo none)"
+fi
+
+run_pin 24 true 24.20.0
+if printf '%s\n' "$OUTP" | grep -q 'ENV npm_config_target=24.20.0'; then
+  pass "caller-set npm_config_target is kept"
+else
+  fail "caller target kept" "got: $(printf '%s\n' "$OUTP" | grep 'ENV npm_config_target' || echo none)"
 fi
 
 # ── Summary ─────────────────────────────────────────────────────────────────
