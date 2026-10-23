@@ -37,10 +37,6 @@ export interface VacuityRetiredEntry {
 }
 
 export const VACUITY_ALLOWLIST = Object.freeze({
-  'exarchos_event.append': { owner: 'event-store', expires: '2026-10-25' },
-  'exarchos_event.batch_append': { owner: 'event-store', expires: '2026-10-25' },
-  'exarchos_event.describe': { owner: 'event-store', expires: '2026-10-25' },
-  'exarchos_event.query': { owner: 'event-store', expires: '2026-10-25' },
   'exarchos_orchestrate.add_pr_comment': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.agent_spec': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.assess_refactor_scope': { owner: 'orchestration', expires: '2027-02-28' },
@@ -152,6 +148,26 @@ export const VACUITY_ALLOWLIST = Object.freeze({
  * It grows by one entry for each entry that the allowlist loses. A deletion here is as illegal as an addition, because both change the key union.
  */
 export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Object.freeze({
+  /**
+   * The four event actions now declare `withCappedShape(...)`. The schemas of `append`, `batch_append` and `query` are in `registry/output-schemas.ts`.
+   * The schema of `describe` is `EventDescribeOutputSchema` in `contract/schemas/describe.ts`.
+   */
+  'exarchos_event.append': {
+    owner: 'event-store',
+    retiredAt: '2026-10-23',
+  },
+  'exarchos_event.batch_append': {
+    owner: 'event-store',
+    retiredAt: '2026-10-23',
+  },
+  'exarchos_event.describe': {
+    owner: 'event-store',
+    retiredAt: '2026-10-23',
+  },
+  'exarchos_event.query': {
+    owner: 'event-store',
+    retiredAt: '2026-10-23',
+  },
   /** The action now declares `withCappedShape(CheckInvariantConformanceOutputSchema)`. */
   'exarchos_orchestrate.check_invariant_conformance': {
     owner: 'orchestration',
