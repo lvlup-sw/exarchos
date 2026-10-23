@@ -11,6 +11,7 @@ import { execFileSync } from 'node:child_process';
 import { join } from 'node:path';
 import { buildAllHooks } from './build-hooks.js';
 import { resolveMainDeps, type MainDeps } from './cli-helpers.js';
+import { isMainModule } from '../utils/main-module.js';
 
 export interface HooksGuardResult {
   ok: boolean;
@@ -149,6 +150,6 @@ export function main(_argv: string[], deps: MainDeps = {}): void {
   exit(result.exitCode);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (isMainModule(import.meta.url)) {
   main(process.argv.slice(2));
 }
