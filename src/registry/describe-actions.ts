@@ -1,4 +1,5 @@
-import { vacuityWaiver } from '../output-schema-declaration.js';
+import { EventDescribeOutputSchema } from '../contract/schemas/describe.js';
+import { vacuityWaiver, withCappedShape } from '../output-schema-declaration.js';
 import type { VacuityWaiverId } from '../output-schema-vacuity-allowlist.js';
 import { z } from 'zod';
 import { none, withActionContract, type ActionContract } from './action-contract.js';
@@ -97,8 +98,9 @@ const eventDescribeSchema = z.object({
 /**
  * Create the event tool describe action, which takes `actions`, `eventTypes`, and `emissionGuide`.
  * Its token budget covers the `emissionGuide` path, which returns the full event catalog.
+ * It declares {@link EventDescribeOutputSchema}, so it takes no waiver id.
  */
-export function makeEventDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
+export function makeEventDescribeAction(): BuiltinToolAction {
   return withActionContract(
     {
       name: 'describe',
@@ -107,7 +109,7 @@ export function makeEventDescribeAction(waiverId: VacuityWaiverId): BuiltinToolA
       phases: ALL_PHASES,
       roles: ROLE_ANY,
       economy: { budgetTokens: EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS },
-      outputSchema: vacuityWaiver(waiverId),
+      outputSchema: withCappedShape(EventDescribeOutputSchema),
       annotations: READ_ONLY_LOCAL,
     },
     DESCRIBE_CONTRACT,

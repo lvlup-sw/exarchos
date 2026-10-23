@@ -1,10 +1,11 @@
 import { coercedNonnegativeInt, coercedPositiveInt, coercedRecord, coercedStringArray } from '../../coerce.js';
-import { vacuityWaiver } from '../../output-schema-declaration.js';
+import { withCappedShape } from '../../output-schema-declaration.js';
 import { z } from 'zod';
 import { declared, none, withActionContract } from '../action-contract.js';
 import { LOCAL_MUTATION, READ_ONLY_LOCAL } from '../annotations.js';
 import { makeEventDescribeAction } from '../describe-actions.js';
 import { RESERVED_EVENT_APPEND_REGISTRY } from '../gate-metadata.js';
+import { EventAppendOutputSchema, EventBatchAppendOutputSchema, EventQueryOutputSchema } from '../output-schemas.js';
 import { ALL_PHASES, DELEGATE_PHASES, ROLE_ANY, ROLE_LEAD } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
 
@@ -33,7 +34,7 @@ export const eventActions: readonly BuiltinToolAction[] = [
       cli: {
         examples: ['exarchos ev append --stream my-feature --event \'{"type":"task.progressed","data":{"taskId":"t1","tddPhase":"green"}}\''],
       },
-      outputSchema: vacuityWaiver('exarchos_event.append'),
+      outputSchema: withCappedShape(EventAppendOutputSchema),
       annotations: LOCAL_MUTATION,
     },
     {
@@ -63,7 +64,7 @@ export const eventActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_ANY,
-      outputSchema: vacuityWaiver('exarchos_event.query'),
+      outputSchema: withCappedShape(EventQueryOutputSchema),
       annotations: READ_ONLY_LOCAL,
     },
     {
@@ -90,7 +91,7 @@ export const eventActions: readonly BuiltinToolAction[] = [
       }),
       phases: DELEGATE_PHASES,
       roles: ROLE_LEAD,
-      outputSchema: vacuityWaiver('exarchos_event.batch_append'),
+      outputSchema: withCappedShape(EventBatchAppendOutputSchema),
       annotations: LOCAL_MUTATION,
     },
     {
@@ -109,5 +110,5 @@ export const eventActions: readonly BuiltinToolAction[] = [
     },
     { annotations: LOCAL_MUTATION },
   ),
-  makeEventDescribeAction('exarchos_event.describe'),
+  makeEventDescribeAction(),
 ];

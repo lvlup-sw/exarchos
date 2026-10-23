@@ -125,6 +125,11 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 - **A batch whose segments an earlier build ran gets `OPERATION_DIGEST_MISMATCH` when it is settled again, unless its verdict was recorded.** The arguments of each segment now hold `capsuleVersion`, and the request digest of a segment covers each argument. The request of a segment of an earlier build has no such argument. The executor reports `INTENT_REPLAY_DIGEST_MISMATCH` for the segment, and `settle` refuses the call. A batch with a recorded verdict replays that verdict, as before.
   - Recovery: when a batch of an earlier build gets this refusal, settle its claims under a new batchId.
 
+- **The four `exarchos_event` actions declare the shape of their success data.** The `outputSchema` of `append`, `batch_append`, `query` and `describe` no longer gives `data` as an unknown value. `describe` shows each shape, and the MCP adapter checks each reply against it.
+  - A `query` row that holds `streamId`, `sequence`, `type` or `timestamp` must give it its stored type. A `fields` projection can omit each of them.
+  - The `describe` data must hold one of `actions`, `eventTypes` or `emissionGuide`, and no other key.
+  - The economy budget of the event `describe` is now 16000 tokens, up from 12000. Thus a describe of the four actions with their larger schemas is not marked `economyDegraded`.
+
 ## [2.10.0-preview.4] - 2026-05-24
 
 Final feature-work batch of the v2.10.0 line before RC. Ships the substrate that consumes the v2.10.0-preview.3 Wave 0 carrier — Roots-based workspace discovery, three-field correlation, Tasks (SEP-1686) dispatch-core, Elicitation form-mode, quality hints, plus the authoring substrate (`/ideate` first-turn invariants, designs/plans sidecar, handoff lint). The substrate landed first (PRs #1421–#1435), then an immediate post-bundle audit cycle closed three HIGH-severity TaskStore correctness findings, the correlation contract end-to-end (storage + filter layer + consumer wiring), substrate hygiene, elicitation E2E verification (which surfaced and fixed a wired-but-not-invoked Zod-v4 narrowing bug mid-bundle), and an invariants-catalog rewrite (schema v1→v2).
