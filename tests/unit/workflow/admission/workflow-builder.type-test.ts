@@ -2,7 +2,7 @@
 // Each `@ts-expect-error` below asserts that an escape hatch is a type error: a closure, a raw string, a raw object, or a forged brand.
 // If the builder accepts one, its directive becomes unused and `tsc` fails with TS2578.
 // The positive controls at the end carry no directive, so they must compile.
-// `tests/tsconfig.json` excludes `unit/**`, so `npm run typecheck` does not check this file.
+// `tests/tsconfig.json` names this file in `files`, so `npm run typecheck` checks it.
 // Vitest strips types and runs only the anchor test.
 
 import { it, expect } from 'vitest';
