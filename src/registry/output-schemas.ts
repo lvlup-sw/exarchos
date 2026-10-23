@@ -126,12 +126,22 @@ const EventQueryPageDataSchema = z
   .passthrough();
 
 /**
- * The success data of `exarchos_event.query`. Each event row is an object. A `fields` projection
- * keeps only the keys that the caller names, so the schema names no field of an event row.
+ * One event row of `exarchos_event.query`. A `fields` projection keeps only the keys that the caller
+ * names, so each field is optional. A field that is present must have its stored type.
  */
+const EventQueryRowDataSchema = z
+  .object({
+    streamId: z.string().optional(),
+    sequence: z.number().optional(),
+    type: z.string().optional(),
+    timestamp: z.string().optional(),
+  })
+  .passthrough();
+
+/** The success data of `exarchos_event.query`: the event rows of one page and the paging metadata. */
 const EventQueryDataSchema = z
   .object({
-    events: z.array(z.object({}).passthrough()),
+    events: z.array(EventQueryRowDataSchema),
     page: EventQueryPageDataSchema,
   })
   .passthrough();

@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import { z } from 'zod';
 import { handleDescribe, handleEventTypeDescribe, handleEventDescribe } from '../../../src/describe/handler.js';
-import { TOOL_REGISTRY } from '../../../src/registry.js';
+import { EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS, TOOL_REGISTRY, resolveEconomyBudget } from '../../../src/registry.js';
 import type { ToolAction } from '../../../src/registry.js';
 import { getValidEventTypes } from '../../../src/events/schemas.js';
 import { envelopeWrap } from '../../../src/envelope-wrap.js';
 import { toEnvelope, type ToolResult } from '../../../src/format.js';
+import { estimateOutputTokens } from '../../../src/dispatch/core/economy.js';
+import { enforceResponseEconomy } from '../../../src/dispatch/core/response-economy.js';
 
 const workflowTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!;
 const eventTool = TOOL_REGISTRY.find(t => t.name === 'exarchos_event')!;
@@ -293,7 +295,7 @@ function eventDescribeVerdict(result: ToolResult): string {
 describe('handleEventDescribe output schema', () => {
   /**
    * The requests are each event action, every event type, the emission guide, and the three
-   * together. A reply with a wrong shape fails the same parse, so the schema is not vacuous.
+   * together. A bad action entry and a bare string fail the same parse.
    */
   it('EventDescribe_EverySuccessReply_ParsesAgainstTheDeclaredSchema', async () => {
     const actionNames = eventTool.actions.map((action) => action.name);
@@ -342,6 +344,62 @@ describe('handleEventDescribe output schema', () => {
       TOOL_REGISTRY.reduce((count, tool) => count + tool.actions.length, 0),
     );
     expect(eventDescribeVerdict({ success: true, data: { actions } })).toBe('ok');
+  });
+
+  /**
+   * The top level of the data must hold one of `actions`, `eventTypes` or `emissionGuide`, and no
+   * other key. An empty record is a failure too, because the handler refuses an unknown name.
+   * The control reply holds one event type, and it parses.
+   */
+  it('EventDescribe_EmptyOrUnrelatedTopLevel_FailsTheDeclaredSchema', () => {
+    const eventTypes = { 'task.assigned': { schema: null, source: 'model', isBuiltIn: true } };
+    expect(eventDescribeVerdict({ success: true, data: { eventTypes } })).toBe('ok');
+
+    const wrongReplies: readonly unknown[] = [
+      {},
+      { unrelated: 1 },
+      { topology: 'feature' },
+      { eventTypes, unrelated: 1 },
+      { actions: {} },
+      { eventTypes: {} },
+      [],
+    ];
+    for (const data of wrongReplies) {
+      expect(eventDescribeVerdict({ success: true, data }), JSON.stringify(data)).not.toBe('ok');
+    }
+  });
+});
+
+/**
+ * A typical event `describe` request must stay within the economy budget of the action. Over the
+ * budget the dispatch seam caps the reply or marks it `economyDegraded`.
+ */
+describe('handleEventDescribe economy budget', () => {
+  /**
+   * The typical requests are the four event actions, the emission guide, and the most event types
+   * that one request takes. The seam returns each reply unchanged.
+   */
+  it('EventDescribe_TypicalRequests_StayWithinTheEconomyBudget', async () => {
+    const action = eventTool.actions.find((candidate) => candidate.name === 'describe');
+    if (action === undefined) throw new Error('exarchos_event.describe is not registered');
+    expect(resolveEconomyBudget(action)).toBe(EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS);
+
+    const actionNames = eventTool.actions.map((candidate) => candidate.name);
+    expect(actionNames.length).toBe(4);
+    const requests = [
+      { actions: actionNames },
+      { emissionGuide: true },
+      { eventTypes: getValidEventTypes().slice(0, 20) },
+    ];
+    for (const request of requests) {
+      const label = Object.keys(request).join(',');
+      const result = await handleEventDescribe(request, eventTool.actions);
+      expect(result.success, label).toBe(true);
+      expect(estimateOutputTokens(result.data), label).toBeLessThanOrEqual(
+        EVENT_DESCRIBE_ECONOMY_BUDGET_TOKENS,
+      );
+      expect(enforceResponseEconomy(result, 'exarchos_event', 'describe'), label).toBe(result);
+    }
   });
 });
 

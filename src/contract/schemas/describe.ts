@@ -5,8 +5,9 @@
  * The schema is not beside the handler in `describe/`, because the layer rules do not let the
  * registry import `describe/`.
  *
- * The MCP adapter replaces a reply that does not parse with an `INTERNAL_ERROR`. Thus each object
- * uses `.passthrough()`, and no field is required that a success path of the handler omits.
+ * The MCP adapter replaces a reply that does not parse with an `INTERNAL_ERROR`. Thus each nested
+ * object uses `.passthrough()`, and no field is required that a success path of the handler omits.
+ * The top level is strict and needs one key, because the handler sets only those keys.
  */
 
 import { z } from 'zod';
@@ -69,16 +70,32 @@ const EventCatalogDataSchema = z
   .passthrough();
 
 /**
+ * A record that holds one entry or more. The handler refuses a name that it does not know, so a
+ * request for one name or more gives one entry or more.
+ */
+function nonEmptyRecord<T extends z.ZodType>(entry: T) {
+  return z
+    .record(z.string(), entry)
+    .refine((entries) => Object.keys(entries).length > 0, { error: 'expected one entry or more' });
+}
+
+/**
  * The success data of `exarchos_event.describe`. Each key is present only when the request asks
- * for it, and the handler refuses a request that asks for none.
+ * for it, and the handler refuses a request that asks for none. Thus the object is strict and
+ * holds one key or more, and an empty object or an unrelated key fails the parse.
  */
 const EventDescribeDataSchema = z
   .object({
-    actions: z.record(z.string(), DescribedActionDataSchema).optional(),
-    eventTypes: z.record(z.string(), DescribedEventTypeDataSchema).optional(),
+    actions: nonEmptyRecord(DescribedActionDataSchema).optional(),
+    eventTypes: nonEmptyRecord(DescribedEventTypeDataSchema).optional(),
     emissionGuide: EventCatalogDataSchema.optional(),
   })
-  .passthrough();
+  .strict()
+  .refine(
+    (data) =>
+      data.actions !== undefined || data.eventTypes !== undefined || data.emissionGuide !== undefined,
+    { error: 'expected one of actions, eventTypes or emissionGuide' },
+  );
 
 /** The `outputSchema` of `exarchos_event.describe`. */
 export const EventDescribeOutputSchema = EnvelopeSchema(EventDescribeDataSchema);

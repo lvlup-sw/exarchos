@@ -1266,4 +1266,37 @@ describe('event handler replies parse against the declared output schemas', () =
 
     expect(outputSchemaVerdict('query', { success: true, data: { events: [] } })).not.toBe('ok');
   });
+
+  /**
+   * A query row names `streamId`, `sequence`, `type` and `timestamp` with their stored types. A
+   * full row and a projected row parse. A row with one of these fields of a wrong type fails.
+   */
+  it('EventOutputSchemas_QueryRowWithAWrongFieldType_FailsTheDeclaredSchema', () => {
+    const page = { total: 1, offset: 0, limit: 20, hasMore: false };
+    const fullRow = {
+      streamId: 'schema-query',
+      sequence: 1,
+      type: 'task.assigned',
+      timestamp: '2026-10-23T00:00:00.000Z',
+      data: { taskId: 'q1' },
+    };
+    expect(outputSchemaVerdict('query', { success: true, data: { events: [fullRow], page } })).toBe('ok');
+    expect(
+      outputSchemaVerdict('query', { success: true, data: { events: [{ type: 'task.assigned' }], page } }),
+    ).toBe('ok');
+
+    const wrongRows: readonly Record<string, unknown>[] = [
+      { ...fullRow, streamId: 7 },
+      { ...fullRow, sequence: '1' },
+      { ...fullRow, type: null },
+      { ...fullRow, timestamp: 0 },
+      { sequence: '1' },
+    ];
+    for (const row of wrongRows) {
+      expect(
+        outputSchemaVerdict('query', { success: true, data: { events: [row], page } }),
+        JSON.stringify(row),
+      ).not.toBe('ok');
+    }
+  });
 });

@@ -2762,7 +2762,7 @@ const EXPECTED_EFFECTIVE_BUDGETS: Readonly<Record<string, number>> = {
   'exarchos_event.append': 2000,
   'exarchos_event.query': 2000,
   'exarchos_event.batch_append': 2000,
-  'exarchos_event.describe': 12000,
+  'exarchos_event.describe': 16000,
   'exarchos_orchestrate.task_claim': 2000,
   'exarchos_orchestrate.task_complete': 2000,
   'exarchos_orchestrate.task_fail': 2000,
