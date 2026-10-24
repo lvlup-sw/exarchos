@@ -359,29 +359,6 @@ function formatTally(counts: DisagreementClassTally): string {
     .join(', ');
 }
 
-/**
- * Reads the durable shadow streams, adds the observer health, and evaluates the gate.
- * No production code calls this function. `evidence-reader.ts` assembles the evidence and calls {@link evaluateCutoverGate}.
- */
-export async function assessCutoverReadiness(input: {
-  readonly reader: DurableShadowEvidenceReader;
-  readonly featureIds: readonly string[];
-  readonly corpusRecords: readonly ShadowDispositionView[];
-  readonly liveAttempts: readonly LiveShadowAttempt[];
-  readonly observerHealth: LiveShadowHealth;
-}): Promise<CutoverGateReport> {
-  const durableAttempts = await readDurableShadowAttempts(
-    input.reader,
-    input.featureIds,
-  );
-  return evaluateCutoverGate({
-    corpusRecords: input.corpusRecords,
-    liveAttempts: input.liveAttempts,
-    durableAttempts,
-    observerHealth: input.observerHealth,
-  });
-}
-
 /** The rollout outcome — matches the `admission.rollout-decision` event enum. */
 export type RolloutOutcome = 'approve-enforcement' | 'continue-shadow';
 

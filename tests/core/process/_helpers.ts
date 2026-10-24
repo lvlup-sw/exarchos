@@ -257,6 +257,13 @@ async function defaultRunBuild(repoRoot: string, outDir: string): Promise<void> 
   }
 }
 
+/**
+ * The name prefix of the scratch directory that `ensureBinaryBuilt` makes beside the binary. A
+ * test lists that directory after a build and looks for this prefix to find a leaked scratch
+ * directory.
+ */
+export const BUILD_SCRATCH_PREFIX = '.build-tmp-';
+
 export interface EnsureBinaryBuiltOptions {
   /**
    * The build step. It must write the artifact into `outDir` under the basename of the host
@@ -298,7 +305,7 @@ export async function ensureBinaryBuilt(
 
       const outDir = path.join(
         path.dirname(binaryPath),
-        `.build-tmp-${process.pid}-${Date.now().toString(36)}-${Math.random()
+        `${BUILD_SCRATCH_PREFIX}${process.pid}-${Date.now().toString(36)}-${Math.random()
           .toString(36)
           .slice(2)}`,
       );

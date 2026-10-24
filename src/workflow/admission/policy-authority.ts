@@ -27,9 +27,6 @@ export const POLICY_CAPABILITY = {
   GRANT_WAIVER: 'admission:grant-waiver',
 } as const;
 
-export type PolicyCapabilityName =
-  (typeof POLICY_CAPABILITY)[keyof typeof POLICY_CAPABILITY];
-
 /**
  * The trust oracle for policy evaluation. Each method tells if a principal can
  * issue one kind of artifact. Implementations must ignore the role or capability

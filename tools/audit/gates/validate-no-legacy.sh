@@ -17,14 +17,21 @@
 #   (b) a workspace entry point in package.json#main or #bin. knip finds these.
 #   (c) a vitest suite. vitest finds `**/*.test.ts` and `**/*.bench.ts` by name.
 #   (d) a fixture that a test spawns by path. Its `project` glob must name its extension.
+#   (e) a maintenance CLI that a person runs by hand. Its own header must name the
+#       `npx tsx <path>` command.
 # Before you add an entry, search the repo. If nothing imports the file and it has
 # no side-effect entry point, delete the file. Never add `**/*.ts` to clear a finding.
 # Add a path to `ignore` only for a non-source file that knip reports.
+# Add a narrow glob to `ignoreFiles` for a source file that no module imports and
+# that a test or the compiler reads by path: a corpus fixture, a hidden eval oracle,
+# or an ambient `.d.ts` shim. `ignoreFiles` removes only the unused-file finding.
+# The import graph does not change, so an import in a fixture is not a use.
 # Use `ignoreDependencies` only as a last resort, with a tracking issue.
 #
 # The knip.json `tags: ["-proof"]` entry exempts compile-time proof aliases. Tag a
 # new proof alias with `@proof` in its JSDoc. Use knip-allowlist.json for a one-off
-# consumer that knip cannot see, such as a CLI that a subprocess runs.
+# consumer that no knip.json rule can declare, such as a symbol that generated
+# code reads.
 #
 # The sweep uses `--include files,dependencies,exports,types`. knip-diff.ts diffs
 # the findings against tools/audit/knip-allowlist.json, and it fails closed on an

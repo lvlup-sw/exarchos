@@ -394,6 +394,8 @@ export async function handleCancel(
     const cancelTrail = [
       ...attempt.emittedEvents.map((transitionEvent) => ({
         type: mapInternalToExternalType(transitionEvent.type) as import('../events/schemas.js').EventType,
+        correlationId: input.featureId,
+        source: 'workflow',
         data: {
           from: transitionEvent.from,
           to: transitionEvent.to,
@@ -405,6 +407,8 @@ export async function handleCancel(
       })),
       {
         type: mapInternalToExternalType('cancel') as import('../events/schemas.js').EventType,
+        correlationId: input.featureId,
+        source: 'workflow',
         data: {
           from: currentPhase,
           to: 'cancelled',

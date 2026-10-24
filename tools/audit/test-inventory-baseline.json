@@ -7,7 +7,7 @@
     "testFiles": 1336,
     "parsedFiles": 1290,
     "shellFiles": 46,
-    "cases": 15056,
+    "cases": 15055,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -74200,11 +74200,6 @@
       "file": "tests/unit/workflow/cancel.envelope.test.ts",
       "runner": "vitest:root",
       "cases": [
-        {
-          "suite": "WorkflowCancel_AllEmittedEvents_HaveCanonicalEnvelope",
-          "name": "WorkflowCancel_EnvelopeSkipWaiver_HasNotExpired",
-          "dynamic": false
-        },
         {
           "suite": "WorkflowCancel_AllEmittedEvents_HaveCanonicalEnvelope",
           "name": "cancel.ts:190+:202 — ES v2 transition + cancel events have canonical envelope",

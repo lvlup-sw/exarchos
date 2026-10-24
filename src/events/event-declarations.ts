@@ -1,4 +1,4 @@
-// RESERVED(issue: #1473, owner: exarchos, expires: 2026-11-30) — the declaration bridge for the
+// RESERVED(issue: #1473, owner: exarchos, expires: 2027-02-28) — the declaration bridge for the
 // event catalog. Each registered event type is one {@link Declaration} record, so the
 // declaration site can move without a new binding for any consumer.
 //

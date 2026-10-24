@@ -27,7 +27,6 @@ export const RevocationEntryV1Schema = z
   })
   .strict()
   .readonly();
-export type RevocationEntryV1 = z.infer<typeof RevocationEntryV1Schema>;
 
 /** The signed portion of a revocation list. */
 export const RevocationListBodyV1Schema = z

@@ -39,7 +39,6 @@ export const ACTION_SAFETY = [
   'remote-mutation',
   'compensable',
 ] as const;
-export type ActionSafety = (typeof ACTION_SAFETY)[number];
 
 /** The ten policy dimensions every compiled action must declare, in order. */
 export const POLICY_DIMENSIONS = [
@@ -54,7 +53,6 @@ export const POLICY_DIMENSIONS = [
   'compatibility',
   'presentation',
 ] as const;
-export type PolicyDimension = (typeof POLICY_DIMENSIONS)[number];
 
 const GateSpecSchema = z
   .object({
@@ -217,8 +215,6 @@ export const MetaModelSchema = z
   })
   .strict();
 
-export type GateSpec = z.infer<typeof GateSpecSchema>;
-export type AutoEmitSpec = z.infer<typeof AutoEmitSpecSchema>;
 export type ExecutionPolicy = z.infer<typeof ExecutionPolicySchema>;
 export type AuthorizationPolicy = z.infer<typeof AuthorizationPolicySchema>;
 export type EvidencePolicy = z.infer<typeof EvidencePolicySchema>;

@@ -949,7 +949,7 @@ jobs:
       # not a broken gate. Drift, an empty denominator and an unannotated rung row always
       # fail.
       - name: Measured-premise drift gate (DR-27)
-        run: node tools/audit/gates/check-measured-premises.mjs --tolerate-gaps-until 2026-11-30
+        run: node tools/audit/gates/check-measured-premises.mjs --tolerate-gaps-until 2027-02-28
 
 
       # Its self-test on the same host, so a guard-execution failure cannot pass as

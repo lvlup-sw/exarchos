@@ -42,7 +42,7 @@ function walkHasTs(dir: string): boolean {
  * higher value accepts a new exemption, and that decision belongs in a diff
  * that a reviewer reads.
  */
-const ALLOWLIST_BUDGET = 115;
+const ALLOWLIST_BUDGET = 3;
 
 /** Text that is not a reason. A rationale that matches this pattern is a stub. */
 const STUB_RATIONALE = /^(n\/?a|tbd|todo|fixme|wip|unused|dead|legacy|see above|\?+|-+)\.?$/i;
@@ -61,6 +61,7 @@ const MIN_RATIONALE_CHARS = 49;
 describe('DeadCode_AfterRetarget_DetectorCoversTheNewTree', () => {
   const knip = JSON.parse(readFileSync(path.join(REPO_ROOT, 'knip.json'), 'utf8')) as {
     workspaces: Record<string, { entry: string[]; project: string[] }>;
+    ignoreFiles?: string[];
   };
 
   const workspaceIds = Object.keys(knip.workspaces);
@@ -110,12 +111,15 @@ describe('DeadCode_AfterRetarget_DetectorCoversTheNewTree', () => {
    * A pattern that matches nothing looks the same as a pattern with no
    * findings. The test resolves the literal prefix of each glob, up to the
    * first wildcard, and requires that path to exist. This check is weaker
-   * than a glob expansion, but it finds a renamed or removed root.
+   * than a glob expansion, but it finds a renamed or removed root. It also
+   * reads the `ignoreFiles` globs, because a glob for a deleted fixture is a
+   * stale exemption.
    */
   it('every declared glob matches at least one file that exists', () => {
     const all = [
       ...(knip.workspaces['.']?.entry ?? []),
       ...(knip.workspaces['.']?.project ?? []),
+      ...(knip.ignoreFiles ?? []),
     ].filter((g) => !g.startsWith('!'));
 
     expect(all.length, 'no globs declared — the checks below would be vacuous').toBeGreaterThan(10);
@@ -232,7 +236,7 @@ describe('DeadCodeAllowlist_BareEntry_IsRejected', () => {
       silent.length,
       'More entries now state no condition under which they could ever be removed. ' +
         'A rationale should end with what retires it — a real one, not a rewording.',
-    ).toBeLessThanOrEqual(59);
+    ).toBeLessThanOrEqual(1);
   });
 
   /** The schema is the enforcement. This test pins that the loader rejects a bare row and does not coerce it. */

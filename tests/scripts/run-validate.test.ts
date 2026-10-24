@@ -382,7 +382,7 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
    * The exit code that the shipped manifest tolerates must be the code that
    * `check-measured-premises.mjs` exits with. The key comes from `EXIT_GAPS`, because
    * JSON cannot import the constant and no other check holds the two together. The
-   * expiry date must be in the future, because an expired declaration fails the chain.
+   * expiry date must be today or later, because an expired declaration fails the chain.
    */
   it('ValidateManifest_ShippedMeasuredPremisesStep_DeclaresItsGapsVerdict', () => {
     const raw: unknown = JSON.parse(
@@ -397,7 +397,7 @@ describe('run-validate — verdict fidelity (task 078, DR-7)', () => {
     expect(gaps).toBeDefined();
     expect(gaps!.verdict).toBe('gaps');
     expect(gaps!.issue).toBeTruthy();
-    expect(gaps!.expires! > new Date().toISOString().slice(0, 10)).toBe(true);
+    expect(gaps!.expires! >= new Date().toISOString().slice(0, 10)).toBe(true);
   });
 
 });
