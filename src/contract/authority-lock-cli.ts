@@ -112,8 +112,8 @@ const LOCK_NOTE =
   'and the capsule contract no longer carries `batchId`, which moved to the settle request in ' +
   'the preceding change. No invariant changed.' +
   ' RE-APPROVED for the INV-3 edit. The `invariant-catalog` digest moves because INV-3 no ' +
-  'longer names the remote-MCP skeleton, which was deleted at its RESERVED expiry by Reed\'s ' +
-  'decision of 2026-10-23. INV-3 keeps its other references, and no other invariant changed.';
+  'longer names the remote-MCP skeleton. Reed decided on 2026-10-23 to delete it before its ' +
+  'RESERVED expiry of 2026-10-31. INV-3 keeps its other references, and no other invariant changed.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
