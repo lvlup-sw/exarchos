@@ -3,11 +3,12 @@
  * cases use the real lock and rename calls on a real filesystem, with an injected fake build
  * step. No case runs `bun` or reads the real `dist/bin` binary.
  *
- * This file declares no oracle sources. The suite-invariant sweep puts it in scope for one
- * `readdirSync` call. That call is the leak check for a `.build-tmp-` scratch directory in a temp
- * directory that the test made. The check compares the listing with a prefix literal copied from
- * `_helpers.ts`, so it has no second source to name. The gap `dr29/process-helpers-fs-sweep` in
- * `tests/core/integration/suite-invariants/registry.ts` owns the obligation.
+ * The leak check has two sources. `_helpers.ts` exports `BUILD_SCRATCH_PREFIX`, the prefix of the
+ * scratch directory that `ensureBinaryBuilt` makes. The test lists the temp directory that it made
+ * after the build. The fake build records the name of its scratch directory, so the check also
+ * fails when that name does not start with the exported prefix.
+ *
+ * @oracle-sources: ./_helpers.ts, the listing of the temp directory that the test made
  */
 import * as fs from 'node:fs';
 import * as fsp from 'node:fs/promises';
@@ -16,7 +17,7 @@ import * as path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { ensureBinaryBuilt, hostBinaryPath, withBuildLock } from './_helpers.js';
+import { BUILD_SCRATCH_PREFIX, ensureBinaryBuilt, hostBinaryPath, withBuildLock } from './_helpers.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 function delay(ms: number): Promise<void> {
@@ -129,7 +130,8 @@ describe('withBuildLock (T-38 / DR-29 mutual-exclusion primitive)', () => {
 describe('ensureBinaryBuilt (T-38 / DR-29 serialized build)', () => {
   /**
    * The fake build has two await points, where two builds that are not serialized interleave.
-   * Exactly one caller must build. No lock file and no `.build-tmp-` scratch directory must remain.
+   * Exactly one caller must build. No lock file and no scratch directory with
+   * `BUILD_SCRATCH_PREFIX` must remain.
    */
   it('EnsureBinaryBuilt_NConcurrentCallers_BuildsExactlyOnceAndNeverOverlaps', async () => {
     const repoRoot = await makeTempDir('exarchos-ensure-built-repo-');
@@ -139,8 +141,10 @@ describe('ensureBinaryBuilt (T-38 / DR-29 serialized build)', () => {
     let active = 0;
     let maxActive = 0;
     let buildInvocations = 0;
+    const scratchNames: string[] = [];
 
     const fakeRunBuild = async (_repoRoot: string, outDir: string): Promise<void> => {
+      scratchNames.push(path.basename(outDir));
       active++;
       maxActive = Math.max(maxActive, active);
       buildInvocations++;
@@ -180,8 +184,13 @@ describe('ensureBinaryBuilt (T-38 / DR-29 serialized build)', () => {
     expect(fs.readFileSync(expectedBinaryPath, 'utf8')).toBe(expectedContent);
 
     expect(fs.existsSync(`${expectedBinaryPath}.lock`)).toBe(false);
+    expect(scratchNames).toHaveLength(1);
+    expect(
+      scratchNames.filter((name) => name.startsWith(BUILD_SCRATCH_PREFIX)),
+      'the build ran in a scratch directory without the exported prefix',
+    ).toEqual(scratchNames);
     const siblings = fs.readdirSync(path.dirname(expectedBinaryPath));
-    expect(siblings.some((name) => name.startsWith('.build-tmp-'))).toBe(false);
+    expect(siblings.filter((name) => name.startsWith(BUILD_SCRATCH_PREFIX))).toEqual([]);
   });
 
   /**
