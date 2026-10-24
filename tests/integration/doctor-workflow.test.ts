@@ -120,7 +120,7 @@ describe('doctor end-to-end acceptance (task 022)', () => {
    * The claude-code detector in `runtime/agent-environment-detector.ts` needs no other field.
    * The guarantees are zero failed checks and a pass for the two agent checks. A warning, such as a missing git repo, is acceptable.
    *
-   * "Mostly pass" means that more than half of the checks pass. The remote-MCP check always has the status `Skipped`.
+   * "Mostly pass" means that more than half of the checks pass.
    * The win32 runner adds expected environment warnings that can tip that majority, so the majority check does not run on win32.
    */
   it('Doctor_ProjectWithClaudeJsonAndExarchosMcp_ReturnsMostlyPass', async () => {

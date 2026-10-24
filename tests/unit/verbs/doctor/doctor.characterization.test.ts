@@ -51,7 +51,6 @@ const PINNED_CHECKS: ReadonlyArray<{
   { category: 'plugin', name: 'plugin-skill-hash-sync' },
   { category: 'plugin', name: 'plugin-version-match' },
   { category: 'plugin', name: 'install-freshness' },
-  { category: 'remote', name: 'remote-mcp' },
   { category: 'invariants', name: 'invariants-catalog' },
   { category: 'invariants', name: 'action-contract-closure' },
   { category: 'verification', name: 'verification-toolchain' },
@@ -109,8 +108,8 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const output: DoctorOutput = DoctorOutputSchema.parse(result.data);
     const { checks, summary } = output;
 
-    expect(ALL_CHECKS).toHaveLength(20);
-    expect(checks).toHaveLength(20);
+    expect(ALL_CHECKS).toHaveLength(19);
+    expect(checks).toHaveLength(19);
 
     const observedIdentity = checks.map((c) => ({
       category: c.category,
@@ -119,7 +118,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
     expect(observedIdentity).toEqual(PINNED_CHECKS);
 
     const observedNames = new Set(checks.map((c) => c.name));
-    expect(observedNames.size).toBe(20);
+    expect(observedNames.size).toBe(19);
     for (const { name } of PINNED_CHECKS) {
       expect(observedNames.has(name)).toBe(true);
     }
@@ -176,7 +175,7 @@ describe('doctor characterization (DR-9 baseline)', () => {
     const payload = DiagnosticExecutedDataSchema.parse(event.data);
 
     expect(payload.checkCount).toBe(checks.length);
-    expect(payload.checkCount).toBe(20);
+    expect(payload.checkCount).toBe(19);
     expect(payload.summary).toEqual(summary);
     expect(payload.failedCheckNames).toEqual(
       checks.filter((c) => c.status === 'Fail').map((c) => c.name),

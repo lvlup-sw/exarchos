@@ -34,10 +34,10 @@ describe('CheckResultSchema', () => {
 
   it('CheckResultSchema_SkippedWithoutReason_ThrowsValidationError', () => {
     const input = {
-      category: 'remote',
-      name: 'remote-mcp-stub',
+      category: 'plugin',
+      name: 'plugin-version-match',
       status: 'Skipped',
-      message: 'Remote MCP not configured.',
+      message: 'Plugin not installed locally.',
       durationMs: 0,
     };
 

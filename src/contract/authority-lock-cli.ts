@@ -110,13 +110,18 @@ const LOCK_NOTE =
   '`settle` now adjudicates only a capsule a prepare call recorded (it takes `capsuleVersion`, ' +
   'reads the capsule back out of custody, and refuses a submitted capsule whose digest differs), ' +
   'and the capsule contract no longer carries `batchId`, which moved to the settle request in ' +
-  'the preceding change. No invariant changed.';
+  'the preceding change. No invariant changed.' +
+  ' RE-APPROVED for the INV-3 edit. The `invariant-catalog` digest moves because INV-3 no ' +
+  'longer names the remote-MCP skeleton. Reed decided on 2026-10-23 to delete it before its ' +
+  'RESERVED expiry of 2026-10-31. INV-3 keeps its other references, and no other invariant changed.';
 
 /**
  * The approver that the freeze records for the current snapshot. Change it at each new approval, so
  * the lockfile records who approved and not the tool.
  */
 export const CURRENT_APPROVER =
+  'Reed (re-approved for the INV-3 edit: the reference to the deleted remote-MCP skeleton ' +
+  'removed; decision of 2026-10-23). Previously: ' +
   'Reed (re-approved for the compilation endpoint: exarchos_orchestrate.prepare added, ' +
   'workflow.prepared reserved, and settle narrowed to prepared capsules; decision recorded on ' +
   'their instruction). Previously: Reed (re-approved for the settlement endpoint: ' +

@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1338,
-    "parsedFiles": 1292,
+    "testFiles": 1335,
+    "parsedFiles": 1289,
     "shellFiles": 46,
-    "cases": 15059,
+    "cases": 15046,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -470,10 +470,6 @@
       "to": "tools/skill-validators/validate-frontmatter.test.sh"
     },
     {
-      "from": "src/__tests__/benchmarks/baselines-schema.test.ts",
-      "to": "tests/unit/benchmarks/baselines-schema.test.ts"
-    },
-    {
       "from": "src/__tests__/correlation-acceptance.test.ts",
       "to": "tests/unit/correlation-acceptance.test.ts"
     },
@@ -740,10 +736,6 @@
     {
       "from": "src/adapters/mcp/mcp.test.ts",
       "to": "tests/unit/adapters/mcp/mcp.test.ts"
-    },
-    {
-      "from": "src/adapters/mcp/remote-mcp.test.ts",
-      "to": "tests/unit/adapters/mcp/remote-mcp.test.ts"
     },
     {
       "from": "src/architecture/adapter-ownership-seam.test.ts",
@@ -2856,10 +2848,6 @@
     {
       "from": "src/verbs/doctor/checks/plugin-version-match.test.ts",
       "to": "tests/unit/verbs/doctor/checks/plugin-version-match.test.ts"
-    },
-    {
-      "from": "src/verbs/doctor/checks/remote-mcp-stub.test.ts",
-      "to": "tests/unit/verbs/doctor/checks/remote-mcp-stub.test.ts"
     },
     {
       "from": "src/verbs/doctor/checks/retired-hooks-present.test.ts",
@@ -16688,27 +16676,6 @@
         }
       ]
     },
-    "tests/unit/adapters/mcp/remote-mcp.test.ts": {
-      "file": "tests/unit/adapters/mcp/remote-mcp.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
-          "name": "RemoteMcpAdapter_Interface_CompilesAsTypeShape",
-          "dynamic": false
-        },
-        {
-          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
-          "name": "NotImplementedRemoteMcpAdapter_Dispatch_ThrowsNotImplementedError",
-          "dynamic": false
-        },
-        {
-          "suite": "RemoteMcpAdapter (DR-6 skeleton)",
-          "name": "NotImplementedRemoteMcpAdapter_Close_ResolvesNoop",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/architecture/adapter-ownership-seam.test.ts": {
       "file": "tests/unit/architecture/adapter-ownership-seam.test.ts",
       "runner": "vitest:root",
@@ -18514,57 +18481,6 @@
         {
           "suite": "scanRepoDefaults / DATED_RECORD_TREES archival-invariance (DR-18, task 030)",
           "name": "VocabularyLint_ScanRoots_UnchangedByArchival",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/benchmarks/baselines-schema.test.ts": {
-      "file": "tests/unit/benchmarks/baselines-schema.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "BaselinesFile",
-          "name": "BaselinesSchema_ValidBaselines_ParsesCorrectly",
-          "dynamic": false
-        },
-        {
-          "suite": "BaselinesFile",
-          "name": "BaselinesSchema_MissingRequiredFields_Rejects",
-          "dynamic": false
-        },
-        {
-          "suite": "BaselinesFile",
-          "name": "BaselinesSchema_InvalidMetricValues_Rejects",
-          "dynamic": false
-        },
-        {
-          "suite": "BaselinesFile",
-          "name": "BaselinesSchema_EmptyBaselines_ParsesCorrectly",
-          "dynamic": false
-        },
-        {
-          "suite": "BaselineEntry",
-          "name": "should parse a valid entry with all fields",
-          "dynamic": false
-        },
-        {
-          "suite": "BaselineEntry",
-          "name": "should reject empty commit string",
-          "dynamic": false
-        },
-        {
-          "suite": "BaselineEntry",
-          "name": "should reject non-integer iterations",
-          "dynamic": false
-        },
-        {
-          "suite": "BaselineEntry",
-          "name": "should allow zero for metric values",
-          "dynamic": false
-        },
-        {
-          "suite": "BaselineEntry",
-          "name": "should reject invalid datetime format for measured_at",
           "dynamic": false
         }
       ]
@@ -53897,17 +53813,6 @@
         }
       ]
     },
-    "tests/unit/verbs/doctor/checks/remote-mcp-stub.test.ts": {
-      "file": "tests/unit/verbs/doctor/checks/remote-mcp-stub.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "remote-mcp-stub",
-          "name": "RemoteMcpStub_NoConfigPresent_ReturnsSkippedWithPendingReason",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/doctor/checks/retired-hooks-present.test.ts": {
       "file": "tests/unit/verbs/doctor/checks/retired-hooks-present.test.ts",
       "runner": "vitest:root",
@@ -54179,7 +54084,7 @@
       "cases": [
         {
           "suite": "doctor roster characterization (T0 baseline)",
-          "name": "DoctorRoster_CurrentBuild_ExactlyTwentyChecksWithStableNames",
+          "name": "DoctorRoster_CurrentBuild_ExactlyNineteenChecksWithStableNames",
           "dynamic": false
         },
         {

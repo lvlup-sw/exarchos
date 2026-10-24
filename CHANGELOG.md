@@ -142,6 +142,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 ### Removed
 
 - The unused MCP bundle copy (`src/install/operations/bundle.ts`) and the unused MCP entry helpers (`src/install/operations/mcp.ts`). No install path called them.
+- The unused remote-MCP skeleton `src/adapters/mcp/remote-mcp.ts` and the dormant benchmark baseline schema `tools/evals/benchmarks/baselines-schema.ts` are deleted at the expiry of their RESERVED headers on 2026-10-31. `doctor` no longer reports the `remote-mcp` check, which always gave `Skipped`, so it now runs 19 checks.
 
 ## [2.10.0-preview.4] - 2026-05-24
 

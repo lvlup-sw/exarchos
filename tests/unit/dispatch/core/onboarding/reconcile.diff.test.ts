@@ -78,7 +78,7 @@ describe('diff', () => {
       remediable('agent', 'agent-mcp-registered'),
       remediable('plugin', 'plugin-skill-hash-sync'),
       remediable('agent', 'session-start-hook'),
-      skipped('remote', 'remote-mcp'),
+      skipped('plugin', 'plugin-version-match'),
     ];
 
     const plan = diff(DESIRED, actual);
@@ -325,7 +325,6 @@ describe('roster placement', () => {
       storageStateDir: 'state-dir',
       envVariables: 'variables',
       vcsGitAvailable: 'git-available',
-      remoteMcpStub: 'remote-mcp',
       storageSqliteHealth: 'storage-sqlite-health',
       storePathDivergence: 'store-path-divergence',
       agentConfigValid: 'agent-config-valid',
@@ -344,7 +343,7 @@ describe('roster placement', () => {
     const unplaced = registered
       .map((name) => RESULT_NAME_OF_BINDING[name] ?? name)
       .filter((name) => !placed.has(name));
-    const ACCEPTED_FALLBACKS = new Set(['stale-skill-dirs', 'install-freshness', 'remote-mcp', 'action-contract-closure', 'verification-toolchain']);
+    const ACCEPTED_FALLBACKS = new Set(['stale-skill-dirs', 'install-freshness', 'action-contract-closure', 'verification-toolchain']);
     expect(unplaced.filter((name) => !ACCEPTED_FALLBACKS.has(name))).toEqual([]);
   });
 
