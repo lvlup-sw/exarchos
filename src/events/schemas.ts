@@ -2983,18 +2983,8 @@ export type AdmissionRequirementResolved = z.infer<
 export type AdmissionEvidenceRecorded = z.infer<
   typeof AdmissionEvidenceRecordedData
 >;
-export type AdmissionTransitionDecided = z.infer<
-  typeof AdmissionTransitionDecidedData
->;
-export type AdmissionWaiverRecorded = z.infer<typeof AdmissionWaiverRecordedData>;
 export type AdmissionContradictionRecorded = z.infer<
   typeof AdmissionContradictionRecordedData
->;
-export type AdmissionReassessmentRequested = z.infer<
-  typeof AdmissionReassessmentRequestedData
->;
-export type AdmissionReassessmentCompleted = z.infer<
-  typeof AdmissionReassessmentCompletedData
 >;
 export type AdmissionShadowAttempt = z.infer<typeof AdmissionShadowAttemptData>;
 export type AdmissionDisagreementDisposition = z.infer<

@@ -51,7 +51,6 @@ the round-trip harness remain the contract either way.
 | [`generated/admission-ir.schema.json`](./generated/admission-ir.schema.json) | The checked-in JSON Schema artifact (canonical JSON, byte-stable). |
 | [`references.ts`](./references.ts) | Dangling-reference resolver (exit-proof half 2). Resolves action refs against the real P03-04 ActionId source. |
 | [`builder.ts`](./builder.ts) | Builder lowering to the shared IR (transition tasks 033/047) + `validateAdmissionIrDocument` consumer entry point. |
-| [`index.ts`](./index.ts) | Public aggregation surface. |
 | `*-fixtures.ts`, `*.test.ts` | Shared round-trip corpus + exit-proof tests. |
 
 ## Closed by construction

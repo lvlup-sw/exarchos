@@ -271,11 +271,3 @@ export function runKillProbe(advisory: AdvisoryEntry, opts: RunKillProbeOptions)
   }
   return runner(advisory, opts);
 }
-
-/** Run every governed advisory's kill fixture. */
-export function runAllKillProbes(
-  registry: readonly AdvisoryEntry[],
-  opts: RunKillProbeOptions,
-): KillProbeResult[] {
-  return registry.map((entry) => runKillProbe(entry, opts));
-}

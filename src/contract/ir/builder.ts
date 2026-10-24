@@ -1,4 +1,8 @@
 /**
+ * RESERVED(issue: #1744, owner: exarchos, expires: 2027-02-28)
+ * No production code imports this module. The module-intent gate requires its deletion at expiry
+ * if no caller adopts it.
+ *
  * A fluent builder that lowers an authoring model to the shared admission IR document.
  * It sorts every collection by its stable id, so two builds of the same inputs are byte-identical.
  * It then validates the structure against the Zod schema, and `build()` also resolves references.

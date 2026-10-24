@@ -428,16 +428,17 @@ describe('DR-24 — "we did not look" is a distinct, non-passing outcome', () =>
   /**
    * `ok: true` alone hides an axis that observed nothing. The census shows it.
    *
-   * The key comparison with `ORACLE_AXES` cannot fail, because `axisCoverage()` builds its rows
-   * from `ORACLE_AXES`. `tests/core/integration/suite-invariants/registry.ts` records that line as
-   * a known defect. The counts beside it come from real reports.
+   * The axis set comes from the verdicts in the real reports, not from the rows of
+   * `axisCoverage()`, which come from `ORACLE_AXES`. Thus an axis that emits no verdict fails the
+   * case. The counts beside it also come from real reports.
    */
   it('AxisCoverageSeparatesNotObservedFromPassAcrossTheSuite', async () => {
     const suite = await runOracleSuite(liveOutputSubjects());
     expect(suite.ok).toBe(true);
 
+    const emittedAxes = new Set(suite.reports.flatMap((r) => r.verdicts.map((v) => v.axis)));
+    expect([...emittedAxes].sort()).toEqual([...ORACLE_AXES].sort());
     const byAxis = new Map(suite.coverage.map((c) => [c.axis, c]));
-    expect([...byAxis.keys()].sort()).toEqual([...ORACLE_AXES].sort());
     for (const axis of ['missing-authorization', 'undeclared-effect', 'compatibility-break'] as const) {
       const coverage = byAxis.get(axis);
       expect(coverage?.pass, axis).toBe(0);

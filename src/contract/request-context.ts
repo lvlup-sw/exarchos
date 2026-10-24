@@ -31,8 +31,6 @@ export const PROTECTED_CONTEXT_FIELDS = [
   'timestamp',
 ] as const;
 
-export type ProtectedContextField = (typeof PROTECTED_CONTEXT_FIELDS)[number];
-
 const PROTECTED_SET: ReadonlySet<string> = new Set(PROTECTED_CONTEXT_FIELDS);
 
 /** True when `key` is an identity/authorization field a caller cannot assert. */

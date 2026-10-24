@@ -578,11 +578,6 @@ export async function flushLiveShadowEvidence(): Promise<void> {
   }
 }
 
-/** Count of shadow-evidence appends still in flight (diagnostics). */
-export function pendingLiveShadowEvidenceCount(): number {
-  return pendingEvidenceAppends.size;
-}
-
 /**
  * Build and schedule the durable facts for one observation. It appends
  * `admission.shadow-attempt`, and it appends

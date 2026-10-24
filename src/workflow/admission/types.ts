@@ -41,29 +41,23 @@ export const WaiverIdSchema = StableIdValueSchema.brand<'AdmissionWaiverId'>();
 export type WaiverId = z.infer<typeof WaiverIdSchema>;
 
 export const WorkflowIdSchema = StableIdValueSchema.brand<'AdmissionWorkflowId'>();
-export type WorkflowId = z.infer<typeof WorkflowIdSchema>;
 
 export const PhaseAttemptIdSchema =
   StableIdValueSchema.brand<'AdmissionPhaseAttemptId'>();
 export type PhaseAttemptId = z.infer<typeof PhaseAttemptIdSchema>;
 
 export const WaveIdSchema = StableIdValueSchema.brand<'AdmissionWaveId'>();
-export type WaveId = z.infer<typeof WaveIdSchema>;
 
 export const TaskIdSchema = StableIdValueSchema.brand<'AdmissionTaskId'>();
-export type TaskId = z.infer<typeof TaskIdSchema>;
 
 export const CommitIdSchema = StableIdValueSchema.brand<'AdmissionCommitId'>();
-export type CommitId = z.infer<typeof CommitIdSchema>;
 
 export const DiffIdSchema = StableIdValueSchema.brand<'AdmissionDiffId'>();
-export type DiffId = z.infer<typeof DiffIdSchema>;
 
 export const ArtifactIdSchema = StableIdValueSchema.brand<'AdmissionArtifactId'>();
 export type ArtifactId = z.infer<typeof ArtifactIdSchema>;
 
 export const GateIdSchema = StableIdValueSchema.brand<'AdmissionGateId'>();
-export type GateId = z.infer<typeof GateIdSchema>;
 
 export const PolicyIdSchema = StableIdValueSchema.brand<'AdmissionPolicyId'>();
 export type PolicyId = z.infer<typeof PolicyIdSchema>;
@@ -73,17 +67,14 @@ export type OperationId = z.infer<typeof OperationIdSchema>;
 
 export const InvocationIdSchema =
   StableIdValueSchema.brand<'AdmissionInvocationId'>();
-export type InvocationId = z.infer<typeof InvocationIdSchema>;
 
 export const PrincipalIdSchema = StableIdValueSchema.brand<'AdmissionPrincipalId'>();
-export type PrincipalId = z.infer<typeof PrincipalIdSchema>;
 
 export const ProviderRefSchema = StableIdValueSchema.brand<'AdmissionProviderRef'>();
 export type ProviderRef = z.infer<typeof ProviderRefSchema>;
 
 export const AuthorizationIdSchema =
   StableIdValueSchema.brand<'AdmissionAuthorizationId'>();
-export type AuthorizationId = z.infer<typeof AuthorizationIdSchema>;
 
 export const CapabilityIdSchema =
   StableIdValueSchema.brand<'AdmissionCapabilityId'>();
@@ -421,9 +412,6 @@ export const UnsatisfiedRequirementReasonSchema = z.enum([
    */
   'unauthorized',
 ]);
-export type UnsatisfiedRequirementReason = z.infer<
-  typeof UnsatisfiedRequirementReasonSchema
->;
 
 const UnsatisfiedRequirementV1Schema = z
   .object({
@@ -624,7 +612,6 @@ export const ContradictionStatementSchema = z.enum([
   'unsatisfied',
   'indeterminate',
 ]);
-export type ContradictionStatement = z.infer<typeof ContradictionStatementSchema>;
 
 const ActiveEvidenceContradictionV1Schema = z
   .object({
@@ -689,7 +676,6 @@ export const ReassessmentRequestV1Schema = z
   })
   .strict()
   .readonly();
-export type ReassessmentRequestV1 = z.infer<typeof ReassessmentRequestV1Schema>;
 
 /**
  * Reassessment result that keeps both the prior and the replacement decisions.
@@ -709,7 +695,6 @@ export const ReassessmentOutcomeV1Schema = z
   })
   .strict()
   .readonly();
-export type ReassessmentOutcomeV1 = z.infer<typeof ReassessmentOutcomeV1Schema>;
 
 /**
  * Exhaustive admission event type discriminants. Each constant corresponds to

@@ -29,7 +29,12 @@
         "tools/git-hooks/**/*.ts",
         "tools/release/**/*.ts",
         "tools/test-helpers/**/*.ts",
-        "docs/.vitepress/**/*.ts"
+        "docs/.vitepress/**/*.ts",
+        "src/contract/authority-lock-cli.ts",
+        "src/contract/ir/admission-ir-schema-cli.ts",
+        "src/contract/capsule/exarchos-capsule-schema-cli.ts",
+        "tests/evals/native-baseline/emit-baseline-csv.ts",
+        "tests/core/integration/suite-invariants/regenerate-baseline.ts"
       ],
       "project": [
         "src/**/*.ts",
@@ -42,12 +47,21 @@
         "tools/git-hooks/**/*.ts",
         "tools/release/**/*.ts",
         "tools/test-helpers/**/*.ts",
-        "docs/.vitepress/**/*.ts"
+        "docs/.vitepress/**/*.ts",
+        "src/install/runtimes/load.js"
       ]
     }
   },
   "ignore": [
     "src/mcp/elicitation-method.ts",
     "tools/eslint-rules/__fixtures__/**"
+  ],
+  "ignoreFiles": [
+    "tests/evals/quality-ab/tasks/*/impl.stub.ts",
+    "tests/evals/quality-ab/tasks/*/oracle.ts",
+    "tools/audit/__fixtures__/comment-hygiene/*.ts",
+    "src/architecture/__fixtures__/*.fixture.ts",
+    "tools/conformance/src/__fixtures__/*.fixture.ts",
+    "tools/audit/__shims__/*.d.ts"
   ]
 }

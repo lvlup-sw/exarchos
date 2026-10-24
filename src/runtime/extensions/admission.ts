@@ -1,4 +1,8 @@
 /**
+ * RESERVED(issue: #1736, owner: exarchos, expires: 2027-02-28)
+ * No production code imports this module. The module-intent gate requires its deletion at expiry
+ * if no caller adopts it.
+ *
  * Extension admission: the fail-closed gate that each extension passes before
  * it runs. Each failure mode rejects before execution:
  * - `UNTRUSTED`: the signature does not chain to a configured trust root.
