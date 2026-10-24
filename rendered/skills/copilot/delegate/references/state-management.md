@@ -4,7 +4,7 @@ State update patterns for workflow state during delegation. Use `mcp__plugin_exa
 
 ## Read Tasks from State
 
-Instead of re-parsing plan, read task list with `action: "get"`, `query: "tasks"`. For status checks during monitoring, use `fields: ["tasks"]` to reduce response size.
+Instead of re-parsing plan, read the task list with `action: "get"`, `query: "tasks"`. The response `data` is `{ "tasks": [...] }`. To read more than one key in one call, use `fields` (for example `fields: ["phase", "tasks"]`).
 
 ## Subagent Mode
 

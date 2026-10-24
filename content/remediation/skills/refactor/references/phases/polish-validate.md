@@ -38,8 +38,10 @@ Review each goal from the brief and verify completion:
 **Read goals:**
 
 ```
-action: "get", featureId: "refactor-<slug>", query: ".brief.goals"
+action: "get", featureId: "refactor-<slug>", query: "brief.goals"
 ```
+
+The goals are the array under the `brief.goals` key of the response `data`.
 
 **For each goal:**
 - [ ] Goal is fully addressed

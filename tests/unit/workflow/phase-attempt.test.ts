@@ -79,7 +79,7 @@ describe('phase-attempt identity (DR-2, DR-4)', () => {
       eventStore,
     );
     expect(queried.success).toBe(true);
-    expect(queried.data).toBe(activeId);
+    expect(queried.data).toEqual({ phaseAttemptId: activeId });
 
     const projected = events.reduce(
       workflowStateProjection.apply,

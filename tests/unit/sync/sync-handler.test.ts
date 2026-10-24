@@ -6,6 +6,9 @@ import { handleSyncNow } from '../../../src/sync/sync-handler.js';
 import { Outbox } from '../../../src/sync/outbox.js';
 import type { EventSender, OutboxEntry } from '../../../src/sync/types.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
+import { TOOL_REGISTRY } from '../../../src/registry.js';
+import { envelopeWrap } from '../../../src/envelope-wrap.js';
+import { toEnvelope, type ToolResult } from '../../../src/format.js';
 
 describe('handleSyncNow', () => {
   let tempDir: string;
@@ -245,5 +248,87 @@ describe('handleSyncNow', () => {
     );
     const entries = JSON.parse(raw) as OutboxEntry[];
     expect(entries[0].status).toBe('confirmed');
+  });
+});
+
+/**
+ * Parses a reply against the `outputSchema` of `exarchos_sync.now`, after the wrap that the MCP
+ * adapter checks. It returns `ok`, or the issues as JSON.
+ */
+function syncNowVerdict(result: ToolResult): string {
+  const action = TOOL_REGISTRY.find((tool) => tool.name === 'exarchos_sync')?.actions.find(
+    (candidate) => candidate.name === 'now',
+  );
+  if (action === undefined) throw new Error('exarchos_sync.now is not registered');
+  const parsed = action.outputSchema.safeParse(toEnvelope(envelopeWrap(result, Date.now())));
+  return parsed.success ? 'ok' : JSON.stringify(parsed.error.issues);
+}
+
+/**
+ * Each success reply of `handleSyncNow` must parse against the declared `outputSchema`. The MCP
+ * adapter replaces a reply that does not parse with an `INTERNAL_ERROR`.
+ */
+describe('handleSyncNow output schema', () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(path.join(tmpdir(), 'sync-output-schema-'));
+  });
+
+  afterEach(async () => {
+    await rmrfAsync(tempDir);
+  });
+
+  /**
+   * The paths are an empty state directory, local mode with a pending outbox, and a drain through
+   * a sender. A reply without its message, or a result without its counts, fails the same parse.
+   */
+  it('SyncNow_EverySuccessReply_ParsesAgainstTheDeclaredSchema', async () => {
+    const empty = await handleSyncNow(tempDir);
+    expect(empty.success).toBe(true);
+    expect(syncNowVerdict(empty)).toBe('ok');
+
+    await writeFile(
+      path.join(tempDir, 'schema-stream.outbox.json'),
+      JSON.stringify([
+        {
+          id: 'entry-schema-1',
+          streamId: 'schema-stream',
+          event: {
+            streamId: 'schema-stream',
+            sequence: 1,
+            timestamp: '2026-10-24T00:00:00Z',
+            type: 'task.completed',
+            schemaVersion: '1.0',
+          },
+          status: 'pending',
+          attempts: 0,
+          createdAt: '2026-10-24T00:00:00Z',
+        },
+      ]),
+      'utf-8',
+    );
+
+    const local = await handleSyncNow(tempDir);
+    expect(local.success).toBe(true);
+    expect(syncNowVerdict(local)).toBe('ok');
+
+    const sender: EventSender = {
+      appendEvents: vi.fn().mockResolvedValue({ accepted: 1, streamVersion: 1 }),
+    };
+    const drained = await handleSyncNow(tempDir, undefined, sender);
+    expect(drained.success).toBe(true);
+    expect(drained.data).toMatchObject({ streams: 1, results: [{ streamId: 'schema-stream', sent: 1, failed: 0 }] });
+    expect(syncNowVerdict(drained)).toBe('ok');
+
+    const wrongData: readonly unknown[] = [
+      'synced',
+      { streams: 0 },
+      { streams: '1', message: 'm' },
+      { streams: 1, message: 'm', results: [{ streamId: 'schema-stream' }] },
+    ];
+    for (const data of wrongData) {
+      expect(syncNowVerdict({ success: true, data }), JSON.stringify(data)).not.toBe('ok');
+    }
   });
 });

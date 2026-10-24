@@ -155,7 +155,7 @@ describe('Idempotency', () => {
         stateDir,
       );
       expect(getBeforeFirstCheckpoint.success).toBe(true);
-      expect(getBeforeFirstCheckpoint.data).toBe(2);
+      expect(getBeforeFirstCheckpoint.data).toEqual({ '_checkpoint.operationsSince': 2 });
 
       const firstCheckpoint = await handleCheckpoint(
         { featureId: 'idem-checkpoint', summary: 'First checkpoint' },
@@ -168,7 +168,7 @@ describe('Idempotency', () => {
         stateDir,
       );
       expect(getAfterFirstCheckpoint.success).toBe(true);
-      expect(getAfterFirstCheckpoint.data).toBe(0);
+      expect(getAfterFirstCheckpoint.data).toEqual({ '_checkpoint.operationsSince': 0 });
 
       await handleSet(
         {
@@ -197,7 +197,7 @@ describe('Idempotency', () => {
         stateDir,
       );
       expect(getBeforeSecondCheckpoint.success).toBe(true);
-      expect(getBeforeSecondCheckpoint.data).toBe(3);
+      expect(getBeforeSecondCheckpoint.data).toEqual({ '_checkpoint.operationsSince': 3 });
 
       const secondCheckpoint = await handleCheckpoint(
         { featureId: 'idem-checkpoint', summary: 'Second checkpoint' },
@@ -210,7 +210,7 @@ describe('Idempotency', () => {
         stateDir,
       );
       expect(getAfterSecondCheckpoint.success).toBe(true);
-      expect(getAfterSecondCheckpoint.data).toBe(0);
+      expect(getAfterSecondCheckpoint.data).toEqual({ '_checkpoint.operationsSince': 0 });
     });
   });
 });

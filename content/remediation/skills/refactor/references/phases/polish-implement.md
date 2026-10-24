@@ -37,21 +37,21 @@ Before starting implementation, verify prerequisites:
 
 **Check track:**
 ```
-action: "get", featureId: "refactor-<slug>", query: ".track"
+action: "get", featureId: "refactor-<slug>", query: "track"
 ```
-Must return: `"polish"`
+Must return: `{ "track": "polish" }`
 
 **Check phase:**
 ```
-action: "get", featureId: "refactor-<slug>", query: ".phase"
+action: "get", featureId: "refactor-<slug>", query: "phase"
 ```
-Must return: `"polish-implement"`
+Must return: `{ "phase": "polish-implement" }`
 
 **Check goals:**
 ```
-action: "get", featureId: "refactor-<slug>", query: ".brief.goals"
+action: "get", featureId: "refactor-<slug>", query: "brief.goals"
 ```
-Must return: populated array
+Must return: `{ "brief.goals": [...] }` with a populated array. A path that resolves to nothing returns `{}`.
 
 ### State Requirements
 
@@ -136,8 +136,10 @@ action: "update", featureId: "refactor-<slug>", updates: {
 After all changes, verify each goal from brief:
 
 ```
-action: "get", featureId: "refactor-<slug>", query: ".brief.goals"
+action: "get", featureId: "refactor-<slug>", query: "brief.goals"
 ```
+
+The goals are the array under the `brief.goals` key of the response `data`.
 
 For each goal, confirm it's addressed. If a goal cannot be addressed within polish scope, trigger track switch.
 

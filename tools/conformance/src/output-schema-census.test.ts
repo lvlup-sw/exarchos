@@ -27,7 +27,11 @@ import {
   OUTPUT_SCHEMA_PORTS,
 } from './bindings/output-schema.js';
 import { acceptsEveryValue } from '../../../src/contract/schemas/schema-totality.js';
-import { TOOL_REGISTRY } from '../../../src/registry.js';
+import {
+  TOOL_REGISTRY,
+  WorkflowTransitionOutputSchema,
+  WorkflowUpdateOutputSchema,
+} from '../../../src/registry.js';
 import { EnvelopeSchema } from '../../../src/contract/schemas/envelope.js';
 
 /**
@@ -294,9 +298,9 @@ describe('DR-4: outputSchema vacuity census', () => {
 
   /**
    * A named binding hides the vacuous expression from a grep, but the census reads the schema
-   * object. An intersection that constrains only `_meta` leaves `data` vacuous. Each live
-   * declaration that reaches vacuity through a named binding must count as vacuous. If one becomes
-   * typed, re-derive the reconciled counts in the live-registry test.
+   * object. An intersection that constrains only `_meta` leaves `data` vacuous. The two deprecated
+   * named bindings in `registry/output-schemas.ts` still count as vacuous. No live declaration uses
+   * them, so the live registry holds no named-binding site, and `transition` and `update` are typed.
    */
   it('OutputSchemaCensus_AliasedVacuousSchema_CountedVacuous', () => {
     expect(classifyOutputSchema(ALIASED_VACUOUS_ENVELOPE, OUTPUT_SCHEMA_PORTS)).toEqual({
@@ -309,15 +313,21 @@ describe('DR-4: outputSchema vacuity census', () => {
       reason: 'wrapped-unknown-data',
     });
 
+    expect(classifyOutputSchema(WorkflowTransitionOutputSchema, OUTPUT_SCHEMA_PORTS)).toEqual({
+      classification: 'vacuous',
+      reason: 'wrapped-unknown-data',
+    });
+    expect(classifyOutputSchema(WorkflowUpdateOutputSchema, OUTPUT_SCHEMA_PORTS)).toEqual({
+      classification: 'vacuous',
+      reason: 'unknown-data',
+    });
+
     const namedBindings = readDeclarationSites().filter((s) => isNamedBindingRhs(s));
-    expect(namedBindings.length).toBeGreaterThan(0);
+    expect(namedBindings).toEqual([]);
 
     const byAction = new Map(censusLiveOutputSchemas().records.map((r) => [r.action, r]));
-    for (const site of namedBindings) {
-      expect(byAction.get(site.action)?.classification).toBe('vacuous');
-    }
-    expect(byAction.get('transition')?.reason).toBe('wrapped-unknown-data');
-    expect(byAction.get('update')?.reason).toBe('unknown-data');
+    expect(byAction.get('transition')?.reason).toBe('typed-data');
+    expect(byAction.get('update')?.reason).toBe('typed-data');
   });
 
   /**
@@ -342,7 +352,7 @@ describe('DR-4: outputSchema vacuity census', () => {
 
   /**
    * The live counts are measured, and they reconcile against the source-text authority. Every site
-   * is a `vacuityWaiver` or a `withCappedShape`, and two waivers carry a named binding.
+   * is a `vacuityWaiver` or a `withCappedShape`, and no waiver carries a named binding.
    * `makeDescribeAction()` serves two tools from one site, so the registry builds one extra action.
    * Vacuous is the waivers plus that extra action. Substantive is the capped sites.
    *
@@ -361,10 +371,10 @@ describe('DR-4: outputSchema vacuity census', () => {
 
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
-    expect(waiverSites).toBe(103);
-    expect(cappedSites).toBe(23);
+    expect(waiverSites).toBe(91);
+    expect(cappedSites).toBe(35);
     expect(waiverSites + cappedSites).toBe(126);
-    expect(namedBindingSites).toBe(2);
+    expect(namedBindingSites).toBe(0);
 
     const factoryDuplicates = report.total - sites.length;
     expect(factoryDuplicates).toBe(1);
@@ -373,12 +383,12 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(report.substantiveCount).toBe(cappedSites);
 
     expect(report.total).toBe(127);
-    expect(report.vacuousCount).toBe(104);
-    expect(report.substantiveCount).toBe(23);
+    expect(report.vacuousCount).toBe(92);
+    expect(report.substantiveCount).toBe(35);
     expect(countByReason(report)).toEqual({
-      'unknown-data': 103,
-      'wrapped-unknown-data': 1,
-      'typed-data': 23,
+      'unknown-data': 92,
+      'wrapped-unknown-data': 0,
+      'typed-data': 35,
       'unreadable-envelope': 0,
     });
 
@@ -390,6 +400,18 @@ describe('DR-4: outputSchema vacuity census', () => {
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_sync.now',
+      'exarchos_workflow.cancel',
+      'exarchos_workflow.checkpoint',
+      'exarchos_workflow.cleanup',
+      'exarchos_workflow.describe',
+      'exarchos_workflow.feedback',
+      'exarchos_workflow.get',
+      'exarchos_workflow.init',
+      'exarchos_workflow.reconcile',
+      'exarchos_workflow.rehydrate',
+      'exarchos_workflow.transition',
+      'exarchos_workflow.update',
     ]) {
       expect(report.substantive).toContain(id);
       expect(report.vacuous).not.toContain(id);

@@ -1915,7 +1915,10 @@ describe('#1499 state-source migration schema (regression guard)', () => {
   });
 });
 
-/** The output schema of `transition` keeps an optional `_meta.deprecation` slot. */
+/**
+ * The output schema of `transition` declares the success data of `handleSet`. It has no
+ * `_meta.deprecation` constraint, because the action does not emit that slot.
+ */
 describe('Registry_OutputSchema (T40, DR-11)', () => {
   function findAction(toolName: string, actionName: string): ToolAction {
     const tool = TOOL_REGISTRY.find((t) => t.name === toolName);
@@ -1926,68 +1929,33 @@ describe('Registry_OutputSchema (T40, DR-11)', () => {
 
   /**
    * Each envelope holds `next_actions` and `_perf`, as the success branch of `EnvelopeSchema` requires.
-   * The schema must accept an envelope with a full deprecation block and an envelope with none.
-   * It must reject a deprecation block whose `replacement` is missing or empty.
+   * `_meta` is a record, so the action schema admits a deprecation block of any shape. The deprecated
+   * constant `WorkflowTransitionOutputSchema` keeps the slot check, and it rejects a block without a
+   * `replacement`. A `data` without the time of the write fails the action schema.
    */
-  it('Registry_OutputSchema_RegistersMetaDeprecationOnAffectedActions', () => {
+  it('Registry_OutputSchema_TransitionDeclaresSetDataAndNoDeprecationSlot', () => {
     const transitionAction = findAction('exarchos_workflow', 'transition');
-
-    expect(transitionAction).toBeDefined();
-    expect(transitionAction!.outputSchema).toBeDefined();
-
     const perf = { ms: 0, bytes: 0, tokens: 0 };
+    const data = { phase: 'plan', workflowType: 'feature', updatedAt: '2026-05-08T00:00:00Z' };
 
-    const goodEnvelope = {
-      success: true,
-      data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
-      next_actions: [],
-      _meta: {
-        deprecation: {
-          since: '2.10.0',
-          removeIn: '2.11.0',
-          replacement: 'transition',
-        },
-      },
-      _perf: perf,
+    const noDeprecation = { success: true, data, next_actions: [], _meta: {}, _perf: perf };
+    expect(transitionAction.outputSchema.safeParse(noDeprecation).success).toBe(true);
+
+    const fullDeprecation = {
+      ...noDeprecation,
+      _meta: { deprecation: { since: '2.10.0', removeIn: '2.11.0', replacement: 'transition' } },
     };
-    expect(transitionAction!.outputSchema!.safeParse(goodEnvelope).success).toBe(
-      true,
-    );
+    expect(transitionAction.outputSchema.safeParse(fullDeprecation).success).toBe(true);
 
     const missingReplacement = {
-      success: true,
-      data: { phase: 'plan' },
-      next_actions: [],
+      ...noDeprecation,
       _meta: { deprecation: { since: '2.10.0', removeIn: '2.11.0' } },
-      _perf: perf,
     };
-    expect(
-      transitionAction!.outputSchema!.safeParse(missingReplacement).success,
-    ).toBe(false);
+    expect(transitionAction.outputSchema.safeParse(missingReplacement).success).toBe(true);
+    expect(WorkflowTransitionOutputSchema.safeParse(missingReplacement).success).toBe(false);
 
-    const emptyReplacement = {
-      success: true,
-      data: { phase: 'plan' },
-      next_actions: [],
-      _meta: {
-        deprecation: { since: '2.10.0', removeIn: '2.11.0', replacement: '' },
-      },
-      _perf: perf,
-    };
-    expect(
-      transitionAction!.outputSchema!.safeParse(emptyReplacement).success,
-    ).toBe(false);
-
-    const noDeprecation = {
-      success: true,
-      data: { phase: 'plan', updatedAt: '2026-05-08T00:00:00Z' },
-      next_actions: [],
-      _meta: {},
-      _perf: perf,
-    };
-    expect(transitionAction!.outputSchema!.safeParse(noDeprecation).success).toBe(
-      true,
-    );
+    const noWriteTime = { ...noDeprecation, data: { phase: 'plan', workflowType: 'feature' } };
+    expect(transitionAction.outputSchema.safeParse(noWriteTime).success).toBe(false);
   });
 });
 
@@ -2453,7 +2421,7 @@ describe('validateAction', () => {
     const factories = [
       makeDescribeAction('exarchos_view.describe'),
       makeDescribeAction('exarchos_orchestrate.describe'),
-      makeWorkflowDescribeAction('exarchos_workflow.describe'),
+      makeWorkflowDescribeAction(),
       makeEventDescribeAction(),
     ];
     for (const action of factories) {
@@ -2568,7 +2536,7 @@ describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
 /**
  * `get` and `workflow_status` accept an optional `asOf` bound, and its two fields are mutually exclusive.
  * `asOf` selects the point that the projection reads and does not change the result shape.
- * Thus the output schema of each action stays a generic envelope that accepts any `data`.
+ * Thus the output schema of each action admits the same `data` for an `asOf` read and for a live read.
  */
 describe('asOf registry schema (T6, #1555)', () => {
   it('registry_getAction_asOfUntilSequence_parses', () => {
@@ -3209,6 +3177,26 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       capsuleVersion: 1, capsuleDigest: 'a'.repeat(64), definitionVersion: 'a'.repeat(64),
       capsule: {}, tailSequence: 0,
     },
+    'exarchos_workflow.get': { phase: 'plan' },
+    'exarchos_sync.now': { streams: 0, message: 'No outbox streams found; no remote configured' },
+    'exarchos_workflow.init': { featureId: 'f', workflowType: 'feature', phase: 'plan', phaseAttemptId: 'p' },
+    'exarchos_workflow.transition': { phase: 'plan', updatedAt: '2026-10-24T00:00:00.000Z', idempotent: true },
+    'exarchos_workflow.update': { phase: 'plan', workflowType: 'feature', updatedAt: '2026-10-24T00:00:00.000Z' },
+    'exarchos_workflow.cancel': { dryRun: true, actions: [], currentPhase: 'plan', wouldTransitionTo: 'cancelled' },
+    'exarchos_workflow.cleanup': { phase: 'completed', previousPhase: 'review', phaseAttemptId: 'p' },
+    'exarchos_workflow.reconcile': { reconciled: false, eventsApplied: 0 },
+    'exarchos_workflow.checkpoint': { phase: 'plan', phasePlaybook: null },
+    'exarchos_workflow.feedback': {
+      recorded: true, stream: 'meta/feedback', sequence: 1, message: 'm',
+      upstreamConfigured: false, configuredEndpoint: null, upstreamDelivered: false,
+    },
+    'exarchos_workflow.rehydrate': {
+      v: 4, projectionSequence: 0, workflowState: { featureId: '', phase: '', workflowType: '' },
+      taskProgress: [], decisions: [], artifacts: {}, blockers: [], recentHandoffs: [], phasePlaybook: null,
+    },
+    'exarchos_workflow.describe': {
+      config: { message: 'No .exarchos.yml project config loaded. Using all defaults.' },
+    },
   };
   function baselineEnvelope(
     data: Record<string, unknown> | readonly Record<string, unknown>[],
@@ -3350,12 +3338,12 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   describe('registrySchemas_TypedOutputActions_AcceptCappedShape', () => {
     /**
      * Pins the count of typed-output actions, so a new typed action or a lost one fails here.
-     * A schema whose `data` is `z.unknown()`, such as the workflow output schemas, does not count as typed.
+     * A schema whose `data` is `z.unknown()`, such as a waived view output schema, does not count as typed.
      * The count grows when a new action declares its `data`, or when an action leaves the vacuity allowlist.
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      expect(actions.length).toBe(23);
+      expect(actions.length).toBe(35);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

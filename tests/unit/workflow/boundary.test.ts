@@ -149,7 +149,7 @@ describe('Cross-Module Boundary Tests', () => {
     );
 
     expect(result.success).toBe(true);
-    expect(result.data).toBe('docs/design.md');
+    expect(result.data).toEqual({ 'artifacts.design': 'docs/design.md' });
   });
 
   it('HandleSet_NestedObjectUpdate_PreservesSiblings — sequential updates dont clobber', async () => {

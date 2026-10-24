@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1335,
-    "parsedFiles": 1289,
+    "testFiles": 1336,
+    "parsedFiles": 1290,
     "shellFiles": 46,
-    "cases": 15045,
+    "cases": 15055,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -44920,7 +44920,7 @@
         },
         {
           "suite": "Registry_OutputSchema (T40, DR-11)",
-          "name": "Registry_OutputSchema_RegistersMetaDeprecationOnAffectedActions",
+          "name": "Registry_OutputSchema_TransitionDeclaresSetDataAndNoDeprecationSlot",
           "dynamic": false
         },
         {
@@ -50649,6 +50649,11 @@
         {
           "suite": "handleSyncNow",
           "name": "should drain outbox when a sender is provided",
+          "dynamic": false
+        },
+        {
+          "suite": "handleSyncNow output schema",
+          "name": "SyncNow_EverySuccessReply_ParsesAgainstTheDeclaredSchema",
           "dynamic": false
         }
       ]
@@ -77514,6 +77519,42 @@
         }
       ]
     },
+    "tests/unit/workflow/output-schemas.test.ts": {
+      "file": "tests/unit/workflow/output-schemas.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "workflow handler replies parse against the declared output schemas",
+          "name": "WorkflowOutputSchemas_InitUpdateAndTransition_ParseAgainstTheDeclaredSchemas",
+          "dynamic": false
+        },
+        {
+          "suite": "workflow handler replies parse against the declared output schemas",
+          "name": "WorkflowOutputSchemas_CancelDryRunAndCancel_ParseAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "workflow handler replies parse against the declared output schemas",
+          "name": "WorkflowOutputSchemas_CleanupDryRunAndCleanup_ParseAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "workflow handler replies parse against the declared output schemas",
+          "name": "WorkflowOutputSchemas_ReconcileCheckpointAndFeedback_ParseAgainstTheDeclaredSchemas",
+          "dynamic": false
+        },
+        {
+          "suite": "workflow handler replies parse against the declared output schemas",
+          "name": "WorkflowOutputSchemas_RehydrateFreshColdAndDegraded_ParseAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "workflow handler replies parse against the declared output schemas",
+          "name": "WorkflowOutputSchemas_DescribeRequests_ParseAgainstTheDeclaredSchema",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/workflow/parity.test.ts": {
       "file": "tests/unit/workflow/parity.test.ts",
       "runner": "vitest:root",
@@ -81984,8 +82025,8 @@
           "dynamic": false
         },
         {
-          "suite": "Core Tools > handleGet_QueryEventsExplicitly_ReturnsUndefined",
-          "name": "should return undefined for _events (events now in external JSONL store)",
+          "suite": "Core Tools > handleGet_QueryEventsExplicitly_ReturnsEmptyObject",
+          "name": "should return an empty object for _events (events now in external JSONL store)",
           "dynamic": false
         },
         {
@@ -82009,8 +82050,8 @@
           "dynamic": false
         },
         {
-          "suite": "Core Tools > handleGet_ScalarQuery_MissingField_ReturnsUndefined",
-          "name": "should return undefined when a queried scalar field is absent from state",
+          "suite": "Core Tools > handleGet_ScalarQuery_MissingField_ReturnsEmptyObject",
+          "name": "should return an empty object when a queried scalar field is absent from state",
           "dynamic": false
         },
         {
@@ -82516,6 +82557,21 @@
         {
           "suite": "HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates",
           "name": "should not emit duplicate state.patched events with the same idempotency key",
+          "dynamic": false
+        },
+        {
+          "suite": "HandleGet_OutputSchema_EveryModeReturnsAnObject",
+          "name": "HandleGet_StateFileReplies_ParseAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "HandleGet_OutputSchema_EveryModeReturnsAnObject",
+          "name": "HandleGet_EventFoldReplies_ParseAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "HandleGet_OutputSchema_EveryModeReturnsAnObject",
+          "name": "HandleGet_ScalarArrayOrNullData_FailsTheDeclaredSchema",
           "dynamic": false
         }
       ]

@@ -53,10 +53,12 @@ describe('P03-09 oracle — (a) the live system passes the oracle', () => {
   /**
    * Most actions accept the success envelope over empty data. An action with a typed `data` shape
    * rejects it and goes into `skipped`. The error-envelope test above observes those actions.
+   * The floor of 96 is the measured count of subjects. A paydown of a vacuous schema moves an action
+   * into `skipped`. That change measures the count again and lowers the floor.
    */
   it('EveryDataAgnosticActionAdmitsTheRuntimeSuccessEnvelope', async () => {
     const { subjects, skipped } = liveSuccessOutputSubjects();
-    expect(subjects.length).toBeGreaterThanOrEqual(100);
+    expect(subjects.length).toBeGreaterThanOrEqual(96);
     expect(skipped.length).toBeLessThan(subjects.length);
 
     const suite = await runOracleSuite(subjects, { axes: ['malformed-output'] });

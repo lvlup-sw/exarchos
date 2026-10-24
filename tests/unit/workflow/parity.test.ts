@@ -238,7 +238,7 @@ describe('asOf CLI/MCP parity (T8, #1555, INV-2)', () => {
     );
 
     expect(exitCode).toBe(CLI_EXIT_CODES.SUCCESS);
-    expect((mcpResult as { data?: unknown }).data).toBe('plan');
+    expect((mcpResult as { data?: unknown }).data).toEqual({ phase: 'plan' });
     expect(normalize(cliResult)).toEqual(normalize(mcpResult));
   });
 

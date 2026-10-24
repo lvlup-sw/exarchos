@@ -227,7 +227,7 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(red.code).toBe(1);
     expect(red.out).toBe('');
     expect(red.err).toContain('EXPIRED_WAIVER');
-    expect(red.err).toContain('exarchos_workflow.init');
+    expect(red.err).toContain('exarchos_view.workflow_status');
     expect(red.err).toContain(FIRST_DEAD_DAY);
 
     const plantedEntries: Readonly<Record<string, VacuityWaiverEntry>> = {
@@ -679,10 +679,10 @@ describe('DR-4: the vacuity allowlist expiry is enforced, not advisory', () => {
     expect(LIVE_SUBJECT.runwayBudgetDays).toBe(VACUITY_RUNWAY_BUDGET_DAYS);
 
     const red = invoke({ today: FIRST_DEAD_DAY });
-    for (const id of ['exarchos_workflow.init', 'exarchos_view.tasks', 'exarchos_orchestrate.task_claim']) {
+    for (const id of ['exarchos_view.workflow_status', 'exarchos_view.tasks', 'exarchos_orchestrate.task_claim']) {
       expect(red.err, id).toContain(id);
     }
-    expect(red.err).toContain("'exarchos_workflow.init' (owner:");
+    expect(red.err).toContain("'exarchos_view.workflow_status' (owner:");
     expect(VACUITY_RETIRED_IDS.length).toBeGreaterThan(0);
     for (const id of VACUITY_RETIRED_IDS) {
       expect(red.err, id).not.toContain(`'${id}' (owner:`);

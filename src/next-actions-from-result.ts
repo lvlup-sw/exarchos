@@ -82,7 +82,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 /**
  * Extracts the admission facts from a shape-1 payload, or `undefined` when the payload is not a
- * full state read. A `fields` projection or a `query` scalar from `handleGet` lacks the facts that
+ * full state read. A `fields` or `query` projection from `handleGet` lacks the facts that
  * it did not request. Admission over such a payload denies almost every edge.
  * `BaseWorkflowStateSchema` requires the four marker keys, so a full state always has them.
  *

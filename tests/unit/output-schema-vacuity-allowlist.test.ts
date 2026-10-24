@@ -106,7 +106,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(isDeclaredOutputSchema(z.object({ anything: z.string() }))).toBe(false);
 
     expect(isDeclaredOutputSchema(withCappedShape(EnvelopeSchema(TYPED_DATA)))).toBe(true);
-    expect(isDeclaredOutputSchema(vacuityWaiver('exarchos_workflow.init'))).toBe(true);
+    expect(isDeclaredOutputSchema(vacuityWaiver('exarchos_view.workflow_status'))).toBe(true);
 
     const unbranded = censusLiveOutputSchemas()
       .records.map((r) => r.id)
@@ -151,7 +151,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(isDeclaredOutputSchema(escape)).toBe(false);
 
     const capped = withCappedShape(EnvelopeSchema(TYPED_DATA));
-    const waived = vacuityWaiver('exarchos_workflow.init');
+    const waived = vacuityWaiver('exarchos_view.workflow_status');
     expect(isDeclaredOutputSchema(capped)).toBe(true);
     expect(isExtensionOutputSchema(capped)).toBe(false);
     expect(isDeclaredOutputSchema(waived)).toBe(true);
@@ -291,7 +291,19 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_sync.now',
       'exarchos_view.stack_place',
+      'exarchos_workflow.cancel',
+      'exarchos_workflow.checkpoint',
+      'exarchos_workflow.cleanup',
+      'exarchos_workflow.describe',
+      'exarchos_workflow.feedback',
+      'exarchos_workflow.get',
+      'exarchos_workflow.init',
+      'exarchos_workflow.reconcile',
+      'exarchos_workflow.rehydrate',
+      'exarchos_workflow.transition',
+      'exarchos_workflow.update',
     ];
     expect([...Object.keys(VACUITY_RETIRED)].sort()).toEqual([...retiredIds].sort());
 
@@ -439,7 +451,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     const unreadable = auditLiveVacuityAllowlist(
       censusLiveOutputSchemas([
-        tool('t', [action('a', vacuityWaiver('exarchos_workflow.init', z.object({ x: z.string() })))]),
+        tool('t', [action('a', vacuityWaiver('exarchos_view.workflow_status', z.object({ x: z.string() })))]),
       ]),
       ['t.a'],
     );

@@ -109,7 +109,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_orchestrate.verify_review_triage': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.verify_worktree': { owner: 'orchestration', expires: '2027-02-28' },
   'exarchos_orchestrate.verify_worktree_baseline': { owner: 'orchestration', expires: '2027-02-28' },
-  'exarchos_sync.now': { owner: 'workflow-platform', expires: '2026-12-06' },
   'exarchos_view.code_quality': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.convergence': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.delegation_readiness': { owner: 'views', expires: '2027-01-17' },
@@ -130,17 +129,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_view.tasks': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.team_performance': { owner: 'views', expires: '2027-01-17' },
   'exarchos_view.workflow_status': { owner: 'views', expires: '2027-01-17' },
-  'exarchos_workflow.cancel': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.checkpoint': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.cleanup': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.describe': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.feedback': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.get': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.init': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.reconcile': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.rehydrate': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.transition': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.update': { owner: 'workflow-platform', expires: '2026-12-06' },
 }) satisfies Readonly<Record<string, VacuityWaiverEntry>>;
 
 /**
@@ -185,6 +173,11 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
     owner: 'orchestration',
     retiredAt: '2026-08-10',
   },
+  /** The action now declares `withCappedShape(SyncNowOutputSchema)` from `registry/output-schemas.ts`. */
+  'exarchos_sync.now': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
   /**
    * The action is now `exarchos_orchestrate.stack_place`, and it declares `withCappedShape(StackPlaceOutputSchema)`.
    * A waiver under the new key is a key swap, which the digest rejects. The row keeps the `views` owner, because the debt was theirs.
@@ -192,6 +185,59 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   'exarchos_view.stack_place': {
     owner: 'views',
     retiredAt: '2026-08-17',
+  },
+  /**
+   * The workflow actions now declare `withCappedShape(...)`. The schemas are in `registry/output-schemas.ts`.
+   * `transition` and `update` share one schema. The schema of `describe` is `WorkflowDescribeOutputSchema` in `contract/schemas/describe.ts`.
+   */
+  'exarchos_workflow.cancel': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  'exarchos_workflow.checkpoint': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  'exarchos_workflow.cleanup': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  'exarchos_workflow.describe': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  'exarchos_workflow.feedback': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  /**
+   * The action now declares `withCappedShape(WorkflowGetOutputSchema)` from `registry/output-schemas.ts`.
+   * A query returns a one-key object, so the data is an object in each read mode.
+   */
+  'exarchos_workflow.get': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  /** These five workflow actions also declare `withCappedShape(...)` over the schemas in `registry/output-schemas.ts`. */
+  'exarchos_workflow.init': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  'exarchos_workflow.reconcile': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  'exarchos_workflow.rehydrate': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  'exarchos_workflow.transition': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
+  },
+  'exarchos_workflow.update': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
   },
 });
 

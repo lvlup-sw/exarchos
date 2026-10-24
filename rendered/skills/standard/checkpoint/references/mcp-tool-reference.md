@@ -21,7 +21,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 | Action | When to Use |
 |--------|-------------|
 | `init` | Starting any `/exarchos:ideate`, `/exarchos:debug`, or `/exarchos:refactor` workflow |
-| `get` | Restoring context, checking phase, reading task details. Use `query` for dot-path lookup (e.g., `query: "phase"`), or `fields` array for projection (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
+| `get` | Restoring context, checking phase, reading task details. Use `query` for one dot-path lookup: `query: "phase"` returns `{ "phase": "<phase>" }`, and a path that resolves to nothing returns `{}`. Use the `fields` array to project several keys (e.g., `fields: ["phase", "tasks"]`) to reduce token cost |
 | `transition` | Advance to a target phase (`target: "delegate"`). Canonical phase-mutation surface — emits `workflow.transition`, runs HSM guards, returns `validTargets` + `expectedShape` on guard failure |
 | `update` | Mutate non-phase state fields (`updates: { "artifacts.spec": "..." }`). Rejects `phase` in `updates` with a structured `INVALID_INPUT` pointing at `transition`. Emits `state.patched` |
 | `cancel` | Cleaning up abandoned workflows. Supports `dryRun: true` to preview cleanup actions |
