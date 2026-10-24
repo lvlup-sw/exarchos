@@ -106,7 +106,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(isDeclaredOutputSchema(z.object({ anything: z.string() }))).toBe(false);
 
     expect(isDeclaredOutputSchema(withCappedShape(EnvelopeSchema(TYPED_DATA)))).toBe(true);
-    expect(isDeclaredOutputSchema(vacuityWaiver('exarchos_workflow.init'))).toBe(true);
+    expect(isDeclaredOutputSchema(vacuityWaiver('exarchos_view.workflow_status'))).toBe(true);
 
     const unbranded = censusLiveOutputSchemas()
       .records.map((r) => r.id)
@@ -151,7 +151,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
     expect(isDeclaredOutputSchema(escape)).toBe(false);
 
     const capped = withCappedShape(EnvelopeSchema(TYPED_DATA));
-    const waived = vacuityWaiver('exarchos_workflow.init');
+    const waived = vacuityWaiver('exarchos_view.workflow_status');
     expect(isDeclaredOutputSchema(capped)).toBe(true);
     expect(isExtensionOutputSchema(capped)).toBe(false);
     expect(isDeclaredOutputSchema(waived)).toBe(true);
@@ -451,7 +451,7 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
 
     const unreadable = auditLiveVacuityAllowlist(
       censusLiveOutputSchemas([
-        tool('t', [action('a', vacuityWaiver('exarchos_workflow.init', z.object({ x: z.string() })))]),
+        tool('t', [action('a', vacuityWaiver('exarchos_view.workflow_status', z.object({ x: z.string() })))]),
       ]),
       ['t.a'],
     );

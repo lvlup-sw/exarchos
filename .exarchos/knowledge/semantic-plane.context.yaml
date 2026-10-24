@@ -17,8 +17,8 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-10-23
-  main_at: 781f594aa
+  as_of: 2026-10-24
+  main_at: 39bd6db41
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -851,7 +851,7 @@ milestones:
     outcome: "One definition runs on two runtimes with equivalent settlement records; #1249 laws harden on real settlements; evals measure the plane."
   v3.2.0:
     outcome: Design rationale as typed claims, the claims being the source of truth (beyond v3.0's C2 minimum).
-  none: "Only #1460 and #1461, which are not trackers (decision of 2026-10-22). Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries, by the first day that CI is red: 2026-11-23, the reachable-controls exemption of installBundle (the #1860 line in #2139). The check is red on that day from 00:00 UTC, and the fix/onboard-mcp-entry pull request removes the exemption. 2026-11-30: the 8 accepted suite-invariant gaps, the two date tests of the #2122 line in #2140, and the test of the cancel waiver. 2026-12-01: the 61 knip entries in #1744, and the measured-premises toleration. The date of the toleration is set in three places that one test binds. 2026-12-07: the 12 workflow-platform waivers of the output-schema allowlist, which expire on 2026-12-06, and the guard refuses a later date. Done: the 4 output-schema waivers of 2026-10-25 are retired (#2159). The 3 suite-invariant gaps of 2026-10-31 (the #1742 line) are closed (#2152). The 51 knip entries of 2026-10-31 were exported types that nothing used, and their code was deleted on 2026-10-22 (#2151). The chore/expiry-1031 pull request deletes the 2026-10-31 RESERVED modules src/adapters/mcp/remote-mcp.ts and tools/evals/benchmarks/baselines-schema.ts. The module-intent gate never read the header under tools/, because it scans only src."
+  none: "Only #1460 and #1461, which are not trackers (decision of 2026-10-22). Hygiene and small bugs are lines in the backlog trackers (issue_map.backlog_trackers), not open issues. CI-dated expiries, by the first day that CI is red: 2026-11-30: the 8 accepted suite-invariant gaps, the two date tests of the #2122 line in #2140, and the test of the cancel waiver. 2026-12-01: the 61 knip entries in #1744, and the measured-premises toleration. The date of the toleration is set in three places that one test binds. 2027-01-18: the 20 views waivers of the output-schema allowlist, which expire on 2027-01-17, and the guard refuses a later date. Done: the reachable-controls exemption of installBundle (2026-11-23, the #1860 line in #2139) is removed (#2160). The 4 output-schema waivers of 2026-10-25 are retired (#2159). The 12 workflow-platform waivers of 2026-12-06 are retired on 2026-10-24 by the chore/expiry-1206 pull request, which declares a real data schema for each action. The 3 suite-invariant gaps of 2026-10-31 (the #1742 line) are closed (#2152). The 51 knip entries of 2026-10-31 were exported types that nothing used, and their code was deleted on 2026-10-22 (#2151). The chore/expiry-1031 pull request deletes the 2026-10-31 RESERVED modules src/adapters/mcp/remote-mcp.ts and tools/evals/benchmarks/baselines-schema.ts. The module-intent gate never read the header under tools/, because it scans only src."
 
 # ─── where things are tracked ────────────────────────────────────────────────
 

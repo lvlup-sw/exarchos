@@ -60,6 +60,15 @@ function dataOf(result: ToolResult): Record<string, unknown> {
   return Object.fromEntries(Object.entries(data));
 }
 
+/** Returns `_meta` of a reply as a record, or throws when the reply holds no object `_meta`. */
+function metaOf(result: ToolResult): Record<string, unknown> {
+  const meta: unknown = result._meta;
+  if (typeof meta !== 'object' || meta === null || Array.isArray(meta)) {
+    throw new Error(`expected object _meta, got ${JSON.stringify(meta)}`);
+  }
+  return Object.fromEntries(Object.entries(meta));
+}
+
 /** Expects each `data` value to fail the declared schema of `actionName`. */
 function expectRejected(actionName: string, wrongData: readonly unknown[]): void {
   for (const data of wrongData) {
@@ -342,7 +351,7 @@ describe('workflow handler replies parse against the declared output schemas', (
     expect(verdict('rehydrate', fresh)).toBe('ok');
 
     const cold = await handleRehydrate({ featureId: 'wf-unknown' }, context);
-    expect(cold._meta?.workflowExists).toBe(false);
+    expect(metaOf(cold).workflowExists).toBe(false);
     expect(verdict('rehydrate', cold)).toBe('ok');
 
     await handleInit({ featureId: 'wf-corrupt', workflowType: 'feature' }, tmpDir, store);
@@ -354,7 +363,7 @@ describe('workflow handler replies parse against the declared output schemas', (
       timestamp: new Date().toISOString(),
     });
     const replayed = await handleRehydrate({ featureId: 'wf-corrupt' }, context);
-    expect(replayed._meta?.fallbackSource).toBe('full-replay');
+    expect(metaOf(replayed).fallbackSource).toBe('full-replay');
     expect(verdict('rehydrate', replayed)).toBe('ok');
 
     const failingStore = new EventStore(tmpDir);
@@ -366,15 +375,15 @@ describe('workflow handler replies parse against the declared output schemas', (
       { featureId: 'wf-rehydrate' },
       { stateDir: tmpDir, eventStore: failingStore },
     );
-    expect(stateOnly._meta?.degraded).toBe(true);
-    expect(stateOnly._meta?.fallbackSource).toBe('state-store-only');
+    expect(metaOf(stateOnly).degraded).toBe(true);
+    expect(metaOf(stateOnly).fallbackSource).toBe('state-store-only');
     expect(verdict('rehydrate', stateOnly)).toBe('ok');
 
     const noStateFile = await handleRehydrate(
       { featureId: 'wf-missing' },
       { stateDir: tmpDir, eventStore: failingStore },
     );
-    expect(noStateFile._meta?.degraded).toBe(true);
+    expect(metaOf(noStateFile).degraded).toBe(true);
     expect(verdict('rehydrate', noStateFile)).toBe('ok');
 
     const degraded = dataOf(stateOnly);
