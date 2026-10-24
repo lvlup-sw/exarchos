@@ -21,6 +21,9 @@ import { ViewMaterializer } from '../../../src/projections/views/materializer.js
 import { workflowStateProjection, WORKFLOW_STATE_VIEW } from '../../../src/projections/views/workflow-state-projection.js';
 import { reconcileTasks } from '../../../src/workflow/query.js';
 import type { WorkflowState } from '../../../src/workflow/types.js';
+import { toEnvelope, type ToolResult } from '../../../src/format.js';
+import { envelopeWrap } from '../../../src/envelope-wrap.js';
+import { TOOL_REGISTRY } from '../../../src/registry.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 
 let tmpDir: string;
@@ -375,7 +378,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBeNull();
+      expect(result.data).toEqual({ 'artifacts.design': null });
       expect(result._meta).toBeDefined();
     });
 
@@ -396,7 +399,7 @@ describe('Core Tools', () => {
   });
 
   describe('ToolGet_InternalField_ReturnsValue', () => {
-    /** Events live in the event store, so a query for `_events` returns undefined. */
+    /** Events live in the event store, so a query for `_events` returns an object with no key. */
     it('should be able to read internal fields like _history', async () => {
       await handleInit({ featureId: 'internal-test', workflowType: 'feature' }, tmpDir, null);
 
@@ -406,7 +409,7 @@ describe('Core Tools', () => {
         null,
       );
       expect(historyResult.success).toBe(true);
-      expect(historyResult.data).toEqual({});
+      expect(historyResult.data).toEqual({ _history: {} });
 
       const eventsResult = await handleGet(
         { featureId: 'internal-test', query: '_events' },
@@ -414,7 +417,7 @@ describe('Core Tools', () => {
         null,
       );
       expect(eventsResult.success).toBe(true);
-      expect(eventsResult.data).toBeUndefined();
+      expect(eventsResult.data).toEqual({});
     });
   });
 
@@ -479,8 +482,8 @@ describe('Core Tools', () => {
     });
   });
 
-  describe('handleGet_QueryEventsExplicitly_ReturnsUndefined', () => {
-    it('should return undefined for _events (events now in external JSONL store)', async () => {
+  describe('handleGet_QueryEventsExplicitly_ReturnsEmptyObject', () => {
+    it('should return an empty object for _events (events now in external JSONL store)', async () => {
       await handleInit({ featureId: 'query-events', workflowType: 'feature' }, tmpDir, null);
 
       await handleSet(
@@ -501,13 +504,13 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBeUndefined();
+      expect(result.data).toEqual({});
     });
   });
 
   /**
    * A scalar query uses the same resolution as every other query. The scalar-query tests check the returned
-   * value and `_meta`, not the source that `handleGet` read.
+   * value and `_meta`, not the source that `handleGet` read. A query returns the value under the query as its key.
    */
   describe('handleGet_ScalarQuery_Phase_ReturnsCorrectValue', () => {
     it('should return the phase value for a top-level scalar query', async () => {
@@ -520,7 +523,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('plan');
+      expect(result.data).toEqual({ phase: 'plan' });
     });
   });
 
@@ -535,7 +538,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('scalar-fid');
+      expect(result.data).toEqual({ featureId: 'scalar-fid' });
     });
   });
 
@@ -550,7 +553,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('plan');
+      expect(result.data).toEqual({ phase: 'plan' });
       expect(result._meta).toBeDefined();
       expect(result._meta?.checkpointAdvised).toBe(false);
     });
@@ -577,8 +580,8 @@ describe('Core Tools', () => {
     });
   });
 
-  describe('handleGet_ScalarQuery_MissingField_ReturnsUndefined', () => {
-    it('should return undefined when a queried scalar field is absent from state', async () => {
+  describe('handleGet_ScalarQuery_MissingField_ReturnsEmptyObject', () => {
+    it('should return an empty object when a queried scalar field is absent from state', async () => {
       await handleInit({ featureId: 'scalar-missing-field', workflowType: 'feature' }, tmpDir, null);
 
       const stateFile = path.join(tmpDir, 'scalar-missing-field.state.json');
@@ -593,7 +596,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBeUndefined();
+      expect(result.data).toEqual({});
     });
   });
 
@@ -613,7 +616,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('plan');
+      expect(result.data).toEqual({ phase: 'plan' });
     });
   });
 
@@ -633,7 +636,7 @@ describe('Core Tools', () => {
       );
 
       expect(result.success).toBe(true);
-      expect(result.data).toBe('pending');
+      expect(result.data).toEqual({ 'tasks[0].status': 'pending' });
     });
   });
 
@@ -1425,7 +1428,7 @@ describe('ToolSet_DynamicFields_SurviveRoundTrip', () => {
       null,
     );
     expect(result.success).toBe(true);
-    expect(result.data).toBe(true);
+    expect(result.data).toEqual({ 'planReview.approved': true });
   });
 });
 
@@ -2793,7 +2796,7 @@ describe('HandleGet_ScalarQuery_EsVersion2_FoldsEventsNotStaleFile', () => {
     const result = await handleGet({ featureId: 'fast-es-v2', query: 'phase' }, tmpDir, eventStore);
 
     expect(result.success).toBe(true);
-    expect(result.data).toBe('plan');
+    expect(result.data).toEqual({ phase: 'plan' });
   });
 });
 
@@ -3038,5 +3041,108 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
     expect(data.patch).toEqual({
       tasks: [{ id: 'pre-seeded', title: 'Pre-seeded', status: 'pending' }],
     });
+  });
+});
+
+/**
+ * Parses a `handleGet` reply against the `outputSchema` of `exarchos_workflow.get`, after the same wrap
+ * that the composite and the MCP adapter apply. It returns `ok`, or the issues as JSON.
+ */
+function getOutputSchemaVerdict(result: ToolResult): string {
+  const action = TOOL_REGISTRY.find((tool) => tool.name === 'exarchos_workflow')?.actions.find(
+    (candidate) => candidate.name === 'get',
+  );
+  if (action === undefined) throw new Error('exarchos_workflow.get is not registered');
+  const parsed = action.outputSchema.safeParse(toEnvelope(envelopeWrap(result, Date.now())));
+  return parsed.success ? 'ok' : JSON.stringify(parsed.error.issues);
+}
+
+/**
+ * Each success reply of `handleGet` must parse against the declared `outputSchema`. The MCP adapter
+ * replaces a reply that does not parse with an `INTERNAL_ERROR`. Thus a schema that is stricter than a
+ * real reply breaks the action.
+ */
+describe('HandleGet_OutputSchema_EveryModeReturnsAnObject', () => {
+  /**
+   * The state file path serves a workflow with no event store. The modes are the full state, a field
+   * projection and a projection of absent keys. The queries read a scalar, an array, a null, an
+   * internal field and an absent path.
+   */
+  it('HandleGet_StateFileReplies_ParseAgainstTheDeclaredSchema', async () => {
+    await handleInit({ featureId: 'schema-get', workflowType: 'feature' }, tmpDir, null);
+    await handleSet(
+      { featureId: 'schema-get', updates: { 'tasks[0]': { id: 't1', title: 'Task 1', status: 'pending' } } },
+      tmpDir,
+      null,
+    );
+
+    const requests = [
+      { featureId: 'schema-get' },
+      { featureId: 'schema-get', fields: ['phase', 'featureId', 'playbook', 'tasks[0].status', 'noSuchField'] },
+      { featureId: 'schema-get', fields: ['noSuchField', '_checkpoint'] },
+      { featureId: 'schema-get', query: 'phase' },
+      { featureId: 'schema-get', query: 'tasks' },
+      { featureId: 'schema-get', query: 'artifacts.design' },
+      { featureId: 'schema-get', query: '_checkpoint' },
+      { featureId: 'schema-get', query: 'noSuchField' },
+    ];
+    for (const request of requests) {
+      const result = await handleGet(request, tmpDir, null);
+      expect(result.success, JSON.stringify(request)).toBe(true);
+      expect(getOutputSchemaVerdict(result), JSON.stringify(request)).toBe('ok');
+    }
+
+    const tasks = await handleGet({ featureId: 'schema-get', query: 'tasks' }, tmpDir, null);
+    expect(tasks.data).toEqual({ tasks: [expect.objectContaining({ id: 't1', status: 'pending' })] });
+    const absent = await handleGet({ featureId: 'schema-get', fields: ['noSuchField', '_checkpoint'] }, tmpDir, null);
+    expect(absent.data).toEqual({});
+  });
+
+  /**
+   * The event path folds an ES v2 workflow. The modes are a live full read, a live query, a bounded query
+   * and a bounded field projection.
+   */
+  it('HandleGet_EventFoldReplies_ParseAgainstTheDeclaredSchema', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await handleInit({ featureId: 'schema-get-es', workflowType: 'feature' }, tmpDir, eventStore);
+
+    const requests = [
+      { featureId: 'schema-get-es' },
+      { featureId: 'schema-get-es', query: 'phase' },
+      { featureId: 'schema-get-es', query: 'phase', asOf: { untilSequence: 1 } },
+      { featureId: 'schema-get-es', fields: ['phase', 'workflowType'], asOf: { untilSequence: 1 } },
+    ];
+    for (const request of requests) {
+      const result = await handleGet(request, tmpDir, eventStore);
+      expect(result.success, JSON.stringify(request)).toBe(true);
+      expect(getOutputSchemaVerdict(result), JSON.stringify(request)).toBe('ok');
+    }
+
+    const queried = await handleGet({ featureId: 'schema-get-es', query: 'phase' }, tmpDir, eventStore);
+    expect(queried.data).toEqual({ phase: 'plan' });
+  });
+
+  /**
+   * The schema rejects each wrong shape of `data`. A query returned a bare scalar before it returned an
+   * object. A query of an absent path returned `undefined`. An array, `null` and a `phase` that is not
+   * a string are wrong shapes too. The control reply parses.
+   */
+  it('HandleGet_ScalarArrayOrNullData_FailsTheDeclaredSchema', () => {
+    expect(getOutputSchemaVerdict({ success: true, data: { phase: 'plan' } })).toBe('ok');
+
+    const wrongData: readonly unknown[] = [
+      'plan',
+      3,
+      true,
+      null,
+      undefined,
+      [],
+      [{ phase: 'plan' }],
+      { phase: 7 },
+      { featureId: null },
+    ];
+    for (const data of wrongData) {
+      expect(getOutputSchemaVerdict({ success: true, data }), String(JSON.stringify(data))).not.toBe('ok');
+    }
   });
 });

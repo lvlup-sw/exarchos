@@ -149,4 +149,22 @@ const EventQueryDataSchema = z
 /** The `outputSchema` of `exarchos_event.query`: one page of event rows and its paging metadata. */
 export const EventQueryOutputSchema = EnvelopeSchema(EventQueryDataSchema);
 
+/**
+ * The success data of `exarchos_workflow.get`. Each mode of `handleGet` returns an object. The modes
+ * are a field projection, the full state without internal fields, and the one-key projection of a
+ * query. A projection omits each key that resolves to nothing, so each field is optional. A field
+ * that is present must have its stored type. Thus a bare scalar, an array, `null` and a non-string
+ * `phase` fail the parse.
+ */
+const WorkflowGetDataSchema = z
+  .object({
+    featureId: z.string().optional(),
+    workflowType: z.string().optional(),
+    phase: z.string().optional(),
+  })
+  .passthrough();
+
+/** The `outputSchema` of `exarchos_workflow.get`: an object in each read mode. */
+export const WorkflowGetOutputSchema = EnvelopeSchema(WorkflowGetDataSchema);
+
 export { CappedDataSchema, withCappedShape } from '../output-schema-declaration.js';

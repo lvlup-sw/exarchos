@@ -52,7 +52,7 @@ If the featureId is unknown or the user hasn't named one, fall back to `exarchos
 For a targeted read rather than a full rehydration, use `exarchos:exarchos_workflow` with `action: "get"` and `featureId`:
 
 - **Full state**: Call with just `featureId`
-- **Specific field**: Add `query` for dot-path lookup (e.g., `query: "phase"`, `query: "tasks"`)
+- **Specific field**: Add `query` for dot-path lookup (e.g., `query: "phase"`, `query: "tasks"`). The response `data` holds one key, the query: `{ "phase": "<phase>" }`
 - **Multiple fields**: Add `fields` array for projection (e.g., `fields: ["phase", "featureId", "tasks"]`)
 
 Field projection via `fields` returns only the requested top-level keys, reducing token cost.

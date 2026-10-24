@@ -11,14 +11,18 @@ If given a state file path, read task details using MCP tools:
 **Get your task:**
 
 ```
-action: "get", featureId: "<feature-id>", query: ".tasks[] | select(.id == \"<task-id>\")"
+action: "get", featureId: "<feature-id>", query: "tasks"
 ```
+
+The response `data` is `{ "tasks": [...] }`. Your task is the entry whose `id` is `<task-id>`. A query is a dot path, not a filter expression.
 
 **Get plan path:**
 
 ```
-action: "get", featureId: "<feature-id>", query: ".artifacts.plan"
+action: "get", featureId: "<feature-id>", query: "artifacts.plan"
 ```
+
+The response `data` is `{ "artifacts.plan": "<plan-path>" }`.
 
 Then read the specific task section:
 
@@ -49,8 +53,10 @@ If you need design context:
 **Get the spec path from state:**
 
 ```
-action: "get", featureId: "<feature-id>", query: ".artifacts.spec"
+action: "get", featureId: "<feature-id>", query: "artifacts.spec"
 ```
+
+The response `data` is `{ "artifacts.spec": "<design-path>" }`.
 
 Then read the unified spec file:
 

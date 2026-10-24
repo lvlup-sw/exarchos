@@ -361,8 +361,8 @@ describe('DR-4: outputSchema vacuity census', () => {
 
     expect(sites).toHaveLength(waiverSites + cappedSites);
     expect(literalVacuousSites).toBe(0);
-    expect(waiverSites).toBe(103);
-    expect(cappedSites).toBe(23);
+    expect(waiverSites).toBe(102);
+    expect(cappedSites).toBe(24);
     expect(waiverSites + cappedSites).toBe(126);
     expect(namedBindingSites).toBe(2);
 
@@ -373,12 +373,12 @@ describe('DR-4: outputSchema vacuity census', () => {
     expect(report.substantiveCount).toBe(cappedSites);
 
     expect(report.total).toBe(127);
-    expect(report.vacuousCount).toBe(104);
-    expect(report.substantiveCount).toBe(23);
+    expect(report.vacuousCount).toBe(103);
+    expect(report.substantiveCount).toBe(24);
     expect(countByReason(report)).toEqual({
-      'unknown-data': 103,
+      'unknown-data': 102,
       'wrapped-unknown-data': 1,
-      'typed-data': 23,
+      'typed-data': 24,
       'unreadable-envelope': 0,
     });
 
@@ -390,6 +390,7 @@ describe('DR-4: outputSchema vacuity census', () => {
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_workflow.get',
     ]) {
       expect(report.substantive).toContain(id);
       expect(report.vacuous).not.toContain(id);

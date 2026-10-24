@@ -2568,7 +2568,7 @@ describe('Registry — taskSuitable annotations (T9, #1440 Op 2)', () => {
 /**
  * `get` and `workflow_status` accept an optional `asOf` bound, and its two fields are mutually exclusive.
  * `asOf` selects the point that the projection reads and does not change the result shape.
- * Thus the output schema of each action stays a generic envelope that accepts any `data`.
+ * Thus the output schema of each action admits the same `data` for an `asOf` read and for a live read.
  */
 describe('asOf registry schema (T6, #1555)', () => {
   it('registry_getAction_asOfUntilSequence_parses', () => {
@@ -3209,6 +3209,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
       capsuleVersion: 1, capsuleDigest: 'a'.repeat(64), definitionVersion: 'a'.repeat(64),
       capsule: {}, tailSequence: 0,
     },
+    'exarchos_workflow.get': { phase: 'plan' },
   };
   function baselineEnvelope(
     data: Record<string, unknown> | readonly Record<string, unknown>[],
@@ -3350,12 +3351,12 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
   describe('registrySchemas_TypedOutputActions_AcceptCappedShape', () => {
     /**
      * Pins the count of typed-output actions, so a new typed action or a lost one fails here.
-     * A schema whose `data` is `z.unknown()`, such as the workflow output schemas, does not count as typed.
+     * A schema whose `data` is `z.unknown()`, such as a waived workflow output schema, does not count as typed.
      * The count grows when a new action declares its `data`, or when an action leaves the vacuity allowlist.
      */
     it('every typed-output action validates a {summary,counts,firstPage} capped envelope', () => {
       const actions = typedOutputActions();
-      expect(actions.length).toBe(23);
+      expect(actions.length).toBe(24);
       for (const { tool, action } of actions) {
         const parsed = action.outputSchema.safeParse(cappedEnvelope());
         expect(

@@ -135,7 +135,6 @@ export const VACUITY_ALLOWLIST = Object.freeze({
   'exarchos_workflow.cleanup': { owner: 'workflow-platform', expires: '2026-12-06' },
   'exarchos_workflow.describe': { owner: 'workflow-platform', expires: '2026-12-06' },
   'exarchos_workflow.feedback': { owner: 'workflow-platform', expires: '2026-12-06' },
-  'exarchos_workflow.get': { owner: 'workflow-platform', expires: '2026-12-06' },
   'exarchos_workflow.init': { owner: 'workflow-platform', expires: '2026-12-06' },
   'exarchos_workflow.reconcile': { owner: 'workflow-platform', expires: '2026-12-06' },
   'exarchos_workflow.rehydrate': { owner: 'workflow-platform', expires: '2026-12-06' },
@@ -192,6 +191,14 @@ export const VACUITY_RETIRED: Readonly<Record<string, VacuityRetiredEntry>> = Ob
   'exarchos_view.stack_place': {
     owner: 'views',
     retiredAt: '2026-08-17',
+  },
+  /**
+   * The action now declares `withCappedShape(WorkflowGetOutputSchema)` from `registry/output-schemas.ts`.
+   * A query returns a one-key object, so the data is an object in each read mode.
+   */
+  'exarchos_workflow.get': {
+    owner: 'workflow-platform',
+    retiredAt: '2026-10-24',
   },
 });
 

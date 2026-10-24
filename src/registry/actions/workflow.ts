@@ -7,13 +7,13 @@
  * canonical emitter of `state.patched`, and `discover_bridge` declares a second edge onto it.
  */
 import { coercedStringArray } from '../../coerce.js';
-import { vacuityWaiver } from '../../output-schema-declaration.js';
+import { vacuityWaiver, withCappedShape } from '../../output-schema-declaration.js';
 import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from '../../workflow/schemas.js';
 import { z } from 'zod';
 import { declared, none, withActionContract, type ActionEmission } from '../action-contract.js';
 import { COMPENSABLE_LOCAL, LOCAL_MUTATION, LOCAL_MUTATION_IDEMPOTENT, READ_ONLY_LOCAL } from '../annotations.js';
 import { makeWorkflowDescribeAction } from '../describe-actions.js';
-import { WorkflowTransitionOutputSchema, WorkflowUpdateOutputSchema } from '../output-schemas.js';
+import { WorkflowGetOutputSchema, WorkflowTransitionOutputSchema, WorkflowUpdateOutputSchema } from '../output-schemas.js';
 import { ALL_PHASES, ROLE_ANY, ROLE_LEAD, featureIdSchema } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
 
@@ -154,7 +154,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
           'exarchos wf status -f my-feature --as-of \'{"untilSequence":3}\'',
         ],
       },
-      outputSchema: vacuityWaiver('exarchos_workflow.get'),
+      outputSchema: withCappedShape(WorkflowGetOutputSchema),
       annotations: READ_ONLY_LOCAL,
     },
     {

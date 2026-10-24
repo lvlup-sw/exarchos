@@ -59,7 +59,7 @@ If `exarchos_orchestrate` with `action: "task_claim"` returns ALREADY_CLAIMED:
 
 **Cause:** Refactor workflows use different phase names than feature workflows. Feature uses `plan`, refactor uses `overhaul-plan` (overhaul track) or `polish-implement` (polish track).
 
-**Solution:** Check the `validTargets` array in the error response. For refactor overhaul: use `overhaul-plan`. For refactor polish: use `polish-implement`. Use `exarchos_workflow get` with `query: "phase"` to confirm current phase (fast-path for scalar queries).
+**Solution:** Check the `validTargets` array in the error response. For refactor overhaul: use `overhaul-plan`. For refactor polish: use `polish-implement`. Use `exarchos_workflow get` with `query: "phase"` to confirm the current phase. The response `data` is `{ "phase": "<current-phase>" }`.
 
 ### Error: `invalid_enum_value` on event type (e.g., `wave.completed`)
 

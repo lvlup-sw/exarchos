@@ -102,6 +102,7 @@ function handleGetFromStateFile(
 /**
  * Applies a field projection, returns the full state without internal fields, or resolves a dot-path query.
  * The `playbook` field is virtual. It comes from the workflow type and the phase.
+ * Each mode returns an object. A query returns `{ [query]: value }`, and it omits the key when the path resolves to nothing, as a field projection does.
  */
 function projectState(
   input: GetInput,
@@ -138,10 +139,14 @@ function projectState(
     };
   }
 
+  const queried: Record<string, unknown> = {};
   const value = resolveDotPath(stateObj, input.query);
+  if (value !== undefined) {
+    queried[input.query] = value;
+  }
   return {
     success: true,
-    data: value,
+    data: queried,
     _meta: meta,
   };
 }

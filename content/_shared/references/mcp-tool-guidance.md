@@ -29,7 +29,7 @@ Before calling, consult `@skills/checkpoint/references/mcp-tool-reference.md` fo
 
 | Action | Key Parameters |
 |--------|---------------|
-| `get` | `featureId`, optional `query` (dot-path) or `fields` (string array for projection) |
+| `get` | `featureId`, optional `query` (dot-path, returns `{ "<query>": <value> }`) or `fields` (string array for projection) |
 | `set` | `featureId`, `updates` (object), `phase` (string) — send both in one call for guarded transitions |
 | `init` | `featureId`, `workflowType` (`"feature"` / `"debug"` / `"refactor"` / `"oneshot"`); for `oneshot`, optional `synthesisPolicy` (`"always"` / `"never"` / `"on-request"`, default `"on-request"`) |
 | `cleanup` | `featureId`, `mergeVerified: true`, `prUrl`, `mergedBranches` |

@@ -7,7 +7,7 @@
     "testFiles": 1335,
     "parsedFiles": 1289,
     "shellFiles": 46,
-    "cases": 15046,
+    "cases": 15049,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -81989,8 +81989,8 @@
           "dynamic": false
         },
         {
-          "suite": "Core Tools > handleGet_QueryEventsExplicitly_ReturnsUndefined",
-          "name": "should return undefined for _events (events now in external JSONL store)",
+          "suite": "Core Tools > handleGet_QueryEventsExplicitly_ReturnsEmptyObject",
+          "name": "should return an empty object for _events (events now in external JSONL store)",
           "dynamic": false
         },
         {
@@ -82014,8 +82014,8 @@
           "dynamic": false
         },
         {
-          "suite": "Core Tools > handleGet_ScalarQuery_MissingField_ReturnsUndefined",
-          "name": "should return undefined when a queried scalar field is absent from state",
+          "suite": "Core Tools > handleGet_ScalarQuery_MissingField_ReturnsEmptyObject",
+          "name": "should return an empty object when a queried scalar field is absent from state",
           "dynamic": false
         },
         {
@@ -82521,6 +82521,21 @@
         {
           "suite": "HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates",
           "name": "should not emit duplicate state.patched events with the same idempotency key",
+          "dynamic": false
+        },
+        {
+          "suite": "HandleGet_OutputSchema_EveryModeReturnsAnObject",
+          "name": "HandleGet_StateFileReplies_ParseAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "HandleGet_OutputSchema_EveryModeReturnsAnObject",
+          "name": "HandleGet_EventFoldReplies_ParseAgainstTheDeclaredSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "HandleGet_OutputSchema_EveryModeReturnsAnObject",
+          "name": "HandleGet_ScalarArrayOrNullData_FailsTheDeclaredSchema",
           "dynamic": false
         }
       ]

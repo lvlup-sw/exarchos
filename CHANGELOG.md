@@ -130,6 +130,12 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The `describe` data must hold one of `actions`, `eventTypes` or `emissionGuide`, and no other key.
   - The economy budget of the event `describe` is now 16000 tokens, up from 12000. Thus a describe of the four actions with their larger schemas is not marked `economyDegraded`.
 
+### Changed
+
+- **The `query` mode of `exarchos_workflow get` now returns `{ <query>: <value> }`, not the bare value.** This is a change of behavior. A query of `phase` returns `{ "phase": "plan" }`. A path that resolves to nothing returns `{}`, because the query omits an absent key as a `fields` projection does. Thus `data` is an object in each read mode, and `exarchos wf status -q` returns the same object.
+  - The `outputSchema` of `get` now declares its success data. A bare scalar, an array, `null` or a `phase` that is not a string fails the parse. The MCP adapter checks each reply against it.
+  - Migration: read the value under the query key, for example `data.phase` for `query: "phase"`. A query of `tasks[0].status` returns the value under the key `"tasks[0].status"`.
+
 ### Fixed
 
 - `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file.

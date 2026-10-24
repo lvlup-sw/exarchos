@@ -508,11 +508,11 @@ describe('Integration', () => {
 
       const eventsResult = await handleGet({ featureId: 'migrated-feature', query: '_events' }, stateDir, null);
       expect(eventsResult.success).toBe(true);
-      expect(eventsResult.data).toBeUndefined();
+      expect(eventsResult.data).toEqual({});
 
       const seqResult = await handleGet({ featureId: 'migrated-feature', query: '_eventSequence' }, stateDir, null);
       expect(seqResult.success).toBe(true);
-      expect(seqResult.data).toBeUndefined();
+      expect(seqResult.data).toEqual({});
     });
   });
 
@@ -627,7 +627,7 @@ describe('Integration', () => {
 
       const eventsResult = await handleGet({ featureId: 'bash-created', query: '_events' }, stateDir, null);
       expect(eventsResult.success).toBe(true);
-      expect(eventsResult.data).toBeUndefined();
+      expect(eventsResult.data).toEqual({});
 
       expect(state.featureId).toBe('bash-created');
       expect(state.phase).toBe('delegate');

@@ -209,7 +209,7 @@ describe('Task 083 — the cutover verbs declare substantive outputSchemas', () 
 
 describe('Task 083 — the waiver rows left the allowlist', () => {
   /**
-   * The counts make a silent re-add visible. The seed holds 112 ids, and eight are retired.
+   * The counts make a silent re-add visible. The seed holds 112 ids, and nine are retired.
    * One is `exarchos_view.stack_place`, which moved to `exarchos_orchestrate`.
    * A waiver under the new key is a key swap, which the seed digest rejects.
    */
@@ -218,8 +218,8 @@ describe('Task 083 — the waiver rows left the allowlist', () => {
     expect(VACUITY_ALLOWLIST_IDS).not.toContain(DECIDE_ID);
     expect(VACUITY_RETIRED_IDS).toContain(READINESS_ID);
     expect(VACUITY_RETIRED_IDS).toContain(DECIDE_ID);
-    expect(VACUITY_ALLOWLIST_IDS.length).toBe(104);
-    expect(VACUITY_RETIRED_IDS.length).toBe(8);
+    expect(VACUITY_ALLOWLIST_IDS.length).toBe(103);
+    expect(VACUITY_RETIRED_IDS.length).toBe(9);
   });
 
   /**

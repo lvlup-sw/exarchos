@@ -33,10 +33,10 @@ The `docsToUpdate` field in the brief identifies documents requiring updates. If
 **Read docs list:**
 
 ```
-action: "get", featureId: "refactor-<slug>", query: ".brief.docsToUpdate"
+action: "get", featureId: "refactor-<slug>", query: "brief.docsToUpdate"
 ```
 
-If the list is empty, proceed to Step 4 (Verification).
+The list is the array under the `brief.docsToUpdate` key of the response `data`. If the list is empty or the key is absent, proceed to Step 4 (Verification).
 
 ### Step 2: Read Each Document
 
