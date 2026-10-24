@@ -45,13 +45,6 @@
       "why": "Not an enabler. It is a PREDICATE over an install manifest — `installManifest` + `VouchesForDir`, returning a boolean — and matches `^install[A-Z]` by prefix coincidence alone. Nothing is gated on calling it, so there is no dark path behind it. Encoding 'is a predicate' into the name rule is harder than recording the one case, and a rule that tried would start producing false negatives.",
       "owner": "@rsalus",
       "expiry": "2027-02-23"
-    },
-    {
-      "symbol": "installBundle",
-      "file": "src/install/operations/bundle.ts",
-      "why": "A GENUINE instance, exempted only to keep it visible while it is triaged rather than to excuse it. It copies the bundled MCP server into `~/.claude/mcp-servers/` so the runtime can launch it, and no install path calls it — only its own test. Either the installer lost that step or the step was superseded; deciding which needs the install surface's owner, and guessing wrong breaks installs. Not fixed here because this change is scoped to the workflow materializer.",
-      "owner": "@rsalus",
-      "expiry": "2026-11-23"
     }
   ],
   "allowlistSchema": {

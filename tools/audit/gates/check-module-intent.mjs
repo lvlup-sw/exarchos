@@ -217,8 +217,9 @@ const ALLOWLIST_CLASSES = [
       'Product code with no live consumer, held to a DEADLINE. Each member carries an owner, an issue and an `expires` enforced by the same rules as an in-file RESERVED header — a RESERVED marker recorded in the register instead of the file.',
     members: {
       /**
-       * Root of the interactive installer subtree. The `install/operations` members live only
-       * because it imports them. The shipped install path is the single-file binary and
+       * Root of the interactive installer subtree. From `install/operations`, the wizard imports
+       * only `config.ts`. The `install/operations` members below have no production importer, and
+       * they wait for the same expiry. The shipped install path is the single-file binary and
        * `install-skills.ts`. `OUT_OF_SUBJECT` skips `install/`, but each entry keeps an expiry.
        */
       'install/wizard/wizard.ts': {
@@ -242,13 +243,6 @@ const ALLOWLIST_CLASSES = [
         rationale:
           'Wizard-era `settings.json` merge/rollback operations. The live settings path is the onboard handler (`verbs/onboard/hooks.ts`). Delete with the wizard subtree at expiry.',
       },
-      'install/operations/mcp.ts': {
-        owner: 'exarchos',
-        issue: '#1764',
-        expires: '2027-02-28',
-        rationale:
-          'Wizard-era MCP-server registration into a host config. Superseded by the plugin packaging + `exarchos mcp` subcommand. Delete with the wizard subtree at expiry.',
-      },
       'install/operations/migration.ts': {
         owner: 'exarchos',
         issue: '#1764',
@@ -262,13 +256,6 @@ const ALLOWLIST_CLASSES = [
         expires: '2027-02-28',
         rationale:
           'Wizard-era installed-version comparison. The live version surface is `verbs/version.ts`. Delete with the wizard subtree at expiry.',
-      },
-      'install/operations/bundle.ts': {
-        owner: 'exarchos',
-        issue: '#1764',
-        expires: '2027-02-28',
-        rationale:
-          'Wizard-era bundle-path resolution (50 lines). Delete with the wizard subtree at expiry.',
       },
 
       /**

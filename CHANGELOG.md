@@ -130,8 +130,18 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The `describe` data must hold one of `actions`, `eventTypes` or `emissionGuide`, and no other key.
   - The economy budget of the event `describe` is now 16000 tokens, up from 12000. Thus a describe of the four actions with their larger schemas is not marked `economyDegraded`.
 
+### Fixed
+
+- `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file.
+  - The `agent-mcp-registered` doctor check now gives Warning for that stale entry, also when the exarchos plugin serves the project. Onboard and `doctor --fix` replace the entry without `--force`. When the plugin serves the project, they remove the entry and add none.
+  - They add no entry when the exarchos plugin already starts the server in this project. This needs an install record for this project and a settings file that turns the plugin on. A `user` or `managed` install serves each project, and a `project` or `local` install serves its own project. The doctor check uses the same rule.
+  - A plugin that no settings file names in `enabledPlugins` does not count, because Claude Code does not load it. Onboard then writes the `~/.claude.json` entry.
+  - Each other existing `exarchos` entry stays unless `--force` is given. When the plugin serves the project, it stays also with `--force`.
+  - The doctor fix text now names `exarchos onboard`, not the `exarchos init` rename stub.
+
 ### Removed
 
+- The unused MCP bundle copy (`src/install/operations/bundle.ts`) and the unused MCP entry helpers (`src/install/operations/mcp.ts`). No install path called them.
 - The unused remote-MCP skeleton `src/adapters/mcp/remote-mcp.ts` and the dormant benchmark baseline schema `tools/evals/benchmarks/baselines-schema.ts` are deleted at the expiry of their RESERVED headers on 2026-10-31. `doctor` no longer reports the `remote-mcp` check, which always gave `Skipped`, so it now runs 19 checks.
 
 ## [2.10.0-preview.4] - 2026-05-24

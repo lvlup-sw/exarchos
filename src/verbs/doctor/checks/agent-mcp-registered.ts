@@ -1,7 +1,10 @@
 /**
  * Doctor check: does each detected runtime config list exarchos in `mcpServers`?
  * Only configs that are present and valid count. Another check reports malformed configs.
- * The check gives Pass when all list exarchos. It gives Warning with an `exarchos init` fix
+ * The detector does not count the stale Claude Code entry that starts `~/.claude/mcp-servers/exarchos-mcp.js`.
+ * It reports that entry as not registered also when the exarchos plugin serves the project, so onboard removes it.
+ *
+ * The check gives Pass when all list exarchos. It gives Warning with an `exarchos onboard` fix
  * when some do not. It gives Skipped when no config is present or all are malformed.
  */
 
@@ -50,7 +53,7 @@ export const agentMcpRegistered: CheckFn = async (probes, signal) => {
     ...base,
     status: 'Warning',
     message: `exarchos not registered in ${names} (${first.configPath})`,
-    fix: `Run exarchos init --runtime ${first.name}`,
+    fix: `Run exarchos onboard --runtime ${first.name}`,
     durationMs: Date.now() - start,
   };
 };

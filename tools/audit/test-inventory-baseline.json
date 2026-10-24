@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1336,
-    "parsedFiles": 1290,
+    "testFiles": 1335,
+    "parsedFiles": 1289,
     "shellFiles": 46,
-    "cases": 15032,
+    "cases": 15046,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -1578,10 +1578,6 @@
       "to": "tests/unit/install/operations/atomic-json.test.ts"
     },
     {
-      "from": "src/install/operations/bundle.test.ts",
-      "to": "tests/unit/install/operations/bundle.test.ts"
-    },
-    {
       "from": "src/install/operations/config.test.ts",
       "to": "tests/unit/install/operations/config.test.ts"
     },
@@ -1592,10 +1588,6 @@
     {
       "from": "src/install/operations/hooks-config.test.ts",
       "to": "tests/unit/install/operations/hooks-config.test.ts"
-    },
-    {
-      "from": "src/install/operations/mcp.test.ts",
-      "to": "tests/unit/install/operations/mcp.test.ts"
     },
     {
       "from": "src/install/operations/migration.test.ts",
@@ -5756,11 +5748,6 @@
         {
           "suite": "case exactness",
           "name": "EntryPoints_WrongCase_IsRejected",
-          "dynamic": false
-        },
-        {
-          "suite": "case exactness",
-          "name": "McpBundlePath_IsAFilenameCarrier_NotAResolvablePath",
           "dynamic": false
         },
         {
@@ -10033,6 +10020,27 @@
         {
           "suite": "action replay binding",
           "name": "Replay_ExistingInv8Tests_RemainGreen",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/claude-code-mcp-registration.test.ts": {
+      "file": "tests/integration/claude-code-mcp-registration.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Claude Code MCP registration parity",
+          "name": "OnboardGenerate_ClaudeCodeEntry_EqualsTheInstallRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "Claude Code MCP registration parity",
+          "name": "OnboardGenerate_StaleBundleEntry_IsReplacedByTheInstallRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "Claude Code MCP registration parity",
+          "name": "OnboardGenerate_StaleBundleEntryForAPluginUser_IsRemoved",
           "dynamic": false
         }
       ]
@@ -34200,52 +34208,6 @@
           "suite": "config writers route through the atomic primitive (EFF-008)",
           "name": "ReadConfig_CorruptFile_ThrowsTypedError",
           "dynamic": false
-        },
-        {
-          "suite": "config writers route through the atomic primitive (EFF-008)",
-          "name": "WriteMcpConfig_PreservesUnrelatedKeysAndRoundTrips",
-          "dynamic": false
-        },
-        {
-          "suite": "config writers route through the atomic primitive (EFF-008)",
-          "name": "ReadMcpConfig_CorruptFile_ThrowsRatherThanReturningEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "config writers route through the atomic primitive (EFF-008)",
-          "name": "ReadMcpConfig_MissingFile_ReturnsEmpty",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/install/operations/bundle.test.ts": {
-      "file": "tests/unit/install/operations/bundle.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "MCP Server Bundle Copy (C4) > installBundle",
-          "name": "installBundle_SourceExists_CopiesToMcpServersDir",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Server Bundle Copy (C4) > installBundle",
-          "name": "installBundle_MissingMcpDir_CreatesDir",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Server Bundle Copy (C4) > installBundle",
-          "name": "installBundle_ExistingBundle_Overwrites",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Server Bundle Copy (C4) > installBundle",
-          "name": "installBundle_MissingSource_ThrowsError",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Server Bundle Copy (C4) > installBundle",
-          "name": "installBundle_ReturnsFileSize_InBytes",
-          "dynamic": false
         }
       ]
     },
@@ -34413,72 +34375,6 @@
         {
           "suite": "hooks.json configuration",
           "name": "hooksJson_SubagentStop_Restored",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/install/operations/mcp.test.ts": {
-      "file": "tests/unit/install/operations/mcp.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "MCP Config Management (C2) > readMcpConfig",
-          "name": "readMcpConfig_ExistingFile_ReturnsConfig",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > readMcpConfig",
-          "name": "readMcpConfig_MissingFile_ReturnsEmpty",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > mergeMcpServers",
-          "name": "mergeMcpServers_NewInstall_AddsAllServers",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > mergeMcpServers",
-          "name": "mergeMcpServers_ExistingServers_PreservesUserServers",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > mergeMcpServers",
-          "name": "mergeMcpServers_StaleExarchosEntry_UpdatesEntry",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > generateMcpEntry",
-          "name": "generateMcpEntry_BundledServer_ReturnsCorrectConfig",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > generateMcpEntry",
-          "name": "generateMcpEntry_BundledServerNoBundlePath_FallsBackToIdBasedName",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > generateMcpEntry",
-          "name": "generateMcpEntry_ExternalServer_ReturnsCorrectConfig",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > generateMcpEntry",
-          "name": "generateMcpEntry_RemoteServer_ReturnsCorrectConfig",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > removeMcpServers",
-          "name": "removeMcpServers_ExistingEntries_RemovesOnlyExarchosManaged",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > writeMcpConfig",
-          "name": "writeMcpConfig_ValidConfig_WritesJsonToDisk",
-          "dynamic": false
-        },
-        {
-          "suite": "MCP Config Management (C2) > writeMcpConfig",
-          "name": "writeMcpConfig_CreatesParentDirectories",
           "dynamic": false
         }
       ]
@@ -46665,6 +46561,76 @@
         {
           "suite": "detectAgentEnvironments — claude-code",
           "name": "DetectAgentEnvironments_InstalledPluginsJsonMalformed_DoesNotThrowAndMcpStaysFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_StaleBundleEntry_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_NonNodeEntryInTheBundleDir_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_ProjectScopePluginForAnotherProject_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_LocalScopePluginForThisProject_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_ManagedScopePlugin_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginTurnedOffInUserSettings_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginTurnedOffInProjectSettings_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_LocalSettingsTurnOnAPluginThatUserSettingsTurnOff_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginThatNoSettingsFileNames_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginTurnedOnByAnArrayValue_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_PluginRecordWithNoOrUnknownScope_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_ProjectPathWithATrailingSlash_ReturnsMcpRegisteredTrue",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_StaleBundleEntryWithAPluginThatServesTheProject_ReturnsMcpRegisteredFalse",
+          "dynamic": false
+        },
+        {
+          "suite": "detectAgentEnvironments — claude-code",
+          "name": "DetectAgentEnvironments_NodeEntryForAnotherFileInTheBundleDir_ReturnsMcpRegisteredTrue",
           "dynamic": false
         },
         {
@@ -59972,6 +59938,41 @@
         },
         {
           "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_McpServerEntry_MatchesThePluginRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_McpServerEntry_NamesNoMcpServersBundle",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_StaleBundleEntry_IsRewrittenWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_NodeEntryOutsideTheBundleDir_IsKeptWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_NonNodeEntryInTheBundleDir_IsKeptWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_NodeEntryForAnotherFileInTheBundleDir_IsKeptWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
+          "name": "ClaudeCodeWriter_NodeEntryWithNoStringFirstArgument_IsKeptWithoutForce",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter",
           "name": "ClaudeCodeWriter_WithCommandsInProject_CopiesCommandsToClaudeHome",
           "dynamic": false
         },
@@ -60033,6 +60034,61 @@
         {
           "suite": "claudeCodeWriter on-ramp phase (DR-5)",
           "name": "ClaudeCodeWriter_ClassSeamInjection_ThreadsThrough",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginWiresExarchos_SkipsMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginWiresExarchosAndForceOverwrite_StillSkipsMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_ProjectScopePluginForAnotherProject_WritesMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_ProjectScopePluginForThisProject_SkipsMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginTurnedOffInAHigherPrecedenceFile_WritesMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginWithoutExarchosServer_WritesMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginThatNoSettingsFileNames_WritesMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginTurnedOnInProjectSettings_SkipsMcpConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginServesAndStaleBundleEntry_RemovesTheStaleEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginServesAndHandEditedEntry_KeepsTheEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "claudeCodeWriter with the exarchos plugin installed",
+          "name": "ClaudeCodeWriter_PluginServesAndConfigIsMalformed_SkipsMcpConfigWithoutAFailure",
           "dynamic": false
         }
       ]

@@ -57,7 +57,7 @@ describe('agentConfigValid', () => {
 
     expect(result.status).toBe('Warning');
     expect(result.message).toContain('claude-code');
-    expect(result.fix).toBe('Run exarchos init --runtime claude-code to regenerate');
+    expect(result.fix).toBe('Run exarchos onboard --runtime claude-code to regenerate');
   });
 
   it('AgentConfigValid_NoAgentEnvironmentsDetected_ReturnsSkipped', async () => {

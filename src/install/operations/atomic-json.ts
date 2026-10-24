@@ -1,5 +1,5 @@
 /**
- * Atomic JSON configuration I/O for `~/.claude.json` and the Exarchos config.
+ * Atomic JSON configuration I/O for the Exarchos config.
  * A truncated write destroys a user-owned file, so a partial write is worse
  * than no write. The writer does these steps:
  *

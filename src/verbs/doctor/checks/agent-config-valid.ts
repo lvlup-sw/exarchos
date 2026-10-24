@@ -39,7 +39,7 @@ export const agentConfigValid: CheckFn = async (probes, signal) => {
     ...base,
     status: 'Warning',
     message: `${names} config malformed (${first.configPath})`,
-    fix: `Run exarchos init --runtime ${first.name} to regenerate`,
+    fix: `Run exarchos onboard --runtime ${first.name} to regenerate`,
     durationMs: Date.now() - start,
   };
 };

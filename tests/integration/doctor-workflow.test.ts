@@ -70,7 +70,7 @@ describe('doctor end-to-end acceptance (task 022)', () => {
    * - The handler output must parse with the Zod schema that the MCP adapter uses, or the wire contract breaks.
    * - The run-bundle custody check passes on a fresh state directory and says that it had nothing to check.
    * - The schema refinement already enforces the tally. The test asserts it again so that a failure names the field.
-   * - At least one check with the status `Warning` or `Fail` must offer an init-style fix (`exarchos init`, `git init` or `mkdir -p .exarchos`).
+   * - At least one check with the status `Warning` or `Fail` must offer an init-style fix (`exarchos onboard`, `git init` or `mkdir -p .exarchos`).
    *   The host decides which check shows the gap, so the pattern accepts all three.
    * - No `fix` string is only whitespace or ends in whitespace. The schema rejects only the empty string.
    */
@@ -97,7 +97,7 @@ describe('doctor end-to-end acceptance (task 022)', () => {
       output.summary.skipped;
     expect(tally).toBe(output.checks.length);
 
-    const initRegex = /(exarchos init|git init|mkdir\s+-p?\s*\.exarchos)/i;
+    const initRegex = /(exarchos onboard|git init|mkdir\s+-p?\s*\.exarchos)/i;
     const nonPassWithInitFix = output.checks.filter(
       (c) =>
         c.status !== 'Pass' &&
