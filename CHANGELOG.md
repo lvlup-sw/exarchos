@@ -130,6 +130,10 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The `describe` data must hold one of `actions`, `eventTypes` or `emissionGuide`, and no other key.
   - The economy budget of the event `describe` is now 16000 tokens, up from 12000. Thus a describe of the four actions with their larger schemas is not marked `economyDegraded`.
 
+### Removed
+
+- The unused remote-MCP skeleton `src/adapters/mcp/remote-mcp.ts` and the dormant benchmark baseline schema `tools/evals/benchmarks/baselines-schema.ts` are deleted at the expiry of their RESERVED headers on 2026-10-31. `doctor` no longer reports the `remote-mcp` check, which always gave `Skipped`, so it now runs 19 checks.
+
 ## [2.10.0-preview.4] - 2026-05-24
 
 Final feature-work batch of the v2.10.0 line before RC. Ships the substrate that consumes the v2.10.0-preview.3 Wave 0 carrier — Roots-based workspace discovery, three-field correlation, Tasks (SEP-1686) dispatch-core, Elicitation form-mode, quality hints, plus the authoring substrate (`/ideate` first-turn invariants, designs/plans sidecar, handoff lint). The substrate landed first (PRs #1421–#1435), then an immediate post-bundle audit cycle closed three HIGH-severity TaskStore correctness findings, the correlation contract end-to-end (storage + filter layer + consumer wiring), substrate hygiene, elicitation E2E verification (which surfaced and fixed a wired-but-not-invoked Zod-v4 narrowing bug mid-bundle), and an invariants-catalog rewrite (schema v1→v2).

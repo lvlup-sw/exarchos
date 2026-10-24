@@ -45,7 +45,6 @@ import { staleSkillDirs } from './checks/stale-skill-dirs.js';
 import { pluginSkillHashSync } from './checks/plugin-skill-hash-sync.js';
 import { pluginVersionMatch } from './checks/plugin-version-match.js';
 import { installFreshness } from './checks/install-freshness.js';
-import { remoteMcpStub } from './checks/remote-mcp-stub.js';
 import { actionContractClosure } from './checks/action-contract-closure.js';
 import { invariantsCatalog } from './checks/invariants-catalog.js';
 import { verificationToolchain } from './checks/verification-toolchain.js';
@@ -72,7 +71,6 @@ export const ALL_CHECKS: ReadonlyArray<CheckFn> = [
   pluginSkillHashSync,
   pluginVersionMatch,
   installFreshness,
-  remoteMcpStub,
   invariantsCatalog,
   actionContractClosure,
   verificationToolchain,
