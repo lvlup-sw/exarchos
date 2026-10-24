@@ -189,7 +189,7 @@ OutputKindDescriptor, EconomyMarker             // 'truncated'|'economyDegraded'
 classifyOutput(meta): OutputKind
 describeOutputKind(kind): OutputKindDescriptor   // { success, economyMarker } — never-switch
 hasConsistentEconomyState(meta): boolean        // capped ⊕ degraded are mutually exclusive
-CappedData, CappedDataSchema                    // { summary, counts:{total,shown}, firstPage:[] }
+CappedDataSchema                                // { summary, counts:{total,shown}, firstPage:[] }
 OutputEnvelopeSchema(dataSchema)
 // re-exports: SuccessEnvelopeSchema, ErrorEnvelopeSchema, CacheHintsSchema
 ```
@@ -206,7 +206,6 @@ idempotency key.
 
 ```ts
 PROTECTED_CONTEXT_FIELDS: readonly string[]
-ProtectedContextField
 isProtectedContextField(key): boolean
 sanitizeUntrustedHints(meta): Record<string, unknown>   // strips protected fields, frozen
 AuthenticatedRequestContext

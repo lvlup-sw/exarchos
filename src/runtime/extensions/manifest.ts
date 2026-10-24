@@ -35,7 +35,6 @@ export const ExtensionIdSchema = StableTokenSchema.brand<'ExtensionId'>();
 export type ExtensionId = z.infer<typeof ExtensionIdSchema>;
 
 export const TrustKeyIdSchema = StableTokenSchema.brand<'TrustKeyId'>();
-export type TrustKeyId = z.infer<typeof TrustKeyIdSchema>;
 
 /** Detached signature carried by a manifest or revocation list. */
 export const ExtensionSignatureV1Schema = z
@@ -49,7 +48,6 @@ export const ExtensionSignatureV1Schema = z
   })
   .strict()
   .readonly();
-export type ExtensionSignatureV1 = z.infer<typeof ExtensionSignatureV1Schema>;
 
 /**
  * The signed portion of a manifest, which the signature covers.

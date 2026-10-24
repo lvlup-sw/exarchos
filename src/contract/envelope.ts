@@ -131,7 +131,6 @@ export const CappedDataSchema = z
     firstPage: z.array(z.unknown()),
   })
   .strict();
-export type CappedData = z.infer<typeof CappedDataSchema>;
 
 /**
  * The closed output-envelope union for an action whose baseline payload is `dataSchema`.

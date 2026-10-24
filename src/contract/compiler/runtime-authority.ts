@@ -806,14 +806,6 @@ export function auditMetaModel(
   return sortFindings(findings);
 }
 
-/** Convenience: observe the live surface and audit `metaModel` against it. */
-export async function auditMetaModelAgainstRuntime(
-  metaModel: MetaModel,
-  registry: readonly CompositeTool[] = TOOL_REGISTRY,
-): Promise<readonly MetaModelFinding[]> {
-  return auditMetaModel(metaModel, await observeRuntimeSurface(registry));
-}
-
 export const CONTRACT_DRIFT_KINDS = ['wrong-meta-model', 'stale-baseline'] as const;
 export type ContractDriftKind = (typeof CONTRACT_DRIFT_KINDS)[number];
 
