@@ -291,8 +291,19 @@ describe('DR-4: outputSchema vacuity is unconstructible', () => {
       'exarchos_orchestrate.check_invariant_conformance',
       'exarchos_orchestrate.cutover_decide',
       'exarchos_orchestrate.cutover_readiness',
+      'exarchos_sync.now',
       'exarchos_view.stack_place',
+      'exarchos_workflow.cancel',
+      'exarchos_workflow.checkpoint',
+      'exarchos_workflow.cleanup',
+      'exarchos_workflow.describe',
+      'exarchos_workflow.feedback',
       'exarchos_workflow.get',
+      'exarchos_workflow.init',
+      'exarchos_workflow.reconcile',
+      'exarchos_workflow.rehydrate',
+      'exarchos_workflow.transition',
+      'exarchos_workflow.update',
     ];
     expect([...Object.keys(VACUITY_RETIRED)].sort()).toEqual([...retiredIds].sort());
 

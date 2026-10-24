@@ -22,7 +22,10 @@ const {
     string,
     { description: string; schema: unknown; handler: (...args: unknown[]) => unknown }
   >(),
-  mockHandleWorkflow: vi.fn().mockResolvedValue({ success: true, data: { phase: 'ideate' } }),
+  mockHandleWorkflow: vi.fn().mockResolvedValue({
+    success: true,
+    data: { featureId: 'test-feat', workflowType: 'feature', phase: 'plan', phaseAttemptId: 'attempt-1' },
+  }),
   mockHandleEvent: vi.fn().mockResolvedValue({ success: true, data: {} }),
   mockHandleOrchestrate: vi.fn().mockResolvedValue({ success: true, data: {} }),
   mockHandleView: vi.fn().mockResolvedValue({ success: true, data: {} }),

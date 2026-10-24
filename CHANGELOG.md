@@ -136,6 +136,12 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The `outputSchema` of `get` now declares its success data. A bare scalar, an array, `null` or a `phase` that is not a string fails the parse. The MCP adapter checks each reply against it.
   - Migration: read the value under the query key, for example `data.phase` for `query: "phase"`. A query of `tasks[0].status` returns the value under the key `"tasks[0].status"`.
 
+- **The other eleven workflow-platform actions declare the shape of their success data.** They are `init`, `transition`, `update`, `cancel`, `cleanup`, `reconcile`, `checkpoint`, `feedback`, `rehydrate` and `describe` of `exarchos_workflow`, and `exarchos_sync now`. Their `outputSchema` no longer gives `data` as an unknown value. `describe` shows each shape, and the MCP adapter checks each reply against it.
+  - `transition` and `update` share one schema with the two arms of the `handleSet` result. The schema of `transition` no longer declares a `_meta.deprecation` slot, because the action does not emit it.
+  - `cancel` and `cleanup` admit the dry-run arm and the done arm. `rehydrate` admits the strict v:4 rehydration document on the fresh path and on the degraded path.
+  - The workflow `describe` data keys each action entry by the action name. It holds `topology`, `playbook` or `config` only on request, and an empty object fails the parse.
+  - The vacuity allowlist now holds no waiver that expires on 2026-12-06.
+
 ### Fixed
 
 - `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file.

@@ -1,4 +1,4 @@
-import { EventDescribeOutputSchema } from '../contract/schemas/describe.js';
+import { EventDescribeOutputSchema, WorkflowDescribeOutputSchema } from '../contract/schemas/describe.js';
 import { vacuityWaiver, withCappedShape } from '../output-schema-declaration.js';
 import type { VacuityWaiverId } from '../output-schema-vacuity-allowlist.js';
 import { z } from 'zod';
@@ -66,8 +66,9 @@ const workflowDescribeSchema = z.object({
 /**
  * Create the workflow describe action, which also returns topology, playbooks, and config.
  * Its output is verbose by design, so it gets the describe token budget.
+ * It declares {@link WorkflowDescribeOutputSchema}, so it takes no waiver id.
  */
-export function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): BuiltinToolAction {
+export function makeWorkflowDescribeAction(): BuiltinToolAction {
   return withActionContract(
     {
       name: 'describe',
@@ -76,7 +77,7 @@ export function makeWorkflowDescribeAction(waiverId: VacuityWaiverId): BuiltinTo
       phases: ALL_PHASES,
       roles: ROLE_ANY,
       economy: { budgetTokens: DESCRIBE_ECONOMY_BUDGET_TOKENS },
-      outputSchema: vacuityWaiver(waiverId),
+      outputSchema: withCappedShape(WorkflowDescribeOutputSchema),
       annotations: READ_ONLY_LOCAL,
     },
     DESCRIBE_CONTRACT,

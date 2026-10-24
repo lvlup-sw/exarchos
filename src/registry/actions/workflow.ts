@@ -7,13 +7,23 @@
  * canonical emitter of `state.patched`, and `discover_bridge` declares a second edge onto it.
  */
 import { coercedStringArray } from '../../coerce.js';
-import { vacuityWaiver, withCappedShape } from '../../output-schema-declaration.js';
+import { withCappedShape } from '../../output-schema-declaration.js';
 import { AsOfSchema, CheckpointHandoffSchema, WorkflowTypeSchema } from '../../workflow/schemas.js';
 import { z } from 'zod';
 import { declared, none, withActionContract, type ActionEmission } from '../action-contract.js';
 import { COMPENSABLE_LOCAL, LOCAL_MUTATION, LOCAL_MUTATION_IDEMPOTENT, READ_ONLY_LOCAL } from '../annotations.js';
 import { makeWorkflowDescribeAction } from '../describe-actions.js';
-import { WorkflowGetOutputSchema, WorkflowTransitionOutputSchema, WorkflowUpdateOutputSchema } from '../output-schemas.js';
+import {
+  WorkflowCancelOutputSchema,
+  WorkflowCheckpointOutputSchema,
+  WorkflowCleanupOutputSchema,
+  WorkflowFeedbackOutputSchema,
+  WorkflowGetOutputSchema,
+  WorkflowInitOutputSchema,
+  WorkflowReconcileOutputSchema,
+  WorkflowRehydrateOutputSchema,
+  WorkflowStateWriteOutputSchema,
+} from '../output-schemas.js';
 import { ALL_PHASES, ROLE_ANY, ROLE_LEAD, featureIdSchema } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
 
@@ -112,7 +122,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
           'exarchos wf init -f my-oneshot -t oneshot --synthesisPolicy always',
         ],
       },
-      outputSchema: vacuityWaiver('exarchos_workflow.init'),
+      outputSchema: withCappedShape(WorkflowInitOutputSchema),
       annotations: LOCAL_MUTATION,
     },
     {
@@ -185,7 +195,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
         flags: { featureId: { alias: 'f' }, target: { alias: 't' } },
         examples: ['exarchos wf transition -f my-feature -t plan'],
       },
-      outputSchema: vacuityWaiver('exarchos_workflow.transition', WorkflowTransitionOutputSchema),
+      outputSchema: withCappedShape(WorkflowStateWriteOutputSchema),
       annotations: LOCAL_MUTATION,
     },
     {
@@ -228,10 +238,10 @@ export const workflowActions: readonly BuiltinToolAction[] = [
         examples: ['exarchos wf update -f my-feature --updates \'{"artifacts":{"spec":"docs/specs/foo.md"}}\''],
       },
       /**
-       * The `transition` output contract without the `_meta.deprecation` slot. The `describe`
-       * action shows it as `outputSchema`.
+       * `update` and `transition` both return the result of `handleSet`, so they declare one
+       * output schema. The `describe` action shows it as `outputSchema`.
        */
-      outputSchema: vacuityWaiver('exarchos_workflow.update', WorkflowUpdateOutputSchema),
+      outputSchema: withCappedShape(WorkflowStateWriteOutputSchema),
       annotations: LOCAL_MUTATION,
     },
     {
@@ -259,7 +269,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      outputSchema: vacuityWaiver('exarchos_workflow.cancel'),
+      outputSchema: withCappedShape(WorkflowCancelOutputSchema),
       annotations: COMPENSABLE_LOCAL,
     },
     {
@@ -294,7 +304,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
        * advisory. The opt-in gate is in `dispatch/core/dispatch.ts`.
        */
       dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
-      outputSchema: vacuityWaiver('exarchos_workflow.cleanup'),
+      outputSchema: withCappedShape(WorkflowCleanupOutputSchema),
       annotations: COMPENSABLE_LOCAL,
     },
     {
@@ -320,7 +330,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      outputSchema: vacuityWaiver('exarchos_workflow.reconcile'),
+      outputSchema: withCappedShape(WorkflowReconcileOutputSchema),
       annotations: LOCAL_MUTATION_IDEMPOTENT,
     },
     {
@@ -357,7 +367,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
        * `dispatch/core/dispatch.ts`.
        */
       dispatch: { taskSuitable: true, taskTtlSuggestionMs: 60_000 },
-      outputSchema: vacuityWaiver('exarchos_workflow.rehydrate'),
+      outputSchema: withCappedShape(WorkflowRehydrateOutputSchema),
       annotations: LOCAL_MUTATION_IDEMPOTENT,
     },
     {
@@ -390,7 +400,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
       }),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      outputSchema: vacuityWaiver('exarchos_workflow.checkpoint'),
+      outputSchema: withCappedShape(WorkflowCheckpointOutputSchema),
       annotations: LOCAL_MUTATION_IDEMPOTENT,
     },
     {
@@ -441,7 +451,7 @@ export const workflowActions: readonly BuiltinToolAction[] = [
           'exarchos wf feedback -m "check_static_analysis ran in the wrong worktree" --sessionContext \'{"action":"check_static_analysis","errorCode":"GATE_FAILED"}\'',
         ],
       },
-      outputSchema: vacuityWaiver('exarchos_workflow.feedback'),
+      outputSchema: withCappedShape(WorkflowFeedbackOutputSchema),
       annotations: LOCAL_MUTATION,
     },
     {
@@ -458,5 +468,5 @@ export const workflowActions: readonly BuiltinToolAction[] = [
     },
     { annotations: LOCAL_MUTATION },
   ),
-  makeWorkflowDescribeAction('exarchos_workflow.describe'),
+  makeWorkflowDescribeAction(),
 ];

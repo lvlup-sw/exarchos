@@ -1,13 +1,14 @@
 /**
- * The output schema of the event `describe` action. The registry declares
- * `EventDescribeOutputSchema` through `withCappedShape(...)`.
+ * The output schemas of the event and workflow `describe` actions. The registry declares
+ * `EventDescribeOutputSchema` and `WorkflowDescribeOutputSchema` through `withCappedShape(...)`.
  *
- * The schema is not beside the handler in `describe/`, because the layer rules do not let the
+ * The schemas are not beside the handler in `describe/`, because the layer rules do not let the
  * registry import `describe/`.
  *
  * The MCP adapter replaces a reply that does not parse with an `INTERNAL_ERROR`. Thus each nested
  * object uses `.passthrough()`, and no field is required that a success path of the handler omits.
- * The top level is strict and needs one key, because the handler sets only those keys.
+ * The event top level is strict. Each top level needs one key or more, because each handler refuses
+ * a request that asks for none.
  */
 
 import { z } from 'zod';
@@ -99,3 +100,21 @@ const EventDescribeDataSchema = z
 
 /** The `outputSchema` of `exarchos_event.describe`. */
 export const EventDescribeOutputSchema = EnvelopeSchema(EventDescribeDataSchema);
+
+/**
+ * The success data of `exarchos_workflow.describe`. The handler keys each action entry by the name of
+ * the action. It adds `topology`, `playbook` and `config` only on request. A `playbook` of `all`
+ * gives the list of workflow types, and a named type gives its playbooks. Any other key must hold
+ * an action entry, and the object holds one key or more.
+ */
+const WorkflowDescribeDataSchema = z
+  .object({
+    topology: OpaqueObjectSchema.optional(),
+    playbook: z.union([OpaqueObjectSchema, z.array(z.string())]).optional(),
+    config: OpaqueObjectSchema.optional(),
+  })
+  .catchall(DescribedActionDataSchema)
+  .refine((data) => Object.keys(data).length > 0, { error: 'expected one entry or more' });
+
+/** The `outputSchema` of `exarchos_workflow.describe`. */
+export const WorkflowDescribeOutputSchema = EnvelopeSchema(WorkflowDescribeDataSchema);

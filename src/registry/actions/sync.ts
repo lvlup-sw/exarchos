@@ -1,7 +1,8 @@
-import { vacuityWaiver } from '../../output-schema-declaration.js';
+import { withCappedShape } from '../../output-schema-declaration.js';
 import { z } from 'zod';
 import { none, withActionContract } from '../action-contract.js';
 import { LOCAL_MUTATION_IDEMPOTENT } from '../annotations.js';
+import { SyncNowOutputSchema } from '../output-schemas.js';
 import { ALL_PHASES, ROLE_LEAD } from '../phases.js';
 import type { BuiltinToolAction } from '../types.js';
 
@@ -14,7 +15,7 @@ export const syncActions: readonly BuiltinToolAction[] = [
       schema: z.object({}),
       phases: ALL_PHASES,
       roles: ROLE_LEAD,
-      outputSchema: vacuityWaiver('exarchos_sync.now'),
+      outputSchema: withCappedShape(SyncNowOutputSchema),
       annotations: LOCAL_MUTATION_IDEMPOTENT,
     },
     {
