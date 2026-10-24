@@ -138,6 +138,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - A plugin that no settings file names in `enabledPlugins` does not count, because Claude Code does not load it. Onboard then writes the `~/.claude.json` entry.
   - Each other existing `exarchos` entry stays unless `--force` is given. When the plugin serves the project, it stays also with `--force`.
   - The doctor fix text now names `exarchos onboard`, not the `exarchos init` rename stub.
+- `exarchos_workflow cancel` writes its trail events (`workflow.transition` and `workflow.cancel`) with `correlationId` set to the feature id and `source` set to `workflow`, as `init`, `set` and `cleanup` do. Before this change, the events had no `source`, and outside a dispatch they had no `correlationId`. Under a dispatch, they carried the correlation id of the dispatch.
 
 ### Removed
 

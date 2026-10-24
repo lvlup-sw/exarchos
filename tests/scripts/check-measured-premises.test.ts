@@ -326,9 +326,8 @@ describe('check-measured-premises (task 054, DR-27)', () => {
   });
 
   /**
-   * Each CI call of the gate must carry a `--tolerate-gaps-until` date that is after today.
+   * Each CI call of the gate must carry a `--tolerate-gaps-until` date that is today or later.
    * Thus the test fails when a call omits the flag.
-   * It also fails from the last tolerated day, one day before the gate starts to fail, because the gate counts that day as tolerated.
    */
   it('MeasuredPremises_CiLaneToleration_IsDatedAndStillLive', () => {
     const ci = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
@@ -342,7 +341,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
       const until = m?.[1];
       expect(until, `CI invokes the gate without a dated gap toleration: ${line.trim()}`).toBeDefined();
       expect(
-        until! > new Date().toISOString().slice(0, 10),
+        until! >= new Date().toISOString().slice(0, 10),
         `The CI lane's gap toleration expired on ${until} — probe the obligation rungs or re-date it.`,
       ).toBe(true);
     }

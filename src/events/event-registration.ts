@@ -1,6 +1,4 @@
 /**
- * RESERVED(issue: #1473, owner: exarchos, expires: 2026-11-30)
- *
  * The event registration union. Each registered event type declares two independent axes: a
  * coupling tier, which names the weld that its emission rides on, and a lifecycle. Every tier
  * arm demands a weld field, so a registration that only reports has no constructible form.
