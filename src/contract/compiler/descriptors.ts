@@ -18,7 +18,7 @@ import type { ActionMetaModel, ActionPolicy, JsonSchema } from './meta-model.js'
 /** The stable keys of the shared carrier schemas in the bundle `surface` map. */
 export const SURFACE_ERROR_SCHEMA_REF = 'surface:error-envelope';
 export const SURFACE_CAPPED_SCHEMA_REF = 'surface:capped-data';
-export const SURFACE_SUCCESS_SCHEMA_REF = 'surface:success-envelope';
+const SURFACE_SUCCESS_SCHEMA_REF = 'surface:success-envelope';
 
 /** The shared carrier type names that each action descriptor refers to. */
 export const SHARED_ERROR_TYPE = 'ContractErrorEnvelope';

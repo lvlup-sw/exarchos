@@ -29,7 +29,7 @@
   ],
   "counts": {
     "files": 554,
-    "bytes": 13075018
+    "bytes": 13075142
   },
   "entries": [
     {
@@ -131,8 +131,8 @@
     {
       "source": "docs/architecture/invariants/references/INV-3-basileus-forward.md",
       "destination": "exarchos/docs/architecture/invariants/references/INV-3-basileus-forward.md",
-      "bytes": 6319,
-      "digest": "sha256:ae98b35ddeac8082bbd275f0deb20e6d594f058c6316d2813dc74bd7b15db346"
+      "bytes": 6443,
+      "digest": "sha256:626bbfae710ad938de71af9e5c894da5909254e0b04db3576bfc8d8f2b40f0a8"
     },
     {
       "source": "docs/architecture/invariants/references/INV-4-platform-agnosticity.md",

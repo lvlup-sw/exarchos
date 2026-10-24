@@ -109,8 +109,8 @@ const PWSH = await resolvePwsh();
  * `tests/scripts/run-validate.test.ts` requires the three dates to agree.
  */
 const SHELL_SKIP_WAIVER = Object.freeze({
-  issue: '#1789',
-  expires: '2026-11-30',
+  issue: '#2144',
+  expires: '2027-02-28',
   why: 'pwsh is not installed on every dev host; CI is the enforcing lane.',
 });
 

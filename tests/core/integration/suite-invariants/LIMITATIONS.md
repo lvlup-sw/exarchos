@@ -123,14 +123,24 @@ Consequences, stated plainly:
 
 ## 7. What is registered rather than fixed
 
-See `registry.ts::ACCEPTED_GAPS`. Notably, T-40 is forbidden from editing other
-tasks' files, so three live findings are registered with owners and expiries
-rather than repaired here:
+See `registry.ts::ACCEPTED_GAPS`. T-40 was forbidden from editing other tasks'
+files, so it registered three live findings with owners and expiries rather
+than repairing them. Two are now closed:
 
-- `merge-idempotency.test.ts` synthesizes a `DispatchContext` object literal
-  instead of driving `createPublicRootHarness()` — exactly the shortcut T-36
-  predicted would go unnoticed. Found by this detector on its first corpus run.
-- DR-4 criterion 2 is not met in shipped code (T-37's finding).
+- `merge-idempotency.test.ts` synthesized a `DispatchContext` object literal
+  instead of driving `createPublicRootHarness()`, exactly the shortcut T-36
+  predicted would go unnoticed. #2152 routed it through the harness, and the
+  rule now checks `tests/core/integration/`.
+- DR-4 criterion 2 (T-37's finding) closed on the #1855 design. Each reader
+  folds its view to the durable tail before it answers, so a held
+  `projection.degraded` row cannot make a reader serve a stale view as success.
+  A fold that cannot reach the tail becomes a `PROJECTION_DEGRADED` failure.
+  `tests/architecture/projection-fold-seam.test.ts`,
+  `tests/unit/projections/degraded-consumers.test.ts` and
+  `tests/unit/projections/fold-at-tail.test.ts` guard it.
+
+One stays registered:
+
 - The `cancel` characterization of the DR-7 gap is *correct and deliberate*; no
   detector flags it, and it is registered so the category is declared rather
-  than living only in a `// KNOWN GAP` comment.
+  than living only in the KNOWN GAP note of its test.

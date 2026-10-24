@@ -636,13 +636,6 @@ export interface RecordedAdmissionLedger {
   readonly waivers: readonly WaiverProvenanceV1[];
 }
 
-/** A state whose log carries no admission proof facts at all. */
-export const EMPTY_RECORDED_LEDGER: RecordedAdmissionLedger = Object.freeze({
-  evidence: Object.freeze([]),
-  contradictionEvents: Object.freeze([]),
-  waivers: Object.freeze([]),
-});
-
 /**
  * The envelope keys that `hydrateEventsFromStore` adds: it writes `{ type, timestamp, ...data, metadata: data }`.
  * The payload comes from `metadata` or from the entry without these keys, because the strict proof schemas reject the envelope.

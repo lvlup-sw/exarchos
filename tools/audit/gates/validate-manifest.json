@@ -83,9 +83,9 @@
         "3": {
           "verdict": "gaps",
           "severity": "advisory",
-          "issue": "#1789",
-          "expires": "2026-11-30",
-          "why": "Unprobed obligation rungs (11 of 13 at task 078). The gate used to exit 0 here, so this aggregate recorded `PASS measured-premises` for a step that printed `VERDICT: GAPS` — DR-7's exact shape. The gaps are real work, not a defect in the gate, so the step is tolerated rather than red; the toleration is dated and tracked so it cannot quietly become permanent. Probing the rungs deletes this block."
+          "issue": "#2142",
+          "expires": "2027-02-28",
+          "why": "Unprobed obligation rungs give the gaps verdict. The gate used to exit 0 here, so this aggregate recorded `PASS measured-premises` for a step that printed `VERDICT: GAPS` — DR-7's exact shape. Today the gate reads no claim in a checkout without the gitignored `docs/specs/` spec, and it exits 0. With the spec mounted, the verdict is fail, which is never tolerated. So this toleration guards nothing until the #2040 line in #2142 lands. It stays dated and tracked, so a gaps verdict cannot quietly become permanent. Probing the rungs deletes this block."
         }
       }
     }

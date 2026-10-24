@@ -28,7 +28,6 @@ export const SharedStableIdSchema = z
     /^[A-Za-z0-9][A-Za-z0-9._:-]*$/,
     'stable ids may contain only letters, digits, dot, underscore, colon, and hyphen',
   );
-export type SharedStableId = z.infer<typeof SharedStableIdSchema>;
 
 /** A reference to a policy DEFINED in the same document (`policies[].policyId`). */
 export const PolicyRefSchema = SharedStableIdSchema;
@@ -53,7 +52,6 @@ export const IR_SUBJECT_KINDS = [
   'diff',
   'artifact',
 ] as const;
-export type IrSubjectKind = (typeof IR_SUBJECT_KINDS)[number];
 const SubjectKindSchema = z.enum(IR_SUBJECT_KINDS);
 
 /**
@@ -69,7 +67,6 @@ export const IR_EDGE_CONDITION_KINDS = [
   'any',
   'not',
 ] as const;
-export type IrEdgeConditionKind = (typeof IR_EDGE_CONDITION_KINDS)[number];
 
 /** Comparison operators for `counterCompare` (mirror of runtime `EDGE_COMPARE_OPS`). */
 export const IR_EDGE_COMPARE_OPS = ['lt', 'lte', 'eq', 'gte', 'gt'] as const;
@@ -139,7 +136,6 @@ export const EdgeConditionDeclarationSchema = z
     events: z.array(NonEmptyStringSchema),
   })
   .strict();
-export type EdgeConditionDeclaration = z.infer<typeof EdgeConditionDeclarationSchema>;
 
 /**
  * An admission-policy definition. `requires` holds requirement ids from the same document.
@@ -188,7 +184,6 @@ const CorroborationRequirementSchema = z
  * discriminants, and `roundtrip.test.ts` compares the two sets.
  */
 export const IR_REQUIREMENT_KINDS = ['gate-evidence', 'approval', 'corroboration'] as const;
-export type IrRequirementKind = (typeof IR_REQUIREMENT_KINDS)[number];
 
 /**
  * The closed evidence-requirement model. `corroboration.sourceRequirementId` is a requirement
@@ -233,7 +228,6 @@ const SubjectWaiverScopeSchema = z
 
 /** The closed waiver scope (mirror of the runtime `WaiverScopeV1` discriminants). */
 export const IR_WAIVER_SCOPE_KINDS = ['workflow', 'phase-attempt', 'subject'] as const;
-export type IrWaiverScopeKind = (typeof IR_WAIVER_SCOPE_KINDS)[number];
 
 /** The closed waiver scope (mirror of the runtime `WaiverScopeV1` discriminants). */
 export const WaiverScopeSchema = z.discriminatedUnion('kind', [
@@ -241,7 +235,6 @@ export const WaiverScopeSchema = z.discriminatedUnion('kind', [
   PhaseAttemptWaiverScopeSchema,
   SubjectWaiverScopeSchema,
 ]);
-export type WaiverScope = z.infer<typeof WaiverScopeSchema>;
 
 /** The approval authorization wire model attached to a waiver. */
 const ApprovalAuthorizationSchema = z

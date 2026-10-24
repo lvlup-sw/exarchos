@@ -388,9 +388,11 @@ export function runKnipDiff(deps: KnipDiffDeps): number {
       );
     }
     deps.errlog(
-      '    3. Otherwise add an entry to tools/audit/knip-allowlist.json with owner, expiry ' +
-        'and rationale. Use this for a one-off invisible consumer (a CLI reached by subprocess, ' +
-        'a corpus fixture read by path) — never for a recurring convention, which belongs in 2.',
+      '    3. Otherwise declare the consumer that knip cannot see in knip.json. A CLI that a ' +
+        'person or a test runs by path goes under `entry`. A fixture or a `.d.ts` shim that a ' +
+        'test or the compiler reads by path goes under a narrow `ignoreFiles` glob, which keeps ' +
+        'the import graph. Only when neither fits, add an entry to tools/audit/knip-allowlist.json ' +
+        'with owner, expiry and rationale — never for a recurring convention, which belongs in 2.',
     );
   }
   if (expired.length > 0) {
