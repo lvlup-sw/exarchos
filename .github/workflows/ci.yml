@@ -1113,6 +1113,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: node tools/audit/manifest-gate-ci.mjs ${{ github.base_ref && format('--base origin/{0}', github.base_ref) || '' }}
 
+      # Refuses a pull-request workflow with no cancelling concurrency block, and a job
+      # with no timeout-minutes. Exemptions and their reasons are in
+      # .github/workflow-hygiene.toml.
+      - name: Workflow hygiene (concurrency + timeouts)
+        if: ${{ !cancelled() }}
+        uses: lvlup-sw/.github/actions/workflow-hygiene@v1
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
