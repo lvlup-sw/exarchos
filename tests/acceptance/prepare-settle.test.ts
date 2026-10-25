@@ -7,10 +7,12 @@
 //
 // `settle` accepts the capsule from `prepare` by version, and answers a retry of the same batch
 // from the claim. It refuses an edited capsule, and only `prepare` can write the prepared record.
+//
 // Most tasks are low-risk and off the boundary. The ladder then runs the production static-analysis
-// gate on a real project, and policy skips the other gates. One case puts two tasks at the medium
-// tier in real git worktrees, so the shipped runbook also runs the kill probe. The cases turn
-// telemetry off, and one twin case keeps the shipped default.
+// gate on a real project, and policy skips the other gates. Each claimed task has its own linked
+// worktree of one real repository. One case puts two tasks at the medium tier in real git worktrees,
+// so the shipped runbook also runs the kill probe. The cases turn telemetry off, and one twin case
+// keeps the shipped default.
 //
 // @oracle-sources: ../../src/verbs/prepare/handler.ts, the settlement record and bundle blobs counted out of the real event store and content-addressed store after each dispatched call
 
@@ -42,6 +44,7 @@ import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
+import { scopedRepository, type ScopedRepository } from '../helpers/scoped-repository.js';
 
 const STREAM = 'feat-prepare-settle-acceptance';
 
@@ -51,27 +54,31 @@ const FAIL = 'node -e "process.exit(1)"';
 
 let stateDir: string;
 let eventStore: EventStore;
-/** A real on-disk Node project the production static-analysis gate passes. */
-let greenWorktree: string;
+/**
+ * A real repository whose integration branch holds a Node project that the production static-analysis
+ * gate passes. Each claimed task gets its own linked worktree of it.
+ */
+let repository: ScopedRepository;
 const scratchDirs: string[] = [];
 
-/** A real on-disk Node project the production static-analysis gate can run. */
-async function makeNodeFixture(scripts: Record<string, string>): Promise<string> {
-  const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'prepare-settle-worktree-')));
-  scratchDirs.push(dir);
-  await writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name: 'prepare-settle-fixture', version: '1.0.0', private: true, scripts }, null, 2),
-    'utf-8',
-  );
-  return dir;
+/** The files of a Node project that the production static-analysis gate runs with the given scripts. */
+function nodeProject(scripts: Record<string, string>): Record<string, string> {
+  const manifest = { name: 'prepare-settle-fixture', version: '1.0.0', private: true, scripts };
+  return { 'package.json': JSON.stringify(manifest, null, 2) };
 }
+
+/** The green fixture: each script exits 0, so the gate passes. */
+const GREEN_PROJECT = nodeProject({ lint: OK, typecheck: OK, 'quality-check': OK });
+
+/** The red fixture: lint exits 1, so the gate fails. A task branch commits it over the green fixture. */
+const RED_PROJECT = nodeProject({ lint: FAIL, typecheck: OK, 'quality-check': OK });
 
 beforeEach(async () => {
   stateDir = await mkdtemp(path.join(tmpdir(), 'prepare-settle-acceptance-'));
   eventStore = new EventStore(stateDir);
   await eventStore.initialize();
-  greenWorktree = await makeNodeFixture({ lint: OK, typecheck: OK, 'quality-check': OK });
+  repository = await scopedRepository({ integrationBranch: INTEGRATION_BRANCH, files: GREEN_PROJECT });
+  scratchDirs.push(repository.root);
 });
 
 afterEach(async () => {
@@ -149,19 +156,19 @@ async function seedDelegatingFeature(
   });
 }
 
+/** A claim that one task is complete in one worktree: where the work is, and what it touched. */
+function claimOn(taskId: string, worktreePath: string): Record<string, unknown> {
+  return { taskId, fields: { worktreePath, files: [`src/${taskId}.ts`] }, evidence: [] };
+}
+
 /**
- * Every named task claims the same worktree: where the work is, and what it touched.
- * The claims cover the three tasks, unless a case names the tasks of its batch.
+ * Each named task claims its own linked worktree. A task with no worktree yet gets one on the green
+ * fixture. The claims cover the three tasks, unless a case names the tasks of its batch.
  */
-function completedClaims(
-  worktreePath: string = greenWorktree,
-  taskIds: readonly string[] = TASKS.map((task) => task.id),
-): Record<string, unknown>[] {
-  return taskIds.map((taskId) => ({
-    taskId,
-    fields: { worktreePath, files: [`src/${taskId}.ts`] },
-    evidence: [],
-  }));
+async function completedClaims(taskIds: readonly string[] = TASKS.map((task) => task.id)): Promise<Record<string, unknown>[]> {
+  const claims: Record<string, unknown>[] = [];
+  for (const taskId of taskIds) claims.push(claimOn(taskId, await repository.worktreeFor(taskId)));
+  return claims;
 }
 
 async function rowsOf(type: string): Promise<unknown[]> {
@@ -522,7 +529,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion: receipt.capsuleVersion,
       batchId: 'batch-1',
-      claims: completedClaims(),
+      claims: await completedClaims(),
     });
     expect(settled.success, JSON.stringify(settled)).toBe(true);
     expect((settled.data as { outcome: string }).outcome).toBe('settled');
@@ -543,7 +550,7 @@ describe('prepare then settle, through the dispatcher', () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
-    const args = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1', claims: completedClaims() };
+    const args = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1', claims: await completedClaims() };
 
     const first = await call('exarchos_orchestrate', args);
     expect(first.data).toMatchObject({ outcome: 'settled', acceptedTasks: ['task-a', 'task-b', 'task-c'] });
@@ -571,7 +578,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM }, shipped);
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const { capsuleVersion } = prepared.data as PreparedReceipt;
-    const args = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1', claims: completedClaims() };
+    const args = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1', claims: await completedClaims() };
     const first = await call('exarchos_orchestrate', args, shipped);
     expect(first.data).toMatchObject({ outcome: 'settled', acceptedTasks: ['task-a', 'task-b', 'task-c'] });
 
@@ -612,14 +619,16 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1',
-      claims: completedClaims(),
+      claims: await completedClaims(),
     });
     expect(settled.success, JSON.stringify(settled)).toBe(true);
     expect((settled.data as { outcome: string }).outcome).toBe('settled');
 
     const completions = (await rowsOf('task.completed')) as { data: { taskId: string; verified: boolean; worktreePath: string } }[];
     expect(completions.map((e) => e.data.taskId).sort()).toEqual(['task-a', 'task-b', 'task-c']);
-    expect(completions.every((e) => e.data.verified === false && e.data.worktreePath === greenWorktree)).toBe(true);
+    const claimedTrees = new Map<string, string>();
+    for (const task of TASKS) claimedTrees.set(task.id, await repository.worktreeFor(task.id));
+    expect(completions.every((e) => e.data.verified === false && e.data.worktreePath === claimedTrees.get(e.data.taskId))).toBe(true);
     const evidence = (await rowsOf('admission.evidence-recorded')) as {
       data: { evidence: { requirementId: string; verdict: string } };
     }[];
@@ -667,7 +676,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1',
-      claims: completedClaims(),
+      claims: await completedClaims(),
       deviations: [
         { deviationKind: 'missing-context', statement: 'the capsule does not say which cache the endpoint reads' },
       ],
@@ -722,7 +731,7 @@ describe('prepare then settle, through the dispatcher', () => {
     await seedDelegatingFeature();
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
-    const claims = completedClaims().map((claim, i) =>
+    const claims = (await completedClaims()).map((claim, i) =>
       i === 0 ? { ...claim, fields: { worktreePath: 42 } } : claim,
     );
     const wrongBatch = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-wrong', claims };
@@ -744,15 +753,15 @@ describe('prepare then settle, through the dispatcher', () => {
   });
 
   /**
-   * The negative twin of the normal path: the same call against a project whose lint fails. The
-   * production gate records its failing verdict and halts the segment. `settle` leaves each task
-   * unresolved and names its halt. The receipt and the settlement record list the three tasks.
-   * The failing verdict is durable once for each task, no completion is durable, and the tasks
-   * stay pending.
+   * The negative twin of the normal path: the same call against a project whose lint fails. Each
+   * task claims a red worktree of its own. The production gate records its failing verdict and halts
+   * the segment. `settle` leaves each task unresolved and names its halt. The receipt and the
+   * settlement record list the three tasks. The failing verdict is durable once for each task, no
+   * completion is durable, and the tasks stay pending.
    */
   it('PrepareSettle_ABatchWhoseVerificationFails_NeedsACorrectionWithTheHaltNamed', async () => {
     await seedDelegatingFeature();
-    const redWorktree = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
+    for (const task of TASKS) await repository.worktreeFor(task.id, RED_PROJECT);
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
     const settled = await call('exarchos_orchestrate', {
@@ -760,7 +769,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-red',
-      claims: completedClaims(redWorktree),
+      claims: await completedClaims(),
     });
     expect(settled.success, JSON.stringify(settled)).toBe(true);
     const receipt = settled.data as {
@@ -807,19 +816,20 @@ describe('prepare then settle, through the dispatcher', () => {
   });
 
   /**
-   * The corrective path: one `prepare` and two `settle` calls. The lint of one worktree fails, so
-   * the first batch completes two tasks and leaves the third unresolved. The receipt and the
+   * The corrective path: one `prepare` and two `settle` calls. The lint of the worktree of one task
+   * fails, so the first batch completes two tasks and leaves the third unresolved. The receipt and the
    * settlement record name that task, and the guard refuses the transition.
    *
-   * The correction is a new batch on the same capsule that claims only the unresolved task. The
-   * recorded completions satisfy the other two required results, so the batch settles with no
-   * second `prepare`. The guards then admit the transition.
+   * The fix is a commit in the worktree of that task. The correction is a new batch on the same capsule
+   * that claims only the unresolved task, on the same worktree. The recorded completions satisfy the
+   * other two required results, so the batch settles with no second `prepare`. The guards then admit
+   * the transition.
    *
    * A replay of each of the two `settle` calls returns its receipt and appends no row.
    */
   it('PrepareSettle_ACorrectiveBatch_CompletesWhatPassedAndSettlesTheUnresolvedTaskAlone', async () => {
     await seedDelegatingFeature();
-    const redWorktree = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
+    await repository.worktreeFor('task-b', RED_PROJECT);
     const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
@@ -830,11 +840,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1',
-      claims: [
-        ...completedClaims(greenWorktree, ['task-a']),
-        ...completedClaims(redWorktree, ['task-b']),
-        ...completedClaims(greenWorktree, ['task-c']),
-      ],
+      claims: await completedClaims(['task-a', 'task-b', 'task-c']),
     };
     const first = await call('exarchos_orchestrate', firstBatch);
     expect(first.success, JSON.stringify(first)).toBe(true);
@@ -877,12 +883,13 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(early.error?.code).toBe('GUARD_FAILED');
     expect(early.error?.message).toContain('1 task(s) incomplete');
 
+    await repository.commitIn('task-b', GREEN_PROJECT);
     const correction = {
       action: 'settle',
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1-correction',
-      claims: completedClaims(greenWorktree, ['task-b']),
+      claims: await completedClaims(['task-b']),
     };
     const corrected = await call('exarchos_orchestrate', correction);
     expect(corrected.success, JSON.stringify(corrected)).toBe(true);
@@ -954,7 +961,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-medium',
-      claims: [...completedClaims(worktrees.passing, [first.id]), ...completedClaims(worktrees.vacuous, [second.id])],
+      claims: [claimOn(first.id, worktrees.passing), claimOn(second.id, worktrees.vacuous)],
     };
     const halted = await call('exarchos_orchestrate', firstBatch);
     expect(halted.success, JSON.stringify(halted)).toBe(true);
@@ -1011,7 +1018,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-medium-correction',
-      claims: completedClaims(worktrees.vacuous, receipt.unresolved.map((task) => task.taskId)),
+      claims: receipt.unresolved.map((task) => claimOn(task.taskId, worktrees.vacuous)),
     };
     const corrected = await call('exarchos_orchestrate', correction);
     expect(corrected.success, JSON.stringify(corrected)).toBe(true);
@@ -1065,7 +1072,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1',
-      claims: [...completedClaims(greenWorktree, ['task-a']), blocked, ...completedClaims(greenWorktree, ['task-c'])],
+      claims: [...(await completedClaims(['task-a'])), blocked, ...(await completedClaims(['task-c']))],
     };
     const first = await call('exarchos_orchestrate', firstBatch);
     expect(first.success, JSON.stringify(first)).toBe(true);
@@ -1099,7 +1106,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1-malformed',
-      claims: [{ ...blocked, fields: { worktreePath: greenWorktree } }],
+      claims: [{ ...blocked, fields: { worktreePath: await repository.worktreeFor('task-b') } }],
     });
     expect(withFields.success, JSON.stringify(withFields)).toBe(false);
     expect(withFields.error?.code).toBe('INVALID_INPUT');
@@ -1111,7 +1118,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1-correction',
-      claims: completedClaims(greenWorktree, ['task-b']),
+      claims: await completedClaims(['task-b']),
     };
     const corrected = await call('exarchos_orchestrate', correction);
     expect(corrected.success, JSON.stringify(corrected)).toBe(true);
@@ -1157,7 +1164,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1',
-      claims: [...completedClaims(greenWorktree, ['task-a']), failed, ...completedClaims(greenWorktree, ['task-c'])],
+      claims: [...(await completedClaims(['task-a'])), failed, ...(await completedClaims(['task-c']))],
     };
     const first = await call('exarchos_orchestrate', firstBatch);
     expect(first.success, JSON.stringify(first)).toBe(true);
@@ -1217,7 +1224,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion,
       batchId: 'batch-1-correction',
-      claims: completedClaims(greenWorktree, ['task-b']),
+      claims: await completedClaims(['task-b']),
     };
     const corrected = await call('exarchos_orchestrate', correction);
     expect(corrected.success, JSON.stringify(corrected)).toBe(true);
@@ -1261,7 +1268,7 @@ describe('prepare then settle, through the dispatcher', () => {
       statement: 'a table drives the parser, because the grammar has no recursion',
     };
     const order = { delegatedDecision: 'execution-order', statement: 'the second task ran after the first task' };
-    const [first, second, third] = completedClaims();
+    const [first, second, third] = await completedClaims();
 
     const batch = {
       action: 'settle',
@@ -1390,7 +1397,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion: earlierVersion,
       batchId: 'batch-earlier-form',
-      claims: completedClaims(),
+      claims: await completedClaims(),
     });
     expect(settled.success, JSON.stringify(settled)).toBe(true);
     const receipt = settled.data as {
@@ -1441,7 +1448,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const batch = { action: 'settle', featureId: STREAM, capsuleVersion: compiled.capsuleVersion, batchId: 'batch-1' };
     const held = await call('exarchos_orchestrate', {
       ...batch,
-      claims: completedClaims(greenWorktree, [first.id, second.id]),
+      claims: await completedClaims([first.id, second.id]),
       deviations: [
         {
           deviationKind: 'invalidated-assumption',
@@ -1580,7 +1587,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const firstBatch = { action: 'settle', featureId: STREAM, capsuleVersion: compiled.capsuleVersion, batchId: 'batch-1' };
     const held = await call('exarchos_orchestrate', {
       ...firstBatch,
-      claims: completedClaims(greenWorktree, [first.id]),
+      claims: await completedClaims([first.id]),
       deviations: [
         {
           deviationKind: 'invalidated-assumption',
@@ -1635,7 +1642,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion: second.capsuleVersion,
       batchId: 'batch-2',
-      claims: completedClaims(),
+      claims: await completedClaims(),
     };
     const refused = await call('exarchos_orchestrate', staleBatch);
     expect(refused.success, JSON.stringify(refused)).toBe(true);
@@ -1692,7 +1699,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion: third.capsuleVersion,
       batchId: 'batch-3',
-      claims: completedClaims(greenWorktree, [sibling.id, named.id]),
+      claims: await completedClaims([sibling.id, named.id]),
     });
     expect(settled.success, JSON.stringify(settled)).toBe(true);
     const settledReceipt = settled.data as {
@@ -1746,7 +1753,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const firstBatch = { action: 'settle', featureId: STREAM, capsuleVersion: compiled.capsuleVersion, batchId: 'batch-1' };
     const held = await call('exarchos_orchestrate', {
       ...firstBatch,
-      claims: completedClaims(greenWorktree, [first.id, second.id]),
+      claims: await completedClaims([first.id, second.id]),
       deviations: [
         { deviationKind: 'invalidated-assumption', statement: finding, affectedTasks: [third.id], proposedChange },
       ],
@@ -1791,7 +1798,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion: next.capsuleVersion,
       batchId: 'batch-2',
-      claims: completedClaims(greenWorktree, [third.id]),
+      claims: await completedClaims([third.id]),
     });
     expect(settled.success, JSON.stringify(settled)).toBe(true);
     expect(settled.data).toMatchObject({
@@ -1881,7 +1888,7 @@ describe('prepare then settle, through the dispatcher', () => {
       capsuleVersion: compiled.capsuleVersion,
       batchId: 'batch-1',
       claims: [
-        ...completedClaims(greenWorktree, [done.id]),
+        ...(await completedClaims([done.id])),
         { taskId: named.id, status: 'blocked', reason: 'the endpoint reads a cache that the design did not name' },
       ],
       deviations: [
@@ -1972,7 +1979,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion: compiled.capsuleVersion,
       batchId: 'batch-2',
-      claims: completedClaims(greenWorktree, [named.id]),
+      claims: await completedClaims([named.id]),
     };
     const stale = await call('exarchos_orchestrate', staleBatch);
     expect(stale.success, JSON.stringify(stale)).toBe(true);
@@ -2014,7 +2021,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsuleVersion: next.capsuleVersion,
       batchId: 'batch-3',
-      claims: completedClaims(greenWorktree, [named.id]),
+      claims: await completedClaims([named.id]),
     };
     const settled = await call('exarchos_orchestrate', lastBatch);
     expect(settled.success, JSON.stringify(settled)).toBe(true);
@@ -2074,7 +2081,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const capsuleVersion = await latestCapsuleVersion();
-    const [first, ...others] = completedClaims();
+    const [first, ...others] = await completedClaims();
     const withIdOf = (length: number): Record<string, unknown> => ({
       action: 'settle',
       featureId: STREAM,
@@ -2123,6 +2130,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(new Set(cells.map(([cell]) => cell)).size).toBe(27);
     const deviation = { deviationKind: 'missing-context', statement: 'the capsule does not say which cache the endpoint reads' };
     let pendingDeviationId = 'no deviation is held yet';
+    const claimed = await completedClaims();
 
     const observed: Record<string, CellAnswer> = {};
     for (const [cell, expected] of cells) {
@@ -2133,7 +2141,7 @@ describe('prepare then settle, through the dispatcher', () => {
         featureId: STREAM,
         capsuleVersion,
         batchId: decisions === 'f' ? 'cell-ffa' : `cell-${cell}`,
-        ...listIn(claims, 'claims', completedClaims()),
+        ...listIn(claims, 'claims', claimed),
         ...listIn(deviations, 'deviations', [deviation]),
         ...listIn(decisions, 'decisions', [decision]),
       };
@@ -2174,7 +2182,7 @@ describe('prepare then settle, through the dispatcher', () => {
       featureId: STREAM,
       capsule: edited,
       batchId: 'batch-edited',
-      claims: completedClaims(),
+      claims: await completedClaims(),
     });
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('CAPSULE_DIGEST_MISMATCH');
@@ -2328,7 +2336,8 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ACompletionRow_CannotBeAppendedByAnyoneButTaskComplete', async () => {
     await seedDelegatingFeature();
-    const row = { type: 'task.completed', data: { taskId: 'task-a', worktreePath: greenWorktree } };
+    const worktree = await repository.worktreeFor('task-a');
+    const row = { type: 'task.completed', data: { taskId: 'task-a', worktreePath: worktree } };
 
     const appended = await call('exarchos_event', { action: 'append', stream: STREAM, event: row });
     expect(appended).toMatchObject({
@@ -2359,18 +2368,18 @@ describe('prepare then settle, through the dispatcher', () => {
       action: 'check_static_analysis',
       featureId: STREAM,
       taskId: 'task-a',
-      repoRoot: greenWorktree,
+      repoRoot: worktree,
     });
     expect(gate.success, JSON.stringify(gate)).toBe(true);
     const completed = await call('exarchos_orchestrate', {
       action: 'task_complete',
       featureId: STREAM,
       taskId: 'task-a',
-      result: { worktreePath: greenWorktree },
+      result: { worktreePath: worktree },
     });
     expect(completed.success, JSON.stringify(completed)).toBe(true);
     const rows = (await rowsOf('task.completed')) as { data: { taskId: string; worktreePath: string } }[];
-    expect(rows.map((event) => [event.data.taskId, event.data.worktreePath])).toEqual([['task-a', greenWorktree]]);
+    expect(rows.map((event) => [event.data.taskId, event.data.worktreePath])).toEqual([['task-a', worktree]]);
   });
 
   /**
@@ -2405,7 +2414,7 @@ describe('prepare then settle, through the dispatcher', () => {
       action: 'task_complete',
       featureId: STREAM,
       taskId: 'task-a',
-      result: { worktreePath: greenWorktree },
+      result: { worktreePath: await repository.worktreeFor('task-a') },
     });
     expect(completed).toMatchObject({ success: false, error: { code: 'GATE_NOT_PASSED' } });
     expect(completed.error?.message).toContain("The gate runner recorded no static-analysis verdict for task 'task-a'.");

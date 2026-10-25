@@ -1,8 +1,9 @@
 // The kill probe measures the diff of a task from the branch that the task forked from.
 //
 // The fixture is a real repository with three branches. `main` is the start. The integration
-// branch holds wave one: a source change and a real test for it. The task branch forks from the
-// integration branch, and its own test asserts nothing.
+// branch holds wave one: a source change and a real test for it. The checkout stays on the
+// integration branch. The task branch forks from it in a linked worktree of its own, and its
+// own test asserts nothing.
 //
 // When the base is `main`, the probe also reverts wave one and sees the test of wave one fail.
 // Then it passes the task on work that the task did not do. When the base is the integration
@@ -44,6 +45,7 @@ const TASKS = [
 
 let stateDir: string;
 let eventStore: EventStore;
+/** The linked worktree of the task. It holds the task branch, and the gate runs there. */
 let repo: string;
 const scratchDirs: string[] = [];
 
@@ -61,10 +63,15 @@ function testFile(module: string, body: string): string {
   return `import { test } from 'node:test';\nimport assert from 'node:assert';\nimport { value } from '../src/${module}.js';\n\ntest('${module}', () => {\n  ${body}\n});\n`;
 }
 
-/** `main`, the integration branch with wave one, and the task branch checked out with a vacuous test. */
+/**
+ * `main`, and the integration branch with wave one in the checkout. The task branch with a vacuous
+ * test is in a linked worktree beside the checkout. The function returns the path of that worktree.
+ */
 async function twoWaveRepository(): Promise<string> {
-  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'kill-probe-base-repo-')));
-  scratchDirs.push(root);
+  const parent = await realpath(await mkdtemp(path.join(tmpdir(), 'kill-probe-base-repo-')));
+  scratchDirs.push(parent);
+  const root = path.join(parent, 'checkout');
+  await mkdir(root);
   await git(root, ['init', '-q', '--initial-branch=main']);
   await git(root, ['config', 'user.email', 'test@example.com']);
   await git(root, ['config', 'user.name', 'Test']);
@@ -88,12 +95,13 @@ async function twoWaveRepository(): Promise<string> {
   await git(root, ['add', '.']);
   await git(root, ['commit', '-q', '-m', 'wave one: a returns 2, with a real test']);
 
-  await git(root, ['checkout', '-q', '-b', TASK_BRANCH]);
-  await write(root, 'src/b.js', 'export function value() {\n  return 3;\n}\n');
-  await write(root, 'test/b.test.js', testFile('b', 'assert.ok(true);'));
-  await git(root, ['add', '.']);
-  await git(root, ['commit', '-q', '-m', 'wave two: b returns 3, with a test that asserts nothing']);
-  return root;
+  const worktree = path.join(parent, TASK_BRANCH);
+  await git(root, ['worktree', 'add', '-q', '-b', TASK_BRANCH, worktree, INTEGRATION_BRANCH]);
+  await write(worktree, 'src/b.js', 'export function value() {\n  return 3;\n}\n');
+  await write(worktree, 'test/b.test.js', testFile('b', 'assert.ok(true);'));
+  await git(worktree, ['add', '.']);
+  await git(worktree, ['commit', '-q', '-m', 'wave two: b returns 3, with a test that asserts nothing']);
+  return worktree;
 }
 
 beforeEach(async () => {

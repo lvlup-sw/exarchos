@@ -212,6 +212,21 @@
         }
       },
       {
+        "file": "tests/acceptance/correction-branch.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases read the receipts of settle, the settlement and completion rows, and the static-analysis runner rows of the task. With the default the wrapper also appends an emissions gate row after each dispatched call. That row names the gate `event-emissions` and no task, so no case reads it. No twin runs the corrections with the default. The twin is owed, and this record keeps the gap visible."
+      },
+      {
+        "file": "tests/acceptance/correction-branch.test.ts",
+        "default": "state-document-file",
+        "twin": {
+          "file": "tests/core/integration/governance/gate-before-completion.test.ts",
+          "test": "Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel",
+          "keeps": "harness.storage.getState(SETTLE_FEATURE_ID)"
+        }
+      },
+      {
         "file": "tests/unit/verbs/settle/blocking-gate.test.ts",
         "default": "telemetry",
         "owner": "@rsalus",

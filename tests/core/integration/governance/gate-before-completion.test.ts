@@ -26,6 +26,7 @@ import {
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
 import { initStateFile, readStateFile, writeStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { scopedRepository } from '../../../helpers/scoped-repository.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 type Rec = Record<string, unknown>;
@@ -40,15 +41,16 @@ let harness: PublicRootHarness;
 let verifiedComposites: readonly string[] = [];
 const scratchDirs: string[] = [];
 
+/** The `package.json` text of a real Node project that the production static-analysis gate runs with the given scripts. */
+function nodeManifest(scripts: Record<string, string>): string {
+  return JSON.stringify({ name: 'gov-t2-fixture', version: '1.0.0', private: true, scripts }, null, 2);
+}
+
 /** Makes a real Node project on disk that the production static-analysis gate can run. */
 async function makeNodeFixture(scripts: Record<string, string>): Promise<string> {
   const dir = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gov-t2-sa-')));
   scratchDirs.push(dir);
-  await fs.writeFile(
-    path.join(dir, 'package.json'),
-    JSON.stringify({ name: 'gov-t2-fixture', version: '1.0.0', private: true, scripts }, null, 2),
-    'utf-8',
-  );
+  await fs.writeFile(path.join(dir, 'package.json'), nodeManifest(scripts), 'utf-8');
   return dir;
 }
 
@@ -471,6 +473,9 @@ describe('task_complete retry through dispatch', () => {
 /** The workflow of the `settle` case. It is apart from the workflow of the gate cases. */
 const SETTLE_FEATURE_ID = 'gov-t2-settle-document-row';
 
+/** The integration branch of the `settle` case. Each task forks its linked worktree from it. */
+const SETTLE_INTEGRATION_BRANCH = 'feature/settle-row';
+
 /** The status of each task in the state document that the transition guards read. */
 async function documentStatuses(): Promise<unknown[][]> {
   const state = await readStateFile(path.join(harness.stateDir, `${SETTLE_FEATURE_ID}.state.json`));
@@ -488,14 +493,20 @@ async function documentStatuses(): Promise<unknown[][]> {
  */
 describe('settle levels the state document in the workflow_state row', () => {
   /**
-   * The first batch completes one task and leaves the other unresolved. The test then puts the row
+   * Each task has its own linked worktree: task-a on the green fixture, task-b on a red commit. The
+   * first batch completes one task and leaves the other unresolved. The test then puts the row
    * back to an earlier status through the store writer, as after a lost write. A retry of
-   * the batch returns its receipt and brings the complete task level in the row. The correction
-   * claims only the unresolved task and settles, and the guard that reads the row admits the move.
+   * the batch returns its receipt and brings the complete task level in the row. The fix is a commit
+   * in the worktree of task-b. The correction claims only that task on that worktree and settles,
+   * and the guard that reads the row admits the move.
    */
   it('Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel', async () => {
-    const green = await makeNodeFixture({ lint: OK, typecheck: OK, 'quality-check': OK });
-    const red = await makeNodeFixture({ lint: FAIL, typecheck: OK, 'quality-check': OK });
+    const green = { 'package.json': nodeManifest({ lint: OK, typecheck: OK, 'quality-check': OK }) };
+    const red = { 'package.json': nodeManifest({ lint: FAIL, typecheck: OK, 'quality-check': OK }) };
+    const repository = await scopedRepository({ integrationBranch: SETTLE_INTEGRATION_BRANCH, files: green });
+    scratchDirs.push(repository.root);
+    const worktreeA = await repository.worktreeFor('task-a');
+    const worktreeB = await repository.worktreeFor('task-b', red);
     const tasks = ['task-a', 'task-b'].map((id) => ({
       id,
       title: id,
@@ -517,7 +528,7 @@ describe('settle levels the state document in the workflow_state row', () => {
     await harness.appendEvent(SETTLE_FEATURE_ID, { type: 'workflow.transition', data: { from: 'plan-review', to: 'delegate' } });
     await harness.appendEvent(SETTLE_FEATURE_ID, {
       type: 'state.patched',
-      data: { patch: { 'synthesis.integrationBranch': 'feature/settle-row', tasks } },
+      data: { patch: { 'synthesis.integrationBranch': SETTLE_INTEGRATION_BRANCH, tasks } },
     });
 
     const prepared = await harness.runAction('exarchos_orchestrate', 'prepare', { featureId: SETTLE_FEATURE_ID });
@@ -528,7 +539,7 @@ describe('settle levels the state document in the workflow_state row', () => {
       featureId: SETTLE_FEATURE_ID,
       capsuleVersion,
       batchId: 'batch-row',
-      claims: [claimOf('task-a', green), claimOf('task-b', red)],
+      claims: [claimOf('task-a', worktreeA), claimOf('task-b', worktreeB)],
     };
     const first = await harness.runAction('exarchos_orchestrate', 'settle', firstBatch, { timeoutMs: 180_000 });
     expect(first.result?.success, JSON.stringify(first.result)).toBe(true);
@@ -557,10 +568,11 @@ describe('settle levels the state document in the workflow_state row', () => {
     const early = await harness.runAction('exarchos_workflow', 'transition', { featureId: SETTLE_FEATURE_ID, target: 'review' });
     expect(early.errorCode).toBe('GUARD_FAILED');
 
+    await repository.commitIn('task-b', green);
     const corrected = await harness.runAction(
       'exarchos_orchestrate',
       'settle',
-      { featureId: SETTLE_FEATURE_ID, capsuleVersion, batchId: 'batch-row-correction', claims: [claimOf('task-b', green)] },
+      { featureId: SETTLE_FEATURE_ID, capsuleVersion, batchId: 'batch-row-correction', claims: [claimOf('task-b', worktreeB)] },
       { timeoutMs: 180_000 },
     );
     expect(corrected.result?.success, JSON.stringify(corrected.result)).toBe(true);
