@@ -11,10 +11,7 @@ import {
   runWithDispatchContext,
   type GateSeverityDirective,
 } from '../../dispatch/dispatch-context.js';
-import type { EventType } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
-import type { ActionContract } from '../../registry/action-contract.js';
-import type { GateMetadata } from '../../registry/gate-metadata.js';
 import { VERIFICATION_GATE_NAMES } from '../../workflow/verification-policy.js';
 import { readGateSkipDescriptor, resolvePhaseMode, type ImplementMode } from './gate-utils.js';
 
@@ -132,11 +129,17 @@ export type GateActionHandler = (
   ctx?: DispatchContext,
 ) => Promise<ToolResult>;
 
-/** The parts of an action registration that the wrapper reads: the name, the gate metadata and the action contract. */
-export interface GateSeverityRegistration {
+/**
+ * The facts of one gate action that the wrapper reads. The table builder reads them from the registration of the action.
+ * Thus the wrapper reads no registry type.
+ */
+export interface GateSeverityDescriptor {
+  /** The action name. It is also the gate name for the severity resolution. */
   readonly name: string;
-  readonly gate?: GateMetadata;
-  readonly actionContract?: ActionContract;
+  /** The review dimension from the gate metadata of the action. An empty string names no dimension. */
+  readonly dimension: string;
+  /** True when the action contract declares an `always` row of the gate signal. */
+  readonly signal: boolean;
 }
 
 /** Resolves the workflow type of one call. The wrapper calls it before the handler runs. */
@@ -144,9 +147,6 @@ export type WorkflowTypeOf = (
   args: Readonly<Record<string, unknown>>,
   ctx: DispatchContext | undefined,
 ) => Promise<string>;
-
-/** The event of the gate signal row. */
-const GATE_SIGNAL_EVENT = 'gate.executed' satisfies EventType;
 
 /** The gate actions whose failing verdict the IMPLEMENT-phase audit mode softens: the ladder gates and the mutation gate. */
 const AUDIT_MODE_ACTIONS: ReadonlySet<string> = new Set([...VERIFICATION_GATE_NAMES, 'mutation-adequacy']);
@@ -164,31 +164,19 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-/** True when the action contract declares an `always` row of the gate signal. */
-function declaresGateSignal(contract: ActionContract | undefined): boolean {
-  const ensures = contract?.ensures;
-  if (ensures === undefined || ensures.kind !== 'declared') return false;
-  return ensures.values.some(
-    (postcondition) =>
-      postcondition.source === 'event-append' &&
-      postcondition.when === 'always' &&
-      postcondition.event === GATE_SIGNAL_EVENT,
-  );
-}
-
 /**
  * The severity of one call. With no project config, a gate blocks.
- * The gate name is the action name, and the dimension comes from the gate metadata of the registration.
+ * The gate name is the action name, and the dimension comes from the descriptor of the action.
  * A register row can reduce the meaning of `disabled` to `warning`.
  */
 function callSeverity(
-  registration: GateSeverityRegistration,
+  gate: GateSeverityDescriptor,
   meaning: GateSeverityMeaning | undefined,
   config: ResolvedProjectConfig | undefined,
   workflowType: string | undefined,
 ): Severity {
   if (config === undefined) return 'blocking';
-  const resolved = resolveGateSeverity(registration.name, registration.gate?.dimension ?? '', config, workflowType);
+  const resolved = resolveGateSeverity(gate.name, gate.dimension, config, workflowType);
   return resolved === 'disabled' && meaning === 'disabled-acts-as-warning' ? 'warning' : resolved;
 }
 
@@ -237,25 +225,24 @@ function softenedVerdict(action: string, result: ToolResult, severity: Severity,
  * Each returned handler is marked, so {@link isSeverityWrapped} can check the action table.
  */
 export function withGateSeverity(
-  registration: GateSeverityRegistration,
+  gate: GateSeverityDescriptor,
   handler: GateActionHandler,
   workflowTypeOf: WorkflowTypeOf,
 ): GateActionHandler {
-  const meaning = GATE_SEVERITY_REGISTER.find((row) => row.action === registration.name)?.meaning;
-  const signal = declaresGateSignal(registration.actionContract);
+  const meaning = GATE_SEVERITY_REGISTER.find((row) => row.action === gate.name)?.meaning;
   const wrapped: GateActionHandler = async (args, stateDir, ctx) => {
     if (meaning === 'no-severity') return handler(args, stateDir, ctx);
-    const workflowType = AUDIT_MODE_ACTIONS.has(registration.name) ? await workflowTypeOf(args, ctx) : undefined;
-    const severity = callSeverity(registration, meaning, ctx?.projectConfig, workflowType);
+    const workflowType = AUDIT_MODE_ACTIONS.has(gate.name) ? await workflowTypeOf(args, ctx) : undefined;
+    const severity = callSeverity(gate, meaning, ctx?.projectConfig, workflowType);
     if (severity === 'disabled') {
       return runUnderDirective(
-        { action: registration.name, severity: 'disabled', signal },
+        { action: gate.name, severity: 'disabled', signal: gate.signal },
         () => handler(args, stateDir, ctx),
       );
     }
     const result = await handler(args, stateDir, ctx);
     const mode = workflowType === undefined ? 'enforce' : resolvePhaseMode('IMPLEMENT', workflowType);
-    return softenedVerdict(registration.name, result, severity, mode);
+    return softenedVerdict(gate.name, result, severity, mode);
   };
   SEVERITY_WRAPPED.add(wrapped);
   return wrapped;

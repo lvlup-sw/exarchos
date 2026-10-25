@@ -25,8 +25,8 @@ import { VERIFICATION_GATE_NAMES } from '../../../src/workflow/verification-poli
 /** The first ladder gate, `check_static_analysis`. The per-workflow severity default applies only to ladder gates. */
 const LADDER_GATE = VERIFICATION_GATE_NAMES[0];
 
-/** The registration of the ladder gate, as the wrapper reads it. */
-const LADDER_REGISTRATION = { name: LADDER_GATE, gate: { blocking: true, dimension: 'D2' } };
+/** The descriptor of the ladder gate, as the wrapper reads it. The gate declares no signal row. */
+const LADDER_DESCRIPTOR = { name: LADDER_GATE, dimension: 'D2', signal: false };
 
 /** A failing ladder verdict: `success: true` with `data.passed: false`. */
 async function failingVerdict(): Promise<ToolResult> {
@@ -52,7 +52,7 @@ async function throughTheWrapper(
   workflowType: string,
   projectConfig: ResolvedProjectConfig | undefined,
 ): Promise<ToolResult> {
-  const wrapped = withGateSeverity(LADDER_REGISTRATION, failingVerdict, async () => workflowType);
+  const wrapped = withGateSeverity(LADDER_DESCRIPTOR, failingVerdict, async () => workflowType);
   return wrapped({ featureId: 'feat-implement-severity' }, '/unused-implement-severity-state', contextWith(projectConfig));
 }
 

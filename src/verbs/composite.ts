@@ -4,6 +4,7 @@
 
 import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import type { EventType } from '../events/schemas.js';
 import type { EventStore } from '../events/store.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
@@ -105,7 +106,7 @@ import { handleAmend } from './invariants/amend.js';
 import type { HandleAmendArgs } from './invariants/amend.js';
 import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
-import { withGateSeverity } from './gates/gate-severity.js';
+import { withGateSeverity, type GateSeverityDescriptor } from './gates/gate-severity.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.js';
 import { handlePrepare } from './prepare/handler.js';
@@ -241,22 +242,42 @@ async function workflowTypeOfCall(
   return ctx?.eventStore === undefined ? 'feature' : resolveWorkflowTypeForGate(featureId, ctx.eventStore);
 }
 
+/** The event of the gate signal row. */
+const GATE_SIGNAL_EVENT = 'gate.executed' satisfies EventType;
+
+/** True when the action contract declares an `always` row of the gate signal. */
+function declaresGateSignal(contract: ToolAction['actionContract']): boolean {
+  const ensures = contract?.ensures;
+  if (ensures === undefined || ensures.kind !== 'declared') return false;
+  return ensures.values.some(
+    (postcondition) =>
+      postcondition.source === 'event-append' &&
+      postcondition.when === 'always' &&
+      postcondition.event === GATE_SIGNAL_EVENT,
+  );
+}
+
 /**
  * Wraps the handler of each gate action in the severity wrapper. A gate action is an action whose registration has `gate` metadata.
- * The wrapper reads the gate name, the dimension and the declared gate signal from that registration.
+ * The builder reads the gate name, the dimension and the declared gate signal from that registration, and gives them to the wrapper.
  * Each other entry stays as it is.
  */
 function withSeverityOfEachGate(
   table: Readonly<Record<string, ActionHandler>>,
 ): Readonly<Record<string, ActionHandler>> {
-  const gateActions = new Map<string, ToolAction>();
+  const gateActions = new Map<string, GateSeverityDescriptor>();
   for (const action of orchestrateActions) {
-    if (action.gate !== undefined) gateActions.set(action.name, action);
+    if (action.gate === undefined) continue;
+    gateActions.set(action.name, {
+      name: action.name,
+      dimension: action.gate.dimension ?? '',
+      signal: declaresGateSignal(action.actionContract),
+    });
   }
   return Object.fromEntries(
     Object.entries(table).map(([name, handler]): [string, ActionHandler] => {
-      const registration = gateActions.get(name);
-      return [name, registration === undefined ? handler : withGateSeverity(registration, handler, workflowTypeOfCall)];
+      const gate = gateActions.get(name);
+      return [name, gate === undefined ? handler : withGateSeverity(gate, handler, workflowTypeOfCall)];
     }),
   );
 }
