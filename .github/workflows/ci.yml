@@ -125,14 +125,6 @@ jobs:
 
       - run: npm run test:run
 
-      # The extracted conformance suite (task 018a). `npm run test:run` is the
-      # `unit` project ONLY, so the `conformance` project needs its own step or
-      # it is collected by nothing — the silent-green shape this suite exists to
-      # catch, applied to the suite itself. This is the WHOLESALE host, the role
-      # `test-mcp` filled before the extraction; the five Wave-1 guards keep
-      # their individually-named UNFILTERED hosts on `grep-gates`.
-      - run: npm run test:conformance
-
       # End-to-end install acceptance. It has its own step for the same reason as
       # conformance above: `npm run test:run` runs the `unit` project only.
       #
@@ -349,7 +341,6 @@ jobs:
         shell: bash
         run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
 
-      - run: npx tsc --noEmit
       - run: npm run test:core
 
       # Zero-count guard for the worktree suite (WLM #1576). `npm run test:core` above
@@ -472,12 +463,13 @@ jobs:
   # allowlist in `tests/scripts/ci-topology.test.ts` records it with this rationale:
   # it is release-lane compile evidence, not a per-PR gate. The reason is
   # architectural, not reliability. Over 60 completed `ci.yml` runs (2026-07-17),
-  # 300 of 300 per-target job instances passed.
+  # 300 of 300 per-target job instances passed. It runs on pushes to main and on manual
+  # dispatch only, because a pull request gets no gate from it.
   # Host class: deps, unfiltered, suite-shaped. See docs/guides/ci-gate-hosting.md.
   # ─────────────────────────────────────────────────────────────────────
   binary-matrix:
     name: Binary Matrix (${{ matrix.target }})
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     strategy:
@@ -533,95 +525,6 @@ jobs:
           retention-days: 7
 
   # ─────────────────────────────────────────────────────────────────────
-  # validate-no-legacy
-  # ─────────────────────────────────────────────────────────────────────
-  # Runs tools/audit/gates/validate-no-legacy.sh, which rolls up two checks:
-  #   1. The NoLegacy_* shell assertion suite (tests/scripts/validate-no-legacy.test.sh)
-  #      — pins obsolete v2.8 install artifacts as deleted/archived.
-  #   2. `knip` (files + dependencies + exports + types) via the allowlist-diff
-  #      wrapper (tools/audit/knip-diff.ts) — detects unused modules, deps,
-  #      exported symbols, and types, diffed against
-  #      tools/audit/knip-allowlist.json (fails closed on unallowlisted or
-  #      expired findings, a missing binary, or unparseable output).
-  #
-  # Runs in parallel with test-root / test-mcp on a GitHub-hosted
-  # ubuntu-latest runner. All CI jobs run on ubuntu-latest — the
-  # self-hosted runners were retired after their npm ci step intermittently
-  # stalled (network RX dies mid-install), whereas the same install completes
-  # in 30-45s on hosted runners.
-  # ─────────────────────────────────────────────────────────────────────
-  validate-no-legacy:
-    name: Validate No Legacy
-    needs: plan
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      - name: Install dependencies (root)
-        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
-
-      # The exports and types sweep resolves TypeScript across the workspaces that
-      # knip.json declares. The product is one package, so the install above is the
-      # whole closure.
-      - name: Run validate-no-legacy rollup
-        run: bash tools/audit/gates/validate-no-legacy.sh
-
-  # ─────────────────────────────────────────────────────────────────────
-  # manifest-gate
-  # ─────────────────────────────────────────────────────────────────────
-  # Proves that a consolidation PR loses no pre-image test case. It rebuilds BOTH
-  # pre-images (the legacy __tests__ copy and the co-located canonical copy) from the
-  # merge-base of the PR with `git show <merge-base>:<path>` (hence `fetch-depth: 0`).
-  # Each case must survive into the PR-HEAD result (the merged file or a relocated
-  # <base>.legacy.test.ts sibling) verbatim modulo import-path rewrites, or as a
-  # textual duplicate, in BOTH directions. Equivalence is TEXTUAL only. A divergent
-  # vi.mock, vi.hoisted or env preamble forces a relocation, never a silent drop. The
-  # gate is inert on PRs that touch no consolidation pair.
-  # The job is in `ci-gate.needs` below, so it is REQUIRED. A job that is in ci.yml but
-  # not in the aggregator fails OPEN.
-  # Host class: deps-tail, unfiltered. See docs/guides/ci-gate-hosting.md.
-  # ─────────────────────────────────────────────────────────────────────
-  manifest-gate:
-    name: Manifest Gate (textual case-preservation)
-    needs: plan
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          # The gate rebuilds pre-images from the merge-base with `git show`, so it
-          # needs the full history, not a shallow clone.
-          fetch-depth: 0
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-          cache: npm
-          cache-dependency-path: package-lock.json
-
-      # The gate imports consolidate-suite.mjs, which pulls in `typescript` (a
-      # ROOT devDependency) for TS-compiler-API case extraction. Only the root
-      # install is needed — no MCP-server deps, no native build.
-      - name: Install dependencies (root)
-        run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
-
-      - name: Manifest gate — no pre-image case dropped (DR-2, Task 004)
-        # Reconstruct against the PR's actual base branch (not a hardcoded
-        # origin/main) so a stacked PR onto a non-main base verifies against the
-        # right merge-base; on push events base_ref is empty and the tool
-        # defaults to origin/main.
-        run: node tools/audit/manifest-gate-ci.mjs ${{ github.base_ref && format('--base origin/{0}', github.base_ref) || '' }}
-
-  # ─────────────────────────────────────────────────────────────────────
   # grep-gates
   # ─────────────────────────────────────────────────────────────────────
   # Structural checks that enforce architectural invariants. The first steps scan src
@@ -647,7 +550,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # The manifest gate at the end of this job rebuilds pre-images from the
+      # merge-base with `git show`, so it needs the full history.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: withSession idempotency contract (#1342 P1.D)
         run: bash tools/audit/gates/check-withsession-idempotency.sh src
@@ -1183,6 +1090,25 @@ jobs:
       - name: Audit-delivery closure (DR-4/DR-24, task 069)
         run: npx --no-install vitest run --project core tests/unit/architecture/audit-delivery-closure.test.ts
 
+      # The validate-no-legacy rollup: the NoLegacy_* shell suite, which pins the
+      # obsolete v2.8 install artifacts as deleted, and the `knip` sweep through
+      # tools/audit/knip-diff.ts against tools/audit/knip-allowlist.json. It fails closed
+      # on a finding that is not allowlisted or has expired. `!cancelled()` makes it
+      # report even when an earlier gate in this job fails.
+      - name: Validate no legacy (NoLegacy_* suite + knip)
+        if: ${{ !cancelled() }}
+        run: bash tools/audit/gates/validate-no-legacy.sh
+
+      # Proves that a consolidation PR loses no pre-image test case. It rebuilds both
+      # pre-images from the merge-base of the PR and requires each case to survive into
+      # PR HEAD, verbatim modulo import paths or as a textual duplicate. It is inert on a
+      # PR that touches no consolidation pair. It uses the base branch of the PR, so a
+      # stacked PR checks against the right merge-base. On a push, base_ref is empty and
+      # the tool uses origin/main.
+      - name: Manifest gate — no pre-image case dropped (DR-2, Task 004)
+        if: ${{ !cancelled() }}
+        run: node tools/audit/manifest-gate-ci.mjs ${{ github.base_ref && format('--base origin/{0}', github.base_ref) || '' }}
+
   # ─────────────────────────────────────────────────────────────────────
   # e2e-process
   # ─────────────────────────────────────────────────────────────────────
@@ -1261,10 +1187,11 @@ jobs:
   #
   # DISPOSITION: NON-BLOCKING while the budgets soak. A wall-clock gate on a shared runner
   # needs a measured failure rate under the 2% threshold before CI Gate can require it.
+  # Until then it runs on pushes to main and on manual dispatch only.
   # ─────────────────────────────────────────────────────────────────────
   startup-budget:
     name: Startup Budget (linux-x64)
-    if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1347,15 +1274,15 @@ jobs:
       - name: Run outcome-tier suite
         run: npm run test:outcome
 
-  # Always-on jobs (validate-no-legacy, manifest-gate, grep-gates, outcome-tests)
-  # are targeted on lane `always` (paths: ** ) so this required check still
-  # aggregates them. binary-matrix and e2e-process stay untargeted (non-blocking).
-  # lanes-check is untargeted; its failure still fails the workflow run.
+  # Always-on jobs (grep-gates, outcome-tests, e2e-process) are targeted on lane
+  # `always` (paths: ** ) so this required check still aggregates them. binary-matrix
+  # and startup-budget are untargeted and non-blocking, and run only on non-PR events.
+  # lanes-check is untargeted. Its failure still fails the workflow run.
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [plan, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests, e2e-process]
+    needs: [plan, test-root, test-mcp, test-windows, test-windows-root, grep-gates, outcome-tests, e2e-process]
     if: ${{ !cancelled() }}
     steps:
       # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the

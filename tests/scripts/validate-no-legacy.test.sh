@@ -319,8 +319,8 @@ done
 # ============================================================
 #
 # The rollup runner tools/audit/gates/validate-no-legacy.sh runs this suite and
-# a `knip` sweep. The `validate-no-legacy` job in .github/workflows/ci.yml runs
-# the rollup. These assertions pin that the runner, the job and the knip
+# a `knip` sweep. A step of the `grep-gates` job in .github/workflows/ci.yml runs
+# the rollup. These assertions pin that the runner, that step and the knip
 # config exist.
 
 # NoLegacy_RollupScriptExists: the rollup runner must exist and be executable.
@@ -335,19 +335,18 @@ else
   fi
 fi
 
-# NoLegacy_CIWorkflowHasValidateJob: .github/workflows/ci.yml must declare a
-# `validate-no-legacy` job. The match is a job key under `jobs:`.
+# NoLegacy_CIWorkflowRunsRollup: .github/workflows/ci.yml must have a step that
+# runs the rollup. The match is a `run:` line, so a comment does not count.
 CI_YML="$REPO_ROOT/.github/workflows/ci.yml"
 if [[ -f "$CI_YML" ]]; then
-  # A job key has an indent of 2 spaces under `jobs:`.
-  if grep -qE "^  validate-no-legacy:" "$CI_YML"; then
-    pass "NoLegacy_CIWorkflowHasValidateJob"
+  if grep -qE "^ +run: bash tools/audit/gates/validate-no-legacy\.sh$" "$CI_YML"; then
+    pass "NoLegacy_CIWorkflowRunsRollup"
   else
-    fail "NoLegacy_CIWorkflowHasValidateJob" \
-      ".github/workflows/ci.yml missing a 'validate-no-legacy' job"
+    fail "NoLegacy_CIWorkflowRunsRollup" \
+      ".github/workflows/ci.yml has no step that runs tools/audit/gates/validate-no-legacy.sh"
   fi
 else
-  fail "NoLegacy_CIWorkflowHasValidateJob" ".github/workflows/ci.yml missing"
+  fail "NoLegacy_CIWorkflowRunsRollup" ".github/workflows/ci.yml missing"
 fi
 
 # NoLegacy_KnipConfigExists: a knip config must exist at the repo root, in one
