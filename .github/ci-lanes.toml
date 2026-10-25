@@ -34,12 +34,12 @@ paths = [
   ".agents/**",
 ]
 
-# MCP server tests (Linux + Windows). Former `mcp` filter plus former `prompts`
+# MCP server tests (Linux). Former `mcp` filter plus former `prompts`
 # paths, so test-mcp belongs to exactly one lane. RUN_EVALS is always on when
 # this job runs.
 [lanes.mcp]
 workflows = ["ci.yml"]
-description = "MCP server tests (Linux + Windows), including eval sources"
+description = "MCP server tests (Linux), including eval sources"
 paths = [
   "src/**",
   "tests/**",
@@ -67,7 +67,7 @@ paths = ["**"]
 
 [gates.ci-gate]
 workflow = "ci.yml"
-jobs = { test-root = "root", test-windows-root = "root", test-mcp = "mcp", test-windows = "mcp", grep-gates = "always", outcome-tests = "always", e2e-process = "always" }
+jobs = { test-root = "root", test-windows-root = "root", test-mcp = "mcp", grep-gates = "always", outcome-tests = "always", e2e-process = "always" }
 
 [[fixtures]]
 name = "docs-only"

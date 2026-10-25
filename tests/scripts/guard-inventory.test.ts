@@ -32,6 +32,7 @@ import {
   hasDirectRunExit,
   indexShellIndirection,
   isEnforcingHost,
+  jobSkipsPullRequest,
   isPathShaped,
   isTestArtifact,
   joinShellContinuations,
@@ -755,6 +756,47 @@ describe('Derivations the inventory rests on', () => {
       );
       expect(pairs.length, `mirror ${from} → ${to} pairs nothing on disk`).toBeGreaterThan(0);
     }
+  });
+
+  /**
+   * A job whose `if:` keeps it off pull requests runs after the merge or on a label only.
+   * Its host must not count as pre-merge coverage. A condition that is true on any PR still counts.
+   */
+  it('HostResolution_JobConditionOffPullRequests_IsNotPreMergeCoverage', () => {
+    const workflow = parseWorkflow(
+      CI_WORKFLOW,
+      [
+        'on: [pull_request, push]',
+        'jobs:',
+        '  ci-gate:',
+        '    needs: [gates]',
+        '    steps:',
+        '      - run: echo aggregate',
+        '  gates:',
+        '    steps:',
+        '      - run: node scripts/check-split.mjs',
+        '  post-merge:',
+        "    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:windows')",
+        '    steps:',
+        '      - run: node scripts/check-split.mjs',
+      ].join('\n'),
+    );
+    const ctx: ResolutionContext = {
+      workflows: [workflow],
+      rootPkg: { dir: '', scripts: {} },
+      suites: loadSuiteConfigs(),
+      exists: () => false,
+    };
+    const byJob = new Map(resolveHosts('scripts/check-split.mjs', ctx).map((h) => [h.job, h]));
+    expect(byJob.get('gates')?.onPullRequest).toBe(true);
+    expect(byJob.get('post-merge')?.onPullRequest).toBe(false);
+
+    expect(jobSkipsPullRequest({ if: "${{ github.event_name != 'pull_request' }}" })).toBe(true);
+    expect(jobSkipsPullRequest({ if: "github.event_name != 'pull_request' && github.ref == 'refs/heads/main'" })).toBe(true);
+    expect(jobSkipsPullRequest({ if: "github.event_name != 'pull_request' || true" })).toBe(false);
+    expect(jobSkipsPullRequest({ if: "github.event_name == 'pull_request'" })).toBe(false);
+    expect(jobSkipsPullRequest({ if: "always() && github.event_name != 'pull_request'" })).toBe(false);
+    expect(jobSkipsPullRequest({})).toBe(false);
   });
 
   /** The workflow does not name the guard. Two npm scripts lie between the step and the guard. */

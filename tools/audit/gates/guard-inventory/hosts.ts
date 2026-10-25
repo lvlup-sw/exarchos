@@ -34,6 +34,23 @@ export function runsOnPullRequest(workflow: Workflow): boolean {
   return false;
 }
 
+/** A job condition term that is false on every pull request. */
+const NOT_PULL_REQUEST = /^github\.event_name\s*!=\s*'pull_request'(\s*&&.*)?$/s;
+/** A job condition term that is true only on a pull request with a named label. */
+const PR_LABEL_OPT_IN = /^contains\(\s*github\.event\.pull_request\.labels\.\*\.name\s*,\s*'[^']+'\s*\)$/;
+
+/**
+ * True when the `if:` of the job keeps it off pull requests, apart from an opt-in label.
+ * The first `||` term must be false on a pull request, and each other term must be a label check.
+ * Such a job is not pre-merge coverage, even in a workflow with a `pull_request` trigger.
+ */
+export function jobSkipsPullRequest(job: WorkflowJob): boolean {
+  const condition = String(job.if ?? '').trim().replace(/^\$\{\{([\s\S]*)\}\}$/, '$1').trim();
+  if (condition === '') return false;
+  const [first, ...rest] = condition.split('||').map((term) => term.trim());
+  return NOT_PULL_REQUEST.test(first ?? '') && rest.every((term) => PR_LABEL_OPT_IN.test(term));
+}
+
 export interface ResolutionContext {
   readonly workflows: readonly LoadedWorkflow[];
   readonly rootPkg: PackageScripts;
@@ -200,11 +217,12 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
     for (const [jobName, job] of Object.entries(doc.jobs ?? {})) {
       if (jobName === AGGREGATOR_JOB) continue;
       const keys = pathFilterKeys(job);
+      const jobOnPullRequest = onPullRequest && !jobSkipsPullRequest(job);
 
       const record = (via: HostingVia, exitSwallowed: boolean, through: readonly string[] = []): void => {
         const blocking = isCi
           ? aggregatorNeeds.has(jobName) && !exitSwallowed
-          : onPullRequest && !exitSwallowed;
+          : jobOnPullRequest && !exitSwallowed;
         hosts.push({
           workflow: workflowPath,
           job: jobName,
@@ -212,7 +230,7 @@ export function resolveHosts(artifact: string, ctx: ResolutionContext): GuardHos
           through,
           pathFilterKeys: keys,
           exitSwallowed,
-          onPullRequest,
+          onPullRequest: jobOnPullRequest,
           blocking,
         });
       };
