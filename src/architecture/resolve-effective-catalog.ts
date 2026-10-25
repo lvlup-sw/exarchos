@@ -9,6 +9,9 @@
  *
  * `applyOverrides` keeps an entry with `enabled: false`. This module drops that entry when its
  * floor is `disable` or `none`. An `advisory` or `immutable` floor keeps it.
+ *
+ * A registered source that is absent or does not load is a warning and an entry of
+ * `unresolvedSources`. Thus a caller can refuse on the data, not on the text of a warning.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -46,10 +49,25 @@ export interface ResolveEffectiveCatalogContext {
   touchedFiles?: string[] | undefined;
 }
 
+/** One registered catalog source that did not resolve. Its warning is also in the `warnings` of the result. */
+export interface UnresolvedCatalogSource {
+  /** The path as the config registers it. */
+  path: string;
+  /** The path that the resolver tried to read. */
+  resolved: string;
+  tier: 'dev' | 'user';
+  /** `not-found`: no file at the resolved path. `load-failed`: the file did not load. */
+  cause: 'not-found' | 'load-failed';
+  /** The warning of the source, as `warnings` holds it. */
+  warning: string;
+}
+
 /** Result of `resolveEffectiveCatalog`: projected entries plus merge/override warnings. */
 export interface ResolveEffectiveCatalogResult {
   entries: InvariantEntry[];
   warnings: string[];
+  /** Each registered source that is absent or does not load, in registration order. */
+  unresolvedSources: UnresolvedCatalogSource[];
 }
 
 /** Returns the directory two levels above this module. */
@@ -61,7 +79,7 @@ function defaultRepoRoot(): string {
 /**
  * Builds the effective invariant catalog for one SDLC context.
  *
- * A missing or failed dev or user source adds a warning, and the other layers still apply. The
+ * A missing or failed dev or user source adds a warning and an unresolved source, and the other layers still apply. The
  * function skips a user entry with a reserved id and adds a warning, so `mergeCatalogs` does not
  * throw. The loader gets `config ?? {}`, so an absent config never starts its disk walk-up. The
  * sdlc layer parses at module load, so a corrupt sdlc catalog fails at server start.
@@ -73,6 +91,7 @@ export function resolveEffectiveCatalog(
   const config = ctx.config;
 
   const loadWarnings: string[] = [];
+  const unresolvedSources: UnresolvedCatalogSource[] = [];
 
   const sources = resolveCatalogSources(config);
   const dev: InvariantEntry[] = [];
@@ -83,10 +102,11 @@ export function resolveEffectiveCatalog(
       ? source.path
       : path.join(repoRoot, source.path);
     if (!fs.existsSync(resolved)) {
-      loadWarnings.push(
+      const warning =
         `${layerLabel} invariant catalog '${source.path}' was not found at ` +
-          `'${resolved}' and was skipped; evaluated remaining layers only.`,
-      );
+        `'${resolved}' and was skipped; evaluated remaining layers only.`;
+      loadWarnings.push(warning);
+      unresolvedSources.push({ path: source.path, resolved, tier: source.tier, cause: 'not-found', warning });
       continue;
     }
     let loaded: InvariantEntry[];
@@ -94,10 +114,11 @@ export function resolveEffectiveCatalog(
       loaded = loadInvariants(resolved, { configRoot: repoRoot }, config ?? {});
     } catch (err) {
       const reason = err instanceof Error ? err.message : String(err);
-      loadWarnings.push(
+      const warning =
         `${layerLabel} invariant catalog '${source.path}' failed to load and ` +
-          `was skipped; evaluated remaining layers only. Reason: ${reason}`,
-      );
+        `was skipped; evaluated remaining layers only. Reason: ${reason}`;
+      loadWarnings.push(warning);
+      unresolvedSources.push({ path: source.path, resolved, tier: source.tier, cause: 'load-failed', warning });
       continue;
     }
     if (source.tier === 'dev') {
@@ -141,5 +162,5 @@ export function resolveEffectiveCatalog(
     touchedFiles: ctx.touchedFiles,
   });
 
-  return { entries, warnings };
+  return { entries, warnings, unresolvedSources };
 }

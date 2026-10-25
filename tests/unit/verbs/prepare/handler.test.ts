@@ -226,29 +226,35 @@ const REFERENCE_BOUND = 512;
 
 interface DesignBinding {
   readonly rationale: readonly string[];
-  readonly designRecordDigests: readonly string[];
+  readonly designSources: readonly { readonly sourceId: string; readonly digest: string }[];
 }
 
-/** What a compiled capsule binds as its design of record: each rationale statement, and the digest of each `design-record` source. */
+/** The ids of the provenance sources that pin a design of record: the bytes of a readable record, or the reference. */
+const DESIGN_SOURCE_IDS: ReadonlySet<string> = new Set(['design-record', 'design-reference']);
+
+/** What a compiled capsule binds as its design of record: each rationale statement, and each design source with its id. */
 function designBinding(receipt: PreparedCapsuleReceipt): DesignBinding {
   return {
     rationale: receipt.capsule.knowledge.rationale.map((entry) => entry.statement),
-    designRecordDigests: receipt.capsule.provenance.sources
-      .filter((source) => source.sourceId === 'design-record')
-      .map((source) => source.digest),
+    designSources: receipt.capsule.provenance.sources
+      .filter((source) => DESIGN_SOURCE_IDS.has(source.sourceId))
+      .map((source) => ({ sourceId: source.sourceId, digest: source.digest })),
   };
 }
 
-/** The binding of a capsule whose design of record is the given reference. */
+/**
+ * The binding of a capsule whose design of record is the given reference.
+ * No reference of these cases resolves to a file under the seam checkout, so the source pins the reference.
+ */
 function bindingOf(designRef: string): DesignBinding {
   return {
     rationale: [`The design of record is ${designRef}.`],
-    designRecordDigests: [contentDigest(designRef)],
+    designSources: [{ sourceId: 'design-reference', digest: contentDigest(designRef) }],
   };
 }
 
 /** The binding of a capsule that has no design of record. */
-const NO_BINDING: DesignBinding = { rationale: [], designRecordDigests: [] };
+const NO_BINDING: DesignBinding = { rationale: [], designSources: [] };
 
 /** Seeds one workflow with the given artifacts, prepares it, and returns what its capsule binds. */
 async function bindingFor(artifacts: Readonly<Record<string, unknown>>, streamId = STREAM): Promise<DesignBinding> {

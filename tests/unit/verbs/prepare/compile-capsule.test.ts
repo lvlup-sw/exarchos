@@ -297,7 +297,10 @@ describe('delegation capsule compilation', () => {
     expect(bare.capsule.executionProfile).toBeUndefined();
   });
 
-  /** One statement for each distinct profile in the batch, in profile order, from the policy resolver. */
+  /**
+   * One statement for each distinct profile in the batch, in profile order, from the policy resolver.
+   * A statement names only the gates of the policy that the settlement segment runs.
+   */
   it('Compile_TheBoundKnowledge_NamesTheGatesEachTierIsVerifiedBy', () => {
     const outcome = compileDelegationCapsule(
       input({
@@ -310,7 +313,7 @@ describe('delegation capsule compilation', () => {
     );
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
-      'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_integration_suite, check_contract_drift, check_mock_boundary.',
+      'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary.',
       'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
       `Each task forks from feature/prepare-unit at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
     ]);
@@ -338,7 +341,7 @@ describe('delegation capsule compilation', () => {
 
   /**
    * The identity carries the id of the counter that the caller passes in, and no part of the design reference.
-   * The digest of the reference is a provenance source, and a new counter does not move it.
+   * The input gives no bytes of the design record, so the design source digests the reference, and a new counter does not move it.
    * The last comparison puts the first id back, so the counter changes nothing else in the capsule.
    */
   it('Compile_TheDesignVersion_IsTheIdOfTheCounterAndTheReferenceDigestStaysInProvenance', () => {
@@ -354,8 +357,10 @@ describe('delegation capsule compilation', () => {
     expect(unbound.capsule.identity.designVersion).toBe('design-v1');
 
     const designRecords = (outcome: typeof first): unknown[] =>
-      outcome.capsule.provenance.sources.filter((source) => source.sourceId === 'design-record');
-    expect(designRecords(first)).toEqual([{ sourceId: 'design-record', digest: contentDigest(DESIGN_REF) }]);
+      outcome.capsule.provenance.sources.filter(
+        (source) => source.sourceId === 'design-record' || source.sourceId === 'design-reference',
+      );
+    expect(designRecords(first)).toEqual([{ sourceId: 'design-reference', digest: contentDigest(DESIGN_REF) }]);
     expect(designRecords(revised)).toEqual(designRecords(first));
     expect(designRecords(unbound)).toEqual([]);
 
@@ -795,5 +800,74 @@ describe('catalog invariant binding', () => {
   it('BindCatalog_AnEmptyCatalog_LeavesTheBaseAsItIs', () => {
     const base = builtInWorkflowAuthority();
     expect(bindCatalogInvariants(base, [])).toEqual(base);
+  });
+});
+
+/** The provenance sources of one compilation that pin a design of record. */
+function designSourcesOf(outcome: ReturnType<typeof compileDelegationCapsule>): unknown[] {
+  if (!outcome.ok) throw new Error(outcome.refusal.message);
+  return outcome.capsule.provenance.sources.filter(
+    (source) => source.sourceId === 'design-record' || source.sourceId === 'design-reference',
+  );
+}
+
+/**
+ * The capsule text follows the settlement segment, and the design source pins the bytes of a readable record.
+ * Each expectation is written by hand from the input of its case.
+ */
+describe('delegation capsule compilation — the segment gates and the design source', () => {
+  /**
+   * The built-in policy of a high-tier task names the integration suite, and the settlement segment never runs it.
+   * The pattern names the gates of the segment only.
+   */
+  it('CompileCapsule_AHighTierPattern_NamesNoIntegrationSuite', () => {
+    const outcome = compileDelegationCapsule(
+      input({
+        batch: batchOf([{ id: 'T-1', title: 'high', status: 'pending', blockedBy: [], riskTier: 'high', boundaryTouching: false }]),
+      }),
+    );
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(resolveVerificationPolicy('high', false).sequence).toContain('check_integration_suite');
+    expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
+      'A task at riskTier=high, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+      `Each task forks from feature/prepare-unit at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
+    ]);
+  });
+
+  /** A gate that the checkout config disables runs no provider in the segment, so no pattern names it. */
+  it('CompileCapsule_APattern_NamesNoGateThatTheConfigDisables', () => {
+    const outcome = compileDelegationCapsule(
+      input({
+        batch: batchOf([
+          { id: 'T-1', title: 'boundary', status: 'pending', blockedBy: [], riskTier: 'medium', boundaryTouching: true },
+          { id: 'T-2', title: 'plain', status: 'pending', blockedBy: [] },
+        ]),
+        disabledGates: ['check_test_adequacy', 'check_mock_boundary'],
+      }),
+    );
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
+      'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis.',
+      'A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_contract_drift.',
+      `Each task forks from feature/prepare-unit at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
+    ]);
+  });
+
+  /** The handler gives the digest of the bytes of a readable record. The source pins that digest under its own id, and not the reference. */
+  it('CompileCapsule_AReadableDesignRecord_IsPinnedByItsBytes', () => {
+    const bytesDigest = 'c'.repeat(64);
+    const outcome = compileDelegationCapsule(input({ designRecordDigest: bytesDigest }));
+    expect(designSourcesOf(outcome)).toEqual([{ sourceId: 'design-record', digest: bytesDigest }]);
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.capsule.knowledge.rationale.map((entry) => entry.statement)).toEqual([DESIGN_OF_RECORD]);
+  });
+
+  /** With no bytes, the source pins the digest of the reference under the id of a reference, and the rationale still names the reference. */
+  it('CompileCapsule_AnUnreadableDesignRecord_IsPinnedByItsReference', () => {
+    const outcome = compileDelegationCapsule(input());
+    expect(designSourcesOf(outcome)).toEqual([{ sourceId: 'design-reference', digest: contentDigest(DESIGN_REF) }]);
+    if (!outcome.ok) throw new Error(outcome.refusal.message);
+    expect(outcome.capsule.knowledge.rationale.map((entry) => entry.statement)).toEqual([DESIGN_OF_RECORD]);
+    expect(designSourcesOf(compileDelegationCapsule(input({ designRef: undefined })))).toEqual([]);
   });
 });

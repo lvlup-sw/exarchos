@@ -6,24 +6,35 @@
  * The base commit must hold the landed commit of each completed blocker of the batch.
  * A capsule that custody cannot return is not compared with the repository of the call.
  *
+ * The config and the catalogs load from the checkout. A config that does not load, an unresolved registered catalog
+ * and a static analysis that is not blocking each refuse. The text of the design reference decides if prepare reads the record.
+ *
  * Each refusal here occurs before any effect. The module imports nothing from `src/verbs/settle`, so settle can import the config digest.
+ * It imports no registry module, because the registration of prepare imports this module.
  */
 
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
+import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
+import { loadExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
+import { resolveConfig, type ResolvedProjectConfig } from '../../config/resolve.js';
+import type { FullExarchosConfig } from '../../config/yaml-schema.js';
+import { loadProjectConfig } from '../../config/yaml-loader.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import type { CapsuleScope } from '../../contract/capsule/exarchos-capsule.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import {
   isAncestor,
+  normalizedPath,
   observeRepository,
   resolveCommit,
   type AncestryRead,
   type CommitRead,
   type RepositoryObservation,
 } from '../../utils/git-tree.js';
+import type { CatalogInvariant } from './bind-authority.js';
 import { capsuleOfRecord, latestPreparedRecordOf } from './prepared-record.js';
 import type { PrepareRefusal } from './types.js';
 
@@ -114,6 +125,127 @@ export async function configDigestAt(checkout: string): Promise<string> {
   const entries: Record<string, string | null>[] = [];
   for (const name of CONFIG_FILE_NAMES) entries.push(await configEntryOf(checkout, name));
   return contentDigest(entries);
+}
+
+/** The config of a checkout, as prepare compiles from it. */
+export interface CheckoutConfig {
+  /** The path of the `.exarchos.yml` that loaded, or `undefined` when the checkout holds none. */
+  readonly source: string | undefined;
+  /** The config that registers the catalogs. It is `undefined` when the checkout holds no `.exarchos.yml`. */
+  readonly catalogConfig: FullExarchosConfig | undefined;
+  /** The resolved policy and severities, from the reader that settle and the gates use. */
+  readonly projectConfig: ResolvedProjectConfig;
+}
+
+/**
+ * Loads the config of a checkout, or the refusal for a config that does not load.
+ * The checkout is the root of its work tree, so the search reads no other directory and spawns no git.
+ * A file that does not parse, fails the schema or cannot be read refuses `SCOPE_UNRESOLVED`, and the message names the file.
+ */
+export function loadCheckoutConfig(
+  checkout: string,
+): { readonly ok: true; readonly config: CheckoutConfig } | { readonly ok: false; readonly refusal: PrepareRefusal } {
+  const outcome = loadExarchosConfigOutcome(checkout, { findRepoRoot: () => checkout });
+  if (outcome.kind === 'invalid') {
+    return {
+      ok: false,
+      refusal: {
+        code: 'SCOPE_UNRESOLVED',
+        message:
+          `the config '${outcome.source}' of the checkout '${checkout}' does not load (${outcome.message}). prepare ` +
+          'compiles the gates and the catalogs of the batch from that file, so nothing was compiled or recorded. ' +
+          `Repair or remove '${outcome.source}', then prepare again.`,
+      },
+    };
+  }
+  const loaded = outcome.kind === 'loaded' ? outcome.result : undefined;
+  return {
+    ok: true,
+    config: {
+      source: loaded?.source,
+      catalogConfig: loaded?.config,
+      projectConfig: resolveConfig(loadProjectConfig(checkout)),
+    },
+  };
+}
+
+/** The input of {@link resolveCheckoutCatalog}. */
+export interface CheckoutCatalogInput {
+  readonly checkout: string;
+  readonly config: CheckoutConfig;
+  readonly phase: string;
+  readonly workflowType: string;
+}
+
+/**
+ * The invariants of the effective catalog of a checkout, by id and summary, or the refusal for a registered catalog that does not resolve.
+ * A relative catalog path resolves against the checkout. The refusal reads the unresolved sources of the resolver, not the text of a warning.
+ * It names the first unresolved catalog, the path that the resolver tried, and the config that registers it.
+ */
+export function resolveCheckoutCatalog(
+  input: CheckoutCatalogInput,
+):
+  | { readonly ok: true; readonly invariants: readonly CatalogInvariant[] }
+  | { readonly ok: false; readonly refusal: PrepareRefusal } {
+  const { checkout, config } = input;
+  const resolved = resolveEffectiveCatalog({
+    repoRoot: checkout,
+    config: config.catalogConfig,
+    phase: input.phase,
+    workflowType: input.workflowType,
+  });
+  const [unresolved] = resolved.unresolvedSources;
+  if (unresolved !== undefined) {
+    const fault =
+      unresolved.cause === 'not-found' ? `no file is at '${unresolved.resolved}'` : `the file '${unresolved.resolved}' does not load`;
+    return {
+      ok: false,
+      refusal: {
+        code: 'SCOPE_UNRESOLVED',
+        message:
+          `the config '${config.source ?? checkout}' registers the ${unresolved.tier} invariant catalog '${unresolved.path}', ` +
+          `and ${fault} (${unresolved.warning}). The capsule binds the invariants of each registered catalog, so nothing was ` +
+          `compiled or recorded. Put a valid catalog at '${unresolved.resolved}', or remove its registration, then prepare again.`,
+      },
+    };
+  }
+  return { ok: true, invariants: resolved.entries.map((entry) => ({ id: entry.id, summary: entry.summary })) };
+}
+
+/**
+ * The refusal for a static analysis that the checkout config does not make blocking, or `undefined`.
+ * A task completes only on a passing static-analysis record. Under a disabled or warning-only gate, no task of the batch can complete.
+ */
+export function staticAnalysisRefusal(
+  checkout: string,
+  severity: 'blocking' | 'warning' | 'disabled',
+): PrepareRefusal | undefined {
+  if (severity === 'blocking') return undefined;
+  return {
+    code: 'SCOPE_UNRESOLVED',
+    message:
+      `the config of the checkout '${checkout}' makes check_static_analysis ${severity === 'disabled' ? 'disabled' : 'warning-only'}. ` +
+      'A task completes only on a passing static-analysis record, so no task of the batch can complete, and nothing ' +
+      'was compiled or recorded. Make check_static_analysis blocking in review.gates or review.dimensions.D2 of the ' +
+      '.exarchos.yml of the checkout, then prepare again.',
+  };
+}
+
+/**
+ * The sha256 of the bytes of the design record, or `undefined` when the record is unreadable.
+ * The text of the reference decides containment, not its real path. A relative reference joins the checkout, and the lexical form of the result must stay under the checkout.
+ * Then the read follows a symbolic link. A reference whose text leaves the checkout counts as unreadable, and so does a failed read.
+ */
+export async function designRecordDigestAt(checkout: string, designRef: string | undefined): Promise<string | undefined> {
+  if (designRef === undefined) return undefined;
+  const record = normalizedPath(ABSOLUTE_REPO_ROOT.test(designRef) ? designRef : `${checkout}/${designRef}`);
+  const relative = path.posix.relative(checkout, record);
+  if (relative === '' || relative === '..' || relative.startsWith('../') || path.posix.isAbsolute(relative)) return undefined;
+  try {
+    return createHash('sha256').update(await readFile(record)).digest('hex');
+  } catch {
+    return undefined;
+  }
 }
 
 /**
