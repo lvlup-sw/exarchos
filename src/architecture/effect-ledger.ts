@@ -638,6 +638,17 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'process',
+      'utils/git-tree.ts',
+      'git-tree-read-owner',
+      'idempotent: read-only git queries — rev-parse --path-format=absolute --show-toplevel ' +
+        '--git-common-dir, rev-parse --verify --quiet <ref>^{commit}, symbolic-ref --quiet ' +
+        '--short HEAD, rev-parse --verify --quiet HEAD and merge-base --is-ancestor; a re-run ' +
+        'on the same tree gives the same answer',
+      'none: every call is a read, so a failed, refused or timed-out read leaves no state ' +
+        'to unwind',
+    ),
+    rule(
+      'process',
       'vcs/',
       'vcs-process-owner',
       'idempotent: git/gh reads; writes guarded by the VCS provider',
