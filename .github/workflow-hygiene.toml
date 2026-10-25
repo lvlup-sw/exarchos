@@ -1,0 +1,4 @@
+# Exemptions for the org workflow-hygiene action (lvlup-sw/.github,
+# actions/workflow-hygiene). Each entry needs a reason.
+[exempt]
+"project-automation.yml:*" = "Issue and PR bookkeeping on the self-hosted runner. Each job takes seconds and edits labels and project fields. Cancelling a superseded run can leave those fields half written, so every event runs to completion."
