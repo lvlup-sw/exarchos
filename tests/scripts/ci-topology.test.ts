@@ -27,6 +27,11 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, '../..');
 const CI_WORKFLOW_PATH = join(REPO_ROOT, '.github', 'workflows', 'ci.yml');
+/** The nightly workflow that runs the `core` project on Windows. */
+const WINDOWS_NIGHTLY_PATH = join(REPO_ROOT, '.github', 'workflows', 'windows-nightly.yml');
+/** The condition of the Windows `core` job in `ci.yml`: every non-PR event, and a PR with the `ci:windows` label. */
+const WINDOWS_CORE_IF =
+  "github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:windows')";
 const FIXTURES_DIR = join(__dirname, '__fixtures__', 'ci-topology');
 
 /** The aggregator job. The completeness scan skips it, because it cannot be in its own `needs:` list. */
@@ -55,6 +60,7 @@ interface WorkflowJob {
 }
 
 interface Workflow {
+  readonly on?: Record<string, unknown>;
   readonly jobs: Record<string, WorkflowJob>;
 }
 
@@ -78,6 +84,10 @@ const NON_BLOCKING_ALLOWLIST: Record<string, AllowlistEntry> = {
     rationale:
       'Release-lane compile evidence, not a per-PR gate (standing reason the --minify A/B was dropped). Runs on non-PR events only.',
     issue: '#1703',
+  },
+  'test-windows': {
+    rationale:
+      'The Windows core suite takes about 15 minutes. It runs on pushes to main, on dispatch, on a PR with the ci:windows label, and each night in windows-nightly.yml.',
   },
   'lanes-check': {
     rationale:
@@ -277,8 +287,8 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
 
   /**
    * The `core` vitest project collects `auditLayerBoundaries`. Linux hosts that
-   * project as `test:coverage`, and Windows hosts it as `test:core`. Each platform
-   * must keep a required `run:` step for `--project core`, on a job that `ci-gate` needs.
+   * project as `test:coverage`, on a job that `ci-gate` needs. Windows hosts it as
+   * `test:core`, on a `ci.yml` job that runs on every push to main, and in the nightly workflow.
    *
    * The decoys prove the matchers. An echo of the script name, a soft-fail step
    * and a suffixed script name are not hosts. An expression in `continue-on-error`
@@ -305,7 +315,22 @@ describe('CI path-filter & guard coverage (DR-22)', () => {
 
     const runners = hosts.map(([, job]) => job['runs-on']);
     expect(runners, 'Linux does not host the layer census').toContain('ubuntu-latest');
-    expect(runners, 'Windows does not host the layer census').toContain('windows-latest');
+
+    const windowsHosts = Object.values(workflow.jobs).filter(
+      (job) => job['runs-on'] === 'windows-latest' && coreScripts.some((s) => jobRunsCoreProjectScript(job, s)),
+    );
+    expect(windowsHosts, 'Windows does not host the layer census in ci.yml').not.toEqual([]);
+    expect(
+      windowsHosts.some((job) => job.needs === undefined && String(job.if ?? '').trim() === WINDOWS_CORE_IF),
+      'the Windows layer census must run on every push to main',
+    ).toBe(true);
+
+    const nightly = loadWorkflow(WINDOWS_NIGHTLY_PATH);
+    expect(nightly.on?.schedule, 'windows-nightly.yml has no schedule').toBeDefined();
+    const nightlyHosts = Object.values(nightly.jobs).filter(
+      (job) => job['runs-on'] === 'windows-latest' && coreScripts.some((s) => jobRunsCoreProjectScript(job, s)),
+    );
+    expect(nightlyHosts, 'windows-nightly.yml does not host the layer census').not.toEqual([]);
 
     const decoy: WorkflowJob = {
       'runs-on': 'ubuntu-latest',
@@ -515,14 +540,13 @@ describe('CI-gate execution policy (DR-10)', () => {
         PLANNER_JOB,
         'test-root',
         'test-mcp',
-        'test-windows',
         'test-windows-root',
         'grep-gates',
         'outcome-tests',
         'e2e-process',
       ]),
     );
-    expect(needs).toHaveLength(8);
+    expect(needs).toHaveLength(7);
   });
 
   it('Planner_IsUnconditionalFullHistoryPlan', () => {
@@ -550,7 +574,6 @@ describe('CI-gate execution policy (DR-10)', () => {
       'test-root': 'root',
       'test-windows-root': 'root',
       'test-mcp': 'mcp',
-      'test-windows': 'mcp',
       'grep-gates': 'always',
       'outcome-tests': 'always',
       'e2e-process': 'always',

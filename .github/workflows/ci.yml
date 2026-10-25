@@ -2,6 +2,9 @@ name: CI
 
 on:
   pull_request:
+    # `labeled` lets the `ci:windows` label start the Windows core suite on a PR.
+    # The default types stay, and `synchronize` is required by the enforcer-wiring gate.
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [main]
   workflow_dispatch:
@@ -304,12 +307,15 @@ jobs:
   # windows-latest). npm and npx steps use the default shell. The bun setup mirrors
   # test-mcp, so the compiled-binary tests can resolve their bundler.
   # PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD avoids the npm-ci chromium wedge (#1502).
+  #
+  # DISPOSITION: NON-BLOCKING, and not on every PR. The suite takes about 15 minutes, the
+  # largest single cost of a PR run. It runs on each push to main, on manual dispatch,
+  # and on a PR that has the `ci:windows` label. windows-nightly.yml runs the same suite
+  # each night. The 5-minute test-windows-root job stays on every PR and in CI Gate.
   # ─────────────────────────────────────────────────────────────────────
   test-windows:
     name: Windows Unit (MCP)
-    needs: plan
-    # Push / non-PR events already run every lane; the skip is byte-exact.
-    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'ci:windows')
     runs-on: windows-latest
     timeout-minutes: 35
     env:
@@ -366,10 +372,8 @@ jobs:
       # path-filter or matrix regression drops either file, this step fails instead of
       # passing on zero tests.
       #
-      # NOTE: a REQUIRED branch-protection check for test-windows is a manual
-      # repo-settings step (Settings → Branches → main → required status checks), out of
-      # the repo and not testable with vitest. test-windows already flows into the
-      # blocking ci-gate aggregator below.
+      # This job is not in CI Gate, so a failure here does not block a PR. It shows on the
+      # main push run that follows the merge, and on a PR that has the `ci:windows` label.
       - name: DR-8 — named win32-fragile launcher tests (spawn 003 + path 009)
         shell: bash
         run: |
@@ -1275,14 +1279,15 @@ jobs:
         run: npm run test:outcome
 
   # Always-on jobs (grep-gates, outcome-tests, e2e-process) are targeted on lane
-  # `always` (paths: ** ) so this required check still aggregates them. binary-matrix
-  # and startup-budget are untargeted and non-blocking, and run only on non-PR events.
+  # `always` (paths: ** ) so this required check still aggregates them. binary-matrix,
+  # startup-budget and test-windows are untargeted and non-blocking. They run on non-PR
+  # events, and test-windows also runs on a PR with the `ci:windows` label.
   # lanes-check is untargeted. Its failure still fails the workflow run.
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [plan, test-root, test-mcp, test-windows, test-windows-root, grep-gates, outcome-tests, e2e-process]
+    needs: [plan, test-root, test-mcp, test-windows-root, grep-gates, outcome-tests, e2e-process]
     if: ${{ !cancelled() }}
     steps:
       # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the
