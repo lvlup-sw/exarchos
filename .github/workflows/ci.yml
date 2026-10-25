@@ -8,6 +8,8 @@ on:
 
 # A new push to a PR cancels the run for the earlier push. Other events get a
 # group of their own (the run id), so no run on main is cancelled or held back.
+# The job guards start with `!cancelled()`, not `always()`. GitHub starts an
+# `always()` job after its run is cancelled, so the cancel would stop nothing.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -73,7 +75,7 @@ jobs:
   test-root:
     name: Root Package
     needs: plan
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -168,7 +170,7 @@ jobs:
   test-mcp:
     name: Exarchos MCP Server
     needs: plan
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -315,7 +317,7 @@ jobs:
     name: Windows Unit (MCP)
     needs: plan
     # Push / non-PR events already run every lane; the skip is byte-exact.
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
     runs-on: windows-latest
     timeout-minutes: 35
     env:
@@ -413,7 +415,7 @@ jobs:
     needs: plan
     # Push / non-PR events already run every lane (#1699 baseline is the
     # default-branch push). The skip is byte-exact.
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
     runs-on: windows-latest
     timeout-minutes: 20
     env:
@@ -551,7 +553,7 @@ jobs:
   validate-no-legacy:
     name: Validate No Legacy
     needs: plan
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -590,7 +592,7 @@ jobs:
   manifest-gate:
     name: Manifest Gate (textual case-preservation)
     needs: plan
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -640,7 +642,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   grep-gates:
     name: Grep Gates (idempotency + substrate)
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     needs: plan
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -1207,7 +1209,7 @@ jobs:
   e2e-process:
     name: E2E Process (linux-x64)
     needs: plan
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1308,7 +1310,7 @@ jobs:
   outcome-tests:
     name: Outcome Tests (linux-x64)
     needs: plan
-    if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -1354,7 +1356,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     needs: [plan, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests, e2e-process]
-    if: always()
+    if: ${{ !cancelled() }}
     steps:
       # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the
       # action cannot read the manifest, and the required check fails on each PR.

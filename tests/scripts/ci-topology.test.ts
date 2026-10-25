@@ -473,7 +473,7 @@ describe('CI-gate execution policy (DR-10)', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const gate = workflow.jobs[AGGREGATOR_JOB];
     expect(gate, 'ci-gate job missing').toBeDefined();
-    expect(String(gate?.if ?? '').trim()).toMatch(/^(?:\$\{\{\s*)?always\(\)(?:\s*\}\})?$/);
+    expect(String(gate?.if ?? '').trim()).toMatch(/^(?:\$\{\{\s*)?!cancelled\(\)(?:\s*\}\})?$/);
 
     const step = (gate?.steps ?? []).find(
       (s) => typeof s.uses === 'string' && s.uses === CI_LANES_ACTION,
@@ -540,10 +540,14 @@ describe('CI-gate execution policy (DR-10)', () => {
     expect(String(lanes ?? '').trim()).toBe('${{ steps.plan.outputs.lanes }}');
   });
 
+  /**
+   * Each targeted job carries the canonical skip, which starts with `!cancelled()`.
+   * GitHub starts an `always()` job after its run is cancelled, so a superseded PR run started every pending job.
+   */
   it('TargetedJobs_CarryTheCanonicalSkip', () => {
     const workflow = loadWorkflow(CI_WORKFLOW_PATH);
     const expected = (lane: string): string =>
-      `\${{ always() && (needs.${PLANNER_JOB}.result != 'success' || fromJSON(needs.${PLANNER_JOB}.outputs.lanes).${lane} != 'false') }}`;
+      `\${{ !cancelled() && (needs.${PLANNER_JOB}.result != 'success' || fromJSON(needs.${PLANNER_JOB}.outputs.lanes).${lane} != 'false') }}`;
     const mapped: Record<string, string> = {
       'test-root': 'root',
       'test-windows-root': 'root',
