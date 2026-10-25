@@ -355,7 +355,8 @@ describe('compileIntent over the live registry', () => {
     expect(leaves.map((leaf) => leaf.onFail)).toEqual(['stop', 'stop', 'continue', 'stop', 'stop']);
   });
 
-  it('TaskCompletion_TheFrozenBase_ReachesTheKillProbeAndNoOtherGate', () => {
+  /** The three diff gates measure from the frozen base. Static analysis scans the whole tree, so it gets no base. */
+  it('TaskCompletion_TheFrozenBase_ReachesTheThreeDiffGatesAndNotStaticAnalysis', () => {
     const outcome = compileIntent(
       'task-completion',
       { streamId: 'wf-live' },
@@ -363,13 +364,14 @@ describe('compileIntent over the live registry', () => {
       PRODUCTION_COMPILE_DEPS,
     );
     const byAction = new Map(segmentOf(outcome).map((leaf) => [leaf.action, leaf.args]));
-    expect(byAction.get('check_test_adequacy')).toMatchObject({ baseBranch: 'feature/wave' });
-    for (const gate of ['check_contract_drift', 'check_mock_boundary', 'check_static_analysis']) {
-      const args = byAction.get(gate);
-      expect(args, gate).toBeDefined();
-      expect(args, gate).not.toHaveProperty('baseBranch');
-      expect(args, gate).not.toHaveProperty('baseRef');
+    for (const gate of ['check_test_adequacy', 'check_contract_drift', 'check_mock_boundary']) {
+      expect(byAction.get(gate), gate).toMatchObject({ baseBranch: 'feature/wave' });
+      expect(byAction.get(gate), gate).not.toHaveProperty('baseRef');
     }
+    const staticAnalysis = byAction.get('check_static_analysis');
+    expect(staticAnalysis).toBeDefined();
+    expect(staticAnalysis).not.toHaveProperty('baseBranch');
+    expect(staticAnalysis).not.toHaveProperty('baseRef');
   });
 
   it('TaskCompletion_WithoutABase_RefusesBeforeAnyEffect', () => {

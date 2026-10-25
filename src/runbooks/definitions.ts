@@ -51,19 +51,21 @@ export const TASK_COMPLETION = literalRunbook({
      * Contract-drift gate. It regenerates the schema bindings, typechecks them, and
      * diffs them against the merge base for breaking changes. When no contract tool
      * resolves, it gives an advisory pass, so `stop` halts only on breaking drift.
+     * `baseBranch: '<baseRef>'` measures the diff from the task base, as the kill probe does.
      */
     { tool: 'exarchos_orchestrate', action: 'check_contract_drift', onFail: 'stop',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
-        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
       note: 'contract gate: codegen → typecheck → breaking-diff vs merge-base; advisory-skips when no contract tool resolves' },
     /**
      * Advisory mock-boundary gate. It flags mocks of unowned dependencies in new
      * test hunks. An unowned mock with a `reason` can be correct, so the gate does
      * not block. The policy runs it only for a boundary-touching medium or high task.
+     * `baseBranch: '<baseRef>'` takes the new test hunks from the task base, not from `main`.
      */
     { tool: 'exarchos_orchestrate', action: 'check_mock_boundary', onFail: 'continue',
       params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
-        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>' },
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
       note: 'ADVISORY (SIV-4 #1530): flags unowned mocks in new test hunks; steers toward hermetic fixtures' },
     /**
      * Static-analysis gate. `repoRoot: 'auto'` and the `<worktreePath>` variable

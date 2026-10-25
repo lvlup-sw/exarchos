@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1348,
-    "parsedFiles": 1302,
+    "testFiles": 1349,
+    "parsedFiles": 1303,
     "shellFiles": 46,
-    "cases": 15126,
+    "cases": 15130,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -54503,7 +54503,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "TaskCompletion_TheFrozenBase_ReachesTheKillProbeAndNoOtherGate",
+          "name": "TaskCompletion_TheFrozenBase_ReachesTheThreeDiffGatesAndNotStaticAnalysis",
           "dynamic": false
         },
         {
@@ -58410,6 +58410,32 @@
         {
           "suite": "handleSecurityScan > gate event append failure",
           "name": "SecurityScan_GateEventAppendFails_WithholdsTheSuccessCarrier",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/segment-gate-base.test.ts": {
+      "file": "tests/unit/verbs/gates/segment-gate-base.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the base of the diff gates in the task-completion segment",
+          "name": "SegmentGateBase_TheRunbook_BindsTheBaseToTheThreeDiffGates",
+          "dynamic": false
+        },
+        {
+          "suite": "the base of the diff gates in the task-completion segment",
+          "name": "SegmentGateBase_ASegment_MeasuresContractDriftAndMockBoundaryFromTheBase",
+          "dynamic": false
+        },
+        {
+          "suite": "a direct diff-gate run with no base",
+          "name": "ContractDrift_ADirectRunWithNoBase_BlocksWithBaseMissing",
+          "dynamic": false
+        },
+        {
+          "suite": "a direct diff-gate run with no base",
+          "name": "MockBoundary_ADirectRunWithNoBase_ReportsBaseMissingAndDoesNotBlock",
           "dynamic": false
         }
       ]
