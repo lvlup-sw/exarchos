@@ -6,6 +6,12 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# A new push to a PR cancels the run for the earlier push. Other events get a
+# group of their own (the run id), so no run on main is cancelled or held back.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 permissions:
   contents: read
   pull-requests: read
@@ -41,6 +47,7 @@ jobs:
   # ─────────────────────────────────────────────────────────────────────
   plan:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       lanes: ${{ steps.plan.outputs.lanes }}
     steps:
@@ -56,6 +63,7 @@ jobs:
   lanes-check:
     name: CI Lanes Check
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
       - uses: lvlup-sw/.github/actions/ci-lanes@v1
@@ -67,6 +75,7 @@ jobs:
     needs: plan
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # fetch-depth: 0 — the legacy-hash manifest test
       # (tests/scripts/generate-legacy-skill-hashes.test.ts, in the root unit suite)
@@ -161,6 +170,7 @@ jobs:
     needs: plan
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 35
     env:
       RUN_EVALS: '1'
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
@@ -307,6 +317,7 @@ jobs:
     # Push / non-PR events already run every lane; the skip is byte-exact.
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).mcp != 'false') }}
     runs-on: windows-latest
+    timeout-minutes: 35
     env:
       EXARCHOS_PREFLIGHT_DEBUG: '1'
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
@@ -404,6 +415,7 @@ jobs:
     # default-branch push). The skip is byte-exact.
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).root != 'false') }}
     runs-on: windows-latest
+    timeout-minutes: 20
     env:
       PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
     steps:
@@ -465,6 +477,7 @@ jobs:
     name: Binary Matrix (${{ matrix.target }})
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -540,6 +553,7 @@ jobs:
     needs: plan
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -578,6 +592,7 @@ jobs:
     needs: plan
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -628,6 +643,7 @@ jobs:
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     needs: plan
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -750,23 +766,6 @@ jobs:
 
       - name: npm-ci-retry helper tests
         run: bash tests/scripts/npm-ci-retry.test.sh
-
-      # TEMP diagnostic (RCA 2026-05-30-state-source-integrity): the MCP `npm ci`
-      # wedges fetching native artifacts. Probe each host with hard timeouts to
-      # pinpoint which egress hangs from the runner. Non-blocking.
-      - name: CDN connectivity probe
-        run: |
-          set +e
-          for url in \
-            https://registry.npmjs.org/ \
-            https://objects.githubusercontent.com/ \
-            https://github.com/WiseLibs/better-sqlite3/releases/ \
-            https://nodejs.org/download/release/v24.12.0/SHASUMS256.txt ; do
-            echo "--- $url ---"
-            curl -sS -o /dev/null -w "  http=%{http_code} connect=%{time_connect}s total=%{time_total}s\n" \
-              --connect-timeout 15 --max-time 60 "$url" || echo "  FAILED/timeout: $url"
-          done
-          echo "probe complete"
 
       # ─────────────────────────────────────────────────────────────────
       # NOTE: this job is not zero-dependency as a whole. The tsx-backed gates below run
@@ -1210,6 +1209,7 @@ jobs:
     needs: plan
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -1264,6 +1264,7 @@ jobs:
     name: Startup Budget (linux-x64)
     if: github.event.pull_request.head.repo.full_name == github.repository || github.event_name != 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -1309,6 +1310,7 @@ jobs:
     needs: plan
     if: ${{ always() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).always != 'false') }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
@@ -1350,6 +1352,7 @@ jobs:
   ci-gate:
     name: CI Gate
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     needs: [plan, test-root, test-mcp, test-windows, test-windows-root, validate-no-legacy, manifest-gate, grep-gates, outcome-tests, e2e-process]
     if: always()
     steps:
