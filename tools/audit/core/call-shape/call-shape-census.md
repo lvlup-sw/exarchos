@@ -181,4 +181,4 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 - `content/design/skills/plan/SKILL.md` sha256 `9a2570c714172a108502486d7f6e138cd4ef4d84ade159f699663002132f6c6b`
 - `content/review/skills/review/SKILL.md` sha256 `a852d4c7bb7c36028d70382057470504550295bbfb561974d9990094b696369d`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `22c020a7069bbd9a5ec0ee443a8599af683eb830441e38c442db4d4307b66960`
-- `src/runbooks/definitions.ts` sha256 `5d5d90166f5d0f96561eb36ab30e3aff58b25a2acccc8de3c523501d2d5446af`
+- `src/runbooks/definitions.ts` sha256 `5b13ef1cd39934f73e8d0a5e53072903eeff0b43710f58adae957be3005fb130`

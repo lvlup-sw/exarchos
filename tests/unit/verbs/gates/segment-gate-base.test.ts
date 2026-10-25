@@ -33,7 +33,7 @@ import { compileIntent, PRODUCTION_COMPILE_DEPS } from '../../../../src/verbs/ex
 import { handleExecuteIntent, productionExecuteDeps } from '../../../../src/verbs/execute/executor.js';
 import { selectSubject } from '../../../../src/verbs/gates/durable-gate-producer.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
-import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 
@@ -256,8 +256,8 @@ describe('the base of the diff gates in the task-completion segment', () => {
     expect(statuses.get('check_mock_boundary')).toBe('passed');
     for (const [action, gateClass] of MEASURED_GATES) {
       const scope = { gateClass, featureId: streamId, taskId, repoRoot: worktreePath };
-      const fromBase = selectSubject({ ...scope, baseRef: BASE }, 'unused');
-      const fromMain = selectSubject({ ...scope, baseRef: 'main' }, 'unused');
+      const fromBase = await isolatedSync(() => selectSubject({ ...scope, baseRef: BASE }, 'unused'));
+      const fromMain = await isolatedSync(() => selectSubject({ ...scope, baseRef: 'main' }, 'unused'));
       expect(fromBase.digest).not.toEqual(fromMain.digest);
       const subjects = (await evidenceOf(streamId, action)).map((record) => record.evidence.subject);
       expect(subjects, action).toEqual([fromBase]);
