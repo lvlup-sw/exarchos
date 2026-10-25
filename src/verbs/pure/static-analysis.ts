@@ -124,8 +124,10 @@ export interface AdvisorySkip {
  * - `no-toolchain`: no supported project type in `repoRoot`.
  * - `constituent-skipped`: a toolchain was detected, but a check did not run.
  *   The result is inconclusive and cannot be a pass.
+ * - `repo-root-missing`: the call named a task and no `repoRoot`. The gate
+ *   handler scans nothing, because no directory is the worktree of the task.
  */
-export type StaticAnalysisSkipReason = 'no-toolchain' | 'constituent-skipped';
+export type StaticAnalysisSkipReason = 'no-toolchain' | 'constituent-skipped' | 'repo-root-missing';
 
 /** One check that did not run, with the cause that the report names for it. */
 export interface StaticAnalysisSkippedCheck {

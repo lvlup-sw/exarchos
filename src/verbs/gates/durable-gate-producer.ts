@@ -11,7 +11,7 @@ import type { ToolResult } from '../../format.js';
 import { evidenceArtifactStore } from '../../workflow/admission/evidence-artifact.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import type { EvidenceSubjectV1 } from '../../workflow/admission/types.js';
-import { observeTree } from '../../utils/git-tree.js';
+import { observeTree, type TreeObservation } from '../../utils/git-tree.js';
 import { resolveActivePhaseAttemptId } from '../tasks/active-phase-attempt.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { defaultGitExec } from './gate-utils.js';
@@ -31,6 +31,11 @@ export interface DurableGateScope {
   readonly repoRoot: string;
   readonly stateDir: string;
   readonly eventStore: EventStore;
+  /**
+   * True when the run scans no directory, as a skip that the handler decides before any scan.
+   * The producer then observes no directory, and the runner row names no tree.
+   */
+  readonly unscanned?: boolean;
 }
 
 /** The fields of a gate scope that select the evidence subject of a run. */
@@ -151,13 +156,12 @@ export function selectSubject(
 }
 
 /**
- * The tree stamp of a gate run in `repoRoot`, from one git observation of that directory.
+ * The tree stamp of one git observation of a directory.
  * A git work tree gives its canonical root and its HEAD commit. A directory outside git gives its canonical path with no head.
- * A path that does not exist keeps its lexical form. When git cannot observe the directory, the run stamps no tree.
- * The static-analysis seed of the tests stamps its tree here too, so a seeded row names a tree as a real run does.
+ * A path that does not exist keeps its lexical form. An unobservable directory gives no stamp.
+ * `task_complete` stamps the tree that a completion names with this rule, so it compares two stamps of one form.
  */
-export async function scannedTree(repoRoot: string): Promise<GateRunTree | undefined> {
-  const observed = await observeTree(repoRoot);
+export function treeStampOf(observed: TreeObservation): GateRunTree | undefined {
   switch (observed.kind) {
     case 'tree':
       return {
@@ -172,10 +176,20 @@ export async function scannedTree(repoRoot: string): Promise<GateRunTree | undef
 }
 
 /**
+ * The tree stamp of a gate run in `repoRoot`, from one git observation of that directory, by the rule of {@link treeStampOf}.
+ * When git cannot observe the directory, the run stamps no tree.
+ * The static-analysis seed of the tests stamps its tree here too, so a seeded row names a tree as a real run does.
+ */
+export async function scannedTree(repoRoot: string): Promise<GateRunTree | undefined> {
+  return treeStampOf(await observeTree(repoRoot));
+}
+
+/**
  * Canonical audit/shadow producer boundary for the migrated ladder handlers.
  * The provider carrier is returned byte-for-byte except for additive evidence
  * references, and no success carrier escapes before the durable append.
  * The run observes `repoRoot` before the gate runs, and the runner row names that tree.
+ * A scope that marks the run `unscanned` observes no directory, and its runner row names no tree.
  */
 export async function runDurableGateProducer(
   scope: DurableGateScope,
@@ -205,7 +219,7 @@ export async function runDurableGateProducer(
     );
   }
 
-  const tree = await scannedTree(scope.repoRoot);
+  const tree = scope.unscanned === true ? undefined : await scannedTree(scope.repoRoot);
   return runGateWithEvidence(
     {
       streamId: scope.featureId,

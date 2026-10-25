@@ -63,7 +63,7 @@ interface StaticAnalysisCarrierFields {
    * `passed: false` without `skipped` is a real failure. Callers must treat a skipped gate as inconclusive, not as a pass.
    */
   readonly skipped?: boolean;
-  /** Reason code when `skipped` is true ('no-toolchain' | 'constituent-skipped'). */
+  /** Reason code when `skipped` is true ('no-toolchain' | 'constituent-skipped' | 'repo-root-missing'). */
   readonly skipReason?: string;
   /**
    * The reason code of a skip again, because the gate runner copies only `discriminant` and `reason` into the `gate.executed` row.
@@ -146,9 +146,10 @@ export function staticAnalysisSubjectScope(
   };
 }
 
-/** The text of a skip cause. It names each check that did not run and its cause, or the missing toolchain. */
+/** The text of a skip cause. It names each check that did not run and its cause, the missing toolchain, or the missing root. */
 function skipCauseText(skipReason: StaticAnalysisSkipReason, analysisResult: StaticAnalysisRun): string {
   if (skipReason === 'no-toolchain') return 'no supported static-analysis toolchain in the scanned directory';
+  if (skipReason === 'repo-root-missing') return 'the call named a task and no repoRoot, so the run scanned nothing';
   const checks = (analysisResult.skippedChecks ?? []).map(({ name, detail }) =>
     detail === undefined ? `${name} did not run` : `${name} did not run (${detail})`,
   );
@@ -234,8 +235,31 @@ function readBoundaryScope(repoRoot: string): Pick<StaticAnalysisInput, 'firstPa
 }
 
 /**
+ * The run of a task call with no `repoRoot`. It is a skip that scans nothing, because no directory is known to be the
+ * worktree of the task. The report names the rerun that records a verdict for the task.
+ */
+function repoRootMissingRun(taskId: string): StaticAnalysisRun {
+  return {
+    status: 'skip',
+    skipReason: 'repo-root-missing',
+    output: [
+      '## Static Analysis Report',
+      '',
+      `**Result: SKIP**. The call named task '${taskId}' and no repoRoot, so the run scanned nothing.`,
+      "Run check_static_analysis again with repoRoot 'auto' and the worktreePath of the task.",
+    ].join('\n'),
+    passCount: 0,
+    failCount: 0,
+    skipCount: 0,
+  };
+}
+
+/**
  * Runs `runGatePreflight` first. It rejects a missing `eventStore` or `featureId`, and resolves a `repoRoot` of `'auto'`.
  * The provider maps the run through `staticAnalysisCarrier`.
+ *
+ * A call with a `taskId` and no `repoRoot` does not scan the server directory. It records the skip `repo-root-missing`
+ * through the producer, and the runner row names no tree. A call with no `taskId` keeps the `process.cwd()` default.
  */
 export async function handleStaticAnalysis(
   args: StaticAnalysisArgs,
@@ -253,19 +277,21 @@ export async function handleStaticAnalysis(
     eventStore,
   );
   if (!pre.ok) return pre.result;
-  const repoRoot = pre.repoRoot;
+  const missing = args.taskId && !args.repoRoot ? repoRootMissingRun(args.taskId) : undefined;
+  const repoRoot = missing === undefined ? pre.repoRoot : '';
 
   return runDurableGateProducer(
-    { ...staticAnalysisSubjectScope(args, repoRoot), stateDir, eventStore },
+    { ...staticAnalysisSubjectScope(args, repoRoot), stateDir, eventStore, unscanned: missing !== undefined },
     async () =>
       staticAnalysisCarrier(
-        runStaticAnalysis({
-          repoRoot,
-          skipLint: args.skipLint,
-          skipTypecheck: args.skipTypecheck,
-          ...readBoundaryScope(repoRoot),
-          runCommand: execCommandRunner,
-        }),
+        missing ??
+          runStaticAnalysis({
+            repoRoot,
+            skipLint: args.skipLint,
+            skipTypecheck: args.skipTypecheck,
+            ...readBoundaryScope(repoRoot),
+            runCommand: execCommandRunner,
+          }),
       ),
   );
 }

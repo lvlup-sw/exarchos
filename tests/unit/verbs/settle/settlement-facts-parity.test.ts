@@ -44,6 +44,11 @@ import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verd
 const STREAM = 'feat-settlement-parity';
 const TASK_IDS = ['task-one', 'task-two'] as const;
 const WORKTREE = '/nonexistent-parity-worktree';
+
+/** The worktree that the seed, the claim and the completion of one task name. Each task has a path of its own. */
+function worktreeOf(taskId: string): string {
+  return `${WORKTREE}/${taskId}`;
+}
 /** The integration branch that the plan tasks fork from. `prepare` freezes it as the base of each task. */
 const INTEGRATION_BRANCH = 'feature/settlement-parity';
 /** Stamped on the plan so the one gate the cut runbook carries is IN the resolved sequence, not policy-skipped. */
@@ -154,7 +159,7 @@ async function seed(dir: string, store: EventStore): Promise<void> {
     data: { patch: { 'synthesis.integrationBranch': INTEGRATION_BRANCH, tasks } },
   });
   for (const taskId of TASK_IDS) {
-    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir: dir, phaseAttemptId });
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir: dir, phaseAttemptId, worktreePath: worktreeOf(taskId) });
   }
 }
 
@@ -202,7 +207,13 @@ async function completeByHand(): Promise<void> {
     const compiled = compileIntent(
       'task-completion',
       { streamId: STREAM },
-      { taskId, worktreePath: WORKTREE, ...STAMP, baseRef: INTEGRATION_BRANCH, result: { worktreePath: WORKTREE } },
+      {
+        taskId,
+        worktreePath: worktreeOf(taskId),
+        ...STAMP,
+        baseRef: INTEGRATION_BRANCH,
+        result: { worktreePath: worktreeOf(taskId) },
+      },
       executeDeps(),
     );
     expect(compiled.ok, JSON.stringify(compiled)).toBe(true);
@@ -232,7 +243,7 @@ async function settleTheBatch(): Promise<void> {
         featureId: STREAM,
         capsuleVersion,
         batchId: 'batch-parity',
-        claims: TASK_IDS.map((taskId) => ({ taskId, fields: { worktreePath: WORKTREE }, evidence: [] })),
+        claims: TASK_IDS.map((taskId) => ({ taskId, fields: { worktreePath: worktreeOf(taskId) }, evidence: [] })),
       },
       settleDir,
       ctx,

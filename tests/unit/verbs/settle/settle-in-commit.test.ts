@@ -57,6 +57,14 @@ const CAPSULE_VERSION = 7;
 const DIGEST = { algorithm: 'sha256', value: 'a'.repeat(64) };
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
 const WORKTREE = '/nonexistent-settle-in-commit-worktree';
+
+/**
+ * The worktree that the claim, the seed and the completion of one task name. Each task has a path of its own.
+ * `task-verify` keeps the bare path.
+ */
+function worktreeOf(taskId: string): string {
+  return taskId === VERIFY ? WORKTREE : `${WORKTREE}/${taskId}`;
+}
 /** The capabilities that the composed leaves declare. The gate runner also needs a trusted caller. */
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The shipped runbook, cut to the leaves that decide without leaving the process. */
@@ -164,7 +172,7 @@ function executeDeps(gate: LeafHandler): ExecuteIntentDeps {
 
 /** A claim that its task is complete, with the result fields of the task. */
 function completedClaim(taskId: string): Record<string, unknown> {
-  return { taskId, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  return { taskId, fields: { passed: true, worktreePath: worktreeOf(taskId) }, evidence: [] };
 }
 
 /** A claim that its task waits for a change outside the task. */
@@ -207,10 +215,14 @@ function traceOf(receipt: SettlementReceipt, taskId: string): SettlementVerifica
   return receipt.verification?.find((trace) => trace.taskId === taskId);
 }
 
-/** Another writer completes a task through the live completion leaf, outside any settle call. */
+/** Another writer completes a task through the live completion leaf, outside any settle call, on the worktree of the task. */
 async function completeTask(taskId: string): Promise<void> {
   const completed = await runWithDispatchContext(correlation(), () =>
-    liveHandler('task_complete')({ taskId, featureId: STREAM }, stateDir, wiring()),
+    liveHandler('task_complete')(
+      { taskId, featureId: STREAM, result: { worktreePath: worktreeOf(taskId) } },
+      stateDir,
+      wiring(),
+    ),
   );
   expect(completed.success, JSON.stringify(completed)).toBe(true);
 }
@@ -353,8 +365,8 @@ beforeEach(async () => {
   store = new EventStore(stateDir);
   await store.initialize();
   phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
-  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId });
-  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId });
+  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId, worktreePath: worktreeOf(VERIFY) });
+  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId, worktreePath: worktreeOf(SECOND) });
   const capsule = twoTaskCapsule();
   await runWithDispatchContext(correlation(), () =>
     commitPreparedCapsule(wiring(), {

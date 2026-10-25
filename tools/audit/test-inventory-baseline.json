@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1340,
-    "parsedFiles": 1294,
+    "testFiles": 1341,
+    "parsedFiles": 1295,
     "shellFiles": 46,
-    "cases": 15080,
+    "cases": 15088,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -50958,6 +50958,52 @@
         {
           "suite": "the latest prepared record of a stream",
           "name": "LatestPreparedRecordOf_GivesTheLastRecordOfTheStream",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/tasks/task-complete-tree.test.ts": {
+      "file": "tests/unit/tasks/task-complete-tree.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_APassOnAnotherTree_IsRefusedAsOtherTreeWithNoRow",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_ACommitAfterThePass_IsRefusedAsOtherTree",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_APassOnTheNamedTreeAtItsHead_CompletesWithThePathAndTheCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_OnAPreparedStreamWithNoNamedTree_IsRefusedAsTreeUnnamed",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_ARunnerRowWithNoTree_DoesNotSatisfyANamedTree",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_ANamedTreeOutsideGitThatDiffersFromTheRow_IsRefusedAsOtherTree",
+          "dynamic": false
+        },
+        {
+          "suite": "check_static_analysis with a task and no repoRoot",
+          "name": "StaticAnalysis_ATaskRunWithNoRepoRoot_RecordsARepoRootMissingSkipAndScansNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "check_static_analysis with a task and no repoRoot",
+          "name": "TaskComplete_AfterARepoRootMissingSkip_IsRefusedWithTheRerunRecovery",
           "dynamic": false
         }
       ]

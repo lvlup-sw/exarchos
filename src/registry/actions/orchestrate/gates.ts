@@ -38,7 +38,9 @@ function withContract(
 export const gateActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'check_static_analysis',
-    description: 'Run static analysis gate (lint + typecheck) and persist canonical subject-bound evidence.',
+    description:
+      'Run static analysis gate (lint + typecheck) and persist canonical subject-bound evidence. ' +
+      'A run with a taskId and no repoRoot scans nothing and records a repo-root-missing skip.',
     schema: z.object({
       featureId: z.string().min(1),
       /**

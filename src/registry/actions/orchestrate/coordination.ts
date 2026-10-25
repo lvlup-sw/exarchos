@@ -69,7 +69,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
      */
     description:
       'Mark a task as complete with optional result and evidence. Auto-emits task.completed event. When evidence is provided, verified=true in event data; otherwise verified=false. ' +
-      "Requires a passing check_static_analysis run for the task, with taskId, repoRoot 'auto' and worktreePath, as the task-completion runbook binds them.",
+      "Requires a passing check_static_analysis run for the task, with taskId, repoRoot 'auto' and worktreePath, as the task-completion runbook binds them. " +
+      'That run must name the tree of result.worktreePath at its current commit, and a prepared workflow requires result.worktreePath.',
     schema: z.object({
       taskId: z.string().min(1),
       result: coercedRecord().optional(),
@@ -97,7 +98,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared({ source: 'event-append', when: 'success', event: 'task.completed' }),
-    needs: declared('mcp:exarchos'),
+    /** The tree rule spawns git to observe the tree that the completion names. */
+    needs: declared('mcp:exarchos', 'shell:exec'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
     emissions: declared({ event: 'task.completed', condition: 'always', owner: 'orchestrate', role: 'primary' }),

@@ -31,7 +31,7 @@ type GitOutcome =
  * A `no-work-tree` is a path outside any git work tree, in canonical form. A path that does not exist keeps its lexical form.
  * An `unobservable` tree is one where git did not start, did not end in time, or failed in an unexpected way.
  */
-type TreeObservation =
+export type TreeObservation =
   | {
       readonly kind: 'tree';
       readonly toplevel: string;

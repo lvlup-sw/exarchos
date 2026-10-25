@@ -51,6 +51,14 @@ const RACE_VERSION = 8;
 const CONTINUATION_VERSION = 9;
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
 const WORKTREE = '/nonexistent-settle-revision-race-worktree';
+
+/**
+ * The worktree that the claim and the seed of one task name. Each task has a path of its own.
+ * `task-verify` keeps the bare path.
+ */
+function worktreeOf(taskId: string): string {
+  return taskId === VERIFY ? WORKTREE : `${WORKTREE}/${taskId}`;
+}
 /** The capabilities that the composed leaves declare. The gate runner also needs a trusted caller. */
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The shipped runbook, cut to the leaves that decide without leaving the process. */
@@ -185,7 +193,7 @@ function executeDeps(gate: LeafHandler, completion: LeafHandler): ExecuteIntentD
 
 /** A claim that its task is complete, with the result fields of the task. */
 function completedClaim(taskId: string): Record<string, unknown> {
-  return { taskId, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  return { taskId, fields: { passed: true, worktreePath: worktreeOf(taskId) }, evidence: [] };
 }
 
 /** One settle call with the given request. */
@@ -294,7 +302,7 @@ beforeEach(async () => {
   await store.initialize();
   const phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
   for (const taskId of [VERIFY, HOLDER]) {
-    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId });
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId, worktreePath: worktreeOf(taskId) });
   }
   await store.append(STREAM, {
     type: 'state.patched',

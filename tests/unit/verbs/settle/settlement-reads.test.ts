@@ -395,6 +395,14 @@ describe('judgeSettlement — the cited evidence', () => {
 const STREAM = 'feat-settlement-reads';
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
 const WORKTREE = '/nonexistent-settlement-reads-worktree';
+
+/**
+ * The worktree that the claim, the seed and the completion of one task name. Each task has a path of its own.
+ * `task-verify` keeps the bare path.
+ */
+function worktreeOf(taskId: string): string {
+  return taskId === VERIFY ? WORKTREE : `${WORKTREE}/${taskId}`;
+}
 /** The capabilities that the composed leaves declare. The gate runner also needs a trusted caller. */
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The shipped runbook, cut to the leaves that decide without leaving the process. */
@@ -441,8 +449,8 @@ describe('settle — the read after the segments', () => {
     store = new EventStore(stateDir);
     await store.initialize();
     const phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
-    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId });
-    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId });
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId, worktreePath: worktreeOf(VERIFY) });
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId, worktreePath: worktreeOf(SECOND) });
     const capsule = twoTaskCapsule();
     await runWithDispatchContext(correlation(), () =>
       commitPreparedCapsule(wiring(), {
@@ -468,7 +476,11 @@ describe('settle — the read after the segments', () => {
    */
   it('Settle_AStatusClaimWhoseTaskAnotherCallCompletesWhileASegmentRuns_SettlesItAlreadyComplete', async () => {
     const completesTheSecondTask: LeafHandler = async (leafArgs, leafStateDir, leafCtx) => {
-      const completed = await liveHandler('task_complete')({ taskId: SECOND, featureId: STREAM }, leafStateDir, leafCtx);
+      const completed = await liveHandler('task_complete')(
+        { taskId: SECOND, featureId: STREAM, result: { worktreePath: worktreeOf(SECOND) } },
+        leafStateDir,
+        leafCtx,
+      );
       expect(completed.success).toBe(true);
       return liveHandler('check_mock_boundary')(leafArgs, leafStateDir, leafCtx);
     };
@@ -489,7 +501,7 @@ describe('settle — the read after the segments', () => {
           capsuleVersion: 7,
           batchId: 'batch-status-claim',
           claims: [
-            { taskId: VERIFY, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+            { taskId: VERIFY, fields: { passed: true, worktreePath: worktreeOf(VERIFY) }, evidence: [] },
             { taskId: SECOND, status: 'blocked', reason: 'waits on a review' },
           ],
         },
