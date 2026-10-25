@@ -72,11 +72,11 @@ interface AllowlistEntry {
 const NON_BLOCKING_ALLOWLIST: Record<string, AllowlistEntry> = {
   'startup-budget': {
     rationale:
-      'Wall-clock cold-start budgets of the compiled binary. Soaking: no measured failure rate yet against the 2% blocking threshold.',
+      'Wall-clock cold-start budgets of the compiled binary. Soaking: no measured failure rate yet against the 2% blocking threshold. Runs on non-PR events only.',
   },
   'binary-matrix': {
     rationale:
-      'Release-lane compile evidence, not a per-PR gate (standing reason the --minify A/B was dropped).',
+      'Release-lane compile evidence, not a per-PR gate (standing reason the --minify A/B was dropped). Runs on non-PR events only.',
     issue: '#1703',
   },
   'lanes-check': {
@@ -517,14 +517,12 @@ describe('CI-gate execution policy (DR-10)', () => {
         'test-mcp',
         'test-windows',
         'test-windows-root',
-        'validate-no-legacy',
-        'manifest-gate',
         'grep-gates',
         'outcome-tests',
         'e2e-process',
       ]),
     );
-    expect(needs).toHaveLength(10);
+    expect(needs).toHaveLength(8);
   });
 
   it('Planner_IsUnconditionalFullHistoryPlan', () => {
@@ -553,8 +551,6 @@ describe('CI-gate execution policy (DR-10)', () => {
       'test-windows-root': 'root',
       'test-mcp': 'mcp',
       'test-windows': 'mcp',
-      'validate-no-legacy': 'always',
-      'manifest-gate': 'always',
       'grep-gates': 'always',
       'outcome-tests': 'always',
       'e2e-process': 'always',

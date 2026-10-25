@@ -1083,7 +1083,7 @@ describe('The live chain this task was dispatched against', () => {
 
     const enforcing = (record?.hosts ?? []).filter((h) => h.via === 'direct');
     expect(enforcing.map((h) => describeHost(h))).toEqual([
-      'validate-no-legacy → tools/audit/gates/validate-no-legacy.sh',
+      'grep-gates → tools/audit/gates/validate-no-legacy.sh',
     ]);
 
     expect(GUARD_EXEMPTIONS.map((e) => e.artifact)).not.toContain('tools/audit/knip-diff.ts');
