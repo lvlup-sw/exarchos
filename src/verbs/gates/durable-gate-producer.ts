@@ -11,10 +11,11 @@ import type { ToolResult } from '../../format.js';
 import { evidenceArtifactStore } from '../../workflow/admission/evidence-artifact.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import type { EvidenceSubjectV1 } from '../../workflow/admission/types.js';
+import { observeTree } from '../../utils/git-tree.js';
 import { resolveActivePhaseAttemptId } from '../tasks/active-phase-attempt.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { defaultGitExec } from './gate-utils.js';
-import { runGateWithEvidence } from './gate-runner.js';
+import { runGateWithEvidence, type GateRunTree } from './gate-runner.js';
 
 export interface DurableGateScope {
   readonly gateClass:
@@ -150,9 +151,31 @@ export function selectSubject(
 }
 
 /**
+ * The tree stamp of a gate run in `repoRoot`, from one git observation of that directory.
+ * A git work tree gives its canonical root and its HEAD commit. A directory outside git gives its canonical path with no head.
+ * A path that does not exist keeps its lexical form. When git cannot observe the directory, the run stamps no tree.
+ * The static-analysis seed of the tests stamps its tree here too, so a seeded row names a tree as a real run does.
+ */
+export async function scannedTree(repoRoot: string): Promise<GateRunTree | undefined> {
+  const observed = await observeTree(repoRoot);
+  switch (observed.kind) {
+    case 'tree':
+      return {
+        worktree: observed.toplevel,
+        ...(observed.head === undefined ? {} : { head: observed.head }),
+      };
+    case 'no-work-tree':
+      return { worktree: observed.path };
+    case 'unobservable':
+      return undefined;
+  }
+}
+
+/**
  * Canonical audit/shadow producer boundary for the migrated ladder handlers.
  * The provider carrier is returned byte-for-byte except for additive evidence
  * references, and no success carrier escapes before the durable append.
+ * The run observes `repoRoot` before the gate runs, and the runner row names that tree.
  */
 export async function runDurableGateProducer(
   scope: DurableGateScope,
@@ -182,6 +205,7 @@ export async function runDurableGateProducer(
     );
   }
 
+  const tree = await scannedTree(scope.repoRoot);
   return runGateWithEvidence(
     {
       streamId: scope.featureId,
@@ -195,6 +219,7 @@ export async function runDurableGateProducer(
         ...(scope.branch ? { branch: scope.branch } : {}),
         ...(scope.baseRef ? { baseRef: scope.baseRef } : {}),
       },
+      ...(tree === undefined ? {} : { tree }),
     },
     {
       eventStore: scope.eventStore,

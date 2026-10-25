@@ -4,13 +4,14 @@
  * The seed runs the real gate runner with a provider that returns a fixed run outcome.
  * It takes the subject from `selectSubject` over the scope of the handler, and the carrier from the mapping of the handler.
  * Thus a seeded record has the subject and the carrier that a real run writes for the same task, branch and base.
+ * The runner row names the tree of `worktreePath` or `repoRoot` through the stamp of the producer, as a real run names its root.
  * The file is outside `src/`, because each emitter census reads a shipped append as a producer.
  */
 import { deriveLocalOperatorIdentity, snapshotCallerAuthorization } from '../../src/dispatch/caller-identity.js';
 import { mintDispatchContext, runWithDispatchContext } from '../../src/dispatch/dispatch-context.js';
 import type { EventStore } from '../../src/events/store.js';
 import type { ToolResult } from '../../src/format.js';
-import { ladderRequirementId, selectSubject } from '../../src/verbs/gates/durable-gate-producer.js';
+import { ladderRequirementId, scannedTree, selectSubject } from '../../src/verbs/gates/durable-gate-producer.js';
 import { runGate } from '../../src/verbs/gates/gate-runner.js';
 import { staticAnalysisCarrier, staticAnalysisSubjectScope } from '../../src/verbs/gates/static-analysis.js';
 import type { StaticAnalysisResult } from '../../src/verbs/pure/static-analysis.js';
@@ -54,6 +55,11 @@ export interface StaticAnalysisVerdictSeed {
   readonly branch?: string;
   readonly baseBranch?: string;
   readonly repoRoot?: string;
+  /**
+   * The tree that the runner row names. The seed observes `worktreePath`, else `repoRoot`, as a real run observes its root.
+   * A seed that names neither stamps no tree, as a runner row of an earlier build. It never stamps `stateDir`.
+   */
+  readonly worktreePath?: string;
   readonly phaseAttemptId?: string;
   readonly operationId?: string;
   readonly earlierBuildCarrier?: boolean;
@@ -123,6 +129,8 @@ export async function seedStaticAnalysisVerdict(
   const minted = mintDispatchContext(undefined, authorization);
   const context = seed.operationId === undefined ? minted : { ...minted, operationId: seed.operationId };
   const subject = await isolatedSync(() => selectSubject(scope, phaseAttemptId));
+  const treeRoot = seed.worktreePath ?? seed.repoRoot;
+  const tree = treeRoot === undefined ? undefined : await scannedTree(treeRoot);
   const result = await runWithDispatchContext(context, () =>
     runGate(
       {
@@ -137,6 +145,7 @@ export async function seedStaticAnalysisVerdict(
           ...(seed.branch === undefined ? {} : { branch: seed.branch }),
           baseRef: scope.baseRef,
         },
+        ...(tree === undefined ? {} : { tree }),
       },
       {
         eventStore,

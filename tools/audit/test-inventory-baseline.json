@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1338,
-    "parsedFiles": 1292,
+    "testFiles": 1340,
+    "parsedFiles": 1294,
     "shellFiles": 46,
-    "cases": 15067,
+    "cases": 15080,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -51737,6 +51737,52 @@
         }
       ]
     },
+    "tests/unit/utils/git-tree.test.ts": {
+      "file": "tests/unit/utils/git-tree.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_ALinkedWorktree_GivesItsRootTheCommonDirTheBranchAndTheHead",
+          "dynamic": false
+        },
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_ASubdirectory_GivesTheRootOfItsWorkTree",
+          "dynamic": false
+        },
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_ADetachedHead_GivesNoBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_ADirectoryOutsideGit_GivesNoWorkTreeWithItsCanonicalPath",
+          "dynamic": false
+        },
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_AMissingPath_GivesNoWorkTreeWithItsLexicalPath",
+          "dynamic": false
+        },
+        {
+          "suite": "canonicalPath",
+          "name": "CanonicalPath_ASymbolicLink_GivesTheRealPathInPosixForm",
+          "dynamic": false
+        },
+        {
+          "suite": "canonicalPath",
+          "name": "CanonicalPath_AMissingPosixAbsolutePath_KeepsItsTextWithNoDrive",
+          "dynamic": false
+        },
+        {
+          "suite": "canonicalPath",
+          "name": "CanonicalPath_AWin32Path_GivesItsPosixFormOnAnyHost",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/utils/json-schema-migration.test.ts": {
       "file": "tests/unit/utils/json-schema-migration.test.ts",
       "runner": "vitest:root",
@@ -56636,6 +56682,37 @@
         {
           "suite": "resolveGateSeverity per-workflow severity",
           "name": "ResolveGateSeverity_NoWorkflowType_UnchangedResolution",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/gate-tree-stamp.test.ts": {
+      "file": "tests/unit/verbs/gates/gate-tree-stamp.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the tree stamp of a gate run",
+          "name": "GateTreeStamp_AStaticAnalysisRun_NamesTheScannedRootAndItsHead",
+          "dynamic": false
+        },
+        {
+          "suite": "the tree stamp of a gate run",
+          "name": "GateTreeStamp_ASameOperationRetry_KeepsTheStampOfItsRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "the tree stamp of a gate run",
+          "name": "GateTreeStamp_ARunOutsideGit_NamesThePathWithNoHead",
+          "dynamic": false
+        },
+        {
+          "suite": "seedStaticAnalysisVerdict",
+          "name": "SeedStaticAnalysisVerdict_AWorktreePath_StampsThatTree",
+          "dynamic": false
+        },
+        {
+          "suite": "seedStaticAnalysisVerdict",
+          "name": "SeedStaticAnalysisVerdict_NoWorktreePathAndNoRepoRoot_StampsNoTreeWhereARepoRootIsStamped",
           "dynamic": false
         }
       ]

@@ -63,8 +63,20 @@ export interface GateRunnerPolicy {
 }
 
 /**
+ * The tree that a gate run scanned. `worktree` is the canonical root of a git work tree, or the canonical path of a
+ * directory outside git. `head` is the HEAD commit of a work tree, and a directory outside git has none.
+ */
+export interface GateRunTree {
+  readonly worktree: string;
+  readonly head?: string;
+}
+
+/**
  * Inputs are proof scope, never trusted provenance. Operation, invocation, and
  * caller/producer identity come exclusively from the active DispatchContext.
+ *
+ * `tree` names the tree that the run scanned. The runner writes it into the `gate.executed` row, not into the
+ * evidence subject. A request with no `tree` writes a row that names no tree, as a row of an earlier build.
  */
 export interface GateRunRequest {
   readonly streamId: string;
@@ -74,6 +86,7 @@ export interface GateRunRequest {
   readonly subject: EvidenceSubjectV1;
   readonly providerInput: unknown;
   readonly policy?: GateRunnerPolicy;
+  readonly tree?: GateRunTree;
 }
 
 export type GateProviderExecutor = (
@@ -123,6 +136,9 @@ export const GATE_RUNNER_GATE_LAYER = 'verification-ladder';
  *
  * The skip descriptor and the completeness descriptor of the carrier go into `details`. Thus a degraded run
  * keeps its mark and the cause of each advisory check with no verdict.
+ *
+ * The tree of the run goes into `details.worktree` and `details.head`. The tree comes from the request of this call.
+ * Thus a same-operation retry writes the stamp of its own request, as it writes its own skip descriptor.
  */
 async function appendGateExecutedSignal(
   eventStore: Pick<EventStore, 'append' | 'query'>,
@@ -132,6 +148,7 @@ async function appendGateExecutedSignal(
   record: AdmissionEvidenceRecorded,
   skip: GateSkipDescriptor | undefined,
   completeness: GateCompletenessDescriptor | undefined,
+  tree: GateRunTree | undefined,
 ): Promise<void> {
   const { evidence } = record;
   const subject = evidence.subject;
@@ -155,6 +172,8 @@ async function appendGateExecutedSignal(
           evidenceId: evidence.evidenceId,
           phaseAttemptId: evidence.phaseAttemptId,
           requirementId: evidence.requirementId,
+          ...(tree === undefined ? {} : { worktree: tree.worktree }),
+          ...(tree?.head === undefined ? {} : { head: tree.head }),
           ...(skip === undefined ? {} : skip),
           ...(completeness === undefined ? {} : completeness),
         },
@@ -401,6 +420,7 @@ export async function runGate(
           sameOperation.record,
           readGateSkipDescriptor(providerResult),
           readGateCompletenessDescriptor(providerResult),
+          request.tree,
         );
       }
       return attachGateEvidence(providerResult, [
@@ -498,6 +518,7 @@ export async function runGate(
         persistedRecord,
         readGateSkipDescriptor(providerResult),
         readGateCompletenessDescriptor(providerResult),
+        request.tree,
       );
     }
     return attachGateEvidence(providerResult, [
