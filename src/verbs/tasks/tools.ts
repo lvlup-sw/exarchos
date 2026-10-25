@@ -21,6 +21,7 @@ import { getDispatchContext } from '../../dispatch/dispatch-context.js';
 import { normalizedPath, observeTree } from '../../utils/git-tree.js';
 import { ladderRequirementId, readGateEvidenceRecords, selectSubject, treeStampOf } from '../gates/durable-gate-producer.js';
 import { gateRunnerObservationSource, gateSignalIdempotencyKey, type GateRunTree } from '../gates/gate-runner.js';
+import { DISABLED_BY_CONFIG } from '../gates/gate-utils.js';
 import { staticAnalysisSubjectScope } from '../gates/static-analysis.js';
 import type { StaticAnalysisSkipReason } from '../pure/static-analysis.js';
 import { DESIGN_REVISED_TYPE, designVersionId, revisedTasksAfter } from '../prepare/design-version.js';
@@ -231,6 +232,9 @@ const STATIC_ANALYSIS_GATE = 'static-analysis';
 /** The ladder requirement under which a static-analysis run records its evidence. */
 const STATIC_ANALYSIS_REQUIREMENT = ladderRequirementId(STATIC_ANALYSIS_GATE);
 
+/** The action that runs the static-analysis gate. The config key of its gate-level severity is this name. */
+const STATIC_ANALYSIS_ACTION = 'check_static_analysis';
+
 /** The skip descriptor that the gate runner copied from the carrier into a signal row. */
 interface SignalSkip {
   readonly discriminant: string | undefined;
@@ -395,6 +399,7 @@ type StaticAnalysisPrerequisite =
   | { readonly kind: 'no-toolchain' }
   | { readonly kind: 'earlier-no-toolchain'; readonly record: CauseRecord }
   | { readonly kind: 'repo-root-missing'; readonly record: CauseRecord }
+  | { readonly kind: 'disabled-by-config'; readonly record: CauseRecord }
   | { readonly kind: 'no-recorded-cause'; readonly record: CauseRecord; readonly skipped: boolean };
 
 /** The causes of a refusal of the static-analysis prerequisite. */
@@ -471,6 +476,7 @@ function recordCause(
       : { kind: 'earlier-no-toolchain', record: cause };
   }
   if (skip?.discriminant === REPO_ROOT_MISSING) return { kind: 'repo-root-missing', record: cause };
+  if (skip?.discriminant === DISABLED_BY_CONFIG) return { kind: 'disabled-by-config', record: cause };
   return { kind: 'no-recorded-cause', record: cause, skipped: skip !== undefined };
 }
 
@@ -570,6 +576,10 @@ const REFUSAL_RECOVERIES: Readonly<Record<StaticAnalysisRefusalCause['kind'], (r
     'A rerun gives the same skip.',
   'earlier-no-toolchain': (rerun) => `Make sure that the run scans the worktree of the task. Then ${rerun}`,
   'repo-root-missing': treeRecovery,
+  'disabled-by-config': (rerun) =>
+    `Enable ${STATIC_ANALYSIS_ACTION} in the .exarchos.yml of the checkout: remove review.gates.${STATIC_ANALYSIS_ACTION}, ` +
+    'or set its enabled and blocking to true, and keep the D2 dimension enabled and blocking. ' +
+    `A task cannot complete while the config disables static analysis. Then ${rerun}`,
   'no-recorded-cause': (rerun) => `To find the cause, ${rerun}`,
   'other-tree': treeRecovery,
   'tree-unnamed': treeRecovery,
@@ -653,6 +663,11 @@ function refusalCauseText(cause: StaticAnalysisRefusalCause, taskId: string): st
       return (
         `${causeSubject(cause.record, taskId, 'run')} is a repo-root-missing skip: the call named the task and no ` +
         `repoRoot, so the run scanned nothing.${chainSentence(cause.record)}`
+      );
+    case 'disabled-by-config':
+      return (
+        `${causeSubject(cause.record, taskId, 'run')} is a disabled-by-config skip: the project config disables ` +
+        `${STATIC_ANALYSIS_ACTION}, so its provider did not run and the run is not a pass.${chainSentence(cause.record)}`
       );
     case 'no-recorded-cause':
       return cause.skipped

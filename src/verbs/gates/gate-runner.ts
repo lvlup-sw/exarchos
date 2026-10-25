@@ -39,6 +39,7 @@ import { resolveActivePhaseAttemptId } from '../tasks/active-phase-attempt.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
   attachGateEvidence,
+  DISABLED_BY_CONFIG,
   normalizeGateVerdict,
   readGateCompletenessDescriptor,
   readGateSkipDescriptor,
@@ -307,6 +308,22 @@ function evidenceReference(
   });
 }
 
+/**
+ * The skip carrier of a gate action that the project config disables. The provider does not run.
+ * The carrier passes, so the runbook goes on, and its skip mark makes the evidence verdict `indeterminate`.
+ */
+function disabledByConfigCarrier(action: string): ToolResult {
+  return {
+    success: true,
+    data: {
+      passed: true,
+      skipped: true,
+      discriminant: DISABLED_BY_CONFIG,
+      reason: `Gate '${action}' is disabled by the project config, so its provider did not run.`,
+    },
+  };
+}
+
 function persistenceFailure(error: unknown): ToolResult {
   return {
     success: false,
@@ -319,15 +336,16 @@ function persistenceFailure(error: unknown): ToolResult {
 }
 
 /**
- * The audit/shadow gate chokepoint. It runs one registry provider, converts its carrier to a
- * proof verdict, and persists a subject-bound evidence record. Then it returns the carrier with
- * evidence references. It does not evaluate transition admission.
+ * The audit/shadow gate chokepoint. It runs one registry provider, converts its carrier to a proof verdict, and persists a
+ * subject-bound evidence record. It returns the carrier with evidence references, and it does not evaluate admission.
  *
- * No success carrier returns before the evidence append completes, and the signal append too when
- * `emitGateExecuted` is on. A same-operation retry derives the signal again from the stored record,
- * which repairs a first attempt that stopped before the signal. The retry returns only the first
- * artifact reference, because this runner writes at most one. A producer that writes more must
- * return the whole array.
+ * No success carrier returns before the evidence append completes, and the signal append too when `emitGateExecuted` is on.
+ * A same-operation retry derives the signal again from the stored record, which repairs a first attempt that stopped before
+ * the signal. The retry returns only the first artifact reference, because this runner writes at most one. A producer that
+ * writes more returns the whole array.
+ *
+ * A `disabled` severity directive in the dispatch context replaces the provider run with a skip carrier, which the runner records.
+ * The signal then lands when `emitGateExecuted` is on or the directive declares it. A policy skip in the provider loses to it.
  */
 export async function runGate(
   request: GateRunRequest,
@@ -374,18 +392,24 @@ export async function runGate(
   }
 
   const provider = resolution.data.provider;
+  const disabled = context.gateSeverity?.severity === 'disabled' ? context.gateSeverity : undefined;
+  const appendSignal = emitGateExecuted || disabled?.signal === true;
   let providerResult: ToolResult;
-  try {
-    providerResult = await dependencies.executeProvider(provider, request.providerInput);
-  } catch (error) {
-    providerResult = {
-      success: false,
-      error: {
-        code: 'GATE_PROVIDER_FAILED',
-        message: error instanceof Error ? error.message : String(error),
-        gate: provider.actionName,
-      },
-    };
+  if (disabled !== undefined) {
+    providerResult = disabledByConfigCarrier(disabled.action);
+  } else {
+    try {
+      providerResult = await dependencies.executeProvider(provider, request.providerInput);
+    } catch (error) {
+      providerResult = {
+        success: false,
+        error: {
+          code: 'GATE_PROVIDER_FAILED',
+          message: error instanceof Error ? error.message : String(error),
+          gate: provider.actionName,
+        },
+      };
+    }
   }
 
   try {
@@ -411,7 +435,7 @@ export async function runGate(
         sameSubject(record.evidence.subject, request.subject),
     );
     if (sameOperation !== undefined) {
-      if (emitGateExecuted) {
+      if (appendSignal) {
         await appendGateExecutedSignal(
           dependencies.eventStore,
           request.streamId,
@@ -509,7 +533,7 @@ export async function runGate(
       { idempotencyKey: record.evidence.evidenceId },
     );
     const persistedRecord = AdmissionEvidenceRecordedData.parse(event.data);
-    if (emitGateExecuted) {
+    if (appendSignal) {
       await appendGateExecutedSignal(
         dependencies.eventStore,
         request.streamId,
@@ -540,6 +564,7 @@ export const runGateWithEvidence = runGate;
  *
  * It sets `emitGateExecuted: false`, because these providers emit their own `gate.executed` row
  * or declare none. A runner row gives them a second producer or an undeclared row.
+ * Under a disabled directive the provider does not run. The runner then appends the row only when the directive declares it.
  */
 export async function runPhaseGateWithEvidence(
   request: PhaseGateProducerRequest,

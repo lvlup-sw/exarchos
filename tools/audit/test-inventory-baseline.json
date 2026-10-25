@@ -4,8 +4,8 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1347,
-    "parsedFiles": 1301,
+    "testFiles": 1348,
+    "parsedFiles": 1302,
     "shellFiles": 46,
     "cases": 15126,
     "dynamicTitles": 176,
@@ -2804,10 +2804,6 @@
     {
       "from": "src/verbs/composite.test.ts",
       "to": "tests/unit/verbs/composite.test.ts"
-    },
-    {
-      "from": "src/verbs/config-gate-integration.test.ts",
-      "to": "tests/unit/verbs/config-gate-integration.test.ts"
     },
     {
       "from": "src/verbs/docs-onboard-sweep.test.ts",
@@ -53573,72 +53569,6 @@
         }
       ]
     },
-    "tests/unit/verbs/config-gate-integration.test.ts": {
-      "file": "tests/unit/verbs/config-gate-integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_DisabledGate_SkipsExecution",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_WarningGate_ExecutesButDoesNotBlock",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_BlockingGate_FailureBlocks",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_NoProjectConfig_DefaultBehavior",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_BlockingGate_PassStillPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_OneshotLadderGate_FailureBecomesWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_FeatureLadderGate_FailureStillBlocks",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_OneshotFailingAdvisory_AddsWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_OneshotPassingAdvisory_Unchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_FeatureFailingAdvisory_Unchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_NoConfig_Unchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_ErrorResult_Untouched",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/cutover-readiness-schema.test.ts": {
       "file": "tests/unit/verbs/cutover-readiness-schema.test.ts",
       "runner": "vitest:root",
@@ -56265,6 +56195,57 @@
         }
       ]
     },
+    "tests/unit/verbs/gates/disabled-gate.test.ts": {
+      "file": "tests/unit/verbs/gates/disabled-gate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the gate runner under a disabled directive",
+          "name": "RunGate_EachProviderClassUnderTheDisabledDirective_RecordsTheSkipAndDoesNotRunTheProvider",
+          "dynamic": false
+        },
+        {
+          "suite": "the gate runner under a disabled directive",
+          "name": "RunGate_APhaseGateThatDeclaresTheSignal_AppendsItUnderTheDirective",
+          "dynamic": false
+        },
+        {
+          "suite": "the gate runner under a disabled directive",
+          "name": "RunGate_APhaseGateThatDeclaresNoSignal_AppendsNoneUnderTheDirective",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled gate through dispatch",
+          "name": "DisabledGate_ThroughDispatchForEachRunnerMode_HoldsItsAlwaysEnsures",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled gate through dispatch",
+          "name": "WarningGate_AFailingPhaseGate_PassesTheLeafAndKeepsTheRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled gate through dispatch",
+          "name": "DisabledGate_APolicySkip_LosesToTheDirective",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled gate through dispatch",
+          "name": "TaskComplete_AfterADisabledStaticAnalysis_IsRefusedWithTheConfigRecovery",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled mutation gate",
+          "name": "DisabledGate_MutationAdequacy_RunsAndDoesNotBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled kill probe in the task-completion segment",
+          "name": "DisabledGate_AKillProbeInTheSegment_SkipsAndTheTaskCompletes",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/durable-gate-producer.test.ts": {
       "file": "tests/unit/verbs/gates/durable-gate-producer.test.ts",
       "runner": "vitest:root",
@@ -56642,6 +56623,27 @@
         {
           "suite": "DR-1 acceptance: check_static_analysis → task_complete",
           "name": "TaskComplete_StaticAnalysisRed_ReturnsGateNotPassed",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/gate-severity-denominator.test.ts": {
+      "file": "tests/unit/verbs/gates/gate-severity-denominator.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the severity denominator of the gate actions",
+          "name": "GateSeverity_EveryGateActionOfTheRegistry_IsWrapped",
+          "dynamic": false
+        },
+        {
+          "suite": "the severity denominator of the gate actions",
+          "name": "GateSeverity_ASeededUnwrappedGateAction_FailsByName",
+          "dynamic": false
+        },
+        {
+          "suite": "the severity denominator of the gate actions",
+          "name": "GateSeverity_ARegisterRowForNoGateAction_FailsByName",
           "dynamic": false
         }
       ]
@@ -59773,47 +59775,47 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementSeverity_Oneshot_Advisory",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementSeverity_FeatureDebugRefactor_Blocking",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementMode_AuditMode_DoesNotBlock",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementMode_AuditMode_NoConfig_StillDoesNotBlock",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementSeverity_NoConfig_EnforceStillBlocks",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementOverride_ReviewGatesConfig_AppliesToImplementPhases",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase mode map",
+          "suite": "implement-phase mode map",
           "name": "ImplementPhaseMode_OneshotAudit_BlockingWorkflowsEnforce",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase mode map",
+          "suite": "implement-phase mode map",
           "name": "ImplementPhaseMode_TableIsFrozen",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase mode map",
+          "suite": "implement-phase mode map",
           "name": "ResolvePhaseMode_ProductionSoT_EquivalentForImplement_EnforceElsewhere",
           "dynamic": false
         }

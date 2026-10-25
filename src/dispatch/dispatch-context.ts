@@ -17,12 +17,27 @@ import type { CallerAuthorizationSnapshot } from './caller-identity.js';
 /** A UUID-shaped string (v4). */
 export type UUID = string;
 
-/** The correlation context for one dispatch. `correlationId` is never undefined. */
+/**
+ * The skip directive of a gate action that the project config disables.
+ * The gate runner reads it before the provider. It does not call the provider, and it records a skip.
+ * `signal` is true when the registration of the action declares an `always` row of `gate.executed`.
+ */
+export interface GateSeverityDirective {
+  readonly action: string;
+  readonly severity: 'disabled';
+  readonly signal: boolean;
+}
+
+/**
+ * The correlation context for one dispatch. `correlationId` is never undefined.
+ * `gateSeverity` applies to each gate runner call inside the dispatch of one gate action. The severity wrapper sets it.
+ */
 export interface DispatchContext {
   readonly operationId: UUID;
   readonly correlationId: UUID;
   readonly causationId?: UUID;
   readonly authorization?: CallerAuthorizationSnapshot;
+  readonly gateSeverity?: GateSeverityDirective;
 }
 
 /** The upstream correlation that a caller passes across a dispatch boundary to keep the chain. */
