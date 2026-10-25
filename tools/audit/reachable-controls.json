@@ -123,6 +123,11 @@
         "id": "prepare-scope-git",
         "shipped": "`handlePrepare` takes no `scopeGit` seam in the shipped composition, so git observes the repository of `repoRoot`, resolves the base commit and checks the landed commits",
         "offPattern": "\\bscopeGit\\s*:"
+      },
+      {
+        "id": "git-tree-observer",
+        "shipped": "the composition root sets no `treeObserver` on the dispatch context, so `settle` observes each claimed worktree with git through `observeClaimedTree`",
+        "offPattern": "\\btreeObserver\\s*:"
       }
     ],
     "contexts": [
@@ -271,6 +276,30 @@
           "file": "tests/acceptance/prepare-scope.test.ts",
           "test": "Prepare_FromAServerInAForeignRepository_PinsTheScopeOfRepoRoot",
           "keeps": "repoRoot: repository.checkout"
+        }
+      },
+      {
+        "file": "tests/unit/verbs/settle/settlement-facts-parity.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-scope.test.ts",
+          "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "keeps": "withShippedTreeObserver("
+        }
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-scope.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases call `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-scope.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-scope.test.ts",
+          "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "keeps": "withShippedTreeObserver("
         }
       },
       {

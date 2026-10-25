@@ -27,6 +27,7 @@ import { SCHEMA_VERSION } from '../../src/storage/sqlite/schema.js';
 import { ExecutionSettledData } from '../../src/events/schemas.js';
 import { SettlementBundleV1Schema } from '../../src/verbs/settle/settlement-bundle.js';
 import { ClaimTraceSchema } from '../../src/verbs/settle/claim-codec.js';
+import { PreparedBundleV1Schema } from '../../src/verbs/prepare/prepared-record.js';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 
@@ -63,6 +64,7 @@ const snapshot = JSON.parse(
 const STORED_SHAPES: Readonly<Record<string, z.ZodType>> = {
   ClaimTraceSchema,
   ExecutionSettledData,
+  PreparedBundleV1Schema,
   SettlementBundleV1Schema,
 };
 
@@ -79,6 +81,16 @@ const RECORDED_SHAPE_DECISIONS: readonly Pick<StoredShapeDecision, 'date' | 'sch
       ClaimTraceSchema: 'sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1',
       ExecutionSettledData: 'sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8',
       SettlementBundleV1Schema: 'sha256:19c123cee6a6488f1d27c5ba32789a3666964f441b3533b97b445215ee7c5758',
+    },
+  },
+  {
+    date: '2026-10-25',
+    schemaVersion: 6,
+    shapes: {
+      ClaimTraceSchema: 'sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1',
+      ExecutionSettledData: 'sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8',
+      PreparedBundleV1Schema: 'sha256:155038175270357356c2d9600060692427167502d60ee66886f3eba80823f494',
+      SettlementBundleV1Schema: 'sha256:9c0905e482fc576e15cc79210a2bc1b788b3750817ed17cd97ab8ccab3ec1ac7',
     },
   },
 ];

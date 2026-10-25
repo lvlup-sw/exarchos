@@ -77,8 +77,8 @@ export const settleActions: readonly BuiltinToolAction[] = [
       'after the capsule: a revision that names a claimed or unfinished required task gives ' +
       '`recompile-required` (prepare again). Claims are judged by each task\'s result shape, ' +
       'evidence by recorded rows of admitted kinds, deviations by the envelope. A batch not ' +
-      'stale, rejected or held RUNS each completed claim\'s task-completion segment (frozen-tier ' +
-      'ladder gates, then task_complete) in its `worktreePath`. A gate halt or a claim not ' +
+      'stale, rejected or held RUNS each in-scope completed claim\'s task-completion segment ' +
+      '(ladder gates, then task_complete) in its `worktreePath`. A gate halt or a claim not ' +
       '`completed` gives `corrective-capsule`: tasks that pass are complete. Every verdict is a ' +
       'successful call; findings say what to fix. A HELD batch names `pendingDeviations`; settle ' +
       'the SAME batch with `decisions`. Errors (nothing adjudicated): CAPSULE_INVALID, ' +

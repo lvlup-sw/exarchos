@@ -20,6 +20,8 @@ import { mkdtemp, mkdir, realpath, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
+import { z } from 'zod';
+
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { dispatch } from '../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../src/events/store.js';
@@ -255,5 +257,45 @@ describe('the kill probe measures a task from the branch it forked from', () => 
     const report = await resolveEvidenceArtifact(evidenceArtifactStore(stateDir), recorded[0]?.evidence.artifactRefs?.[0]);
     expect(String(report)).toContain('stayed GREEN with the task source reverted');
     expect(await git(repo, ['status', '--porcelain'])).toBe('');
+  });
+
+  /**
+   * The same work, in a linked worktree that forked from `main` and not from the integration branch. The worktree does
+   * not hold the base commit that the capsule froze, so settle leaves the task unresolved before any gate runs.
+   */
+  it('KillProbeBase_AWorktreeForkedFromMain_IsUnresolvedAsBaseNotHeld', async () => {
+    const forked = path.join(path.dirname(repo), 'task-2-from-main');
+    await git(checkout, ['worktree', 'add', '-q', '-b', 'task-2-from-main', forked, 'main']);
+    await write(forked, 'src/b.js', 'export function value() {\n  return 3;\n}\n');
+    await write(forked, 'test/b.test.js', testFile('b', 'assert.ok(true);'));
+    await git(forked, ['add', '.']);
+    await git(forked, ['commit', '-q', '-m', 'wave two, forked from main']);
+
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: checkout });
+    expect(prepared.success, JSON.stringify(prepared)).toBe(true);
+    const { capsuleVersion } = z.object({ capsuleVersion: z.number().int() }).parse(prepared.data);
+    const settled = await call('exarchos_orchestrate', {
+      action: 'settle',
+      featureId: STREAM,
+      capsuleVersion,
+      batchId: 'wave-2-from-main',
+      claims: [{ taskId: 'task-2', fields: { worktreePath: forked, branch: 'task-2-from-main' }, evidence: [] }],
+    });
+    expect(settled.success, JSON.stringify(settled)).toBe(true);
+    const verdict = z
+      .object({
+        outcome: z.string(),
+        acceptedTasks: z.array(z.string()),
+        unresolved: z.array(z.object({ taskId: z.string(), cause: z.string() })),
+        findings: z.array(z.object({ kind: z.string(), message: z.string() })),
+      })
+      .parse(settled.data);
+    expect(verdict.outcome).toBe('corrective-capsule');
+    expect(verdict.acceptedTasks).toEqual([]);
+    expect(verdict.unresolved).toEqual([{ taskId: 'task-2', cause: 'worktree-out-of-scope' }]);
+    expect(verdict.findings.map((finding) => finding.kind)).toEqual(['worktree-out-of-scope']);
+    expect(verdict.findings[0]?.message).toContain('(base-not-held)');
+    expect(await rowsOf('task.completed')).toEqual([]);
+    expect(await rowsOf('gate.executed')).toEqual([]);
   });
 });

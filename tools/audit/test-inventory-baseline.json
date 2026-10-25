@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1349,
-    "parsedFiles": 1303,
+    "testFiles": 1351,
+    "parsedFiles": 1305,
     "shellFiles": 46,
-    "cases": 15130,
+    "cases": 15152,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -5342,6 +5342,52 @@
         {
           "suite": "settle races, through the dispatcher",
           "name": "SettleRaces_ARevisionThatLandsWhileABatchVerifies_NeedsARecompileThenSettlesUnderTheContinuation",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/settle-scope.test.ts": {
+      "file": "tests/acceptance/settle-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AClaimInAnotherRepository_IsUnresolvedBeforeVerification",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AClaimOutsideAnyRepository_IsUnresolvedBeforeVerification",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AClaimOnTheCheckout_IsUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_ALinkedWorktreeOfTheBaseBranchThatIsNotTheCheckout_IsUnresolvedAsOnTheBaseBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_ThePrimaryWorktree_IsUnresolvedAsTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_ABranchThatDiffersFromTheClaim_IsUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AnUntrackedFile_IsUnresolvedAndNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
           "dynamic": false
         }
       ]
@@ -64725,6 +64771,11 @@
           "suite": "settlement adjudication",
           "name": "Adjudicate_AnOptionalFieldLeftOut_IsNotAFinding",
           "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_TheClassTable_CoversEachKindAndNamesTheSevenThatDoNotRefuse",
+          "dynamic": false
         }
       ]
     },
@@ -65719,6 +65770,72 @@
         {
           "suite": "settle — the custody of a discarded attempt",
           "name": "Settle_ARedoneAttempt_LeavesOnlyAnUnreferencedBlob",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-scope.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the scope rules of settle",
+          "name": "SettleScope_EachRule_GivesItsCauseInOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the scope rules of settle",
+          "name": "CompletedTrees_ARowOfAnEarlierBuild_IsNormalizedOnRead",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_TwoClaimsThatNameOneWorktree_AreBothUnresolvedAndRunNoGate",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AClaimOnTheWorktreeOfACompletedTask_IsUnresolvedAsSharedWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AHaltedClaimOnTheTreeOfATaskCompletedBeforeTheCommit_IsUnresolvedAsSharedWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AnOutOfScopeClaim_LeavesTheOtherTasksVerifiedAndIsCorrectiveCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_ARemovedWorktree_GivesAFindingOnlyForATaskThatIsNotComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AFirstCallObservesItsClaimsAndARetryOfTheRecordedBatchObservesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AnUnobservableTree_GivesAFindingAndTheOtherClaimsVerify",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AVerifiedTrace_CarriesTheTreeCommitInTheBundleOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_ACompletedClaimWithNoWorktreePath_IsNotObservedAndTheCompileRefusalStands",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AnAcceptingDecision_ObservesTheHeldClaimsAndAFileAddedDuringTheHoldIsUncommittedChanges",
           "dynamic": false
         }
       ]
@@ -87928,6 +88045,11 @@
         {
           "suite": "the kill probe measures a task from the branch it forked from",
           "name": "KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndRejectsTheBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe measures a task from the branch it forked from",
+          "name": "KillProbeBase_AWorktreeForkedFromMain_IsUnresolvedAsBaseNotHeld",
           "dynamic": false
         }
       ]

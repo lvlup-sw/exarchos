@@ -67,6 +67,7 @@ import { canonicalPath } from '../../../../src/utils/git-tree.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { initStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
+import { inScopeObserver } from '../../../helpers/scoped-capsule.js';
 
 const STREAM = 'feat-prepare-unit';
 const COMPILED_AT = '2026-09-12T00:00:00.000Z';
@@ -110,8 +111,12 @@ function withRoot(raw: Record<string, unknown>): Record<string, unknown> {
   return { repoRoot: checkout, ...raw };
 }
 
+/**
+ * The wiring of each call. The tree observer finds each claimed path in the repository of the seam checkout,
+ * so settle judges the claims of a prepared capsule in scope.
+ */
 function wiring(): DispatchContext {
-  return { stateDir, eventStore: store, enableTelemetry: false };
+  return { stateDir, eventStore: store, enableTelemetry: false, treeObserver: inScopeObserver({ repository: `${checkout}/.git` }) };
 }
 
 function correlation(capabilities: readonly string[] = FIT_CAPABILITIES): ReturnType<typeof mintDispatchContext> {
@@ -404,7 +409,7 @@ async function revise(
     ...batch,
     claims: prepared.capsule.graph.tasks.map((task) => ({
       taskId: task.taskId,
-      fields: { worktreePath: '/nonexistent-prepare-worktree' },
+      fields: { worktreePath: `/nonexistent-prepare-worktree/${task.taskId}` },
       evidence: [],
     })),
     deviations: [
@@ -527,7 +532,7 @@ async function decide(
     ...batch,
     claims: prepared.capsule.graph.tasks.map((task) => ({
       taskId: task.taskId,
-      fields: { worktreePath: '/nonexistent-prepare-worktree' },
+      fields: { worktreePath: `/nonexistent-prepare-worktree/${task.taskId}` },
       evidence: [],
     })),
     deviations: staged.map(({ deviationKind, statement, affectedTasks, proposedChange }) => ({
@@ -963,7 +968,7 @@ describe('prepare — the compilation endpoint', () => {
       ...batch,
       claims: first.capsule.graph.tasks.map((task) => ({
         taskId: task.taskId,
-        fields: { worktreePath: '/nonexistent-prepare-worktree' },
+        fields: { worktreePath: `/nonexistent-prepare-worktree/${task.taskId}` },
         evidence: [],
       })),
       deviations: [

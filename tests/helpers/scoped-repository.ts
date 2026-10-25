@@ -50,6 +50,18 @@ export interface ScopedRepository {
   worktreeFor(taskId: string, files?: FixtureFiles): Promise<string>;
   /** Commits `files` in the existing worktree of the task, on the branch that the worktree holds. */
   commitIn(taskId: string, files: FixtureFiles): Promise<void>;
+  /**
+   * Switches the checkout to `main`, which holds the base commit, and adds a linked worktree outside the checkout that holds
+   * the integration branch. It returns the canonical path of the checkout, which is the primary worktree, and of the linked worktree.
+   * The integration branch then holds no commit beyond `main`. Call it once, before any task needs the integration branch in the checkout.
+   */
+  baseInLinkedWorktree(): Promise<BaseInLinkedWorktree>;
+}
+
+/** The two trees of {@link ScopedRepository.baseInLinkedWorktree}: the primary worktree on `main`, and the linked worktree of the base. */
+export interface BaseInLinkedWorktree {
+  readonly primary: string;
+  readonly linked: string;
 }
 
 /** The characters that a task id can hold. The id names a branch and a directory, so it holds no separator. */
@@ -135,6 +147,14 @@ export async function scopedRepository(options: ScopedRepositoryOptions): Promis
       if (existing === undefined) throw new Error(`task ${JSON.stringify(taskId)} has no worktree. Call worktreeFor first.`);
       const tree = await existing;
       await serially(() => commitFiles(tree, files, `${taskId}: a correction`));
+    },
+    baseInLinkedWorktree() {
+      return serially(async () => {
+        await git(checkout, ['switch', '-q', 'main']);
+        const dir = path.join(root, 'base-worktree');
+        await git(checkout, ['worktree', 'add', '-q', dir, options.integrationBranch]);
+        return { primary: checkout, linked: canonicalPath(dir) };
+      });
     },
   };
 }

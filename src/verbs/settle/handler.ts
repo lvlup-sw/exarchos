@@ -52,6 +52,7 @@ import {
 } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
+import { canonicalPath, observeClaimedTree } from '../../utils/git-tree.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
 import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
 import { compileIntent } from '../execute/compile.js';
@@ -82,8 +83,9 @@ import {
   SETTLEMENT_BUNDLE_VERSION,
   type SettlementBundleV1,
 } from './settlement-bundle.js';
+import type { ClaimedTree } from './settle-scope.js';
 import {
-  completedTaskIds,
+  completedTasksOf,
   haltIsGateVerdict,
   judgementKey,
   judgeSettlement,
@@ -716,13 +718,31 @@ function qualifierOfGateRow(data: unknown): SettlementTraceQualifier | undefined
   return undefined;
 }
 
+/** The gate whose runner row names the tree and the commit that the segment scanned. */
+const STATIC_ANALYSIS_GATE = 'static-analysis';
+
+/** The head that one static-analysis `gate.executed` row names, or undefined for another row or a row with no head. */
+function staticAnalysisHeadOf(data: unknown): string | undefined {
+  if (!isRecord(data) || data.gateName !== STATIC_ANALYSIS_GATE || !isRecord(data.details)) return undefined;
+  const head = data.details.head;
+  return typeof head === 'string' && head.length > 0 ? head : undefined;
+}
+
+/** What the gate rows of one segment give its trace: the qualifiers, and the head of its static-analysis row. */
+interface SegmentGateReading {
+  readonly qualifiers: SettlementTraceQualifier[];
+  readonly treeCommit?: string;
+}
+
 /**
  * The qualifiers of a segment, in leaf order: one for each `gate.executed` row that the leaves appended and that
  * carries a mark. Each row is read back from the store at the sequence that the receipt names, so a replayed
  * receipt gives the same list. The list is empty when no row carries a mark.
+ * The same read gives `treeCommit`, the head of the latest static-analysis row of the segment, when that row names one.
  */
-async function traceQualifiersOf(receipt: IntentReceipt, eventStore: EventStore): Promise<SettlementTraceQualifier[]> {
+async function traceQualifiersOf(receipt: IntentReceipt, eventStore: EventStore): Promise<SegmentGateReading> {
   const qualifiers: SettlementTraceQualifier[] = [];
+  let treeCommit: string | undefined;
   for (const leaf of receipt.leaves) {
     for (const event of leaf.events) {
       if (event.type !== GATE_EXECUTED_TYPE) continue;
@@ -734,9 +754,10 @@ async function traceQualifiersOf(receipt: IntentReceipt, eventStore: EventStore)
       if (row === undefined || row.sequence !== event.sequence) continue;
       const qualifier = qualifierOfGateRow(row.data);
       if (qualifier !== undefined) qualifiers.push(qualifier);
+      treeCommit = staticAnalysisHeadOf(row.data) ?? treeCommit;
     }
   }
-  return qualifiers;
+  return { qualifiers, ...(treeCommit === undefined ? {} : { treeCommit }) };
 }
 
 /** The trace field that holds the qualifiers, or no field when the list is empty. */
@@ -753,8 +774,10 @@ type BundleVerificationTrace = NonNullable<SettlementBundleV1['verification']>[n
 /**
  * The bundle copy of one trace. It takes only the keys of the strict trace schema of the bundle, and it leaves
  * `qualifiers` on the receipt. Thus the stored bundle keeps its shape, and a build without qualifiers reads it.
+ * A verified trace takes `treeCommit` from the run of its task. The receipt trace does not carry it.
  */
-function bundleTraceOf(trace: SettlementVerificationTrace): BundleVerificationTrace {
+function bundleTraceOf(trace: SettlementVerificationTrace, run: VerificationRun | undefined): BundleVerificationTrace {
+  const treeCommit = trace.outcome === 'verified' && run?.kind === 'ran' ? run.treeCommit : undefined;
   return {
     taskId: trace.taskId,
     outcome: trace.outcome,
@@ -762,6 +785,7 @@ function bundleTraceOf(trace: SettlementVerificationTrace): BundleVerificationTr
     ...(trace.failedLeaf === undefined ? {} : { failedLeaf: trace.failedLeaf }),
     ...(trace.message === undefined ? {} : { message: trace.message }),
     ...(trace.bundleRefs === undefined ? {} : { bundleRefs: [...trace.bundleRefs] }),
+    ...(treeCommit === undefined ? {} : { treeCommit }),
   };
 }
 
@@ -796,6 +820,7 @@ async function verifyTask(
   const receipt = result.data;
   if (isIntentReceipt(receipt)) {
     if (receipt.outcome === 'committed') {
+      const reading = await traceQualifiersOf(receipt, ctx.eventStore);
       return {
         kind: 'ran',
         outcome: { kind: 'verified' },
@@ -804,8 +829,9 @@ async function verifyTask(
           outcome: 'verified',
           operationId: receipt.operationId,
           ...(receipt.bundleRefs !== undefined ? { bundleRefs: receipt.bundleRefs } : {}),
-          ...qualifiersField(await traceQualifiersOf(receipt, ctx.eventStore)),
+          ...qualifiersField(reading.qualifiers),
         },
+        ...(reading.treeCommit === undefined ? {} : { treeCommit: reading.treeCommit }),
       };
     }
     const failedLeaf = receipt.failedLeaf ?? '<unknown>';
@@ -834,7 +860,7 @@ async function verifyTask(
         failedLeaf,
         message,
         ...(receipt.bundleRefs !== undefined ? { bundleRefs: receipt.bundleRefs } : {}),
-        ...qualifiersField(await traceQualifiersOf(receipt, ctx.eventStore)),
+        ...qualifiersField((await traceQualifiersOf(receipt, ctx.eventStore)).qualifiers),
       },
     };
   }
@@ -993,6 +1019,36 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
     decisions.push({ deviationId, decision, actor, rationale });
   }
   return decisions;
+}
+
+/**
+ * Observes the claimed worktree of each completed claim, once per call and before the first attempt.
+ * The observer is the seam of the dispatch context, and `observeClaimedTree` by default.
+ * A claim is observed when the capsule pins a scope, its task terms hold a base commit, and its fields hold a `worktreePath` text.
+ * A claim with no such path is neither observed nor judged, so the compile of its segment refuses it as before.
+ * The observations are not stream reads, so the commit judges the claims again with the same observations.
+ */
+async function observeClaimedTrees(
+  ctx: DispatchContext,
+  capsule: ExarchosCapsuleV1,
+  claims: readonly SettlementClaim[],
+): Promise<ReadonlyMap<string, ClaimedTree>> {
+  const observed = new Map<string, ClaimedTree>();
+  if (capsule.settlementContract.scope === undefined) return observed;
+  const terms = capsule.settlementContract.taskVerification ?? {};
+  const observe = ctx.treeObserver ?? observeClaimedTree;
+  for (const claim of claims) {
+    const { worktreePath, branch } = claim.fields;
+    const baseCommit = terms[claim.taskId]?.baseCommit;
+    if (claim.status !== undefined || observed.has(claim.taskId) || baseCommit === undefined) continue;
+    if (typeof worktreePath !== 'string' || worktreePath.length === 0) continue;
+    observed.set(claim.taskId, {
+      path: canonicalPath(worktreePath),
+      ...(typeof branch === 'string' ? { branch } : {}),
+      observed: await observe(worktreePath, baseCommit),
+    });
+  }
+  return observed;
 }
 
 /** What the fold of the stream reads for one batch: the sequence of the capsule pin and the cited evidence. */
@@ -1205,7 +1261,7 @@ async function commitJudgement(
     decisions: [...decisions],
     ...(round > 0 ? { round } : {}),
     adjudicated: verdict.adjudicated,
-    verification: traces.map(bundleTraceOf),
+    verification: traces.map((trace) => bundleTraceOf(trace, runs.get(trace.taskId))),
     settledAt,
   });
 
@@ -1519,7 +1575,7 @@ export async function handleSettle(
         const recorded = recordedCompleteTasks(
           capsule,
           claim.result.acceptedTasks,
-          completedTaskIds(await ctx.eventStore.query(streamId, { type: 'task.completed' })),
+          completedTasksOf(await ctx.eventStore.query(streamId, { type: 'task.completed' })).ids,
         );
         if (recorded.length > 0) {
           const sync = await bringDocumentLevel(stateDir, streamId, recorded);
@@ -1592,7 +1648,8 @@ export async function handleSettle(
       decidedOf.get(deviationIdOf(identity, deviation));
 
     const reads = { pinnedSequence: pinned.sequence, cited: claims.flatMap((claim) => claim.evidence) };
-    let inputs: SettlementInputs = { capsule, claims, deviations, decided, round, evidenceChecks: new Map() };
+    const observations = await observeClaimedTrees(ctx, capsule, claims);
+    let inputs: SettlementInputs = { capsule, claims, deviations, decided, round, evidenceChecks: new Map(), observations };
     if (deviations.some((deviation) => deviation.affectedTasks !== undefined)) {
       const standing = await planStandingLookup(ctx, streamId);
       if (standing.ok) inputs = { ...inputs, planStanding: standing.standingOf };

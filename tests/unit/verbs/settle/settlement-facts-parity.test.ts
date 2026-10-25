@@ -41,6 +41,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
+import { inScopeObserver } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settlement-parity';
@@ -183,8 +184,17 @@ afterEach(async () => {
   await rmrfAsync(settleDir);
 });
 
+/**
+ * The wiring of both arms. The tree observer finds each claimed path in the repository that the scope seam pins.
+ * So settle judges the claims of the prepared capsule in scope. Both arms carry it, so the leaves of both arms read one seam.
+ */
 function wiring(stateDir: string, eventStore: EventStore): DispatchContext {
-  return { stateDir, eventStore, enableTelemetry: false };
+  return {
+    stateDir,
+    eventStore,
+    enableTelemetry: false,
+    treeObserver: inScopeObserver({ repository: `${canonicalPath(settleDir)}/.git` }),
+  };
 }
 
 function correlation(): ReturnType<typeof mintDispatchContext> {

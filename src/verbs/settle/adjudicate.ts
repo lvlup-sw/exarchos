@@ -5,7 +5,7 @@
  * This module is pure: no store, no filesystem, no clock. The handler records the verdict.
  * The context supplies the facts that the module cannot compute.
  * They are whether an evidence reference resolves, how a named task stands, and which later revision names a task.
- * They are also whether the stream shows a task complete, and each task verification outcome.
+ * They are also whether the stream shows a task complete, how settle judged each claimed worktree, and each task verification outcome.
  *
  * The capsule parts that decide the verdict are `contracts.taskResults`, `contracts.evidenceKinds`, `contracts.deviationEnvelope`,
  * `settlementContract.requiredResults` and `settlementContract.taskVerification`.
@@ -36,6 +36,7 @@ export const SETTLEMENT_FINDING_KINDS = [
   'task-failed',
   'task-blocked',
   'task-skipped',
+  'worktree-out-of-scope',
 ] as const;
 
 /** What adjudication found wrong with one claim, one task, or one deviation. */
@@ -53,9 +54,11 @@ export type SettlementFindingClass = 'stale' | 'refuse' | 'hold' | 'unresolved';
 /**
  * The class of each finding kind. The record is exhaustive, and it keeps each class as a literal type.
  * A deviation inside the envelope is a valid answer to a wrong capsule assumption, so its finding holds the batch.
+ * A rationale that names a decision that the capsule does not delegate is a request error, so it refuses the batch.
+ *
  * A failed verification leaves its task unresolved, and it does not refuse the tasks that passed.
  * A claim that reports its task as not completed also leaves the task unresolved.
- * A rationale that names a decision that the capsule does not delegate is a request error, so it refuses the batch.
+ * So does a claimed worktree outside the scope that the capsule pins, because its recovery is a correction of that task.
  */
 export const SETTLEMENT_FINDING_CLASSES = Object.freeze({
   'unknown-task': 'refuse',
@@ -78,6 +81,7 @@ export const SETTLEMENT_FINDING_CLASSES = Object.freeze({
   'task-failed': 'unresolved',
   'task-blocked': 'unresolved',
   'task-skipped': 'unresolved',
+  'worktree-out-of-scope': 'unresolved',
 } satisfies Record<SettlementFindingKind, SettlementFindingClass>);
 
 /** The finding kinds that the class table puts in one of the given classes. */
@@ -404,6 +408,15 @@ export type TaskVerificationOutcome =
   | { readonly kind: 'already-complete' }
   | { readonly kind: 'failed'; readonly failedLeaf: string; readonly message: string };
 
+/**
+ * How settle judged the claimed worktree of one completed claim before any gate ran.
+ * An `out-of-scope` worktree fails a scope rule. `cause` names the first rule that it fails, and `message` names that rule and the recovery.
+ * The type is local to this module, because the event schemas import this module at run time.
+ */
+export type ClaimScope =
+  | { readonly kind: 'in-scope' }
+  | { readonly kind: 'out-of-scope'; readonly cause: string; readonly message: string };
+
 /** What adjudication needs beyond the capsule and the batch. */
 export interface AdjudicationContext {
   /**
@@ -436,6 +449,12 @@ export interface AdjudicationContext {
    * Without the function, each required task needs a claim.
    */
   readonly taskComplete?: (taskId: string) => boolean;
+  /**
+   * How settle judged the claimed worktree of a completed claim. It returns undefined for a claim that settle did not judge.
+   * An out-of-scope worktree leaves its task unresolved, so the task is not accepted and runs no segment.
+   * Without the function, no claim gets the check.
+   */
+  readonly claimScope?: (taskId: string) => ClaimScope | undefined;
   /**
    * The verification outcome per task. It is absent on the shape pass, which decides whether verification runs.
    * On the final pass, a claim without a passing entry is not accepted.
@@ -792,6 +811,12 @@ export function adjudicateSettlement(
       });
 
       if (findings.length !== before) return;
+
+      const scoped = context.claimScope?.(claim.taskId);
+      if (scoped?.kind === 'out-of-scope') {
+        findings.push({ kind: 'worktree-out-of-scope', subject: claim.taskId, at: `${at}.fields.worktreePath`, message: scoped.message });
+        return;
+      }
     }
 
     const verification = context.verification;

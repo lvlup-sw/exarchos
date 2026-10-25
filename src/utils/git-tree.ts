@@ -1,6 +1,7 @@
 /**
  * The shared git observation of a tree: its root, its repository, its branch and its head commit.
  * Three more reads serve `prepare`: the repository of a directory, the commit of a ref, and the ancestry of two commits.
+ * The observation of a claimed tree serves `settle`: it adds whether HEAD holds the base commit, and the first dirty paths.
  *
  * The two path forms follow `normalizeRepoPath` of `paths.ts`. The canonical form is the real path
  * in POSIX form, as `git rev-parse --show-toplevel` prints it. The lexical form reads no file, so it
@@ -66,6 +67,28 @@ export type AncestryRead =
   | { readonly kind: 'ancestor' }
   | { readonly kind: 'not-ancestor' }
   | { readonly kind: 'unobservable'; readonly cause: string };
+
+/**
+ * What git observes at a claimed worktree.
+ * A `tree` adds two reads to the tree of {@link TreeObservation}. `holdsBase` says that HEAD holds the base commit.
+ * `dirtyPaths` holds at most five paths that `git status --porcelain` prints under the ignore rules of git. An empty list is a clean tree.
+ * A `no-work-tree` and an `unobservable` claimed tree have the meaning that they have in {@link TreeObservation}.
+ */
+export type ClaimedTreeObservation =
+  | (Extract<TreeObservation, { readonly kind: 'tree' }> & {
+      readonly holdsBase: boolean;
+      readonly dirtyPaths: readonly string[];
+    })
+  | Exclude<TreeObservation, { readonly kind: 'tree' }>;
+
+/** The seam over the observation of a claimed worktree. The default is {@link observeClaimedTree}. */
+export type TreeObserver = (dir: string, baseCommit: string) => Promise<ClaimedTreeObservation>;
+
+/** The most dirty paths that one observation of a claimed worktree keeps. */
+const DIRTY_PATH_LIMIT = 5;
+
+/** The width of the status code and its space at the start of each line of `git status --porcelain`. */
+const PORCELAIN_STATUS_WIDTH = 3;
 
 /** One value of an optional git read: the value, no value, or the cause of a failed read. */
 type OptionalRead =
@@ -200,4 +223,34 @@ export async function observeTree(dir: string): Promise<TreeObservation> {
     ...(branch.value === undefined ? {} : { branch: branch.value }),
     ...(head.value === undefined ? {} : { head: head.value }),
   };
+}
+
+/**
+ * Observes a claimed worktree with five git calls: the three calls of {@link observeTree}, the ancestry of the base commit, and the status.
+ * The status runs with `--no-optional-locks`, so the call writes no index refresh.
+ * A HEAD that git cannot compare with the base commit does not hold it. Examples are a HEAD with no commit, and a base commit that the repository does not hold.
+ * A directory outside any git work tree gives `no-work-tree`, as in {@link observeTree}.
+ */
+export async function observeClaimedTree(dir: string, baseCommit: string): Promise<ClaimedTreeObservation> {
+  const tree = await observeTree(dir);
+  if (tree.kind !== 'tree') return tree;
+
+  const [ancestry, status] = await Promise.all([
+    runGit(['-C', dir, 'merge-base', '--is-ancestor', '--end-of-options', baseCommit, 'HEAD']),
+    runGit(['--no-optional-locks', '-C', dir, 'status', '--porcelain']),
+  ]);
+  if (ancestry.kind === 'failed') return { kind: 'unobservable', cause: ancestry.cause };
+  if (status.kind === 'failed') return { kind: 'unobservable', cause: status.cause };
+  if (status.exitCode !== 0) {
+    return {
+      kind: 'unobservable',
+      cause: `git could not read the status (exit ${status.exitCode}): ${status.stderr.trim()}`,
+    };
+  }
+  const dirtyPaths = status.stdout
+    .split(/\r?\n/)
+    .filter((line) => line.length > PORCELAIN_STATUS_WIDTH)
+    .slice(0, DIRTY_PATH_LIMIT)
+    .map((line) => line.slice(PORCELAIN_STATUS_WIDTH));
+  return { ...tree, holdsBase: ancestry.exitCode === 0, dirtyPaths };
 }

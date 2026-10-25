@@ -80,6 +80,8 @@ const CensusSchema = z
  * accepted claim, or a required task that the stream already showed complete.
  * The segment detail is in its own bundle, named by `bundleRefs`. This trace
  * records only how the settlement read it.
+ * `treeCommit` is the head that the static-analysis row of a verified segment
+ * names. It is the landing input of the task, and the receipt does not carry it.
  */
 const VerificationTraceSchema = z
   .object({
@@ -89,6 +91,7 @@ const VerificationTraceSchema = z
     failedLeaf: z.string().min(1).optional(),
     message: z.string().min(1).optional(),
     bundleRefs: z.array(BundleRefV1Schema).min(1).optional(),
+    treeCommit: z.string().min(1).optional(),
   })
   .strict();
 

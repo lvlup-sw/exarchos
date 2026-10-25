@@ -5911,7 +5911,7 @@ describe('settle — the text of the action', () => {
     expect(description).not.toContain('A batch with no finding RUNS');
     expect(description).not.toContain('A halt gives');
     expect(description).toContain(
-      "A batch not stale, rejected or held RUNS each completed claim's task-completion segment",
+      "A batch not stale, rejected or held RUNS each in-scope completed claim's task-completion segment",
     );
     expect(description).not.toContain('A halt or a claim');
     expect(description).toContain(
