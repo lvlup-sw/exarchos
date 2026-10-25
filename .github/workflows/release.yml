@@ -51,6 +51,7 @@ jobs:
   trust-root-gate:
     name: Installer trust root pinned
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
@@ -71,6 +72,7 @@ jobs:
     # same step completes in 30-45s on ubuntu-latest. See memory note
     # feedback_self_hosted_runner_npm_ci_stall.
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       # fetch-depth: 0 — this job runs the root `npm run test:run`, which includes
       # the legacy-hash manifest test. That test rebuilds the manifest from the
@@ -167,6 +169,7 @@ jobs:
     # but must not produce or mutate GitHub Release assets.
     if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '.')
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -273,6 +276,7 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') && contains(github.ref_name, '.')
     needs: [trust-root-gate, binary-matrix]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
