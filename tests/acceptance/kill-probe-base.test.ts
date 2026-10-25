@@ -47,6 +47,8 @@ let stateDir: string;
 let eventStore: EventStore;
 /** The linked worktree of the task. It holds the task branch, and the gate runs there. */
 let repo: string;
+/** The checkout that holds the integration branch. `prepare` takes it as `repoRoot`. */
+let checkout: string;
 const scratchDirs: string[] = [];
 
 function git(cwd: string, args: readonly string[]): Promise<string> {
@@ -71,6 +73,7 @@ async function twoWaveRepository(): Promise<string> {
   const parent = await realpath(await mkdtemp(path.join(tmpdir(), 'kill-probe-base-repo-')));
   scratchDirs.push(parent);
   const root = path.join(parent, 'checkout');
+  checkout = root;
   await mkdir(root);
   await git(root, ['init', '-q', '--initial-branch=main']);
   await git(root, ['config', 'user.email', 'test@example.com']);
@@ -201,7 +204,7 @@ describe('the kill probe measures a task from the branch it forked from', () => 
   });
 
   it('KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndLeavesTheTaskUnresolved', async () => {
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const receipt = prepared.data as {
       readonly capsuleVersion: number;

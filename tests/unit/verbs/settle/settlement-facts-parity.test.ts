@@ -34,6 +34,8 @@ import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js
 import { compileIntent } from '../../../../src/verbs/execute/compile.js';
 import { INTENT_EXECUTED_EVENT, type ExecuteIntentDeps } from '../../../../src/verbs/execute/executor.js';
 import { handlePrepare } from '../../../../src/verbs/prepare/handler.js';
+import type { ScopeGit } from '../../../../src/verbs/prepare/prepare-scope.js';
+import { canonicalPath } from '../../../../src/utils/git-tree.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
@@ -229,11 +231,27 @@ async function completeByHand(): Promise<void> {
   }
 }
 
+/**
+ * The three git reads of the scope of prepare. The checkout is the settle directory in canonical form, which holds no config file.
+ * The acceptance cases of prepare run the same reads on real git.
+ */
+function parityScopeGit(): ScopeGit {
+  const checkout = canonicalPath(settleDir);
+  return {
+    observe: async () => ({ kind: 'repository', toplevel: checkout, repository: `${checkout}/.git` }),
+    commitOf: async () => ({ kind: 'commit', commit: 'd'.repeat(40) }),
+    isAncestor: async () => ({ kind: 'ancestor' }),
+  };
+}
+
 /** The plane: one prepare, one settle, every task claimed with its worktree. */
 async function settleTheBatch(): Promise<void> {
   const ctx = wiring(settleDir, settleStore);
   const prepared = await runWithDispatchContext(correlation(), () =>
-    handlePrepare({ featureId: STREAM }, settleDir, ctx, { catalogInvariants: () => [] }),
+    handlePrepare({ featureId: STREAM, repoRoot: canonicalPath(settleDir) }, settleDir, ctx, {
+      catalogInvariants: () => [],
+      scopeGit: parityScopeGit(),
+    }),
   );
   expect(prepared.success, JSON.stringify(prepared)).toBe(true);
   const { capsuleVersion } = prepared.data as { capsuleVersion: number };

@@ -8,6 +8,9 @@
 // The continuation cases need a design revision on the stream. Each row comes from a real decision
 // round of `settle`, because `settle` is the one writer of that row.
 //
+// Each call passes the absolute `repoRoot` of a temp checkout, and a seam answers the three git reads
+// of the scope. The config reader and the config digest read the real files of that checkout.
+//
 // @oracle-sources: ../../../../src/verbs/prepare/handler.ts, the prepared bundle read back out of the content-addressed store and re-digested rather than compared with the in-process capsule
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -15,7 +18,6 @@ import * as path from 'node:path';
 import { mkdtemp, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
-import { resolveConfig, type ResolvedProjectConfig } from '../../../../src/config/resolve.js';
 import { capsuleDigest, contentDigest } from '../../../../src/contract/capsule/capsule-digest.js';
 import {
   ExarchosCapsuleV1Schema,
@@ -51,6 +53,7 @@ import { PREPARE_COMPILER_VERSION } from '../../../../src/verbs/prepare/compile-
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../../../src/verbs/prepare/economy.js';
 import { handlePrepare, planeExecutionCapabilities } from '../../../../src/verbs/prepare/handler.js';
 import { lowerBuiltInDefinition } from '../../../../src/verbs/prepare/lower-definition.js';
+import type { ScopeGit } from '../../../../src/verbs/prepare/prepare-scope.js';
 import { commitPreparedCapsule, findPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { PREPARE_REFUSAL_CODES, type PreparedCapsuleReceipt } from '../../../../src/verbs/prepare/types.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
@@ -60,6 +63,7 @@ import {
   type SettlementBundleV1,
 } from '../../../../src/verbs/settle/settlement-bundle.js';
 import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
+import { canonicalPath } from '../../../../src/utils/git-tree.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { initStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
@@ -68,12 +72,17 @@ const STREAM = 'feat-prepare-unit';
 const COMPILED_AT = '2026-09-12T00:00:00.000Z';
 /** The capabilities of a runtime that can settle what it dispatches. The execution profile is a subset of them. */
 const FIT_CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'subagent:spawn'];
+/** The commit that the seam resolves for the base of each seeded workflow. */
+const BASE_COMMIT = 'b'.repeat(40);
 
 let stateDir: string;
 let store: EventStore;
+/** The checkout of the seam: a temp directory in canonical form, so the config reader and the config digest read real files. */
+let checkout: string;
 
 beforeEach(async () => {
   stateDir = await mkdtemp(path.join(tmpdir(), 'prepare-unit-'));
+  checkout = canonicalPath(await mkdtemp(path.join(tmpdir(), 'prepare-unit-checkout-')));
   store = new EventStore(stateDir);
   await store.initialize();
 });
@@ -81,7 +90,25 @@ beforeEach(async () => {
 afterEach(async () => {
   store.close();
   await rmrfAsync(stateDir);
+  await rmrfAsync(checkout);
 });
+
+/**
+ * The three git reads of the scope. The seam pins the checkout and its `.git` as the repository, and resolves the base to {@link BASE_COMMIT}.
+ * Each landed commit of a blocker is on the base.
+ */
+function scopeGit(): ScopeGit {
+  return {
+    observe: async () => ({ kind: 'repository', toplevel: checkout, repository: `${checkout}/.git` }),
+    commitOf: async () => ({ kind: 'commit', commit: BASE_COMMIT }),
+    isAncestor: async () => ({ kind: 'ancestor' }),
+  };
+}
+
+/** The raw input of a call: the absolute `repoRoot` of the seam checkout, and the given fields. */
+function withRoot(raw: Record<string, unknown>): Record<string, unknown> {
+  return { repoRoot: checkout, ...raw };
+}
 
 function wiring(): DispatchContext {
   return { stateDir, eventStore: store, enableTelemetry: false };
@@ -99,11 +126,13 @@ async function prepare(
   raw: Record<string, unknown>,
   catalog: readonly CatalogInvariant[] = [],
   capabilities: readonly string[] = FIT_CAPABILITIES,
-  projectConfig?: ResolvedProjectConfig,
 ): Promise<ToolResult> {
-  const ctx = { ...wiring(), ...(projectConfig !== undefined ? { projectConfig } : {}) };
   return runWithDispatchContext(correlation(capabilities), () =>
-    handlePrepare(raw, stateDir, ctx, { catalogInvariants: () => catalog, now: () => COMPILED_AT }),
+    handlePrepare(withRoot(raw), stateDir, wiring(), {
+      catalogInvariants: () => catalog,
+      now: () => COMPILED_AT,
+      scopeGit: scopeGit(),
+    }),
   );
 }
 
@@ -244,10 +273,11 @@ function earlierDesignVersionId(designRef: string | null): string {
  */
 async function prepareAsCompiler(compilerVersion: string): Promise<ToolResult> {
   return runWithDispatchContext(correlation(), () =>
-    handlePrepare({ featureId: STREAM }, stateDir, wiring(), {
+    handlePrepare(withRoot({ featureId: STREAM }), stateDir, wiring(), {
       catalogInvariants: () => [],
       now: () => COMPILED_AT,
       compilerVersion,
+      scopeGit: scopeGit(),
     }),
   );
 }
@@ -325,10 +355,11 @@ function racingBundleStore(): RunBundleStore {
 /** One `prepare` call for the seeded stream whose commit loses the race for the stream tail. */
 async function prepareThroughARace(): Promise<ToolResult> {
   return runWithDispatchContext(correlation(), () =>
-    handlePrepare({ featureId: STREAM }, stateDir, wiring(), {
+    handlePrepare(withRoot({ featureId: STREAM }), stateDir, wiring(), {
       bundleStore: racingBundleStore(),
       catalogInvariants: () => [],
       now: () => COMPILED_AT,
+      scopeGit: scopeGit(),
     }),
   );
 }
@@ -541,6 +572,16 @@ function bundleDigestOf(row: DesignRevised): BundleRefV1['digest'] {
   return ref.digest;
 }
 
+/**
+ * The digest value of the prepared bundle that a receipt names.
+ * A call that compiles reads the bundle of the latest prepared capsule first, to compare its repository.
+ */
+function preparedBundleDigestOf(receipt: PreparedCapsuleReceipt): string {
+  const ref = receipt.bundleRefs?.[0];
+  if (ref === undefined) throw new Error('the receipt names no prepared bundle');
+  return ref.digest.value;
+}
+
 /** The file of one blob in the bundle store of the test. */
 function blobPath(digest: BundleRefV1['digest']): string {
   return path.join(store.bundleStore.root, digest.algorithm, digest.value.slice(0, 2), digest.value.slice(2));
@@ -549,10 +590,11 @@ function blobPath(digest: BundleRefV1['digest']): string {
 /** One `prepare` call for the seeded stream through the given bundle store. */
 async function prepareThrough(bundleStore: RunBundleStore): Promise<ToolResult> {
   return runWithDispatchContext(correlation(), () =>
-    handlePrepare({ featureId: STREAM }, stateDir, wiring(), {
+    handlePrepare(withRoot({ featureId: STREAM }), stateDir, wiring(), {
       bundleStore,
       catalogInvariants: () => [],
       now: () => COMPILED_AT,
+      scopeGit: scopeGit(),
     }),
   );
 }
@@ -698,8 +740,8 @@ describe('prepare — the compilation endpoint', () => {
     await seedDelegatingFeature(PLAN);
     const receipt = receiptOf(await prepare({ featureId: STREAM }));
     expect(receipt.capsule.settlementContract.taskVerification).toEqual({
-      'T-2': { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH },
-      'T-3': { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH },
+      'T-2': { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH, baseCommit: BASE_COMMIT },
+      'T-3': { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH, baseCommit: BASE_COMMIT },
     });
   });
 
@@ -770,8 +812,9 @@ describe('prepare — the compilation endpoint', () => {
   });
 
   /**
-   * The verification terms are inputs to the compilation. A policy change for a risk tier in the batch compiles the next version with the new gate list.
-   * A policy change for a risk tier outside the batch replays the recorded capsule.
+   * The verification terms are inputs to the compilation, and the policy comes from the config of the checkout.
+   * The scope holds the digest of the config files. So a policy edit for a risk tier outside the batch compiles the next version with the same gate list.
+   * A policy change for a risk tier in the batch compiles the version after it with the new gate list.
    */
   it('Prepare_AChangedVerificationPolicy_CompilesTheNextVersion', async () => {
     await seedDelegatingFeature(PLAN);
@@ -780,22 +823,26 @@ describe('prepare — the compilation endpoint', () => {
       riskTier: 'medium',
       boundaryTouching: false,
       baseRef: INTEGRATION_BRANCH,
+      baseCommit: BASE_COMMIT,
     });
     const before = first.capsule.knowledge.patterns.map((p) => p.statement);
 
-    const elsewhere = resolveConfig({ verification: { policy: { high: ['check_contract_drift'] } } });
-    expect(receiptOf(await prepare({ featureId: STREAM }, [], FIT_CAPABILITIES, elsewhere))).toEqual(first);
-    expect(await preparedRows()).toHaveLength(1);
+    await writeFile(path.join(checkout, '.exarchos.yml'), 'verification:\n  policy:\n    high: [check_contract_drift]\n');
+    const elsewhere = receiptOf(await prepare({ featureId: STREAM }));
+    expect(elsewhere.capsuleVersion).toBe(2);
+    expect(elsewhere.capsule.settlementContract.scope?.configDigest).not.toBe(first.capsule.settlementContract.scope?.configDigest);
+    expect(elsewhere.capsule.knowledge.patterns.map((p) => p.statement)).toStrictEqual([...before]);
+    expect(await preparedRows()).toHaveLength(2);
 
-    const changed = resolveConfig({ verification: { policy: { medium: ['check_contract_drift'] } } });
-    const next = receiptOf(await prepare({ featureId: STREAM }, [], FIT_CAPABILITIES, changed));
-    expect(next.capsuleVersion).toBe(2);
+    await writeFile(path.join(checkout, '.exarchos.yml'), 'verification:\n  policy:\n    medium: [check_contract_drift]\n');
+    const next = receiptOf(await prepare({ featureId: STREAM }));
+    expect(next.capsuleVersion).toBe(3);
     const after = next.capsule.knowledge.patterns.map((p) => p.statement);
     expect(after).toContain(
       'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_contract_drift.',
     );
     expect(after).not.toEqual(before);
-    expect(await preparedRows()).toHaveLength(2);
+    expect(await preparedRows()).toHaveLength(3);
   });
 
   it('Prepare_ARegisteredCatalog_IsBoundIntoTheAuthority', async () => {
@@ -1053,23 +1100,28 @@ describe('prepare — the compilation endpoint', () => {
     expect(beside.capsule.identity.designVersion).toBe('design-v1');
   });
 
-  /** A server that dispatches for another workspace must bind the configuration and catalog of that workspace, not those of the process directory. */
-  it('Prepare_TheCatalog_IsResolvedFromTheDispatchedWorkspace', async () => {
+  /**
+   * A server binds the configuration and the catalog of the checkout that `repoRoot` names.
+   * The workspace of the dispatch and the process directory are other directories, and the catalog root is neither of them.
+   */
+  it('Prepare_TheCatalog_IsResolvedFromTheCheckoutOfRepoRoot', async () => {
     await seedDelegatingFeature(PLAN);
     const workspace = path.join(stateDir, 'dispatched-workspace');
     expect(workspace).not.toBe(process.cwd());
+    expect(checkout).not.toBe(workspace);
     const roots: string[] = [];
     const result = await runWithDispatchContext(correlation(), () =>
-      handlePrepare({ featureId: STREAM }, stateDir, { ...wiring(), cwd: workspace }, {
+      handlePrepare(withRoot({ featureId: STREAM }), stateDir, { ...wiring(), cwd: workspace }, {
         catalogInvariants: (_workflowType, _phase, repoRoot) => {
           roots.push(repoRoot);
           return [];
         },
         now: () => COMPILED_AT,
+        scopeGit: scopeGit(),
       }),
     );
-    receiptOf(result);
-    expect(roots).toEqual([workspace]);
+    expect(receiptOf(result).capsule.settlementContract.scope?.checkout).toBe(checkout);
+    expect(roots).toEqual([checkout]);
   });
 
   /**
@@ -1102,6 +1154,7 @@ describe('prepare — the compilation endpoint', () => {
     expect(profile?.capabilities).toEqual(['fs:read', 'fs:write', 'mcp:exarchos', 'shell:exec']);
     expect(receipt.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
       'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+      `Each task forks from ${INTEGRATION_BRANCH} at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
     ]);
   });
 
@@ -1121,7 +1174,11 @@ describe('prepare — the compilation endpoint', () => {
     expect(await preparedRows()).toEqual([]);
     expect(await bundleBlobCount()).toBe(blobs);
     const anonymous = await runWithDispatchContext(mintDispatchContext(undefined), () =>
-      handlePrepare({ featureId: STREAM }, stateDir, wiring(), { catalogInvariants: () => [], now: () => COMPILED_AT }),
+      handlePrepare(withRoot({ featureId: STREAM }), stateDir, wiring(), {
+        catalogInvariants: () => [],
+        now: () => COMPILED_AT,
+        scopeGit: scopeGit(),
+      }),
     );
     expect(anonymous.success).toBe(false);
     if (!anonymous.success) expect(anonymous.error.code).toBe('RUNTIME_UNFIT');
@@ -1725,18 +1782,21 @@ describe('prepare — the accepted design changes as knowledge', () => {
     const again = countingBundleStore();
     const two = receiptOf(
       await runWithDispatchContext(correlation(), () =>
-        handlePrepare({ featureId: STREAM }, stateDir, wiring(), {
+        handlePrepare(withRoot({ featureId: STREAM }), stateDir, wiring(), {
           bundleStore: again.bundles,
           catalogInvariants: () => [],
           now: () => COMPILED_AT,
           compilerVersion: 'exarchos-prepare-another',
+          scopeGit: scopeGit(),
         }),
       ),
     );
 
     expect([one.capsuleVersion, two.capsuleVersion]).toEqual([2, 3]);
     expect(two.operationId).not.toBe(one.operationId);
-    expect([...again.read].sort()).toEqual((await revisionRows()).map((row) => bundleDigestOf(row).value).sort());
+    expect([...again.read].sort()).toEqual(
+      [preparedBundleDigestOf(one), ...(await revisionRows()).map((row) => bundleDigestOf(row).value)].sort(),
+    );
     expect(designBinding(one).rationale).toHaveLength(4);
     expect(designBinding(one).rationale[1]).toBe(acceptedStatement(3, REVISED_FINDING));
     expect(designBinding(two).rationale).toEqual(designBinding(one).rationale);
@@ -1970,7 +2030,10 @@ describe('prepare — the accepted design changes as knowledge', () => {
       acceptedStatement(3, 'the middle round found a change with no task'),
       ...oldestRestInRowOrder.map((statement) => acceptedStatement(2, statement)),
     ]);
-    expect(counting.read).toEqual([middle, oldest, newest].map((round) => bundleDigestOf(round.row).value));
+    expect(counting.read).toEqual([
+      preparedBundleDigestOf(first),
+      ...[middle, oldest, newest].map((round) => bundleDigestOf(round.row).value),
+    ]);
   });
 
   /**
@@ -2030,7 +2093,7 @@ describe('prepare — the accepted design changes as knowledge', () => {
       leftOutStatement(5),
     ]);
     const readVersions = [3, 2, ...restVersions];
-    expect(counting.read).toEqual(readVersions.map((version) => digests[version - 2]));
+    expect(counting.read).toEqual([preparedBundleDigestOf(first), ...readVersions.map((version) => digests[version - 2])]);
     const leftOutDigests = [digests[2], digests[3]];
     expect(counting.read.filter((digest) => leftOutDigests.includes(digest))).toEqual([]);
   });
@@ -2117,7 +2180,7 @@ describe('prepare — the accepted design changes as knowledge', () => {
 
     const compiling = countingBundleStore();
     const next = receiptOf(await prepareThrough(compiling.bundles));
-    expect(compiling.read).toEqual([digest.value]);
+    expect(compiling.read).toEqual([preparedBundleDigestOf(first), digest.value]);
 
     const replaying = countingBundleStore();
     expect(receiptOf(await prepareThrough(replaying.bundles))).toEqual(next);

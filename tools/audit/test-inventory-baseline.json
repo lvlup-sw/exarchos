@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1341,
-    "parsedFiles": 1295,
+    "testFiles": 1345,
+    "parsedFiles": 1299,
     "shellFiles": 46,
-    "cases": 15088,
+    "cases": 15110,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -62136,7 +62136,7 @@
         },
         {
           "suite": "prepare — the compilation endpoint",
-          "name": "Prepare_TheCatalog_IsResolvedFromTheDispatchedWorkspace",
+          "name": "Prepare_TheCatalog_IsResolvedFromTheCheckoutOfRepoRoot",
           "dynamic": false
         },
         {
@@ -87989,6 +87989,140 @@
         {
           "suite": "resolveStalenessTopology",
           "name": "StalenessScope_NoTopologyFileRequested_CoversOnlyTheBuiltInWorkflowTypes",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-scope.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare reads the checkout of repoRoot",
+          "name": "Prepare_TheCheckoutConfig_DecidesTheGateSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare reads the checkout of repoRoot",
+          "name": "Prepare_ARelativeCatalogPath_ResolvesAgainstTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compares the repository with the latest capsule",
+          "name": "Prepare_AnotherCloneThanTheEarlierCapsule_IsRefusedAndNamesBothRepositoriesAndTheRecovery",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compares the repository with the latest capsule",
+          "name": "Prepare_ALatestCapsuleThatCustodyCannotReturn_IsNotComparedAndCompiles",
+          "dynamic": false
+        },
+        {
+          "suite": "the config digest of a checkout",
+          "name": "ConfigDigest_NoConfigFile_IsTheDigestOfTwoAbsentEntries",
+          "dynamic": false
+        },
+        {
+          "suite": "the config digest of a checkout",
+          "name": "ConfigDigest_AnEditOfEitherFile_ChangesTheDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "a prepared bundle with a scope",
+          "name": "DecodePreparedBundle_ACapsuleWithAScope_DecodesAndACapsuleWithoutOneStillDecodes",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/compile-scope.test.ts": {
+      "file": "tests/unit/verbs/prepare/compile-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the compiler pins the scope and the base commit",
+          "name": "CompileCapsule_TwoTasks_HoldTheSameBaseCommitAndTheScope",
+          "dynamic": false
+        },
+        {
+          "suite": "the compiler pins the scope and the base commit",
+          "name": "CompileCapsule_TheForkStatement_NamesTheBaseAndTheCommit",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/prepare-scope.test.ts": {
+      "file": "tests/acceptance/prepare-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_FromAServerInAForeignRepository_PinsTheScopeOfRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_NoRepoRoot_IsRefusedAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_ARelativeRepoRoot_IsRefusedAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_ARepoRootOutsideGit_IsRefusedAsScopeUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_ASubdirectory_PinsTheRootOfItsWorkTree",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABaseWithNoCommit_IsRefusedAsBaseUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABlockerWhoseCompletionCommitIsNotOnTheBase_IsRefusedAndNamesBothRecoveries",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABlockerSquashedBySerializeMerge_PassesWhereItsCompletionCommitAloneIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABlockerLandedByAFastForward_PassesAndAnUnlandedBlockerIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABlockerWithNoRecordedCommit_CompilesWithTheBaseCommitPinned",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_AMovedBase_CompilesTheNextCapsuleVersion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/prepare-reads-no-server-directory.test.ts": {
+      "file": "tests/architecture/prepare-reads-no-server-directory.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare reads no server directory",
+          "name": "PrepareSource_ReadsNoServerDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare reads no server directory",
+          "name": "PrepareSource_ASeededServerDirectoryRead_FailsByName",
           "dynamic": false
         }
       ]

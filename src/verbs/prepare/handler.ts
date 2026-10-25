@@ -1,16 +1,16 @@
 /**
  * `prepare` compiles the outstanding work of a workflow into a capsule.
  *
- * It is the first of the two semantic plane calls. It compiles the batch that
- * waits for delegation into an immutable capsule. Then it puts the capsule in
- * custody and records `workflow.prepared` with the capsule digest. The harness
- * runs the batch with no governance calls, and `settle` judges the results
- * against this capsule.
+ * It is the first of the two semantic plane calls. It compiles the batch that waits for delegation
+ * into an immutable capsule. Then it puts the capsule in custody and records `workflow.prepared`
+ * with the capsule digest. The harness runs the batch with no governance calls, and `settle` judges
+ * the results against this capsule.
  *
  * Every refusal occurs before any effect. The workflow must name the branch that its tasks fork from.
+ * The caller names the repository with an absolute `repoRoot`, and the capsule pins it with the commit of the base.
  *
  * The claim key is the digest of the compilation inputs, so a retry returns the recorded capsule.
- * The inputs include the base, the design version of the stream and the name of the compiler.
+ * The inputs include the base and its commit, the scope, the design version of the stream and the name of the compiler.
  * Changed inputs get the next capsule version.
  *
  * The first prepare after a design revision is a continuation. Its commit also records
@@ -27,6 +27,8 @@ import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
+import { resolveConfig } from '../../config/resolve.js';
+import { loadProjectConfig } from '../../config/yaml-loader.js';
 import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { runExclusivePerOperation } from '../../dispatch/core/operation-serializer.js';
@@ -58,6 +60,14 @@ import {
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
 import { lowerBuiltInDefinition } from './lower-definition.js';
 import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
+import {
+  configDigestAt,
+  GIT_SCOPE,
+  observeScope,
+  otherRepositoryRefusal,
+  readRepoRoot,
+  type ScopeGit,
+} from './prepare-scope.js';
 import { commitPreparedCapsule } from './prepared-record.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
@@ -112,6 +122,8 @@ export interface PrepareDeps {
    * A test passes an earlier name, to record a claim as an earlier compiler left it.
    */
   readonly compilerVersion?: string;
+  /** The three git reads of the scope. Production passes none and gets the reads of git. */
+  readonly scopeGit?: ScopeGit;
 }
 
 function invalid(message: string): ToolResult {
@@ -431,11 +443,11 @@ function resolvedCatalogInvariants(
  * concurrent append. The design version and the pending revision come from the same read.
  * The commit announces only the batch tasks that the stream has not seen,
  * because a second `task.assigned` moves a task back to `assigned`.
- * The runtime check occurs before compilation. The verification sequence is a
- * compilation input, so a policy change compiles the next version.
  *
+ * The runtime check occurs before compilation. Then git observes the scope, and the config and the
+ * catalog load from the checkout. The scope holds the config digest, so any config edit compiles the next version.
  * A replay returns the receipt of its claim and reads no bundle. Only a call that compiles reads
- * the settlement bundles of the revisions that its capsule binds.
+ * the capsule of the latest prepared record, and then the settlement bundles of the revisions that its capsule binds.
  */
 export async function handlePrepare(
   raw: Record<string, unknown>,
@@ -446,6 +458,9 @@ export async function handlePrepare(
   const subject = resolveSubjectStream(raw);
   if (!subject.ok) return invalid(subject.message);
   const { streamId } = subject;
+  const root = readRepoRoot(raw);
+  if (!root.ok) return invalid(root.message);
+  const { repoRoot } = root;
 
   const events = await ctx.eventStore.query(streamId);
   if (events.length === 0) {
@@ -482,7 +497,7 @@ export async function handlePrepare(
   const plan: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
   const partition = partitionDelegationBatch(plan);
   if (!partition.ok) return refused(partition.refusal);
-  const { batch } = partition;
+  const { batch, completedBlockers } = partition;
 
   const base = resolveBaseRef(streamId, state);
   if (!base.ok) return refused(base.refusal);
@@ -506,18 +521,27 @@ export async function handlePrepare(
     });
   }
 
+  const observed = await observeScope({
+    streamId,
+    repoRoot,
+    baseRef,
+    completedBlockers,
+    rows: events,
+    git: deps.scopeGit ?? GIT_SCOPE,
+  });
+  if (!observed.ok) return refused(observed.refusal);
+  const { checkout, repository, baseCommit } = observed.observed;
+  const projectConfig = resolveConfig(loadProjectConfig(checkout));
+
   const designRef = resolveDesignRef(state);
   const designVersion = designVersionOf(events);
   const recompile = recompileOf(events, plan);
   const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
-  const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(
-    workflowType,
-    phase,
-    ctx.cwd ?? process.cwd(),
-  );
+  const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(workflowType, phase, checkout);
+  const scope = { repository, checkout, configDigest: await configDigestAt(checkout) };
 
   const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
-    resolveVerificationPolicy(riskTier, boundaryTouching, ctx.projectConfig).sequence;
+    resolveVerificationPolicy(riskTier, boundaryTouching, projectConfig).sequence;
   const verificationTerms = verificationProfiles(batch).map((profile) => ({
     riskTier: profile.riskTier,
     boundaryTouching: profile.boundaryTouching,
@@ -536,6 +560,8 @@ export async function handlePrepare(
     executionProfile: { capabilities },
     verificationTerms,
     baseRef,
+    baseCommit,
+    scope,
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
   const requestDigest = canonicalRequestDigest(inputs);
@@ -547,12 +573,16 @@ export async function handlePrepare(
       .lookupOperationClaim<PreparedCapsuleReceipt>(operationId);
     if (claim !== undefined) return receiptResult(claim.result);
 
+    const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
+    const otherRepository = await otherRepositoryRefusal({ streamId, repoRoot, repository, rows: events, bundles });
+    if (otherRepository !== undefined) return refused(otherRepository);
+
     const designRevisions = designRevisionsOf(events);
     const accepted = await readBoundChanges(
       streamId,
       designRevisions,
       batch.tasks.map((task) => task.taskId),
-      deps.bundleStore ?? ctx.eventStore.bundleStore,
+      bundles,
     );
     if (!accepted.ok) return refused(accepted.refusal);
 
@@ -568,6 +598,7 @@ export async function handlePrepare(
       acceptedChanges: accepted.changes,
       compilerVersion,
       baseRef,
+      pin: { scope, baseCommit },
       executionProfile: { capabilities },
       verificationSequence: sequenceOf,
       compiledAt: (deps.now ?? (() => new Date().toISOString()))(),

@@ -118,6 +118,11 @@
         "id": "state-document-file",
         "shipped": "the composition root configures the SQLite backend, so the state document is the `workflow_state` row and not a `.state.json` file",
         "offPattern": "\\binitStateFile\\s*\\(|\\.state\\.json\\b"
+      },
+      {
+        "id": "prepare-scope-git",
+        "shipped": "`handlePrepare` takes no `scopeGit` seam in the shipped composition, so git observes the repository of `repoRoot`, resolves the base commit and checks the landed commits",
+        "offPattern": "\\bscopeGit\\s*:"
       }
     ],
     "contexts": [
@@ -258,6 +263,15 @@
         "default": "state-document-file",
         "owner": "@rsalus",
         "reason": "The parity compares the documents of two stores that both use the JSON file form, so the form is the same on both sides. No case compares the two paths in the row form. The row form of settle levelling has its twin in the governance tier."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settlement-facts-parity.test.ts",
+        "default": "prepare-scope-git",
+        "twin": {
+          "file": "tests/acceptance/prepare-scope.test.ts",
+          "test": "Prepare_FromAServerInAForeignRepository_PinsTheScopeOfRepoRoot",
+          "keeps": "repoRoot: repository.checkout"
+        }
       },
       {
         "file": "tests/unit/verbs/settle/settlement-reads.test.ts",

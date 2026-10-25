@@ -41,6 +41,16 @@ function batchOf(tasks: readonly unknown[]): DelegationBatch {
 /** The design reference of the fixture workflow. */
 const DESIGN_REF = 'docs/specs/feature.md';
 
+/** The commit of the base of the fixture workflow, as the handler resolves it in the checkout. */
+const BASE_COMMIT = 'a'.repeat(40);
+
+/** The scope of the fixture workflow, as the handler observes it. */
+const SCOPE = {
+  repository: '/repos/prepare-unit/.git',
+  checkout: '/repos/prepare-unit',
+  configDigest: 'f'.repeat(64),
+};
+
 function input(overrides: Partial<CompileCapsuleInput> = {}): CompileCapsuleInput {
   return {
     workflowId: 'feat-prepare-unit',
@@ -58,6 +68,7 @@ function input(overrides: Partial<CompileCapsuleInput> = {}): CompileCapsuleInpu
     acceptedChanges: [],
     compilerVersion: PREPARE_COMPILER_VERSION,
     baseRef: 'feature/prepare-unit',
+    pin: { scope: SCOPE, baseCommit: BASE_COMMIT },
     executionProfile: { capabilities: ['fs:read', 'shell:exec'] },
     verificationSequence: (riskTier, boundaryTouching) => resolveVerificationPolicy(riskTier, boundaryTouching).sequence,
     compiledAt: '2026-09-12T00:00:00Z',
@@ -269,9 +280,9 @@ describe('delegation capsule compilation', () => {
     );
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     expect(outcome.capsule.settlementContract.taskVerification).toEqual({
-      'T-1': { riskTier: 'high', boundaryTouching: false, baseRef: 'feature/prepare-unit' },
-      'T-2': { riskTier: 'medium', boundaryTouching: false, baseRef: 'feature/prepare-unit' },
-      'T-3': { riskTier: 'medium', boundaryTouching: true, baseRef: 'feature/prepare-unit' },
+      'T-1': { riskTier: 'high', boundaryTouching: false, baseRef: 'feature/prepare-unit', baseCommit: BASE_COMMIT },
+      'T-2': { riskTier: 'medium', boundaryTouching: false, baseRef: 'feature/prepare-unit', baseCommit: BASE_COMMIT },
+      'T-3': { riskTier: 'medium', boundaryTouching: true, baseRef: 'feature/prepare-unit', baseCommit: BASE_COMMIT },
     });
     expect(outcome.capsule.graph.tasks[0]).toEqual({ taskId: 'T-1', title: 'stamped', stepId: 'delegate' });
   });
@@ -301,6 +312,7 @@ describe('delegation capsule compilation', () => {
     expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
       'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_integration_suite, check_contract_drift, check_mock_boundary.',
       'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+      `Each task forks from feature/prepare-unit at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
     ]);
   });
 
@@ -454,7 +466,7 @@ describe('delegation capsule compilation — the accepted design changes', () =>
    * The handler keys its replay claim on this name, so the raised name compiles that capsule again.
    */
   it('Compile_TheCompilerVersion_IsRaisedWithTheStatementBinding', () => {
-    expect(PREPARE_COMPILER_VERSION).toBe('exarchos-prepare-3');
+    expect(PREPARE_COMPILER_VERSION).toBe('exarchos-prepare-4');
 
     const outcome = compileDelegationCapsule(
       input({
@@ -464,7 +476,7 @@ describe('delegation capsule compilation — the accepted design changes', () =>
       }),
     );
     if (!outcome.ok) throw new Error(outcome.refusal.message);
-    expect(outcome.capsule.provenance.compilerVersion).toBe('exarchos-prepare-3');
+    expect(outcome.capsule.provenance.compilerVersion).toBe('exarchos-prepare-4');
     expect(outcome.capsule.knowledge.rationale.map((entry) => entry.statement)).toEqual([
       DESIGN_OF_RECORD,
       changeStatement(2, 'dev:one'),

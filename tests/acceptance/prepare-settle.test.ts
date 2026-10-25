@@ -373,8 +373,12 @@ function nodeTestFile(module: string, assertion: string): string {
 /** The scripts of the medium-tier project. The kill probe runs `test:run`, and static analysis runs the other three. */
 const MEDIUM_TIER_SCRIPTS = { 'test:run': 'node --test', lint: OK, typecheck: OK, 'quality-check': OK };
 
-/** The worktree of each task of the medium-tier batch. */
+/** The checkout of the medium-tier repository, the commit of its integration branch, and the worktree of each task. */
 interface MediumTierWorktrees {
+  /** The checkout of the repository. The case passes it to `prepare` as `repoRoot`. */
+  readonly checkout: string;
+  /** The commit of the integration branch, which `prepare` pins as the base commit of each task. */
+  readonly baseCommit: string;
   /** The first task. Its test fails when its source change is reverted. */
   readonly passing: string;
   /** The second task. Its test asserts nothing, so it passes on the reverted source. */
@@ -414,6 +418,8 @@ async function mediumTierWorktrees(): Promise<MediumTierWorktrees> {
     return worktree;
   };
   return {
+    checkout: repo,
+    baseCommit: (await git(repo, ['rev-parse', INTEGRATION_BRANCH])).trim(),
     passing: await worktreeOf('task-a', 'a', 'assert.strictEqual(value(), 2);'),
     vacuous: await worktreeOf('task-b', 'b', 'assert.ok(true);'),
   };
@@ -511,7 +517,7 @@ describe('prepare then settle, through the dispatcher', () => {
   it('PrepareSettle_TheNormalPath_IsTwoCallsAndOneDecision', async () => {
     await seedDelegatingFeature();
 
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const receipt = prepared.data as PreparedReceipt;
     expect(receipt.capsuleVersion).toBe(1);
@@ -548,7 +554,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ARetriedBatch_IsAnsweredFromTheClaim', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
     const args = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1', claims: await completedClaims() };
 
@@ -575,7 +581,7 @@ describe('prepare then settle, through the dispatcher', () => {
   it('PrepareSettle_ARetryUnderTheShippedTelemetryDefault_AddsOnlyTelemetryRows', async () => {
     await seedDelegatingFeature();
     const shipped = callerContext({ telemetry: true });
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM }, shipped);
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout }, shipped);
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const { capsuleVersion } = prepared.data as PreparedReceipt;
     const args = { action: 'settle', featureId: STREAM, capsuleVersion, batchId: 'batch-1', claims: await completedClaims() };
@@ -612,7 +618,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ASettledBatch_CompletesItsTasksAndAdmitsTheTransition', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
     const settled = await call('exarchos_orchestrate', {
       action: 'settle',
@@ -663,7 +669,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_AHeldBatchDecided_IsThreeCallsAndCompletesItsTasks', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     const { capsuleVersion, capsule } = prepared.data as PreparedReceipt;
     expect(capsule.contracts.deviationEnvelope).toEqual({
       allowedDeviationKinds: ['invalidated-assumption', 'missing-context'],
@@ -729,7 +735,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ABatchRejectedOnShape_VerifiesNothingAndLeavesNoCompletion', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
     const claims = (await completedClaims()).map((claim, i) =>
       i === 0 ? { ...claim, fields: { worktreePath: 42 } } : claim,
@@ -762,7 +768,7 @@ describe('prepare then settle, through the dispatcher', () => {
   it('PrepareSettle_ABatchWhoseVerificationFails_NeedsACorrectionWithTheHaltNamed', async () => {
     await seedDelegatingFeature();
     for (const task of TASKS) await repository.worktreeFor(task.id, RED_PROJECT);
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     const { capsuleVersion } = prepared.data as PreparedReceipt;
     const settled = await call('exarchos_orchestrate', {
       action: 'settle',
@@ -831,7 +837,7 @@ describe('prepare then settle, through the dispatcher', () => {
     await seedDelegatingFeature();
     await repository.worktreeFor('task-b', RED_PROJECT);
     const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const capsuleVersion = await latestCapsuleVersion();
 
@@ -947,10 +953,10 @@ describe('prepare then settle, through the dispatcher', () => {
     const worktrees = await mediumTierWorktrees();
     await execFileAsync(process.execPath, ['--test', 'test/a.test.js'], { cwd: worktrees.passing });
     const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: worktrees.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const { capsuleVersion, capsule } = prepared.data as PreparedReceipt;
-    const terms = { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH };
+    const terms = { riskTier: 'medium', boundaryTouching: false, baseRef: INTEGRATION_BRANCH, baseCommit: worktrees.baseCommit };
     expect(ExarchosCapsuleV1Schema.parse(capsule).settlementContract.taskVerification).toStrictEqual({
       [first.id]: terms,
       [second.id]: terms,
@@ -1062,7 +1068,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ABlockedClaim_LeavesItsTaskUnresolvedAndTheOtherTasksComplete', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const capsuleVersion = await latestCapsuleVersion();
     const blocked = { taskId: 'task-b', status: 'blocked', reason: 'the schema migration is not merged' };
@@ -1152,7 +1158,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_AFailedClaim_LeavesNoFailureRowAndSettlesWhenTheTaskIsClaimedAsCompleted', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const capsuleVersion = await latestCapsuleVersion();
     const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
@@ -1258,7 +1264,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ABatchThatRecordsADelegatedChoice_IsAcceptedWithRationaleInTwoCalls', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const { capsuleVersion, capsule } = prepared.data as PreparedReceipt;
     const delegated = ExarchosCapsuleV1Schema.parse(capsule).authority.delegatedDecisions.map((decision) => decision.id);
@@ -1362,7 +1368,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ACapsuleStoredWithTheEarlierIdentityForm_StillSettles', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const current = ExarchosCapsuleV1Schema.parse((prepared.data as PreparedReceipt).capsule);
     expect(EARLIER_DESIGN_VERSION_ID).toMatch(/^design-[0-9a-f]{16}$/);
@@ -1431,7 +1437,7 @@ describe('prepare then settle, through the dispatcher', () => {
     if (first === undefined || second === undefined || third === undefined) throw new Error('the plan is three tasks');
     await seedDelegatingFeature([first, second], { _esVersion: CURRENT_ES_VERSION });
 
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const compiled = prepared.data as PreparedReceipt;
     expect(compiled.capsuleVersion).toBe(1);
@@ -1507,7 +1513,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await recompileRows()).toEqual([]);
     const tailBeforeTheContinuation = (await eventStore.query(STREAM)).length;
 
-    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
     const next = recompiled.data as PreparedReceipt;
     expect(next.capsuleVersion).toBe(2);
@@ -1546,7 +1552,7 @@ describe('prepare then settle, through the dispatcher', () => {
       },
     ]);
 
-    const retried = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const retried = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(retried.data).toEqual(recompiled.data);
     expect(await eventStore.query(STREAM)).toHaveLength(tailBeforeTheContinuation + continuation.length);
   });
@@ -1571,7 +1577,7 @@ describe('prepare then settle, through the dispatcher', () => {
     if (first === undefined || sibling === undefined || named === undefined) throw new Error('the plan is three tasks');
     await seedDelegatingFeature([first], { _esVersion: CURRENT_ES_VERSION });
 
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const compiled = prepared.data as PreparedReceipt;
     expect(compiled.capsuleVersion).toBe(1);
@@ -1602,7 +1608,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(heldReceipt.outcome).toBe('deviation-pending');
     expect(heldReceipt.pendingDeviations).toHaveLength(1);
 
-    const beforeTheDecision = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const beforeTheDecision = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(beforeTheDecision.success, JSON.stringify(beforeTheDecision)).toBe(true);
     const second = beforeTheDecision.data as PreparedReceipt;
     expect(second.capsuleVersion).toBe(2);
@@ -1667,7 +1673,7 @@ describe('prepare then settle, through the dispatcher', () => {
     await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(staleBatch, refused);
     expect(await rowsOf('orchestrate.intent_executed')).toHaveLength(1);
 
-    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
     const third = recompiled.data as PreparedReceipt;
     expect(third.capsuleVersion).toBe(3);
@@ -1738,7 +1744,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
     await seedDelegatingFeature([first, second], { _esVersion: CURRENT_ES_VERSION });
 
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const compiled = prepared.data as PreparedReceipt;
     expect(compiled.capsule.graph.tasks.map((t) => t.taskId)).toEqual([first.id, second.id]);
@@ -1777,7 +1783,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const finishedWork = await workRowsOf([first.id, second.id]);
     expect(countsByType(finishedWork)).toEqual({ 'task.assigned': 2, 'gate.executed': 8, 'task.completed': 2 });
 
-    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
     const next = recompiled.data as PreparedReceipt;
     expect(next.capsuleVersion).toBe(2);
@@ -1875,7 +1881,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const moveToReview = { action: 'transition', featureId: STREAM, target: 'review' };
     await seedDelegatingFeature([done, named]);
 
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const compiled = prepared.data as PreparedReceipt;
     expect(compiled.capsuleVersion).toBe(1);
@@ -2000,7 +2006,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(countsByType(await workRowsOf([named.id]))).toEqual({ 'task.assigned': 1 });
     expect(await recompileRows()).toEqual([]);
 
-    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
     const next = recompiled.data as PreparedReceipt;
     expect(next.capsuleVersion).toBe(2);
@@ -2078,7 +2084,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ADecisionIdOverItsBound_IsRefusedByTheDispatcherBeforeAnyEffect', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const capsuleVersion = await latestCapsuleVersion();
     const [first, ...others] = await completedClaims();
@@ -2122,7 +2128,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ThePresenceOfTheThreeRequestLists_SelectsOneModeOrOneRefusalInEachCell', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(prepared.success, JSON.stringify(prepared)).toBe(true);
     const capsuleVersion = await latestCapsuleVersion();
     const cells = Object.entries(LIST_PRESENCE_CELLS);
@@ -2169,7 +2175,7 @@ describe('prepare then settle, through the dispatcher', () => {
    */
   it('PrepareSettle_ACapsuleEditedAfterCompilation_IsRefused', async () => {
     await seedDelegatingFeature();
-    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+    const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     const receipt = prepared.data as PreparedReceipt;
     const kinds = receipt.capsule.contracts.evidenceKinds as string[];
     const edited = {

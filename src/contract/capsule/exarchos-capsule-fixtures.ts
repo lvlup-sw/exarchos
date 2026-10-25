@@ -103,6 +103,37 @@ export function baseValidCapsule(): ExarchosCapsuleV1 {
   };
 }
 
+/** The base commit of the scoped capsule: a full SHA-1 object name. */
+const BASE_COMMIT = 'c'.repeat(40);
+
+/**
+ * The base capsule as a compiler that pins the scope writes it.
+ * The settlement contract holds the repository, the checkout and the config digest, and the task terms hold the base commit.
+ * The base capsule keeps no scope, so a capsule of an earlier compiler stays in the corpus.
+ */
+export function scopedValidCapsule(): ExarchosCapsuleV1 {
+  const base = baseValidCapsule();
+  return {
+    ...base,
+    settlementContract: {
+      ...base.settlementContract,
+      taskVerification: {
+        'task-verify': {
+          riskTier: 'low',
+          boundaryTouching: false,
+          baseRef: 'feature/capsule-corpus',
+          baseCommit: BASE_COMMIT,
+        },
+      },
+      scope: {
+        repository: '/repos/capsule-corpus/.git',
+        checkout: '/repos/capsule-corpus',
+        configDigest: contentDigest([]),
+      },
+    },
+  };
+}
+
 /** The smallest accepted capsule: no `executionProfile`, no verification terms, empty optional arrays. */
 export function minimalValidCapsule(): ExarchosCapsuleV1 {
   const base = baseValidCapsule();
@@ -132,6 +163,35 @@ function withBase(base: ExarchosCapsuleV1, baseRef: string): unknown {
     settlementContract: {
       ...base.settlementContract,
       taskVerification: { 'task-verify': { riskTier: 'low', boundaryTouching: false, baseRef } },
+    },
+  };
+}
+
+/** A rejecting fixture that changes the scoped capsule. It breaks exactly one property of that capsule. */
+function bendScoped(name: string, mutate: (scoped: ExarchosCapsuleV1) => unknown): CapsuleFixture {
+  return { name, valid: false, document: mutate(scopedValidCapsule()) };
+}
+
+/** The scoped capsule with one field of its scope replaced, and nothing else changed. */
+function withScopeField(scoped: ExarchosCapsuleV1, field: string, value: unknown): unknown {
+  return {
+    ...scoped,
+    settlementContract: {
+      ...scoped.settlementContract,
+      scope: { ...scoped.settlementContract.scope, [field]: value },
+    },
+  };
+}
+
+/** The scoped capsule with the base commit of its one task replaced, and nothing else changed. */
+function withBaseCommit(scoped: ExarchosCapsuleV1, baseCommit: string): unknown {
+  return {
+    ...scoped,
+    settlementContract: {
+      ...scoped.settlementContract,
+      taskVerification: {
+        'task-verify': { riskTier: 'low', boundaryTouching: false, baseRef: 'feature/capsule-corpus', baseCommit },
+      },
     },
   };
 }
@@ -177,6 +237,32 @@ export const CAPSULE_ROUNDTRIP_FIXTURES: readonly CapsuleFixture[] = [
     valid: true,
     document: withMaterialKinds(baseValidCapsule(), ['invalidated-assumption']),
   },
+  { name: 'a scoped capsule with a base commit', valid: true, document: scopedValidCapsule() },
+  { name: 'a scoped capsule with a SHA-256 base commit', valid: true, document: withBaseCommit(scopedValidCapsule(), 'd'.repeat(64)) },
+  {
+    name: 'a scoped capsule whose checkout is on a drive',
+    valid: true,
+    document: withScopeField(scopedValidCapsule(), 'checkout', 'C:/repos/capsule-corpus'),
+  },
+
+  bendScoped('a scope repository that is not absolute', (s) => withScopeField(s, 'repository', 'repos/corpus/.git')),
+  bendScoped('a scope checkout that is not absolute', (s) => withScopeField(s, 'checkout', 'repos/corpus')),
+  bendScoped('a scope checkout with a backslash after its drive', (s) =>
+    withScopeField(s, 'checkout', 'C:\\repos\\corpus'),
+  ),
+  bendScoped('a scope checkout over the length bound', (s) => withScopeField(s, 'checkout', `/${'r'.repeat(4096)}`)),
+  bendScoped('a scope config digest that is not a digest', (s) => withScopeField(s, 'configDigest', 'short')),
+  bendScoped('a scope with an unknown key', (s) => withScopeField(s, 'branch', 'feature/capsule-corpus')),
+  bendScoped('a scope with no repository', (s) => ({
+    ...s,
+    settlementContract: {
+      ...s.settlementContract,
+      scope: { checkout: '/repos/capsule-corpus', configDigest: contentDigest([]) },
+    },
+  })),
+  bendScoped('a base commit that is abbreviated', (s) => withBaseCommit(s, 'c'.repeat(12))),
+  bendScoped('a base commit in upper case', (s) => withBaseCommit(s, 'C'.repeat(40))),
+  bendScoped('a base commit of a length between the two hashes', (s) => withBaseCommit(s, 'c'.repeat(50))),
 
   bend('authority is empty', (b) => ({ ...b, authority: {} })),
   bend('an authority category is empty', (b) => ({

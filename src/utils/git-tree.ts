@@ -1,5 +1,6 @@
 /**
  * The shared git observation of a tree: its root, its repository, its branch and its head commit.
+ * Three more reads serve `prepare`: the repository of a directory, the commit of a ref, and the ancestry of two commits.
  *
  * The two path forms follow `normalizeRepoPath` of `paths.ts`. The canonical form is the real path
  * in POSIX form, as `git rev-parse --show-toplevel` prints it. The lexical form reads no file, so it
@@ -16,7 +17,10 @@ const GIT_TIMEOUT_MS = 30_000;
 /** The output cap of one git call. Each call prints a few short lines, so a larger output is a fault. */
 const GIT_MAX_BUFFER_BYTES = 1024 * 1024;
 
-/** The exit code with which git reports a detached HEAD to `symbolic-ref --quiet`, and an unborn HEAD to `rev-parse --verify --quiet`. */
+/**
+ * The exit code with which git reports a detached HEAD to `symbolic-ref --quiet`, and an unborn HEAD or a missing ref to `rev-parse --verify --quiet`.
+ * `merge-base --is-ancestor` exits with it for a commit that is not an ancestor.
+ */
 const GIT_ABSENT_EXIT_CODE = 1;
 
 /** The outcome of one git call: the exit code and the output, or the cause when git did not run to its end. */
@@ -40,6 +44,27 @@ export type TreeObservation =
       readonly head?: string;
     }
   | { readonly kind: 'no-work-tree'; readonly path: string }
+  | { readonly kind: 'unobservable'; readonly cause: string };
+
+/**
+ * Where git finds the repository of a directory: the canonical root of its work tree and the canonical common dir.
+ * A `no-work-tree` and an `unobservable` directory have the meaning that they have in {@link TreeObservation}.
+ */
+export type RepositoryObservation =
+  | { readonly kind: 'repository'; readonly toplevel: string; readonly repository: string }
+  | { readonly kind: 'no-work-tree'; readonly path: string }
+  | { readonly kind: 'unobservable'; readonly cause: string };
+
+/** The commit of a ref: the full object name, no commit, or the cause when git did not answer. */
+export type CommitRead =
+  | { readonly kind: 'commit'; readonly commit: string }
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'unobservable'; readonly cause: string };
+
+/** Whether one commit is an ancestor of another, or the cause when git did not answer. A commit is an ancestor of itself. */
+export type AncestryRead =
+  | { readonly kind: 'ancestor' }
+  | { readonly kind: 'not-ancestor' }
   | { readonly kind: 'unobservable'; readonly cause: string };
 
 /** One value of an optional git read: the value, no value, or the cause of a failed read. */
@@ -99,11 +124,11 @@ function optionalRead(outcome: GitOutcome, what: string): OptionalRead {
 }
 
 /**
- * Observes the tree that holds `dir` with three git calls: the root and the common dir, the branch of HEAD, and the HEAD commit.
- * The root and the common dir go through {@link canonicalPath}, so a symbolic link or a short name gives the same tree.
+ * Finds the repository of `dir` with one git call, which prints the root of the work tree and the common dir.
+ * Both go through {@link canonicalPath}, so a symbolic link or a short name gives the same repository.
  * A directory outside any git work tree gives `no-work-tree` with its canonical path. A path that does not exist keeps its lexical form.
  */
-export async function observeTree(dir: string): Promise<TreeObservation> {
+export async function observeRepository(dir: string): Promise<RepositoryObservation> {
   const located = await runGit([
     '-C',
     dir,
@@ -117,6 +142,47 @@ export async function observeTree(dir: string): Promise<TreeObservation> {
   if (located.exitCode !== 0 || !toplevel || !commonDir) {
     return { kind: 'no-work-tree', path: canonicalPath(dir) };
   }
+  return { kind: 'repository', toplevel: canonicalPath(toplevel), repository: canonicalPath(commonDir) };
+}
+
+/**
+ * Resolves `ref` to a commit in the repository of `dir`.
+ * The end-of-options mark keeps git from reading a ref that starts with a dash as an option.
+ * A ref that names no commit gives `absent`.
+ */
+export async function resolveCommit(dir: string, ref: string): Promise<CommitRead> {
+  const read = optionalRead(
+    await runGit(['-C', dir, 'rev-parse', '--verify', '--quiet', '--end-of-options', `${ref}^{commit}`]),
+    `the commit of ${ref}`,
+  );
+  if (read.kind === 'failed') return { kind: 'unobservable', cause: read.cause };
+  return read.value === undefined ? { kind: 'absent' } : { kind: 'commit', commit: read.value };
+}
+
+/**
+ * Asks git whether `ancestor` is an ancestor of `descendant` in the repository of `dir`.
+ * Git exits with 0 for an ancestor and with 1 for a commit that is not one.
+ * Another exit, such as for a commit that the repository does not hold, gives `unobservable` with the words of git.
+ */
+export async function isAncestor(dir: string, ancestor: string, descendant: string): Promise<AncestryRead> {
+  const outcome = await runGit(['-C', dir, 'merge-base', '--is-ancestor', '--end-of-options', ancestor, descendant]);
+  if (outcome.kind === 'failed') return { kind: 'unobservable', cause: outcome.cause };
+  if (outcome.exitCode === 0) return { kind: 'ancestor' };
+  if (outcome.exitCode === GIT_ABSENT_EXIT_CODE) return { kind: 'not-ancestor' };
+  return {
+    kind: 'unobservable',
+    cause: `git could not compare ${ancestor} with ${descendant} (exit ${outcome.exitCode}): ${outcome.stderr.trim()}`,
+  };
+}
+
+/**
+ * Observes the tree that holds `dir` with three git calls: the root and the common dir, the branch of HEAD, and the HEAD commit.
+ * The root and the common dir are those of {@link observeRepository}.
+ * A directory outside any git work tree gives `no-work-tree` with its canonical path. A path that does not exist keeps its lexical form.
+ */
+export async function observeTree(dir: string): Promise<TreeObservation> {
+  const located = await observeRepository(dir);
+  if (located.kind !== 'repository') return located;
 
   const [branchOutcome, headOutcome] = await Promise.all([
     runGit(['-C', dir, 'symbolic-ref', '--quiet', '--short', 'HEAD']),
@@ -129,8 +195,8 @@ export async function observeTree(dir: string): Promise<TreeObservation> {
 
   return {
     kind: 'tree',
-    toplevel: canonicalPath(toplevel),
-    repository: canonicalPath(commonDir),
+    toplevel: located.toplevel,
+    repository: located.repository,
     ...(branch.value === undefined ? {} : { branch: branch.value }),
     ...(head.value === undefined ? {} : { head: head.value }),
   };

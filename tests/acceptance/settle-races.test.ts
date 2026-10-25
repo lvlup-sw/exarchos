@@ -146,7 +146,7 @@ interface PreparedFacts {
 
 /** Runs `prepare` and reads its receipt. */
 async function prepare(): Promise<PreparedFacts> {
-  const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+  const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
   expect(prepared.success, JSON.stringify(prepared)).toBe(true);
   const data = prepared.data;
   const capsule = isRecord(data) ? data.capsule : undefined;

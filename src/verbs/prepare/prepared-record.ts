@@ -264,12 +264,42 @@ export function latestPreparedRecordOf(
 }
 
 /**
+ * Reads the capsule and the definition of one prepared record back from custody: the bundle read, the decode and the two digest checks.
+ * It returns `undefined` for a record that names no bundle.
+ * It throws when the blob is absent or the read fails, when the bytes do not decode, and when they do not match their record.
+ * A capsule that names a definition digest other than the definition in its bundle also throws.
+ * A caller that reads a record from its own stream read calls this function, and decides what a throw means.
+ */
+export async function capsuleOfRecord(
+  record: WorkflowPrepared,
+  bundleStore: RunBundleStore,
+): Promise<PreparedBundleV1 | undefined> {
+  const ref = record.bundleRefs[0];
+  if (ref === undefined) return undefined;
+  const decoded = decodePreparedBundle(await bundleStore.resolve(ref.digest));
+  const actual = capsuleDigest(decoded.capsule);
+  if (actual !== record.capsuleDigest) {
+    throw new Error(
+      `the prepared capsule v${record.capsuleVersion} on '${record.workflowId}' is in custody under a digest its ` +
+        `record did not pin (record ${record.capsuleDigest}, bytes ${actual})`,
+    );
+  }
+  const definitionDigest = contentDigest(decoded.definition);
+  if (definitionDigest !== decoded.capsule.identity.definitionVersion) {
+    throw new Error(
+      `the prepared capsule v${record.capsuleVersion} on '${record.workflowId}' names definition ` +
+        `${decoded.capsule.identity.definitionVersion} and its bundle carries ${definitionDigest}`,
+    );
+  }
+  return decoded;
+}
+
+/**
  * Finds the prepared record for one capsule version on one workflow stream, and reads the capsule
- * and definition back from custody. It matches by version alone, because versions are per stream.
+ * and definition back from custody with {@link capsuleOfRecord}. It matches by version alone, because versions are per stream.
  * The digest comparison checks which workflow a submitted capsule claims to be.
  * `found: false` means that no record exists. Custody bytes that do not match their record throw,
  * because that is corruption and a "not prepared" answer sends the caller to compile again.
- * A capsule that names a definition digest other than the definition in its bundle also throws.
  *
  * The lookup also gives the stream sequence of the record that it found.
  */
@@ -284,23 +314,7 @@ export async function findPreparedCapsule(
   if (latest === undefined) return { found: false };
   const { record, sequence } = latest;
 
-  const ref = record.bundleRefs[0];
-  if (ref === undefined) return { found: false };
-  const bundles = bundleStore ?? ctx.eventStore.bundleStore;
-  const decoded = decodePreparedBundle(await bundles.resolve(ref.digest));
-  const actual = capsuleDigest(decoded.capsule);
-  if (actual !== record.capsuleDigest) {
-    throw new Error(
-      `the prepared capsule v${capsuleVersion} on '${streamId}' is in custody under a digest its ` +
-        `record did not pin (record ${record.capsuleDigest}, bytes ${actual})`,
-    );
-  }
-  const definitionDigest = contentDigest(decoded.definition);
-  if (definitionDigest !== decoded.capsule.identity.definitionVersion) {
-    throw new Error(
-      `the prepared capsule v${capsuleVersion} on '${streamId}' names definition ` +
-        `${decoded.capsule.identity.definitionVersion} and its bundle carries ${definitionDigest}`,
-    );
-  }
+  const decoded = await capsuleOfRecord(record, bundleStore ?? ctx.eventStore.bundleStore);
+  if (decoded === undefined) return { found: false };
   return { found: true, record, sequence, capsule: decoded.capsule, definition: decoded.definition };
 }

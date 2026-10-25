@@ -104,7 +104,7 @@ async function seedDelegatingFeature(): Promise<void> {
 
 /** Runs `prepare` and returns the capsule version of its receipt. */
 async function prepare(): Promise<number> {
-  const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+  const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
   expect(prepared.success, JSON.stringify(prepared)).toBe(true);
   const version = isRecord(prepared.data) ? prepared.data.capsuleVersion : undefined;
   if (typeof version !== 'number') throw new Error(`prepare returned no capsule version: ${JSON.stringify(prepared)}`);

@@ -531,7 +531,10 @@ describe('settle levels the state document in the workflow_state row', () => {
       data: { patch: { 'synthesis.integrationBranch': SETTLE_INTEGRATION_BRANCH, tasks } },
     });
 
-    const prepared = await harness.runAction('exarchos_orchestrate', 'prepare', { featureId: SETTLE_FEATURE_ID });
+    const prepared = await harness.runAction('exarchos_orchestrate', 'prepare', {
+      featureId: SETTLE_FEATURE_ID,
+      repoRoot: repository.checkout,
+    });
     expect(prepared.result?.success, JSON.stringify(prepared.result)).toBe(true);
     const capsuleVersion = (payload(prepared).capsuleVersion ?? 0) as number;
     const claimOf = (taskId: string, worktreePath: string): Rec => ({ taskId, fields: { worktreePath }, evidence: [] });
