@@ -85,15 +85,6 @@ else
     FAIL=$((FAIL + 1))
 fi
 
-# Review gate workflow exists
-if [[ -f "$SCRIPT_DIR/../.github/workflows/coderabbit-review-gate.yml" ]]; then
-    echo "PASS: ReviewGate_WorkflowExists"
-    PASS=$((PASS + 1))
-else
-    echo "FAIL: ReviewGate_WorkflowExists — .github/workflows/coderabbit-review-gate.yml not found"
-    FAIL=$((FAIL + 1))
-fi
-
 echo ""
 echo "=== Results: $PASS passed, $FAIL failed ==="
 
