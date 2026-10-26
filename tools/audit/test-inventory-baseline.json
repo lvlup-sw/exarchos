@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1355,
-    "parsedFiles": 1309,
+    "testFiles": 1357,
+    "parsedFiles": 1311,
     "shellFiles": 46,
-    "cases": 15175,
+    "cases": 15183,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -45521,6 +45521,17 @@
         }
       ]
     },
+    "tests/unit/registry/repo-root-wire.test.ts": {
+      "file": "tests/unit/registry/repo-root-wire.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the repoRoot wire field of exarchos_orchestrate",
+          "name": "OrchestrateWire_AGateCallWithRepoRootAuto_ParsesAgainstTheFlattenedSchema",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/review/check-catalog.test.ts": {
       "file": "tests/unit/review/check-catalog.test.ts",
       "runner": "vitest:root",
@@ -67405,6 +67416,47 @@
         {
           "suite": "handlePostDelegationCheck",
           "name": "report_includesTaskStatusTable",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/team/prepare-delegation-scope.test.ts": {
+      "file": "tests/unit/verbs/team/prepare-delegation-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_AServerOnMainAndARepoRootOnAFeatureWorktree_IsNotBlockedAsProtected",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_AServerOnAFeatureWorktreeAndARepoRootOnMain_IsBlockedAsProtected",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_TheAncestryPreflight_ReadsRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_TheStashProbe_ReadsRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_NoRepoRoot_KeepsTheServerDirectoryAndWarns",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_ARelativePlanPath_ResolvesAgainstRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_ARelativeRepoRoot_IsRefusedAndRecordsNothing",
           "dynamic": false
         }
       ]

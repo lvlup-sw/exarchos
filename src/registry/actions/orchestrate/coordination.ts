@@ -172,7 +172,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       'Query delegation readiness and prepare quality hints for subagent dispatch. Announces each ' +
       'planned task the stream has not yet heard of (`task.assigned`) before reading readiness. ' +
       'Returns `baseBranch`, the integration branch the tasks fork from: pass it to the ' +
-      'task-completion runbook as `baseRef`.',
+      'task-completion runbook as `baseRef`. With `repoRoot`, an absolute path, the git checks ' +
+      'and a relative `planPath` read that tree, not the server directory.',
     schema: z.object({
       featureId: z.string().min(1),
       /**
@@ -209,6 +210,12 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
        */
       detail: z.boolean().optional().describe('DR-4: inline the full per-task implementer prompt instead of the deduped template + per-task deltas'),
       outputFormat: z.enum(['full', 'prompt-only']).default('full').describe("DR-4: 'prompt-only' is an alias for detail:true; 'full' (default) returns the deduped template + per-task deltas"),
+      /**
+       * The tree where the git checks and the read of a relative `planPath` run. This is the first declaration of
+       * `repoRoot` in the tool, so it is the wire field of every action. It has no pattern and no describe text,
+       * because a gate call passes `repoRoot: 'auto'`. The handler refuses a relative path.
+       */
+      repoRoot: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,
