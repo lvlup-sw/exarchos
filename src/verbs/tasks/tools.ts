@@ -1153,10 +1153,16 @@ async function referenceCapsule(record: WorkflowPrepared, store: EventStore): Pr
 }
 
 /**
+ * The base that the observer seam gets for a task with no base commit. HEAD holds itself.
+ * The leaf runs no rule 7 for such a task, so it does not read `holdsBase`.
+ */
+const NO_BASE_COMMIT = 'HEAD';
+
+/**
  * The first scope rule that the named tree fails, or undefined when it fails none.
- * With the observer seam and a base commit, the seam observes the tree. Else the rules read `named`, the git observation
- * of the tree rule, and git answers once whether HEAD holds the base commit. A task with no base commit gets no rule 7.
- * The completion-row half of rule 9 runs last.
+ * With the observer seam, the seam observes the tree once, also for a task with no base commit. Else the rules read
+ * `named`, the git observation of the tree rule, and git answers once whether HEAD holds the base commit.
+ * A task with no base commit gets no rule 7. The completion-row half of rule 9 runs last.
  */
 async function scopeBreachOf(
   taskId: string,
@@ -1169,12 +1175,12 @@ async function scopeBreachOf(
 ): Promise<ScopeBreach | undefined> {
   const claimed = canonicalPath(raw);
   const { baseRef, baseCommit } = terms;
-  if (observer !== undefined && baseCommit !== undefined) {
-    const observed = await observer(raw, baseCommit);
+  if (observer !== undefined) {
+    const observed = await observer(raw, baseCommit ?? NO_BASE_COMMIT);
     if (observed.kind !== 'tree') return unobservedBreach(observed);
     return (
       worktreeBreach(claimed, branch, observed, terms) ??
-      baseBreach(observed.holdsBase, baseCommit, baseRef) ??
+      (baseCommit === undefined ? undefined : baseBreach(observed.holdsBase, baseCommit, baseRef)) ??
       completionSharerBreach(taskId, claimed, completedTrees)
     );
   }

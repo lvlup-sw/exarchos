@@ -87,18 +87,21 @@ function treeOf(name: string): string {
   return `${TREES}/${name}`;
 }
 
-/** The capsule options of one case: the version, the scope, and the base commit of each task. */
+/**
+ * The capsule options of one case: the version, the scope, and the base commit of each task.
+ * An explicit undefined base commit gives terms with no `baseCommit`, as a capsule of an earlier compiler has.
+ */
 interface CapsuleOptions {
   readonly capsuleVersion?: number;
   readonly scope?: CapsuleScope | undefined;
-  readonly baseCommit?: string;
+  readonly baseCommit?: string | undefined;
 }
 
 /** The scoped fixture capsule with the listed tasks, each with the same result shape and the same base. */
 function capsuleFor(taskIds: readonly string[], options: CapsuleOptions = {}): ExarchosCapsuleV1 {
   const fixture = scopedValidCapsule();
   const shape = fixture.contracts.taskResults['task-verify'] ?? [];
-  const baseCommit = options.baseCommit ?? BASE_COMMIT;
+  const baseCommit = 'baseCommit' in options ? options.baseCommit : BASE_COMMIT;
   const scope = 'scope' in options ? options.scope : SCOPE;
   return {
     ...fixture,
@@ -114,7 +117,10 @@ function capsuleFor(taskIds: readonly string[], options: CapsuleOptions = {}): E
     settlementContract: {
       requiredResults: [...taskIds],
       taskVerification: Object.fromEntries(
-        taskIds.map((taskId) => [taskId, { riskTier: 'low', boundaryTouching: false, baseRef: BASE_REF, baseCommit }]),
+        taskIds.map((taskId) => [
+          taskId,
+          { riskTier: 'low', boundaryTouching: false, baseRef: BASE_REF, ...(baseCommit === undefined ? {} : { baseCommit }) },
+        ]),
       ),
       ...(scope === undefined ? {} : { scope }),
     },
@@ -395,6 +401,38 @@ describe('task_complete judges the named tree against the capsule scope', () => 
     ]);
     const [row] = await completionRows('task-in-scope');
     expect(row?.data).toEqual({ taskId: 'task-in-scope', worktreePath: tree, verified: false });
+  });
+
+  /**
+   * A task with no base commit in the reference capsule also gets the seam. The seam observes the named tree once, with HEAD
+   * as the base, and the other rules read that observation. No rule 7 runs, so a tree that does not hold the base completes.
+   */
+  it('TaskCompleteScope_ATaskWithNoBaseCommit_ObservesThroughTheSeamOnceAndRunsNoBaseRule', async () => {
+    const tree = treeOf('no-base');
+    await prepare(capsuleFor(['task-no-base', 'task-no-base-checkout'], { baseCommit: undefined }));
+    const seam = recording(answering({ [tree]: { ...inScopeTree(tree), holdsBase: false } }));
+    await passOn('task-no-base', tree);
+
+    const completed = await complete({ taskId: 'task-no-base', tree, capsuleVersion: CAPSULE_VERSION }, seam.observer);
+
+    expect(completed.success, JSON.stringify(completed.error ?? null)).toBe(true);
+    expect(seam.calls).toEqual([[tree, 'HEAD']]);
+    expect(await completionRows('task-no-base')).toHaveLength(1);
+
+    await passOn('task-no-base-checkout', SCOPE.checkout);
+    const checkout = await complete(
+      { taskId: 'task-no-base-checkout', tree: SCOPE.checkout, capsuleVersion: CAPSULE_VERSION },
+      seam.observer,
+    );
+
+    const message = await refusedOutOfScope(checkout, 'task-no-base-checkout', 'the-checkout');
+    expect(message).toContain(
+      `Fork a worktree of the pinned repository '${SCOPE.repository}' from '${BASE_REF}', on a branch of its own`,
+    );
+    expect(seam.calls).toEqual([
+      [tree, 'HEAD'],
+      [SCOPE.checkout, 'HEAD'],
+    ]);
   });
 
   /**

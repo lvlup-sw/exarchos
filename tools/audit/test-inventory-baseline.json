@@ -7,7 +7,7 @@
     "testFiles": 1353,
     "parsedFiles": 1307,
     "shellFiles": 46,
-    "cases": 15164,
+    "cases": 15165,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -51062,6 +51062,11 @@
         {
           "suite": "task_complete judges the named tree against the capsule scope",
           "name": "TaskCompleteScope_AnInScopeTree_GoesOnToTheSameTreeRule",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_ATaskWithNoBaseCommit_ObservesThroughTheSeamOnceAndRunsNoBaseRule",
           "dynamic": false
         },
         {
