@@ -4,9 +4,9 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1361,
+    "testFiles": 1360,
     "parsedFiles": 1315,
-    "shellFiles": 46,
+    "shellFiles": 45,
     "cases": 15191,
     "dynamicTitles": 176,
     "unparseableFiles": 0
@@ -256,10 +256,6 @@
     {
       "from": "scripts/codegen-runtimes.test.ts",
       "to": "tests/scripts/codegen-runtimes.test.ts"
-    },
-    {
-      "from": "scripts/coderabbit-review-gate-workflow.test.sh",
-      "to": "tests/scripts/coderabbit-review-gate-workflow.test.sh"
     },
     {
       "from": "scripts/coderabbit-review-gate.test.sh",
@@ -87954,11 +87950,6 @@
     },
     "tests/scripts/check-wlm-wiring.test.sh": {
       "file": "tests/scripts/check-wlm-wiring.test.sh",
-      "runner": "shell",
-      "cases": []
-    },
-    "tests/scripts/coderabbit-review-gate-workflow.test.sh": {
-      "file": "tests/scripts/coderabbit-review-gate-workflow.test.sh",
       "runner": "shell",
       "cases": []
     },

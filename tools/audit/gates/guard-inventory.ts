@@ -112,6 +112,7 @@ export {
 } from './guard-inventory/vitest-projects.js';
 
 export {
+  jobSkipsPullRequest,
   runsOnPullRequest,
   vitestPathOperands,
   indexShellIndirection,

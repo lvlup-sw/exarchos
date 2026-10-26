@@ -7,6 +7,11 @@ on:
     # fixture after the PR opens. The enforcer-wiring gate asserts this trigger.
     types: [opened, edited, synchronize, ready_for_review, reopened]
 
+# A newer event on the same PR cancels the check for the earlier one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: read
@@ -19,6 +24,7 @@ jobs:
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       !startsWith(github.event.pull_request.title, '[Graphite MQ]')
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
