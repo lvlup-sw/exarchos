@@ -1025,7 +1025,8 @@ function readDecisions(raw: unknown): SettlementDecision[] | string {
 
 /**
  * Observes the claimed worktree of each completed claim, once per call and before the first attempt.
- * The observer is the seam of the dispatch context, and `observeClaimedTree` by default.
+ * The observer is the seam of the dispatch context, and `observeClaimedTree` by default. It gets the repository of the scope,
+ * so it reads no status in a tree of another repository.
  * A claim is observed when the capsule pins a scope, its task terms hold a base commit, and its fields hold a `worktreePath` text.
  * A claim with no such path is neither observed nor judged, so the compile of its segment refuses it as before.
  * The observations are not stream reads, so the commit judges the claims again with the same observations.
@@ -1036,7 +1037,8 @@ async function observeClaimedTrees(
   claims: readonly SettlementClaim[],
 ): Promise<ReadonlyMap<string, ClaimedTree>> {
   const observed = new Map<string, ClaimedTree>();
-  if (capsule.settlementContract.scope === undefined) return observed;
+  const { scope } = capsule.settlementContract;
+  if (scope === undefined) return observed;
   const terms = capsule.settlementContract.taskVerification ?? {};
   const observe = ctx.treeObserver ?? observeClaimedTree;
   for (const claim of claims) {
@@ -1047,7 +1049,7 @@ async function observeClaimedTrees(
     observed.set(claim.taskId, {
       path: canonicalPath(worktreePath),
       ...(typeof branch === 'string' ? { branch } : {}),
-      observed: await observe(worktreePath, baseCommit),
+      observed: await observe(worktreePath, baseCommit, scope.repository),
     });
   }
   return observed;

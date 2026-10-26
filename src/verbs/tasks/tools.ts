@@ -1160,7 +1160,8 @@ const NO_BASE_COMMIT = 'HEAD';
 
 /**
  * The first scope rule that the named tree fails, or undefined when it fails none.
- * With the observer seam, the seam observes the tree once, also for a task with no base commit. Else the rules read
+ * With the observer seam, the seam observes the tree once, also for a task with no base commit. The seam gets the repository
+ * of the scope, so it reads no status in a tree of another repository. Else the rules read
  * `named`, the git observation of the tree rule, and git answers once whether HEAD holds the base commit.
  * A task with no base commit gets no rule 7. The completion-row half of rule 9 runs last.
  */
@@ -1176,7 +1177,7 @@ async function scopeBreachOf(
   const claimed = canonicalPath(raw);
   const { baseRef, baseCommit } = terms;
   if (observer !== undefined) {
-    const observed = await observer(raw, baseCommit ?? NO_BASE_COMMIT);
+    const observed = await observer(raw, baseCommit ?? NO_BASE_COMMIT, terms.scope.repository);
     if (observed.kind !== 'tree') return unobservedBreach(observed);
     return (
       worktreeBreach(claimed, branch, observed, terms) ??

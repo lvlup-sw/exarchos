@@ -63,7 +63,7 @@ git merge-base --is-ancestor "[baseCommit]" HEAD \
   || { echo "ERROR: HEAD does not hold the base commit — halting"; exit 1; }
 ```
 
-`[baseCommit]` is the `baseCommit` of the task in the capsule (`settlementContract.taskVerification[taskId].baseCommit`), supplied by the orchestrator at dispatch. On the primitive path it is the tip commit of the integration branch at dispatch. `[own-branch]` is a new branch for this task, never the integration branch; report it as `branch`. The switch gives the base on every runtime, also when native isolation made the worktree from another commit.
+`[baseCommit]` is the `baseCommit` of the task in the capsule (`settlementContract.taskVerification[taskId].baseCommit`), supplied by the orchestrator at dispatch. On the primitive path it is the tip commit of the integration branch at dispatch. `[own-branch]` is a new branch for this task, never the integration branch; report it as `branch`. It is a name that no branch holds yet. It is not the branch of the worktree that `setup_worktree` or `git worktree add -b` made, because git refuses `git switch -c` for a branch that exists. The switch gives the base on every runtime, also when native isolation made the worktree from another commit.
 
 If the switch fails, or the check fails after it, STOP and report it. Settlement refuses a worktree whose HEAD does not hold `[baseCommit]` (`base-not-held`). It also refuses a worktree on the integration branch, and the checkout or the primary worktree of the repository: each task runs in a linked worktree of its own.
 

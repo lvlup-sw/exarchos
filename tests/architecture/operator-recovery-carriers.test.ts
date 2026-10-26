@@ -289,6 +289,16 @@ const CARRIED: readonly CarriedRecovery[] = [
     },
   },
   {
+    id: 'prepare-base-names-a-tag',
+    notes: 'Recovery: when `prepare` refuses `BASE_UNRESOLVED` because a tag has the name of `baseRef`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/acceptance/scope-same-name-tag.test.ts',
+      testCase: 'Prepare_ABaseRefThatAlsoNamesATag_IsRefusedBaseUnresolved',
+      phrases: ['Delete or rename the tag, then prepare again'],
+    },
+  },
+  {
     id: 'settle-worktree-out-of-scope',
     notes: 'Recovery: when a claim gets `worktree-out-of-scope`, do what its message says',
     carrier: {

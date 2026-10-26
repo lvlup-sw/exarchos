@@ -47,6 +47,12 @@ export const ABSOLUTE_REPO_ROOT = /^(?:\/|[A-Za-z]:[\\/])/;
 /** The names of the config files whose bytes the config digest covers, in digest order. */
 const CONFIG_FILE_NAMES: readonly string[] = ['.exarchos.yml', '.exarchos.yaml'];
 
+/**
+ * The prefix of the full name of a tag. prepare reads the tag of the name of the base with it.
+ * Git prefers a tag to a branch of the same name, so such a tag makes the name of the base point to the tag.
+ */
+const TAG_REF_PREFIX = 'refs/tags/';
+
 /** The error codes of a read that mean that the file is absent. */
 const ABSENT_FILE_CODES: ReadonlySet<string> = new Set(['ENOENT', 'ENOTDIR']);
 
@@ -307,6 +313,14 @@ function baseUnresolved(message: string): ScopeOutcome {
   return { ok: false, refusal: { code: 'BASE_UNRESOLVED', message } };
 }
 
+/** The refusal for a read of the base that git did not answer. The read of the same-name tag and the read of the base both give it. */
+function baseUnobservable(streamId: string, baseRef: string, checkout: string, cause: string): ScopeOutcome {
+  return baseUnresolved(
+    `git could not resolve the integration branch '${baseRef}' of '${streamId}' in '${checkout}' (${cause}), ` +
+      'so nothing was compiled or recorded. Check that git runs in that directory, then prepare again.',
+  );
+}
+
 /** The tasks of the batch that wait on each completed blocker, keyed by the blocker, in sorted order. */
 function waitersOf(completedBlockers: Readonly<Record<string, readonly string[]>>): Map<string, string[]> {
   const waiters = new Map<string, string[]>();
@@ -338,7 +352,8 @@ function blockerNotOnBase(
 /**
  * Observes the scope of a call before any effect, in three steps.
  * First git finds the repository of `repoRoot`. A directory outside a git work tree refuses `SCOPE_UNRESOLVED`.
- * Then the base resolves to a commit in the checkout. A base with no commit refuses `BASE_UNRESOLVED`.
+ * Then the base resolves to a commit in the checkout. A tag with the name of the base refuses `BASE_UNRESOLVED` before that read.
+ * A base with no commit refuses `BASE_UNRESOLVED` too.
  *
  * Last, the base commit must hold the landed commit of each completed blocker. A blocker with no known commit is not checked.
  */
@@ -359,6 +374,17 @@ export async function observeScope(input: ScopeInput): Promise<ScopeOutcome> {
   }
   const { toplevel: checkout, repository } = located;
 
+  const tag = await git.commitOf(checkout, `${TAG_REF_PREFIX}${baseRef}`);
+  if (tag.kind === 'commit') {
+    return baseUnresolved(
+      `'${streamId}' records the integration branch '${baseRef}', and the repository of '${checkout}' also holds the ` +
+        `tag '${TAG_REF_PREFIX}${baseRef}' at ${tag.commit}. Git resolves the name '${baseRef}' to the tag, so the base ` +
+        'commit and the base of the diff gates are not the tip of the branch, and nothing was compiled or recorded. ' +
+        'Delete or rename the tag, then prepare again.',
+    );
+  }
+  if (tag.kind === 'unobservable') return baseUnobservable(streamId, baseRef, checkout, tag.cause);
+
   const base = await git.commitOf(checkout, baseRef);
   if (base.kind === 'absent') {
     return baseUnresolved(
@@ -367,12 +393,7 @@ export async function observeScope(input: ScopeInput): Promise<ScopeOutcome> {
         `'${baseRef}' in that repository, or pass as repoRoot a worktree of the repository that holds it, then prepare again.`,
     );
   }
-  if (base.kind === 'unobservable') {
-    return baseUnresolved(
-      `git could not resolve the integration branch '${baseRef}' of '${streamId}' in '${checkout}' (${base.cause}), ` +
-        'so nothing was compiled or recorded. Check that git runs in that directory, then prepare again.',
-    );
-  }
+  if (base.kind === 'unobservable') return baseUnobservable(streamId, baseRef, checkout, base.cause);
   const baseCommit = base.commit;
 
   for (const [blocker, waiting] of waitersOf(input.completedBlockers)) {

@@ -642,7 +642,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
       'git-tree-read-owner',
       'idempotent: read-only git queries — rev-parse --path-format=absolute --show-toplevel ' +
         '--git-common-dir, rev-parse --verify --quiet <ref>^{commit}, symbolic-ref --quiet ' +
-        '--short HEAD, rev-parse --verify --quiet HEAD, merge-base --is-ancestor (also ' +
+        'HEAD, rev-parse --verify --quiet HEAD, merge-base --is-ancestor (also ' +
         '<baseCommit> HEAD) and --no-optional-locks status --porcelain, which writes no index ' +
         'refresh; a re-run on the same tree gives the same answer',
       'none: every call is a read, so a failed, refused or timed-out read leaves no state ' +

@@ -84,7 +84,7 @@ if ! grep -qi "project test command" "$PROMPT_FILE"; then
 fi
 
 # Test 10: Verification appears BEFORE TDD Requirements
-TDD_LINE=$(grep -n "TDD Requirements" "$PROMPT_FILE" | head -1 | cut -d: -f1)
+TDD_LINE=$(grep -n "TDD Requirements" "$PROMPT_FILE" | head -1 | cut -d: -f1 || true)
 VERIFY_LINE=$(grep -n "Worktree Verification" "$PROMPT_FILE" | head -1 | cut -d: -f1)
 
 if [[ -n "$TDD_LINE" && -n "$VERIFY_LINE" ]]; then

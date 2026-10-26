@@ -96,12 +96,13 @@ afterEach(async () => {
 
 /**
  * The three git reads of the scope. The seam pins the checkout and its `.git` as the repository, and resolves the base to {@link BASE_COMMIT}.
- * Each landed commit of a blocker is on the base.
+ * No tag has the name of the base, and each landed commit of a blocker is on the base.
  */
 function scopeGit(): ScopeGit {
   return {
     observe: async () => ({ kind: 'repository', toplevel: checkout, repository: `${checkout}/.git` }),
-    commitOf: async () => ({ kind: 'commit', commit: BASE_COMMIT }),
+    commitOf: async (_checkout, ref) =>
+      ref.startsWith('refs/tags/') ? { kind: 'absent' } : { kind: 'commit', commit: BASE_COMMIT },
     isAncestor: async () => ({ kind: 'ancestor' }),
   };
 }

@@ -243,13 +243,14 @@ async function completeByHand(): Promise<void> {
 
 /**
  * The three git reads of the scope of prepare. The checkout is the settle directory in canonical form, which holds no config file.
- * The acceptance cases of prepare run the same reads on real git.
+ * No tag has the name of the base. The acceptance cases of prepare run the same reads on real git.
  */
 function parityScopeGit(): ScopeGit {
   const checkout = canonicalPath(settleDir);
   return {
     observe: async () => ({ kind: 'repository', toplevel: checkout, repository: `${checkout}/.git` }),
-    commitOf: async () => ({ kind: 'commit', commit: 'd'.repeat(40) }),
+    commitOf: async (_checkout, ref) =>
+      ref.startsWith('refs/tags/') ? { kind: 'absent' } : { kind: 'commit', commit: 'd'.repeat(40) },
     isAncestor: async () => ({ kind: 'ancestor' }),
   };
 }

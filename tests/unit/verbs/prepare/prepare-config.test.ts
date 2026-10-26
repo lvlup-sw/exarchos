@@ -61,11 +61,12 @@ async function tempDir(prefix: string): Promise<string> {
   return dir;
 }
 
-/** The git reads of a seam whose repository is the `.git` of the given checkout. */
+/** The git reads of a seam whose repository is the `.git` of the given checkout. No tag has the name of the base. */
 function seamAt(checkout: string): ScopeGit {
   return {
     observe: async () => ({ kind: 'repository', toplevel: checkout, repository: `${checkout}/.git` }),
-    commitOf: async () => ({ kind: 'commit', commit: BASE_COMMIT }),
+    commitOf: async (_checkout, ref) =>
+      ref.startsWith('refs/tags/') ? { kind: 'absent' } : { kind: 'commit', commit: BASE_COMMIT },
     isAncestor: async () => ({ kind: 'ancestor' }),
   };
 }

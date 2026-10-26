@@ -4,9 +4,11 @@
 
 Compile the batch first — `exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<absolute path of the worktree that holds the integration branch>" })` — and keep the `capsuleVersion`; the capsule's task graph is the wave. `repoRoot` is required and absolute. Then, for parallel tasks, create one linked worktree for each task, from the `baseCommit` of the task in the capsule:
 ```bash
-git worktree add -b task/task-001 .worktrees/task-001 <baseCommit>
+git worktree add --detach .worktrees/task-001 <baseCommit>
 cd .worktrees/task-001 && npm install
 ```
+
+The worktree is detached, so the base step of the worker makes the branch of the task: `git switch -c <own branch> <baseCommit>`. Give each worker an `<own branch>` that no branch holds yet, such as `task/task-001`. It is not the branch of a worktree that `setup_worktree` or `git worktree add -b` made, because git refuses `git switch -c` for a branch that exists.
 
 A task never runs in the checkout that `prepare` read or in the primary worktree of the repository: `settle` and `task_complete` refuse both. A linked `node_modules` needs the ignore rule `node_modules`, without a trailing slash, or the worktree is not clean.
 
