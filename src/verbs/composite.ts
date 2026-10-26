@@ -151,9 +151,13 @@ function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<T
  * Wraps a typed handler of shape `(args, stateDir, eventStore)`, the usual shape for a handler that appends events.
  * It passes `ctx.eventStore` as the third argument, so the handler gets the store from the dispatch context and not from a module-global registry.
  * It throws when the context has no event store.
+ *
+ * `extraOf` selects a fourth argument from the dispatch context. The adapter passes it only when the selector gives a value.
+ * Else the call has three arguments. A handler with a fourth parameter of its own and no selector keeps its three-argument call.
  */
-function adaptWithEventStore<T>(
-  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+function adaptWithEventStore<T, X = never>(
+  handler: (args: T, stateDir: string, eventStore: EventStore, extra?: X) => Promise<ToolResult>,
+  extraOf?: (ctx: DispatchContext) => X | undefined,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -161,7 +165,11 @@ function adaptWithEventStore<T>(
         `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
       );
     }
-    return handler(args as unknown as T, stateDir, ctx.eventStore);
+    const typedArgs = args as unknown as T;
+    const extra = extraOf?.(ctx);
+    return extra === undefined
+      ? handler(typedArgs, stateDir, ctx.eventStore)
+      : handler(typedArgs, stateDir, ctx.eventStore, extra);
   };
 }
 
@@ -371,7 +379,7 @@ const ACTION_HANDLERS_TOOL = 'exarchos_orchestrate';
  */
 export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
-  task_complete: adaptWithEventStore(handleTaskComplete),
+  task_complete: adaptWithEventStore(handleTaskComplete, (ctx) => ctx.treeObserver),
   task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),

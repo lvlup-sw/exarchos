@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1351,
-    "parsedFiles": 1305,
+    "testFiles": 1353,
+    "parsedFiles": 1307,
     "shellFiles": 46,
-    "cases": 15152,
+    "cases": 15164,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -5388,6 +5388,47 @@
         {
           "suite": "settle checks each claimed worktree against the pinned scope",
           "name": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/task-complete-scope.test.ts": {
+      "file": "tests/acceptance/task-complete-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnTheCheckoutThatNamesTheCheckout_IsRefusedAsTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnThePrimaryWorktree_IsRefusedAsTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnALinkedWorktreeOfTheBaseBranch_IsRefusedAsOnTheBaseBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnAnotherRepository_IsRefusedAsOtherRepository",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_AWorktreeThatDoesNotHoldTheBase_IsRefusedAsBaseNotHeld",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnTheWorktreeOfACompletedTask_IsRefusedAsSharedWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_AnInScopeWorktreeAtItsHead_CompletesWhereTheCheckoutIsRefused",
           "dynamic": false
         }
       ]
@@ -51000,6 +51041,37 @@
         {
           "suite": "the latest prepared record of a stream",
           "name": "LatestPreparedRecordOf_GivesTheLastRecordOfTheStream",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/tasks/task-complete-scope.test.ts": {
+      "file": "tests/unit/tasks/task-complete-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_EachRuleOnAScopedStream_RefusesWithItsCause",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_ARowOfAnotherTaskOnTheTree_RefusesWhereTheRowOfTheTaskItselfDoesNot",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_AnInScopeTree_GoesOnToTheSameTreeRule",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_AReferenceCapsuleWithNoScopeOrThatCustodyCannotReturn_JudgesOnlyTheSameTree",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_NoCapsuleVersion_JudgesAgainstTheLatestCapsuleAndNamesTheVersionInTheRecovery",
           "dynamic": false
         }
       ]

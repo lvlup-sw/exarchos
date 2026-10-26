@@ -658,7 +658,10 @@ describe('settle checks each claimed worktree before any gate runs', () => {
     expect(gate.runs).toEqual([]);
   });
 
-  /** The first call observes each claim once. A retry of the recorded batch returns its receipt and observes nothing. */
+  /**
+   * The first call observes each claim once before any gate. The completion leaf of each segment then observes its own
+   * claim once more through the same seam. A retry of the recorded batch returns its receipt and observes nothing.
+   */
   it('Settle_AFirstCallObservesItsClaimsAndARetryOfTheRecordedBatchObservesNothing', async () => {
     await seedPassing(FIRST);
     await seedPassing(SECOND);
@@ -669,10 +672,12 @@ describe('settle checks each claimed worktree before any gate runs', () => {
     expect(seam.calls).toEqual([
       [worktreeOf(FIRST), BASE_COMMIT],
       [worktreeOf(SECOND), BASE_COMMIT],
+      [worktreeOf(FIRST), BASE_COMMIT],
+      [worktreeOf(SECOND), BASE_COMMIT],
     ]);
     const retried = receiptOf(await settle(batch, seam.observer));
     expect(retried).toEqual(first);
-    expect(seam.calls).toHaveLength(2);
+    expect(seam.calls).toHaveLength(4);
   });
 
   /** A tree that git cannot observe gives a finding with the cause of git, and the other claim verifies. */
@@ -753,6 +758,7 @@ describe('settle checks each claimed worktree before any gate runs', () => {
   /**
    * The submission observes a clean tree and holds the batch. A file is added during the hold. The accepting decision
    * observes the held claims again, so the claim on that tree is unresolved and names the file, and the other task verifies.
+   * The completion leaf of the segment of the other task observes its claim once more.
    */
   it('Settle_AnAcceptingDecision_ObservesTheHeldClaimsAndAFileAddedDuringTheHoldIsUncommittedChanges', async () => {
     await seedPassing(FIRST);
@@ -784,7 +790,13 @@ describe('settle checks each claimed worktree before any gate runs', () => {
         seam.observer,
       ),
     );
-    expect(seam.calls).toHaveLength(4);
+    expect(seam.calls).toEqual([
+      [worktreeOf(FIRST), BASE_COMMIT],
+      [worktreeOf(SECOND), BASE_COMMIT],
+      [worktreeOf(FIRST), BASE_COMMIT],
+      [worktreeOf(SECOND), BASE_COMMIT],
+      [worktreeOf(SECOND), BASE_COMMIT],
+    ]);
     expect(decided.outcome).toBe('corrective-capsule');
     expect(decided.acceptedTasks).toEqual([SECOND]);
     expect(decided.unresolved?.map((task) => [task.taskId, task.cause])).toEqual([[FIRST, 'worktree-out-of-scope']]);
