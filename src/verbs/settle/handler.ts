@@ -28,6 +28,7 @@ import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
 import {
   ExarchosCapsuleV1Schema,
+  type CapsuleScope,
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
 import { assertNever } from '../../contract/error-families.js';
@@ -61,6 +62,7 @@ import type { IntentReceipt } from '../execute/types.js';
 import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
+import { checkoutProjectConfig, configDigestAt } from '../prepare/prepare-scope.js';
 import { findPreparedCapsule } from '../prepare/prepared-record.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
@@ -1058,8 +1060,17 @@ interface SettlementReads {
 }
 
 /**
+ * What one call reads at the checkout that the capsule pins: the digest of its config files. A digest that matches the pinned
+ * digest gives the context of the segments, which carries the config of the checkout. A digest that differs refuses.
+ */
+type CheckoutReading =
+  | { readonly kind: 'pinned'; readonly ctx: DispatchContext }
+  | { readonly kind: 'changed'; readonly checkout: string; readonly digest: string; readonly pinned: string };
+
+/**
  * What one settle call keeps over its attempts. `runs` holds the run of each segment that the call
  * made or replayed, so no attempt runs a segment twice. `inputs` gains the blob checks of each attempt.
+ * `checkout` holds the reading of the pinned checkout once the call made it, so the call computes the config digest once.
  */
 interface SettlementCall {
   readonly ctx: DispatchContext;
@@ -1075,6 +1086,7 @@ interface SettlementCall {
   readonly reads: SettlementReads;
   readonly runs: Map<string, VerificationRun>;
   inputs: SettlementInputs;
+  checkout?: CheckoutReading;
 }
 
 /** Compiles the segments of the tasks from the claims of the call, so each segment gets the same arguments on each run. */
@@ -1093,17 +1105,108 @@ function compileFor(call: SettlementCall, taskIds: readonly string[]): CompiledS
 /**
  * Runs the compiled segments in their order, and puts the run of each one in the map of the call.
  * A refused run that did not halt is not an answer about its task, so it is the refusal of the call.
+ * `ctx` is the context of the segments. An attempt passes the context with the config of the pinned checkout.
  */
 async function runCompiled(
   call: SettlementCall,
   compiled: readonly CompiledVerification[],
+  ctx: DispatchContext = call.ctx,
 ): Promise<ToolResult | undefined> {
   for (const task of compiled) {
-    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, call.ctx, call.deps.execute);
+    const run = await verifyTask(task, call.streamId, call.batchLabel, call.stateDir, ctx, call.deps.execute);
     if (run.kind === 'refused' && !run.halted) return run.result;
     call.runs.set(task.taskId, run);
   }
   return undefined;
+}
+
+/** The outcome of the two checks before the segments of an attempt: the context of the segments, or the refusal. */
+type SegmentContext =
+  | { readonly ok: true; readonly ctx: DispatchContext }
+  | { readonly ok: false; readonly refusal: ToolResult };
+
+/**
+ * The refusal when the capsule pins no scope for the segments that an attempt needs.
+ * The capsule pins no scope, or the terms of a task of those segments hold no base commit. The observation skips such a task.
+ * A submission names a new prepare. A decision round also names a rejection, because a held batch stays on its capsule version.
+ */
+function unscopedCapsule(call: SettlementCall, taskIds: readonly string[]): ToolResult {
+  const { capsuleVersion } = call.identity;
+  const what =
+    call.inputs.capsule.settlementContract.scope === undefined
+      ? `capsule v${capsuleVersion} pins no repository scope`
+      : `capsule v${capsuleVersion} pins no base commit for ${namedTasks(taskIds)}`;
+  const head =
+    `${what}, so settle cannot check the claimed worktrees of ${call.batchLabel} or run their segments under the ` +
+    'config of the checkout. Nothing was adjudicated or recorded.';
+  if (call.inputs.round !== DECISION_ROUND) {
+    return refused(
+      'CAPSULE_UNRESOLVED',
+      `${head} To continue, prepare again under a compiler that pins the scope, then claim the tasks in a new batch.`,
+    );
+  }
+  return refused(
+    'CAPSULE_UNRESOLVED',
+    `${head} A decision that accepts needs those segments, and a held batch stays on capsule v${capsuleVersion}. ` +
+      'There are two routes. Decide by rejecting, which runs no segment. Or prepare again under a compiler that pins ' +
+      'the scope, then claim the tasks in a new batch.',
+  );
+}
+
+/**
+ * The refusal when the config files of the pinned checkout changed after prepare read them. No segment runs under a config that the capsule does not pin.
+ * A submission names a new prepare. On a decision round a new prepare does not help, because a held batch stays on its capsule version.
+ * So the text names two other routes: put the config back and decide again, or reject and propose the deviation again under the next capsule.
+ */
+function changedConfig(call: SettlementCall, reading: Extract<CheckoutReading, { readonly kind: 'changed' }>): ToolResult {
+  const { capsuleVersion } = call.identity;
+  const head =
+    `the config files of the checkout '${reading.checkout}' changed after prepare compiled capsule v${capsuleVersion}: ` +
+    `their digest is ${reading.digest}, and the capsule pins ${reading.pinned}. No segment runs under a config that the ` +
+    `capsule does not pin, so nothing of ${call.batchLabel} was adjudicated or recorded.`;
+  if (call.inputs.round !== DECISION_ROUND) {
+    return refused(
+      'CAPSULE_UNRESOLVED',
+      `${head} To continue, prepare again with repoRoot '${reading.checkout}', then claim the tasks in a new batch ` +
+        'under the new capsule version.',
+    );
+  }
+  return refused(
+    'CAPSULE_UNRESOLVED',
+    `${head} A new prepare does not help, because a held batch stays on capsule v${capsuleVersion}. There are two ` +
+      `routes. Put the config files of '${reading.checkout}' (.exarchos.yml and .exarchos.yaml) back to the bytes ` +
+      'that prepare read, then send the same decision again. Or decide by rejecting, then prepare again and propose ' +
+      'the deviation again in a new batch under the next capsule.',
+  );
+}
+
+/**
+ * Reads the pinned checkout once for each call, and keeps the reading on the call. The digest of the config files decides.
+ * A digest that matches gives the context of the segments, with the config of the checkout in place of the config of the server.
+ */
+async function readCheckout(call: SettlementCall, scope: CapsuleScope): Promise<CheckoutReading> {
+  if (call.checkout !== undefined) return call.checkout;
+  const digest = await configDigestAt(scope.checkout);
+  const reading: CheckoutReading =
+    digest === scope.configDigest
+      ? { kind: 'pinned', ctx: { ...call.ctx, projectConfig: checkoutProjectConfig(scope.checkout) } }
+      : { kind: 'changed', checkout: scope.checkout, digest, pinned: scope.configDigest };
+  call.checkout = reading;
+  return reading;
+}
+
+/**
+ * The two checks before the segments of an attempt, in order. An unscoped capsule refuses, then a changed config refuses.
+ * Each refusal comes before any segment runs, so it records nothing. A decision that rejects needs no segment, so no check runs for it.
+ */
+async function segmentContextOf(call: SettlementCall, taskIds: readonly string[]): Promise<SegmentContext> {
+  const { scope, taskVerification } = call.inputs.capsule.settlementContract;
+  const unbased = taskIds.filter((taskId) => taskVerification?.[taskId]?.baseCommit === undefined);
+  if (scope === undefined || unbased.length > 0) {
+    return { ok: false, refusal: unscopedCapsule(call, scope === undefined ? taskIds : unbased) };
+  }
+  const reading = await readCheckout(call, scope);
+  return reading.kind === 'pinned' ? { ok: true, ctx: reading.ctx } : { ok: false, refusal: changedConfig(call, reading) };
 }
 
 /**
@@ -1185,6 +1288,7 @@ async function levelSettledComplete(
  * One attempt of a settle call. It reads the stream and judges the batch. While the judgement verifies
  * and names a segment that the call did not run, the attempt runs that segment, then reads and judges
  * again. Each pass puts at least one task in the run map, so the loop ends.
+ * Before it compiles the segments, the attempt refuses an unscoped capsule and a changed config. The segments run under the config of the checkout.
  *
  * A judgement that does not verify decides the record, also when a leaf refused a run. Before that record,
  * the attempt levels the state document for each task that the judgement settles as already complete.
@@ -1199,12 +1303,14 @@ async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
   if (first.judgement.revising.length > 0) checkRevisionRowsFold(first.rows);
   let judgement = first.judgement;
   while (judgement.verifies) {
+    const scoped = judgement.needsSegment.length === 0 ? undefined : await segmentContextOf(call, judgement.needsSegment);
+    if (scoped !== undefined && !scoped.ok) return scoped.refusal;
     const segments = compileFor(call, judgement.needsSegment);
     if (!segments.ok) return segments.refusal;
     const levelRefusal = await levelSettledComplete(call, judgement.alreadyComplete, levelled, warnings);
     if (levelRefusal !== undefined) return levelRefusal;
     if (segments.compiled.length === 0) break;
-    const runRefusal = await runCompiled(call, segments.compiled);
+    const runRefusal = await runCompiled(call, segments.compiled, scoped?.ctx);
     if (runRefusal !== undefined) return runRefusal;
     judgement = (await readAndJudge(call)).judgement;
   }

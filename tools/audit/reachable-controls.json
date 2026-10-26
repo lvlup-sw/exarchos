@@ -243,6 +243,15 @@
         "reason": "The case calls `handleSettle` directly. Only `dispatch` reads the flag, so the flag has no effect here."
       },
       {
+        "file": "tests/unit/verbs/settle/blocking-gate.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-scope.test.ts",
+          "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "keeps": "withShippedTreeObserver("
+        }
+      },
+      {
         "file": "tests/unit/verbs/settle/handler.test.ts",
         "default": "telemetry",
         "owner": "@rsalus",
@@ -255,6 +264,15 @@
           "file": "tests/core/integration/governance/gate-before-completion.test.ts",
           "test": "Governance_SettleOnTheWorkflowStateRow_BringsTheDocumentLevel",
           "keeps": "harness.storage.getState(SETTLE_FEATURE_ID)"
+        }
+      },
+      {
+        "file": "tests/unit/verbs/settle/handler.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-scope.test.ts",
+          "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "keeps": "withShippedTreeObserver("
         }
       },
       {
@@ -309,6 +327,15 @@
         "reason": "The case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
       },
       {
+        "file": "tests/unit/verbs/settle/settlement-reads.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-scope.test.ts",
+          "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "keeps": "withShippedTreeObserver("
+        }
+      },
+      {
         "file": "tests/unit/verbs/settle/settle-in-commit.test.ts",
         "default": "telemetry",
         "owner": "@rsalus",
@@ -324,16 +351,58 @@
         }
       },
       {
+        "file": "tests/unit/verbs/settle/settle-in-commit.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-scope.test.ts",
+          "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "keeps": "withShippedTreeObserver("
+        }
+      },
+      {
         "file": "tests/unit/verbs/settle/settle-decision-standing.test.ts",
         "default": "telemetry",
         "owner": "@rsalus",
         "reason": "Each case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
       },
       {
+        "file": "tests/unit/verbs/settle/settle-decision-standing.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-scope.test.ts",
+          "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "keeps": "withShippedTreeObserver("
+        }
+      },
+      {
         "file": "tests/unit/verbs/settle/settle-revision-race.test.ts",
         "default": "telemetry",
         "owner": "@rsalus",
         "reason": "Each case calls `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-revision-race.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-scope.test.ts",
+          "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "keeps": "withShippedTreeObserver("
+        }
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-config.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases call `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-config.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-config.test.ts",
+          "test": "SettleConfig_AGateThatTheCheckoutDisables_IsSkippedAndTheTraceNamesDisabledByConfig",
+          "keeps": "agentContext("
+        }
       }
     ],
     "contextSchema": {

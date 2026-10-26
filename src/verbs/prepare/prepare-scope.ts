@@ -9,8 +9,8 @@
  * The config and the catalogs load from the checkout. A config that does not load, an unresolved registered catalog
  * and a static analysis that is not blocking each refuse. The text of the design reference decides if prepare reads the record.
  *
- * Each refusal here occurs before any effect. The module imports nothing from `src/verbs/settle`, so settle can import the config digest.
- * It imports no registry module, because the registration of prepare imports this module.
+ * Each refusal here occurs before any effect. The module imports nothing from `src/verbs/settle`, so settle can import the config digest
+ * and the config of the checkout. It imports no registry module, because the registration of prepare imports this module.
  */
 
 import { createHash } from 'node:crypto';
@@ -127,6 +127,14 @@ export async function configDigestAt(checkout: string): Promise<string> {
   return contentDigest(entries);
 }
 
+/**
+ * The resolved config of a checkout, from the reader that the gates use.
+ * prepare compiles the policy of a batch from it, and settle runs the segments of the batch under it.
+ */
+export function checkoutProjectConfig(checkout: string): ResolvedProjectConfig {
+  return resolveConfig(loadProjectConfig(checkout));
+}
+
 /** The config of a checkout, as prepare compiles from it. */
 export interface CheckoutConfig {
   /** The path of the `.exarchos.yml` that loaded, or `undefined` when the checkout holds none. */
@@ -164,7 +172,7 @@ export function loadCheckoutConfig(
     config: {
       source: loaded?.source,
       catalogConfig: loaded?.config,
-      projectConfig: resolveConfig(loadProjectConfig(checkout)),
+      projectConfig: checkoutProjectConfig(checkout),
     },
   };
 }

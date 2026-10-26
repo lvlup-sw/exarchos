@@ -8,10 +8,11 @@
  * @oracle-sources: ../../../../src/verbs/settle/settlement-reads.ts, the facts, outcomes and traces worked out by hand in each case
  */
 
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
-import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import { baseValidCapsule, baseValidDefinition } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { deriveMcpCallerIdentity, snapshotCallerAuthorization } from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
@@ -38,6 +39,7 @@ import {
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
+import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const VERIFY = 'task-verify';
@@ -442,16 +444,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 describe('settle — the read after the segments', () => {
   let stateDir: string;
   let store: EventStore;
-  const wiring = (): DispatchContext => ({ stateDir, eventStore: store, enableTelemetry: false });
+  let scope: CapsuleScope;
+  const wiring = (): DispatchContext => ({ stateDir, eventStore: store, enableTelemetry: false, treeObserver: inScopeObserver(scope) });
 
   beforeEach(async () => {
     stateDir = makeTempDir('settlement-reads-');
     store = new EventStore(stateDir);
     await store.initialize();
     const phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
+    scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
     await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId, worktreePath: worktreeOf(VERIFY) });
     await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId, worktreePath: worktreeOf(SECOND) });
-    const capsule = twoTaskCapsule();
+    const capsule = withScope(twoTaskCapsule(), scope);
     await runWithDispatchContext(correlation(), () =>
       commitPreparedCapsule(wiring(), {
         streamId: STREAM,

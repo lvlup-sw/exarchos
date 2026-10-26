@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1353,
-    "parsedFiles": 1307,
+    "testFiles": 1355,
+    "parsedFiles": 1309,
     "shellFiles": 46,
-    "cases": 15165,
+    "cases": 15175,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -5321,6 +5321,22 @@
         {
           "suite": "prepare then settle, through the dispatcher",
           "name": "PrepareSettle_AGateRow_CannotBeAppendedToCompleteATask",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/settle-config.test.ts": {
+      "file": "tests/acceptance/settle-config.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle runs the segments under the config of the checkout",
+          "name": "SettleConfig_AConfigEditedAfterPrepare_NeedsANewPrepareThenSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle runs the segments under the config of the checkout",
+          "name": "SettleConfig_AGateThatTheCheckoutDisables_IsSkippedAndTheTraceNamesDisabledByConfig",
           "dynamic": false
         }
       ]
@@ -65725,6 +65741,52 @@
         {
           "suite": "settle — the text of the action",
           "name": "SettleAction_ItsRequiresRationale_NoLongerSaysTheVerdictReadsNoCurrentState",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-config.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-config.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — an unscoped capsule",
+          "name": "Settle_AnUnscopedCapsuleThatNeedsASegment_IsRefusedAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — an unscoped capsule",
+          "name": "Settle_ADecisionThatRejectsOnAHeldUnscopedBatch_SettlesWhereAnAcceptanceIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — an unscoped capsule",
+          "name": "Settle_ADecisionThatAcceptsOnAHeldUnscopedBatch_IsRefusedAndNamesBothRoutes",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a config that changed after prepare",
+          "name": "Settle_AConfigEditedAfterPrepare_IsRefusedAndRunsNoGate",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a config that changed after prepare",
+          "name": "Settle_AnAcceptingDecisionUnderAChangedConfig_IsRefusedWithBothRoutesAndSettlesAfterTheConfigIsPutBack",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a config that changed after prepare",
+          "name": "Settle_ARejectingDecisionUnderAChangedConfig_SettlesWhereAnAcceptingOneIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a config that changed after prepare",
+          "name": "Settle_TheConfigDigest_IsComputedOncePerCall",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the config of the segments",
+          "name": "Settle_TheSegment_RunsUnderTheConfigOfTheCheckout",
           "dynamic": false
         }
       ]

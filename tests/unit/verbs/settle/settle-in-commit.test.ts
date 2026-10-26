@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
-import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import { baseValidCapsule, baseValidDefinition } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { canonicalJson } from '../../../../src/contract/request-context.js';
 import { deriveMcpCallerIdentity, snapshotCallerAuthorization } from '../../../../src/dispatch/caller-identity.js';
@@ -48,6 +48,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, seedGateEvidence } from '../../../../tools/test-helpers/trusted-context.js';
+import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settle-in-commit';
@@ -101,9 +102,12 @@ const WORKFLOW_ID = twoTaskCapsule().identity.workflowId;
 let stateDir: string;
 let store: EventStore;
 let phaseAttemptId: string;
+/** The scope that each seeded capsule pins: a temp checkout with no config, so its digest matches. */
+let scope: CapsuleScope;
 
+/** The wiring of one call. The observer of a claimed worktree finds each claimed path in the pinned scope. */
 function wiring(): DispatchContext {
-  return { stateDir, eventStore: store, enableTelemetry: false };
+  return { stateDir, eventStore: store, enableTelemetry: false, treeObserver: inScopeObserver(scope) };
 }
 
 /** A caller with the capabilities of the composed leaves. */
@@ -365,9 +369,10 @@ beforeEach(async () => {
   store = new EventStore(stateDir);
   await store.initialize();
   phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
+  scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
   await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId, worktreePath: worktreeOf(VERIFY) });
   await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId, worktreePath: worktreeOf(SECOND) });
-  const capsule = twoTaskCapsule();
+  const capsule = withScope(twoTaskCapsule(), scope);
   await runWithDispatchContext(correlation(), () =>
     commitPreparedCapsule(wiring(), {
       streamId: STREAM,

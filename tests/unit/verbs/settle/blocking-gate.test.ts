@@ -17,7 +17,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
-import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import {
   baseValidCapsule,
   baseValidDefinition,
@@ -46,6 +46,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
+import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 
 const STREAM = 'feat-settle-blocking-gate';
 const CAPSULE_VERSION = 9;
@@ -56,9 +57,12 @@ const OK = 'node -e ""';
 let stateDir: string;
 let store: EventStore;
 const scratchDirs: string[] = [];
+/** The scope that each seeded capsule pins: a temp checkout with no config, so its digest matches. */
+let scope: CapsuleScope;
 
+/** The wiring of one call. The observer of a claimed worktree finds each claimed path in the pinned scope. */
 function wiring(): DispatchContext {
-  return { stateDir, eventStore: store, enableTelemetry: false };
+  return { stateDir, eventStore: store, enableTelemetry: false, treeObserver: inScopeObserver(scope) };
 }
 
 function correlation(): ReturnType<typeof mintDispatchContext> {
@@ -126,7 +130,7 @@ async function seedPrepared(capsule: ExarchosCapsuleV1): Promise<void> {
       operationId: `seed:${capsule.identity.capsuleVersion}`,
       requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
       workflowType: 'feature',
-      capsule,
+      capsule: withScope(capsule, scope),
       definition: WorkflowDefinitionV1Schema.parse(baseValidDefinition()),
     }),
   );
@@ -157,6 +161,7 @@ beforeEach(async () => {
   store = new EventStore(stateDir);
   await store.initialize();
   await seedActivePhaseAttempt(store, STREAM);
+  scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
   await seedPrepared(mediumTierCapsule());
 });
 

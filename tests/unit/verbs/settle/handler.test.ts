@@ -21,7 +21,7 @@ import { mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
-import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import {
   baseValidCapsule,
   baseValidDefinition,
@@ -109,6 +109,7 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, seedGateEvidence } from '../../../../tools/test-helpers/trusted-context.js';
+import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 
@@ -134,9 +135,12 @@ let store: EventStore;
 let phaseAttemptId: string;
 /** Blobs in custody once the base capsule is prepared, before any settlement. */
 let seededBlobs: number;
+/** The scope that each seeded capsule pins: a temp checkout with no config, so its digest matches. */
+let scope: CapsuleScope;
 
+/** The wiring of one call. The observer of a claimed worktree finds each claimed path in the pinned scope. */
 function wiring(): DispatchContext {
-  return { stateDir, eventStore: store, enableTelemetry: false };
+  return { stateDir, eventStore: store, enableTelemetry: false, treeObserver: inScopeObserver(scope) };
 }
 
 function correlation(): ReturnType<typeof mintDispatchContext> {
@@ -215,7 +219,7 @@ async function seedPassingStaticAnalysis(taskId: string): Promise<void> {
   await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId, worktreePath: worktreeOf(taskId) });
 }
 
-/** Record `capsule` as prepared, through the production commit. */
+/** Record `capsule` as prepared, through the production commit, with the scope terms of the case. */
 async function seedPrepared(
   capsule: ExarchosCapsuleV1 = baseValidCapsule(),
   definition: unknown = baseValidDefinition(),
@@ -226,7 +230,7 @@ async function seedPrepared(
       operationId: `seed:${capsule.identity.capsuleVersion}`,
       requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
       workflowType: 'feature',
-      capsule,
+      capsule: withScope(capsule, scope),
       definition: WorkflowDefinitionV1Schema.parse(definition),
     }),
   );
@@ -253,6 +257,7 @@ async function openSeededStore(): Promise<void> {
   store = new EventStore(stateDir);
   await store.initialize();
   phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
+  scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
   await seedPassingStaticAnalysis('task-verify');
   await seedPrepared();
   seededBlobs = await bundleBlobCount();
@@ -433,7 +438,7 @@ describe('settle — the adjudication endpoint', () => {
 
     it('Settle_ASubmittedCapsuleThatIsTheRecordedOne_Settles', async () => {
       const receipt = receiptOf(
-        await settle({ featureId: STREAM, capsule: baseValidCapsule(), batchId: 'batch-inline', claims: [passingClaim()] }),
+        await settle({ featureId: STREAM, capsule: withScope(baseValidCapsule(), scope), batchId: 'batch-inline', claims: [passingClaim()] }),
       );
       expect(receipt.outcome).toBe('settled');
     });

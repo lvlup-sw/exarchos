@@ -34,6 +34,7 @@ import type { ClaimedTreeObservation, TreeObserver } from '../../../../src/utils
 import { ACTION_HANDLERS } from '../../../../src/verbs/composite.js';
 import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js';
 import type { ExecuteIntentDeps, LeafHandler } from '../../../../src/verbs/execute/executor.js';
+import { configDigestAt } from '../../../../src/verbs/prepare/prepare-scope.js';
 import { commitPreparedCapsule } from '../../../../src/verbs/prepare/prepared-record.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
 import { claimScopeOf, type ClaimedTree, type ScopeTerms } from '../../../../src/verbs/settle/settle-scope.js';
@@ -44,7 +45,7 @@ import type { ArtifactId } from '../../../../src/workflow/admission/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
-import { inScopeObserver } from '../../../helpers/scoped-capsule.js';
+import { inScopeObserver, withScope } from '../../../helpers/scoped-capsule.js';
 import { scopedRepository } from '../../../helpers/scoped-repository.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
@@ -367,7 +368,7 @@ beforeEach(async () => {
   store = new EventStore(stateDir);
   await store.initialize();
   phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
-  await seedPrepared(scopedCapsule());
+  await seedPrepared(withScope(scopedCapsule(), { ...SCOPE, configDigest: await configDigestAt(SCOPE.checkout) }));
 });
 
 afterEach(async () => {
