@@ -52,17 +52,20 @@ pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
 
 This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
 
-## CRITICAL: Base Verification (MANDATORY)
+## CRITICAL: Base Step (MANDATORY)
 
-Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main`. On native-isolation runtimes the worktree base depends on `worktree.baseRef` (see the delegation skill); this assert is the version-independent safety net that halts loud if the base is wrong — so you never build on a base missing prerequisite in-branch commits.
+Before making ANY file changes, start a branch of your own at the base commit of the task, then check that HEAD holds that commit:
 
 ```bash
-git merge-base --is-ancestor "[integration-tip]" HEAD \
+git switch -c "[own-branch]" "[baseCommit]"
+git merge-base --is-ancestor "[baseCommit]" HEAD \
   && echo "BASE OK" \
-  || { echo "ERROR: worktree base is not a descendant of the integration tip — halting"; exit 1; }
+  || { echo "ERROR: HEAD does not hold the base commit — halting"; exit 1; }
 ```
 
-`[integration-tip]` is the workflow's integration branch (or its tip SHA), supplied by the orchestrator at dispatch. If this fails, STOP and report — do NOT rebase or reset to self-heal; the orchestrator owns base correction.
+`[baseCommit]` is the `baseCommit` of the task in the capsule (`settlementContract.taskVerification[taskId].baseCommit`), supplied by the orchestrator at dispatch. On the primitive path it is the tip commit of the integration branch at dispatch. `[own-branch]` is a new branch for this task, never the integration branch; report it as `branch`. The switch gives the base on every runtime, also when native isolation made the worktree from another commit.
+
+If the switch fails, or the check fails after it, STOP and report it. Settlement refuses a worktree whose HEAD does not hold `[baseCommit]` (`base-not-held`). It also refuses a worktree on the integration branch, and the checkout or the primary worktree of the repository: each task runs in a linked worktree of its own.
 
 ## Task Description
 [Full task description from implementation plan - never reference external files]
@@ -409,17 +412,18 @@ pwd | grep -q "\.worktrees" || { echo "ERROR: Not in worktree!"; exit 1; }
 
 This check prevents accidental modifications to the main project root, which would cause merge conflicts with other parallel tasks.
 
-## CRITICAL: Base Verification (MANDATORY) (Example)
+## CRITICAL: Base Step (MANDATORY) (Example)
 
-Before making ANY file changes, verify your worktree is based on the **integration tip**, not a stale `main`:
+Before making ANY file changes, start a branch of your own at the base commit of the task, then check that HEAD holds that commit:
 
 ```bash
-git merge-base --is-ancestor "feat/registration" HEAD \
+git switch -c "task/task-003" "4f1c2e9a7b3d5c8e0f6a1b2c3d4e5f6a7b8c9d0e"
+git merge-base --is-ancestor "4f1c2e9a7b3d5c8e0f6a1b2c3d4e5f6a7b8c9d0e" HEAD \
   && echo "BASE OK" \
-  || { echo "ERROR: worktree base is not a descendant of the integration tip — halting"; exit 1; }
+  || { echo "ERROR: HEAD does not hold the base commit — halting"; exit 1; }
 ```
 
-If this fails, STOP and report — do NOT rebase or reset to self-heal; the orchestrator owns base correction.
+If the switch fails, or the check fails after it, STOP and report it. Report `task/task-003` as `branch`.
 
 ## Task Description
 Implement email validation for user registration. The validator should:

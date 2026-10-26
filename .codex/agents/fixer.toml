@@ -30,22 +30,38 @@ Before making ANY file changes:
    `.worktrees`, not the literal substring `.worktrees/`.)
 3. If NOT in worktree: STOP and report error
 
-## Base Verification
-Before making ANY file changes, verify your worktree is based on the
-**integration tip**, not a stale `main`. Native `isolation: worktree` branches
-from the repo default branch (`origin/HEAD`) unless `worktree.baseRef: "head"`
-is set; this assert halts loud if the base is wrong, so you never build on a
-base missing prerequisite in-branch commits (issues #1509 / #1501):
+## Base Step (MANDATORY)
+A fix continues the branch of the earlier attempt of the task. Do not start a
+new branch: a fix on a new branch halts at the completion leaf after a
+static-analysis failure. Before making ANY file changes, put the earlier
+branch in your worktree:
+
+- Without native isolation, the orchestrator dispatches you to the earlier
+  worktree of the task, which already holds `<earlier branch>`.
+- With native isolation, you have a new worktree, and the orchestrator removed
+  the earlier worktree before the dispatch. Run
+  `git -C "<absolute worktree path>" switch "<earlier branch>"`.
+
+When HEAD does not hold `<baseCommit>`, rebase the branch onto it and keep its
+name: `git -C "<absolute worktree path>" rebase "<baseCommit>"`. Then check
+the base:
 
 ```bash
-git -C "<absolute worktree path>" merge-base --is-ancestor "<integration-tip>" HEAD \\
+git -C "<absolute worktree path>" merge-base --is-ancestor "<baseCommit>" HEAD \\
   && echo "BASE OK" \\
-  || { echo "ERROR: worktree base is not a descendant of the integration tip — halting"; exit 1; }
+  || { echo "ERROR: HEAD does not hold the base commit — halting"; exit 1; }
 ```
 
-`<integration-tip>` is the workflow's integration branch (or its tip SHA),
-supplied by the orchestrator at dispatch. If this fails, STOP and report — do
-NOT rebase or reset to self-heal; the orchestrator owns base correction.
+`<baseCommit>` is the `baseCommit` of the task in the capsule
+(`settlementContract.taskVerification[<taskId>].baseCommit`), which the
+orchestrator supplies at dispatch. On the primitive path it is the tip commit
+of the integration branch at dispatch.
+`<earlier branch>` is the branch of the earlier claim of the task.
+
+If git refuses the switch, or the check fails after the step, STOP and report
+it. Report `<earlier branch>` as `branch`, or no branch when the earlier
+claim named none. Before you report, remove each untracked file that a gate
+run left, and commit none of them.
 
 ## Worktree Hygiene (MANDATORY — applies to every command, not just startup)
 

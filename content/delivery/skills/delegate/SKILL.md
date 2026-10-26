@@ -81,15 +81,18 @@ Before dispatching, query decision runbooks to classify the work and select the 
 ### Step 1 — Compile the batch
 
 ```typescript
-exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
+exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<absolute path of the worktree that holds baseRef>" })
 ```
 
 `prepare` reads the workflow's plan and compiles its **ready frontier** — every task not yet complete whose `blockedBy` tasks are all complete — into one capsule, in custody, pinned by digest, and announces each of them (`task.assigned`) in the same commit as its record — no call precedes it. Keep the receipt: `capsuleVersion` is what `settle` is keyed by, and the `capsule` is what every subagent's packet is built from.
 
+`repoRoot` is required, and it must be an absolute path. Pass the tree that holds `baseRef`: the worktree where the integration branch is checked out. `prepare` reads the repository, the config and the invariant catalogs from that checkout, never from the directory of the server. It pins the repository and the checkout in the capsule (`settlementContract.scope`), and the commit of `baseRef` for each task (`baseCommit`).
+
 | In the capsule | What you read off it |
 |----------------|----------------------|
 | `graph.tasks[]`, `graph.dependencies[]`, `graph.joins[]` | The batch, and the order it must run in — a `dependencies` edge `{ from, to }` means `to` waits for `from` |
-| `settlementContract.taskVerification[taskId]` | The task's `riskTier` and `boundaryTouching`, frozen from the plan — the model tier, and the gates settlement will run — and its `baseRef`, the integration branch the task's worktree forks from and the kill probe measures its diff from |
+| `settlementContract.taskVerification[taskId]` | The task's `riskTier` and `boundaryTouching`, frozen from the plan — the model tier, and the gates settlement will run — its `baseRef`, the integration branch the kill probe measures its diff from, and its `baseCommit`, the commit of `baseRef` at `prepare`, where the task's worktree starts |
+| `settlementContract.scope` | The repository (`repository`, its git common dir), the checkout that `prepare` read (`checkout`) and the digest of the config files of that checkout (`configDigest`). Settlement refuses a claimed worktree outside this scope, and a config that changed after `prepare` |
 | `knowledge.patterns[]` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
 | `contracts.taskResults[taskId]` | What the task must report back: `worktreePath` (required), `branch`, and its provenance (`files`, `implements`, `tests`, `acceptanceTestRef`) |
 | `contracts.deviationEnvelope` | What a worker may propose when a capsule assumption turns out wrong (`invalidated-assumption`, `missing-context`) — instead of guessing — and which of those kinds are material (`materialDeviationKinds`: `invalidated-assumption`), so that accepting one revises the design |
@@ -107,15 +110,19 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })
 | `NOTHING_TO_PREPARE` | Every planned task is complete | Transition to review |
 | `NO_READY_TASKS` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
 | `BASE_UNRESOLVED` | The workflow records no integration branch (or not a safe ref name), so no task has a base | `exarchos_workflow({ action: "update", featureId: "<featureId>", updates: { "synthesis.integrationBranch": "<branch the tasks fork from>" } })`, then `prepare` again |
+| `BASE_UNRESOLVED` | The repository of the checkout holds no commit of the integration branch, or a completed blocker of a batch task landed on a commit that the base does not hold (both named in the message) | Create the branch, or pass a `repoRoot` that holds it. Land the blocker, then `prepare` again. A blocker that landed by a squash or a rebase outside `serialize_merge` needs a recorded `merge.executed` row (`references/troubleshooting.md`) |
+| `SCOPE_UNRESOLVED` | `repoRoot` is not in a git work tree or is in another repository than the latest capsule, the config of the checkout does not load, a registered catalog does not resolve, or the config does not make `check_static_analysis` blocking (named in the message) | Correct the cause that the message names, then `prepare` again (`references/troubleshooting.md`) |
 | `UNKNOWN_DEPENDENCY`, `INVALID_TASK_ID`, `INVALID_TASK_STAMP`, `CAPSULE_UNSOUND` | The plan cannot be expressed as a batch | Fix the plan, `prepare` again |
 | `RUNTIME_UNFIT` | This runtime lacks a capability settlement needs to verify the batch (named in the message) | Stop; do not dispatch — the batch could never settle here |
 | `REVISION_UNREADABLE` | The capsule would state the accepted changes of a design revision, and the settlement bundle that holds them (named in the message) cannot be read, or lacks a deviation or an accepted decision the revision names | Restore the bundle in the run-bundle store, then `prepare` again. There is no bypass: the workflow stops here until the bundle is restored |
 
-A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (`identity.designVersion`, `design-v<N>`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
+A retry with unchanged inputs returns the recorded capsule; a changed plan, a changed integration branch or base commit, another checkout, an edit of a config file or of the design record, or a design revision recorded since compiles the next version, stamped with the design version it was compiled at (`identity.designVersion`, `design-v<N>`). **Prepare before every wave**, never once per workflow: a capsule holds only the ready frontier, so the second wave's capsule is compiled once the first wave has settled.
 
 ### Worktrees
 
-Each task works in its own worktree, materialized by the host under native isolation or laid out with `setup_worktree` (the canonical `.worktrees/<taskId>-<taskName>` path). Under native isolation, confirm each agent's working directory is under `.worktrees/` **before any agent edits files** (its first reported `pwd`); an agent in the shared checkout is stopped, given a worktree created by hand (`git worktree add -b <task-branch> .worktrees/<taskId>-<taskName> <baseRef>`, the task's `baseRef` from the capsule), and only then allowed to edit. The worktree path is what the task's claim will carry, and what settlement verifies against. Fork every worktree from the task's `baseRef`: settlement's kill probe measures the task's diff from that branch, and the claim cannot name another one.
+Each task works in a linked worktree of its own, materialized by the host under native isolation or laid out with `setup_worktree` (the canonical `.worktrees/<taskId>-<taskName>` path). A task never runs in the checkout that `prepare` read or in the primary worktree of the repository. `settle` and `task_complete` refuse both (`the-checkout`), because each task of a prepared workflow runs in its own linked worktree. Under native isolation, confirm each agent's working directory is under `.worktrees/` **before any agent edits files** (its first reported `pwd`); an agent in the shared checkout is stopped, given a worktree created by hand (`git worktree add -b <task-branch> .worktrees/<taskId>-<taskName> <baseCommit>`, the task's `baseCommit` from the capsule), and only then allowed to edit. The worktree path is what the task's claim will carry, and what settlement verifies against.
+
+The worker starts from `<baseCommit>`. After its entry checks and before any file change, an implementer or a scaffolder runs `git switch -c <own branch> <baseCommit>` (the base step of its agent definition), so its worktree holds the base on each runtime. A fixer continues the earlier branch of its task (Fix Failed Tasks, below). Settlement refuses a worktree whose HEAD does not hold `<baseCommit>` (`base-not-held`) and a worktree on `baseRef` (`on-the-base-branch`). The kill probe measures the task's diff from `baseRef`. Leave each worktree clean: settlement refuses a worktree whose `git status --porcelain` is not empty (`uncommitted-changes`). A linked `node_modules` needs the ignore rule `node_modules`, without a trailing slash.
 
 ### Task Extraction
 
@@ -160,7 +167,7 @@ For each task:
 
 Every packet carries, from the capsule, verbatim:
 
-1. **The task's verification terms** — its `riskTier` and `boundaryTouching`, and the `knowledge.patterns[]` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony.
+1. **The task's verification terms** — its `riskTier` and `boundaryTouching`, and the `knowledge.patterns[]` statement for that tier. The worker then knows which gates settlement runs on its worktree (a low-tier task: static analysis; a medium one: the test-adequacy kill probe too; a boundary-touching one: contract drift beside them), and writes tests that can actually fail rather than performing ceremony. The terms also give the base: the prompt names `<baseCommit>`, the `baseCommit` of the task, in the place of the integration tip, and the worker starts its own branch there.
 2. **The result contract** — the `contracts.taskResults[taskId]` fields. The worker's completion report is the claim: `worktreePath`, `branch`, `files`, `implements`, `tests`. No evidence field exists to fill: the evidence is what settlement records when it runs the gates. A worker that did not complete its task reports a status and a reason, and no result fields (Build the batch, Step 3).
 3. **The authority** — `authority.invariants[]` and `authority.escalationBoundaries[]`, and the **deviation envelope**: if a capsule assumption turns out wrong, the worker reports a deviation (`deviationKind` from `contracts.deviationEnvelope.allowedDeviationKinds`, a statement of what did not hold, and the change it proposes) instead of working around it silently. A deviation holds the batch for a human; a silent workaround is refused at settlement or, worse, accepted.
 4. **The delegated decisions** — `authority.delegatedDecisions[]`, each with its `id` and its statement. The worker makes these choices and needs no approval for them. It can record a choice in its report as a rationale that names the `id`. A rationale cannot name another id: a choice outside the delegated decisions goes in a deviation.
@@ -323,7 +330,7 @@ Finished work is not reopened — plan its rework as a new task, and name that n
 
 **A worker whose own task rests on a wrong assumption reports the task as blocked.** The claim for the task has the status `blocked` and a reason, and the deviation names the task in `affectedTasks`. A deviation can name a task of its own batch only when the claim reports that task as `failed`, `blocked` or `skipped`. Such a claim returns no result, so the deviation changes work that is still to do. The decision round leaves that task unresolved (see `deviation-pending`, below).
 
-**Verify worktree state** before settling — a dirty `git status` in a worktree is work the claim does not name.
+**Verify worktree state** before settling — a dirty `git status` in a worktree is work the claim does not name. Settlement refuses such a worktree (`uncommitted-changes`). Commit the files of the task, remove each file that a gate run left, and commit none of those.
 
 ### Settle
 
@@ -346,7 +353,7 @@ exarchos_orchestrate({
 - A retry from another session or from the CLI runs in another server process. It does not wait. It can run the gates of a task again, on the same worktree, while the first call still runs them.
 - Do not edit, commit or dispatch work in a task worktree until a verdict returns. The probe of each task reverts the task source in its worktree, and then writes its snapshot back over the tracked files. A change in that window is lost, and a commit in that window holds the reverted source.
 
-Settlement first reads each claim and each deviation against the capsule. A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing at its read. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: `findings` lists each fault, and `verification[]` names the segment of each task (`operationId`, `outcome`, `failedLeaf`).
+Settlement first reads each claim and each deviation against the capsule. When the capsule pins a scope, it also observes with git the worktree of each completed claim, before any gate runs: a worktree outside the scope gives the finding `worktree-out-of-scope` for its task (below). A finding that makes the batch stale, rejected or held stops the batch, and settlement then verifies nothing at its read. If no finding stops the batch, settlement runs the verification of each completed claim that has no finding, through the executor. A claim that reports a status does not stop the batch, and its task gets no verification. Settlement does not run a task again when the stream already shows that task complete. The receipt gives every reason in one call: `findings` lists each fault, and `verification[]` names the segment of each task (`operationId`, `outcome`, `failedLeaf`).
 
 A receipt over its response budget comes back as a summary. The summary always keeps the round, `designRevision`, each pending deviation (id and kind) and each decision (id and decision). Under `corrective-capsule` it also keeps the count of the unresolved tasks (`counts.unresolved`). It holds the first page of findings (`firstPage`, without the messages) and at most four `verification[]` outcomes, failures first. Each failure has its `operationId` and `failedLeaf`. It holds each unresolved task as its `taskId` and `cause`. To fit the budget, the summary drops the findings page first and the outcomes second. Then it drops unresolved entries from the end, and `counts.unresolvedOmitted` says how many. The settlement bundle that `bundleRefs` names keeps the full findings and outcomes.
 
@@ -380,6 +387,7 @@ Read `unresolved`. It has one entry for each task to correct, with the `taskId` 
 | `cause` | What it says | Before the correction |
 |---------|--------------|-----------------------|
 | `verification-failed` | A gate of the task halted. The entry also has the `failedLeaf` and the `operationId` of the segment | Dispatch a fixer to the worktree of the task (Fix Failed Tasks, below) |
+| `worktree-out-of-scope` | The claimed worktree fails a scope rule of the capsule, so no gate ran. The finding message names the rule (`unobservable`, `not-a-worktree-root`, `other-repository`, `the-checkout`, `on-the-base-branch`, `other-branch`, `base-not-held`, `uncommitted-changes` or `shared-worktree`) and the recovery | Do what the message says: fork a worktree of its own from `baseRef` at `baseCommit`, or commit the listed files of the task and remove each file that a gate run left. `references/troubleshooting.md` gives each rule |
 | `task-failed` | The claim reported the task as `failed` | Dispatch a fixer, or dispatch the task again |
 | `task-blocked` | The claim reported the task as `blocked` | Remove the block. If a deviation named the task, the receipt can carry `designRevision` (below) |
 | `task-skipped` | The claim reported the task as `skipped` | Dispatch the task |
@@ -499,13 +507,13 @@ Say that a revision that names a task commits while the segment of that task run
 - `CAPSULE_INVALID`: a submitted capsule does not satisfy the capsule contract.
 - `CAPSULE_NOT_PREPARED`: no `prepare` call recorded this capsule version here.
 - `CAPSULE_DIGEST_MISMATCH`: a submitted capsule is not the recorded one.
-- `CAPSULE_UNRESOLVED`: settlement cannot apply the recorded capsule. If a task has no verification terms, `prepare` again.
+- `CAPSULE_UNRESOLVED`: settlement cannot apply the recorded capsule. If a task has no verification terms, `prepare` again. A batch that needs a segment gets it for two more causes. The capsule pins no scope, or a task of the batch has no `baseCommit`: `prepare` again, then claim the tasks in a new batch. The config files of the checkout changed after `prepare`: `prepare` again with the same `repoRoot`, then claim the tasks in a new batch. On a decision round a new `prepare` does not help, because a held batch stays on its capsule version, so the message names other routes (`references/troubleshooting.md`).
 - `OPERATION_DIGEST_MISMATCH`: the batch id has a verdict for a different request, or a different decision stands. Use a new batch id, or send the decision that stands. A batch with no verdict whose segments an earlier build ran gets this code too, because this build adds `capsuleVersion` to the request of each segment. Settle the claims of such a batch under a new batch id.
 - `CONCURRENCY_CONFLICT`: the reads that decide the verdict changed before each of three commits, so the call recorded no verdict. Settle the same batch id again. The retry replays the segments that verified tasks and runs none of their gates again.
 - `BATCH_NOT_HELD`: the decisions name a batch that has no verdict, or a batch that is not held. No deviation waits for a decision.
 - `DECISION_INCOMPLETE`: the decision answers fewer deviations than the batch waits on.
 - `STATE_SYNC_FAILED`: the write of the state document failed, and the facts on the stream stand. Run `exarchos_workflow reconcile`, then settle the same batch again. If the refusal comes back, stop and report it to a person. A version gap in the stored document makes each retry fail. On a retry of a batch that has a verdict, `error.settlementReceipt` holds that verdict. Over the receipt budget, it holds the capped summary.
-- `INTENT_SEGMENT_FAILED` or `INTENT_EMISSION_CONTRACT_VIOLATED`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The completion leaf halts so when `task_complete` refuses the task, or after eight sequence conflicts in a row. That halt fails the call only when the batch still verifies at the read after the segments. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. `task_complete` then refuses with `GATE_NOT_PASSED`. That is such a halt, and a new batch id gets it again.
+- `INTENT_SEGMENT_FAILED` or `INTENT_EMISSION_CONTRACT_VIOLATED`: the segment of a task halted, and the halt is not a gate verdict. The leaf is not a gate, or the leaf broke its contract. The completion leaf halts so when `task_complete` refuses the task, or after eight sequence conflicts in a row. That halt fails the call only when the batch still verifies at the read after the segments. The message names the task and the leaf. The segment record stays, so a retry of the same batch id gets the same halt, unless the stream then records the task complete. Correct the cause, then settle the claims once under a new batch id. If the same halt comes back, stop and report it to a person. A static-analysis gate that skips (no toolchain) does not halt the segment. `task_complete` then refuses with `GATE_NOT_PASSED`. That is such a halt, and a new batch id gets it again. A commit or a switch of the branch in the worktree while the segment runs also makes `task_complete` refuse (`other-tree`, `tree-out-of-scope`): leave each task worktree alone until a verdict returns.
 - `INVALID_INPUT`: settlement cannot build the segment from a claim (typically no `worktreePath`), a submitted batch carries no claim, or a decision carries claims or names no pending deviation. A claim that breaks a rule of its `status`, `reason` or `rationale` gets this code too (Build the batch, above). Correct the request and use the **same** batch id.
 
 <!-- requires:team:agent-teams -->
@@ -541,7 +549,9 @@ Dispatch a fresh fixer agent using the runtime's native spawn primitive, carryin
 **Optimization (opt-in):** On runtimes with native session resume (e.g. Claude Code with an `agentId` in workflow state), you may resume the original agent instead so it retains its implementer context. Fresh dispatch above remains correct and is the canonical default.
 <!-- /requires -->
 
-After the fix completes, claim the fixed task in a new batch on the same capsule. Do not run a gate chain by hand: the new `settle` call runs it.
+The fix continues the earlier branch of the task, and it does not start a new branch. Without native isolation, dispatch the fixer to the earlier worktree of the task. With native isolation, commit the listed files of the task, remove each file that a gate run left, and remove the earlier worktree before the dispatch, so the fixer can switch its own worktree to the earlier branch. `references/fix-mode.md` gives the recipe of each runtime, and the recovery of a fix on a new branch.
+
+After the fix completes, claim the fixed task in a new batch on the same capsule, with the worktree of the fixer and the same `branch` as the earlier claim. Do not run a gate chain by hand: the new `settle` call runs it.
 
 ---
 
@@ -688,11 +698,11 @@ first.
 
 ### Why this happens
 
-With the worktree base pinned to local HEAD (see prerequisite below), each
-subagent worktree is created at the integration branch's tip at dispatch time.
-When the orchestrator merges sibling worktrees serially, each merge moves the
-integration branch forward. A worktree that was dispatched against an older
-integration tip will fail the ancestry preflight when its turn comes.
+Each subagent worktree starts at the `baseCommit` of its task, the commit of
+the integration branch when `prepare` compiled the batch (the base step of the
+agent). When the orchestrator merges sibling worktrees serially, each merge
+moves the integration branch forward. A worktree that started at an older
+integration commit will fail the ancestry preflight when its turn comes.
 
 This is expected behavior under the current single-writer merge contract —
 preflight is fail-only on purpose so the operator stays in control.
@@ -701,9 +711,8 @@ preflight is fail-only on purpose so the operator stays in control.
 > **Prerequisite — pin the worktree base.** Native `isolation: worktree`
 > branches subagent worktrees from the repository's default branch
 > (`origin/HEAD` → `main`), **not** the integration tip, unless
-> `worktree.baseRef: "head"` is set in `.claude/settings.json`. Without the pin,
-> a subagent dispatched onto any stacked / non-`main` integration branch gets a
-> base missing every in-branch prerequisite commit.
+> `worktree.baseRef: "head"` is set in `.claude/settings.json`. Keep the pin,
+> so that a subagent worktree starts near its base.
 > `prepare_delegation` fails loud with this exact remediation when
 > `nativeIsolation` is requested and the pin is absent:
 >
@@ -714,9 +723,12 @@ preflight is fail-only on purpose so the operator stays in control.
 > Worktrees are a clean checkout, so only *committed* HEAD state propagates —
 > commit design / plan / research before dispatching.
 >
-> With the pin in place (and the implementer's own base assert as backstop),
-> operators no longer hand-prepend a `git reset --hard <integration-tip>` STEP 0
-> to each dispatch — base correctness is enforced by configuration + guard.
+> The pin is not the base guarantee. The base step of the agent gives the base
+> on each runtime: `git switch -c <own branch> <baseCommit>` for an implementer
+> or a scaffolder, and the earlier branch of the task for a fixer. The
+> `base-not-held` rule of settlement refuses a worktree whose HEAD does not hold
+> `<baseCommit>`. So operators do not hand-prepend a
+> `git reset --hard <integration-tip>` STEP 0 to a dispatch.
 <!-- /requires -->
 
 ### Recovery procedure
@@ -830,9 +842,9 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 
 `prepare` compiles feature workflows. When it refuses `WORKFLOW_TYPE_UNSUPPORTED` — a debug or overhaul delegation — the per-task governance calls are made by hand, in this order:
 
-1. **Readiness** — `exarchos_orchestrate({ action: "prepare_delegation", featureId: "<featureId>", planPath: "docs/specs/<the-decomposition-spec>.md", tasks: [...] })`. It announces the plan's tasks (`task.assigned`) itself before reading readiness, so no append precedes it. Pass `planPath` so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp; `ready: false` stops the wave. It returns `implementerPromptTemplate`, a `verificationNotes` map keyed by `"<riskTier>|<boundaryTouching>"`, and `taskClassifications[i].verificationNoteKey` — splice the task's note into the template before dispatching. It also returns `baseBranch`, the integration branch the tasks fork from: **record it** for step 3.
+1. **Readiness** — `exarchos_orchestrate({ action: "prepare_delegation", featureId: "<featureId>", planPath: "docs/specs/<the-decomposition-spec>.md", repoRoot: "<absolute path of the integration worktree>", tasks: [...] })`. It announces the plan's tasks (`task.assigned`) itself before reading readiness, so no append precedes it. Pass `planPath` so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp; `ready: false` stops the wave. Pass `repoRoot` as an absolute path: the branch read, the protected-branch check, the ancestry preflight, the stash probe and a relative `planPath` then read that tree. Without `repoRoot`, it reads the directory of the server and returns a warning. It returns `implementerPromptTemplate`, a `verificationNotes` map keyed by `"<riskTier>|<boundaryTouching>"`, and `taskClassifications[i].verificationNoteKey` — splice the task's note into the template before dispatching. It also returns `baseBranch`, the integration branch the tasks fork from: **record it** for step 3.
 2. **Dispatch and collect** as in Steps 2 and 3, with the note in place of the capsule's terms.
-3. **Per completed task**, run the task-completion runbook: `exarchos_orchestrate({ action: "runbook", id: "task-completion" })` and execute the returned steps in order. Stop on gate failure. Bind the `<baseRef>` template variable to the `baseBranch` recorded in step 1: the kill probe blocks with `base-missing` without it. Bind `<taskId>` and `<worktreePath>` to the task: `check_static_analysis` runs per task in its worktree, with `taskId`, and `task_complete` accepts only a passing run for the same task. If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`. Its terminal step records the completion with the report's provenance:
+3. **Per completed task**, run the task-completion runbook: `exarchos_orchestrate({ action: "runbook", id: "task-completion" })` and execute the returned steps in order. Stop on gate failure. Bind the `<baseRef>` template variable to the `baseBranch` recorded in step 1: the kill probe blocks with `base-missing` without it. Bind `<taskId>` and `<worktreePath>` to the task: `check_static_analysis` runs per task in its worktree, with `taskId` and `repoRoot`, and `task_complete` accepts only a passing run for the same task, on the tree that `result.worktreePath` names, at its current commit. A run with `taskId` and no `repoRoot` scans nothing (`repo-root-missing`). If runbook unavailable, use `describe` to retrieve gate schemas: `exarchos_orchestrate({ action: "describe", actions: ["check_test_adequacy", "check_static_analysis", "task_complete"] })`. Its terminal step records the completion with the report's provenance:
 
 ```typescript
 exarchos_orchestrate({
@@ -841,6 +853,7 @@ exarchos_orchestrate({
   streamId: "<featureId>",
   result: {
     summary: "<task summary>",
+    worktreePath: "<absolute worktree path of the task>",
     implements: ["DR-1", "DR-3"],
     tests: [{ name: "testName", file: "path/to/test.ts" }],
     files: ["path/to/impl.ts", "path/to/test.ts"]

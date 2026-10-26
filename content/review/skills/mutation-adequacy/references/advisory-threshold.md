@@ -34,10 +34,13 @@ The effective threshold is resolved per call, override beating config beating de
 ## Raising severity to blocking
 
 Severity is separate from the threshold. The dimension is advisory (warning) by default, applied via
-the ladder-gate severity mechanism (`resolveGateSeverity` / `applyLadderGateSeverity`). An
-explicit `review.gates['mutation-adequacy']` override in `.exarchos.yml` can raise it to blocking for
-a project that wants mutation adequacy enforced — the same mechanism that governs the other ladder
-gates. Honor the resolved severity; never hardcode "advisory" or "blocking" in the skill.
+the severity mechanism of every gate action: `resolveGateSeverity` resolves the severity, and the
+`withGateSeverity` wrapper applies it to the result. An explicit `review.gates['mutation-adequacy']`
+override in `.exarchos.yml` can raise it to blocking for a project that wants mutation adequacy
+enforced — the same mechanism that governs the other gates. For this gate, `disabled` acts as
+`warning`: the gate still runs, because it records its own `mutation.executed` and `gate.executed`
+rows, and a failing verdict does not block. Honor the resolved severity; never hardcode "advisory"
+or "blocking" in the skill.
 
 ## Calibrating from the score trend (forward-looking)
 

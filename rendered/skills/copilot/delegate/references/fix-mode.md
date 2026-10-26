@@ -42,11 +42,30 @@ Or auto-invoked after review failures.
 
    
 
+   Put each fixer on the earlier branch of its task first (see "The Fixer Continues the Earlier Branch", below).
+
 5. **Re-review after fixes**:
    After all fix tasks complete, auto-invoke review phase:
    ```typescript
    Skill({ skill: "exarchos:review", args: "<state-file>" })
    ```
+
+## The Fixer Continues the Earlier Branch
+
+A fix continues the branch of the earlier attempt of its task. This applies to a fix after a review failure and to a fix of a task that settlement left unresolved. A fixer does not start a new branch: the static-analysis evidence of a task keys on its branch, and a failing record on another branch stays active, so `task_complete` refuses the fix.
+
+The recipe for each runtime:
+
+1. **Without native isolation**, dispatch the fixer to the earlier worktree of the task. It works there, on the earlier branch.
+2. **With native isolation**, the fixer gets a new worktree of its own. Git refuses to switch that worktree to a branch that the earlier worktree holds, and git refuses to remove a worktree with changes. So, before the dispatch:
+   - Commit the listed files of the task in the earlier worktree, and remove each file that a gate run left there.
+   - Run `git worktree remove <earlier path>`.
+   - Tell the fixer to run `git switch <earlier branch>` in its own worktree as its base step.
+3. In both cases, the fixer rebases the branch onto `<baseCommit>` when HEAD does not hold it, and it keeps the branch name. The base step of the fixer agent does this, then checks `git merge-base --is-ancestor <baseCommit> HEAD`.
+4. Before its claim, the fixer removes each untracked file that a gate run of the earlier attempt left, and it commits none of them. Settlement refuses a worktree whose status is not empty (`uncommitted-changes`).
+5. The claim names the worktree of the fixer and the same `branch` as the earlier claim, or no branch when the earlier claim named none.
+
+**A fix on a new branch halts.** After a static-analysis failure, a fix on a new branch halts at the completion leaf, because the failing record of the earlier branch stays active. The recovery: run `check_static_analysis` with `taskId`, the earlier branch as `branch`, `repoRoot: 'auto'` and the `worktreePath` of the new tree. Then settle the claim under a new batch id.
 
 
 ### Gate Chain After Fix

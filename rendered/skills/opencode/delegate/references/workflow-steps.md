@@ -2,11 +2,13 @@
 
 ## Step 1: Prepare Environment
 
-Compile the batch first — `exarchos_orchestrate({ action: "prepare", featureId: "<featureId>" })` — and keep the `capsuleVersion`; the capsule's task graph is the wave. Then, for parallel tasks, create worktrees:
+Compile the batch first — `exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<absolute path of the worktree that holds the integration branch>" })` — and keep the `capsuleVersion`; the capsule's task graph is the wave. `repoRoot` is required and absolute. Then, for parallel tasks, create one linked worktree for each task, from the `baseCommit` of the task in the capsule:
 ```bash
-git worktree add .worktrees/task-001 feature/task-001
+git worktree add -b task/task-001 .worktrees/task-001 <baseCommit>
 cd .worktrees/task-001 && npm install
 ```
+
+A task never runs in the checkout that `prepare` read or in the primary worktree of the repository: `settle` and `task_complete` refuse both. A linked `node_modules` needs the ignore rule `node_modules`, without a trailing slash, or the worktree is not clean.
 
 ## Step 2: Extract Task Details
 
@@ -157,7 +159,7 @@ A task that is not completed gets a claim with a status and a reason, and no fie
 
 **On `accepted-with-rationale`:** The batch is settled, and a claim records a delegated choice. The same gates ran. Continue as on `settled`.
 
-**On `corrective-capsule`:** The tasks that passed are complete. Read `unresolved`. Its `cause` says why each task is unresolved: a gate halted (`verification-failed`), or the claim reported the task as `failed`, `blocked` or `skipped`. Fix the task, remove the block, or dispatch the task. Then settle a new batch id on the same capsule, and claim only the unresolved tasks. If the receipt carries `designRevision`, call `prepare` first. Land each task of `acceptedTasks` before you create the worktree of a task that waits on it.
+**On `corrective-capsule`:** The tasks that passed are complete. Read `unresolved`. Its `cause` says why each task is unresolved: a gate halted (`verification-failed`), the claimed worktree is out of the scope of the capsule (`worktree-out-of-scope`, no gate ran), or the claim reported the task as `failed`, `blocked` or `skipped`. Fix the task, correct the worktree, remove the block, or dispatch the task. Then settle a new batch id on the same capsule, and claim only the unresolved tasks. If the receipt carries `designRevision`, call `prepare` first. Land each task of `acceptedTasks` before you create the worktree of a task that waits on it.
 
 **On `rejected`:** The request or a deviation is in error, and in this build settlement verified nothing at its read. A task that settlement verified before a read changed stays complete. A replayed receipt of an earlier build can name verified tasks (Step 3 of the skill). Read the findings, and correct the claim or the deviation. Then settle the corrected request under a new batch id on the same capsule.
 

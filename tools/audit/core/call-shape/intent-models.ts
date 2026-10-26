@@ -174,7 +174,7 @@ const DELEGATION: IntentModel = {
     { kind: 'site', ref: at('delegate', `${O}.runbook`, '**Dispatch strategy:**'), why: 'pre-dispatch decision runbook, prescribed before dispatching' },
     {
       kind: 'site',
-      ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>" })'),
+      ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>", repoRoot:'),
       why: 'compiles the batch into the capsule every packet is built from, and announces its tasks in the same commit — the announcement the skill used to make first is the compilation\'s now',
     },
     {
@@ -253,7 +253,7 @@ const DELEGATION: IntentModel = {
       extra: [
         {
           kind: 'site',
-          ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>" })'),
+          ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>", repoRoot:'),
           why: 'the same prepare call, made again after the stale verdict. It compiles under the design version that the later revision recorded',
         },
         {
@@ -308,7 +308,7 @@ const DELEGATION: IntentModel = {
         },
         {
           kind: 'site',
-          ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>" })'),
+          ref: at('delegate', `${O}.prepare`, 'action: "prepare", featureId: "<featureId>", repoRoot:'),
           why: 'the continuation: the same prepare call, made again after the revision. It compiles the ready tasks under the new design version and records the recompile in the commit of its record',
         },
         {

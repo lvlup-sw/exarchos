@@ -1329,7 +1329,7 @@
     <div class="card">
       <p class="card-kicker">Edge 4 &mdash; config severity and mode</p>
       <p style="font-size:13.5px">
-        <code>withConfigSeverity</code> turns a failure into a warning, or skips the gate entirely, per project config.
+        The <code>withGateSeverity</code> wrapper wraps every gate action of the registry. Per project config, it turns a failure into a warning, or it skips a disabled gate: the runner does not call the provider, and it still records the skip.
         The <code>audit</code> mode axis does the same at kind granularity for IMPLEMENT phases in <code>oneshot</code> workflows.
       </p>
     </div>

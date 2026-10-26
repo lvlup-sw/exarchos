@@ -240,6 +240,160 @@ const CARRIED: readonly CarriedRecovery[] = [
       ],
     },
   },
+  {
+    id: 'prepare-repo-root-outside-git',
+    notes: 'Recovery: when `prepare` refuses `SCOPE_UNRESOLVED` because `repoRoot` is not inside a git work tree',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/acceptance/prepare-scope.test.ts',
+      testCase: 'Prepare_ARepoRootOutsideGit_IsRefusedAsScopeUnresolved',
+      phrases: ['Pass as repoRoot the worktree where'],
+    },
+  },
+  {
+    id: 'prepare-other-repository',
+    notes: 'Recovery: when `prepare` refuses `SCOPE_UNRESOLVED` for another repository than the latest capsule',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/prepare/prepare-scope.test.ts',
+      testCase: 'Prepare_AnotherCloneThanTheEarlierCapsule_IsRefusedAndNamesBothRepositoriesAndTheRecovery',
+      phrases: ['Run prepare with a repoRoot in a checkout of', 'start a new workflow'],
+    },
+  },
+  {
+    id: 'prepare-config-or-catalog',
+    notes: 'Recovery: when `prepare` refuses `SCOPE_UNRESOLVED` for a config or a catalog of the checkout',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/references/troubleshooting.md',
+      phrases: ['Repair or remove the file.', 'or remove its registration.'],
+    },
+  },
+  {
+    id: 'prepare-static-analysis-not-blocking',
+    notes: 'Recovery: when `prepare` refuses `SCOPE_UNRESOLVED` because the config makes `check_static_analysis` disabled',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/references/troubleshooting.md',
+      phrases: ['makes `check_static_analysis` disabled or warning-only. Make it blocking'],
+    },
+  },
+  {
+    id: 'prepare-blocker-not-landed',
+    notes: 'Recovery: when `prepare` refuses `BASE_UNRESOLVED` for a completed blocker',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/acceptance/prepare-scope.test.ts',
+      testCase: 'Prepare_ABlockerWhoseCompletionCommitIsNotOnTheBase_IsRefusedAndNamesBothRecoveries',
+      phrases: ['record that landing with a merge.executed row'],
+    },
+  },
+  {
+    id: 'settle-worktree-out-of-scope',
+    notes: 'Recovery: when a claim gets `worktree-out-of-scope`, do what its message says',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/SKILL.md',
+      phrases: ['fork a worktree of its own from `baseRef` at `baseCommit`'],
+    },
+  },
+  {
+    id: 'settle-uncommitted-changes',
+    notes: 'Recovery: when the cause is `uncommitted-changes`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/acceptance/settle-scope.test.ts',
+      testCase: 'SettleScope_AnUntrackedFile_IsUnresolvedAndNamed',
+      phrases: ['Commit the listed files of the task'],
+    },
+  },
+  {
+    id: 'settle-linked-node-modules',
+    notes: 'Recovery: when a linked `node_modules` gives `uncommitted-changes`',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/references/troubleshooting.md',
+      phrases: ['Add `node_modules`, without a trailing slash, to `.gitignore` or to the exclude file of the common dir.'],
+    },
+  },
+  {
+    id: 'fix-on-a-new-branch',
+    notes: 'Recovery: when a fix on a new branch halts at the completion leaf',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/references/fix-mode.md',
+      phrases: [
+        '**A fix on a new branch halts.**',
+        "the earlier branch as `branch`, `repoRoot: 'auto'` and the `worktreePath` of the new tree",
+      ],
+    },
+  },
+  {
+    id: 'completion-named-tree',
+    notes: 'Recovery: when `task_complete` refuses with `other-tree`, `tree-unnamed` or `repo-root-missing`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/tasks/task-complete-tree.test.ts',
+      testCase: 'TaskComplete_APassOnAnotherTree_IsRefusedAsOtherTreeWithNoRow',
+      phrases: ['Name the worktree of the task in result.worktreePath'],
+    },
+  },
+  {
+    id: 'completion-tree-out-of-scope',
+    notes: 'Recovery: when `task_complete` refuses with `tree-out-of-scope`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/tasks/task-complete-scope.test.ts',
+      testCase: 'TaskCompleteScope_EachRuleOnAScopedStream_RefusesWithItsCause',
+      phrases: ['Fork a worktree of the pinned repository', "check_static_analysis with repoRoot 'auto'"],
+    },
+  },
+  {
+    id: 'completion-disabled-static-analysis',
+    notes: 'Recovery: when `task_complete` refuses a `disabled-by-config` skip',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/gates/disabled-gate.test.ts',
+      testCase: 'TaskComplete_AfterADisabledStaticAnalysis_IsRefusedWithTheConfigRecovery',
+      phrases: ['Enable check_static_analysis in the .exarchos.yml of the checkout'],
+    },
+  },
+  {
+    id: 'settle-changed-config',
+    notes: 'Recovery: when `settle` refuses `CAPSULE_UNRESOLVED` because the config of the checkout changed after `prepare`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/settle/settle-config.test.ts',
+      testCase: 'Settle_AConfigEditedAfterPrepare_IsRefusedAndRunsNoGate',
+      phrases: ['prepare again with repoRoot'],
+    },
+  },
+  {
+    id: 'settle-changed-config-decision',
+    notes: 'Recovery: on a decision round under a changed config',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/settle/settle-config.test.ts',
+      testCase: 'Settle_AnAcceptingDecisionUnderAChangedConfig_IsRefusedWithBothRoutesAndSettlesAfterTheConfigIsPutBack',
+      phrases: [
+        'back to the bytes that prepare read, then send the same decision again',
+        'Or decide by rejecting, then prepare again and propose the deviation again in a new batch under the next capsule',
+      ],
+    },
+  },
+  {
+    id: 'settle-earlier-compiler-capsule',
+    notes: 'Recovery: decide each held batch before you upgrade',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/settle/settle-config.test.ts',
+      testCase: 'Settle_ADecisionThatAcceptsOnAHeldUnscopedBatch_IsRefusedAndNamesBothRoutes',
+      phrases: [
+        'Decide by rejecting, which runs no segment',
+        'prepare again under a compiler that pins the scope, then claim the tasks in a new batch',
+      ],
+    },
+  },
 ];
 
 /**
