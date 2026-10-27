@@ -827,8 +827,9 @@ measured:
       check: "npm run test:files -- tests/acceptance/settle-races.test.ts; grep -n -A2 'settle-races.test.ts' tools/audit/reachable-controls.json"
     - fact: "the arguments of each settle segment hold capsuleVersion, and the request digest of the executor covers each argument. A batch with no verdict whose segments an earlier build ran thus gets OPERATION_DIGEST_MISMATCH. The merged schema of exarchos_orchestrate in tools/list gives capsuleVersion the text of task_complete, which declares the field first."
       check: "grep -n -A16 '^function verificationArgsOf' src/verbs/settle/handler.ts; grep -n -A10 '^function requestDigestOf' src/verbs/execute/executor.ts; grep -c '\"description\": \"The capsule version prepare returned\"' tests/integration/__goldens__/tools-list.golden.json"
-    # The facts below came with 'the capsule pins the scope' (#1929). Each check was run on 2026-10-25 at the tip of
-    # feat/capsule-pins-the-scope, which holds main 9d15ee216. They become facts of main when the slice merges.
+    # The facts below came with 'the capsule pins the scope' (#1929). Each check was run again on 2026-10-27 at
+    # d633d5b9f, the commit of the pull request fixes on feat/capsule-pins-the-scope, which holds main 6015d68b9.
+    # Each check passed. They become facts of main when the slice merges.
     # Three facts above moved here, because the slice changed them: the gates that default to main, the settle
     # describe and the stored shapes.
     - fact: "prepare requires an absolute repoRoot and reads nothing from ctx.cwd, process.cwd() or ctx.projectConfig. The compiler is exarchos-prepare-4, and each capsule pins settlementContract.scope (repository, checkout, configDigest) and a baseCommit for each task. An architecture test scans src/verbs/prepare for a read of the server directory, fails for a seeded read and asserts the count of scanned files."
