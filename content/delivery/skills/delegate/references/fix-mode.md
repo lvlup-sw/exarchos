@@ -70,7 +70,7 @@ The recipe for each runtime:
    - Commit the listed files of the task in the earlier worktree, and remove each file that a gate run left there.
    - Run `git worktree remove <earlier path>`.
    - Tell the fixer to run `git switch <earlier branch>` in its own worktree as its base step.
-3. In both cases, the fixer rebases the branch onto `<baseCommit>` when HEAD does not hold it, and it keeps the branch name. The base step of the fixer agent does this, then checks `git merge-base --is-ancestor <baseCommit> HEAD`.
+3. In both cases, the fixer rebases the branch onto `<baseCommit>` when HEAD does not hold it, and it keeps the branch name. The base step of the fixer agent does this, then checks `git merge-base --is-ancestor <baseCommit> HEAD`. When the rebase stops on a conflict, the fixer runs `git rebase --abort`, then stops and reports it.
 4. Before its claim, the fixer removes each untracked file that a gate run of the earlier attempt left, and it commits none of them. Settlement refuses a worktree whose status is not empty (`uncommitted-changes`).
 5. The claim names the worktree of the fixer and the same `branch` as the earlier claim, or no branch when the earlier claim named none.
 

@@ -80,8 +80,9 @@ branch in your worktree:
   `git -C "<absolute worktree path>" switch "<earlier branch>"`.
 
 When HEAD does not hold `<baseCommit>`, rebase the branch onto it and keep its
-name: `git -C "<absolute worktree path>" rebase "<baseCommit>"`. Then check
-the base:
+name: `git -C "<absolute worktree path>" rebase "<baseCommit>"`. If the rebase
+stops on a conflict, run `git -C "<absolute worktree path>" rebase --abort`,
+then STOP and report it. Otherwise, check the base:
 
 ```bash
 git -C "<absolute worktree path>" merge-base --is-ancestor "<baseCommit>" HEAD \

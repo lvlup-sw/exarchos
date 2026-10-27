@@ -110,7 +110,9 @@ its own.`;
 /**
  * The base step of the fixer. A fix continues the branch of the earlier attempt of the task, because the static-analysis evidence keys on the branch.
  * Without native isolation the fixer works in the earlier worktree. With native isolation the orchestrator removes the earlier worktree first, and the fixer switches its own worktree to the earlier branch.
+ *
  * When HEAD does not hold the base commit, the fixer rebases the branch onto it and keeps the name. Then it checks the base, as the other roles do.
+ * A rebase that stops on a conflict leaves a detached HEAD, so the fixer aborts the rebase, then stops and reports it.
  */
 const FIXER_BASE_STEP = `## Base Step (MANDATORY)
 A fix continues the branch of the earlier attempt of the task. Do not start a
@@ -125,8 +127,9 @@ branch in your worktree:
   \`git -C "<absolute worktree path>" switch "<earlier branch>"\`.
 
 When HEAD does not hold \`<baseCommit>\`, rebase the branch onto it and keep its
-name: \`git -C "<absolute worktree path>" rebase "<baseCommit>"\`. Then check
-the base:
+name: \`git -C "<absolute worktree path>" rebase "<baseCommit>"\`. If the rebase
+stops on a conflict, run \`git -C "<absolute worktree path>" rebase --abort\`,
+then STOP and report it. Otherwise, check the base:
 
 ${BASE_CHECK}
 

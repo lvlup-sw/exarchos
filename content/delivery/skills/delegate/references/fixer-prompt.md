@@ -23,7 +23,7 @@ Before the dispatch, the orchestrator puts the fixer on the earlier branch. The 
 - **Without native isolation**, dispatch the fixer to the earlier worktree of the task. The fixer works there, on the earlier branch.
 - **With native isolation**, the fixer gets a new worktree of its own, and git refuses to switch it to a branch that the earlier worktree holds. So first commit the listed files of the task in the earlier worktree, and remove each file that a gate run left there. Git refuses to remove a worktree with changes. Then run `git worktree remove <earlier path>`. The fixer then runs `git switch <earlier branch>` in its own worktree.
 
-In both cases the fixer rebases the branch onto `<baseCommit>` when HEAD does not hold it, and it keeps the branch name. Its claim names the worktree of the fixer and the same `branch` as the earlier claim, or no branch when the earlier claim named none.
+In both cases the fixer rebases the branch onto `<baseCommit>` when HEAD does not hold it, and it keeps the branch name. When the rebase stops on a conflict, the fixer runs `git rebase --abort`, then stops and reports it. Its claim names the worktree of the fixer and the same `branch` as the earlier claim, or no branch when the earlier claim named none.
 
 **A fix on a new branch halts.** After a static-analysis failure, a fix on a new branch halts at the completion leaf, because the failing record of the earlier branch stays active. The recovery: run `check_static_analysis` with `taskId`, the earlier branch as `branch`, `repoRoot: 'auto'` and the `worktreePath` of the new tree. Then settle the claim under a new batch id.
 
@@ -47,7 +47,7 @@ Before making ANY changes:
 Continue the earlier branch of the task: `[earlier-branch]`. Do not start a new branch. Before making ANY changes:
 
 1. Without native isolation, this worktree already holds `[earlier-branch]`. With native isolation, run `git switch "[earlier-branch]"` in this worktree.
-2. When HEAD does not hold `[baseCommit]`, rebase the branch onto it and keep its name: `git rebase "[baseCommit]"`.
+2. When HEAD does not hold `[baseCommit]`, rebase the branch onto it and keep its name: `git rebase "[baseCommit]"`. If the rebase stops on a conflict, run `git rebase --abort`, then STOP and report it.
 3. Check the base: `git merge-base --is-ancestor "[baseCommit]" HEAD`. If git refuses the switch, or the check fails, STOP and report it.
 
 ## Issue to Fix

@@ -778,7 +778,9 @@ function sharedCheckoutHazardWarning(expected: number): string {
  * The handler checks each task field, because a non-MCP caller passes `tasks` through an unchecked cast. A malformed task otherwise reports as a false `phase.blocked`.
  *
  * Under native isolation, the protected-branch and worktree-location guards do not run, and the base-ref guard runs.
+ * The base-ref guard reads the settings of an absolute `repoRoot`. Without it, the guard reads the settings of the server directory.
  * The git guards and the stash probe run in an absolute `repoRoot`. Without it, they run in the server directory, and the result warns.
+ *
  * The protected-branch guard runs before the ancestry guard, because ancestry always passes when HEAD is on `main`.
  * Each dispatch that reaches the guards records one `dispatch.preflight` event. A guard that did not run records `passed: true`, but `baseRef` is absent without native isolation.
  *
@@ -805,7 +807,7 @@ export async function handlePrepareDelegation(
     /** `'prompt-only'` has the same effect as `detail: true`. The handler also accepts `'full'`, the schema default, which has no effect. */
     outputFormat?: 'prompt-only';
     /**
-     * The absolute path of the tree where the git guards, the stash probe and the read of a relative `planPath` run.
+     * The absolute path of the tree where the git guards, the stash probe, the base-ref guard and the read of a relative `planPath` run.
      * The schema has no pattern for it, so the handler refuses a relative path. The main-worktree guard still reads the server directory.
      */
     repoRoot?: string;
@@ -1054,7 +1056,8 @@ export async function handlePrepareDelegation(
         };
       }
     } else {
-      const baseRefResult = assertWorktreeBaseRefPinned();
+      const baseRefResult =
+        repoRoot === undefined ? assertWorktreeBaseRefPinned() : assertWorktreeBaseRefPinned({ cwd: repoRoot });
       guardOutcomes.baseRef.passed = baseRefResult.pinned;
       if (!baseRefResult.pinned) {
         await emitAuditEvent(store, streamId, {

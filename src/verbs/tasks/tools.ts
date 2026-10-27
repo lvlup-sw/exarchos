@@ -1022,8 +1022,17 @@ interface OpenStanding {
   readonly completions: readonly WorkflowEvent[];
 }
 
-/** The reads before the gate check: a result that ends the attempt, or an open attempt. */
-type CompletionStanding = { readonly kind: 'result'; readonly result: ToolResult } | OpenStanding;
+/**
+ * A stored completion that no later `task.failed` row of the task reopened, on a state document that needs no repair.
+ * The gate check still runs, so a later failing run refuses. A pass returns `row`, judges no tree and appends no row.
+ */
+interface StoredStanding {
+  readonly kind: 'stored';
+  readonly row: WorkflowEvent;
+}
+
+/** The reads before the gate check: a result that ends the attempt, a stored completion, or an open attempt. */
+type CompletionStanding = { readonly kind: 'result'; readonly result: ToolResult } | StoredStanding | OpenStanding;
 
 /** The end of one completion attempt: a result, or a sequence conflict on the append that starts the next attempt. */
 type CompletionAttempt =
@@ -1033,11 +1042,12 @@ type CompletionAttempt =
 /**
  * Pins the stream tail, then reads the stored completion and the design revisions of the task.
  * A stored completion that no later `task.failed` row of the task follows skips the revision check.
+ * When the state document needs no repair, the standing gives that stored row, and the attempt judges no tree.
+ * A landing or a prune can change the tree after the completion, so a retry does not fail on it.
  * A failure after the stored completion reopens the task, so the revision check runs and the gate check runs after it.
  * An error of a read returns `COMPLETE_FAILED`.
  *
- * An open attempt after the revision check gives the reference record of that check, and the completion rows of the stream.
- * An open attempt on a stored completion reads no prepared record, so it gives no reference. Its append returns the stored row.
+ * An open attempt gives the reference record of the revision check, and the completion rows of the stream.
  */
 async function completionStanding(
   args: TaskCompleteArgs,
@@ -1051,9 +1061,7 @@ async function completionStanding(
     const reopened = stored !== undefined && (await failedAfterCompletion(store, streamId, args.taskId, stored));
     if (stored !== undefined && !reopened) {
       const repaired = await repairStoredCompletion(stateDir, streamId, args.taskId, stored);
-      return repaired === undefined
-        ? { kind: 'open', tail, reference: undefined, completions: rows }
-        : { kind: 'result', result: repaired };
+      return repaired === undefined ? { kind: 'stored', row: stored } : { kind: 'result', result: repaired };
     }
     const revision = await revisionRefusal(store, streamId, args.taskId, args.capsuleVersion);
     return revision.kind === 'refused'
@@ -1336,7 +1344,8 @@ function completionData(args: TaskCompleteArgs, named: GateRunTree | undefined):
 /**
  * One completion attempt. The gate check runs after the pin, and the append expects the pinned tail.
  * A row that lands after the pin thus fails the append with a sequence conflict, and the next attempt reads that row.
- * The appender reads the completion key before it compares the sequence. A retry of a recorded completion thus returns the stored row.
+ * A retry of a recorded completion that no failure reopened returns the stored row after the gate check, and judges no tree.
+ * The appender reads the completion key before it compares the sequence. A task that a failure reopened thus also gets the stored row.
  */
 async function attemptTaskComplete(
   args: TaskCompleteArgs,
@@ -1350,6 +1359,7 @@ async function attemptTaskComplete(
 
   const gate = await gateRefusal(args, streamId, store);
   if (gate.kind === 'refused') return { kind: 'result', result: gate.result };
+  if (standing.kind === 'stored') return { kind: 'result', result: { success: true, data: toEventAck(standing.row) } };
   const tree = await treeRefusal(args, standing, gate.scanned, store, observer);
   if (tree.kind === 'refused') return { kind: 'result', result: tree.result };
 

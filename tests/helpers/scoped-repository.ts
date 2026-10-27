@@ -11,6 +11,9 @@
  *
  * Each path that the helper returns is canonical: the real path in POSIX form. That is the form
  * that `git rev-parse --show-toplevel` prints, also for the 8.3 temp path of a Windows runner.
+ *
+ * Each git call of the helper drops the variables that point git at a repository. A git hook sets
+ * them, so a test that a hook runs does not write to the repository of the hook.
  */
 import { realpathSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -67,9 +70,30 @@ export interface BaseInLinkedWorktree {
 /** The characters that a task id can hold. The id names a branch and a directory, so it holds no separator. */
 const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-/** Runs one git command in a directory and returns its output with no trailing newline. */
+/** The variables that point git at a repository, in upper case. A git hook sets them for the commands that it runs. */
+const GIT_LOCATION_VARIABLES: ReadonlySet<string> = new Set([
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY',
+]);
+
+/**
+ * The inherited environment with no variable that points git at a repository.
+ * The helper reads the environment at each call, so it drops a variable that a test sets after the import.
+ */
+function gitEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!GIT_LOCATION_VARIABLES.has(key.toUpperCase())) env[key] = value;
+  }
+  return env;
+}
+
+/** Runs one git command in a directory, with no inherited repository location, and returns its output with no trailing newline. */
 async function git(cwd: string, args: readonly string[]): Promise<string> {
-  return (await execFileAsync('git', [...args], { cwd })).trim();
+  return (await execFileAsync('git', [...args], { cwd, env: gitEnvironment() })).trim();
 }
 
 /** The real path of a directory in POSIX form. */

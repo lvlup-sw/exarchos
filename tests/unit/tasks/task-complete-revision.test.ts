@@ -272,8 +272,8 @@ describe('task_complete refuses a task that a revision names after its capsule',
   });
 
   /**
-   * A row lands between the pin and the append of a retry. The appender reads the completion key before it compares
-   * the sequence, so the retry returns the stored row and does not conflict.
+   * A failure reopens the stored completion, so the retry reaches the append. A row lands between the pin and the append.
+   * The appender reads the completion key before it compares the sequence, so the retry returns the stored row and does not conflict.
    */
   it('TaskComplete_AStoredCompletionAndAStaleTail_ReturnsTheStoredRow', async () => {
     await prepare(1);
@@ -281,6 +281,8 @@ describe('task_complete refuses a task that a revision names after its capsule',
     const first = await complete(TASK);
     expect(first.success, JSON.stringify(first.error)).toBe(true);
     const [stored] = await completionRows(TASK);
+    const failed = await handleTaskFail({ taskId: TASK, error: 'review found a defect', streamId: STREAM }, tempDir, store);
+    expect(failed.success).toBe(true);
     const pinned = await store.tailSequence(STREAM);
     const originalAppend = store.append.bind(store);
     const expected: (number | undefined)[] = [];

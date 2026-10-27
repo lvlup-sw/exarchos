@@ -52,6 +52,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - A reference capsule with no scope, or one that custody cannot return, judges only the same-tree rule.
   - `check_static_analysis` with `taskId` needs `repoRoot`. A run with `taskId` and no `repoRoot` no longer scans the directory of the server: it records a `repo-root-missing` skip, and `task_complete` refuses on it.
   - The completion row carries the canonical `worktreePath` and the observed head as `commit`.
+  - A retry of `task_complete` for a completed task that no `task.failed` row reopened checks the gate, then returns the stored row. It does not judge the tree again, so a retry after a landing or a prune of the worktree is not refused with `other-tree`.
   - The new causes of `GATE_NOT_PASSED` are `other-tree`, `tree-unnamed`, `tree-out-of-scope`, `repo-root-missing` and `disabled-by-config`. Each refusal names its recovery.
   - Recovery: when `task_complete` refuses with `other-tree`, `tree-unnamed` or `repo-root-missing`, run `check_static_analysis` with `taskId`, `repoRoot: 'auto'` and the `worktreePath` of the worktree of the task. Then name that worktree in `result.worktreePath`, and call `task_complete` again.
   - Recovery: when `task_complete` refuses with `tree-out-of-scope`, fork a worktree of the pinned repository from `baseRef` at `baseCommit`, on a branch of its own, and do the work of the task there. Record a pass there, and name it in `result.worktreePath`. A call with no `capsuleVersion` also passes the version of the batch of the task.

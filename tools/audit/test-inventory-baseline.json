@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1360,
-    "parsedFiles": 1315,
+    "testFiles": 1363,
+    "parsedFiles": 1318,
     "shellFiles": 45,
-    "cases": 15191,
+    "cases": 15196,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -88611,6 +88611,49 @@
         {
           "suite": "prepare drops the gates that the checkout config disables from the pattern text",
           "name": "Prepare_TheCheckoutConfigDisablesAGate_ThePatternTextNamesItNot",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/tasks/task-complete-stored-retry.test.ts": {
+      "file": "tests/unit/tasks/task-complete-stored-retry.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a retry of a stored completion",
+          "name": "TaskComplete_ARetryOfAStoredCompletionAfterTheWorktreeIsRemoved_ReturnsTheStoredRow",
+          "dynamic": false
+        },
+        {
+          "suite": "a retry of a stored completion",
+          "name": "TaskComplete_ARetryAfterTheWorktreeGainsACommit_ReturnsTheStoredRow",
+          "dynamic": false
+        },
+        {
+          "suite": "a retry of a stored completion",
+          "name": "TaskComplete_AStoredCompletionThatAFailureReopened_JudgesTheTreeAgain",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/team/prepare-delegation-baseref.test.ts": {
+      "file": "tests/unit/verbs/team/prepare-delegation-baseref.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the base-ref guard of prepare_delegation",
+          "name": "PrepareDelegation_TheBaseRefGuard_ReadsTheSettingsOfRepoRoot",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/helpers/scoped-repository-env.test.ts": {
+      "file": "tests/helpers/scoped-repository-env.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "scopedRepository with an inherited repository location",
+          "name": "ScopedRepository_AnInheritedGitDir_DoesNotRedirectTheFixture",
           "dynamic": false
         }
       ]
