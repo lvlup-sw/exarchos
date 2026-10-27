@@ -13,10 +13,11 @@
  */
 
 import { createHash } from 'node:crypto';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
-import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import { baseValidCapsule, baseValidDefinition } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { deriveMcpCallerIdentity, snapshotCallerAuthorization } from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
@@ -42,6 +43,7 @@ import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
+import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settle-decision-standing';
@@ -57,6 +59,14 @@ const HELD_VERSION = 7;
 const FINISHING_VERSION = 8;
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
 const WORKTREE = '/nonexistent-settle-decision-standing-worktree';
+
+/**
+ * The worktree that the claim, the seed and the completion of one task name. Each task has a path of its own.
+ * `task-verify` keeps the bare path.
+ */
+function worktreeOf(taskId: string): string {
+  return taskId === VERIFY ? WORKTREE : `${WORKTREE}/${taskId}`;
+}
 /** The capabilities that the composed leaves declare. The gate runner also needs a trusted caller. */
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The shipped runbook, cut to the leaves that decide without leaving the process. */
@@ -131,9 +141,12 @@ const WORKFLOW_ID = heldCapsule().identity.workflowId;
 
 let stateDir: string;
 let store: EventStore;
+/** The scope that each seeded capsule pins: a temp checkout with no config, so its digest matches. */
+let scope: CapsuleScope;
 
+/** The wiring of one call. The observer of a claimed worktree finds each claimed path in the pinned scope. */
 function wiring(): DispatchContext {
-  return { stateDir, eventStore: store, enableTelemetry: false };
+  return { stateDir, eventStore: store, enableTelemetry: false, treeObserver: inScopeObserver(scope) };
 }
 
 /** A caller with the capabilities of the composed leaves. */
@@ -194,7 +207,7 @@ function executeDeps(gate: LeafHandler): ExecuteIntentDeps {
 
 /** A claim that its task is complete, with the result fields of the task. */
 function completedClaim(taskId: string): Record<string, unknown> {
-  return { taskId, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  return { taskId, fields: { passed: true, worktreePath: worktreeOf(taskId) }, evidence: [] };
 }
 
 /** A claim that its task waits for a change outside the task. */
@@ -266,10 +279,14 @@ async function finishByASecondBatch(): Promise<void> {
   expect(finished).toMatchObject({ outcome: 'settled', acceptedTasks: [NAMED] });
 }
 
-/** Another writer completes a task through the live completion leaf, outside any settle call. */
+/** Another writer completes a task through the live completion leaf, outside any settle call, on the worktree of the task. */
 async function completeTask(taskId: string): Promise<void> {
   const completed = await runWithDispatchContext(correlation(), () =>
-    liveHandler('task_complete')({ taskId, featureId: STREAM }, stateDir, wiring()),
+    liveHandler('task_complete')(
+      { taskId, featureId: STREAM, result: { worktreePath: worktreeOf(taskId) } },
+      stateDir,
+      wiring(),
+    ),
   );
   expect(completed.success, JSON.stringify(completed)).toBe(true);
 }
@@ -327,7 +344,7 @@ async function seedPrepared(capsule: ExarchosCapsuleV1): Promise<void> {
       operationId: `seed:${capsule.identity.capsuleVersion}`,
       requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
       workflowType: 'feature',
-      capsule,
+      capsule: withScope(capsule, scope),
       definition: WorkflowDefinitionV1Schema.parse(baseValidDefinition()),
     }),
   );
@@ -338,8 +355,9 @@ beforeEach(async () => {
   store = new EventStore(stateDir);
   await store.initialize();
   const phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
+  scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
   for (const taskId of [VERIFY, SECOND, NAMED, OTHER]) {
-    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId });
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId, worktreePath: worktreeOf(taskId) });
   }
   await store.append(STREAM, {
     type: 'state.patched',

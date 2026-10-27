@@ -69,7 +69,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
      */
     description:
       'Mark a task as complete with optional result and evidence. Auto-emits task.completed event. When evidence is provided, verified=true in event data; otherwise verified=false. ' +
-      "Requires a passing check_static_analysis run for the task, with taskId, repoRoot 'auto' and worktreePath, as the task-completion runbook binds them.",
+      "Requires a passing check_static_analysis run for the task, with taskId, repoRoot 'auto' and worktreePath, as the task-completion runbook binds them. " +
+      'That run must name the tree of result.worktreePath at its current commit, and a prepared workflow requires result.worktreePath.',
     schema: z.object({
       taskId: z.string().min(1),
       result: coercedRecord().optional(),
@@ -97,7 +98,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
     annotations: LOCAL_MUTATION,
   }, {
     ensures: declared({ source: 'event-append', when: 'success', event: 'task.completed' }),
-    needs: declared('mcp:exarchos'),
+    /** The tree rule spawns git to observe the tree that the completion names. */
+    needs: declared('mcp:exarchos', 'shell:exec'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),
     replay: { kind: 'claim-required', scope: 'stream-subject-request' },
     emissions: declared({ event: 'task.completed', condition: 'always', owner: 'orchestrate', role: 'primary' }),
@@ -170,7 +172,8 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
       'Query delegation readiness and prepare quality hints for subagent dispatch. Announces each ' +
       'planned task the stream has not yet heard of (`task.assigned`) before reading readiness. ' +
       'Returns `baseBranch`, the integration branch the tasks fork from: pass it to the ' +
-      'task-completion runbook as `baseRef`.',
+      'task-completion runbook as `baseRef`. With `repoRoot`, an absolute path, the git checks ' +
+      'and a relative `planPath` read that tree, not the server directory.',
     schema: z.object({
       featureId: z.string().min(1),
       /**
@@ -207,6 +210,12 @@ export const coordinationActions: readonly BuiltinToolAction[] = [
        */
       detail: z.boolean().optional().describe('DR-4: inline the full per-task implementer prompt instead of the deduped template + per-task deltas'),
       outputFormat: z.enum(['full', 'prompt-only']).default('full').describe("DR-4: 'prompt-only' is an alias for detail:true; 'full' (default) returns the deduped template + per-task deltas"),
+      /**
+       * The tree where the git checks and the read of a relative `planPath` run. This is the first declaration of
+       * `repoRoot` in the tool, so it is the wire field of every action. It has no pattern and no describe text,
+       * because a gate call passes `repoRoot: 'auto'`. The handler refuses a relative path.
+       */
+      repoRoot: z.string().min(1).optional(),
     }),
     phases: DELEGATE_PHASES,
     roles: ROLE_LEAD,

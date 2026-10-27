@@ -1,17 +1,17 @@
 /**
  * `prepare` compiles the outstanding work of a workflow into a capsule.
  *
- * It is the first of the two semantic plane calls. It compiles the batch that
- * waits for delegation into an immutable capsule. Then it puts the capsule in
- * custody and records `workflow.prepared` with the capsule digest. The harness
- * runs the batch with no governance calls, and `settle` judges the results
- * against this capsule.
+ * It is the first of the two semantic plane calls. It compiles the batch that waits for delegation
+ * into an immutable capsule. Then it puts the capsule in custody and records `workflow.prepared`
+ * with the capsule digest. The harness runs the batch with no governance calls, and `settle` judges
+ * the results against this capsule.
  *
  * Every refusal occurs before any effect. The workflow must name the branch that its tasks fork from.
+ * The caller names the repository with an absolute `repoRoot`, and the capsule pins it with the commit of the base.
+ * The config, the catalogs and the design record come from the checkout of that repository.
  *
- * The claim key is the digest of the compilation inputs, so a retry returns the recorded capsule.
- * The inputs include the base, the design version of the stream and the name of the compiler.
- * Changed inputs get the next capsule version.
+ * The claim key is the digest of the compilation inputs, so a retry returns the recorded capsule. The inputs include the base,
+ * its commit, the scope, the design version, a readable design record and the compiler name.
  *
  * The first prepare after a design revision is a continuation. Its commit also records
  * `capsule.recompiled`, which names the unfinished tasks that the revision invalidated.
@@ -26,8 +26,7 @@ import { ZodError } from 'zod';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
-import { loadExarchosConfig } from '../../config/load-exarchos-config.js';
-import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
+import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { runExclusivePerOperation } from '../../dispatch/core/operation-serializer.js';
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
@@ -42,7 +41,9 @@ import { findActionInRegistry } from '../../registry.js';
 import { ALL_RUNBOOKS } from '../../runbooks/definitions.js';
 import { ContentAddressedStoreError } from '../../storage/artifacts/content-addressed-store.js';
 import { capabilityNeedSatisfied } from '../../workflow/capabilities/resolver.js';
+import { VERIFICATION_GATE_NAMES } from '../../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
+import { resolveGateSeverity } from '../gates/gate-severity.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import { deviationIdOf } from '../settle/handler.js';
 import { decodeSettlementBundle, type SettlementBundleV1 } from '../settle/settlement-bundle.js';
@@ -58,6 +59,19 @@ import {
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
 import { lowerBuiltInDefinition } from './lower-definition.js';
 import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
+import {
+  configDigestAt,
+  designRecordDigestAt,
+  GIT_SCOPE,
+  loadCheckoutConfig,
+  observeScope,
+  otherRepositoryRefusal,
+  readRepoRoot,
+  resolveCheckoutCatalog,
+  staticAnalysisRefusal,
+  type CheckoutCatalogInput,
+  type ScopeGit,
+} from './prepare-scope.js';
 import { commitPreparedCapsule } from './prepared-record.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
@@ -112,6 +126,8 @@ export interface PrepareDeps {
    * A test passes an earlier name, to record a claim as an earlier compiler left it.
    */
   readonly compilerVersion?: string;
+  /** The three git reads of the scope. Production passes none and gets the reads of git. */
+  readonly scopeGit?: ScopeGit;
 }
 
 function invalid(message: string): ToolResult {
@@ -402,25 +418,29 @@ function resolveDesignRef(state: Record<string, unknown>): string | undefined {
 }
 
 /**
- * The resolved invariants of the repository, by id and summary.
- *
- * A configuration that fails to load counts as no configuration, and the
- * compilation continues. The built-in authority is already a settleable floor.
- * The invariant gate treats an unreadable `.exarchos.yml` the same way.
+ * The severity of one verification gate under a config. The dimension of the gate comes from its registration.
+ * The severity of a gate is keyed by its action name.
  */
-function resolvedCatalogInvariants(
+function gateSeverityOf(
+  gate: string,
+  config: ResolvedProjectConfig,
   workflowType: string,
-  phase: string,
-  repoRoot: string,
-): readonly CatalogInvariant[] {
-  let config;
-  try {
-    config = loadExarchosConfig(repoRoot)?.config;
-  } catch {
-    config = undefined;
-  }
-  const { entries } = resolveEffectiveCatalog({ repoRoot, config, phase, workflowType });
-  return entries.map((entry) => ({ id: entry.id, summary: entry.summary }));
+): 'blocking' | 'warning' | 'disabled' {
+  const dimension = findActionInRegistry('exarchos_orchestrate', gate)?.gate?.dimension ?? '';
+  return resolveGateSeverity(gate, dimension, config, workflowType);
+}
+
+type CatalogOutcome =
+  | { readonly ok: true; readonly invariants: readonly CatalogInvariant[] }
+  | { readonly ok: false; readonly refusal: PrepareRefusal };
+
+/**
+ * The catalog invariants of the batch. A test seam gives its own invariants. Else the effective catalog of the checkout
+ * gives them, and a registered catalog that does not resolve refuses.
+ */
+function catalogOf(deps: PrepareDeps, input: CheckoutCatalogInput): CatalogOutcome {
+  if (deps.catalogInvariants === undefined) return resolveCheckoutCatalog(input);
+  return { ok: true, invariants: deps.catalogInvariants(input.workflowType, input.phase, input.checkout) };
 }
 
 /**
@@ -431,11 +451,11 @@ function resolvedCatalogInvariants(
  * concurrent append. The design version and the pending revision come from the same read.
  * The commit announces only the batch tasks that the stream has not seen,
  * because a second `task.assigned` moves a task back to `assigned`.
- * The runtime check occurs before compilation. The verification sequence is a
- * compilation input, so a policy change compiles the next version.
  *
+ * The runtime check occurs before compilation. Then git observes the scope, and the config, the catalog and the design
+ * record load from the checkout. The scope holds the config digest, so any config edit compiles the next version.
  * A replay returns the receipt of its claim and reads no bundle. Only a call that compiles reads
- * the settlement bundles of the revisions that its capsule binds.
+ * the capsule of the latest prepared record, and then the settlement bundles of the revisions that its capsule binds.
  */
 export async function handlePrepare(
   raw: Record<string, unknown>,
@@ -446,6 +466,9 @@ export async function handlePrepare(
   const subject = resolveSubjectStream(raw);
   if (!subject.ok) return invalid(subject.message);
   const { streamId } = subject;
+  const root = readRepoRoot(raw);
+  if (!root.ok) return invalid(root.message);
+  const { repoRoot } = root;
 
   const events = await ctx.eventStore.query(streamId);
   if (events.length === 0) {
@@ -482,7 +505,7 @@ export async function handlePrepare(
   const plan: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
   const partition = partitionDelegationBatch(plan);
   if (!partition.ok) return refused(partition.refusal);
-  const { batch } = partition;
+  const { batch, completedBlockers } = partition;
 
   const base = resolveBaseRef(streamId, state);
   if (!base.ok) return refused(base.refusal);
@@ -506,18 +529,39 @@ export async function handlePrepare(
     });
   }
 
+  const observed = await observeScope({
+    streamId,
+    repoRoot,
+    baseRef,
+    completedBlockers,
+    rows: events,
+    git: deps.scopeGit ?? GIT_SCOPE,
+  });
+  if (!observed.ok) return refused(observed.refusal);
+  const { checkout, repository, baseCommit } = observed.observed;
+  const loaded = loadCheckoutConfig(checkout);
+  if (!loaded.ok) return refused(loaded.refusal);
+  const { projectConfig } = loaded.config;
+
+  const catalog = catalogOf(deps, { checkout, config: loaded.config, phase, workflowType });
+  if (!catalog.ok) return refused(catalog.refusal);
+  const catalogInvariants = catalog.invariants;
+
+  const staticAnalysis = staticAnalysisRefusal(checkout, gateSeverityOf('check_static_analysis', projectConfig, workflowType));
+  if (staticAnalysis !== undefined) return refused(staticAnalysis);
+  const disabledGates = VERIFICATION_GATE_NAMES.filter(
+    (gate) => gateSeverityOf(gate, projectConfig, workflowType) === 'disabled',
+  );
+
+  const scope = { repository, checkout, configDigest: await configDigestAt(checkout) };
   const designRef = resolveDesignRef(state);
+  const designRecordDigest = await designRecordDigestAt(checkout, designRef);
   const designVersion = designVersionOf(events);
   const recompile = recompileOf(events, plan);
   const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
-  const catalogInvariants = (deps.catalogInvariants ?? resolvedCatalogInvariants)(
-    workflowType,
-    phase,
-    ctx.cwd ?? process.cwd(),
-  );
 
   const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
-    resolveVerificationPolicy(riskTier, boundaryTouching, ctx.projectConfig).sequence;
+    resolveVerificationPolicy(riskTier, boundaryTouching, projectConfig).sequence;
   const verificationTerms = verificationProfiles(batch).map((profile) => ({
     riskTier: profile.riskTier,
     boundaryTouching: profile.boundaryTouching,
@@ -536,6 +580,9 @@ export async function handlePrepare(
     executionProfile: { capabilities },
     verificationTerms,
     baseRef,
+    baseCommit,
+    scope,
+    ...(designRecordDigest !== undefined ? { designSource: { sourceId: 'design-record', digest: designRecordDigest } } : {}),
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
   const requestDigest = canonicalRequestDigest(inputs);
@@ -547,12 +594,16 @@ export async function handlePrepare(
       .lookupOperationClaim<PreparedCapsuleReceipt>(operationId);
     if (claim !== undefined) return receiptResult(claim.result);
 
+    const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
+    const otherRepository = await otherRepositoryRefusal({ streamId, repoRoot, repository, rows: events, bundles });
+    if (otherRepository !== undefined) return refused(otherRepository);
+
     const designRevisions = designRevisionsOf(events);
     const accepted = await readBoundChanges(
       streamId,
       designRevisions,
       batch.tasks.map((task) => task.taskId),
-      deps.bundleStore ?? ctx.eventStore.bundleStore,
+      bundles,
     );
     if (!accepted.ok) return refused(accepted.refusal);
 
@@ -563,13 +614,16 @@ export async function handlePrepare(
       batch,
       catalogInvariants,
       designRef,
+      ...(designRecordDigest !== undefined ? { designRecordDigest } : {}),
       designVersion,
       designRevisions,
       acceptedChanges: accepted.changes,
       compilerVersion,
       baseRef,
+      pin: { scope, baseCommit },
       executionProfile: { capabilities },
       verificationSequence: sequenceOf,
+      disabledGates,
       compiledAt: (deps.now ?? (() => new Date().toISOString()))(),
     });
     if (!compiled.ok) return refused(compiled.refusal);

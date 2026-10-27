@@ -8,6 +8,7 @@ import {
   validateAgentEvent,
   type AdmissionEvidenceRecorded,
   type WorkflowEvent,
+  type WorkflowPrepared,
 } from '../../events/schemas.js';
 import { toEventAck, type ToolResult } from '../../format.js';
 import { getOrCreateMaterializer, resetMaterializerCache } from '../../projections/views/tools.js';
@@ -18,14 +19,38 @@ import type { WorkflowState } from '../../workflow/types.js';
 import { logger } from '../../logger.js';
 import { getFullRegistry } from '../../registry.js';
 import { getDispatchContext } from '../../dispatch/dispatch-context.js';
-import { ladderRequirementId, readGateEvidenceRecords, selectSubject } from '../gates/durable-gate-producer.js';
-import { gateRunnerObservationSource, gateSignalIdempotencyKey } from '../gates/gate-runner.js';
+import {
+  canonicalPath,
+  isAncestor,
+  normalizedPath,
+  observeTree,
+  type TreeObservation,
+  type TreeObserver,
+} from '../../utils/git-tree.js';
+import { ladderRequirementId, readGateEvidenceRecords, selectSubject, treeStampOf } from '../gates/durable-gate-producer.js';
+import { gateRunnerObservationSource, gateSignalIdempotencyKey, type GateRunTree } from '../gates/gate-runner.js';
+import { DISABLED_BY_CONFIG } from '../gates/gate-utils.js';
 import { staticAnalysisSubjectScope } from '../gates/static-analysis.js';
 import type { StaticAnalysisSkipReason } from '../pure/static-analysis.js';
 import { DESIGN_REVISED_TYPE, designVersionId, revisedTasksAfter } from '../prepare/design-version.js';
-import { WORKFLOW_PREPARED_TYPE, latestPreparedRecordOf, preparedRecordOf } from '../prepare/prepared-record.js';
+import {
+  WORKFLOW_PREPARED_TYPE,
+  capsuleOfRecord,
+  latestPreparedRecordOf,
+  preparedRecordOf,
+} from '../prepare/prepared-record.js';
+import {
+  baseBreach,
+  completionSharerBreach,
+  completionTreeOf,
+  unobservedBreach,
+  worktreeBreach,
+  type ScopeBreach,
+  type WorktreeTerms,
+} from '../settle/settle-scope.js';
 import { STATIC_ANALYSIS_STEP_PARAMS } from '../../runbooks/definitions.js';
 import { assertNever } from '../../contract/error-families.js';
+import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
 
 const CLAIM_BASE_DELAY_MS = 50;
 
@@ -230,18 +255,33 @@ const STATIC_ANALYSIS_GATE = 'static-analysis';
 /** The ladder requirement under which a static-analysis run records its evidence. */
 const STATIC_ANALYSIS_REQUIREMENT = ladderRequirementId(STATIC_ANALYSIS_GATE);
 
+/** The action that runs the static-analysis gate. The config key of its gate-level severity is this name. */
+const STATIC_ANALYSIS_ACTION = 'check_static_analysis';
+
 /** The skip descriptor that the gate runner copied from the carrier into a signal row. */
 interface SignalSkip {
   readonly discriminant: string | undefined;
   readonly reason: string | undefined;
 }
 
-/** The facts of one runner signal of the static-analysis gate that the completion check reads. */
+/**
+ * The facts of one runner signal of the static-analysis gate that the completion check reads.
+ * `tree` is the tree that the run scanned, from `details.worktree` and `details.head`. A row of an earlier build names no tree.
+ */
 interface RunnerSignal {
   readonly sequence: number;
   readonly passed: boolean;
   readonly evidenceId: string;
   readonly skip: SignalSkip | undefined;
+  readonly tree: GateRunTree | undefined;
+}
+
+/** The tree that a runner row names, or undefined when the row names no tree. A row with a head and no root names no tree. */
+function signalTree(details: Readonly<Record<string, unknown>>): GateRunTree | undefined {
+  const worktree = stringField(details.worktree);
+  if (worktree === undefined) return undefined;
+  const head = stringField(details.head);
+  return head === undefined ? { worktree } : { worktree, head };
 }
 
 /** A string value of a row field, or undefined for any other value. */
@@ -283,6 +323,7 @@ async function runnerSignals(store: EventStore, streamId: string, taskId: string
         details.skipped === true
           ? { discriminant: stringField(details.discriminant), reason: stringField(details.reason) }
           : undefined,
+      tree: signalTree(details),
     });
   }
   return signals.sort((a, b) => a.sequence - b.sequence);
@@ -368,25 +409,72 @@ function hasStepParamsSubject(record: AdmissionEvidenceRecorded, streamId: strin
  * Why the static-analysis prerequisite of a task holds or does not hold.
  * `no-runner-verdict` says whether the task has a runner row. `skipped-check` carries the skipped checks that the runner row names.
  * `no-toolchain` is a no-toolchain skip that is the latest record of the task. `earlier-no-toolchain` is one that is not.
+ *
  * `no-recorded-cause` is a record whose runner row is absent or names no known skip cause, as a row of an earlier build does.
+ * `repo-root-missing` is a skip of a task run with no `repoRoot`, which scanned nothing.
+ * A `pass` carries the latest runner signal, which names the tree of the passing run.
  */
 type StaticAnalysisPrerequisite =
-  | { readonly kind: 'pass' }
+  | { readonly kind: 'pass'; readonly signal: RunnerSignal }
   | { readonly kind: 'no-runner-verdict'; readonly latestRow: boolean }
   | { readonly kind: 'failed'; readonly record: CauseRecord }
   | { readonly kind: 'skipped-check'; readonly record: CauseRecord; readonly skippedChecks: string | undefined }
   | { readonly kind: 'no-toolchain' }
   | { readonly kind: 'earlier-no-toolchain'; readonly record: CauseRecord }
+  | { readonly kind: 'repo-root-missing'; readonly record: CauseRecord }
+  | { readonly kind: 'disabled-by-config'; readonly record: CauseRecord }
   | { readonly kind: 'no-recorded-cause'; readonly record: CauseRecord; readonly skipped: boolean };
 
-/** The causes of a refusal. */
-type StaticAnalysisRefusalCause = Exclude<StaticAnalysisPrerequisite, { readonly kind: 'pass' }>;
+/** The causes of a refusal of the static-analysis prerequisite. */
+type PrerequisiteCause = Exclude<StaticAnalysisPrerequisite, { readonly kind: 'pass' }>;
+
+/**
+ * The tree that a completion names in `result.worktreePath`, by the stamp rule of a gate run.
+ * An `unobservable` tree is a path where git did not start, did not end in time, or failed in an unexpected way.
+ */
+type NamedTree =
+  | { readonly kind: 'stamped'; readonly stamp: GateRunTree }
+  | { readonly kind: 'unobservable'; readonly path: string; readonly cause: string };
+
+/**
+ * A named tree that a scope rule of the reference capsule refuses.
+ * `path` is the canonical form of the named path. `breach` is the first rule that the tree fails.
+ * `reference` says whether the call named the capsule version, or the leaf took the latest prepared capsule.
+ * `baseRef` and `baseCommit` are the base of the task in that capsule. Each is absent when the capsule does not pin it.
+ */
+interface TreeOutOfScope {
+  readonly kind: 'tree-out-of-scope';
+  readonly path: string;
+  readonly breach: ScopeBreach;
+  readonly repository: string;
+  readonly reference: RevisionReference;
+  readonly baseRef: string | undefined;
+  readonly baseCommit: string | undefined;
+}
+
+/**
+ * The causes of a refusal: each cause of the static-analysis prerequisite, and the three causes of the tree rule.
+ * `other-tree` is a passing run on another tree or at another commit than the tree that the completion names.
+ * `tree-unnamed` is a completion on a prepared stream that names no tree.
+ * `tree-out-of-scope` is a named tree that a scope rule of the reference capsule refuses.
+ */
+type StaticAnalysisRefusalCause =
+  | PrerequisiteCause
+  | { readonly kind: 'other-tree'; readonly named: NamedTree; readonly scanned: GateRunTree | undefined }
+  | { readonly kind: 'tree-unnamed' }
+  | TreeOutOfScope;
+
+/** Each cause of a refusal, keyed by its kind. */
+type RefusalCauseByKind = { readonly [Cause in StaticAnalysisRefusalCause as Cause['kind']]: Cause };
 
 /** The skip discriminant of a static-analysis run with no supported toolchain. */
 const NO_TOOLCHAIN: StaticAnalysisSkipReason = 'no-toolchain';
 
 /** The skip discriminant of a static-analysis run in which a check did not run. */
 const CONSTITUENT_SKIPPED: StaticAnalysisSkipReason = 'constituent-skipped';
+
+/** The skip discriminant of a static-analysis task run with no `repoRoot`. */
+const REPO_ROOT_MISSING: StaticAnalysisSkipReason = 'repo-root-missing';
 
 /**
  * The active record that gives the cause of a refusal, or undefined when each active record passes.
@@ -414,7 +502,7 @@ function recordCause(
   signals: readonly RunnerSignal[],
   streamId: string,
   taskId: string,
-): StaticAnalysisRefusalCause {
+): PrerequisiteCause {
   const { evidenceId } = record.evidence;
   const cause: CauseRecord = {
     evidenceId,
@@ -431,6 +519,8 @@ function recordCause(
       ? { kind: 'no-toolchain' }
       : { kind: 'earlier-no-toolchain', record: cause };
   }
+  if (skip?.discriminant === REPO_ROOT_MISSING) return { kind: 'repo-root-missing', record: cause };
+  if (skip?.discriminant === DISABLED_BY_CONFIG) return { kind: 'disabled-by-config', record: cause };
   return { kind: 'no-recorded-cause', record: cause, skipped: skip !== undefined };
 }
 
@@ -455,7 +545,7 @@ async function staticAnalysisPrerequisite(
   const latestRecord = all.at(-1);
   const cited = causeRecordOf(active, latestRecord);
   if (cited === undefined && latestSignal?.passed === true && active.has(latestSignal.evidenceId)) {
-    return { kind: 'pass' };
+    return { kind: 'pass', signal: latestSignal };
   }
   if (cited === undefined || latestRecord === undefined) {
     return { kind: 'no-runner-verdict', latestRow: latestSignal !== undefined };
@@ -520,8 +610,11 @@ function otherChainRecord(cause: StaticAnalysisRefusalCause): CauseRecord | unde
 /**
  * The recovery that the refusal names for each cause. The record is total over the causes, so a new cause without a recovery does not compile.
  * Each function gets the rerun of the static-analysis step, which comes from the params of the step of the completion runbooks.
+ * It also gets the cause of its own kind, so a recovery can name the values of that cause.
  */
-const REFUSAL_RECOVERIES: Readonly<Record<StaticAnalysisRefusalCause['kind'], (rerun: string) => string>> = {
+const REFUSAL_RECOVERIES: {
+  readonly [Kind in keyof RefusalCauseByKind]: (rerun: string, cause: RefusalCauseByKind[Kind]) => string;
+} = {
   'no-runner-verdict': (rerun) => `To record a verdict, ${rerun}`,
   failed: (rerun) => `Fix the failing checks that the check_static_analysis report names. Then ${rerun}`,
   'skipped-check': (rerun) => `Add the missing scripts, or do not set the skip flags. Then ${rerun}`,
@@ -529,8 +622,73 @@ const REFUSAL_RECOVERIES: Readonly<Record<StaticAnalysisRefusalCause['kind'], (r
     'A task cannot complete in this repository until static analysis can run configured commands (#1540). ' +
     'A rerun gives the same skip.',
   'earlier-no-toolchain': (rerun) => `Make sure that the run scans the worktree of the task. Then ${rerun}`,
+  'repo-root-missing': treeRecovery,
+  'disabled-by-config': (rerun) =>
+    `Enable ${STATIC_ANALYSIS_ACTION} in the .exarchos.yml of the checkout: remove review.gates.${STATIC_ANALYSIS_ACTION}, ` +
+    'or set its enabled and blocking to true, and keep the D2 dimension enabled and blocking. ' +
+    `A task cannot complete while the config disables static analysis. Then ${rerun}`,
   'no-recorded-cause': (rerun) => `To find the cause, ${rerun}`,
+  'other-tree': treeRecovery,
+  'tree-unnamed': treeRecovery,
+  'tree-out-of-scope': scopeRecovery,
 };
+
+/** The recovery of one cause. The kind selects the recovery, and the recovery reads the cause of that kind. */
+function recoveryOf<Kind extends keyof RefusalCauseByKind>(
+  kind: Kind,
+  cause: RefusalCauseByKind[Kind],
+  rerun: string,
+): string {
+  return REFUSAL_RECOVERIES[kind](rerun, cause);
+}
+
+/**
+ * The recovery of a cause of the tree rule, and of a run that scanned nothing.
+ * The caller names the worktree of the task in the completion and records a pass on that tree at its current commit.
+ */
+function treeRecovery(rerun: string): string {
+  return `Name the worktree of the task in result.worktreePath, and record a pass on that tree at its current commit: ${rerun}`;
+}
+
+/**
+ * The recovery of a named tree that a scope rule refuses. The caller forks a worktree of the pinned repository from the
+ * base of the task, on its own branch. Then it records a pass there. A call with no capsule version also passes the
+ * version of the batch of the task, because a later capsule can pin another base.
+ */
+function scopeRecovery(rerun: string, cause: TreeOutOfScope): string {
+  const at = cause.baseCommit === undefined ? '' : ` at ${cause.baseCommit}`;
+  const base = cause.baseRef === undefined ? `the base of the task${at}` : `'${cause.baseRef}'${at}`;
+  const version =
+    cause.reference.kind === 'latest'
+      ? ' Pass the capsuleVersion of the batch of the task in the call, because a later capsule can pin another base.'
+      : '';
+  return (
+    `Fork a worktree of the pinned repository '${cause.repository}' from ${base}, on a branch of its own, and do ` +
+    `the work of the task there.${version} Then name that worktree in result.worktreePath, and record a pass on ` +
+    `it: ${rerun}`
+  );
+}
+
+/** A tree in a refusal: its path and its commit, or its path and no commit for a directory outside git. */
+function treeText(tree: GateRunTree): string {
+  return tree.head === undefined ? `'${tree.worktree}' with no commit` : `'${tree.worktree}' at commit ${tree.head}`;
+}
+
+/** The sentence of an `other-tree` refusal. It names both trees and both commits, or why the named tree has no stamp. */
+function otherTreeText(named: NamedTree, scanned: GateRunTree | undefined, taskId: string): string {
+  if (named.kind === 'unobservable') {
+    return (
+      `The completion of task '${taskId}' names the tree '${named.path}', and the observation of that tree failed: ` +
+      `${named.cause}. A pass counts only on a tree that the handler observes, so the cause is other-tree.`
+    );
+  }
+  const rule = 'A pass counts only on the tree and the commit that the completion names, so the cause is other-tree.';
+  return scanned === undefined
+    ? `The latest passing static-analysis run for task '${taskId}' names no tree, as a run of an earlier build does. ` +
+        `The completion names ${treeText(named.stamp)}. ${rule}`
+    : `The latest passing static-analysis run for task '${taskId}' scanned ${treeText(scanned)}, ` +
+        `and the completion names ${treeText(named.stamp)}. ${rule}`;
+}
 
 /** The subject of a cause sentence: the latest run of the task, or the named record outside the chain of the latest run. */
 function causeSubject(record: CauseRecord, taskId: string, noun: 'run' | 'verdict'): string {
@@ -577,14 +735,49 @@ function refusalCauseText(cause: StaticAnalysisRefusalCause, taskId: string): st
         `${namedRecordSubject(cause.record, taskId, 'run')} is a skip, because it found no supported static-analysis ` +
         `toolchain in the scanned directory. A later run of the task is not this skip.${chainSentence(cause.record)}`
       );
+    case 'repo-root-missing':
+      return (
+        `${causeSubject(cause.record, taskId, 'run')} is a repo-root-missing skip: the call named the task and no ` +
+        `repoRoot, so the run scanned nothing.${chainSentence(cause.record)}`
+      );
+    case 'disabled-by-config':
+      return (
+        `${causeSubject(cause.record, taskId, 'run')} is a disabled-by-config skip: the project config disables ` +
+        `${STATIC_ANALYSIS_ACTION}, so its provider did not run and the run is not a pass.${chainSentence(cause.record)}`
+      );
     case 'no-recorded-cause':
       return cause.skipped
         ? `${causeSubject(cause.record, taskId, 'run')} is a skip with no recorded cause.${chainSentence(cause.record)}`
         : `${causeSubject(cause.record, taskId, 'run')} is not a pass, and no runner row records its cause.` +
             chainSentence(cause.record);
+    case 'other-tree':
+      return otherTreeText(cause.named, cause.scanned, taskId);
+    case 'tree-unnamed':
+      return (
+        `The stream holds a prepared capsule, and the completion of task '${taskId}' names no tree in ` +
+        'result.worktreePath. A pass counts only on the tree that the completion names, so the cause is tree-unnamed.'
+      );
+    case 'tree-out-of-scope':
+      return scopeText(cause, taskId);
     default:
       return assertNever(cause, 'static-analysis refusal cause');
   }
+}
+
+/**
+ * The sentences of a `tree-out-of-scope` refusal. They name the named tree, the rule that refuses it, the capsule of the
+ * rule and the repository that the capsule pins.
+ */
+function scopeText(cause: TreeOutOfScope, taskId: string): string {
+  const capsule =
+    cause.reference.kind === 'named'
+      ? `capsule v${cause.reference.capsuleVersion}`
+      : `capsule v${cause.reference.capsuleVersion}, the latest prepared capsule of the stream, because the call names no capsuleVersion`;
+  return (
+    `The completion of task '${taskId}' names the tree '${cause.path}', and the scope rule ${cause.breach.cause} of ` +
+    `${capsule} refuses it: ${cause.breach.detail}. The capsule pins the repository '${cause.repository}'. ` +
+    'A pass counts only on a worktree of the task in that scope, so the cause is tree-out-of-scope.'
+  );
 }
 
 /** The `GATE_NOT_PASSED` refusal for one cause. It names the gate, the cause and the recovery of that cause. */
@@ -596,7 +789,7 @@ function gateNotPassed(cause: StaticAnalysisRefusalCause, taskId: string): ToolR
       code: 'GATE_NOT_PASSED',
       message:
         `Required gates not passed: ${STATIC_ANALYSIS_GATE}. ${refusalCauseText(cause, taskId)} ` +
-        REFUSAL_RECOVERIES[cause.kind](rerun),
+        recoveryOf(cause.kind, cause, rerun),
       unmetGates: [STATIC_ANALYSIS_GATE],
     },
   };
@@ -607,15 +800,20 @@ function completionKey(streamId: string, taskId: string): string {
   return `${streamId}:task.completed:${taskId}`;
 }
 
-/** The `task.completed` row stored under the completion key of the task, or undefined when none exists. */
-async function storedCompletion(
-  store: EventStore,
-  streamId: string,
-  taskId: string,
-): Promise<WorkflowEvent | undefined> {
+/**
+ * The `task.completed` rows of the stream, and the row stored under the completion key of the task.
+ * `stored` is undefined when no row of the task exists. The scope rule reads `rows`, so it needs no read of its own.
+ */
+interface StoredCompletion {
+  readonly stored: WorkflowEvent | undefined;
+  readonly rows: readonly WorkflowEvent[];
+}
+
+/** Reads the `task.completed` rows of the stream, and finds the row stored under the completion key of the task. */
+async function storedCompletion(store: EventStore, streamId: string, taskId: string): Promise<StoredCompletion> {
   const key = completionKey(streamId, taskId);
   const rows = await store.query(streamId, { type: 'task.completed' });
-  return rows.find((row) => row.idempotencyKey === key);
+  return { stored: rows.find((row) => row.idempotencyKey === key), rows };
 }
 
 /** Marks the task complete on the state document that the transition guards read, and returns the outcome of the sync. */
@@ -745,33 +943,52 @@ function supersededByRevision(taskId: string, reference: RevisionReference, desi
   return { success: false, error: { code: 'TASK_SUPERSEDED_BY_REVISION', message } };
 }
 
+/** The reference record of the revision check: the prepared record, and how the call chose its capsule. */
+interface ReferenceRecord {
+  readonly record: WorkflowPrepared;
+  readonly reference: RevisionReference;
+}
+
 /**
- * The refusal of a completion that a design revision supersedes, or undefined when nothing refuses.
+ * The outcome of the revision check: a refusal, or no refusal and the reference record of the check.
+ * The reference is undefined when the stream holds no prepared record.
+ * The tree rule and the scope rule read the reference, so they need no read of their own.
+ */
+type RevisionStanding =
+  | { readonly kind: 'refused'; readonly result: ToolResult }
+  | { readonly kind: 'clear'; readonly reference: ReferenceRecord | undefined };
+
+/**
+ * The refusal of a completion that a design revision supersedes, or no refusal.
  * The reference is the prepared record of `capsuleVersion`, or the latest prepared record of the stream with no version.
  * A revision row after the reference that names the task refuses. A version with no prepared record refuses.
  * A stream with no prepared record holds no revision, so with no version nothing refuses there.
+ *
+ * With no refusal, the outcome gives the reference record. It is undefined when the stream holds no prepared record.
  */
 async function revisionRefusal(
   store: EventStore,
   streamId: string,
   taskId: string,
   capsuleVersion: number | undefined,
-): Promise<ToolResult | undefined> {
+): Promise<RevisionStanding> {
   const prepared = await store.query(streamId, { type: WORKFLOW_PREPARED_TYPE });
-  const reference =
+  const found =
     capsuleVersion === undefined ? latestPreparedRecordOf(prepared) : preparedRecordOf(prepared, capsuleVersion);
-  if (reference === undefined) {
-    return capsuleVersion === undefined ? undefined : capsuleNotPrepared(streamId, capsuleVersion);
+  if (found === undefined) {
+    return capsuleVersion === undefined
+      ? { kind: 'clear', reference: undefined }
+      : { kind: 'refused', result: capsuleNotPrepared(streamId, capsuleVersion) };
   }
-  const revisions = await store.query(streamId, { type: DESIGN_REVISED_TYPE, sinceSequence: reference.sequence });
-  const designVersion = revisedTasksAfter(revisions, reference.sequence).get(taskId);
+  const reference: RevisionReference = {
+    kind: capsuleVersion === undefined ? 'latest' : 'named',
+    capsuleVersion: found.record.capsuleVersion,
+  };
+  const revisions = await store.query(streamId, { type: DESIGN_REVISED_TYPE, sinceSequence: found.sequence });
+  const designVersion = revisedTasksAfter(revisions, found.sequence).get(taskId);
   return designVersion === undefined
-    ? undefined
-    : supersededByRevision(
-        taskId,
-        { kind: capsuleVersion === undefined ? 'latest' : 'named', capsuleVersion: reference.record.capsuleVersion },
-        designVersion,
-      );
+    ? { kind: 'clear', reference: { record: found.record, reference } }
+    : { kind: 'refused', result: supersededByRevision(taskId, reference, designVersion) };
 }
 
 /** The most attempts that one completion makes. A sequence conflict on the append starts the next attempt. */
@@ -794,10 +1011,28 @@ interface TaskCompleteArgs {
   featureId?: string;
 }
 
-/** The reads before the gate check: a result that ends the attempt, or the pinned tail for the append. */
-type CompletionStanding =
-  | { readonly kind: 'result'; readonly result: ToolResult }
-  | { readonly kind: 'open'; readonly tail: number };
+/**
+ * An open attempt: the pinned tail for the append, the reference record of the revision check, and the `task.completed`
+ * rows of the stream. The reference is undefined when the stream holds no prepared record.
+ */
+interface OpenStanding {
+  readonly kind: 'open';
+  readonly tail: number;
+  readonly reference: ReferenceRecord | undefined;
+  readonly completions: readonly WorkflowEvent[];
+}
+
+/**
+ * A stored completion that no later `task.failed` row of the task reopened, on a state document that needs no repair.
+ * The gate check still runs, so a later failing run refuses. A pass returns `row`, judges no tree and appends no row.
+ */
+interface StoredStanding {
+  readonly kind: 'stored';
+  readonly row: WorkflowEvent;
+}
+
+/** The reads before the gate check: a result that ends the attempt, a stored completion, or an open attempt. */
+type CompletionStanding = { readonly kind: 'result'; readonly result: ToolResult } | StoredStanding | OpenStanding;
 
 /** The end of one completion attempt: a result, or a sequence conflict on the append that starts the next attempt. */
 type CompletionAttempt =
@@ -807,8 +1042,12 @@ type CompletionAttempt =
 /**
  * Pins the stream tail, then reads the stored completion and the design revisions of the task.
  * A stored completion that no later `task.failed` row of the task follows skips the revision check.
+ * When the state document needs no repair, the standing gives that stored row, and the attempt judges no tree.
+ * A landing or a prune can change the tree after the completion, so a retry does not fail on it.
  * A failure after the stored completion reopens the task, so the revision check runs and the gate check runs after it.
  * An error of a read returns `COMPLETE_FAILED`.
+ *
+ * An open attempt gives the reference record of the revision check, and the completion rows of the stream.
  */
 async function completionStanding(
   args: TaskCompleteArgs,
@@ -818,25 +1057,37 @@ async function completionStanding(
 ): Promise<CompletionStanding> {
   try {
     const tail = await store.tailSequence(streamId);
-    const stored = await storedCompletion(store, streamId, args.taskId);
+    const { stored, rows } = await storedCompletion(store, streamId, args.taskId);
     const reopened = stored !== undefined && (await failedAfterCompletion(store, streamId, args.taskId, stored));
-    const early =
-      stored !== undefined && !reopened
-        ? await repairStoredCompletion(stateDir, streamId, args.taskId, stored)
-        : await revisionRefusal(store, streamId, args.taskId, args.capsuleVersion);
-    return early === undefined ? { kind: 'open', tail } : { kind: 'result', result: early };
+    if (stored !== undefined && !reopened) {
+      const repaired = await repairStoredCompletion(stateDir, streamId, args.taskId, stored);
+      return repaired === undefined ? { kind: 'stored', row: stored } : { kind: 'result', result: repaired };
+    }
+    const revision = await revisionRefusal(store, streamId, args.taskId, args.capsuleVersion);
+    return revision.kind === 'refused'
+      ? { kind: 'result', result: revision.result }
+      : { kind: 'open', tail, reference: revision.reference, completions: rows };
   } catch (err) {
     return { kind: 'result', result: completeFailed(err) };
   }
 }
 
 /**
- * The `GATE_NOT_PASSED` refusal of the completion, or undefined when the static-analysis prerequisite holds.
+ * The outcome of the gate check: a refusal, or a pass with the tree of the passing run.
+ * `scanned` is the tree that the latest passing runner row names. It is undefined when the row names no tree,
+ * and when caller evidence stands in for the gate.
+ */
+type GateStanding =
+  | { readonly kind: 'refused'; readonly result: ToolResult }
+  | { readonly kind: 'passed'; readonly scanned: GateRunTree | undefined };
+
+/**
+ * The `GATE_NOT_PASSED` refusal of the completion, or a pass with the tree of the passing run.
  * Caller evidence never satisfies a blocking gate. For an advisory gate, it needs passing output and an operator capability.
  * The transport puts that capability in the dispatch context, so the caller cannot assert it.
  * The generic append refuses `gate.executed`, so only a gate handler writes the row that the check reads.
  */
-async function gateRefusal(args: TaskCompleteArgs, streamId: string, store: EventStore): Promise<ToolResult | undefined> {
+async function gateRefusal(args: TaskCompleteArgs, streamId: string, store: EventStore): Promise<GateStanding> {
   const evidenceIsSubstantive =
     args.evidence?.passed === true && (args.evidence.output ?? '').trim().length > 0;
 
@@ -852,19 +1103,209 @@ async function gateRefusal(args: TaskCompleteArgs, streamId: string, store: Even
     return hasOperatorCapability;
   };
 
-  const prerequisite = evidenceMaySatisfy(STATIC_ANALYSIS_GATE)
-    ? undefined
-    : await staticAnalysisPrerequisite(store, streamId, args.taskId);
-  return prerequisite !== undefined && prerequisite.kind !== 'pass'
-    ? gateNotPassed(prerequisite, args.taskId)
-    : undefined;
+  if (evidenceMaySatisfy(STATIC_ANALYSIS_GATE)) return { kind: 'passed', scanned: undefined };
+  const prerequisite = await staticAnalysisPrerequisite(store, streamId, args.taskId);
+  return prerequisite.kind === 'pass'
+    ? { kind: 'passed', scanned: prerequisite.signal.tree }
+    : { kind: 'refused', result: gateNotPassed(prerequisite, args.taskId) };
+}
+
+/** The raw path that a completion names in `result.worktreePath`, or undefined. Only a non-empty string names a tree. */
+function namedPath(args: TaskCompleteArgs): string | undefined {
+  const named = args.result?.worktreePath;
+  return typeof named === 'string' && named.length > 0 ? named : undefined;
+}
+
+/** The tree at `namedPath`, stamped by the rule of a gate run from the git observation of that path. */
+function namedTreeOf(namedPath: string, observed: TreeObservation): NamedTree {
+  const stamp = treeStampOf(observed);
+  if (stamp !== undefined) return { kind: 'stamped', stamp };
+  return {
+    kind: 'unobservable',
+    path: normalizedPath(namedPath),
+    cause: observed.kind === 'unobservable' ? observed.cause : 'git gave no tree',
+  };
+}
+
+/** The branch that a completion names in `result.branch`, or undefined. A string value names a branch, as in a settle claim. */
+function namedBranch(args: TaskCompleteArgs): string | undefined {
+  const branch = args.result?.branch;
+  return typeof branch === 'string' ? branch : undefined;
+}
+
+/** The tree of the completion row of each task, from the `task.completed` rows of the stream, in lexical form. */
+function completedTreesOf(rows: readonly WorkflowEvent[]): ReadonlyMap<string, string> {
+  const trees = new Map<string, string>();
+  for (const row of rows) {
+    const taskId = rowTaskId(row);
+    const tree = completionTreeOf(row.data);
+    if (typeof taskId === 'string' && tree !== undefined) trees.set(taskId, tree);
+  }
+  return trees;
+}
+
+/**
+ * Reads the capsule of the reference record back from custody, or undefined when custody cannot return it.
+ * A record that names no bundle, an absent blob, a failed read, and bytes that do not decode or match their record give undefined.
+ */
+async function referenceCapsule(record: WorkflowPrepared, store: EventStore): Promise<ExarchosCapsuleV1 | undefined> {
+  try {
+    return (await capsuleOfRecord(record, store.bundleStore))?.capsule;
+  } catch (err) {
+    logger.debug(
+      { workflowId: record.workflowId, capsuleVersion: record.capsuleVersion, err },
+      'task_complete judges only the same tree: custody cannot return the reference capsule',
+    );
+    return undefined;
+  }
+}
+
+/**
+ * The base that the observer seam gets for a task with no base commit. HEAD holds itself.
+ * The leaf runs no rule 7 for such a task, so it does not read `holdsBase`.
+ */
+const NO_BASE_COMMIT = 'HEAD';
+
+/**
+ * The first scope rule that the named tree fails, or undefined when it fails none.
+ * With the observer seam, the seam observes the tree once, also for a task with no base commit. The seam gets the repository
+ * of the scope, so it reads no status in a tree of another repository. Else the rules read
+ * `named`, the git observation of the tree rule, and git answers once whether HEAD holds the base commit.
+ * A task with no base commit gets no rule 7. The completion-row half of rule 9 runs last.
+ */
+async function scopeBreachOf(
+  taskId: string,
+  raw: string,
+  branch: string | undefined,
+  named: TreeObservation,
+  terms: WorktreeTerms,
+  completedTrees: ReadonlyMap<string, string>,
+  observer: TreeObserver | undefined,
+): Promise<ScopeBreach | undefined> {
+  const claimed = canonicalPath(raw);
+  const { baseRef, baseCommit } = terms;
+  if (observer !== undefined) {
+    const observed = await observer(raw, baseCommit ?? NO_BASE_COMMIT, terms.scope.repository);
+    if (observed.kind !== 'tree') return unobservedBreach(observed);
+    return (
+      worktreeBreach(claimed, branch, observed, terms) ??
+      (baseCommit === undefined ? undefined : baseBreach(observed.holdsBase, baseCommit, baseRef)) ??
+      completionSharerBreach(taskId, claimed, completedTrees)
+    );
+  }
+  if (named.kind !== 'tree') return unobservedBreach(named);
+  const breach = worktreeBreach(claimed, branch, named, terms);
+  if (breach !== undefined) return breach;
+  if (baseCommit !== undefined) {
+    const ancestry = await isAncestor(raw, baseCommit, 'HEAD');
+    if (ancestry.kind === 'unobservable') return unobservedBreach(ancestry);
+    const notHeld = baseBreach(ancestry.kind === 'ancestor', baseCommit, baseRef);
+    if (notHeld !== undefined) return notHeld;
+  }
+  return completionSharerBreach(taskId, claimed, completedTrees);
+}
+
+/**
+ * The scope rule of a completion that names a tree, on a stream with a reference record, or undefined when it does not refuse.
+ * It reads the capsule of the record from custody. A capsule with no scope, or one that custody cannot return, gives no rule.
+ * Rule 5 reads the `baseRef` of the task in that capsule, and rule 7 reads its `baseCommit`.
+ * Rule 6 runs only when the result names a branch. The completion rows of the stream give the completion-row half of rule 9.
+ */
+async function scopeRefusal(
+  args: TaskCompleteArgs,
+  raw: string,
+  named: TreeObservation,
+  reference: ReferenceRecord,
+  completions: readonly WorkflowEvent[],
+  store: EventStore,
+  observer: TreeObserver | undefined,
+): Promise<ToolResult | undefined> {
+  const capsule = await referenceCapsule(reference.record, store);
+  const scope = capsule?.settlementContract.scope;
+  if (capsule === undefined || scope === undefined) return undefined;
+  const task = capsule.settlementContract.taskVerification?.[args.taskId];
+  const terms: WorktreeTerms = {
+    scope,
+    ...(task === undefined ? {} : { baseRef: task.baseRef }),
+    ...(task?.baseCommit === undefined ? {} : { baseCommit: task.baseCommit }),
+  };
+  const breach = await scopeBreachOf(
+    args.taskId,
+    raw,
+    namedBranch(args),
+    named,
+    terms,
+    completedTreesOf(completions),
+    observer,
+  );
+  if (breach === undefined) return undefined;
+  return gateNotPassed(
+    {
+      kind: 'tree-out-of-scope',
+      path: canonicalPath(raw),
+      breach,
+      repository: scope.repository,
+      reference: reference.reference,
+      baseRef: terms.baseRef,
+      baseCommit: terms.baseCommit,
+    },
+    args.taskId,
+  );
+}
+
+/** Whether a runner row and a named tree are one tree at one commit. A row with no tree matches no named tree. */
+function sameTree(scanned: GateRunTree | undefined, named: GateRunTree): boolean {
+  return scanned !== undefined && scanned.worktree === named.worktree && scanned.head === named.head;
+}
+
+/**
+ * The outcome of the tree rule: a refusal, or the tree that the completion row names.
+ * `named` is undefined when the completion names no tree.
+ */
+type TreeStanding =
+  | { readonly kind: 'refused'; readonly result: ToolResult }
+  | { readonly kind: 'held'; readonly named: GateRunTree | undefined };
+
+/**
+ * The tree rule of a completion. It runs after the gate check, in the same pinned attempt.
+ * A completion that names no tree on a stream with a prepared record refuses with `tree-unnamed`.
+ * On a stream with no prepared record, a completion that names no tree goes ahead.
+ *
+ * On a stream with a reference record, the scope rule then judges the named tree against the capsule of that record.
+ * A tree that a rule refuses gives `tree-out-of-scope`.
+ * Last, a completion that names a tree needs a latest passing runner row on that tree, at the commit that git observes now.
+ * Another root, another commit, a row with no tree, or a tree that git cannot observe refuses with `other-tree`.
+ */
+async function treeRefusal(
+  args: TaskCompleteArgs,
+  standing: OpenStanding,
+  scanned: GateRunTree | undefined,
+  store: EventStore,
+  observer: TreeObserver | undefined,
+): Promise<TreeStanding> {
+  const raw = namedPath(args);
+  if (raw === undefined) {
+    return standing.reference !== undefined
+      ? { kind: 'refused', result: gateNotPassed({ kind: 'tree-unnamed' }, args.taskId) }
+      : { kind: 'held', named: undefined };
+  }
+  const observed = await observeTree(raw);
+  if (standing.reference !== undefined) {
+    const refusal = await scopeRefusal(args, raw, observed, standing.reference, standing.completions, store, observer);
+    if (refusal !== undefined) return { kind: 'refused', result: refusal };
+  }
+  const named = namedTreeOf(raw, observed);
+  if (named.kind === 'stamped' && sameTree(scanned, named.stamp)) return { kind: 'held', named: named.stamp };
+  return { kind: 'refused', result: gateNotPassed({ kind: 'other-tree', named, scanned }, args.taskId) };
 }
 
 /**
  * The data of the `task.completed` row: the task, the provenance fields of `result`, and the caller evidence.
- * It forwards `worktree` and `worktreePath` for the `mergePendingEntry` guard. It does not record `capsuleVersion`.
+ * It forwards `worktree` for the `mergePendingEntry` guard. It does not record `capsuleVersion`.
+ * For a named tree, it writes the canonical `worktreePath` and the observed head as `commit`, outside `TaskCompletedData`.
+ * The guard reads that `worktreePath` too. A tree outside git has no head, so its row carries no `commit`.
  */
-function completionData(args: TaskCompleteArgs): Record<string, unknown> {
+function completionData(args: TaskCompleteArgs, named: GateRunTree | undefined): Record<string, unknown> {
   const data: Record<string, unknown> = { taskId: args.taskId };
   if (args.result) {
     if (args.result.artifacts) {
@@ -885,12 +1326,10 @@ function completionData(args: TaskCompleteArgs): Record<string, unknown> {
     if (typeof args.result.worktree === 'string' && args.result.worktree.length > 0) {
       data.worktree = args.result.worktree;
     }
-    if (
-      typeof args.result.worktreePath === 'string' &&
-      args.result.worktreePath.length > 0
-    ) {
-      data.worktreePath = args.result.worktreePath;
-    }
+  }
+  if (named !== undefined) {
+    data.worktreePath = named.worktree;
+    if (named.head !== undefined) data.commit = named.head;
   }
 
   if (args.evidence) {
@@ -905,25 +1344,30 @@ function completionData(args: TaskCompleteArgs): Record<string, unknown> {
 /**
  * One completion attempt. The gate check runs after the pin, and the append expects the pinned tail.
  * A row that lands after the pin thus fails the append with a sequence conflict, and the next attempt reads that row.
- * The appender reads the completion key before it compares the sequence. A retry of a recorded completion thus returns the stored row.
+ * A retry of a recorded completion that no failure reopened returns the stored row after the gate check, and judges no tree.
+ * The appender reads the completion key before it compares the sequence. A task that a failure reopened thus also gets the stored row.
  */
 async function attemptTaskComplete(
   args: TaskCompleteArgs,
   streamId: string,
   stateDir: string,
   store: EventStore,
+  observer: TreeObserver | undefined,
 ): Promise<CompletionAttempt> {
   const standing = await completionStanding(args, streamId, stateDir, store);
   if (standing.kind === 'result') return standing;
 
-  const refusal = await gateRefusal(args, streamId, store);
-  if (refusal !== undefined) return { kind: 'result', result: refusal };
+  const gate = await gateRefusal(args, streamId, store);
+  if (gate.kind === 'refused') return { kind: 'result', result: gate.result };
+  if (standing.kind === 'stored') return { kind: 'result', result: { success: true, data: toEventAck(standing.row) } };
+  const tree = await treeRefusal(args, standing, gate.scanned, store, observer);
+  if (tree.kind === 'refused') return { kind: 'result', result: tree.result };
 
   let event: WorkflowEvent;
   try {
     event = await store.append(
       streamId,
-      { type: 'task.completed', data: completionData(args) },
+      { type: 'task.completed', data: completionData(args, tree.named) },
       { idempotencyKey: completionKey(streamId, args.taskId), expectedSequence: standing.tail },
     );
   } catch (err) {
@@ -942,9 +1386,11 @@ async function attemptTaskComplete(
 /**
  * Records `task.completed` when the gate runner recorded a passing static-analysis verdict for the task.
  * Caller evidence never satisfies a blocking gate. A gate refusal names its cause and the recovery of that cause.
+ * The passing run must name the tree of `result.worktreePath` at its current commit. A prepared stream needs that tree.
  * A design revision after the capsule of the task that names the task refuses with `TASK_SUPERSEDED_BY_REVISION`.
- * The capsule is the prepared record of `capsuleVersion`, or the latest prepared record of the stream with no version.
- * A version with no prepared record refuses with `CAPSULE_NOT_PREPARED`.
+ *
+ * When the reference capsule pins a scope, the named tree must also be in that scope.
+ * `treeObserver` is the seam of that observation. Git observes the tree when the seam is absent.
  *
  * Each attempt pins the stream tail before its reads, and the append expects that tail.
  * A sequence conflict starts the next attempt after a backoff. After the last attempt, the result is `CONCURRENCY_CONFLICT`.
@@ -955,6 +1401,7 @@ export async function handleTaskComplete(
   args: TaskCompleteArgs,
   stateDir: string,
   eventStore: EventStore,
+  treeObserver?: TreeObserver,
 ): Promise<ToolResult> {
   if (!args.taskId) {
     return {
@@ -968,7 +1415,7 @@ export async function handleTaskComplete(
   const streamId = identity.streamId;
 
   for (let attempt = 0; attempt < MAX_COMPLETE_ATTEMPTS; attempt++) {
-    const outcome = await attemptTaskComplete(args, streamId, stateDir, eventStore);
+    const outcome = await attemptTaskComplete(args, streamId, stateDir, eventStore, treeObserver);
     if (outcome.kind === 'result') return outcome.result;
     if (attempt + 1 < MAX_COMPLETE_ATTEMPTS) {
       await sleep(COMPLETE_BASE_DELAY_MS * Math.pow(2, attempt) + Math.random() * COMPLETE_BASE_DELAY_MS);

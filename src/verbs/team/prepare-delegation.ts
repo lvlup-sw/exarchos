@@ -5,6 +5,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 import type { ToolResult } from '../../format.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import { DEFAULTS } from '../../config/resolve.js';
@@ -39,6 +40,7 @@ import type { DelegationReadinessState } from '../../projections/views/delegatio
 import { generateQualityHints } from '../../projections/quality/hints.js';
 import type { QualityHint } from '../../projections/quality/hints.js';
 import { emitGateEvent } from '../gates/gate-utils.js';
+import { ABSOLUTE_REPO_ROOT } from '../prepare/prepare-scope.js';
 import { parseTaskStamps, stampForTask } from '../tasks/parse-task-stamps.js';
 import { readFile } from 'node:fs/promises';
 import { queryTelemetryState } from '../../projections/telemetry/telemetry-queries.js';
@@ -733,13 +735,31 @@ export async function persistWorkflowRiskTier(
   });
 }
 
-function createGitExec(): (args: readonly string[]) => string {
+/** Runs git in `cwd`. With no `cwd`, git runs in the server directory. */
+function createGitExec(cwd: string | undefined): (args: readonly string[]) => string {
   return (args: readonly string[]): string => {
     return execFileSync('git', [...args], {
       encoding: 'utf-8',
       stdio: ['pipe', 'pipe', 'pipe'],
+      ...(cwd === undefined ? {} : { cwd }),
     });
   };
+}
+
+/**
+ * The warning of a call with no `repoRoot`. The git guards, the stash probe and a relative `planPath` then read the server directory.
+ * That directory can be another checkout than the checkout of the caller.
+ */
+function serverDirectoryWarning(serverDirectory: string): string {
+  return (
+    `repoRoot absent: the branch, ancestry and stash checks and a relative planPath read the server directory ` +
+    `(${serverDirectory}). Pass repoRoot, the absolute path of the coordinator worktree, to read that tree.`
+  );
+}
+
+/** The file of `planPath`. A relative path resolves against `repoRoot` when the call gives one. */
+function planFileOf(planPath: string, repoRoot: string | undefined): string {
+  return repoRoot === undefined ? planPath : path.resolve(repoRoot, planPath);
 }
 
 /**
@@ -758,7 +778,9 @@ function sharedCheckoutHazardWarning(expected: number): string {
  * The handler checks each task field, because a non-MCP caller passes `tasks` through an unchecked cast. A malformed task otherwise reports as a false `phase.blocked`.
  *
  * Under native isolation, the protected-branch and worktree-location guards do not run, and the base-ref guard runs.
- * The server reads HEAD from its own launch checkout, so the protected-branch guard gives a false positive when the orchestrator works from a worktree.
+ * The base-ref guard reads the settings of an absolute `repoRoot`. Without it, the guard reads the settings of the server directory.
+ * The git guards and the stash probe run in an absolute `repoRoot`. Without it, they run in the server directory, and the result warns.
+ *
  * The protected-branch guard runs before the ancestry guard, because ancestry always passes when HEAD is on `main`.
  * Each dispatch that reaches the guards records one `dispatch.preflight` event. A guard that did not run records `passed: true`, but `baseRef` is absent without native isolation.
  *
@@ -784,6 +806,11 @@ export async function handlePrepareDelegation(
     detail?: boolean;
     /** `'prompt-only'` has the same effect as `detail: true`. The handler also accepts `'full'`, the schema default, which has no effect. */
     outputFormat?: 'prompt-only';
+    /**
+     * The absolute path of the tree where the git guards, the stash probe, the base-ref guard and the read of a relative `planPath` run.
+     * The schema has no pattern for it, so the handler refuses a relative path. The main-worktree guard still reads the server directory.
+     */
+    repoRoot?: string;
   },
   stateDir: string,
   ctx?: DispatchContext,
@@ -861,6 +888,21 @@ export async function handlePrepareDelegation(
       },
     };
   }
+  if (
+    args.repoRoot !== undefined &&
+    (typeof args.repoRoot !== 'string' || !ABSOLUTE_REPO_ROOT.test(args.repoRoot))
+  ) {
+    return {
+      success: false,
+      error: {
+        code: 'INVALID_INPUT',
+        message:
+          `repoRoot ${JSON.stringify(args.repoRoot)} is not an absolute path. Git resolves a relative path against the ` +
+          'server directory, so pass the absolute path of the coordinator worktree.',
+      },
+    };
+  }
+  const repoRoot = args.repoRoot;
 
   try {
     const materializer = getOrCreateMaterializer(stateDir);
@@ -877,7 +919,10 @@ export async function handlePrepareDelegation(
       WORKFLOW_STATE_VIEW,
     );
 
-    const gitExec = createGitExec();
+    const warnings: string[] = repoRoot === undefined ? [serverDirectoryWarning(process.cwd())] : [];
+    const withWarnings = (): { warnings?: string[] } => (warnings.length > 0 ? { warnings } : {});
+
+    const gitExec = createGitExec(repoRoot);
     const currentBranch = getCurrentBranch(gitExec);
 
     const preflightStart = Date.now();
@@ -943,6 +988,7 @@ export async function handlePrepareDelegation(
             currentBranch: protectionResult.currentBranch,
             ...(protectionResult.hint ? { hint: protectionResult.hint } : {}),
           },
+          ...withWarnings(),
         };
       }
     }
@@ -977,6 +1023,7 @@ export async function handlePrepareDelegation(
           ...(ancestryResult.missing ? { missing: ancestryResult.missing } : {}),
           ...(ancestryResult.error ? { error: ancestryResult.error } : {}),
         },
+        ...withWarnings(),
       };
     }
 
@@ -1005,10 +1052,12 @@ export async function handlePrepareDelegation(
             actual: worktreeResult.actual,
             expected: worktreeResult.expected,
           },
+          ...withWarnings(),
         };
       }
     } else {
-      const baseRefResult = assertWorktreeBaseRefPinned();
+      const baseRefResult =
+        repoRoot === undefined ? assertWorktreeBaseRefPinned() : assertWorktreeBaseRefPinned({ cwd: repoRoot });
       guardOutcomes.baseRef.passed = baseRefResult.pinned;
       if (!baseRefResult.pinned) {
         await emitAuditEvent(store, streamId, {
@@ -1033,6 +1082,7 @@ export async function handlePrepareDelegation(
             remediation: baseRefResult.remediation,
             hint: baseRefResult.hint,
           },
+          ...withWarnings(),
         };
       }
     }
@@ -1054,7 +1104,7 @@ export async function handlePrepareDelegation(
     await probeStashAndEmit({
       store,
       streamId,
-      worktreePath: process.cwd(),
+      worktreePath: repoRoot ?? process.cwd(),
       gitExec,
     });
 
@@ -1069,8 +1119,6 @@ export async function handlePrepareDelegation(
       checkpointConfig,
       'wave-dispatch',
     );
-
-    const warnings: string[] = [];
 
     if (gateResult.gated) {
       await emitAuditEvent(store, streamId, {
@@ -1090,6 +1138,7 @@ export async function handlePrepareDelegation(
           operationsSince: gateResult.operationsSince,
           threshold: gateResult.threshold,
         },
+        ...withWarnings(),
       };
     }
 
@@ -1156,7 +1205,7 @@ export async function handlePrepareDelegation(
       return {
         success: true,
         data: result,
-        ...(warnings.length > 0 ? { warnings } : {}),
+        ...withWarnings(),
       };
     }
 
@@ -1192,7 +1241,7 @@ export async function handlePrepareDelegation(
     let effectiveTasks = args.tasks;
     if (args.tasks && args.planPath) {
       try {
-        const planMarkdown = await readFile(args.planPath, 'utf-8');
+        const planMarkdown = await readFile(planFileOf(args.planPath, repoRoot), 'utf-8');
         const lifted = applyPlanStamps(args.tasks, parseTaskStamps(planMarkdown));
         effectiveTasks = lifted.tasks;
         for (const advisory of lifted.advisories) warnings.push(`stamp: ${advisory}`);
@@ -1271,7 +1320,7 @@ export async function handlePrepareDelegation(
     return {
       success: true,
       data: result,
-      ...(warnings.length > 0 ? { warnings } : {}),
+      ...withWarnings(),
     };
   } catch (err) {
     return {

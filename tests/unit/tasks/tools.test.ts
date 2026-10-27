@@ -546,7 +546,7 @@ describe('task_complete evidence field', () => {
   /**
    * A `task.completed` event with `worktree` or `worktreePath` starts the `merge-pending` detour,
    * and the `mergePendingEntry` guard reads the same fields. Thus the handler must forward them
-   * from `args.result`.
+   * from `args.result`. The seed stamps the named tree, because a pass counts only on that tree.
    */
   it('handleTaskComplete_WithWorktreeInResult_ForwardsToEventData', async () => {
     const store = new EventStore(tempDir);
@@ -558,7 +558,12 @@ describe('task_complete evidence field', () => {
       type: 'gate.executed',
       data: { gateName: 'tdd-compliance', layer: 'task', passed: true, details: { taskId: 't-wt-1' } },
     });
-    await seedStaticAnalysisVerdict(store, { streamId: 'wf-wt-1', taskId: 't-wt-1', stateDir: tempDir });
+    await seedStaticAnalysisVerdict(store, {
+      streamId: 'wf-wt-1',
+      taskId: 't-wt-1',
+      stateDir: tempDir,
+      worktreePath: '/tmp/wt/t-wt-1',
+    });
 
     const result = await handleTaskComplete(
       {

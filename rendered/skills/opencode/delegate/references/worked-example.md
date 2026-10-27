@@ -10,10 +10,10 @@ Feature: `add-email-validation` with two plan tasks:
 
 ## 1. Prepare
 
-Compile the batch — the commit announces both tasks (`task.assigned`) ahead of its record, so nothing precedes this call:
+Compile the batch — the commit announces both tasks (`task.assigned`) ahead of its record, so nothing precedes this call. `repoRoot` is the absolute path of the worktree that holds the integration branch `feat/add-email-validation`:
 
 ```typescript
-exarchos_orchestrate({ action: "prepare", featureId: "add-email-validation" })
+exarchos_orchestrate({ action: "prepare", featureId: "add-email-validation", repoRoot: "/project" })
 ```
 
 Response (abridged):
@@ -26,8 +26,9 @@ Response (abridged):
                           { "taskId": "task-002", "title": "Domain MX check", "stepId": "delegate" }],
                "dependencies": [], "joins": [{ "joinId": "batch-complete", "waitsFor": ["task-001", "task-002"], "mode": "all" }] },
     "settlementContract": { "requiredResults": ["task-001", "task-002"],
-                            "taskVerification": { "task-001": { "riskTier": "low", "boundaryTouching": false, "baseRef": "feat/add-email-validation" },
-                                                  "task-002": { "riskTier": "medium", "boundaryTouching": true, "baseRef": "feat/add-email-validation" } } },
+                            "scope": { "repository": "/project/.git", "checkout": "/project", "configDigest": "9b1d7e…" },
+                            "taskVerification": { "task-001": { "riskTier": "low", "boundaryTouching": false, "baseRef": "feat/add-email-validation", "baseCommit": "4f1c2e9a…" },
+                                                  "task-002": { "riskTier": "medium", "boundaryTouching": true, "baseRef": "feat/add-email-validation", "baseCommit": "4f1c2e9a…" } } },
     "knowledge": { "patterns": [
       { "statement": "A task at riskTier=low, boundaryTouching=false is verified at settlement by: check_static_analysis." },
       { "statement": "A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary." } ] },
@@ -38,19 +39,19 @@ Response (abridged):
 
 ## 2. Dispatch
 
-Build two self-contained prompts from `implementer-prompt.md` — the task body from the plan, the terms from the capsule — and dispatch in a single message:
+Build two self-contained prompts from `implementer-prompt.md` — the task body from the plan, the terms from the capsule — and dispatch in a single message. Each prompt names the `baseCommit` of its task. The worker starts a branch of its own at that commit in its own linked worktree, never in `/project`, which is the checkout that `prepare` read:
 
 ```typescript
 Task({
   subagent_type: "general-purpose", run_in_background: true,
   description: "Implement task-001: Email format validator",
-  prompt: `# Task: Email Format Validator\n\n## Working Directory\n/project/.worktrees/task-001-email-format\n\n## Verification terms\nriskTier=low, boundaryTouching=false. A task at riskTier=low, boundaryTouching=false is verified at settlement by: check_static_analysis.\n\n[Full implementer prompt: file paths, acceptance criteria, invariants, the result contract, the deviation envelope...]`
+  prompt: `# Task: Email Format Validator\n\n## Working Directory\n/project/.worktrees/task-001-email-format\n\n## Base Step\nbaseCommit=4f1c2e9a… (start branch feat/task-001 there)\n\n## Verification terms\nriskTier=low, boundaryTouching=false. A task at riskTier=low, boundaryTouching=false is verified at settlement by: check_static_analysis.\n\n[Full implementer prompt: file paths, acceptance criteria, invariants, the result contract, the deviation envelope...]`
 })
 
 Task({
   subagent_type: "general-purpose", run_in_background: true,
   description: "Implement task-002: Domain MX check",
-  prompt: `# Task: Domain MX Check\n\n## Working Directory\n/project/.worktrees/task-002-domain-mx\n\n## Verification terms\nriskTier=medium, boundaryTouching=true. A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary.\n\n[...]`
+  prompt: `# Task: Domain MX Check\n\n## Working Directory\n/project/.worktrees/task-002-domain-mx\n\n## Base Step\nbaseCommit=4f1c2e9a… (start branch feat/task-002 there)\n\n## Verification terms\nriskTier=medium, boundaryTouching=true. A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary.\n\n[...]`
 })
 ```
 
@@ -103,17 +104,17 @@ The outcome is `corrective-capsule`. task-001 passed its gates and is complete o
 
 **Do NOT trust the implementer's summary.** The gate's own output is the diagnosis: `domain.ts` calls `dns.resolveMx` with the wrong signature.
 
-Re-dispatch with the fixer prompt in the same worktree:
+Re-dispatch with the fixer prompt. The fix continues the earlier branch `feat/task-002`. These dispatches use no native isolation, so the fixer works in the earlier worktree of the task. With native isolation, the fixer gets a new worktree, so first commit the listed files of the task, remove each file that a gate run left, and remove the earlier worktree (`git worktree remove /project/.worktrees/task-002-domain-mx`). The fixer then switches its own worktree to `feat/task-002` (`fix-mode.md`):
 
 ```typescript
 Task({
   subagent_type: "general-purpose",
   description: "Fix task-002: typecheck failure in domain.ts",
-  prompt: `# Fix Task: Typecheck Failure\n\n## Adversarial Verification Posture\nIndependently verify the failure...\n\n## Working Directory\n/project/.worktrees/task-002-domain-mx\n\n## Issue to Fix\n**File:** src/validators/domain.ts\n**Problem:** dns.resolveMx called with a callback where a promise is expected\n**Verification terms:** riskTier=medium, boundaryTouching=true — settlement runs check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary against this worktree.`
+  prompt: `# Fix Task: Typecheck Failure\n\n## Adversarial Verification Posture\nIndependently verify the failure...\n\n## Working Directory\n/project/.worktrees/task-002-domain-mx\n\n## Base Step\nContinue the earlier branch feat/task-002 (baseCommit=4f1c2e9a…)\n\n## Issue to Fix\n**File:** src/validators/domain.ts\n**Problem:** dns.resolveMx called with a callback where a promise is expected\n**Verification terms:** riskTier=medium, boundaryTouching=true — settlement runs check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary against this worktree.`
 })
 ```
 
-After the fix, settle a **new** batch id on the **same** capsule, and claim only task-002. task-001 is complete, so it needs no claim:
+After the fix, settle a **new** batch id on the **same** capsule, and claim only task-002, with the same `branch` as before. task-001 is complete, so it needs no claim:
 
 ```typescript
 exarchos_orchestrate({

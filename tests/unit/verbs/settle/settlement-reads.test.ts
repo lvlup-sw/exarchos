@@ -8,10 +8,11 @@
  * @oracle-sources: ../../../../src/verbs/settle/settlement-reads.ts, the facts, outcomes and traces worked out by hand in each case
  */
 
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
-import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import { baseValidCapsule, baseValidDefinition } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { deriveMcpCallerIdentity, snapshotCallerAuthorization } from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
@@ -38,6 +39,7 @@ import {
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
+import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const VERIFY = 'task-verify';
@@ -395,6 +397,14 @@ describe('judgeSettlement — the cited evidence', () => {
 const STREAM = 'feat-settlement-reads';
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
 const WORKTREE = '/nonexistent-settlement-reads-worktree';
+
+/**
+ * The worktree that the claim, the seed and the completion of one task name. Each task has a path of its own.
+ * `task-verify` keeps the bare path.
+ */
+function worktreeOf(taskId: string): string {
+  return taskId === VERIFY ? WORKTREE : `${WORKTREE}/${taskId}`;
+}
 /** The capabilities that the composed leaves declare. The gate runner also needs a trusted caller. */
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The shipped runbook, cut to the leaves that decide without leaving the process. */
@@ -434,16 +444,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 describe('settle — the read after the segments', () => {
   let stateDir: string;
   let store: EventStore;
-  const wiring = (): DispatchContext => ({ stateDir, eventStore: store, enableTelemetry: false });
+  let scope: CapsuleScope;
+  const wiring = (): DispatchContext => ({ stateDir, eventStore: store, enableTelemetry: false, treeObserver: inScopeObserver(scope) });
 
   beforeEach(async () => {
     stateDir = makeTempDir('settlement-reads-');
     store = new EventStore(stateDir);
     await store.initialize();
     const phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
-    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId });
-    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId });
-    const capsule = twoTaskCapsule();
+    scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: VERIFY, stateDir, phaseAttemptId, worktreePath: worktreeOf(VERIFY) });
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId: SECOND, stateDir, phaseAttemptId, worktreePath: worktreeOf(SECOND) });
+    const capsule = withScope(twoTaskCapsule(), scope);
     await runWithDispatchContext(correlation(), () =>
       commitPreparedCapsule(wiring(), {
         streamId: STREAM,
@@ -468,7 +480,11 @@ describe('settle — the read after the segments', () => {
    */
   it('Settle_AStatusClaimWhoseTaskAnotherCallCompletesWhileASegmentRuns_SettlesItAlreadyComplete', async () => {
     const completesTheSecondTask: LeafHandler = async (leafArgs, leafStateDir, leafCtx) => {
-      const completed = await liveHandler('task_complete')({ taskId: SECOND, featureId: STREAM }, leafStateDir, leafCtx);
+      const completed = await liveHandler('task_complete')(
+        { taskId: SECOND, featureId: STREAM, result: { worktreePath: worktreeOf(SECOND) } },
+        leafStateDir,
+        leafCtx,
+      );
       expect(completed.success).toBe(true);
       return liveHandler('check_mock_boundary')(leafArgs, leafStateDir, leafCtx);
     };
@@ -489,7 +505,7 @@ describe('settle — the read after the segments', () => {
           capsuleVersion: 7,
           batchId: 'batch-status-claim',
           claims: [
-            { taskId: VERIFY, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+            { taskId: VERIFY, fields: { passed: true, worktreePath: worktreeOf(VERIFY) }, evidence: [] },
             { taskId: SECOND, status: 'blocked', reason: 'waits on a review' },
           ],
         },

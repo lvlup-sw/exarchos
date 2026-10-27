@@ -21,7 +21,7 @@ import { mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
-import type { ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
+import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import {
   baseValidCapsule,
   baseValidDefinition,
@@ -109,12 +109,21 @@ import { createInMemoryResolver } from '../../../../src/workflow/capabilities/re
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt, seedGateEvidence } from '../../../../tools/test-helpers/trusted-context.js';
+import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 
 const STREAM = 'feat-settle-unit';
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
 const WORKTREE = '/nonexistent-settle-worktree';
+
+/**
+ * The worktree that the claim and the seed of one task name. Each task has a path of its own, so no two tasks share one.
+ * `task-verify` keeps the bare path, because the pinned digests and stored bytes of an earlier build hold its claim.
+ */
+function worktreeOf(taskId: string): string {
+  return taskId === 'task-verify' ? WORKTREE : `${WORKTREE}/${taskId}`;
+}
 /** The capabilities that the composed leaves declare. The gate runner also needs a trusted caller. */
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The shipped runbook, cut to the leaves that decide without leaving the process. */
@@ -126,9 +135,12 @@ let store: EventStore;
 let phaseAttemptId: string;
 /** Blobs in custody once the base capsule is prepared, before any settlement. */
 let seededBlobs: number;
+/** The scope that each seeded capsule pins: a temp checkout with no config, so its digest matches. */
+let scope: CapsuleScope;
 
+/** The wiring of one call. The observer of a claimed worktree finds each claimed path in the pinned scope. */
 function wiring(): DispatchContext {
-  return { stateDir, eventStore: store, enableTelemetry: false };
+  return { stateDir, eventStore: store, enableTelemetry: false, treeObserver: inScopeObserver(scope) };
 }
 
 function correlation(): ReturnType<typeof mintDispatchContext> {
@@ -201,13 +213,13 @@ function executeDeps(overrides: Readonly<Record<string, LeafHandler>> = {}): Exe
 
 /**
  * Records a passing static-analysis verdict for one task through the gate runner, in the active phase attempt.
- * `task_complete` demands it, and the cut runbook does not run it.
+ * `task_complete` demands it, and the cut runbook does not run it. The runner row names the worktree of the task.
  */
 async function seedPassingStaticAnalysis(taskId: string): Promise<void> {
-  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId });
+  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir, phaseAttemptId, worktreePath: worktreeOf(taskId) });
 }
 
-/** Record `capsule` as prepared, through the production commit. */
+/** Record `capsule` as prepared, through the production commit, with the scope terms of the case. */
 async function seedPrepared(
   capsule: ExarchosCapsuleV1 = baseValidCapsule(),
   definition: unknown = baseValidDefinition(),
@@ -218,7 +230,7 @@ async function seedPrepared(
       operationId: `seed:${capsule.identity.capsuleVersion}`,
       requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
       workflowType: 'feature',
-      capsule,
+      capsule: withScope(capsule, scope),
       definition: WorkflowDefinitionV1Schema.parse(definition),
     }),
   );
@@ -245,6 +257,7 @@ async function openSeededStore(): Promise<void> {
   store = new EventStore(stateDir);
   await store.initialize();
   phaseAttemptId = await seedActivePhaseAttempt(store, STREAM);
+  scope = await scopeOfCheckout(path.join(stateDir, 'checkout'));
   await seedPassingStaticAnalysis('task-verify');
   await seedPrepared();
   seededBlobs = await bundleBlobCount();
@@ -261,11 +274,11 @@ beforeEach(openSeededStore);
 afterEach(closeStore);
 
 function passingClaim(): Record<string, unknown> {
-  return { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+  return { taskId: 'task-verify', fields: { passed: true, worktreePath: worktreeOf('task-verify') }, evidence: [] };
 }
 
 function failingClaim(): Record<string, unknown> {
-  return { taskId: 'task-verify', fields: { passed: 'yes', worktreePath: WORKTREE }, evidence: [] };
+  return { taskId: 'task-verify', fields: { passed: 'yes', worktreePath: worktreeOf('task-verify') }, evidence: [] };
 }
 
 async function settle(
@@ -368,7 +381,7 @@ describe('settle — the adjudication endpoint', () => {
     expect(decoded.outcome).toBe('settled');
     expect(decoded.capsule.batchId).toBe('batch-custody');
     expect(decoded.claims).toEqual([
-      { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+      { taskId: 'task-verify', fields: { passed: true, worktreePath: worktreeOf('task-verify') }, evidence: [] },
     ]);
     expect(decoded.verification).toEqual([
       expect.objectContaining({ taskId: 'task-verify', outcome: 'verified' }),
@@ -425,7 +438,7 @@ describe('settle — the adjudication endpoint', () => {
 
     it('Settle_ASubmittedCapsuleThatIsTheRecordedOne_Settles', async () => {
       const receipt = receiptOf(
-        await settle({ featureId: STREAM, capsule: baseValidCapsule(), batchId: 'batch-inline', claims: [passingClaim()] }),
+        await settle({ featureId: STREAM, capsule: withScope(baseValidCapsule(), scope), batchId: 'batch-inline', claims: [passingClaim()] }),
       );
       expect(receipt.outcome).toBe('settled');
     });
@@ -836,6 +849,7 @@ describe('settle — the verification a settled batch runs', () => {
         stateDir,
         phaseAttemptId,
         outcome: { status: 'pass', advisorySkips },
+        worktreePath: worktreeOf(String(args.taskId)),
       });
       return gateStandIn(args, leafStateDir, ctx);
     };
@@ -998,7 +1012,7 @@ describe('settle — the verification a settled batch runs', () => {
         featureId: STREAM,
         capsuleVersion: 12,
         batchId: 'batch-halt',
-        claims: [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
+        claims: [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: worktreeOf('task-unverified') }, evidence: [] }],
       }),
     );
     expect(receipt.outcome).toBe('corrective-capsule');
@@ -1036,7 +1050,7 @@ describe('settle — the verification a settled batch runs', () => {
       batchId: 'batch-partial',
       claims: [
         passingClaim(),
-        { taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+        { taskId: 'task-unverified', fields: { passed: true, worktreePath: worktreeOf('task-unverified') }, evidence: [] },
       ],
     };
     const receipt = receiptOf(await settle(args));
@@ -1086,7 +1100,7 @@ describe('settle — the verification a settled batch runs', () => {
       batchId: 'batch-unresolved',
       claims: [
         passingClaim(),
-        { taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+        { taskId: 'task-unverified', fields: { passed: true, worktreePath: worktreeOf('task-unverified') }, evidence: [] },
       ],
     };
     const receipt = receiptOf(await settle(args));
@@ -1146,7 +1160,7 @@ describe('settle — the verification a settled batch runs', () => {
         batchId: 'batch-two-halts',
         claims: ['task-zeta', 'task-alpha'].map((taskId) => ({
           taskId,
-          fields: { passed: true, worktreePath: WORKTREE },
+          fields: { passed: true, worktreePath: worktreeOf(taskId) },
           evidence: [],
         })),
       }),
@@ -1573,7 +1587,11 @@ describe('settle — the verification a settled batch runs', () => {
   it('Settle_ATaskThatAnotherCallCompletesWhileItsSegmentRuns_IsVerifiedOnTheStoredRow', async () => {
     const completesFirst: LeafHandler = async (leafArgs, leafStateDir, ctx) => {
       const completed = await liveHandler('task_complete')(
-        { taskId: leafArgs.taskId, featureId: leafArgs.featureId },
+        {
+          taskId: leafArgs.taskId,
+          featureId: leafArgs.featureId,
+          result: { worktreePath: worktreeOf(String(leafArgs.taskId)) },
+        },
         leafStateDir,
         ctx,
       );
@@ -1656,7 +1674,11 @@ describe('settle — the verification a settled batch runs', () => {
     expect(await completionRows()).toEqual([]);
 
     const completed = await runWithDispatchContext(correlation(), () =>
-      liveHandler('task_complete')({ taskId: 'task-verify', featureId: STREAM }, stateDir, wiring()),
+      liveHandler('task_complete')(
+        { taskId: 'task-verify', featureId: STREAM, result: { worktreePath: worktreeOf('task-verify') } },
+        stateDir,
+        wiring(),
+      ),
     );
     expect(completed.success).toBe(true);
     const settled = receiptOf(await settle(args));
@@ -2098,7 +2120,7 @@ describe('settle — the decision round', () => {
             message: 'held for approval',
           },
         ],
-        claims: [{ taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
+        claims: [{ taskId: 'task-verify', fields: { passed: true, worktreePath: worktreeOf('task-verify') }, evidence: [] }],
         deviations: [{ deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' }],
         decisions: [],
         adjudicated,
@@ -2183,7 +2205,7 @@ describe('settle — the decision round', () => {
             at: `deviations[${index}].deviationKind`,
             message: 'held for approval',
           })),
-          claims: [{ taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
+          claims: [{ taskId: 'task-verify', fields: { passed: true, worktreePath: worktreeOf('task-verify') }, evidence: [] }],
           deviations,
           decisions: [],
           adjudicated,
@@ -3019,7 +3041,7 @@ describe('settle — the design revision a decision round records', () => {
       'batch-halted',
       [MATERIAL],
       22,
-      [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] }],
+      [{ taskId: 'task-unverified', fields: { passed: true, worktreePath: worktreeOf('task-unverified') }, evidence: [] }],
     );
     expect(held).not.toHaveProperty('unresolved');
     const decided = receiptOf(await decide('batch-halted', answers(held), 22));
@@ -3181,7 +3203,7 @@ describe('settle — the design revision a decision round records', () => {
     await seedPassingStaticAnalysis(SECOND_TASK);
     await seedPrepared(withMaterialEnvelope(capsuleWithTask(SECOND_TASK, SECOND_VERSION)));
     const held = await hold('batch-second', [OTHER_MATERIAL], SECOND_VERSION, [
-      { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+      { taskId: SECOND_TASK, fields: { passed: true, worktreePath: worktreeOf(SECOND_TASK) }, evidence: [] },
     ]);
     const tail = (await store.query(STREAM)).length;
     const blobs = await bundleBlobCount();
@@ -3230,7 +3252,7 @@ describe('settle — a claim that a later revision supersedes', () => {
   });
 
   function claimFor(taskId: string): Record<string, unknown> {
-    return { taskId, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+    return { taskId, fields: { passed: true, worktreePath: worktreeOf(taskId) }, evidence: [] };
   }
 
   function requiringBoth(taskId: string, capsuleVersion: number): ExarchosCapsuleV1 {
@@ -3755,7 +3777,7 @@ describe('settle — a required result that the stream shows complete', () => {
   });
 
   function secondClaim(): Record<string, unknown> {
-    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: worktreeOf(SECOND_TASK) }, evidence: [] };
   }
 
   function batch(batchId: string, claims: readonly unknown[], capsuleVersion = BOTH_VERSION): Record<string, unknown> {
@@ -4095,7 +4117,7 @@ describe('settle — a required result that the stream shows complete', () => {
     expect(receiptOf(await settle(heldBatch))).toEqual(held);
     expect(await readFile(stateFile, 'utf-8')).toBe(before);
 
-    const wrongType = { taskId: SECOND_TASK, fields: { passed: 'yes', worktreePath: WORKTREE }, evidence: [] };
+    const wrongType = { taskId: SECOND_TASK, fields: { passed: 'yes', worktreePath: worktreeOf(SECOND_TASK) }, evidence: [] };
     const rejected = receiptOf(await settle(batch('batch-rejected', [wrongType])));
     expect(rejected.outcome).toBe('rejected');
     expect(findingsOf(rejected).map(([kind]) => kind)).toEqual(['field-type-mismatch']);
@@ -4264,7 +4286,7 @@ describe('settle — a claim that reports the status of its task', () => {
   }
 
   function secondClaim(): Record<string, unknown> {
-    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: worktreeOf(SECOND_TASK) }, evidence: [] };
   }
 
   function batch(batchId: string, claims: readonly unknown[]): Record<string, unknown> {
@@ -4338,7 +4360,7 @@ describe('settle — a claim that reports the status of its task', () => {
       expect(record.unresolvedTasks).toStrictEqual([{ taskId: SECOND_TASK, cause }]);
       expect(record.findingCounts).toEqual([{ kind: cause, count: 1 }]);
       expect((await bundleOf(receipt)).claims).toStrictEqual([
-        { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+        { taskId: 'task-verify', fields: { passed: true, worktreePath: worktreeOf('task-verify') }, evidence: [] },
         { taskId: SECOND_TASK, status, reason: REASON, fields: {}, evidence: [] },
       ]);
 
@@ -4512,7 +4534,7 @@ describe('settle — a claim that reports the status of its task', () => {
     const completed = {
       taskId: 'task-verify',
       status: 'completed',
-      fields: { worktreePath: WORKTREE, passed: true },
+      fields: { worktreePath: worktreeOf('task-verify'), passed: true },
       evidence: [{ kind: 'test', ref: evidenceId }],
       rationale: [choice],
     };
@@ -4520,7 +4542,7 @@ describe('settle — a claim that reports the status of its task', () => {
     const normal = [
       {
         taskId: 'task-verify',
-        fields: { passed: true, worktreePath: WORKTREE },
+        fields: { passed: true, worktreePath: worktreeOf('task-verify') },
         evidence: [{ kind: 'test', ref: evidenceId }],
         rationale: [choice],
       },
@@ -4579,8 +4601,8 @@ describe('settle — a claim that reports the status of its task', () => {
     const operationId = 'settle:held-before-a-claim-had-a-status';
     const requestDigest = 'sha256:held-before-a-claim-had-a-status';
     const earlierClaims = [
-      { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
-      { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+      { taskId: 'task-verify', fields: { passed: true, worktreePath: worktreeOf('task-verify') }, evidence: [] },
+      { taskId: SECOND_TASK, fields: { passed: true, worktreePath: worktreeOf(SECOND_TASK) }, evidence: [] },
     ];
     const adjudicated = { claims: 2, requiredResults: 2, fields: 4, evidence: 0, deviations: 1, verification: 0, decisions: 0 };
     const earlierText = `${JSON.stringify({
@@ -4829,7 +4851,7 @@ describe('settle — a deviation that names a task of its own batch', () => {
   }
 
   function namedClaim(): Record<string, unknown> {
-    return { taskId: NAMED_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+    return { taskId: NAMED_TASK, fields: { passed: true, worktreePath: worktreeOf(NAMED_TASK) }, evidence: [] };
   }
 
   function batch(batchId: string, claims: readonly unknown[]): Record<string, unknown> {
@@ -4902,7 +4924,7 @@ describe('settle — a deviation that names a task of its own batch', () => {
       [held.pendingDeviations?.[0]?.deviationId, [NAMED_TASK]],
     ]);
     expect((await bundleOf(held)).claims).toStrictEqual([
-      { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [] },
+      { taskId: 'task-verify', fields: { passed: true, worktreePath: worktreeOf('task-verify') }, evidence: [] },
       { taskId: NAMED_TASK, status: 'blocked', reason: REASON, fields: {}, evidence: [] },
     ]);
   });
@@ -5156,7 +5178,7 @@ describe('settle — a claim that records a delegated choice', () => {
   beforeEach(prepareDelegatingCapsule);
 
   function secondClaim(): Record<string, unknown> {
-    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+    return { taskId: SECOND_TASK, fields: { passed: true, worktreePath: worktreeOf(SECOND_TASK) }, evidence: [] };
   }
 
   function choosing(claim: Record<string, unknown>, ...rationale: unknown[]): Record<string, unknown> {
@@ -5247,8 +5269,8 @@ describe('settle — a claim that records a delegated choice', () => {
     const bundle = await bundleOf(receipt);
     expect(bundle.outcome).toBe('accepted-with-rationale');
     expect(bundle.claims).toStrictEqual([
-      { taskId: 'task-verify', fields: { passed: true, worktreePath: WORKTREE }, evidence: [], rationale: [CHOICE] },
-      { taskId: SECOND_TASK, fields: { passed: true, worktreePath: WORKTREE }, evidence: [], rationale: [ORDER_CHOICE, CHOICE] },
+      { taskId: 'task-verify', fields: { passed: true, worktreePath: worktreeOf('task-verify') }, evidence: [], rationale: [CHOICE] },
+      { taskId: SECOND_TASK, fields: { passed: true, worktreePath: worktreeOf(SECOND_TASK) }, evidence: [], rationale: [ORDER_CHOICE, CHOICE] },
     ]);
 
     const tail = (await store.query(STREAM)).length;
@@ -5689,7 +5711,7 @@ describe('settle — the receipts that the MCP output gate admits', () => {
   const DEVIATION = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
 
   function claimFor(taskId: string): Record<string, unknown> {
-    return { taskId, fields: { passed: true, worktreePath: WORKTREE }, evidence: [] };
+    return { taskId, fields: { passed: true, worktreePath: worktreeOf(taskId) }, evidence: [] };
   }
 
   function accepting(held: SettlementReceipt): Record<string, unknown>[] {
@@ -5782,7 +5804,7 @@ describe('settle — the receipts that the MCP output gate admits', () => {
             operationId: unresolved.operationId,
             args: {
               taskId: SECOND_TASK,
-              worktreePath: WORKTREE,
+              worktreePath: worktreeOf(SECOND_TASK),
               riskTier: terms.riskTier,
               boundaryTouching: terms.boundaryTouching,
               baseRef: terms.baseRef,
@@ -5796,12 +5818,12 @@ describe('settle — the receipts that the MCP output gate admits', () => {
         ),
       );
     const tail = (await store.query(STREAM)).length;
-    const recorded = await read({ passed: true, worktreePath: WORKTREE });
+    const recorded = await read({ passed: true, worktreePath: worktreeOf(SECOND_TASK) });
     expect(recorded.error?.code).toBe('INTENT_SEGMENT_FAILED');
     expect(recorded.error?.intentReceipt?.failedLeaf).toBe(unresolved.failedLeaf);
     expect(recorded.error?.intentReceipt?.operationId).toBe(unresolved.operationId);
     expect(recorded.error?.message).toBe(corrective.verification?.find((trace) => trace.taskId === SECOND_TASK)?.message);
-    const reordered = await read({ worktreePath: WORKTREE, passed: true });
+    const reordered = await read({ worktreePath: worktreeOf(SECOND_TASK), passed: true });
     expect(reordered.error?.code).toBe('INTENT_REPLAY_DIGEST_MISMATCH');
     expect(await store.query(STREAM)).toHaveLength(tail);
 
@@ -5894,7 +5916,7 @@ describe('settle — the text of the action', () => {
     expect(description).not.toContain('A batch with no finding RUNS');
     expect(description).not.toContain('A halt gives');
     expect(description).toContain(
-      "A batch not stale, rejected or held RUNS each completed claim's task-completion segment",
+      "A batch not stale, rejected or held RUNS each in-scope completed claim's task-completion segment",
     );
     expect(description).not.toContain('A halt or a claim');
     expect(description).toContain(

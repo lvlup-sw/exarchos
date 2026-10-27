@@ -12,7 +12,7 @@ import {
   ExarchosCapsuleV1Schema,
   type ExarchosCapsuleV1,
 } from '../../../../src/contract/capsule/exarchos-capsule.js';
-import { baseValidCapsule } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
+import { baseValidCapsule, scopedValidCapsule } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import {
   INCOMPLETE_CLAIM_STATUSES,
   SETTLEMENT_FINDING_CLASSES,
@@ -252,6 +252,22 @@ const CASES: readonly AdjudicationCase[] = [
   bend('a claim that reports its task as blocked', 'task-blocked', 'unresolved', 'claims[0]', [reporting('blocked')]),
   bend('a claim that reports its task as skipped', 'task-skipped', 'unresolved', 'claims[0]', [reporting('skipped')]),
   bend(
+    'a completed claim whose worktree is out of the scope that the capsule pins',
+    'worktree-out-of-scope',
+    'unresolved',
+    'claims[0].fields.worktreePath',
+    [{ ...passingClaim(), fields: { passed: true, worktreePath: '/elsewhere/task-verify' } }],
+    () => scopedValidCapsule(),
+    undefined,
+    {
+      evidenceResolves: () => true,
+      claimScope: (taskId) =>
+        taskId === 'task-verify'
+          ? { kind: 'out-of-scope', cause: 'other-repository', message: 'the claimed worktree is in another repository' }
+          : undefined,
+    },
+  ),
+  bend(
     'a deviation outside the envelope',
     'deviation-outside-envelope',
     'refuse',
@@ -382,17 +398,24 @@ describe('settlement adjudication', () => {
 
   /**
    * The class table holds each declared kind and no other key. One kind is stale, and one holds.
-   * Four leave a task unresolved: a failed verification, and one for each status of a claim that
-   * is not completed. Each other kind refuses the batch.
+   * Five leave a task unresolved: a failed verification, one for each status of an incomplete
+   * claim, and a claimed worktree out of scope. Each other kind refuses the batch.
+   * So seven kinds do not refuse.
    */
-  it('Adjudicate_TheClassTable_CoversEachKindAndNamesTheSixThatDoNotRefuse', () => {
+  it('Adjudicate_TheClassTable_CoversEachKindAndNamesTheSevenThatDoNotRefuse', () => {
     expect(Object.keys(SETTLEMENT_FINDING_CLASSES).sort()).toEqual([...SETTLEMENT_FINDING_KINDS].sort());
     const kindsOf = (findingClass: SettlementFindingClass): SettlementFindingKind[] =>
       SETTLEMENT_FINDING_KINDS.filter((kind) => SETTLEMENT_FINDING_CLASSES[kind] === findingClass);
     expect(kindsOf('stale')).toEqual(['claim-superseded-by-revision']);
     expect(kindsOf('hold')).toEqual(['deviation-awaiting-approval']);
-    expect(kindsOf('unresolved')).toEqual(['verification-failed', 'task-failed', 'task-blocked', 'task-skipped']);
-    expect(kindsOf('refuse')).toHaveLength(SETTLEMENT_FINDING_KINDS.length - 6);
+    expect(kindsOf('unresolved')).toEqual([
+      'verification-failed',
+      'task-failed',
+      'task-blocked',
+      'task-skipped',
+      'worktree-out-of-scope',
+    ]);
+    expect(kindsOf('refuse')).toHaveLength(SETTLEMENT_FINDING_KINDS.length - 7);
   });
 
   /** The six outcome names. The first three are the names that stored rows, bundles and claims carry. */
@@ -1575,10 +1598,16 @@ describe('the findings that stop verification', () => {
     },
   );
 
-  /** Each declared kind but the four that leave a task unresolved stops verification. */
+  /** Each declared kind but the five that leave a task unresolved stops verification. */
   it('VerificationRuns_ForEachDeclaredKind_IsTrueOnlyForAKindThatLeavesATaskUnresolved', () => {
     const letsItRun = SETTLEMENT_FINDING_KINDS.filter((kind) => verificationRuns([finding(kind)]));
-    expect(letsItRun).toEqual(['verification-failed', 'task-failed', 'task-blocked', 'task-skipped']);
+    expect(letsItRun).toEqual([
+      'verification-failed',
+      'task-failed',
+      'task-blocked',
+      'task-skipped',
+      'worktree-out-of-scope',
+    ]);
   });
 
   /**

@@ -21,6 +21,11 @@ import { seedStaticAnalysisVerdict } from '../../helpers/static-analysis-verdict
 const STREAM = 'feat-task-complete-revision';
 const TASK = 'task-revised';
 const OTHER_TASK = 'task-other';
+/**
+ * The tree that each completion names and each seed stamps. The path does not exist and is outside git, so its stamp
+ * keeps its text on every platform and carries no commit.
+ */
+const WORKTREE = '/nonexistent-task-complete-revision-worktree';
 const BUNDLE_REF = {
   artifactId: `run-bundle:settlement:${STREAM}:1`,
   digest: { algorithm: 'sha256', value: 'a'.repeat(64) },
@@ -83,15 +88,21 @@ async function revise(nextDesignVersion: number, affectedTasks: readonly string[
   return store.append(STREAM, { type: 'design.revised', data: revisionData(nextDesignVersion, affectedTasks) });
 }
 
-/** Seeds a static-analysis run of the task. The run passes unless the call names a fail. */
+/** Seeds a static-analysis run of the task on the tree of the test. The run passes unless the call names a fail. */
 async function gate(taskId: string, verdict: 'pass' | 'fail' = 'pass'): Promise<void> {
-  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir: tempDir, verdict });
+  await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir: tempDir, verdict, worktreePath: WORKTREE });
 }
 
-/** Calls `task_complete` for the task on the stream of the test, with the capsule version when the call gives one. */
+/**
+ * Calls `task_complete` for the task on the stream of the test, with the capsule version when the call gives one.
+ * The completion names the tree of the test, because a prepared stream refuses a completion that names no tree.
+ */
 function complete(taskId: string, capsuleVersion?: number): ReturnType<typeof handleTaskComplete> {
+  const result = { worktreePath: WORKTREE };
   return handleTaskComplete(
-    capsuleVersion === undefined ? { taskId, streamId: STREAM } : { taskId, streamId: STREAM, capsuleVersion },
+    capsuleVersion === undefined
+      ? { taskId, streamId: STREAM, result }
+      : { taskId, streamId: STREAM, result, capsuleVersion },
     tempDir,
     store,
   );
@@ -261,8 +272,8 @@ describe('task_complete refuses a task that a revision names after its capsule',
   });
 
   /**
-   * A row lands between the pin and the append of a retry. The appender reads the completion key before it compares
-   * the sequence, so the retry returns the stored row and does not conflict.
+   * A failure reopens the stored completion, so the retry reaches the append. A row lands between the pin and the append.
+   * The appender reads the completion key before it compares the sequence, so the retry returns the stored row and does not conflict.
    */
   it('TaskComplete_AStoredCompletionAndAStaleTail_ReturnsTheStoredRow', async () => {
     await prepare(1);
@@ -270,6 +281,8 @@ describe('task_complete refuses a task that a revision names after its capsule',
     const first = await complete(TASK);
     expect(first.success, JSON.stringify(first.error)).toBe(true);
     const [stored] = await completionRows(TASK);
+    const failed = await handleTaskFail({ taskId: TASK, error: 'review found a defect', streamId: STREAM }, tempDir, store);
+    expect(failed.success).toBe(true);
     const pinned = await store.tailSequence(STREAM);
     const originalAppend = store.append.bind(store);
     const expected: (number | undefined)[] = [];
@@ -345,7 +358,7 @@ describe('task_complete refuses a task that a revision names after its capsule',
 
     expect(completed.success, JSON.stringify(completed.error)).toBe(true);
     const [row] = await completionRows(TASK);
-    expect(row?.data).toEqual({ taskId: TASK, verified: false });
+    expect(row?.data).toEqual({ taskId: TASK, worktreePath: WORKTREE, verified: false });
   });
 });
 

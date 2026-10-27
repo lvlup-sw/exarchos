@@ -23,9 +23,10 @@ the strongest signal that tests fail for the right reason.
 This dimension gates the **HIGH risk tier only**, at the **`/review` boundary only** — it is the
 review-phase counterpart to the delegation-time `check_test_adequacy` (R3) gate. The coupling to the
 high tier is policy data in `review-contract.ts` (the dimension name = this skill's folder name); you
-never decide tier membership in this skill. The gate is registered as a required **D1** review
-dimension (`adaptLadderGate(MUTATION_GATE_NAME, 'D1', handleMutationAdequacy)`) — a structural
-participation fact, distinct from severity (below).
+never decide tier membership in this skill. The gate is a required review dimension of the high
+tier — a structural participation fact, distinct from severity (below). The action table registers
+it as `[MUTATION_GATE_NAME]: adaptLadderGate(handleMutationAdequacy)`, and the severity wrapper
+`withGateSeverity` reads its gate name and dimension from the `gate` metadata of its registration.
 
 **Two orthogonal axes, two default severities.** The mutation **score** stays advisory by default: a
 sub-threshold `mutationScore` surfaces survivor follow-ups and warns, but does not block, unless an

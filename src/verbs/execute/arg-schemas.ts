@@ -25,8 +25,9 @@ export const TaskCompletionArgs = z
     boundaryTouching: z.boolean(),
     /**
      * The branch that the task forked from, frozen in the capsule. The key is `baseRef`, not `baseBranch`.
-     * The compiler gives an argument to each leaf whose schema declares that key. Only the kill-probe step binds it,
-     * as `baseBranch: '<baseRef>'`, so the other gates keep their own base.
+     * The compiler gives an argument to each leaf whose schema declares that key.
+     * Three diff gates bind it as `baseBranch: '<baseRef>'`: the kill probe, contract drift and mock boundary.
+     * Static analysis scans the whole tree and keeps its own base label.
      */
     baseRef: CapsuleBaseRefSchema,
     /** The completion provenance. Only the `task_complete` leaf declares `result`, so it alone gets this value. */

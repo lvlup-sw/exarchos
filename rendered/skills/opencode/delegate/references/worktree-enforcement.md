@@ -1,6 +1,6 @@
 # Worktree Enforcement (MANDATORY)
 
-All implementation tasks MUST run in isolated worktrees, not the main project root.
+All implementation tasks MUST run in isolated worktrees, not the main project root. Each task of a prepared workflow runs in a linked worktree of its own. `settle` and `task_complete` refuse the checkout that `prepare` read and the primary worktree of the repository (`the-checkout`).
 
 ## Why Worktrees Are Required
 
@@ -12,8 +12,12 @@ All implementation tasks MUST run in isolated worktrees, not the main project ro
 ## Pre-Dispatch Checklist
 
 Before dispatching ANY implementer, run the worktree setup script. Always
-pass `featureId` so the action can base the worktree on the workflow's
-**integration tip** (`synthesis.integrationBranch`), not a stale `main`:
+pass `featureId` so the action creates the worktree from the workflow's
+integration branch (`synthesis.integrationBranch`), not a stale `main`. The
+base of the task is `<baseCommit>`, the `baseCommit` of the task in the
+capsule: the base step of the agent switches the worktree to a branch of its
+own at that commit, and settlement refuses a HEAD that does not hold it
+(`base-not-held`):
 
 ```typescript
 exarchos_orchestrate({
@@ -32,12 +36,15 @@ state) → current `HEAD` → `main`. On a stacked / non-`main` integration
 branch, omitting `featureId` AND running from outside the integration checkout
 is the one way to silently land on `main` — so pass `featureId`, or set
 `baseBranch` explicitly. This is the managed-path equivalent of the native
-`worktree.baseRef:"head"` guard: both ensure subagent worktrees branch from the
-integration tip across all six runtimes.
+`worktree.baseRef:"head"` pin. Neither one is the base guarantee: the base step
+of the agent gives the base on each runtime, and the `base-not-held` rule of
+settlement enforces it. The base step is
+`git switch -c <own branch> <baseCommit>` for an implementer or a scaffolder,
+and the earlier branch of the task for a fixer.
 
 **Validates:**
 - `.worktrees/` is gitignored (adds to `.gitignore` if missing)
-- Feature branch created (`feature/<task-id>-<task-name>` from the resolved integration tip)
+- Feature branch created (`feature/<task-id>-<task-name>` from the resolved integration branch)
 - Git worktree added at `.worktrees/<task-id>-<task-name>`
 - `npm install` ran in worktree
 - Baseline tests pass in worktree
@@ -58,6 +65,13 @@ Include in ALL implementer prompts:
 1. **Absolute worktree path** as Working Directory
 2. **Worktree verification block** (from implementer-prompt.md template)
 3. **Abort instructions** if not in worktree
+4. **The base commit of the task** (`<baseCommit>`) for the base step, in the place of the integration tip
+
+## A Clean Worktree
+
+Settlement refuses a claimed worktree whose `git status --porcelain` is not empty (`uncommitted-changes`). The ignore rules of git apply, and so does the exclude file of the common dir.
+
+A `node_modules` that is a symbolic link needs an ignore rule without a trailing slash. The pattern `node_modules/` matches only a directory, so git lists the link as untracked. Add `node_modules` to `.gitignore`, or to the exclude file of the common dir (`.git/info/exclude`).
 
 ## Native Worktree Isolation
 

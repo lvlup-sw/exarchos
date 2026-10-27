@@ -242,9 +242,9 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
 
   /**
    * Covers the `loadUserInvariantsFn` seam. When the user-catalog loader
-   * throws, the gate still evaluates the shipped layers and adds a LOW advisory
-   * that names the failed catalog. A config-driven test below covers the
-   * production path.
+   * throws, the gate still evaluates the shipped layers. It adds a HIGH finding
+   * that names the failed catalog, so the verdict is not APPROVED. A
+   * config-driven test below covers the production path.
    */
   it('CheckInvariantConformance_MalformedUserCatalog_DegradesViaLegacyDISeam', async () => {
     const arm = await createArm('inv-conformance-malformed-di-');
@@ -288,12 +288,13 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
 
       expect(data.high).toBeGreaterThanOrEqual(1);
 
-      const advisory = data.findings.find((f) =>
+      const catalogFinding = data.findings.find((f) =>
         /user.?catalog|invariants\.user\.yml/i.test(`${f.source} ${f.message}`),
       );
-      expect(advisory).toBeDefined();
-      expect(advisory?.severity).toBe('LOW');
-      expect(advisory?.message).toContain('invariants.user.yml');
+      expect(catalogFinding).toBeDefined();
+      expect(catalogFinding?.severity).toBe('HIGH');
+      expect(catalogFinding?.message).toContain('invariants.user.yml');
+      expect(data.verdict).not.toBe('APPROVED');
 
       const gates = await gateEvents(arm.eventStore, 'feat-malformed');
       expect(gates.length).toBeGreaterThanOrEqual(1);
@@ -515,7 +516,8 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
   /**
    * A user catalog in `config.invariants.catalogs` with an unknown check kind
    * fails to load. The gate does not abort. The dev-layer invariant still
-   * fires, and a LOW advisory names the failed file. No loader is injected.
+   * fires, and a HIGH finding names the failed file, so the verdict is not
+   * APPROVED. No loader is injected.
    */
   it('CheckInvariantConformance_MalformedUserCatalog_DegradesToShippedLayersAdvisory', async () => {
     const arm = await createArm('inv-conformance-malformed-cfg-');
@@ -574,12 +576,13 @@ describe('handleCheckInvariantConformance (DR-3, DR-4)', () => {
 
       expect(data.high).toBeGreaterThanOrEqual(1);
 
-      const advisory = data.findings.find((f) =>
+      const catalogFinding = data.findings.find((f) =>
         /invariants\.user\.yml/i.test(`${f.source} ${f.message}`),
       );
-      expect(advisory).toBeDefined();
-      expect(advisory?.severity).toBe('LOW');
-      expect(advisory?.message).toContain('invariants.user.yml');
+      expect(catalogFinding).toBeDefined();
+      expect(catalogFinding?.severity).toBe('HIGH');
+      expect(catalogFinding?.message).toContain('invariants.user.yml');
+      expect(data.verdict).not.toBe('APPROVED');
 
       const gates = await gateEvents(arm.eventStore, 'feat-malformed-cfg');
       expect(gates.length).toBeGreaterThanOrEqual(1);

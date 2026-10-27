@@ -53,8 +53,17 @@ export interface DelegationBatch {
   readonly requiredResults: readonly string[];
 }
 
+/**
+ * A partition that admits a batch also gives the completed blockers of each batch task, keyed by task id.
+ * They are beside the batch and not inside it, so the batch shape that the compiler digests does not change.
+ * A task of the batch is ready only when each blocker is complete, so the list of a task is its whole `blockedBy` list.
+ */
 export type PartitionOutcome =
-  | { readonly ok: true; readonly batch: DelegationBatch }
+  | {
+      readonly ok: true;
+      readonly batch: DelegationBatch;
+      readonly completedBlockers: Readonly<Record<string, readonly string[]>>;
+    }
   | { readonly ok: false; readonly refusal: PrepareRefusal };
 
 /** One entry of the plan, as the plan reader resolves it. Settlement reads `complete` to learn how a task stands. */
@@ -240,5 +249,6 @@ export function partitionDelegationBatch(tasks: readonly unknown[]): PartitionOu
       joins: ids.length >= 2 ? [{ joinId: BATCH_JOIN_ID, waitsFor: ids }] : [],
       requiredResults: ids,
     },
+    completedBlockers: Object.fromEntries(ready.map((task) => [task.id, [...new Set(task.blockedBy)]])),
   };
 }

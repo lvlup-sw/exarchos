@@ -1,7 +1,7 @@
 /**
  * Shared helpers for gate handlers: git shell-outs, `gate.executed` appends, verdict
- * normalization, evidence references, `repoRoot` resolution, graduation modes, severity
- * wrappers, and policy skips.
+ * normalization, evidence references, `repoRoot` resolution, graduation modes, and skip
+ * discriminants.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -10,7 +10,6 @@ import { orchestrateLogger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
-import { resolveGateSeverity } from './gate-severity.js';
 import {
   type GateName,
   type RiskTier,
@@ -470,100 +469,11 @@ export function resolvePhaseMode(kind: PhaseKind, workflowType: string): Impleme
   return kind === 'IMPLEMENT' ? resolveImplementMode(workflowType) : 'enforce';
 }
 
-/**
- * Wraps a gate handler with config-aware severity resolution.
- * - **disabled**: skips the handler and returns success with `skipped: true`.
- * - **warning**: runs the handler and converts a failure to success with a warning.
- * - **blocking**: runs the handler, and a failure stays a failure.
- *
- * With no `config`, the handler result returns unchanged. `workflowType` goes to
- * {@link resolveGateSeverity} for the per-workflow default severity of a ladder gate.
- */
-export async function withConfigSeverity(
-  gateName: string,
-  dimension: string,
-  config: ResolvedProjectConfig | undefined,
-  handler: () => Promise<ToolResult>,
-  workflowType?: string,
-): Promise<ToolResult> {
-  if (!config) {
-    return handler();
-  }
-
-  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
-
-  if (severity === 'disabled') {
-    return {
-      success: true,
-      data: { skipped: true, reason: `Gate '${gateName}' disabled by project config` },
-    };
-  }
-
-  const result = await handler();
-
-  if (result.success) return result;
-
-  if (severity === 'warning') {
-    return {
-      success: true,
-      data: result.data ?? result.error,
-      warnings: [`Gate '${gateName}' failed but is configured as warning-only`],
-    };
-  }
-
-  return result;
-}
-
-/**
- * Applies per-workflow severity to the advisory carrier of a verification-ladder gate. A ladder
- * gate reports failure as `{ success: true, data: { passed: false } }`, so this helper clears
- * `data.passed` where {@link withConfigSeverity} clears `success`.
- *
- * A failing verdict becomes `passed: true` with a warning in two cases: `mode` is `audit`, or
- * config resolves the severity to `warning`. Audit mode does not need config. The handler event
- * keeps the true verdict. Each other result returns unchanged, an error envelope included, so
- * `INVALID_INPUT` is never softened. `mode` defaults to `enforce`.
- */
-export function applyLadderGateSeverity(
-  gateName: string,
-  dimension: string,
-  config: ResolvedProjectConfig | undefined,
-  result: ToolResult,
-  workflowType?: string,
-  mode: ImplementMode = 'enforce',
-): ToolResult {
-  if (!result.success) return result;
-
-  const data = result.data as { passed?: unknown } | undefined;
-  if (!data || data.passed !== false) return result;
-
-  if (mode === 'audit') {
-    return {
-      ...result,
-      data: { ...(data as Record<string, unknown>), passed: true },
-      warnings: [
-        ...(result.warnings ?? []),
-        `Gate '${gateName}' failed but the implement phase is in audit mode (finding recorded, non-blocking)`,
-      ],
-    };
-  }
-
-  if (!config) return result;
-  const severity = resolveGateSeverity(gateName, dimension, config, workflowType);
-  if (severity !== 'warning') return result;
-
-  return {
-    ...result,
-    data: { ...(data as Record<string, unknown>), passed: true },
-    warnings: [
-      ...(result.warnings ?? []),
-      `Gate '${gateName}' failed but is configured as warning-only`,
-    ],
-  };
-}
-
 /** The discriminant carried by a gate skipped because the policy excludes it. */
 export const SKIPPED_BY_POLICY = 'skipped-by-policy';
+
+/** The discriminant of a gate run that the project config disables. The runner records it and does not call the provider. */
+export const DISABLED_BY_CONFIG = 'disabled-by-config';
 
 /**
  * Returns a skip reason when the stamped profile of the task excludes `gateName`. It reads the

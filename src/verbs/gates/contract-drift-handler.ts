@@ -6,6 +6,9 @@
  *
  * A drift finding is a verdict, not a tool error. Thus the result is
  * `success: true` with the verdict in `data.passed`.
+ *
+ * The gate never guesses a base. A run with no `baseBranch` gives the verdict
+ * `base-missing`, which is indeterminate and blocks.
  */
 
 import { runCommandSync } from '../../utils/process.js';
@@ -39,7 +42,10 @@ export interface ContractDriftHandlerArgs {
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
   readonly branch?: string;
-  /** Base ref the branch diverged from (merge-base target). Defaults to 'main'. */
+  /**
+   * The base ref that the branch forked from, which is the merge-base target. It has no default.
+   * Without it, the gate blocks with `base-missing`.
+   */
   readonly baseBranch?: string;
   /**
    * The repository to check. The gate uses a literal path as given. `'auto'`
@@ -106,10 +112,22 @@ const defaultRunCommand: CommandRunFn = async ({ repoRoot, command }) => {
   }
 };
 
+/** The discriminant of a run that names no base. */
+const BASE_MISSING = 'base-missing';
+
+/** The report of a run that names no base. */
+const BASE_MISSING_REPORT =
+  'check_contract_drift did not run: no base was supplied (`baseBranch`), so the diff has nothing to be measured from. ' +
+  'Pass the branch that the task forked from. The task-completion runbook binds it from the capsule `baseRef`.';
+
 /**
  * Runs the shared gate preflight, which requires `taskId`. Then it runs the
  * gate inside the durable gate producer. A policy skip gives a passing result
  * with `skipped: true`.
+ *
+ * After the policy skip and before any contract leg, a run with no base gives `base-missing`.
+ * Its verdict is `indeterminate` with `passed: false`, and it is not a skip. Thus it blocks, and a policy skip with no base stays a skip.
+ * With no base, the producer scope gets no `baseRef`, so the evidence subject names no diff base.
  */
 export async function handleContractDrift(
   args: ContractDriftHandlerArgs,
@@ -129,7 +147,7 @@ export async function handleContractDrift(
   );
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
-  const baseRef = args.baseBranch || 'main';
+  const baseRef = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
 
   return runDurableGateProducer(
     {
@@ -137,7 +155,7 @@ export async function handleContractDrift(
       featureId: args.featureId,
       taskId: args.taskId,
       ...(args.branch ? { branch: args.branch } : {}),
-      baseRef,
+      ...(baseRef ? { baseRef } : {}),
       repoRoot,
       stateDir,
       eventStore,
@@ -159,6 +177,20 @@ export async function handleContractDrift(
             breaking: [],
             report: policySkip.reason,
             discriminant: SKIPPED_BY_POLICY,
+          },
+        };
+      }
+
+      if (baseRef === undefined) {
+        return {
+          success: true,
+          data: {
+            passed: false,
+            verdict: 'indeterminate',
+            drift: false,
+            breaking: [],
+            report: BASE_MISSING_REPORT,
+            discriminant: BASE_MISSING,
           },
         };
       }

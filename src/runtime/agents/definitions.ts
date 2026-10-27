@@ -38,13 +38,13 @@ const WORKTREE_BOUNDARY_RULE = {
 } as const;
 
 /**
- * The worktree-entry contract of the implementer, fixer and scaffolder prompts.
+ * The entry section of the worktree contract of the implementer, fixer and scaffolder prompts.
  * Claude Code changes into the worktree for the agent. Other runtimes, such as
  * Copilot CLI and Cursor, start subagents in the parent. Without an explicit
  * `cd` and check, the agent can edit the parent repo and corrupt the
  * orchestrator worktree.
  */
-const WORKTREE_ENTRY_CONTRACT = `## Working Directory Setup (MANDATORY)
+const WORKTREE_ENTRY = `## Working Directory Setup (MANDATORY)
 
 Your shell may have started in the parent repo cwd, depending on the runtime.
 Native-isolation runtimes (Claude Code's \`isolation: "worktree"\`) chdir for
@@ -69,26 +69,80 @@ Before making ANY file changes:
    \`/path/.worktrees/agent-foo\`; PowerShell \`Get-Location\` typically
    returns \`C:\\path\\.worktrees\\agent-foo\`. Match the segment
    \`.worktrees\`, not the literal substring \`.worktrees/\`.)
-3. If NOT in worktree: STOP and report error
+3. If NOT in worktree: STOP and report error`;
 
-## Base Verification
-Before making ANY file changes, verify your worktree is based on the
-**integration tip**, not a stale \`main\`. Native \`isolation: worktree\` branches
-from the repo default branch (\`origin/HEAD\`) unless \`worktree.baseRef: "head"\`
-is set; this assert halts loud if the base is wrong, so you never build on a
-base missing prerequisite in-branch commits (issues #1509 / #1501):
+/** The base check of each role. It runs after the base step of the role, and a failed check stops the agent. */
+const BASE_CHECK = `\`\`\`bash
+git -C "<absolute worktree path>" merge-base --is-ancestor "<baseCommit>" HEAD \\
+  && echo "BASE OK" \\
+  || { echo "ERROR: HEAD does not hold the base commit — halting"; exit 1; }
+\`\`\``;
+
+/** What `<baseCommit>` is, in the words of each base step. */
+const BASE_COMMIT_MEANING = `\`<baseCommit>\` is the \`baseCommit\` of the task in the capsule
+(\`settlementContract.taskVerification[<taskId>].baseCommit\`), which the
+orchestrator supplies at dispatch. On the primitive path it is the tip commit
+of the integration branch at dispatch.`;
+
+/**
+ * The base step of the implementer and the scaffolder. Before any file change, the agent starts a branch of its own at the base commit of the task.
+ * Then it checks that HEAD holds that commit. Settlement refuses a worktree whose HEAD does not hold it.
+ */
+const NEW_BRANCH_BASE_STEP = `## Base Step (MANDATORY)
+Before making ANY file changes, start a branch of your own at the base commit
+of the task, then check that HEAD holds that commit:
 
 \`\`\`bash
-git -C "<absolute worktree path>" merge-base --is-ancestor "<integration-tip>" HEAD \\
-  && echo "BASE OK" \\
-  || { echo "ERROR: worktree base is not a descendant of the integration tip — halting"; exit 1; }
+git -C "<absolute worktree path>" switch -c "<own branch>" "<baseCommit>"
 \`\`\`
+${BASE_CHECK}
 
-\`<integration-tip>\` is the workflow's integration branch (or its tip SHA),
-supplied by the orchestrator at dispatch. If this fails, STOP and report — do
-NOT rebase or reset to self-heal; the orchestrator owns base correction.
+${BASE_COMMIT_MEANING}
+\`<own branch>\` is a new branch for this task, never the integration branch.
+Report it as \`branch\`.
 
-## Worktree Hygiene (MANDATORY — applies to every command, not just startup)
+If the switch fails, or the check fails after it, STOP and report it.
+Settlement refuses a worktree whose HEAD does not hold \`<baseCommit>\`
+(\`base-not-held\`), a worktree on the integration branch, and the checkout or
+the primary worktree of the repository. Each task runs in a linked worktree of
+its own.`;
+
+/**
+ * The base step of the fixer. A fix continues the branch of the earlier attempt of the task, because the static-analysis evidence keys on the branch.
+ * Without native isolation the fixer works in the earlier worktree. With native isolation the orchestrator removes the earlier worktree first, and the fixer switches its own worktree to the earlier branch.
+ *
+ * When HEAD does not hold the base commit, the fixer rebases the branch onto it and keeps the name. Then it checks the base, as the other roles do.
+ * A rebase that stops on a conflict leaves a detached HEAD, so the fixer aborts the rebase, then stops and reports it.
+ */
+const FIXER_BASE_STEP = `## Base Step (MANDATORY)
+A fix continues the branch of the earlier attempt of the task. Do not start a
+new branch: a fix on a new branch halts at the completion leaf after a
+static-analysis failure. Before making ANY file changes, put the earlier
+branch in your worktree:
+
+- Without native isolation, the orchestrator dispatches you to the earlier
+  worktree of the task, which already holds \`<earlier branch>\`.
+- With native isolation, you have a new worktree, and the orchestrator removed
+  the earlier worktree before the dispatch. Run
+  \`git -C "<absolute worktree path>" switch "<earlier branch>"\`.
+
+When HEAD does not hold \`<baseCommit>\`, rebase the branch onto it and keep its
+name: \`git -C "<absolute worktree path>" rebase "<baseCommit>"\`. If the rebase
+stops on a conflict, run \`git -C "<absolute worktree path>" rebase --abort\`,
+then STOP and report it. Otherwise, check the base:
+
+${BASE_CHECK}
+
+${BASE_COMMIT_MEANING}
+\`<earlier branch>\` is the branch of the earlier claim of the task.
+
+If git refuses the switch, or the check fails after the step, STOP and report
+it. Report \`<earlier branch>\` as \`branch\`, or no branch when the earlier
+claim named none. Before you report, remove each untracked file that a gate
+run left, and commit none of them.`;
+
+/** The hygiene section of the worktree contract. Its rules apply to each command, not only at startup. */
+const WORKTREE_HYGIENE = `## Worktree Hygiene (MANDATORY — applies to every command, not just startup)
 
 The startup check above only verifies you booted in the right place. Shell
 \`cd\` and script runners can leave you in another worktree mid-task. Once
@@ -135,6 +189,14 @@ Where \`$WORKTREE\` is the absolute path captured at startup (the \`pwd\`
 output from the Worktree Verification step above), and \`<test-cmd>\` is the
 project test command (from \`.exarchos.yml\` or the project default), run from
 the worktree.`;
+
+/**
+ * The worktree contract of one role. The entry section and the hygiene section are the same for each role.
+ * The base step of the role goes between them, so it runs after the entry checks and before any file change.
+ */
+function worktreeContract(baseStep: string): string {
+  return `${WORKTREE_ENTRY}\n\n${baseStep}\n\n${WORKTREE_HYGIENE}`;
+}
 
 /** Inputs the dispatcher stamps onto the delegation record. */
 export interface ImplementerVerificationContext {
@@ -246,7 +308,7 @@ If a capsule assumption is wrong for your own task, report the status \`blocked\
  */
 const IMPLEMENTER_PROMPT_HEAD = `You are an implementer agent on the verification ladder, working in an isolated worktree. Your verification discipline is set by the tier-selected note below — outcome-based test adequacy on the medium/high rungs (judged test-after, not by commit order), static analysis on the low rung.
 
-${WORKTREE_ENTRY_CONTRACT}
+${worktreeContract(NEW_BRANCH_BASE_STEP)}
 
 ## Task
 {{taskDescription}}
@@ -391,7 +453,7 @@ Failed task requiring root cause analysis and targeted fix triggers the fixer ag
   color: 'red',
   systemPrompt: `You are a fixer agent working in an isolated worktree. Your job is to diagnose and repair failures.
 
-${WORKTREE_ENTRY_CONTRACT}
+${worktreeContract(FIXER_BASE_STEP)}
 
 ## Failure Context
 {{failureContext}}
@@ -506,7 +568,7 @@ Simple file creation and boilerplate generation triggers the scaffolder agent wi
   color: 'cyan',
   systemPrompt: `You are a scaffolder agent working in an isolated worktree. Be concise — generate files with minimal commentary.
 
-${WORKTREE_ENTRY_CONTRACT}
+${worktreeContract(NEW_BRANCH_BASE_STEP)}
 
 ## Task
 {{taskDescription}}

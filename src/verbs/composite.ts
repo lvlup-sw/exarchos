@@ -4,10 +4,11 @@
 
 import { type ToolResult } from '../format.js';
 import type { DispatchContext } from '../dispatch/core/dispatch.js';
+import type { EventType } from '../events/schemas.js';
 import type { EventStore } from '../events/store.js';
 import { handleDescribe } from '../describe/handler.js';
 import { handleRunbook } from '../runbooks/handler.js';
-import { TOOL_REGISTRY } from '../registry.js';
+import { TOOL_REGISTRY, type ToolAction } from '../registry.js';
 import { envelopeWrap } from '../envelope-wrap.js';
 import { orchestrateLogger } from '../logger.js';
 
@@ -105,7 +106,7 @@ import { handleAmend } from './invariants/amend.js';
 import type { HandleAmendArgs } from './invariants/amend.js';
 import type { HandleAddArgs } from './invariants/add.js';
 import { realScaffoldDeps } from './invariants/fs-deps.js';
-import { applyLadderGateSeverity, resolvePhaseMode } from './gates/gate-utils.js';
+import { withGateSeverity, type GateSeverityDescriptor } from './gates/gate-severity.js';
 import { resolveWorkflowState } from './resolve-state.js';
 import { handleExecuteIntent, productionExecuteDeps } from './execute/executor.js';
 import { handlePrepare } from './prepare/handler.js';
@@ -150,9 +151,13 @@ function adaptArgsWithEventStore<T>(handler: (args: T) => ToolResult | Promise<T
  * Wraps a typed handler of shape `(args, stateDir, eventStore)`, the usual shape for a handler that appends events.
  * It passes `ctx.eventStore` as the third argument, so the handler gets the store from the dispatch context and not from a module-global registry.
  * It throws when the context has no event store.
+ *
+ * `extraOf` selects a fourth argument from the dispatch context. The adapter passes it only when the selector gives a value.
+ * Else the call has three arguments. A handler with a fourth parameter of its own and no selector keeps its three-argument call.
  */
-function adaptWithEventStore<T>(
-  handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
+function adaptWithEventStore<T, X = never>(
+  handler: (args: T, stateDir: string, eventStore: EventStore, extra?: X) => Promise<ToolResult>,
+  extraOf?: (ctx: DispatchContext) => X | undefined,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
     if (!ctx?.eventStore) {
@@ -160,7 +165,11 @@ function adaptWithEventStore<T>(
         `${handler.name}: ctx.eventStore required (handler dispatched without DispatchContext)`,
       );
     }
-    return handler(args as unknown as T, stateDir, ctx.eventStore);
+    const typedArgs = args as unknown as T;
+    const extra = extraOf?.(ctx);
+    return extra === undefined
+      ? handler(typedArgs, stateDir, ctx.eventStore)
+      : handler(typedArgs, stateDir, ctx.eventStore, extra);
   };
 }
 
@@ -207,19 +216,11 @@ async function resolveWorkflowTypeForGate(
 }
 
 /**
- * Adapter for a verification-ladder gate. The gate handler returns an advisory result (`success: true` with `data.passed`).
- * The adapter resolves the workflow type once, then applies {@link applyLadderGateSeverity} with the IMPLEMENT-phase mode from `resolvePhaseMode`.
- * Only `oneshot` resolves to `audit`, which records a failing finding but does not block. Other workflow types resolve to `enforce`.
- * Without a `projectConfig`, an `enforce` result passes through unchanged, but an `audit` result still downgrades.
- *
- * The adapter copies `ctx.projectConfig` into the args when the args carry none, so the self-skip routing of the handler uses the dispatch config.
- * Severity reads the same effective config, and mode and severity read the same workflow type.
- * One dispatch thus never mixes two configs or two workflow types.
- * `dimension` is only a fallback for severity. For ladder gates, the workflow default takes priority over it.
+ * Adapter for a verification-ladder gate. It copies `ctx.projectConfig` into the args when the args carry none.
+ * The self-skip routing of the handler thus reads the dispatch config. An explicit `projectConfig` in the args, such as from a test, wins.
+ * The severity wrapper of the action table applies the severity and the IMPLEMENT-phase audit mode, so this adapter does not.
  */
 function adaptLadderGate<T>(
-  gateName: string,
-  dimension: string,
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
@@ -233,22 +234,60 @@ function adaptLadderGate<T>(
       (args as { projectConfig?: unknown }).projectConfig === undefined
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
-    const effectiveProjectConfig = (enrichedArgs as {
-      projectConfig?: DispatchContext['projectConfig'];
-    }).projectConfig;
-    const result = await handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
-    const featureId = (args as { featureId?: string }).featureId;
-    const workflowType = await resolveWorkflowTypeForGate(featureId, ctx.eventStore);
-    const mode = resolvePhaseMode('IMPLEMENT', workflowType);
-    return applyLadderGateSeverity(
-      gateName,
-      dimension,
-      effectiveProjectConfig,
-      result,
-      workflowType,
-      mode,
-    );
+    return handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
   };
+}
+
+/**
+ * The workflow type of one gate call, for the severity wrapper. It reads `featureId` from the args.
+ * A call with no event store in its context gets `'feature'`, the default of {@link resolveWorkflowTypeForGate}.
+ */
+async function workflowTypeOfCall(
+  args: Readonly<Record<string, unknown>>,
+  ctx: DispatchContext | undefined,
+): Promise<string> {
+  const featureId = typeof args.featureId === 'string' ? args.featureId : undefined;
+  return ctx?.eventStore === undefined ? 'feature' : resolveWorkflowTypeForGate(featureId, ctx.eventStore);
+}
+
+/** The event of the gate signal row. */
+const GATE_SIGNAL_EVENT = 'gate.executed' satisfies EventType;
+
+/** True when the action contract declares an `always` row of the gate signal. */
+function declaresGateSignal(contract: ToolAction['actionContract']): boolean {
+  const ensures = contract?.ensures;
+  if (ensures === undefined || ensures.kind !== 'declared') return false;
+  return ensures.values.some(
+    (postcondition) =>
+      postcondition.source === 'event-append' &&
+      postcondition.when === 'always' &&
+      postcondition.event === GATE_SIGNAL_EVENT,
+  );
+}
+
+/**
+ * Wraps the handler of each gate action in the severity wrapper. A gate action is an action whose registration has `gate` metadata.
+ * The builder reads the gate name, the dimension and the declared gate signal from that registration, and gives them to the wrapper.
+ * Each other entry stays as it is.
+ */
+function withSeverityOfEachGate(
+  table: Readonly<Record<string, ActionHandler>>,
+): Readonly<Record<string, ActionHandler>> {
+  const gateActions = new Map<string, GateSeverityDescriptor>();
+  for (const action of orchestrateActions) {
+    if (action.gate === undefined) continue;
+    gateActions.set(action.name, {
+      name: action.name,
+      dimension: action.gate.dimension ?? '',
+      signal: declaresGateSignal(action.actionContract),
+    });
+  }
+  return Object.fromEntries(
+    Object.entries(table).map(([name, handler]): [string, ActionHandler] => {
+      const gate = gateActions.get(name);
+      return [name, gate === undefined ? handler : withGateSeverity(gate, handler, workflowTypeOfCall)];
+    }),
+  );
 }
 
 /**
@@ -334,10 +373,13 @@ const ACTION_HANDLERS_TOOL = 'exarchos_orchestrate';
  * The routing table. The bounded action executor calls a compiled leaf through the same entry that this composite routes to.
  * A second copy of the mapping can drift from the registry, so this table is the only copy.
  * The executor gets the table as an argument from the `execute_intent` entry and does not import it, so the modules form no runtime import cycle.
+ *
+ * The statement after the literal replaces each gate entry with the handler that the severity wrapper returns.
+ * Thus a direct call and a compiled leaf get one severity. The literal keeps its typed form, because the route scanner and the handler-throw rule read it.
  */
 export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   task_claim: adaptWithEventStore(handleTaskClaim),
-  task_complete: adaptWithEventStore(handleTaskComplete),
+  task_complete: adaptWithEventStore(handleTaskComplete, (ctx) => ctx.treeObserver),
   task_fail: adaptWithEventStore(handleTaskFail),
   review_triage: adaptWithEventStore(handleReviewTriage),
   prepare_delegation: adaptWithCtx(handlePrepareDelegation),
@@ -350,19 +392,19 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
    * At deep depth, it verifies that the `### Exploration` section of the spec cites the discover pass by path and `correlationId`.
    */
   check_exploration_depth: adaptWithEventStore(handleCheckExplorationDepth),
-  /** Verification-ladder gate. {@link adaptLadderGate} applies the per-workflow severity to a failing advisory verdict. */
-  check_test_adequacy: adaptLadderGate('check_test_adequacy', 'D1', handleTestAdequacy),
-  check_contract_drift: adaptLadderGate('check_contract_drift', 'D1', handleContractDrift),
-  check_mock_boundary: adaptLadderGate('check_mock_boundary', 'D1', handleMockBoundary),
+  /** Verification-ladder gate. {@link adaptLadderGate} copies the dispatch config into the args, and the severity wrapper applies the severity. */
+  check_test_adequacy: adaptLadderGate(handleTestAdequacy),
+  check_contract_drift: adaptLadderGate(handleContractDrift),
+  check_mock_boundary: adaptLadderGate(handleMockBoundary),
   /**
    * Action of the mutation-adequacy review dimension. It is advisory by default, because its seeded gate default is warning-only.
    * A score under the threshold shows survivor `next_actions` and does not block.
    * An explicit `review.gates['mutation-adequacy']` override can make it blocking.
    */
-  [MUTATION_GATE_NAME]: adaptLadderGate(MUTATION_GATE_NAME, 'D1', handleMutationAdequacy),
+  [MUTATION_GATE_NAME]: adaptLadderGate(handleMutationAdequacy),
   check_post_merge: adaptWithEventStore(handlePostMerge),
-  check_static_analysis: adaptLadderGate('check_static_analysis', 'D2', handleStaticAnalysis),
-  check_integration_suite: adaptLadderGate('check_integration_suite', 'D2', handleCheckIntegrationSuite),
+  check_static_analysis: adaptLadderGate(handleStaticAnalysis),
+  check_integration_suite: adaptLadderGate(handleCheckIntegrationSuite),
   check_security_scan: adaptWithEventStore(handleSecurityScan),
   check_context_economy: adaptWithEventStore(handleContextEconomy),
   check_operational_resilience: adaptWithEventStore(handleOperationalResilience),
@@ -462,7 +504,7 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
   /**
    * The bounded action executor. `handleExecuteIntent` requires a `DispatchContext`, because it re-enters admission and the store for each leaf.
    * The entry hands the table in, because an import of it from the executor makes a runtime cycle through the dispatch core.
-   * The closure reads `ACTION_HANDLERS` only after the literal is bound, so the self-reference is safe.
+   * The closure reads `ACTION_HANDLERS` only at call time, after the gate entries are wrapped, so the self-reference is safe.
    */
   execute_intent: async (args, stateDir, ctx) => {
     if (!ctx) throw new Error('DispatchContext required for execute_intent');
@@ -484,6 +526,8 @@ export const ACTION_HANDLERS: Readonly<Record<string, ActionHandler>> = {
     return handlePrepare(args, stateDir, ctx);
   },
 };
+
+Object.assign(ACTION_HANDLERS, withSeverityOfEachGate(ACTION_HANDLERS));
 
 /** Exported for sync test — ensures registry.ts stays in sync with handler keys. */
 export const ACTION_HANDLER_KEYS: readonly string[] = Object.keys(ACTION_HANDLERS);

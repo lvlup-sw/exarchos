@@ -44,7 +44,7 @@ Unified MCP server for workflow orchestration, event sourcing, CQRS views, and t
 | Action | When to Use |
 |--------|-------------|
 | `task_claim` | Claim a task for execution. Returns `ALREADY_CLAIMED` if previously claimed — handle gracefully |
-| `task_complete` | Mark a task complete with optional `result` (artifacts, duration) |
+| `task_complete` | Mark a task complete with optional `result` (artifacts, duration). `result.worktreePath` names the tree of the task: the call accepts only a passing `check_static_analysis` run of the task on that tree, at its current commit. On a stream with a prepared capsule, a call that names no tree is refused (`tree-unnamed`), and a scoped capsule refuses a tree outside its scope (`tree-out-of-scope`) |
 | `task_fail` | Mark a task failed with `error` message and optional `diagnostics` |
 
 ### View Tool Actions

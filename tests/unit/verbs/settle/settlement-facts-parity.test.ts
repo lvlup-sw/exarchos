@@ -34,16 +34,24 @@ import { INTENT_ARG_SCHEMAS } from '../../../../src/verbs/execute/arg-schemas.js
 import { compileIntent } from '../../../../src/verbs/execute/compile.js';
 import { INTENT_EXECUTED_EVENT, type ExecuteIntentDeps } from '../../../../src/verbs/execute/executor.js';
 import { handlePrepare } from '../../../../src/verbs/prepare/handler.js';
+import type { ScopeGit } from '../../../../src/verbs/prepare/prepare-scope.js';
+import { canonicalPath } from '../../../../src/utils/git-tree.js';
 import { handleSettle } from '../../../../src/verbs/settle/handler.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { initStateFile, readStateFile } from '../../../../src/workflow/state-store.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { seedActivePhaseAttempt } from '../../../../tools/test-helpers/trusted-context.js';
+import { inScopeObserver } from '../../../helpers/scoped-capsule.js';
 import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verdict.js';
 
 const STREAM = 'feat-settlement-parity';
 const TASK_IDS = ['task-one', 'task-two'] as const;
 const WORKTREE = '/nonexistent-parity-worktree';
+
+/** The worktree that the seed, the claim and the completion of one task name. Each task has a path of its own. */
+function worktreeOf(taskId: string): string {
+  return `${WORKTREE}/${taskId}`;
+}
 /** The integration branch that the plan tasks fork from. `prepare` freezes it as the base of each task. */
 const INTEGRATION_BRANCH = 'feature/settlement-parity';
 /** Stamped on the plan so the one gate the cut runbook carries is IN the resolved sequence, not policy-skipped. */
@@ -154,7 +162,7 @@ async function seed(dir: string, store: EventStore): Promise<void> {
     data: { patch: { 'synthesis.integrationBranch': INTEGRATION_BRANCH, tasks } },
   });
   for (const taskId of TASK_IDS) {
-    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir: dir, phaseAttemptId });
+    await seedStaticAnalysisVerdict(store, { streamId: STREAM, taskId, stateDir: dir, phaseAttemptId, worktreePath: worktreeOf(taskId) });
   }
 }
 
@@ -176,8 +184,17 @@ afterEach(async () => {
   await rmrfAsync(settleDir);
 });
 
+/**
+ * The wiring of both arms. The tree observer finds each claimed path in the repository that the scope seam pins.
+ * So settle judges the claims of the prepared capsule in scope. Both arms carry it, so the leaves of both arms read one seam.
+ */
 function wiring(stateDir: string, eventStore: EventStore): DispatchContext {
-  return { stateDir, eventStore, enableTelemetry: false };
+  return {
+    stateDir,
+    eventStore,
+    enableTelemetry: false,
+    treeObserver: inScopeObserver({ repository: `${canonicalPath(settleDir)}/.git` }),
+  };
 }
 
 function correlation(): ReturnType<typeof mintDispatchContext> {
@@ -202,7 +219,13 @@ async function completeByHand(): Promise<void> {
     const compiled = compileIntent(
       'task-completion',
       { streamId: STREAM },
-      { taskId, worktreePath: WORKTREE, ...STAMP, baseRef: INTEGRATION_BRANCH, result: { worktreePath: WORKTREE } },
+      {
+        taskId,
+        worktreePath: worktreeOf(taskId),
+        ...STAMP,
+        baseRef: INTEGRATION_BRANCH,
+        result: { worktreePath: worktreeOf(taskId) },
+      },
       executeDeps(),
     );
     expect(compiled.ok, JSON.stringify(compiled)).toBe(true);
@@ -218,11 +241,28 @@ async function completeByHand(): Promise<void> {
   }
 }
 
+/**
+ * The three git reads of the scope of prepare. The checkout is the settle directory in canonical form, which holds no config file.
+ * No tag has the name of the base. The acceptance cases of prepare run the same reads on real git.
+ */
+function parityScopeGit(): ScopeGit {
+  const checkout = canonicalPath(settleDir);
+  return {
+    observe: async () => ({ kind: 'repository', toplevel: checkout, repository: `${checkout}/.git` }),
+    commitOf: async (_checkout, ref) =>
+      ref.startsWith('refs/tags/') ? { kind: 'absent' } : { kind: 'commit', commit: 'd'.repeat(40) },
+    isAncestor: async () => ({ kind: 'ancestor' }),
+  };
+}
+
 /** The plane: one prepare, one settle, every task claimed with its worktree. */
 async function settleTheBatch(): Promise<void> {
   const ctx = wiring(settleDir, settleStore);
   const prepared = await runWithDispatchContext(correlation(), () =>
-    handlePrepare({ featureId: STREAM }, settleDir, ctx, { catalogInvariants: () => [] }),
+    handlePrepare({ featureId: STREAM, repoRoot: canonicalPath(settleDir) }, settleDir, ctx, {
+      catalogInvariants: () => [],
+      scopeGit: parityScopeGit(),
+    }),
   );
   expect(prepared.success, JSON.stringify(prepared)).toBe(true);
   const { capsuleVersion } = prepared.data as { capsuleVersion: number };
@@ -232,7 +272,7 @@ async function settleTheBatch(): Promise<void> {
         featureId: STREAM,
         capsuleVersion,
         batchId: 'batch-parity',
-        claims: TASK_IDS.map((taskId) => ({ taskId, fields: { worktreePath: WORKTREE }, evidence: [] })),
+        claims: TASK_IDS.map((taskId) => ({ taskId, fields: { worktreePath: worktreeOf(taskId) }, evidence: [] })),
       },
       settleDir,
       ctx,

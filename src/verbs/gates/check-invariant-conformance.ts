@@ -8,9 +8,15 @@
  * invariant tree against the diff. It renders each audit-mode invariant into
  * `auditPrompt` and lists the ids in `auditInvariantIds`. The reviewer returns
  * violations as `pluginFindings` on `check_review_verdict`.
+ *
+ * A config that does not load and a registered catalog that does not resolve
+ * each give a HIGH finding, so the verdict is not APPROVED. With no `repoRoot`,
+ * the config and the catalog take one root: the checkout of the latest prepared
+ * capsule of the workflow, else the process directory.
  */
 
 import { createHash } from 'node:crypto';
+import path from 'node:path';
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
@@ -36,6 +42,11 @@ import {
   generateVerdictReport,
 } from '../review/review-verdict.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import {
+  capsuleOfRecord,
+  latestPreparedRecordOf,
+  WORKFLOW_PREPARED_TYPE,
+} from '../prepare/prepared-record.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
 import { requireGateEvent, sameOperationGateKey } from './gate-utils.js';
 
@@ -63,7 +74,10 @@ export interface CheckInvariantConformanceArgs {
   readonly diff?: string;
   /** Alias for `diff` (mirrors other gate handlers' naming). */
   readonly diffContent?: string;
-  /** Repository root — used to locate the catalog when no loader is injected. */
+  /**
+   * The directory of the config and the catalog when no loader is injected.
+   * Without it, the root is the checkout of the latest prepared capsule of the workflow, else the process directory.
+   */
   readonly repoRoot?: string;
   /** Explicit config. Tests use it so that they do not read `.exarchos.yml`. */
   readonly config?: ExarchosConfig;
@@ -74,9 +88,9 @@ export interface CheckInvariantConformanceArgs {
   readonly loadInvariantsFn?: LoadInvariantsFn;
   /**
    * Legacy test seam for the user-catalog layer. The handler reads it only on
-   * the legacy path. On the production path, the user layer comes from
-   * `config.invariants.catalogs`, and a malformed user catalog shows in the
-   * resolver `warnings`.
+   * the legacy path, and a throw gives a HIGH finding. On the production path,
+   * the user layer comes from `config.invariants.catalogs`, and a malformed
+   * user catalog shows in the resolver `unresolvedSources`.
    */
   readonly loadUserInvariantsFn?: LoadInvariantsFn;
   /**
@@ -193,16 +207,66 @@ export async function handleCheckInvariantConformance(
 }
 
 /**
+ * The root of the config and the catalog for a run with no `repoRoot`: the checkout of the latest prepared capsule of the workflow.
+ * A workflow with no prepared record and a capsule with no scope give the process directory.
+ * A capsule that custody cannot return makes the read throw. The gate catches the throw and takes the process directory too.
+ */
+async function reviewRootOf(featureId: string, eventStore: EventStore): Promise<string> {
+  const latest = latestPreparedRecordOf(await eventStore.query(featureId, { type: WORKFLOW_PREPARED_TYPE }));
+  if (latest === undefined) return process.cwd();
+  let checkout: string | undefined;
+  try {
+    checkout = (await capsuleOfRecord(latest.record, eventStore.bundleStore))?.capsule.settlementContract.scope?.checkout;
+  } catch {
+    return process.cwd();
+  }
+  return checkout ?? process.cwd();
+}
+
+/** The config of one run on the production path, the root of its relative catalogs, and the finding of a config that does not load. */
+interface ReviewConfig {
+  readonly config: ExarchosConfig | undefined;
+  readonly catalogRoot: string;
+  readonly finding?: PluginFinding;
+}
+
+/**
+ * Loads the config of one run on the production path, because the action schema carries no `config`.
+ * A call with a `repoRoot` loads from it, and its relative catalogs resolve against it.
+ * Else the root comes from {@link reviewRootOf}. A relative catalog then resolves against the directory of the loaded config file, else against the root.
+ * A config that does not load gives a HIGH finding, and the run continues with no config.
+ */
+async function reviewConfigOf(args: CheckInvariantConformanceArgs, eventStore: EventStore): Promise<ReviewConfig> {
+  const root = args.repoRoot ?? (await reviewRootOf(args.featureId, eventStore));
+  if (args.config !== undefined) return { config: args.config, catalogRoot: root };
+  const outcome = loadExarchosConfigOutcome(root);
+  if (outcome.kind === 'loaded') {
+    const catalogRoot = args.repoRoot ?? path.dirname(outcome.result.source);
+    return { config: outcome.result.config, catalogRoot };
+  }
+  if (outcome.kind === 'absent') return { config: undefined, catalogRoot: root };
+  return {
+    config: undefined,
+    catalogRoot: root,
+    finding: {
+      source: 'exarchos-config-load',
+      severity: 'HIGH',
+      message:
+        `.exarchos.yml failed to load, so the invariant gate cannot apply the catalogs and the overrides that it ` +
+        `registers. The gate ran with default (no-config) settings. Reason: ${outcome.message}`,
+    },
+  };
+}
+
+/**
  * Evaluates the invariants for one gate run.
  *
- * Without `args.config` or `loadInvariantsFn`, it loads `.exarchos.yml` from
- * `repoRoot` or the cwd, because the action schema carries no `config`. A
- * config load error, a resolver warning, a check tree that throws, and an
- * empty catalog slice each add a `LOW` finding. They do not stop the gate.
- * An empty slice gives `auditProjection: 'no-subject'`, so it cannot read as a
- * clean audit. Each check-mode finding takes the severity that its invariant
- * resolves for the context. If `invariants.enforcement.review` is `advisory`,
- * the verdict uses zero counts, but the result keeps the real counts.
+ * Without `loadInvariantsFn`, it loads the config through {@link reviewConfigOf}.
+ * A config that does not load, a registered catalog that does not resolve and a throw of the user-catalog seam each add a `HIGH` finding.
+ * Another resolver warning, a check tree that throws and an empty catalog slice each add a `LOW` finding. No finding stops the gate.
+ *
+ * An empty slice gives `auditProjection: 'no-subject'`, so it cannot read as a clean audit. Each check-mode finding takes the severity that its invariant resolves for the context.
+ * If `invariants.enforcement.review` is `advisory`, the verdict uses zero counts, but the result keeps the real counts.
  */
 async function executeCheckInvariantConformance(
   args: CheckInvariantConformanceArgs,
@@ -214,20 +278,6 @@ async function executeCheckInvariantConformance(
 
   const findings: PluginFinding[] = [];
   let effectiveConfig: ExarchosConfig | undefined = args.config;
-  if (effectiveConfig === undefined && args.loadInvariantsFn === undefined) {
-    const outcome = loadExarchosConfigOutcome(args.repoRoot ?? process.cwd());
-    if (outcome.kind === 'loaded') {
-      effectiveConfig = outcome.result.config;
-    } else if (outcome.kind === 'invalid') {
-      findings.push({
-        source: 'exarchos-config-load',
-        severity: 'LOW',
-        message:
-          `.exarchos.yml failed to load and was skipped; the invariant gate ` +
-          `ran with default (no-config) settings. Reason: ${outcome.message}`,
-      });
-    }
-  }
 
   let applicable: InvariantEntry[];
   if (args.loadInvariantsFn) {
@@ -240,7 +290,7 @@ async function executeCheckInvariantConformance(
         const reason = err instanceof Error ? err.message : String(err);
         findings.push({
           source: 'user-catalog-load',
-          severity: 'LOW',
+          severity: 'HIGH',
           message:
             `User invariant catalog failed to load and was skipped; ` +
             `evaluated shipped layers only. Reason: ${reason}`,
@@ -253,19 +303,23 @@ async function executeCheckInvariantConformance(
       ...(args.touchedFiles ? { touchedFiles: [...args.touchedFiles] } : {}),
     });
   } else {
+    const review = await reviewConfigOf(args, eventStore);
+    effectiveConfig = review.config;
+    if (review.finding !== undefined) findings.push(review.finding);
     const resolve = args.resolveEffectiveCatalogFn ?? resolveEffectiveCatalog;
-    const { entries, warnings } = resolve({
-      ...(args.repoRoot !== undefined ? { repoRoot: args.repoRoot } : {}),
+    const { entries, warnings, unresolvedSources } = resolve({
+      repoRoot: review.catalogRoot,
       ...(effectiveConfig !== undefined ? { config: effectiveConfig } : {}),
       phase,
       workflowType,
       ...(args.touchedFiles ? { touchedFiles: [...args.touchedFiles] } : {}),
     });
     applicable = entries;
+    const unresolved = new Set(unresolvedSources.map((source) => source.warning));
     for (const warning of warnings) {
       findings.push({
         source: 'effective-catalog',
-        severity: 'LOW',
+        severity: unresolved.has(warning) ? 'HIGH' : 'LOW',
         message: warning,
       });
     }

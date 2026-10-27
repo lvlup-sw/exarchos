@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1335,
-    "parsedFiles": 1290,
+    "testFiles": 1363,
+    "parsedFiles": 1318,
     "shellFiles": 45,
-    "cases": 15055,
+    "cases": 15196,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -2802,10 +2802,6 @@
       "to": "tests/unit/verbs/composite.test.ts"
     },
     {
-      "from": "src/verbs/config-gate-integration.test.ts",
-      "to": "tests/unit/verbs/config-gate-integration.test.ts"
-    },
-    {
       "from": "src/verbs/docs-onboard-sweep.test.ts",
       "to": "tests/unit/verbs/docs-onboard-sweep.test.ts"
     },
@@ -5064,6 +5060,27 @@
         }
       ]
     },
+    "tests/acceptance/correction-branch.test.ts": {
+      "file": "tests/acceptance/correction-branch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a correction after a static-analysis failure, through the dispatcher",
+          "name": "CorrectionBranch_AFixOnTheEarlierBranch_SettlesAfterAStaticAnalysisFailure",
+          "dynamic": false
+        },
+        {
+          "suite": "a correction after a static-analysis failure, through the dispatcher",
+          "name": "CorrectionBranch_AFixInANewWorktreeOnTheEarlierBranch_SettlesAfterTheEarlierWorktreeIsRemoved",
+          "dynamic": false
+        },
+        {
+          "suite": "a correction after a static-analysis failure, through the dispatcher",
+          "name": "CorrectionBranch_AFixOnANewBranch_HaltsAtTheCompletionLeafUntilTheNamedRerun",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/acceptance/effect-carrier-compile-gate.test.ts": {
       "file": "tests/acceptance/effect-carrier-compile-gate.test.ts",
       "runner": "vitest:root",
@@ -5304,6 +5321,22 @@
         }
       ]
     },
+    "tests/acceptance/settle-config.test.ts": {
+      "file": "tests/acceptance/settle-config.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle runs the segments under the config of the checkout",
+          "name": "SettleConfig_AConfigEditedAfterPrepare_NeedsANewPrepareThenSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle runs the segments under the config of the checkout",
+          "name": "SettleConfig_AGateThatTheCheckoutDisables_IsSkippedAndTheTraceNamesDisabledByConfig",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/acceptance/settle-races.test.ts": {
       "file": "tests/acceptance/settle-races.test.ts",
       "runner": "vitest:root",
@@ -5321,6 +5354,93 @@
         {
           "suite": "settle races, through the dispatcher",
           "name": "SettleRaces_ARevisionThatLandsWhileABatchVerifies_NeedsARecompileThenSettlesUnderTheContinuation",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/settle-scope.test.ts": {
+      "file": "tests/acceptance/settle-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AClaimInAnotherRepository_IsUnresolvedBeforeVerification",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AClaimOutsideAnyRepository_IsUnresolvedBeforeVerification",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AClaimOnTheCheckout_IsUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_ALinkedWorktreeOfTheBaseBranchThatIsNotTheCheckout_IsUnresolvedAsOnTheBaseBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_ThePrimaryWorktree_IsUnresolvedAsTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_ABranchThatDiffersFromTheClaim_IsUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AnUntrackedFile_IsUnresolvedAndNamed",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree against the pinned scope",
+          "name": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/task-complete-scope.test.ts": {
+      "file": "tests/acceptance/task-complete-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnTheCheckoutThatNamesTheCheckout_IsRefusedAsTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnThePrimaryWorktree_IsRefusedAsTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnALinkedWorktreeOfTheBaseBranch_IsRefusedAsOnTheBaseBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnAnotherRepository_IsRefusedAsOtherRepository",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_AWorktreeThatDoesNotHoldTheBase_IsRefusedAsBaseNotHeld",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_APassOnTheWorktreeOfACompletedTask_IsRefusedAsSharedWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the pinned scope on real git",
+          "name": "TaskCompleteScope_AnInScopeWorktreeAtItsHead_CompletesWhereTheCheckoutIsRefused",
           "dynamic": false
         }
       ]
@@ -9876,6 +9996,57 @@
         {
           "suite": "driveSaga",
           "name": "driveSaga_callThrows_haltsAndIncludesErrorInTranscript",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/helpers/scoped-repository.test.ts": {
+      "file": "tests/helpers/scoped-repository.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_ACheckout_HoldsOneCommitOfTheFixtureOnTheIntegrationBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_ACheckout_HoldsMainAtTheBaseCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_TheCheckoutWithTwoWorktrees_HasAnEmptyStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_WorktreeFor_ForksALinkedWorktreeOnItsOwnBranchAtTheBaseWithNoCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_WorktreeForWithFiles_CommitsThemOnTheTaskBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_CommitIn_AddsACommitOnTheBranchOfTheTask",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_TwoWorktrees_ShareTheCommonDirOfTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_AFreshWorktree_HasAnEmptyStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "scopedRepository",
+          "name": "ScopedRepository_ASecondCallForOneTask_ReturnsTheSameWorktree",
           "dynamic": false
         }
       ]
@@ -45346,6 +45517,17 @@
         }
       ]
     },
+    "tests/unit/registry/repo-root-wire.test.ts": {
+      "file": "tests/unit/registry/repo-root-wire.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the repoRoot wire field of exarchos_orchestrate",
+          "name": "OrchestrateWire_AGateCallWithRepoRootAuto_ParsesAgainstTheFlattenedSchema",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/review/check-catalog.test.ts": {
       "file": "tests/unit/review/check-catalog.test.ts",
       "runner": "vitest:root",
@@ -50886,6 +51068,88 @@
         }
       ]
     },
+    "tests/unit/tasks/task-complete-scope.test.ts": {
+      "file": "tests/unit/tasks/task-complete-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_EachRuleOnAScopedStream_RefusesWithItsCause",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_ARowOfAnotherTaskOnTheTree_RefusesWhereTheRowOfTheTaskItselfDoesNot",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_AnInScopeTree_GoesOnToTheSameTreeRule",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_ATaskWithNoBaseCommit_ObservesThroughTheSeamOnceAndRunsNoBaseRule",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_AReferenceCapsuleWithNoScopeOrThatCustodyCannotReturn_JudgesOnlyTheSameTree",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete judges the named tree against the capsule scope",
+          "name": "TaskCompleteScope_NoCapsuleVersion_JudgesAgainstTheLatestCapsuleAndNamesTheVersionInTheRecovery",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/tasks/task-complete-tree.test.ts": {
+      "file": "tests/unit/tasks/task-complete-tree.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_APassOnAnotherTree_IsRefusedAsOtherTreeWithNoRow",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_ACommitAfterThePass_IsRefusedAsOtherTree",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_APassOnTheNamedTreeAtItsHead_CompletesWithThePathAndTheCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_OnAPreparedStreamWithNoNamedTree_IsRefusedAsTreeUnnamed",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_ARunnerRowWithNoTree_DoesNotSatisfyANamedTree",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete accepts only a pass on the named tree and commit",
+          "name": "TaskComplete_ANamedTreeOutsideGitThatDiffersFromTheRow_IsRefusedAsOtherTree",
+          "dynamic": false
+        },
+        {
+          "suite": "check_static_analysis with a task and no repoRoot",
+          "name": "StaticAnalysis_ATaskRunWithNoRepoRoot_RecordsARepoRootMissingSkipAndScansNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "check_static_analysis with a task and no repoRoot",
+          "name": "TaskComplete_AfterARepoRootMissingSkip_IsRefusedWithTheRerunRecovery",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/tasks/tools.evidence-bypass.test.ts": {
       "file": "tests/unit/tasks/tools.evidence-bypass.test.ts",
       "runner": "vitest:root",
@@ -51657,6 +51921,52 @@
         {
           "suite": "atomic promotion — the barrier precondition is wired into the commit path",
           "name": "AtomicPromotion_DirectoryDurability_ReportsTheCommitStepsActualOutcomeNotAConstant",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/utils/git-tree.test.ts": {
+      "file": "tests/unit/utils/git-tree.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_ALinkedWorktree_GivesItsRootTheCommonDirTheBranchAndTheHead",
+          "dynamic": false
+        },
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_ASubdirectory_GivesTheRootOfItsWorkTree",
+          "dynamic": false
+        },
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_ADetachedHead_GivesNoBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_ADirectoryOutsideGit_GivesNoWorkTreeWithItsCanonicalPath",
+          "dynamic": false
+        },
+        {
+          "suite": "observeTree",
+          "name": "ObserveTree_AMissingPath_GivesNoWorkTreeWithItsLexicalPath",
+          "dynamic": false
+        },
+        {
+          "suite": "canonicalPath",
+          "name": "CanonicalPath_ASymbolicLink_GivesTheRealPathInPosixForm",
+          "dynamic": false
+        },
+        {
+          "suite": "canonicalPath",
+          "name": "CanonicalPath_AMissingPosixAbsolutePath_KeepsItsTextWithNoDrive",
+          "dynamic": false
+        },
+        {
+          "suite": "canonicalPath",
+          "name": "CanonicalPath_AWin32Path_GivesItsPosixFormOnAnyHost",
           "dynamic": false
         }
       ]
@@ -53405,72 +53715,6 @@
         }
       ]
     },
-    "tests/unit/verbs/config-gate-integration.test.ts": {
-      "file": "tests/unit/verbs/config-gate-integration.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_DisabledGate_SkipsExecution",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_WarningGate_ExecutesButDoesNotBlock",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_BlockingGate_FailureBlocks",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_NoProjectConfig_DefaultBehavior",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_BlockingGate_PassStillPasses",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_OneshotLadderGate_FailureBecomesWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "withConfigSeverity",
-          "name": "GateHandler_FeatureLadderGate_FailureStillBlocks",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_OneshotFailingAdvisory_AddsWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_OneshotPassingAdvisory_Unchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_FeatureFailingAdvisory_Unchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_NoConfig_Unchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "applyLadderGateSeverity",
-          "name": "ApplyLadderGateSeverity_ErrorResult_Untouched",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/unit/verbs/cutover-readiness-schema.test.ts": {
       "file": "tests/unit/verbs/cutover-readiness-schema.test.ts",
       "runner": "vitest:root",
@@ -54405,7 +54649,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "TaskCompletion_TheFrozenBase_ReachesTheKillProbeAndNoOtherGate",
+          "name": "TaskCompletion_TheFrozenBase_ReachesTheThreeDiffGatesAndNotStaticAnalysis",
           "dynamic": false
         },
         {
@@ -56097,6 +56341,57 @@
         }
       ]
     },
+    "tests/unit/verbs/gates/disabled-gate.test.ts": {
+      "file": "tests/unit/verbs/gates/disabled-gate.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the gate runner under a disabled directive",
+          "name": "RunGate_EachProviderClassUnderTheDisabledDirective_RecordsTheSkipAndDoesNotRunTheProvider",
+          "dynamic": false
+        },
+        {
+          "suite": "the gate runner under a disabled directive",
+          "name": "RunGate_APhaseGateThatDeclaresTheSignal_AppendsItUnderTheDirective",
+          "dynamic": false
+        },
+        {
+          "suite": "the gate runner under a disabled directive",
+          "name": "RunGate_APhaseGateThatDeclaresNoSignal_AppendsNoneUnderTheDirective",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled gate through dispatch",
+          "name": "DisabledGate_ThroughDispatchForEachRunnerMode_HoldsItsAlwaysEnsures",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled gate through dispatch",
+          "name": "WarningGate_AFailingPhaseGate_PassesTheLeafAndKeepsTheRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled gate through dispatch",
+          "name": "DisabledGate_APolicySkip_LosesToTheDirective",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled gate through dispatch",
+          "name": "TaskComplete_AfterADisabledStaticAnalysis_IsRefusedWithTheConfigRecovery",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled mutation gate",
+          "name": "DisabledGate_MutationAdequacy_RunsAndDoesNotBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "a disabled kill probe in the task-completion segment",
+          "name": "DisabledGate_AKillProbeInTheSegment_SkipsAndTheTaskCompletes",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/durable-gate-producer.test.ts": {
       "file": "tests/unit/verbs/gates/durable-gate-producer.test.ts",
       "runner": "vitest:root",
@@ -56478,6 +56773,27 @@
         }
       ]
     },
+    "tests/unit/verbs/gates/gate-severity-denominator.test.ts": {
+      "file": "tests/unit/verbs/gates/gate-severity-denominator.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the severity denominator of the gate actions",
+          "name": "GateSeverity_EveryGateActionOfTheRegistry_IsWrapped",
+          "dynamic": false
+        },
+        {
+          "suite": "the severity denominator of the gate actions",
+          "name": "GateSeverity_ASeededUnwrappedGateAction_FailsByName",
+          "dynamic": false
+        },
+        {
+          "suite": "the severity denominator of the gate actions",
+          "name": "GateSeverity_ARegisterRowForNoGateAction_FailsByName",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/gate-severity.test.ts": {
       "file": "tests/unit/verbs/gates/gate-severity.test.ts",
       "runner": "vitest:root",
@@ -56560,6 +56876,37 @@
         {
           "suite": "resolveGateSeverity per-workflow severity",
           "name": "ResolveGateSeverity_NoWorkflowType_UnchangedResolution",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/gate-tree-stamp.test.ts": {
+      "file": "tests/unit/verbs/gates/gate-tree-stamp.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the tree stamp of a gate run",
+          "name": "GateTreeStamp_AStaticAnalysisRun_NamesTheScannedRootAndItsHead",
+          "dynamic": false
+        },
+        {
+          "suite": "the tree stamp of a gate run",
+          "name": "GateTreeStamp_ASameOperationRetry_KeepsTheStampOfItsRequest",
+          "dynamic": false
+        },
+        {
+          "suite": "the tree stamp of a gate run",
+          "name": "GateTreeStamp_ARunOutsideGit_NamesThePathWithNoHead",
+          "dynamic": false
+        },
+        {
+          "suite": "seedStaticAnalysisVerdict",
+          "name": "SeedStaticAnalysisVerdict_AWorktreePath_StampsThatTree",
+          "dynamic": false
+        },
+        {
+          "suite": "seedStaticAnalysisVerdict",
+          "name": "SeedStaticAnalysisVerdict_NoWorktreePathAndNoRepoRoot_StampsNoTreeWhereARepoRootIsStamped",
           "dynamic": false
         }
       ]
@@ -58213,6 +58560,32 @@
         }
       ]
     },
+    "tests/unit/verbs/gates/segment-gate-base.test.ts": {
+      "file": "tests/unit/verbs/gates/segment-gate-base.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the base of the diff gates in the task-completion segment",
+          "name": "SegmentGateBase_TheRunbook_BindsTheBaseToTheThreeDiffGates",
+          "dynamic": false
+        },
+        {
+          "suite": "the base of the diff gates in the task-completion segment",
+          "name": "SegmentGateBase_ASegment_MeasuresContractDriftAndMockBoundaryFromTheBase",
+          "dynamic": false
+        },
+        {
+          "suite": "a direct diff-gate run with no base",
+          "name": "ContractDrift_ADirectRunWithNoBase_BlocksWithBaseMissing",
+          "dynamic": false
+        },
+        {
+          "suite": "a direct diff-gate run with no base",
+          "name": "MockBoundary_ADirectRunWithNoBase_ReportsBaseMissingAndDoesNotBlock",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/gates/spec-coverage-check.boundary.test.ts": {
       "file": "tests/unit/verbs/gates/spec-coverage-check.boundary.test.ts",
       "runner": "vitest:root",
@@ -59574,47 +59947,47 @@
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementSeverity_Oneshot_Advisory",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementSeverity_FeatureDebugRefactor_Blocking",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementMode_AuditMode_DoesNotBlock",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementMode_AuditMode_NoConfig_StillDoesNotBlock",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementSeverity_NoConfig_EnforceStillBlocks",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase severity",
+          "suite": "implement-phase severity through the gate severity wrapper",
           "name": "ImplementOverride_ReviewGatesConfig_AppliesToImplementPhases",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase mode map",
+          "suite": "implement-phase mode map",
           "name": "ImplementPhaseMode_OneshotAudit_BlockingWorkflowsEnforce",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase mode map",
+          "suite": "implement-phase mode map",
           "name": "ImplementPhaseMode_TableIsFrozen",
           "dynamic": false
         },
         {
-          "suite": "DR-6 implement-phase mode map",
+          "suite": "implement-phase mode map",
           "name": "ResolvePhaseMode_ProductionSoT_EquivalentForImplement_EnforceElsewhere",
           "dynamic": false
         }
@@ -61826,6 +62199,26 @@
           "suite": "catalog invariant binding",
           "name": "BindCatalog_AnEmptyCatalog_LeavesTheBaseAsItIs",
           "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the segment gates and the design source",
+          "name": "CompileCapsule_AHighTierPattern_NamesNoIntegrationSuite",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the segment gates and the design source",
+          "name": "CompileCapsule_APattern_NamesNoGateThatTheConfigDisables",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the segment gates and the design source",
+          "name": "CompileCapsule_AReadableDesignRecord_IsPinnedByItsBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "delegation capsule compilation — the segment gates and the design source",
+          "name": "CompileCapsule_AnUnreadableDesignRecord_IsPinnedByItsReference",
+          "dynamic": false
         }
       ]
     },
@@ -61937,7 +62330,7 @@
         },
         {
           "suite": "prepare — the compilation endpoint",
-          "name": "Prepare_TheCatalog_IsResolvedFromTheDispatchedWorkspace",
+          "name": "Prepare_TheCatalog_IsResolvedFromTheCheckoutOfRepoRoot",
           "dynamic": false
         },
         {
@@ -64478,6 +64871,11 @@
           "suite": "settlement adjudication",
           "name": "Adjudicate_AnOptionalFieldLeftOut_IsNotAFinding",
           "dynamic": false
+        },
+        {
+          "suite": "settlement adjudication",
+          "name": "Adjudicate_TheClassTable_CoversEachKindAndNamesTheSevenThatDoNotRefuse",
+          "dynamic": false
         }
       ]
     },
@@ -65354,6 +65752,52 @@
         }
       ]
     },
+    "tests/unit/verbs/settle/settle-config.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-config.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — an unscoped capsule",
+          "name": "Settle_AnUnscopedCapsuleThatNeedsASegment_IsRefusedAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — an unscoped capsule",
+          "name": "Settle_ADecisionThatRejectsOnAHeldUnscopedBatch_SettlesWhereAnAcceptanceIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — an unscoped capsule",
+          "name": "Settle_ADecisionThatAcceptsOnAHeldUnscopedBatch_IsRefusedAndNamesBothRoutes",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a config that changed after prepare",
+          "name": "Settle_AConfigEditedAfterPrepare_IsRefusedAndRunsNoGate",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a config that changed after prepare",
+          "name": "Settle_AnAcceptingDecisionUnderAChangedConfig_IsRefusedWithBothRoutesAndSettlesAfterTheConfigIsPutBack",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a config that changed after prepare",
+          "name": "Settle_ARejectingDecisionUnderAChangedConfig_SettlesWhereAnAcceptingOneIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a config that changed after prepare",
+          "name": "Settle_TheConfigDigest_IsComputedOncePerCall",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the config of the segments",
+          "name": "Settle_TheSegment_RunsUnderTheConfigOfTheCheckout",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/settle/settle-decision-standing.test.ts": {
       "file": "tests/unit/verbs/settle/settle-decision-standing.test.ts",
       "runner": "vitest:root",
@@ -65472,6 +65916,72 @@
         {
           "suite": "settle — the custody of a discarded attempt",
           "name": "Settle_ARedoneAttempt_LeavesOnlyAnUnreferencedBlob",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-scope.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the scope rules of settle",
+          "name": "SettleScope_EachRule_GivesItsCauseInOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the scope rules of settle",
+          "name": "CompletedTrees_ARowOfAnEarlierBuild_IsNormalizedOnRead",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_TwoClaimsThatNameOneWorktree_AreBothUnresolvedAndRunNoGate",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AClaimOnTheWorktreeOfACompletedTask_IsUnresolvedAsSharedWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AHaltedClaimOnTheTreeOfATaskCompletedBeforeTheCommit_IsUnresolvedAsSharedWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AnOutOfScopeClaim_LeavesTheOtherTasksVerifiedAndIsCorrectiveCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_ARemovedWorktree_GivesAFindingOnlyForATaskThatIsNotComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AFirstCallObservesItsClaimsAndARetryOfTheRecordedBatchObservesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AnUnobservableTree_GivesAFindingAndTheOtherClaimsVerify",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AVerifiedTrace_CarriesTheTreeCommitInTheBundleOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_ACompletedClaimWithNoWorktreePath_IsNotObservedAndTheCompileRefusalStands",
+          "dynamic": false
+        },
+        {
+          "suite": "settle checks each claimed worktree before any gate runs",
+          "name": "Settle_AnAcceptingDecision_ObservesTheHeldClaimsAndAFileAddedDuringTheHoldIsUncommittedChanges",
           "dynamic": false
         }
       ]
@@ -66902,6 +67412,47 @@
         {
           "suite": "handlePostDelegationCheck",
           "name": "report_includesTaskStatusTable",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/team/prepare-delegation-scope.test.ts": {
+      "file": "tests/unit/verbs/team/prepare-delegation-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_AServerOnMainAndARepoRootOnAFeatureWorktree_IsNotBlockedAsProtected",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_AServerOnAFeatureWorktreeAndARepoRootOnMain_IsBlockedAsProtected",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_TheAncestryPreflight_ReadsRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_TheStashProbe_ReadsRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_NoRepoRoot_KeepsTheServerDirectoryAndWarns",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_ARelativePlanPath_ResolvesAgainstRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "PrepareDelegation_ARelativeRepoRoot_IsRefusedAndRecordsNothing",
           "dynamic": false
         }
       ]
@@ -87677,6 +88228,11 @@
           "suite": "the kill probe measures a task from the branch it forked from",
           "name": "KillProbe_ThroughSettle_RunsUnderTheBaseTheCapsuleFroze_AndRejectsTheBatch",
           "dynamic": false
+        },
+        {
+          "suite": "the kill probe measures a task from the branch it forked from",
+          "name": "KillProbeBase_AWorktreeForkedFromMain_IsUnresolvedAsBaseNotHeld",
+          "dynamic": false
         }
       ]
     },
@@ -87785,6 +88341,319 @@
         {
           "suite": "resolveStalenessTopology",
           "name": "StalenessScope_NoTopologyFileRequested_CoversOnlyTheBuiltInWorkflowTypes",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-scope.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare reads the checkout of repoRoot",
+          "name": "Prepare_TheCheckoutConfig_DecidesTheGateSequence",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare reads the checkout of repoRoot",
+          "name": "Prepare_ARelativeCatalogPath_ResolvesAgainstTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compares the repository with the latest capsule",
+          "name": "Prepare_AnotherCloneThanTheEarlierCapsule_IsRefusedAndNamesBothRepositoriesAndTheRecovery",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compares the repository with the latest capsule",
+          "name": "Prepare_ALatestCapsuleThatCustodyCannotReturn_IsNotComparedAndCompiles",
+          "dynamic": false
+        },
+        {
+          "suite": "the config digest of a checkout",
+          "name": "ConfigDigest_NoConfigFile_IsTheDigestOfTwoAbsentEntries",
+          "dynamic": false
+        },
+        {
+          "suite": "the config digest of a checkout",
+          "name": "ConfigDigest_AnEditOfEitherFile_ChangesTheDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "a prepared bundle with a scope",
+          "name": "DecodePreparedBundle_ACapsuleWithAScope_DecodesAndACapsuleWithoutOneStillDecodes",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/compile-scope.test.ts": {
+      "file": "tests/unit/verbs/prepare/compile-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the compiler pins the scope and the base commit",
+          "name": "CompileCapsule_TwoTasks_HoldTheSameBaseCommitAndTheScope",
+          "dynamic": false
+        },
+        {
+          "suite": "the compiler pins the scope and the base commit",
+          "name": "CompileCapsule_TheForkStatement_NamesTheBaseAndTheCommit",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/prepare-scope.test.ts": {
+      "file": "tests/acceptance/prepare-scope.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_FromAServerInAForeignRepository_PinsTheScopeOfRepoRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_NoRepoRoot_IsRefusedAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_ARelativeRepoRoot_IsRefusedAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_ARepoRootOutsideGit_IsRefusedAsScopeUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the scope of repoRoot",
+          "name": "Prepare_ASubdirectory_PinsTheRootOfItsWorkTree",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABaseWithNoCommit_IsRefusedAsBaseUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABlockerWhoseCompletionCommitIsNotOnTheBase_IsRefusedAndNamesBothRecoveries",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABlockerSquashedBySerializeMerge_PassesWhereItsCompletionCommitAloneIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABlockerLandedByAFastForward_PassesAndAnUnlandedBlockerIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_ABlockerWithNoRecordedCommit_CompilesWithTheBaseCommitPinned",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the commit of the base",
+          "name": "Prepare_AMovedBase_CompilesTheNextCapsuleVersion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/prepare-reads-no-server-directory.test.ts": {
+      "file": "tests/architecture/prepare-reads-no-server-directory.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare reads no server directory",
+          "name": "PrepareSource_ReadsNoServerDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare reads no server directory",
+          "name": "PrepareSource_ASeededServerDirectoryRead_FailsByName",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-config.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-config.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare refuses a config or a catalog of the checkout that does not load",
+          "name": "Prepare_AnInvalidConfig_IsRefusedAndNamesTheFile",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare refuses a config or a catalog of the checkout that does not load",
+          "name": "Prepare_AnUnreadableConfig_IsRefusedAndNamesTheFile",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare refuses a config or a catalog of the checkout that does not load",
+          "name": "Prepare_AnUnresolvedRegisteredCatalog_IsRefusedAndNamesTheFile",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare refuses a static analysis that the checkout config does not make blocking",
+          "name": "Prepare_ADisabledStaticAnalysis_IsRefusedAsScopeUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare refuses a static analysis that the checkout config does not make blocking",
+          "name": "Prepare_AWarningOnlyStaticAnalysis_IsRefusedAsScopeUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the bytes of a design record under the checkout",
+          "name": "Prepare_AnEditedDesignRecord_CompilesTheNextCapsuleVersionAndAnUnchangedOneReplays",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the bytes of a design record under the checkout",
+          "name": "Prepare_ADesignRecordUnderALinkedDirectory_IsPinnedByItsBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the bytes of a design record under the checkout",
+          "name": "Prepare_ADesignReferenceWhoseTextLeavesTheCheckout_IsPinnedByItsReference",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/invariant-catalog-unresolved.test.ts": {
+      "file": "tests/unit/verbs/gates/invariant-catalog-unresolved.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "check_invariant_conformance does not approve a source that does not load",
+          "name": "InvariantConformance_AnUnresolvedRegisteredCatalog_IsNotApproved",
+          "dynamic": false
+        },
+        {
+          "suite": "check_invariant_conformance does not approve a source that does not load",
+          "name": "InvariantConformance_AConfigThatDoesNotLoad_IsNotApproved",
+          "dynamic": false
+        },
+        {
+          "suite": "check_invariant_conformance with no repoRoot reads one root",
+          "name": "InvariantConformance_NoRepoRoot_LoadsTheConfigAndTheUserCatalogOfTheCheckoutOfTheLatestCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "check_invariant_conformance with no repoRoot reads one root",
+          "name": "InvariantConformance_ALatestCapsuleThatCustodyCannotReturn_FallsBackToTheCwdWhereAReadableOneGivesTheCheckout",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/scope-same-name-tag.test.ts": {
+      "file": "tests/acceptance/scope-same-name-tag.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare refuses a base whose name is also a tag",
+          "name": "Prepare_ABaseRefThatAlsoNamesATag_IsRefusedBaseUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "settle reads the exact branch and no status outside the scope",
+          "name": "Settle_ALinkedWorktreeOnTheBaseBranchWithASameNameTag_IsOnTheBaseBranch",
+          "dynamic": false
+        },
+        {
+          "suite": "settle reads the exact branch and no status outside the scope",
+          "name": "Settle_AClaimInAnotherRepositoryWithAnFsmonitor_IsOtherRepositoryAndRunsNoCommand",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/utils/git-tree-exact-branch.test.ts": {
+      "file": "tests/unit/utils/git-tree-exact-branch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "observeTree reads the exact branch name",
+          "name": "ObserveTree_ATagWithTheNameOfTheBranch_ReadsTheBranchName",
+          "dynamic": false
+        },
+        {
+          "suite": "observeClaimedTree reads no status outside the scope repository",
+          "name": "ObserveClaimedTree_ATreeOfAnotherRepository_RunsNoStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "observeClaimedTree reads no status outside the scope repository",
+          "name": "ObserveClaimedTree_ATreeOfTheScopeRepository_StillReadsTheStatus",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/audit-mode-skip.test.ts": {
+      "file": "tests/unit/verbs/gates/audit-mode-skip.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the audit mode of the implement phase never softens a skip",
+          "name": "GateSeverity_AnAuditModeSkip_KeepsPassedFalseAndGetsNoWarning",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-disabled-gates.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-disabled-gates.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare drops the gates that the checkout config disables from the pattern text",
+          "name": "Prepare_TheCheckoutConfigDisablesAGate_ThePatternTextNamesItNot",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/tasks/task-complete-stored-retry.test.ts": {
+      "file": "tests/unit/tasks/task-complete-stored-retry.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a retry of a stored completion",
+          "name": "TaskComplete_ARetryOfAStoredCompletionAfterTheWorktreeIsRemoved_ReturnsTheStoredRow",
+          "dynamic": false
+        },
+        {
+          "suite": "a retry of a stored completion",
+          "name": "TaskComplete_ARetryAfterTheWorktreeGainsACommit_ReturnsTheStoredRow",
+          "dynamic": false
+        },
+        {
+          "suite": "a retry of a stored completion",
+          "name": "TaskComplete_AStoredCompletionThatAFailureReopened_JudgesTheTreeAgain",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/team/prepare-delegation-baseref.test.ts": {
+      "file": "tests/unit/verbs/team/prepare-delegation-baseref.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the base-ref guard of prepare_delegation",
+          "name": "PrepareDelegation_TheBaseRefGuard_ReadsTheSettingsOfRepoRoot",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/helpers/scoped-repository-env.test.ts": {
+      "file": "tests/helpers/scoped-repository-env.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "scopedRepository with an inherited repository location",
+          "name": "ScopedRepository_AnInheritedGitDir_DoesNotRedirectTheFixture",
           "dynamic": false
         }
       ]

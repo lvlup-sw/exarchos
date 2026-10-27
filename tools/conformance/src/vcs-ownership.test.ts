@@ -164,6 +164,17 @@ const COMPLEMENT_EXEMPTIONS: readonly { module: string; owner: string; rationale
         'discarded when the test ends. Routing it through vcs/mutation-owner.ts would make ' +
         'the harness depend on the production module it exists to test around.',
     },
+    {
+      module: 'tests/helpers/scoped-repository.ts',
+      owner: 'exarchos-core',
+      rationale:
+        'Scoped-repository test helper. Creates a throwaway repo under os.tmpdir() and adds a ' +
+        'linked worktree for each task as a sibling directory INSIDE that temp tree, never in ' +
+        'this repository, so the mutation-owner contract (idempotency, fencing, compensation) ' +
+        'has no subject: the test deletes the whole tree when it ends. Routing it through ' +
+        'vcs/mutation-owner.ts would make the fixtures depend on the production module that ' +
+        'they exist to test around.',
+    },
   ]);
 
 describe('DR-8 — the governed root is declared, and its complement is measured', () => {

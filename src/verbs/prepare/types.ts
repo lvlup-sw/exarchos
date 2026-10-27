@@ -1,6 +1,7 @@
 /**
  * The refusal codes of `prepare` and the receipt it returns.
  * Each refusal occurs before any effect, so a refused compilation writes nothing.
+ * The message of a refusal names its cause and the recovery.
  */
 
 import type { ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
@@ -17,8 +18,16 @@ export const PREPARE_REFUSAL_CODES = [
   'NOTHING_TO_PREPARE',
   /** Tasks are pending, but each waits on a task that is not complete. */
   'NO_READY_TASKS',
-  /** The workflow records no integration branch, so no task has a base to be measured against. */
+  /**
+   * No task has a base that it can fork from. The workflow records no integration branch, or the branch names no commit in the checkout.
+   * Or the commit of the branch does not hold the landed commit of a completed blocker.
+   */
   'BASE_UNRESOLVED',
+  /**
+   * The repository of `repoRoot` cannot be pinned. The directory is not in a git work tree,
+   * or the latest capsule of the workflow pins another repository.
+   */
+  'SCOPE_UNRESOLVED',
   /** A planned task id is not a stable id a capsule can name. */
   'INVALID_TASK_ID',
   /** A task waits on a task the plan does not contain. */

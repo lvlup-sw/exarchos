@@ -17,11 +17,13 @@ import { collectConditionRefs, resolveCapsuleReferences } from '../../contract/c
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import {
   ExarchosCapsuleV1Schema,
+  type CapsuleScope,
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
 import { EdgeConditionNodeSchema } from '../../contract/ir/admission-ir.js';
 import { TaskCompletedData, type DesignRevised } from '../../events/schemas.js';
 import { findActionInRegistry } from '../../registry.js';
+import { TASK_COMPLETION } from '../../runbooks/definitions.js';
 import { VERIFICATION_GATE_NAMES, type RiskTier } from '../../workflow/verification-policy.js';
 import {
   FACT_DECLARATION,
@@ -39,7 +41,7 @@ import type { PrepareRefusal } from './types.js';
  * The handler also keys its replay claim on this name, so a capsule of an earlier compiler is not replayed.
  * Raise the number when the compiler changes what it writes into a capsule.
  */
-export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-3';
+export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-4';
 
 /** The deviation kinds that a worker can propose when an assumption of the capsule does not hold. */
 export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption', 'missing-context'];
@@ -65,6 +67,22 @@ const CUT_MARK = '...';
 
 /** The id of the provenance source that pins the design revision rows of the stream. */
 const DESIGN_REVISIONS_SOURCE_ID = 'design-revisions';
+
+/** The id of the provenance source that pins the bytes of a readable design record. */
+const DESIGN_RECORD_SOURCE_ID = 'design-record';
+
+/** The id of the provenance source that pins the reference of a design record that prepare cannot read. */
+const DESIGN_REFERENCE_SOURCE_ID = 'design-reference';
+
+/**
+ * The gates that the settlement segment runs: each registry gate step of the task-completion runbook.
+ * A pattern names only these gates, so the capsule names no gate that settlement never runs.
+ */
+const SEGMENT_GATES: ReadonlySet<string> = new Set(
+  TASK_COMPLETION.steps
+    .filter((step) => step.tool === 'exarchos_orchestrate' && step.action.startsWith('check_'))
+    .map((step) => step.action),
+);
 
 /**
  * One accepted design change, as the settlement bundle of its revision holds it.
@@ -146,6 +164,16 @@ export function selectDesignChanges(
   return { complete: true, bound, leftOut: named - bound.length };
 }
 
+/**
+ * What a capsule pins about the repository of its batch.
+ * `scope` holds the repository, the checkout and the config digest. The settlement contract pins it, so settlement reads the repository from the capsule that it judges.
+ * `baseCommit` is the commit of the base in the checkout. Each task holds it beside its base, so settlement can tell a worktree that does not fork from it.
+ */
+export interface ScopePin {
+  readonly scope: CapsuleScope;
+  readonly baseCommit: string;
+}
+
 export interface CompileCapsuleInput {
   readonly workflowId: string;
   readonly capsuleVersion: number;
@@ -154,6 +182,11 @@ export interface CompileCapsuleInput {
   readonly catalogInvariants: readonly CatalogInvariant[];
   /** The workflow's design artifact reference, when it records one. */
   readonly designRef: string | undefined;
+  /**
+   * The sha256 of the bytes of the design record, when the reference resolves under the checkout and the record reads.
+   * With it, the design source pins the bytes. Without it, the design source pins the reference.
+   */
+  readonly designRecordDigest?: string;
   /**
    * The design version of the stream: the revision counter that the handler folds from its events.
    * It starts at 1, and each recorded design revision moves it. The capsule identity carries its id.
@@ -181,6 +214,11 @@ export interface CompileCapsuleInput {
    */
   readonly baseRef: string;
   /**
+   * The scope and the base commit that the handler observed. The handler always passes them, so each capsule that it records pins both.
+   * A direct caller that passes none gets a capsule with no scope and no base commit, as an earlier compiler wrote it.
+   */
+  readonly pin?: ScopePin;
+  /**
    * The capabilities that a runtime must hold to run this batch through the plane.
    * The handler derives them from the registry. An empty list attaches no profile.
    */
@@ -190,6 +228,8 @@ export interface CompileCapsuleInput {
    * The handler resolves them through the policy composer, so the capsule states the sequence that the gate routing uses.
    */
   readonly verificationSequence: (riskTier: RiskTier, boundaryTouching: boolean) => readonly string[];
+  /** The gates that the checkout config disables. A pattern names none of them. */
+  readonly disabledGates?: readonly string[];
   readonly compiledAt: string;
 }
 
@@ -276,17 +316,31 @@ export function verificationProfiles(batch: DelegationBatch): readonly BatchTask
 
 /**
  * One statement for each verification profile in the batch. Each statement names the gates that settlement runs for that profile.
+ * They are the gates of the policy sequence that the settlement segment runs, less the gates that the config disables.
  * The capsule binds them as knowledge, so the harness can tell each worker how settlement judges its work.
  */
 function verificationPatterns(
   batch: DelegationBatch,
   sequenceOf: CompileCapsuleInput['verificationSequence'],
+  disabledGates: readonly string[],
 ): { statement: string }[] {
-  return verificationProfiles(batch).map((profile) =>
-    statement(
-      `A task at riskTier=${profile.riskTier}, boundaryTouching=${profile.boundaryTouching} is ` +
-        `verified at settlement by: ${sequenceOf(profile.riskTier, profile.boundaryTouching).join(', ')}.`,
-    ),
+  const disabled = new Set(disabledGates);
+  return verificationProfiles(batch).map((profile) => {
+    const gates = sequenceOf(profile.riskTier, profile.boundaryTouching).filter(
+      (gate) => SEGMENT_GATES.has(gate) && !disabled.has(gate),
+    );
+    const prefix = `A task at riskTier=${profile.riskTier}, boundaryTouching=${profile.boundaryTouching} is verified at settlement by`;
+    return statement(gates.length > 0 ? `${prefix}: ${gates.join(', ')}.` : `${prefix} no gate.`);
+  });
+}
+
+/**
+ * The statement that tells each worker where its worktree starts. Every task of the batch has the same base and the same commit.
+ * Settlement refuses a worktree whose HEAD does not hold the commit, so the statement names the rule with the commit.
+ */
+function forkStatement(baseRef: string, baseCommit: string): { statement: string } {
+  return statement(
+    `Each task forks from ${baseRef} at ${baseCommit}. Settlement refuses a worktree that does not hold ${baseCommit}.`,
   );
 }
 
@@ -365,14 +419,15 @@ function designChangeStatements(
  * The completion predicate is the task-completion condition, parsed through the capsule condition schema, so the declares block matches the node the capsule carries.
  * The steps that follow the batch in the pinned definition become non-goals.
  * The identity carries the id of the design version, which is the revision counter of the stream.
- * The digest of the design reference is a provenance source, and it is not part of the identity.
- * The settlement contract freezes the tier and the boundary flag of each task, so settlement does not read them from the claim.
+ * The settlement contract freezes the terms of each task with its base commit, so settlement does not read them from the claim.
  *
+ * The design source is a provenance source, and it is not part of the identity. It digests the bytes of a readable record, else the reference.
+ * The settlement contract also pins the scope, and the patterns state where each task forks from.
  * The rationale states the design of record, and then the accepted changes that the revision rows name.
  * The digest of the revision rows is a provenance source, and a stream with no revision has no such source.
  */
 export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOutcome {
-  const { workflowId, capsuleVersion, lowered, batch, designRef } = input;
+  const { workflowId, capsuleVersion, lowered, batch, designRef, pin } = input;
 
   const authority = bindCatalogInvariants(builtInWorkflowAuthority(), input.catalogInvariants);
 
@@ -404,7 +459,11 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     { sourceId: 'workflow-definition', digest: lowered.definitionVersion },
     { sourceId: 'plan-tasks', digest: contentDigest(batch) },
     { sourceId: 'authority', digest: contentDigest(authority) },
-    ...(designRef !== undefined ? [{ sourceId: 'design-record', digest: contentDigest(designRef) }] : []),
+    ...(designRef === undefined
+      ? []
+      : input.designRecordDigest !== undefined
+        ? [{ sourceId: DESIGN_RECORD_SOURCE_ID, digest: input.designRecordDigest }]
+        : [{ sourceId: DESIGN_REFERENCE_SOURCE_ID, digest: contentDigest(designRef) }]),
     ...(input.designRevisions.length > 0
       ? [{ sourceId: DESIGN_REVISIONS_SOURCE_ID, digest: contentDigest(input.designRevisions) }]
       : []),
@@ -457,7 +516,10 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
         ...(designRef !== undefined ? [statement(`The design of record is ${designRef}.`)] : []),
         ...designChanges.statements,
       ],
-      patterns: verificationPatterns(batch, input.verificationSequence),
+      patterns: [
+        ...verificationPatterns(batch, input.verificationSequence, input.disabledGates ?? []),
+        ...(pin !== undefined ? [forkStatement(input.baseRef, pin.baseCommit)] : []),
+      ],
       glossary: [],
     },
     ...(input.executionProfile.capabilities.length > 0
@@ -471,8 +533,16 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     settlementContract: {
       requiredResults: [...batch.requiredResults],
       taskVerification: Object.fromEntries(
-        batch.tasks.map((task) => [task.taskId, { ...task.verification, baseRef: input.baseRef }]),
+        batch.tasks.map((task) => [
+          task.taskId,
+          {
+            ...task.verification,
+            baseRef: input.baseRef,
+            ...(pin !== undefined ? { baseCommit: pin.baseCommit } : {}),
+          },
+        ]),
       ),
+      ...(pin !== undefined ? { scope: { ...pin.scope } } : {}),
     },
   };
 

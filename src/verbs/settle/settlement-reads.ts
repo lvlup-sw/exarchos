@@ -2,7 +2,7 @@
  * The reads that decide a settlement verdict, as pure folds over the rows of a stream.
  *
  * `settlementFactsOf` takes the facts of one batch from the rows. The facts are the completed
- * tasks, the revisions after the prepared record and the records of the cited evidence.
+ * tasks and their trees, the revisions after the prepared record and the records of the cited evidence.
  * `judgeSettlement` judges the batch from those facts and from the runs of its segments.
  * Both functions are synchronous, so a write transaction can fold its own rows and judge again.
  *
@@ -30,6 +30,7 @@ import {
   type TaskVerificationOutcome,
   verificationRuns,
 } from './adjudicate.js';
+import { claimScopeOf, completionTreeOf, type ClaimedTree } from './settle-scope.js';
 import type { SettlementVerificationTrace } from './types.js';
 
 /** A leaf of the task-completion runbook, as the runbook names it. */
@@ -67,13 +68,15 @@ export function haltIsGateVerdict(receipt: IntentReceipt): boolean {
 /**
  * The verification of one task. A `refused` run is not an answer about the task, so the call
  * records no verdict. `halted` says that the segment ran and halted, so the stream can hold the
- * completion of the task.
+ * completion of the task. `treeCommit` is the head that the static-analysis row of a verified segment names.
+ * It goes into the bundle trace and not into the receipt trace.
  */
 export type VerificationRun =
   | {
       readonly kind: 'ran';
       readonly outcome: TaskVerificationOutcome;
       readonly trace: SettlementVerificationTrace;
+      readonly treeCommit?: string;
     }
   | { readonly kind: 'refused'; readonly result: ToolResult; readonly halted: boolean };
 
@@ -81,15 +84,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** The tasks a stream already shows complete, read from the rows themselves. */
-export function completedTaskIds(events: readonly { readonly type: string; readonly data?: unknown }[]): Set<string> {
+/** The tasks that a stream shows complete, and the tree that the latest completion row of each task names. */
+export interface CompletedTasks {
+  readonly ids: Set<string>;
+  /** The lexical tree of each completed task, from its latest completion row that names a tree. */
+  readonly trees: Map<string, string>;
+}
+
+/**
+ * The tasks a stream already shows complete, read from the rows themselves, and the tree of each.
+ * The tree comes from the raw row, because a parse of the row schema drops `worktreePath`.
+ * The fold compares no file, so it stays pure.
+ */
+export function completedTasksOf(events: readonly { readonly type: string; readonly data?: unknown }[]): CompletedTasks {
   const ids = new Set<string>();
+  const trees = new Map<string, string>();
   for (const event of events) {
     if (event.type !== 'task.completed' || !isRecord(event.data)) continue;
     const taskId = event.data.taskId;
-    if (typeof taskId === 'string') ids.add(taskId);
+    if (typeof taskId !== 'string') continue;
+    ids.add(taskId);
+    const tree = completionTreeOf(event.data);
+    if (tree !== undefined) trees.set(taskId, tree);
   }
-  return ids;
+  return { ids, trees };
 }
 
 /**
@@ -131,6 +149,8 @@ export interface EvidenceCheck {
 export interface SettlementFacts {
   /** The tasks that a `task.completed` row names. */
   readonly completed: ReadonlySet<string>;
+  /** The lexical tree of each completed task, from its latest completion row that names a tree. */
+  readonly completedTrees: ReadonlyMap<string, string>;
   /** Each task that a revision after the prepared record names, with the next version of the latest such revision. */
   readonly revisions: ReadonlyMap<string, number>;
   /**
@@ -151,7 +171,7 @@ export function settlementFactsOf(
   rows: readonly { readonly type: string; readonly sequence: number; readonly data?: unknown }[],
   reads: { readonly pinnedSequence: number; readonly cited: readonly SettlementEvidence[] },
 ): SettlementFacts {
-  const completed = completedTaskIds(rows);
+  const { ids: completed, trees: completedTrees } = completedTasksOf(rows);
   const revisions = revisedTasksAfter(rows, reads.pinnedSequence);
   const cited = new Map<string, CitedRecord>();
   if (reads.cited.length > 0) {
@@ -163,7 +183,7 @@ export function settlementFactsOf(
       cited.set(key, { key, record });
     }
   }
-  return { completed, revisions, cited };
+  return { completed, completedTrees, revisions, cited };
 }
 
 /** What stays fixed for one attempt of a settlement call. */
@@ -182,6 +202,11 @@ export interface SettlementInputs {
   readonly planStanding?: (taskId: string) => TaskStanding;
   /** The blob checks of the cited records, by evidence key. */
   readonly evidenceChecks: ReadonlyMap<string, EvidenceCheck>;
+  /**
+   * The claimed worktree of each completed claim that settle observed, by task. Settle observes a claim
+   * once per call, before the first attempt, when the capsule pins a scope and the task a base commit.
+   */
+  readonly observations?: ReadonlyMap<string, ClaimedTree>;
 }
 
 /** The judgement of one batch from one read of its stream. */
@@ -230,6 +255,31 @@ function roundStanding(
   }
   return (taskId) =>
     completed.has(taskId) || plan?.(taskId).kind === 'finished' ? { kind: 'finished' } : { kind: 'pending' };
+}
+
+/**
+ * How the scope rules judge the claimed worktree of a task, or undefined when the capsule pins no scope.
+ * The rules judge only an observed claim whose task the facts do not show complete, and whose task terms hold a base commit.
+ * Thus a removed worktree of a complete task gives no finding. The commit judges again with the facts of its own rows.
+ */
+function claimScopeJudge(
+  inputs: SettlementInputs,
+  facts: SettlementFacts,
+): NonNullable<AdjudicationContext['claimScope']> | undefined {
+  const scope = inputs.capsule.settlementContract.scope;
+  const observations = inputs.observations;
+  if (scope === undefined || observations === undefined) return undefined;
+  const terms = inputs.capsule.settlementContract.taskVerification ?? {};
+  return (taskId) => {
+    const task = terms[taskId];
+    if (facts.completed.has(taskId) || task?.baseCommit === undefined) return undefined;
+    return claimScopeOf(
+      taskId,
+      { scope, baseRef: task.baseRef, baseCommit: task.baseCommit },
+      observations,
+      facts.completedTrees,
+    );
+  };
 }
 
 /** Whether a run halted: a refused run that ran and halted, or a run whose gate verdict failed. */
@@ -282,7 +332,9 @@ function judgedTraces(
  * reports a status, because adjudication accepts such a claim when the task is complete.
  * A judgement that does not verify still gives the traces of the runs that the call made before a read changed.
  * A judgement that names a needed segment or a needed evidence check is not final.
+ *
  * The standing of a task that a deviation names takes its completion from the facts, so the commit compares it too.
+ * So do the scope rules, which also read the completed trees of the facts.
  */
 export function judgeSettlement(
   inputs: SettlementInputs,
@@ -296,6 +348,7 @@ export function judgeSettlement(
     return check.intact;
   };
   const taskStanding = roundStanding(inputs, facts.completed);
+  const claimScope = claimScopeJudge(inputs, facts);
   const context: AdjudicationContext = {
     evidenceResolves: (evidence) => {
       const cited = facts.cited.get(evidenceKey(evidence));
@@ -305,6 +358,7 @@ export function judgeSettlement(
     supersedingDesignVersion: (taskId) => facts.revisions.get(taskId),
     taskComplete: (taskId) => facts.completed.has(taskId),
     ...(taskStanding !== undefined ? { taskStanding } : {}),
+    ...(claimScope !== undefined ? { claimScope } : {}),
   };
 
   const needsEvidenceCheck = [...facts.cited.values()].filter((cited) => checkedIntact(cited) === undefined);

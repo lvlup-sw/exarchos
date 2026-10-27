@@ -94,22 +94,31 @@ function defaultNativeRealpath(p: string): string {
 }
 
 /**
+ * Reduce a path to an absolute, lexical form with POSIX separators. The function reads no file.
+ *
+ * A POSIX-absolute input keeps its POSIX form, so it gets no drive on win32. The function
+ * normalizes a win32 `C:\…` input with `path.win32`, so the Windows contract is testable on a
+ * POSIX host. Only a relative input resolves against the working directory.
+ */
+export function lexicalRepoPath(p: string): string {
+  const posix = toPosix(p);
+  if (path.posix.isAbsolute(posix)) return path.posix.normalize(posix);
+  if (path.win32.isAbsolute(p)) return toPosix(path.win32.normalize(p));
+  return toPosix(path.resolve(p));
+}
+
+/**
  * Reduce a path to an absolute, canonical form with POSIX separators.
  *
- * The function normalizes a win32 `C:\…` input with `path.win32`, so the Windows
- * contract is testable on a POSIX host. When `realpath` fails, for example on a path that
- * does not exist yet, the function returns the absolute form and does not throw.
+ * The function applies `realpath` to the lexical form of {@link lexicalRepoPath}. When `realpath`
+ * fails, for example on a path that does not exist yet, the function returns the lexical form and
+ * does not throw. `realpath` defaults to `fs.realpathSync.native`.
  */
-function normalizeRepoPath(p: string, realpath: (x: string) => string): string {
-  const posix = toPosix(p);
-  let absolute: string;
-  if (path.posix.isAbsolute(posix)) {
-    absolute = path.posix.normalize(posix);
-  } else if (path.win32.isAbsolute(p)) {
-    absolute = toPosix(path.win32.normalize(p));
-  } else {
-    absolute = toPosix(path.resolve(p));
-  }
+export function normalizeRepoPath(
+  p: string,
+  realpath: (x: string) => string = defaultNativeRealpath,
+): string {
+  const absolute = lexicalRepoPath(p);
   try {
     return toPosix(realpath(absolute));
   } catch {

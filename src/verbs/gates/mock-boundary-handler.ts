@@ -9,6 +9,9 @@
  *
  * A non-empty `reason` acknowledges an intentional unowned mock. The gate then passes at each
  * severity, and the evidence records the acknowledgement. The findings stay in the result.
+ *
+ * The gate never guesses a base. A run with no `baseBranch` gives the advisory finding `base-missing`.
+ * That run passes, and it is not a skip.
  */
 
 import type { ToolResult } from '../../format.js';
@@ -61,7 +64,10 @@ export interface MockBoundaryHandlerArgs {
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
   readonly branch?: string;
-  /** Base ref the branch diverged from (merge-base target). Defaults to 'main'. */
+  /**
+   * The base ref that the branch forked from, which is the merge-base target. It has no default.
+   * Without it, the gate reports the advisory finding `base-missing` and does not block.
+   */
   readonly baseBranch?: string;
   /**
    * Repo to check. The handler uses a literal path as is. `'auto'` resolves the agent worktree of
@@ -96,6 +102,14 @@ export interface MockBoundaryHandlerArgs {
   /** Config reader for ownership globs + review-gate severity. Defaults to `loadExarchosConfigOutcome`. */
   readonly loadConfig?: (worktreePath: string) => ExarchosConfigOutcome;
 }
+
+/** The discriminant of a run that names no base. */
+const BASE_MISSING = 'base-missing';
+
+/** The report of a run that names no base. */
+const BASE_MISSING_REPORT =
+  'check_mock_boundary did not scan: no base was supplied (`baseBranch`), so the new test hunks have nothing to be measured from. ' +
+  'Pass the branch that the task forked from. The task-completion runbook binds it from the capsule `baseRef`.';
 
 const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/;
 const HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
@@ -169,6 +183,8 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
  * The gate fails only when the severity is blocking, an unowned mock exists, and no `reason` is
  * given. The built-in severity is `warning`, so only a project override makes the gate block.
  * Steers appear only when findings exist and no `reason` is given.
+ *
+ * With no base, the gate passes after the policy skip with `base-missing` and an `indeterminate` verdict, and reads no diff.
  */
 export async function handleMockBoundary(
   args: MockBoundaryHandlerArgs,
@@ -188,7 +204,7 @@ export async function handleMockBoundary(
   );
   if (!pre.ok) return pre.result;
   const repoRoot = pre.repoRoot;
-  const baseRef = args.baseBranch || 'main';
+  const baseRef = args.baseBranch && args.baseBranch.trim().length > 0 ? args.baseBranch.trim() : undefined;
 
   return runDurableGateProducer(
     {
@@ -196,7 +212,7 @@ export async function handleMockBoundary(
       featureId: args.featureId,
       taskId: args.taskId,
       ...(args.branch ? { branch: args.branch } : {}),
-      baseRef,
+      ...(baseRef ? { baseRef } : {}),
       repoRoot,
       stateDir,
       eventStore,
@@ -217,6 +233,19 @@ export async function handleMockBoundary(
             findings: [],
             report: policySkip.reason,
             discriminant: SKIPPED_BY_POLICY,
+          },
+        };
+      }
+
+      if (baseRef === undefined) {
+        return {
+          success: true,
+          data: {
+            passed: true,
+            verdict: 'indeterminate',
+            findings: [],
+            report: BASE_MISSING_REPORT,
+            discriminant: BASE_MISSING,
           },
         };
       }

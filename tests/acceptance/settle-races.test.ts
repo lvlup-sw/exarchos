@@ -4,15 +4,15 @@
  * Each call goes through `dispatch` with a real caller identity and capability resolver. A one-shot spy on
  * `decideOnce` of the real appender acts before the first settle commit, and it lets each segment commit through.
  * A wrapper of the live static-analysis leaf acts while the segment of one task runs, before its completion leaf.
+ *
  * The tasks are low-risk and off the boundary. Thus the ladder runs the production static-analysis gate on a real
- * project, and policy skips the other gates. The cases turn telemetry off.
+ * project, and policy skips the other gates. Each task has its own linked worktree of one real repository.
+ * The cases turn telemetry off.
  *
  * @oracle-sources: ../../src/verbs/settle/handler.ts, the rows of the real event store after each dispatched call, worked out by hand in each case
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { realpath, writeFile } from 'node:fs/promises';
-import * as path from 'node:path';
 
 import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
 import { dispatch, type DispatchContext } from '../../src/dispatch/core/dispatch.js';
@@ -31,6 +31,7 @@ import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver
 import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
+import { scopedRepository, type ScopedRepository } from '../helpers/scoped-repository.js';
 
 const STREAM = 'feat-settle-races-acceptance';
 const TASK_A = 'task-a';
@@ -45,9 +46,22 @@ const MATERIAL_KIND = 'invalidated-assumption';
 
 let stateDir: string;
 let eventStore: EventStore;
-/** A real on-disk Node project that the production static-analysis gate passes. */
-let greenWorktree: string;
+/**
+ * A real repository whose integration branch holds a Node project that the production static-analysis gate passes.
+ * Each task gets its own linked worktree of it.
+ */
+let repository: ScopedRepository;
 const scratchDirs: string[] = [];
+
+/** The Node project of the integration branch. Each script exits 0, so the gate passes. */
+const GREEN_PROJECT = {
+  'package.json': JSON.stringify({
+    name: 'settle-races-fixture',
+    version: '1.0.0',
+    private: true,
+    scripts: { lint: OK, typecheck: OK, 'quality-check': OK },
+  }),
+};
 
 /** One task of the plan, as the planner stamps it: low risk and off the boundary. */
 interface PlannedTask {
@@ -67,13 +81,8 @@ beforeEach(async () => {
   stateDir = makeTempDir('settle-races-acceptance-');
   eventStore = new EventStore(stateDir);
   await eventStore.initialize();
-  greenWorktree = await realpath(makeTempDir('settle-races-worktree-'));
-  scratchDirs.push(greenWorktree);
-  await writeFile(
-    path.join(greenWorktree, 'package.json'),
-    JSON.stringify({ name: 'settle-races-fixture', version: '1.0.0', private: true, scripts: { lint: OK, typecheck: OK, 'quality-check': OK } }),
-    'utf-8',
-  );
+  repository = await scopedRepository({ integrationBranch: INTEGRATION_BRANCH, files: GREEN_PROJECT });
+  scratchDirs.push(repository.root);
 });
 
 afterEach(async () => {
@@ -137,7 +146,7 @@ interface PreparedFacts {
 
 /** Runs `prepare` and reads its receipt. */
 async function prepare(): Promise<PreparedFacts> {
-  const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM });
+  const prepared = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
   expect(prepared.success, JSON.stringify(prepared)).toBe(true);
   const data = prepared.data;
   const capsule = isRecord(data) ? data.capsule : undefined;
@@ -168,9 +177,9 @@ async function settle(args: Record<string, unknown>): Promise<SettlementReceipt>
   return result.data;
 }
 
-/** A claim that its task is complete, with the worktree of the work. */
-function completedClaim(taskId: string): Record<string, unknown> {
-  return { taskId, fields: { worktreePath: greenWorktree, files: [`src/${taskId}.ts`] }, evidence: [] };
+/** A claim that its task is complete, with the linked worktree of the task. */
+async function completedClaim(taskId: string): Promise<Record<string, unknown>> {
+  return { taskId, fields: { worktreePath: await repository.worktreeFor(taskId), files: [`src/${taskId}.ts`] }, evidence: [] };
 }
 
 /** A claim that its task waits for a change outside the task. */
@@ -204,15 +213,16 @@ async function decideTheDeviation(capsuleVersion: number, held: SettlementReceip
   });
 }
 
-/** Another caller completes a task: the gate runs on the worktree, then `task_complete` records the row. */
+/** Another caller completes a task: the gate runs on the worktree of the task, then `task_complete` names that tree. */
 async function completeElsewhere(taskId: string): Promise<void> {
-  const gate = await call('exarchos_orchestrate', { action: 'check_static_analysis', featureId: STREAM, taskId, repoRoot: greenWorktree });
+  const worktree = await repository.worktreeFor(taskId);
+  const gate = await call('exarchos_orchestrate', { action: 'check_static_analysis', featureId: STREAM, taskId, repoRoot: worktree });
   expect(gate.success, JSON.stringify(gate)).toBe(true);
   const completed = await call('exarchos_orchestrate', {
     action: 'task_complete',
     featureId: STREAM,
     taskId,
-    result: { worktreePath: greenWorktree },
+    result: { worktreePath: worktree },
   });
   expect(completed.success, JSON.stringify(completed)).toBe(true);
 }
@@ -286,7 +296,7 @@ describe('settle races, through the dispatcher', () => {
     const { capsuleVersion } = await prepare();
     const commits = raceTheFirstSettleCommit(() => completeElsewhere(TASK_C));
 
-    const receipt = await settle({ capsuleVersion, batchId: 'batch-1', claims: [completedClaim(TASK_A), completedClaim(TASK_B)] });
+    const receipt = await settle({ capsuleVersion, batchId: 'batch-1', claims: [await completedClaim(TASK_A), await completedClaim(TASK_B)] });
 
     expect(commits.operations).toEqual([receipt.operationId, receipt.operationId]);
     expect(receipt).toMatchObject({ outcome: 'settled', acceptedTasks: [TASK_A, TASK_B], findings: [] });
@@ -320,7 +330,7 @@ describe('settle races, through the dispatcher', () => {
     const finished: SettlementReceipt[] = [];
     const commits = raceTheFirstSettleCommit(async () => {
       finished.push(
-        await settle({ capsuleVersion: second.capsuleVersion, batchId: 'batch-second', claims: [completedClaim(TASK_A), completedClaim(TASK_B)] }),
+        await settle({ capsuleVersion: second.capsuleVersion, batchId: 'batch-second', claims: [await completedClaim(TASK_A), await completedClaim(TASK_B)] }),
       );
     });
 
@@ -364,7 +374,7 @@ describe('settle races, through the dispatcher', () => {
     const stale = await settle({
       capsuleVersion: second.capsuleVersion,
       batchId: 'batch-racing',
-      claims: [completedClaim(TASK_A), completedClaim(TASK_B)],
+      claims: [await completedClaim(TASK_A), await completedClaim(TASK_B)],
     });
 
     expect(decided.map((receipt) => receipt.designRevision?.nextDesignVersion)).toEqual([2]);
@@ -389,7 +399,7 @@ describe('settle races, through the dispatcher', () => {
     const recompiles = (await eventStore.query(STREAM, { type: 'capsule.recompiled' })).map((row) => CapsuleRecompiledData.parse(row.data));
     expect(recompiles.map((row) => row.capsuleVersion)).toEqual([continuation.capsuleVersion]);
 
-    const settled = await settle({ capsuleVersion: continuation.capsuleVersion, batchId: 'batch-continuation', claims: [completedClaim(TASK_B)] });
+    const settled = await settle({ capsuleVersion: continuation.capsuleVersion, batchId: 'batch-continuation', claims: [await completedClaim(TASK_B)] });
 
     expect(settled).toMatchObject({ outcome: 'settled', acceptedTasks: [TASK_B], findings: [] });
     expect(await completionRows()).toEqual([TASK_A, TASK_B]);

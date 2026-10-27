@@ -76,6 +76,7 @@ import {
   ALLOW_STORE_DIVERGENCE_ENV,
 } from '../../utils/paths.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
+import type { TreeObserver } from '../../utils/git-tree.js';
 import type { ActionContract } from '../../registry/action-contract.js';
 import { evaluateDispatchAdmission, readActionContract } from './dispatch-admission.js';
 import {
@@ -140,6 +141,12 @@ export interface DispatchContext {
    * capability resolver has no such gate.
    */
   readonly taskStore?: EventSourcedTaskStore;
+  /**
+   * The observer of a claimed worktree. `settle` observes each claimed worktree with it before any gate runs.
+   * The composition root sets no observer, so git observes the tree through `observeClaimedTree`.
+   * A caller over MCP or the CLI cannot set the field.
+   */
+  readonly treeObserver?: TreeObserver;
 }
 
 /**

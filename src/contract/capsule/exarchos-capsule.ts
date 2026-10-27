@@ -268,8 +268,42 @@ export const CapsuleBaseRefSchema = z
   );
 
 /**
+ * A full git object name: 40 hex digits for SHA-1, or 64 for SHA-256. It is a pattern, not a refinement,
+ * so the JSON Schema projection carries the same rule.
+ */
+const CapsuleCommitSchema = z
+  .string()
+  .regex(/^[0-9a-f]{40}(?:[0-9a-f]{24})?$/, 'a commit is a full object name of 40 or 64 lowercase hex digits');
+
+/**
+ * An absolute path in POSIX form: a slash, or a drive letter and a slash. It is a pattern, not a refinement,
+ * so the JSON Schema projection carries the same rule.
+ */
+const CapsuleAbsolutePathSchema = z
+  .string()
+  .max(4096)
+  .regex(/^(?:\/|[A-Za-z]:\/)/, 'a path starts with "/" or with a drive letter and "/"');
+
+/**
+ * The repository that a capsule was compiled in.
+ * `repository` is the canonical git common dir, and `checkout` is the canonical root of the work tree that prepare read.
+ * `configDigest` is the digest of the config files at the checkout, so settlement can tell a changed config.
+ */
+export const CapsuleScopeSchema = z
+  .object({
+    repository: CapsuleAbsolutePathSchema,
+    checkout: CapsuleAbsolutePathSchema,
+    configDigest: KernelDigestSchema,
+  })
+  .strict();
+
+/** The repository of a capsule, as {@link CapsuleScopeSchema} parses it. */
+export type CapsuleScope = z.infer<typeof CapsuleScopeSchema>;
+
+/**
  * The verification terms of one task, fixed when the capsule is compiled.
  * The tier and the boundary flag select the gates of the task, and the base names the start of its diff.
+ * `baseCommit` is the commit of the base when the capsule was compiled. A capsule of an earlier compiler has none.
  * A task that names its own tier or base at claim time chooses what judges it.
  * Thus settlement reads the terms from the pinned capsule.
  */
@@ -278,6 +312,7 @@ export const CapsuleTaskVerificationSchema = z
     riskTier: CapsuleRiskTierSchema,
     boundaryTouching: z.boolean(),
     baseRef: CapsuleBaseRefSchema,
+    baseCommit: CapsuleCommitSchema.optional(),
   })
   .strict();
 
@@ -294,6 +329,8 @@ export const CapsuleSettlementContractSchema = z
      * A settlement that needs the terms of a task refuses a task without terms.
      */
     taskVerification: z.record(SharedStableIdSchema, CapsuleTaskVerificationSchema).optional(),
+    /** The repository that the capsule was compiled in. A capsule of an earlier compiler has none. */
+    scope: CapsuleScopeSchema.optional(),
   })
   .strict();
 
