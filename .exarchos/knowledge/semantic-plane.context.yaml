@@ -585,6 +585,7 @@ decisions:
   - date: "2026-10-27"
     source: "Reed, the decision on the T-14 deviation of 'the capsule pins the scope' (#1929)"
     decision: "A retry of a stored completion that no task.failed row reopened returns the stored row after the gate check and judges no tree. The gate check stays, because a fix of a completed task after a later failing run is refused (the review fix of #2135, pinned in tests/unit/tasks/tools.test.ts). T-14 was built in the shepherd loop of synthesize, with no capsule."
+    known: "One retry returns before the gate check: when the state document lags the stored completion, task_complete repairs the document and returns the stored row (src/verbs/tasks/tools.ts:1062-1064). A later failing static-analysis run does not refuse that repair. Only a retry whose document is already level runs the gate check (tools.ts:1360-1362)."
   - date: "2026-10-27"
     source: "the lead, on the CodeRabbit review of #2170"
     decision: "The git spawns of the server and of the tests inherit GIT_DIR, GIT_WORK_TREE, GIT_INDEX_FILE, GIT_COMMON_DIR and GIT_OBJECT_DIRECTORY. Thus a server or a test started from a git hook can read or write another repository. #2170 fixed only tests/helpers/scoped-repository.ts. The shared fix for every server and test git spawn is a line of #2148."
