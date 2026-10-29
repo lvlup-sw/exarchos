@@ -93,6 +93,16 @@ const RECORDED_SHAPE_DECISIONS: readonly Pick<StoredShapeDecision, 'date' | 'sch
       SettlementBundleV1Schema: 'sha256:9c0905e482fc576e15cc79210a2bc1b788b3750817ed17cd97ab8ccab3ec1ac7',
     },
   },
+  {
+    date: '2026-10-29',
+    schemaVersion: 6,
+    shapes: {
+      ClaimTraceSchema: 'sha256:581254550be83ddc6b066a5879225821589320e29505e0ab9c87779acc7f8ea1',
+      ExecutionSettledData: 'sha256:0d27cbe85f1071d6e8f00a7e9ad1953de6310f82f1e94f47a8f3dedfea9fccd8',
+      PreparedBundleV1Schema: 'sha256:dadcc0ec285892340b8c27470379d548f54c7728fd98f015d978b4a3607f4823',
+      SettlementBundleV1Schema: 'sha256:9c0905e482fc576e15cc79210a2bc1b788b3750817ed17cd97ab8ccab3ec1ac7',
+    },
+  },
 ];
 
 /** A copy of a JSON Schema with each description removed. A description is text for a reader and not part of the stored shape. */

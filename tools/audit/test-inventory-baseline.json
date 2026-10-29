@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1363,
-    "parsedFiles": 1318,
+    "testFiles": 1366,
+    "parsedFiles": 1321,
     "shellFiles": 45,
-    "cases": 15203,
+    "cases": 15213,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -88689,6 +88689,74 @@
         {
           "suite": "scopedRepository with an inherited repository location",
           "name": "ScopedRepository_AnInheritedGitDir_DoesNotRedirectTheFixture",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/verification-profile.test.ts": {
+      "file": "tests/unit/workflow/verification-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AnExitCodeOfZero_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AnArgvTokenWithAShellMetacharacter_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AResolvedGlobTermWithNoGlob_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AGlobThatLeavesTheRoot_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AnUnknownKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfile_TheSharedPinnedFake_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfile_TheUnresolvedDiscriminant_IsProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/contract/capsule/capsule-profile.test.ts": {
+      "file": "tests/unit/contract/capsule/capsule-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a capsule that pins a verification profile",
+          "name": "CapsuleSchema_AProfiledCapsule_RoundTripsThroughItsJsonSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "a capsule that pins a verification profile",
+          "name": "CapsuleSchema_ACapsuleOfAnEarlierCompiler_StillParses",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/stored-shapes-profile.test.ts": {
+      "file": "tests/architecture/stored-shapes-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the stored-shape decision of the verification profile",
+          "name": "StoredShapes_TheProfileDecision_MovesOnlyThePreparedBundleDigest",
           "dynamic": false
         }
       ]

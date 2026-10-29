@@ -17,6 +17,7 @@ import {
   WorkflowDefinitionV1Schema,
 } from '@lvlup-sw/strategos-contracts';
 import { zodToJsonSchema } from '../../utils/json-schema.js';
+import { VerificationProfileSchema } from '../../workflow/verification/profile.js';
 import {
   EdgeConditionDeclarationSchema,
   EdgeConditionNodeSchema,
@@ -331,6 +332,11 @@ export const CapsuleSettlementContractSchema = z
     taskVerification: z.record(SharedStableIdSchema, CapsuleTaskVerificationSchema).optional(),
     /** The repository that the capsule was compiled in. A capsule of an earlier compiler has none. */
     scope: CapsuleScopeSchema.optional(),
+    /**
+     * The verification profile that prepare resolved at the checkout. Each gate of a segment runs and classifies with it.
+     * One profile serves each task of the capsule. A capsule of an earlier compiler has none.
+     */
+    verificationProfile: VerificationProfileSchema.optional(),
   })
   .strict();
 

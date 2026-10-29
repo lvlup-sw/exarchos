@@ -300,22 +300,22 @@ function statement(text: string): { statement: string } {
 }
 
 /**
- * The distinct verification profiles of the batch tasks, in one fixed order.
+ * The distinct ladder cells of the batch tasks, in one fixed order.
  * The pattern statements of the capsule and the replay key of the compilation both use this list, so they state the same terms.
  */
-export function verificationProfiles(batch: DelegationBatch): readonly BatchTaskVerification[] {
-  const profiles = new Map<string, BatchTaskVerification>();
+export function ladderCells(batch: DelegationBatch): readonly BatchTaskVerification[] {
+  const cells = new Map<string, BatchTaskVerification>();
   for (const task of batch.tasks) {
     const key = `${task.verification.riskTier}|${task.verification.boundaryTouching}`;
-    if (!profiles.has(key)) profiles.set(key, task.verification);
+    if (!cells.has(key)) cells.set(key, task.verification);
   }
-  return [...profiles.entries()]
+  return [...cells.entries()]
     .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([, profile]) => profile);
+    .map(([, cell]) => cell);
 }
 
 /**
- * One statement for each verification profile in the batch. Each statement names the gates that settlement runs for that profile.
+ * One statement for each ladder cell in the batch. Each statement names the gates that settlement runs for that ladder cell.
  * They are the gates of the policy sequence that the settlement segment runs, less the gates that the config disables.
  * The capsule binds them as knowledge, so the harness can tell each worker how settlement judges its work.
  */
@@ -325,11 +325,11 @@ function verificationPatterns(
   disabledGates: readonly string[],
 ): { statement: string }[] {
   const disabled = new Set(disabledGates);
-  return verificationProfiles(batch).map((profile) => {
-    const gates = sequenceOf(profile.riskTier, profile.boundaryTouching).filter(
+  return ladderCells(batch).map((cell) => {
+    const gates = sequenceOf(cell.riskTier, cell.boundaryTouching).filter(
       (gate) => SEGMENT_GATES.has(gate) && !disabled.has(gate),
     );
-    const prefix = `A task at riskTier=${profile.riskTier}, boundaryTouching=${profile.boundaryTouching} is verified at settlement by`;
+    const prefix = `A task at riskTier=${cell.riskTier}, boundaryTouching=${cell.boundaryTouching} is verified at settlement by`;
     return statement(gates.length > 0 ? `${prefix}: ${gates.join(', ')}.` : `${prefix} no gate.`);
   });
 }

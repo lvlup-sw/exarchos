@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import type { DispatchContext } from '../../../src/dispatch/core/dispatch.js';
 import { EventStore } from '../../../src/events/store.js';
 import {
-  failSafeVerificationProfile,
+  failSafeLadderCell,
   resolveBoundaryTouching,
   resolveRiskTier,
   resolveVerificationPolicy,
@@ -688,7 +688,7 @@ describe('requirement resolution is monotonic and fail-safe (DR-10, T-14)', () =
   });
 
   it('ResolveRiskTier_UnknownTier_SelectsTheStrongestLadderCell', () => {
-    expect(failSafeVerificationProfile('unknown', false)).toEqual({
+    expect(failSafeLadderCell('unknown', false)).toEqual({
       riskTier: 'high',
       boundaryTouching: true,
     });
@@ -733,7 +733,7 @@ describe('requirement resolution is monotonic and fail-safe (DR-10, T-14)', () =
   it('ResolveRiskTier_KnownTiers_AreUnchangedByTheFailSafe', () => {
     for (const tier of ['low', 'medium', 'high'] as const) {
       for (const boundary of [false, true]) {
-        expect(failSafeVerificationProfile(tier, boundary)).toEqual({
+        expect(failSafeLadderCell(tier, boundary)).toEqual({
           riskTier: tier,
           boundaryTouching: boundary,
         });

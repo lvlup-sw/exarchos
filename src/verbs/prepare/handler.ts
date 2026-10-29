@@ -50,9 +50,9 @@ import { decodeSettlementBundle, type SettlementBundleV1 } from '../settle/settl
 import type { CatalogInvariant } from './bind-authority.js';
 import {
   compileDelegationCapsule,
+  ladderCells,
   PREPARE_COMPILER_VERSION,
   selectDesignChanges,
-  verificationProfiles,
   type AcceptedDesignChange,
   type CompileCapsuleInput,
 } from './compile-capsule.js';
@@ -562,10 +562,10 @@ export async function handlePrepare(
 
   const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
     resolveVerificationPolicy(riskTier, boundaryTouching, projectConfig).sequence;
-  const verificationTerms = verificationProfiles(batch).map((profile) => ({
-    riskTier: profile.riskTier,
-    boundaryTouching: profile.boundaryTouching,
-    sequence: [...sequenceOf(profile.riskTier, profile.boundaryTouching)],
+  const verificationTerms = ladderCells(batch).map((cell) => ({
+    riskTier: cell.riskTier,
+    boundaryTouching: cell.boundaryTouching,
+    sequence: [...sequenceOf(cell.riskTier, cell.boundaryTouching)],
   }));
 
   const inputs = {
