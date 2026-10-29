@@ -1,0 +1,187 @@
+{
+  "$comment": "The language-specific literals that the gate sources hold today. tests/architecture/gates-carry-no-language-code.test.ts measures the live hits, and the sum of the counts of each file and rule must equal them. A change that removes a hit removes or lowers its row in the same commit. A false positive is fixed in the matcher with a clean-twin line, never with a row. The owner is the issue that removes the row, or self-scan for a scan of the Exarchos source itself.",
+  "rows": [
+    {
+      "file": "src/verbs/pure/static-analysis.ts",
+      "rule": "R1",
+      "count": 7,
+      "owner": "#1540",
+      "reason": "The language runners spawn their own programs: npm run for each Node script with its report text, dotnet build, go vet, cargo check and cargo clippy. Static analysis is to run the resolved checks."
+    },
+    {
+      "file": "src/verbs/pure/static-analysis.ts",
+      "rule": "R2",
+      "count": 6,
+      "owner": "#1540",
+      "reason": "The language runners inject their own arguments: run, --no-restore, -warnaserror, the -- separator and -D of clippy, and the --skip- detail of a flag skip."
+    },
+    {
+      "file": "src/verbs/pure/static-analysis.ts",
+      "rule": "R3",
+      "count": 3,
+      "owner": "#1540",
+      "reason": "The Node runner reads package.json twice, and the file-token regex of the FAIL detail lists source extensions. The resolved checks replace the reads, and the regex reads any extension."
+    },
+    {
+      "file": "src/verbs/pure/static-analysis.ts",
+      "rule": "R4",
+      "count": 12,
+      "owner": "#1540",
+      "reason": "The runner allowlist, its label set and the report switch name the project types Node.js, .NET, Rust and Go. The resolved checks need no project type."
+    },
+    {
+      "file": "src/verbs/pure/static-analysis.ts",
+      "rule": "R1",
+      "count": 8,
+      "owner": "#1540",
+      "reason": "The boundary legs name depcruise and semgrep, and the taint leg starts its report text with semgrep. The adapters move into the registry as seeds that verification.boundaryChecks overrides."
+    },
+    {
+      "file": "src/verbs/pure/static-analysis.ts",
+      "rule": "R2",
+      "count": 5,
+      "owner": "#1540",
+      "reason": "The boundary legs hold the flags of their adapters: --validate and --output-type of depcruise, and --error, --quiet and --config of semgrep. The adapters move into the registry."
+    },
+    {
+      "file": "src/verbs/pure/static-analysis.ts",
+      "rule": "R3",
+      "count": 3,
+      "owner": "#1540",
+      "reason": "The dependency-cruiser leg names its config files .dependency-cruiser.cjs, .js and .mjs. The adapters move into the registry."
+    },
+    {
+      "file": "src/verbs/gates/test-adequacy.ts",
+      "rule": "R3",
+      "count": 3,
+      "owner": "#1814",
+      "reason": "DEFAULT_TEST_GLOBS holds the co-located test globs. The globs move into the toolchain registry, and the kill probe classifies with the resolved globs."
+    },
+    {
+      "file": "src/verbs/gates/test-adequacy-handler.ts",
+      "rule": "R2",
+      "count": 1,
+      "owner": "#1814",
+      "reason": "The kill probe always puts the -- separator before the test files. The probe term of the profile states the file form of each runner."
+    },
+    {
+      "file": "src/verbs/gates/spec-coverage-check.ts",
+      "rule": "R1",
+      "count": 2,
+      "owner": "#1929",
+      "reason": "The post-implementation check spawns npx vitest. The check is to run the resolved probe command."
+    },
+    {
+      "file": "src/verbs/gates/spec-coverage-check.ts",
+      "rule": "R2",
+      "count": 2,
+      "owner": "#1929",
+      "reason": "The npx vitest spawn passes run and --root. The check is to run the resolved probe command."
+    },
+    {
+      "file": "src/verbs/gates/spec-coverage-check.ts",
+      "rule": "R3",
+      "count": 1,
+      "owner": "#1929",
+      "reason": "TEST_PATH_SUFFIX accepts only JavaScript and TypeScript test paths. The check is to classify with the resolved test globs."
+    },
+    {
+      "file": "src/verbs/pure/integration-suite.ts",
+      "rule": "R1",
+      "count": 7,
+      "owner": "#1929",
+      "reason": "resolveIntegrationCommand falls back to npm and tells the script runners npm, pnpm, yarn and bun apart. The suite is to run the resolved integration command."
+    },
+    {
+      "file": "src/verbs/pure/integration-suite.ts",
+      "rule": "R2",
+      "count": 7,
+      "owner": "#1929",
+      "reason": "resolveIntegrationCommand appends -- and --reporter=json to each runner. The suite is to read the exit code, and a vitest JSON report becomes opt-in."
+    },
+    {
+      "file": "src/verbs/review/debug-review-gate.ts",
+      "rule": "R3",
+      "count": 1,
+      "owner": "#1814",
+      "reason": "TEST_FILE_PATTERN counts only JavaScript, TypeScript and shell test files as new tests. The gate is to count with the test-name globs of the profile."
+    },
+    {
+      "file": "src/verbs/gates/mutation-adequacy.ts",
+      "rule": "R3",
+      "count": 16,
+      "owner": "#1929",
+      "reason": "The mutatable extension table, the Python path filter, the StrykerJS config pattern, the config-section markers and the path-token regex hold the facts of each language. They move into the registry."
+    },
+    {
+      "file": "src/verbs/gates/verify-worktree-baseline.ts",
+      "rule": "R1",
+      "count": 7,
+      "owner": "#1929",
+      "reason": "projectTypeFromTestCommand compares the resolved test command with seven built-in commands. The label is to come from the registry row of the command."
+    },
+    {
+      "file": "src/verbs/gates/verify-worktree-baseline.ts",
+      "rule": "R4",
+      "count": 8,
+      "owner": "#1929",
+      "reason": "DetectedProjectType and the label table name the project types Node.js, .NET, Rust and Python. The label is to come from the registry row of the command."
+    },
+    {
+      "file": "src/verbs/tasks/task-decomposition.ts",
+      "rule": "R3",
+      "count": 11,
+      "owner": "#1929",
+      "reason": "FILE_EXTENSION_ALLOWLIST holds the bare stems of the vocabulary extensions. The list is to come from the registry."
+    },
+    {
+      "file": "src/review/check-catalog.ts",
+      "rule": "R3",
+      "count": 18,
+      "owner": "#2142",
+      "reason": "A content scanner: the grep checks of the review catalog read only *.ts and *.test.ts files. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/gates/check-polish-scope.ts",
+      "rule": "R3",
+      "count": 5,
+      "owner": "#2142",
+      "reason": "A content scanner: the polish-scope check reads .ts files and their sibling .test.ts files. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/gates/needs-schema-sync.ts",
+      "rule": "R3",
+      "count": 5,
+      "owner": "#2142",
+      "reason": "A content scanner: the API patterns of the schema-sync check match C# files only. It reads changed paths and runs no verification command."
+    },
+    {
+      "file": "src/verbs/pure/context-economy.ts",
+      "rule": "R3",
+      "count": 2,
+      "owner": "#2142",
+      "reason": "A content scanner: the context-economy check reads only .ts and .js source files. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/pure/operational-resilience.ts",
+      "rule": "R3",
+      "count": 2,
+      "owner": "#2142",
+      "reason": "A content scanner: the operational-resilience check reads only .ts and .js source files. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/pure/workflow-determinism.ts",
+      "rule": "R3",
+      "count": 1,
+      "owner": "#2142",
+      "reason": "A content scanner: the workflow-determinism check tells JavaScript and TypeScript test files by their name. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/gates/gate-ownership-census.ts",
+      "rule": "R3",
+      "count": 4,
+      "owner": "self-scan",
+      "reason": "The census walks the TypeScript source of Exarchos itself, not the repository under verification. Its .ts, .test.ts, .bench.ts and .d.ts suffix tests are right for that tree, so the row is permanent."
+    }
+  ]
+}

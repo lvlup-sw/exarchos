@@ -7,7 +7,7 @@
     "testFiles": 1363,
     "parsedFiles": 1318,
     "shellFiles": 45,
-    "cases": 15196,
+    "cases": 15203,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -88272,28 +88272,63 @@
         }
       ]
     },
-    "tests/architecture/phase-gates-resolve-test-command.test.ts": {
-      "file": "tests/architecture/phase-gates-resolve-test-command.test.ts",
+    "tests/architecture/gates-carry-no-language-code.test.ts": {
+      "file": "tests/architecture/gates-carry-no-language-code.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "phase gates resolve their test command",
-          "name": "PhaseGateGuard_ScansAllFourGateFiles",
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_EveryGateAction_ResolvesToAHandlerModule",
           "dynamic": false
         },
         {
-          "suite": "phase gates resolve their test command",
-          "name": "PhaseGateGuard_NoGateBuildsAnNpmOrNpxCommand",
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Denominator_HoldsEachSegmentGateAndEachCommandPhaseGate",
           "dynamic": false
         },
         {
-          "suite": "phase gates resolve their test command",
-          "name": "PhaseGateGuard_Matcher_FindsSeededViolations",
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Denominator_HoldsEachFileOfTheGateDirectories",
           "dynamic": false
         },
         {
-          "suite": "phase gates resolve their test command",
-          "name": "PhaseGateGuard_Matcher_IgnoresCommentsAndOtherPrograms",
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Denominator_HoldsEachConfigModuleThatAGateImports",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_EachScannedFile_HoldsAStringLiteral",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Vocabulary_DerivesFromTheToolchainRegistry",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_LiveHits_EqualTheRegister",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_EachRegisterRow_NamesAnOwnerAndAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_APlantedLineInALiveGateFile_IsFound",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Matcher_FindsEachSeededViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Matcher_IgnoresCommentsImportsGitArgvAndProse",
           "dynamic": false
         }
       ]
