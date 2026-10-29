@@ -2,12 +2,35 @@
  * The registry of toolchain identity: the file markers that detect a toolchain, its `projectType` label, and its resolver commands.
  * Detection lives only here. The resolver and static analysis share detection, but each keeps its own commands.
  * The node entry holds the npm baseline. The resolver selects the package-manager commands from the vendored lockfile table.
- * The module also holds the test globs, the mutation diff-scope table, and the hermetic-double resolver for each toolchain.
+ *
+ * Each row also seeds the verification profile: its test globs, its probe file form and its static-analysis checks.
+ * The module also holds the co-located test globs, the test-support segments, the mutation diff-scope table and the hermetic doubles.
  */
 
 import { existsSync, readdirSync } from 'node:fs';
 import * as path from 'node:path';
 import { toPosix } from '../utils/paths.js';
+import type { VerificationProfile } from '../workflow/verification/profile.js';
+
+/** The form in which a probe command takes its test files. */
+type ProbeFileForm = VerificationProfile['tests']['probe']['files'];
+
+/** The name of a static-analysis check that a registry row can seed. */
+export type StaticAnalysisCheckName = 'lint' | 'typecheck';
+
+/**
+ * One static-analysis check that a registry row seeds. `command` is the command of the check.
+ * `packageScript` names a package script, which the resolver runs with the package manager of the root.
+ */
+export type StaticAnalysisSeed =
+  | { readonly name: StaticAnalysisCheckName; readonly command: string }
+  | { readonly name: StaticAnalysisCheckName; readonly packageScript: string };
+
+/** A probe file form for each test command that starts with `argv`. It replaces the file form of the row for that command. */
+export interface ProbeFileException {
+  readonly argv: readonly string[];
+  readonly files: ProbeFileForm;
+}
 
 /**
  * The contract commands for a schema boundary. `codegen` regenerates the bindings from the schema artifact. `diff` checks for breaking changes against the baseline.
@@ -54,6 +77,22 @@ export interface Toolchain {
    * Only the built-in registry sets the field. A `.exarchos.yml` toolchain entry has no key for it, so it gets the default.
    */
   readonly testFailureExitCodes?: readonly number[];
+  /**
+   * The test-file globs of the toolchain, for an ecosystem that does not use the co-located `*.test.*` layout.
+   * An absent field means that the toolchain uses the co-located globs. Only the built-in registry sets the field.
+   */
+  readonly testGlobs?: readonly string[];
+  /**
+   * The programs of the test commands of the row. The resolver finds the seed row of a probe command by its first token.
+   * An absent field means the first token of the `test` command of the row.
+   */
+  readonly testPrograms?: readonly string[];
+  /** The form in which the test command of the row takes the test files. An absent field means `after-separator`. */
+  readonly probeFiles?: ProbeFileForm;
+  /** The file forms of the test commands of the row that do not take the form of the row. */
+  readonly probeFileExceptions?: readonly ProbeFileException[];
+  /** The static-analysis checks that the row seeds, in the order that they run. An absent field seeds no check. */
+  readonly staticAnalysisSeeds?: readonly StaticAnalysisSeed[];
 }
 
 /** The exit codes of a failing test run when the toolchain sets none, or when no toolchain is known. */
@@ -81,6 +120,14 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: null,
       contract: null,
     },
+    testPrograms: ['npm', 'pnpm', 'yarn', 'bun'],
+    probeFiles: 'after-separator',
+    /** `bun test` is the Bun runner. It takes the test files as arguments, with no separator. */
+    probeFileExceptions: [{ argv: ['bun', 'test'], files: 'as-arguments' }],
+    staticAnalysisSeeds: [
+      { name: 'lint', packageScript: 'lint' },
+      { name: 'typecheck', packageScript: 'typecheck' },
+    ],
   },
   {
     id: 'dotnet',
@@ -99,6 +146,11 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
      * A Microsoft.Testing.Platform run exits 2 when a test fails.
      */
     testFailureExitCodes: [1, 2],
+    testGlobs: ['**/*Tests/**', '**/*.Tests/**', '**/*Tests.cs', '**/*Test.cs'],
+    /** On Microsoft.Testing.Platform, `dotnet test -- <file>` reads no path filter. So the probe runs the whole command. */
+    probeFiles: 'none',
+    /** The project decides its strictness. A repository that wants `--no-restore -warnaserror` sets them in `typecheck:`. */
+    staticAnalysisSeeds: [{ name: 'typecheck', command: 'dotnet build' }],
   },
   {
     id: 'rust',
@@ -114,6 +166,13 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
     },
     /** `cargo test` exits 101 when a test fails. */
     testFailureExitCodes: [101],
+    testGlobs: ['tests/**'],
+    /** `cargo test -- <path>` reads each path as a name filter, so the probe runs the whole command. */
+    probeFiles: 'none',
+    staticAnalysisSeeds: [
+      { name: 'typecheck', command: 'cargo check' },
+      { name: 'lint', command: 'cargo clippy' },
+    ],
   },
   {
     id: 'go',
@@ -127,6 +186,9 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: 'go vet ./...',
       contract: null,
     },
+    testGlobs: ['**/*_test.go'],
+    probeFiles: 'none',
+    staticAnalysisSeeds: [{ name: 'lint', command: 'go vet ./...' }],
   },
   {
     id: 'python',
@@ -145,6 +207,9 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
      * Exit 2 also follows an interrupt, and the probe sends none. A `conftest.py` that does not import exits 4, which gives no verdict.
      */
     testFailureExitCodes: [1, 2],
+    testGlobs: ['tests/**', '**/test_*.py', '**/*_test.py', '**/conftest.py'],
+    probeFiles: 'after-separator',
+    staticAnalysisSeeds: [{ name: 'lint', command: 'ruff check' }],
   },
   {
     id: 'java-gradle',
@@ -158,6 +223,8 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: null,
       contract: null,
     },
+    testGlobs: ['src/test/**', '**/src/test/**'],
+    probeFiles: 'none',
   },
   {
     id: 'java-maven',
@@ -171,6 +238,8 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: null,
       contract: null,
     },
+    testGlobs: ['src/test/**', '**/src/test/**'],
+    probeFiles: 'none',
   },
   {
     id: 'ruby',
@@ -184,6 +253,10 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: 'bundle exec rubocop',
       contract: null,
     },
+    testGlobs: ['spec/**', 'test/**'],
+    /** rake reads each argument after `--` as a task name, so the probe runs the whole command. */
+    probeFiles: 'none',
+    staticAnalysisSeeds: [{ name: 'lint', command: 'bundle exec rubocop' }],
   },
   {
     id: 'php',
@@ -202,6 +275,8 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
      * Composer passes the exit code of the `test` script through.
      */
     testFailureExitCodes: [1, 2],
+    testGlobs: ['tests/**', '**/*Test.php'],
+    probeFiles: 'after-separator',
   },
   {
     id: 'elixir',
@@ -217,6 +292,9 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
     },
     /** `mix test` exits 2 when a test fails, which is the default of `--exit-status`. A compile error exits 1. */
     testFailureExitCodes: [1, 2],
+    testGlobs: ['test/**'],
+    probeFiles: 'as-arguments',
+    staticAnalysisSeeds: [{ name: 'lint', command: 'mix credo' }],
   },
   {
     id: 'swift',
@@ -230,6 +308,8 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
       lint: null,
       contract: null,
     },
+    testGlobs: ['Tests/**'],
+    probeFiles: 'none',
   },
   {
     id: 'cmake',
@@ -245,7 +325,37 @@ export const BUILTIN_TOOLCHAINS: readonly Toolchain[] = [
     },
     /** `ctest` exits 8 when a test fails or does not run. */
     testFailureExitCodes: [8],
+    /** `ctest -- <files>` can give a green run that tests nothing, so the probe runs the whole command. */
+    probeFiles: 'none',
   },
+];
+
+/**
+ * The co-located test globs: `*.test.*`, `*.spec.*`, and each file under a `__tests__/` directory.
+ * Each matches the whole repo-relative path. Every root takes them, also beside the globs of a toolchain.
+ */
+export const DEFAULT_TEST_GLOBS: readonly string[] = [
+  '**/*.test.*',
+  '**/*.spec.*',
+  '**/__tests__/**',
+];
+
+/**
+ * The directory names that mark test support, such as a helper, a mock or a fixture.
+ * A changed file that is not a test file and has a directory segment with one of these names is test support.
+ * The probe does not revert test support. A reverted helper can make a test fail to load, and such a red run proves no kill.
+ *
+ * The table is a deliberate subset of the names that projects use for test support, such as `testdata` or `spec`.
+ * Each name keeps more files out of the revert, so the owner chose a short table. `verification.tests.support` replaces it.
+ */
+export const DEFAULT_TEST_SUPPORT_SEGMENTS: readonly string[] = [
+  'tests',
+  'test',
+  '__tests__',
+  '__mocks__',
+  '__fixtures__',
+  'fixtures',
+  'test-helpers',
 ];
 
 /** Shape of a `.exarchos.yml` `toolchains:` entry (see exarchos-config-schema). */
@@ -312,14 +422,10 @@ function markerMatches(
 }
 
 /**
- * Detects the toolchain at a repo root by its markers, in priority order. It returns `undefined` when no marker matches.
- * The `extra` entries come before the built-ins, so a user toolchain can override or extend detection.
- * The function lists the directory once, and only when it evaluates an extension-glob marker.
+ * Returns at most `limit` toolchains whose markers match at the repo root, in priority order, user entries first.
+ * It lists the directory once, and only when it evaluates an extension-glob marker.
  */
-export function detectToolchain(
-  repoRoot: string,
-  extra: readonly Toolchain[] = [],
-): Toolchain | undefined {
+function matchToolchains(repoRoot: string, extra: readonly Toolchain[], limit: number): Toolchain[] {
   let cached: readonly string[] | null | undefined;
   const listDir = (): readonly string[] | null => {
     if (cached === undefined) {
@@ -331,37 +437,56 @@ export function detectToolchain(
     }
     return cached;
   };
+  const matched: Toolchain[] = [];
   for (const tc of [...extra, ...BUILTIN_TOOLCHAINS]) {
-    if (tc.markers.some((m) => markerMatches(m, repoRoot, listDir))) {
-      return tc;
-    }
+    if (matched.length >= limit) break;
+    if (tc.markers.some((m) => markerMatches(m, repoRoot, listDir))) matched.push(tc);
   }
-  return undefined;
+  return matched;
 }
 
 /**
- * Test-file globs by toolchain id, for ecosystems that do not use the co-located `*.test.*` layout.
- * A returned set replaces the defaults (see `SplitHunksOptions.testGlobs`). For a toolchain that is not in the map, callers use `DEFAULT_TEST_GLOBS`.
+ * Detects each toolchain at a repo root by its markers, in priority order. It returns `[]` when no marker matches.
+ * The `extra` entries come before the built-ins, so a user toolchain comes before a built-in one for the same marker.
  */
-const TOOLCHAIN_TEST_GLOBS: Readonly<Record<string, readonly string[]>> = {
-  python: ['tests/**', '**/test_*.py', '**/*_test.py', '**/conftest.py'],
-  go: ['**/*_test.go'],
-  rust: ['tests/**'],
-  'java-maven': ['src/test/**', '**/src/test/**'],
-  'java-gradle': ['src/test/**', '**/src/test/**'],
-  dotnet: ['**/*Tests/**', '**/*.Tests/**', '**/*Tests.cs', '**/*Test.cs'],
-  ruby: ['spec/**', 'test/**'],
-  php: ['tests/**', '**/*Test.php'],
-  elixir: ['test/**'],
-  swift: ['Tests/**'],
-};
+export function detectToolchains(repoRoot: string, extra: readonly Toolchain[] = []): Toolchain[] {
+  return matchToolchains(repoRoot, extra, Number.POSITIVE_INFINITY);
+}
 
 /**
- * The test-file globs a toolchain prescribes, or null when the toolchain uses
- * the co-located default convention (or is unknown).
+ * Detects the first toolchain at a repo root, the first entry of {@link detectToolchains}. It returns `undefined` when no marker matches.
+ * It stops at the first match, so it checks no marker of a later toolchain.
+ */
+export function detectToolchain(
+  repoRoot: string,
+  extra: readonly Toolchain[] = [],
+): Toolchain | undefined {
+  return matchToolchains(repoRoot, extra, 1)[0];
+}
+
+/**
+ * The test-file globs of a built-in toolchain, or null when the toolchain uses the co-located globs or is unknown.
+ * A returned set replaces the defaults (see `SplitHunksOptions.testGlobs`).
  */
 export function testGlobsForToolchain(toolchainId: string): readonly string[] | null {
-  return TOOLCHAIN_TEST_GLOBS[toolchainId] ?? null;
+  return BUILTIN_TOOLCHAINS.find((tc) => tc.id === toolchainId)?.testGlobs ?? null;
+}
+
+/**
+ * Resolves the test globs for the probe from the globs that a detected toolchain prescribes.
+ * With only the toolchain globs, a polyglot repo (python at the root, `*.test.ts` beside the source) classifies each co-located test as source.
+ * So the result is the union of the defaults and the toolchain globs, deduplicated, with the defaults first.
+ * A test misclassified as source gives a false pass, so the union errs in the safe direction.
+ */
+export function resolveProbeTestGlobs(
+  toolchainGlobs: readonly string[] | null | undefined,
+): readonly string[] {
+  if (!toolchainGlobs || toolchainGlobs.length === 0) return DEFAULT_TEST_GLOBS;
+  const merged = [...DEFAULT_TEST_GLOBS];
+  for (const glob of toolchainGlobs) {
+    if (!merged.includes(glob)) merged.push(glob);
+  }
+  return merged;
 }
 
 /**

@@ -10,11 +10,13 @@
  *
  * This tier is above the built-in ecosystem table and below the user declarations.
  * The precedence is in `test-runtime-resolver.ts`.
+ * Each runner is also a seed row of the kill probe: the file form and the red exit codes of its `test` target.
  */
 import { existsSync, readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 import { logger } from '../logger.js';
+import type { VerificationProfile } from '../workflow/verification/profile.js';
 
 const log = logger.child({ subsystem: 'task-runners' });
 
@@ -40,11 +42,21 @@ function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** The form in which a probe command takes its test files. */
+type ProbeFileForm = VerificationProfile['tests']['probe']['files'];
+
 interface RunnerDef {
   readonly id: TaskRunnerResolution['runner'];
   readonly files: readonly string[];
   readonly hasTarget: (content: string, target: string) => boolean;
   readonly command: (target: string) => string;
+  /**
+   * The form in which a target of the runner takes the test files.
+   * The resolver does not read the definition of a target, so it cannot know that the target reads the files.
+   */
+  readonly probeFiles: ProbeFileForm;
+  /** The exit codes of a `test` target whose test fails. */
+  readonly testFailureExitCodes: readonly number[];
 }
 
 /** Taskfile: YAML with a `tasks:` map keyed by target. */
@@ -97,24 +109,33 @@ const RUNNERS: readonly RunnerDef[] = [
     files: ['Taskfile.yml', 'Taskfile.yaml', 'taskfile.yml', 'taskfile.yaml'],
     hasTarget: taskfileHasTarget,
     command: (t) => `task ${t}`,
+    probeFiles: 'none',
+    testFailureExitCodes: [1],
   },
   {
     id: 'just',
     files: ['justfile', 'Justfile', '.justfile'],
     hasTarget: justHasTarget,
     command: (t) => `just ${t}`,
+    probeFiles: 'none',
+    testFailureExitCodes: [1],
   },
   {
     id: 'mise',
     files: ['mise.toml', '.mise.toml', 'mise/config.toml', '.config/mise/config.toml'],
     hasTarget: miseHasTarget,
     command: (t) => `mise run ${t}`,
+    probeFiles: 'none',
+    testFailureExitCodes: [1],
   },
   {
     id: 'make',
     files: ['Makefile', 'makefile', 'GNUmakefile'],
     hasTarget: makeHasTarget,
     command: (t) => `make ${t}`,
+    probeFiles: 'none',
+    /** `make` exits 2 when a recipe fails. */
+    testFailureExitCodes: [2],
   },
 ];
 
@@ -142,4 +163,21 @@ export function resolveTaskRunner(
     }
   }
   return undefined;
+}
+
+/** The probe row of a task runner: the file form and the red exit codes of a test target that the runner runs. */
+export interface TaskRunnerProbeRow {
+  readonly runner: TaskRunnerResolution['runner'];
+  readonly files: ProbeFileForm;
+  readonly testFailureExitCodes: readonly number[];
+}
+
+/**
+ * Returns the probe row of the task runner whose program is `program`, or `undefined` when no runner has that program.
+ * The program of a runner is its id, such as `make` of `make test`.
+ */
+export function taskRunnerProbeRow(program: string): TaskRunnerProbeRow | undefined {
+  const runner = RUNNERS.find((r) => r.id === program);
+  if (runner === undefined) return undefined;
+  return { runner: runner.id, files: runner.probeFiles, testFailureExitCodes: runner.testFailureExitCodes };
 }

@@ -71,7 +71,8 @@ const KNOWN_WRAPPERS: ReadonlyArray<{ readonly module: string; readonly name: st
   { module: 'src/utils/paths', name: 'deriveRepoKey', condition: [{ argument: 1, property: 'gitCommonDir' }] },
   { module: 'src/config/load-exarchos-config', name: 'loadExarchosConfig', condition: [{ argument: 1, property: 'findRepoRoot' }] },
   { module: 'src/config/test-runtime-resolver', name: 'resolveTestRuntime', condition: [{ argument: 1, property: 'loadConfig' }] },
-  { module: 'src/config/test-runtime-resolver', name: 'resolveScopedTestCommand', condition: 'always' },
+  { module: 'src/config/test-runtime-resolver', name: 'resolveScopedTestCommand', condition: [{ argument: 1, property: 'loadConfig' }] },
+  { module: 'src/config/verification-profile', name: 'resolveVerificationProfile', condition: [{ argument: 1, property: 'loadConfig' }] },
   { module: 'src/verbs/vcs/push-with-lease', name: 'readRemoteSha', condition: [{ argument: 2 }] },
 ];
 

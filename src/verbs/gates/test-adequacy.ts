@@ -9,35 +9,7 @@
 
 import type { GitExec } from '../pure/execute-merge.js';
 import { assertNever } from '../../contract/error-families.js';
-
-/**
- * Default test-file globs when the resolved toolchain/config supplies none.
- * Co-located convention: `*.test.*`, `*.spec.*`, and anything under a
- * `__tests__/` directory. Matched against the full (repo-relative) path.
- */
-export const DEFAULT_TEST_GLOBS: readonly string[] = [
-  '**/*.test.*',
-  '**/*.spec.*',
-  '**/__tests__/**',
-];
-
-/**
- * The directory names that mark test support, such as a helper, a mock or a fixture.
- * A changed file that is not a test file and has a directory segment with one of these names is test support.
- * The probe does not revert test support. A reverted helper can make a test fail to load, and such a red run proves no kill.
- *
- * The table is a deliberate subset of the names that projects use for test support, such as `testdata` or `spec`.
- * Each name keeps more files out of the revert, so the owner chose a short table. A later change can make it configurable.
- */
-export const DEFAULT_TEST_SUPPORT_SEGMENTS: readonly string[] = [
-  'tests',
-  'test',
-  '__tests__',
-  '__mocks__',
-  '__fixtures__',
-  'fixtures',
-  'test-helpers',
-];
+import { DEFAULT_TEST_GLOBS, DEFAULT_TEST_SUPPORT_SEGMENTS } from '../../config/toolchains.js';
 
 export interface SplitHunksOptions {
   /**
@@ -130,24 +102,6 @@ export function splitHunks(
   }
 
   return { testFiles, sourceFiles, supportFiles };
-}
-
-/**
- * Resolves the test globs for the probe from the globs that a detected toolchain prescribes.
- * `testGlobsForToolchain` returns a replacement set, and `splitHunks` uses it in place of the defaults.
- * With only the toolchain globs, a polyglot repo (python at the root, `*.test.ts` beside the source) classifies each co-located test as source.
- * So the result is the union of the defaults and the toolchain globs, deduplicated, with the defaults first.
- * A test misclassified as source gives a false pass, so the union errs in the safe direction.
- */
-export function resolveProbeTestGlobs(
-  toolchainGlobs: readonly string[] | null | undefined,
-): readonly string[] {
-  if (!toolchainGlobs || toolchainGlobs.length === 0) return DEFAULT_TEST_GLOBS;
-  const merged = [...DEFAULT_TEST_GLOBS];
-  for (const glob of toolchainGlobs) {
-    if (!merged.includes(glob)) merged.push(glob);
-  }
-  return merged;
 }
 
 /** Returns the listed names as a tuple of literal types, so one list can feed each closed type and each total table. */

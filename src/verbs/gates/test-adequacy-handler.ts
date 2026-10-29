@@ -28,14 +28,13 @@ import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import { resolveScopedTestCommand, type ScopedTestCommand } from '../../config/test-runtime-resolver.js';
 import { splitCommand } from '../../config/tokenize-command.js';
-import { detectToolchain, testGlobsForToolchain } from '../../config/toolchains.js';
+import { detectToolchain, resolveProbeTestGlobs, testGlobsForToolchain } from '../../config/toolchains.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import {
   runProbe,
   probeNotRun,
-  resolveProbeTestGlobs,
   interpretProbeVerdict,
   verdictOf,
   type AdequacyDiscriminant,

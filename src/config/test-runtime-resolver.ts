@@ -277,6 +277,18 @@ function detectScopedTest(repoRoot: string): string | null {
   return hasScript(pkg, profile.scopedTestScript) ? profile.scopedTest : null;
 }
 
+/**
+ * Returns the command that runs one package script with the package manager of the root, such as `pnpm run lint`.
+ * It returns null when the root has no `package.json`, when the file does not parse, or when the script is absent or blank.
+ */
+export function packageScriptCommand(repoRoot: string, script: string): string | null {
+  const pm = detectNodePackageManager(repoRoot);
+  if (pm === null) return null;
+  const { json: pkg, malformed } = readPackageJson(repoRoot);
+  if (malformed || !hasScript(pkg, script)) return null;
+  return `${pm} run ${script}`;
+}
+
 /** The command that the kill probe runs, and the exit codes that read as a red run of it. */
 export interface ScopedTestCommand {
   readonly command: string;
@@ -290,12 +302,17 @@ export interface ScopedTestCommand {
  * Without that script, the command is the `test` field of {@link resolveTestRuntime}.
  * The command is not a field of {@link ResolvedRuntime}. It has no source layer and no `command.resolved` event.
  *
+ * `options.loadConfig` goes to {@link resolveTestRuntime}. A call that passes it reads no config file and spawns no git.
+ *
  * The exit codes come from the detected built-in toolchain when the command is the command that its detection gives.
  * Any other command has no known toolchain, so only exit 1 reads as red.
  */
-export function resolveScopedTestCommand(repoRoot: string): ScopedTestCommand | null {
+export function resolveScopedTestCommand(
+  repoRoot: string,
+  options?: Pick<ResolveOptions, 'loadConfig'>,
+): ScopedTestCommand | null {
   const scoped = detectScopedTest(repoRoot);
-  const command = scoped ?? resolveTestRuntime(repoRoot).test;
+  const command = scoped ?? resolveTestRuntime(repoRoot, options).test;
   if (command === null) return null;
   const detectedCommand = scoped ?? detect(repoRoot).test;
   const toolchain = command === detectedCommand ? detectToolchain(repoRoot) : undefined;

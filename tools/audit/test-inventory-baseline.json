@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1366,
-    "parsedFiles": 1321,
+    "testFiles": 1369,
+    "parsedFiles": 1324,
     "shellFiles": 45,
-    "cases": 15213,
+    "cases": 15255,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -88757,6 +88757,234 @@
         {
           "suite": "the stored-shape decision of the verification profile",
           "name": "StoredShapes_TheProfileDecision_MovesOnlyThePreparedBundleDigest",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/verification-profile.test.ts": {
+      "file": "tests/unit/config/verification-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ThisRepository_ReproducesTheCommandsOfTheOldGatesLessQualityCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ARootPackageJsonBesideASolution_UnionsTheDotnetTestGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_APackageJsonBesideARequirementsFile_SeedsAndReplacesOnlyThePythonTestNameGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredEmptyGlobSet_IsUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfigThatDoesNotLoad_GivesEveryCommandTermUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ARepositoryTypecheckKey_ReplacesTheSeededCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AStaticAnalysisBlock_ReplacesEverySeededCheckInKeyOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ANodeRepositoryWithNoLintScript_GivesAnUnresolvedCheckThatNamesBothKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AUserToolchain_GivesItsLintAndTypecheckChecks",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ALintKeyInADotnetRepository_AddsALintCheckAfterTheTypecheckSeed",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AJavaRepositoryWithNoKey_GivesAnUnresolvedStaticAnalysisTerm",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredGlobSet_GivesAProbeWithNoGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredProbe_KeepsItsFileFormAndItsExitCodesAndTakesTheGlobsOfItsRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredProbeInAPolyglotRootWithNoGlobs_IsUnresolvedAndNamesBothKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredProbeInAPolyglotRootWithConfiguredGlobs_IsResolved",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ACallThatPassesALoader_ReadsTheConfigOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AnEmptyFirstPartyList_ResolvesToNoGlob",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AFirstPartyGlobThatLeavesTheRoot_GivesAnUnresolvedFirstPartyTerm",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AValueOfAnOlderKeyPastItsBound_GivesAProfileThatParses",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/verification-profile-seeds.test.ts": {
+      "file": "tests/unit/config/verification-profile-seeds.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "TestNameRule_TheShapeOfAGlob_DecidesATestNameGlob",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "TestNameRule_AFinalStar_MatchesOneExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_TheDotnetSeed_IsDotnetBuildWithNoFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_TheRustSeed_RunsClippyWithNoDenyWarnings",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ACargoRepository_ProbesWithTheNoneFormAndExitCode101",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_APnpmRepository_SeedsPnpmRun",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_AMakefileTestTargetInAGoRoot_ProbesWithTheGoGlobsAndTheMakeRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ATestKeyInAPythonRoot_ProbesWithThePythonRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ACargoTestKey_ProbesWithTheNoneFormAndExitCode101",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_AConfiguredDotnetProbeWithNoFileForm_TakesTheNoneForm",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ATestKeyOfAProgramWithNoSeedRow_ProbesWithAfterSeparatorAndExitCodeOne",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ASolutionRootWithAClientAppPackage_ProbesWithTheDotnetGlobsOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_AConfiguredNpmProbeInASolutionRoot_TakesTheCoLocatedGlobsOfTheNodeRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_TheRubySeedAndEachTaskRunnerTarget_ProbeWithTheNoneForm",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ProbeArgv_EachForm_PlacesTheFilesAsItsNameSays",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "DetectToolchains_ARootWithTwoMarkers_GivesBothInPriorityOrder",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/verification-config.test.ts": {
+      "file": "tests/unit/config/verification-config.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_EachNewBlock_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_AnUnknownKeyInANewBlock_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_AFailureExitCodeOfZero_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_AListPastTheBoundOfItsTerm_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_AGlobThatLeavesTheRoot_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_ThePolicyBlockAlone_StillParses",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "SafeCommandClass_TheConfigTheResolverAndTheProfile_AcceptTheSameCharacters",
           "dynamic": false
         }
       ]

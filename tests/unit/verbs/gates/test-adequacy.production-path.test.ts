@@ -29,11 +29,10 @@ import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import {
   interpretProbeVerdict,
   verdictOf,
-  resolveProbeTestGlobs,
   ADEQUACY_DISCRIMINANTS,
-  DEFAULT_TEST_GLOBS,
   type AdequacyDiscriminant,
 } from '../../../../src/verbs/gates/test-adequacy.js';
+import { DEFAULT_TEST_GLOBS, resolveProbeTestGlobs } from '../../../../src/config/toolchains.js';
 
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {

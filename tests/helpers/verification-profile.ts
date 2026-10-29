@@ -1,5 +1,6 @@
 /**
  * The shared verification profile fake. It is the profile of a Node fixture with the co-located test globs and `npm run test:files`.
+ * It is equal to the output of the resolver for a Node root with the `test:files`, `test:run`, `lint` and `typecheck` scripts.
  * A test that calls a gate in a segment, or a gate at a root with no test command, pins this profile.
  * The fake imports only types, so it adds no runtime edge into the source.
  */
@@ -54,8 +55,8 @@ export function nodeTestProfile(): VerificationProfile {
       failureExitCodes: { codes: [1], source: 'detection' },
     },
     contract: {
-      codegen: { state: 'unresolved', reason: 'contract.codegen: no contract toolchain matches the fixture' },
-      diff: { state: 'unresolved', reason: 'contract.diff: no contract toolchain matches the fixture' },
+      codegen: { state: 'unresolved', reason: 'contract.codegen: no contract command resolves. Set contract.codegen in .exarchos.yml.' },
+      diff: { state: 'unresolved', reason: 'contract.diff: no contract command resolves. Set contract.diff in .exarchos.yml.' },
       typecheck: { state: 'resolved', argv: ['npm', 'run', 'typecheck'], source: 'detection' },
     },
     boundaryChecks: [],

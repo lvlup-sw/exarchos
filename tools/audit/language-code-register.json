@@ -51,13 +51,6 @@
       "reason": "The dependency-cruiser leg names its config files .dependency-cruiser.cjs, .js and .mjs. The adapters move into the registry."
     },
     {
-      "file": "src/verbs/gates/test-adequacy.ts",
-      "rule": "R3",
-      "count": 3,
-      "owner": "#1814",
-      "reason": "DEFAULT_TEST_GLOBS holds the co-located test globs. The globs move into the toolchain registry, and the kill probe classifies with the resolved globs."
-    },
-    {
       "file": "src/verbs/gates/test-adequacy-handler.ts",
       "rule": "R2",
       "count": 1,

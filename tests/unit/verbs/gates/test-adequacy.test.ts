@@ -12,8 +12,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { DEFAULT_TEST_SUPPORT_SEGMENTS } from '../../../../src/config/toolchains.js';
 import {
-  DEFAULT_TEST_SUPPORT_SEGMENTS,
   splitHunks,
   snapshotWorkingTree,
   revertSourceFiles,
