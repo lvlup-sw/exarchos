@@ -10,7 +10,11 @@
 # Exempt paths (never flagged):
 #   - **/*.test.ts          (test files exercise the contract, not implement callers)
 #   - **/__tests__/**       (test utility directories)
-#   - src/event-store/atomic-appender.ts  (substrate impl)
+#   - src/events/atomic-appender.ts  (substrate impl)
+#
+# The exempt substrate must exist under the scan directory and must define
+# withSession. Otherwise the gate scans a tree that no longer holds the API it
+# guards, and a pass means nothing. The gate exits 2 in that case.
 #
 # Usage:
 #   check-withsession-idempotency.sh [<scan-dir>]
@@ -19,8 +23,9 @@
 #   <scan-dir>   Directory to scan. Defaults to current working directory.
 #
 # Exit codes:
-#   0   All .withSession( call sites are compliant (or no call sites found).
+#   0   All .withSession( call sites are compliant. The output gives the count.
 #   1   One or more non-compliant call sites detected.
+#   2   The gate cannot judge: the scan directory or the substrate is missing.
 
 set -euo pipefail
 
@@ -30,7 +35,7 @@ SCAN_DIR="${1:-.}"
 
 if [[ ! -d "$SCAN_DIR" ]]; then
     echo "ERROR: scan directory does not exist: $SCAN_DIR" >&2
-    exit 1
+    exit 2
 fi
 
 # Resolve to absolute path so output messages are unambiguous.
@@ -52,7 +57,26 @@ fi
 CONTEXT_LINES=15
 
 # Relative path suffix of the exempt substrate implementation.
-EXEMPT_SUBSTRATE="src/event-store/atomic-appender.ts"
+EXEMPT_SUBSTRATE="src/events/atomic-appender.ts"
+
+# ─── Substrate liveness ──────────────────────────────────────────────────────
+
+# The exempt path must name a live file that defines the guarded method. A
+# stale exemption or a renamed API makes every scan pass with nothing to check.
+SUBSTRATE_FILE="$(find "$SCAN_DIR" -path "*/$EXEMPT_SUBSTRATE" -type f -print -quit 2>/dev/null || true)"
+if [[ -z "$SUBSTRATE_FILE" ]]; then
+    echo "ERROR: the exempt substrate $EXEMPT_SUBSTRATE is not under $SCAN_DIR." >&2
+    echo "The gate cannot judge a tree that does not hold the API it guards." >&2
+    echo "Update EXEMPT_SUBSTRATE when the substrate moves." >&2
+    exit 2
+fi
+if ! grep -qE '\bwithSession[[:space:]]*[<(]' "$SUBSTRATE_FILE"; then
+    echo "ERROR: $SUBSTRATE_FILE does not define withSession." >&2
+    echo "The gate cannot judge call sites of an API that does not exist." >&2
+    exit 2
+fi
+
+CALL_SITES=0
 
 # ─── File discovery ──────────────────────────────────────────────────────────
 
@@ -128,6 +152,7 @@ while IFS= read -r file; do
     check_window() {
         local ln="$1"
         local ctx="$2"
+        CALL_SITES=$((CALL_SITES + 1))
         if echo "$ctx" | grep -qE 'operationId\s*:'; then
             return 0
         fi
@@ -196,6 +221,10 @@ if [[ $VIOLATIONS -gt 0 ]]; then
          "Each .withSession( call must include operationId: or allowNonIdempotent: true."
     exit 1
 else
-    echo "check-withsession-idempotency: OK (all .withSession( call sites are compliant)"
+    echo "check-withsession-idempotency: OK ($CALL_SITES .withSession( call site(s) checked, all compliant)"
+    if [[ $CALL_SITES -eq 0 ]]; then
+        echo "  No production caller exists. The runtime InvalidSessionOptionsError check in"
+        echo "  $EXEMPT_SUBSTRATE is the only other enforcer."
+    fi
     exit 0
 fi

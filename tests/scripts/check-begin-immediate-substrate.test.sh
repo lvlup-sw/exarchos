@@ -29,6 +29,18 @@ TMPDIR_ROOT=""
 
 setup() {
     TMPDIR_ROOT="$(mktemp -d)"
+    create_substrate_stub
+}
+
+# Every clean scan needs one live substrate call, because the gate refuses to
+# pass a tree where the guarded primitive does not exist.
+create_substrate_stub() {
+    mkdir -p "$TMPDIR_ROOT/src/storage"
+    cat > "$TMPDIR_ROOT/src/storage/backend-stub.ts" << 'EOF'
+export function allocate(db: Database, fn: () => void) {
+  db.transaction(fn).immediate();
+}
+EOF
 }
 
 teardown() {
@@ -46,7 +58,7 @@ echo ""
 
 # --------------------------------------------------
 # Test 1: ViolationOutsideSubstrate_ExitsNonZero
-# A .ts file in application code (not storage/ or event-store/) containing
+# A .ts file in application code (outside storage/) containing
 # BEGIN IMMEDIATE must be flagged as a layering violation.
 # --------------------------------------------------
 setup
@@ -63,10 +75,10 @@ export async function runStep(db: Database, fn: () => Promise<void>) {
 EOF
 
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -ne 0 ]]; then
+if [[ $EXIT_CODE -eq 1 ]]; then
     pass "ViolationOutsideSubstrate_ExitsNonZero"
 else
-    fail "ViolationOutsideSubstrate_ExitsNonZero (exit=$EXIT_CODE, expected non-zero)"
+    fail "ViolationOutsideSubstrate_ExitsNonZero (exit=$EXIT_CODE, expected 1)"
     echo "  Output: $OUTPUT"
 fi
 
@@ -112,8 +124,8 @@ fi
 teardown
 
 # --------------------------------------------------
-# Test 3: AllowedInEventStoreSubstrate_ExitsZero
-# A .ts file inside event-store/ may legitimately use BEGIN IMMEDIATE.
+# Test 3: EventStoreDirIsNotSubstrate_ExitsOne
+# The substrate is src/storage only. A src/event-store/ directory gets no allowance.
 # --------------------------------------------------
 setup
 
@@ -128,10 +140,10 @@ export async function appendEvent(db: Database, event: Event) {
 EOF
 
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "AllowedInEventStoreSubstrate_ExitsZero"
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "EventStoreDirIsNotSubstrate_ExitsOne"
 else
-    fail "AllowedInEventStoreSubstrate_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    fail "EventStoreDirIsNotSubstrate_ExitsOne (exit=$EXIT_CODE, expected 1)"
     echo "  Output: $OUTPUT"
 fi
 
@@ -187,10 +199,10 @@ export async function materialize(db: Database) {
 EOF
 
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -ne 0 ]]; then
+if [[ $EXIT_CODE -eq 1 ]]; then
     pass "MultipleViolations_ExitsNonZero"
 else
-    fail "MultipleViolations_ExitsNonZero (exit=$EXIT_CODE, expected non-zero)"
+    fail "MultipleViolations_ExitsNonZero (exit=$EXIT_CODE, expected 1)"
     echo "  Output: $OUTPUT"
 fi
 
@@ -250,10 +262,10 @@ export function leakyStep(db: Database, fn: () => void) {
 EOF
 
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -ne 0 ]]; then
+if [[ $EXIT_CODE -eq 1 ]]; then
     pass "ImmediateCallOutsideSubstrate_ExitsNonZero"
 else
-    fail "ImmediateCallOutsideSubstrate_ExitsNonZero (exit=$EXIT_CODE, expected non-zero)"
+    fail "ImmediateCallOutsideSubstrate_ExitsNonZero (exit=$EXIT_CODE, expected 1)"
     echo "  Output: $OUTPUT"
 fi
 
@@ -297,7 +309,7 @@ fi
 teardown
 
 # --------------------------------------------------
-# Test 9: ImmediateCallInEventStoreSubstrate_ExitsZero
+# Test 9: ImmediateCallInEventStoreDir_ExitsOne
 # --------------------------------------------------
 setup
 
@@ -309,10 +321,10 @@ export function appendAtomic(db: Database, fn: () => void) {
 EOF
 
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "ImmediateCallInEventStoreSubstrate_ExitsZero"
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "ImmediateCallInEventStoreDir_ExitsOne"
 else
-    fail "ImmediateCallInEventStoreSubstrate_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    fail "ImmediateCallInEventStoreDir_ExitsOne (exit=$EXIT_CODE, expected 1)"
     echo "  Output: $OUTPUT"
 fi
 
@@ -405,9 +417,9 @@ teardown
 # src/storage/sqlite-backend.ts nor on any comment line.
 # This is the regression that keeps the gate usable in CI.
 # --------------------------------------------------
-REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 
-OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$REPO_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$REPO_ROOT/src" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
 if [[ $EXIT_CODE -eq 0 ]]; then
     pass "RealTree_ExitsZero_NoFalsePositives"
 else
@@ -531,6 +543,28 @@ fi
 
 teardown
 fi
+
+# --------------------------------------------------
+# Test 17: NoSubstrateCall_ExitsTwo
+# With no live `.immediate(` call in the substrate, the call check guards
+# nothing, so a clean scan must not pass.
+# --------------------------------------------------
+setup
+rm -f "$TMPDIR_ROOT/src/storage/backend-stub.ts"
+cat > "$TMPDIR_ROOT/src/storage/backend-stub.ts" << 'EOF'
+/** Mentions `.immediate()` only in a comment. */
+export function allocate() {}
+EOF
+
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "NoSubstrateCall_ExitsTwo"
+else
+    fail "NoSubstrateCall_ExitsTwo (exit=$EXIT_CODE, expected 2)"
+    echo "  Output: $OUTPUT"
+fi
+
+teardown
 
 # ============================================================
 # SUMMARY

@@ -32,6 +32,20 @@ TMPDIR_ROOT=""
 
 setup() {
     TMPDIR_ROOT="$(mktemp -d)"
+    create_substrate_stub
+}
+
+# Every scan needs the exempt substrate, because the gate refuses to judge a
+# tree that does not define the guarded API.
+create_substrate_stub() {
+    mkdir -p "$TMPDIR_ROOT/src/events"
+    cat > "$TMPDIR_ROOT/src/events/atomic-appender.ts" << 'EOF'
+export class AtomicAppender {
+  async withSession<TState>(streamId: string, reducerId: string, fn: unknown, opts?: unknown) {
+    return undefined;
+  }
+}
+EOF
 }
 
 teardown() {
@@ -111,15 +125,15 @@ else
 fi
 
 # --------------------------------------------------
-# Test 2: FixtureA_NoMarkers_ExitsNonZero
+# Test 2: FixtureA_NoMarkers_ExitsOne
 # --------------------------------------------------
 setup
 create_fixture_a_noncompliant
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -ne 0 ]]; then
-    pass "FixtureA_NoMarkers_ExitsNonZero"
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "FixtureA_NoMarkers_ExitsOne"
 else
-    fail "FixtureA_NoMarkers_ExitsNonZero (exit=$EXIT_CODE, expected non-zero)"
+    fail "FixtureA_NoMarkers_ExitsOne (exit=$EXIT_CODE, expected 1)"
     echo "  Output: $OUTPUT"
 fi
 teardown
@@ -167,30 +181,30 @@ fi
 teardown
 
 # --------------------------------------------------
-# Test 6: MixedDir_NonCompliantAndCompliant_ExitsNonZero
+# Test 6: MixedDir_NonCompliantAndCompliant_ExitsOne
 # --------------------------------------------------
 setup
 create_fixture_a_noncompliant
 create_fixture_b_with_operation_id
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -ne 0 ]]; then
-    pass "MixedDir_NonCompliantAndCompliant_ExitsNonZero"
+if [[ $EXIT_CODE -eq 1 ]]; then
+    pass "MixedDir_NonCompliantAndCompliant_ExitsOne"
 else
-    fail "MixedDir_NonCompliantAndCompliant_ExitsNonZero (exit=$EXIT_CODE, expected non-zero)"
+    fail "MixedDir_NonCompliantAndCompliant_ExitsOne (exit=$EXIT_CODE, expected 1)"
     echo "  Output: $OUTPUT"
 fi
 teardown
 
 # --------------------------------------------------
-# Test 7: EmptyDir_NoWithSessionCalls_ExitsZero
+# Test 7: NoCallSites_ExitsZeroAndReportsTheCount
 # --------------------------------------------------
 setup
-# No files created — empty directory
+# Only the substrate stub exists, so the scan finds no call site.
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
-if [[ $EXIT_CODE -eq 0 ]]; then
-    pass "EmptyDir_NoWithSessionCalls_ExitsZero"
+if [[ $EXIT_CODE -eq 0 ]] && echo "$OUTPUT" | grep -q "0 .withSession( call site"; then
+    pass "NoCallSites_ExitsZeroAndReportsTheCount"
 else
-    fail "EmptyDir_NoWithSessionCalls_ExitsZero (exit=$EXIT_CODE, expected 0)"
+    fail "NoCallSites_ExitsZeroAndReportsTheCount (exit=$EXIT_CODE, expected 0 and a zero count)"
     echo "  Output: $OUTPUT"
 fi
 teardown
@@ -248,15 +262,20 @@ teardown
 # --------------------------------------------------
 # The substrate implementation file is exempt — it IS the implementation
 setup
-mkdir -p "$TMPDIR_ROOT/src/event-store"
-cat > "$TMPDIR_ROOT/src/event-store/atomic-appender.ts" << 'EOF'
-// Substrate implementation — exempt from idempotency marker requirement
+cat > "$TMPDIR_ROOT/src/events/atomic-appender.ts" << 'EOF'
 export class AtomicAppender {
   async withSession(streamId, reducerId, fn, opts) {
     if (opts?.operationId === undefined && opts?.allowNonIdempotent !== true) {
       throw new InvalidSessionOptionsError();
     }
-    // ... implementation ...
+  }
+  async retry(streamId, reducerId, fn) {
+    return this.withSession(
+      streamId,
+      reducerId,
+      fn,
+      { registry },
+    );
   }
 }
 EOF
@@ -295,6 +314,54 @@ else
     echo "  Output: $OUTPUT"
 fi
 teardown
+
+# --------------------------------------------------
+# Test 12: MissingSubstrate_ExitsTwo
+# --------------------------------------------------
+# A stale exemption path leaves the gate with no API to guard.
+setup
+rm -f "$TMPDIR_ROOT/src/events/atomic-appender.ts"
+create_fixture_b_with_operation_id
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "MissingSubstrate_ExitsTwo"
+else
+    fail "MissingSubstrate_ExitsTwo (exit=$EXIT_CODE, expected 2)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 13: SubstrateWithoutWithSession_ExitsTwo
+# --------------------------------------------------
+# A renamed API leaves every call-site scan vacuous.
+setup
+cat > "$TMPDIR_ROOT/src/events/atomic-appender.ts" << 'EOF'
+export class AtomicAppender {
+  async runSession(streamId: string) {
+    return undefined;
+  }
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "SubstrateWithoutWithSession_ExitsTwo"
+else
+    fail "SubstrateWithoutWithSession_ExitsTwo (exit=$EXIT_CODE, expected 2)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 14: MissingScanDir_ExitsTwo
+# --------------------------------------------------
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "/nonexistent-withsession-scan-dir" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "MissingScanDir_ExitsTwo"
+else
+    fail "MissingScanDir_ExitsTwo (exit=$EXIT_CODE, expected 2)"
+    echo "  Output: $OUTPUT"
+fi
 
 # ============================================================
 # SUMMARY

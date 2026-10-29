@@ -11,7 +11,11 @@
  * Exit 0 on `pass`. Exit 1 on `fail`: drift, an empty denominator, an unknown derivation,
  * a malformed literal, or a row with no probe. Exit 3 on `gaps` (unprobed rungs), or 1 with
  * `--fail-on-gap`. `--tolerate-gaps-until <YYYY-MM-DD>` maps `gaps` to exit 0 through that
- * day and to exit 1 after it, and the report still says GAPS. Exit 2 on a usage or tooling error.
+ * day and to exit 1 after it, and the report still says GAPS.
+ *
+ * Exit 2 on a usage or tooling error. Exit 4 on `skipped`: each claim-bearing document is an
+ * unmounted planning document, so the gate read no claim and cannot judge. A skipped run is
+ * never a pass.
  * `--document <path>` (repeatable) sets the input, and `--json` prints the report as JSON.
  */
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
@@ -40,6 +44,11 @@ const EXIT_USAGE = 2;
  * process boundary. It is exported, so its consumers cannot drift from this gate.
  */
 export const EXIT_GAPS = 3;
+/**
+ * The exit code of `skipped`. It differs from pass, so a checkout without the planning
+ * documents cannot report a pass for a check that read nothing.
+ */
+export const EXIT_SKIPPED = 4;
 
 const MEASURED_RE =
   /<!--\s*measured:\s*([a-z0-9][a-z0-9-]*)\s*-->([\s\S]*?)<!--\s*\/measured\s*-->/g;
@@ -1040,8 +1049,8 @@ function isOptionalMount(relative) {
 
 /**
  * Loads the documents, runs the check, and exits with the verdict code. An absent optional
- * mount can leave only an empty denominator or a missing rung map. That run passes, because
- * the subject is absent and not broken.
+ * mount can leave only an empty denominator or a missing rung map. That run is `skipped`,
+ * because the gate read no claim and so cannot judge the subject.
  */
 function main() {
   const { documents, failOnGap, json, tolerateGapsUntil } = parseArgs(process.argv.slice(2));
@@ -1079,8 +1088,9 @@ function main() {
     )
   ) {
     const unmounted = {
-      verdict: 'pass',
-      exitCode: EXIT_PASS,
+      verdict: 'skipped',
+      exitCode: EXIT_SKIPPED,
+      skipped,
       claims: [],
       rungs: [],
       failures: [],
@@ -1099,10 +1109,12 @@ function main() {
     } else {
       process.stdout.write(
         `check-measured-premises: skipped unmounted document(s): ${skipped.join(', ')}\n` +
-          'remaining documents have no measured claims — nothing to re-derive in this checkout.\n',
+          'The remaining documents have no measured claims, so this checkout gives no verdict.\n' +
+          'Run `npm run docs:mount` to judge the premises.\n' +
+          '  VERDICT: SKIPPED\n',
       );
     }
-    process.exit(EXIT_PASS);
+    process.exit(EXIT_SKIPPED);
   }
 
   if (json) {

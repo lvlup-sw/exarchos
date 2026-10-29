@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1363,
-    "parsedFiles": 1318,
+    "testFiles": 1360,
+    "parsedFiles": 1315,
     "shellFiles": 45,
-    "cases": 15196,
+    "cases": 15157,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -110,16 +110,8 @@
       "to": "tests/scripts/audit/check-base-substrate.test.ts"
     },
     {
-      "from": "scripts/audit/check-no-duplicate-suites.test.ts",
-      "to": "tests/scripts/audit/check-no-duplicate-suites.test.ts"
-    },
-    {
       "from": "scripts/audit/check-protected.test.ts",
       "to": "tests/scripts/audit/check-protected.test.ts"
-    },
-    {
-      "from": "scripts/audit/consolidate-suite.test.ts",
-      "to": "tests/scripts/audit/consolidate-suite.test.ts"
     },
     {
       "from": "scripts/audit/cycle-gate.test.sh",
@@ -136,10 +128,6 @@
     {
       "from": "scripts/audit/knip-diff.test.ts",
       "to": "tests/scripts/audit/knip-diff.test.ts"
-    },
-    {
-      "from": "scripts/audit/manifest-gate-ci.test.ts",
-      "to": "tests/scripts/audit/manifest-gate-ci.test.ts"
     },
     {
       "from": "scripts/audit/register-entry-schema.test.ts",
@@ -11225,42 +11213,6 @@
         }
       ]
     },
-    "tests/scripts/audit/check-no-duplicate-suites.test.ts": {
-      "file": "tests/scripts/audit/check-no-duplicate-suites.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "check-no-duplicate-suites (DR-1 ratchet)",
-          "name": "ships an EMPTY allowlist (not seeded with the current 17 twins)",
-          "dynamic": false
-        },
-        {
-          "suite": "check-no-duplicate-suites (DR-1 ratchet)",
-          "name": "FAILS (exit 1) on a twin that is not in the allowlist",
-          "dynamic": false
-        },
-        {
-          "suite": "check-no-duplicate-suites (DR-1 ratchet)",
-          "name": "keys on (area, basename): the two `schemas` twins are DISTINCT violations",
-          "dynamic": false
-        },
-        {
-          "suite": "check-no-duplicate-suites (DR-1 ratchet)",
-          "name": "keys on (area, basename): the two `tools` twins are DISTINCT violations",
-          "dynamic": false
-        },
-        {
-          "suite": "check-no-duplicate-suites (DR-1 ratchet)",
-          "name": "PASSES (exit 0) on a twin-free tree — co-located files with no legacy mirror",
-          "dynamic": false
-        },
-        {
-          "suite": "check-no-duplicate-suites (DR-1 ratchet)",
-          "name": "findViolations honors the allowlist by full (area, basename) id, not basename",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/scripts/audit/check-protected.test.ts": {
       "file": "tests/scripts/audit/check-protected.test.ts",
       "runner": "vitest:root",
@@ -11418,122 +11370,6 @@
         {
           "suite": "CLI end-to-end — the guard as actually invoked",
           "name": "exits 0 for a change touching event-store/tools.test.ts (fast-check import, not protected)",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/scripts/audit/consolidate-suite.test.ts": {
-      "file": "tests/scripts/audit/consolidate-suite.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "normalizedCases (case extraction via TS AST)",
-          "name": "counts every it/test variant (.skip/.only/.todo/.each) once, and no hooks/describes",
-          "dynamic": false
-        },
-        {
-          "suite": "normalizedCases (case extraction via TS AST)",
-          "name": "normalizes a relative import inside a case body (modulo import path)",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPair",
-          "name": "preamble-identical modulo import paths → merge",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPair",
-          "name": "import-path-only diff → merge (paths are the sanctioned modulo)",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPair",
-          "name": "preamble-divergent (extra module-scope import) → relocate",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPair",
-          "name": "vi.mock factory divergent → relocate (mocks are file-scoped, non-composable)",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPair",
-          "name": "vi.hoisted state divergent → relocate",
-          "dynamic": false
-        },
-        {
-          "suite": "classifyPair",
-          "name": "divergent top-describe-scope hook → relocate",
-          "dynamic": false
-        },
-        {
-          "suite": "enumeratePairs",
-          "name": "reports a pair only when BOTH legacy and co-located copies exist",
-          "dynamic": false
-        },
-        {
-          "suite": "enumeratePairs",
-          "name": "keys strictly on (area, basename): workflow/schemas and event-store/schemas are DISTINCT pairs",
-          "dynamic": false
-        },
-        {
-          "suite": "enumeratePairs",
-          "name": "ignores a bare __tests__/<base>.test.ts with no area subdir",
-          "dynamic": false
-        },
-        {
-          "suite": "computeEmit",
-          "name": "merge: dedups a textually-identical case and appends the distinct one; deletes legacy",
-          "dynamic": false
-        },
-        {
-          "suite": "computeEmit",
-          "name": "relocate: writes <base>.legacy.test.ts with rewritten imports and deletes legacy",
-          "dynamic": false
-        },
-        {
-          "suite": "verifyCases",
-          "name": "merge result preserving every pre-image case → ok",
-          "dynamic": false
-        },
-        {
-          "suite": "verifyCases",
-          "name": "a pre-image case ABSENT from the result → not ok (lost/unproven)",
-          "dynamic": false
-        },
-        {
-          "suite": "verifyCases",
-          "name": "relocate result (canonical + rewritten sibling) preserves both sides → ok",
-          "dynamic": false
-        },
-        {
-          "suite": "verifyCases",
-          "name": "a case surviving only via import-path rewrite still counts as preserved",
-          "dynamic": false
-        },
-        {
-          "suite": "run (CLI dispatch)",
-          "name": "--enumerate prints one id per pair and a count footer",
-          "dynamic": false
-        },
-        {
-          "suite": "run (CLI dispatch)",
-          "name": "--plan on a missing pair fails with a usage exit code",
-          "dynamic": false
-        },
-        {
-          "suite": "run (CLI dispatch)",
-          "name": "--help exits OK",
-          "dynamic": false
-        },
-        {
-          "suite": "integration (live tree)",
-          "name": "enumerates no remaining duplicate-location pairs (all 17 consolidated)",
-          "dynamic": false
-        },
-        {
-          "suite": "integration (live tree)",
-          "name": "--enumerate on the live tree reports zero remaining pairs via the CLI",
           "dynamic": false
         }
       ]
@@ -11816,67 +11652,6 @@
         {
           "suite": "runKnipDiff — dead-code findings",
           "name": "FAILS (exit 1) naming an expired allowlist entry",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/scripts/audit/manifest-gate-ci.test.ts": {
-      "file": "tests/scripts/audit/manifest-gate-ci.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "deriveTouchedPairIds",
-          "name": "maps legacy, canonical, and relocated-sibling paths to the same (area, base) pair",
-          "dynamic": false
-        },
-        {
-          "suite": "deriveTouchedPairIds",
-          "name": "keys on (area, basename): same basename in two areas → two distinct pairs",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "clean merge (every pre-image case carried into the canonical) → PASSES",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "dropping a LEGACY case (no surviving twin) → FAILS",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "dropping a pre-existing CANONICAL case → FAILS (bidirectional)",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "clean relocate (legacy moved to a rewritten sibling) → PASSES",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "a PR touching no consolidation pair → PASSES trivially",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "a lone co-located test with NO legacy twin is SKIPPED (not false-blocked)",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "returns a usage exit code when the merge-base cannot be resolved",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "fails CLOSED when `git diff` errors — not silently treated as an empty diff",
-          "dynamic": false
-        },
-        {
-          "suite": "manifest-gate-ci (temp-git fixtures)",
-          "name": "fails CLOSED when `git show` errors for a reason other than an absent path",
           "dynamic": false
         }
       ]
