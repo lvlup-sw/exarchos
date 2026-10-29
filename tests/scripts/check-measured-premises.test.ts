@@ -33,6 +33,7 @@ import {
   EXIT_PASS,
   EXIT_FAIL,
   EXIT_GAPS,
+  EXIT_SKIPPED,
 } from '../../tools/audit/gates/check-measured-premises.mjs';
 import { rmrf } from '../../tools/test-helpers/temp-dir.js';
 
@@ -66,7 +67,7 @@ interface ReportRung {
 }
 
 interface Report {
-  verdict: 'pass' | 'gaps' | 'fail';
+  verdict: 'pass' | 'gaps' | 'fail' | 'skipped';
   exitCode: number;
   claims: ReportClaim[];
   rungs: ReportRung[];
@@ -326,25 +327,32 @@ describe('check-measured-premises (task 054, DR-27)', () => {
   });
 
   /**
-   * Each CI call of the gate must carry a `--tolerate-gaps-until` date that is today or later.
-   * Thus the test fails when a call omits the flag.
+   * CI cannot mount the planning documents, so a CI run of the gate reads no claim and gives
+   * no verdict. A CI step for it reports a check that it does not make. Thus no workflow runs
+   * the gate itself, and `npm run validate` reports the skip as a dated advisory.
    */
-  it('MeasuredPremises_CiLaneToleration_IsDatedAndStillLive', () => {
+  it('MeasuredPremises_CiLane_DoesNotRunTheGate', () => {
     const ci = readFileSync(path.join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
     const invocations = ci
       .split('\n')
       .filter((l) => l.includes('check-measured-premises.mjs') && l.includes('run:'));
-    expect(invocations.length).toBeGreaterThan(0);
-    for (const line of invocations) {
-      const m = /--tolerate-gaps-until\s+(\d{4}-\d{2}-\d{2})/.exec(line);
-      expect(m, `CI invokes the gate without a dated gap toleration: ${line.trim()}`).not.toBeNull();
-      const until = m?.[1];
-      expect(until, `CI invokes the gate without a dated gap toleration: ${line.trim()}`).toBeDefined();
-      expect(
-        until! >= new Date().toISOString().slice(0, 10),
-        `The CI lane's gap toleration expired on ${until} — probe the obligation rungs or re-date it.`,
-      ).toBe(true);
-    }
+    expect(invocations).toEqual([]);
+  });
+
+  /**
+   * Each claim-bearing document is unmounted, so the gate reads no claim. That run is
+   * `skipped` with its own exit code, and never a pass.
+   */
+  it('MeasuredPremises_AllClaimDocumentsUnmounted_ExitsSkippedNotPass', async () => {
+    const { status, report } = await runCli([
+      '--document',
+      'docs/specs/__never-mounted__.md',
+      '--document',
+      '.exarchos/invariants.md',
+    ]);
+    expect(report.verdict).toBe('skipped');
+    expect(status).toBe(EXIT_SKIPPED);
+    expect(status).not.toBe(EXIT_PASS);
   });
 
   /**
@@ -354,9 +362,11 @@ describe('check-measured-premises (task 054, DR-27)', () => {
    */
   it('MeasuredPremises_GapsVerdict_ExitsDistinctFromPass', async () => {
     const { status, report } = await runCli([]);
-    expect(['pass', 'gaps', 'fail']).toContain(report.verdict);
+    expect(['pass', 'gaps', 'fail', 'skipped']).toContain(report.verdict);
     expect(status).toBe(report.exitCode);
-    if (report.verdict === 'gaps') {
+    if (report.verdict === 'skipped') {
+      expect(status).toBe(EXIT_SKIPPED);
+    } else if (report.verdict === 'gaps') {
       expect(status).toBe(EXIT_GAPS);
       expect(status).not.toBe(EXIT_PASS);
     } else if (report.verdict === 'pass') {
@@ -364,7 +374,7 @@ describe('check-measured-premises (task 054, DR-27)', () => {
     } else {
       expect(status).toBe(EXIT_FAIL);
     }
-    expect(new Set([EXIT_PASS, EXIT_FAIL, EXIT_GAPS]).size).toBe(3);
+    expect(new Set([EXIT_PASS, EXIT_FAIL, EXIT_GAPS, EXIT_SKIPPED]).size).toBe(4);
   }, 300_000);
 
   /** An annotation with a name that no derivation implements fails. Otherwise a document can invent a name and assert any number. */

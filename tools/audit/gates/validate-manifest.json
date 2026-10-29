@@ -85,7 +85,14 @@
           "severity": "advisory",
           "issue": "#2142",
           "expires": "2027-02-28",
-          "why": "Unprobed obligation rungs give the gaps verdict. The gate used to exit 0 here, so this aggregate recorded `PASS measured-premises` for a step that printed `VERDICT: GAPS` — DR-7's exact shape. Today the gate reads no claim in a checkout without the gitignored `docs/specs/` spec, and it exits 0. With the spec mounted, the verdict is fail, which is never tolerated. So this toleration guards nothing until the #2040 line in #2142 lands. It stays dated and tracked, so a gaps verdict cannot quietly become permanent. Probing the rungs deletes this block."
+          "why": "Unprobed obligation rungs give the gaps verdict. The gate used to exit 0 here, so this aggregate recorded `PASS measured-premises` for a step that printed `VERDICT: GAPS` — DR-7's exact shape. With the spec mounted, the verdict is fail, which is never tolerated. So this toleration guards nothing until the #2040 line in #2142 lands. It stays dated and tracked, so a gaps verdict cannot quietly become permanent. Probing the rungs deletes this block."
+        },
+        "4": {
+          "verdict": "skipped",
+          "severity": "advisory",
+          "issue": "#2142",
+          "expires": "2027-02-28",
+          "why": "The spec that holds every measured claim lives in lvlup-sw/docs. A checkout without `npm run docs:mount` reads no claim, so the gate exits 4 and reports SKIPPED. It used to exit 0 and print a pass for a check that read nothing. The skip stays dated and tracked: re-home the claims into a tracked document, or mount the docs, and delete this block."
         }
       }
     }

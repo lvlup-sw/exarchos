@@ -102,11 +102,6 @@ const SYNC_SPAWN_EXEMPTIONS: ReadonlyArray<{ readonly file: string; readonly cal
     forcedBy: 'mergePreflight (src/verbs/pure/merge-preflight.ts) takes a synchronous GitExec',
   },
   {
-    file: 'tests/scripts/audit/manifest-gate-ci.test.ts',
-    calls: 1,
-    forcedBy: 'run (tools/audit/manifest-gate-ci.mjs) takes a synchronous GitRunner',
-  },
-  {
     file: 'tests/unit/verbs/gates/test-adequacy.false-advisory.test.ts',
     calls: 1,
     forcedBy: 'changedFilesFor (src/verbs/gates/test-adequacy-handler.ts) and runProbe take a synchronous GitExec',

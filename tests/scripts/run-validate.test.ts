@@ -484,37 +484,36 @@ describe('run-validate — CLI (task 064, DR-24)', () => {
   }, 20000);
 
   /**
-   * The date of the measured-premises toleration is in three places: the `ci.yml` flag,
-   * the `outcomes` entry of the manifest, and the shell waiver in
-   * `installer-verify.test.ts`. A new date in only one place causes no failure elsewhere,
-   * so this test reads all three and requires one date. A date that the test cannot find
-   * also fails it.
+   * The date of the measured-premises toleration is in three places: the gaps and skipped
+   * outcomes of the manifest, and the shell waiver in `installer-verify.test.ts`. A new date
+   * in only one place causes no failure elsewhere. Thus this test reads all three and
+   * requires one date. A date that the test cannot find also fails it.
    */
   it('MeasuredPremisesToleration_ThreeCallSites_CarryOneDate', () => {
-    const ciYml = fs.readFileSync(path.join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
     const manifest = fs.readFileSync(path.join(REPO_ROOT, DEFAULT_MANIFEST_PATH), 'utf8');
     const installer = fs.readFileSync(path.join(SCRIPTS_DIR, 'installer-verify.test.ts'), 'utf8');
 
-    const ciDate = /--tolerate-gaps-until\s+(\d{4}-\d{2}-\d{2})/.exec(ciYml)?.[1];
-    const manifestDate = (
+    const outcomes = (
       JSON.parse(manifest) as {
         steps: { id: string; outcomes?: Record<string, { expires?: string }> }[];
       }
-    ).steps.find((s) => s.id === 'measured-premises')?.outcomes?.['3']?.expires;
+    ).steps.find((s) => s.id === 'measured-premises')?.outcomes;
+    const gapsDate = outcomes?.['3']?.expires;
+    const skippedDate = outcomes?.['4']?.expires;
     const waiverDate = /SHELL_SKIP_WAIVER[\s\S]{0,200}?expires:\s*'(\d{4}-\d{2}-\d{2})'/.exec(
       installer,
     )?.[1];
 
     for (const [name, found] of [
-      ['ci.yml --tolerate-gaps-until', ciDate],
-      ['validate-manifest.json expires', manifestDate],
+      ['validate-manifest.json gaps expires', gapsDate],
+      ['validate-manifest.json skipped expires', skippedDate],
       ['installer-verify SHELL_SKIP_WAIVER.expires', waiverDate],
     ] as const) {
       expect(found, `${name} not located — the binding check has gone blind`).toMatch(
         /^\d{4}-\d{2}-\d{2}$/,
       );
     }
-    expect(new Set([ciDate, manifestDate, waiverDate]).size).toBe(1);
+    expect(new Set([gapsDate, skippedDate, waiverDate]).size).toBe(1);
   });
 
 });
