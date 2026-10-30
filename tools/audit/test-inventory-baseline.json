@@ -7,7 +7,7 @@
     "testFiles": 1369,
     "parsedFiles": 1324,
     "shellFiles": 45,
-    "cases": 15255,
+    "cases": 15258,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -88842,6 +88842,11 @@
         },
         {
           "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AUserToolchainBesideABuiltInToolchain_HoldsTheRulesOfAPolyglotRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
           "name": "ResolveProfile_ACallThatPassesALoader_ReadsTheConfigOnce",
           "dynamic": false
         },
@@ -88894,6 +88899,11 @@
         {
           "suite": "the registry seeds of the verification profile",
           "name": "ResolveProfile_APnpmRepository_SeedsPnpmRun",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ABunRepository_ProbesWithTheFormOfItsCommand",
           "dynamic": false
         },
         {
@@ -88975,6 +88985,11 @@
         {
           "suite": "the verification config keys",
           "name": "VerificationConfig_AGlobThatLeavesTheRoot_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_ACheckNameThatStartsWithADigit_IsRefusedAtItsPath",
           "dynamic": false
         },
         {

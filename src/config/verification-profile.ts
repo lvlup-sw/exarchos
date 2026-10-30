@@ -105,7 +105,7 @@ interface ProfileContext {
   /** Each matched built-in toolchain in priority order. */
   readonly builtins: readonly Toolchain[];
   readonly userMatch: Toolchain | undefined;
-  /** True when more than one built-in toolchain matches at the root. */
+  /** True when more than one toolchain matches at the root. A user toolchain counts, as it does in the `toolchains` term. */
   readonly polyglot: boolean;
 }
 
@@ -210,7 +210,7 @@ function contextOf(checkout: string, config: FullExarchosConfig | undefined): Pr
   const builtins = matched.filter((toolchain) => BUILTIN_TOOLCHAINS.includes(toolchain));
   const first = matched[0];
   const userMatch = first !== undefined && userToolchains.includes(first) ? first : undefined;
-  return { checkout, config, matched, builtins, userMatch, polyglot: builtins.length > 1 };
+  return { checkout, config, matched, builtins, userMatch, polyglot: matched.length > 1 };
 }
 
 /**
@@ -386,7 +386,7 @@ function seededTestGlobs(builtins: readonly Toolchain[]): string[] {
 
 /**
  * The test-glob term. `verification.tests.globs` replaces every seed, and an empty list is unresolved.
- * In a root where more than one built-in toolchain matches, the configured term keeps the test-name globs of the seeds as `replacedSeeds`.
+ * In a root where more than one toolchain matches, the configured term keeps the test-name globs of the seeds as `replacedSeeds`.
  */
 function testGlobsTerm(ctx: ProfileContext): VerificationProfile['tests']['globs'] {
   const seeds = seededTestGlobs(ctx.builtins);
@@ -435,7 +435,7 @@ function noTestCommand(key: string, runtime: ResolvedVerificationRuntime): strin
 
 /**
  * The probe term. `verification.tests.probe` replaces the seed. Each field that no key sets comes from the seed row of the program.
- * In a root where more than one built-in toolchain matches, a configured probe needs `verification.tests.globs`, else it is unresolved.
+ * In a root where more than one toolchain matches, a configured probe needs `verification.tests.globs`, else it is unresolved.
  * With configured test globs, the probe has no globs of its own, so it runs each file of the test globs.
  */
 function probeTerm(ctx: ProfileContext, runtime: ResolvedVerificationRuntime, scopedTest: string | null): ProbeTerm {

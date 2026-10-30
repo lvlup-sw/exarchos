@@ -133,6 +133,13 @@ describe('the verification config keys', () => {
     }
   });
 
+  /** The key order is the run order, and a parsed map moves an integer key to the front. So a check name starts with a letter. */
+  it('VerificationConfig_ACheckNameThatStartsWithADigit_IsRefusedAtItsPath', () => {
+    const issues = issuesOf({ verification: { staticAnalysis: { lint: 'make lint', '1': 'make first' } } });
+
+    expect(issues.map((issue) => issue.path)).toEqual(['verification.staticAnalysis.1']);
+  });
+
   it('VerificationConfig_ThePolicyBlockAlone_StillParses', () => {
     const result = FullExarchosConfigSchema.safeParse({ verification: { policy: { low: ['check_static_analysis'] } } });
 
@@ -145,7 +152,7 @@ describe('the verification config keys', () => {
    * A command that loads must give tokens that the profile accepts, so the three copies must accept the same characters.
    */
   it('SafeCommandClass_TheConfigTheResolverAndTheProfile_AcceptTheSameCharacters', () => {
-    const characters = [...listOf(256, (code) => String.fromCharCode(code)), 'é', '中', ' '];
+    const characters = [...listOf(256, (code) => String.fromCharCode(code)), String.fromCharCode(0x4e2d), String.fromCharCode(0x2028)];
     const verdicts = characters.map((character) => {
       const token = `a${character}b`;
       return {

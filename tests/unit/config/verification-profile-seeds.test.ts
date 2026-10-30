@@ -144,6 +144,17 @@ describe('the registry seeds of the verification profile', () => {
     expect(profile.tests.probe.files).toBe('after-separator');
   });
 
+  /** The node row gives `bun test` the form `as-arguments`. Each other command of the row takes the form of the row. */
+  it('ResolveProfile_ABunRepository_ProbesWithTheFormOfItsCommand', () => {
+    const bunTest = probeAt(rootWith({ 'package.json': '{}', 'bun.lockb': '' }));
+    const bunRun = probeAt(rootWith({ 'package.json': JSON.stringify({ scripts: { 'test:files': 'bun test' } }), 'bun.lockb': '' }));
+
+    expect(bunTest.command).toEqual({ state: 'resolved', argv: ['bun', 'test'], source: 'detection' });
+    expect(bunTest.files).toBe('as-arguments');
+    expect(bunRun.command).toEqual({ state: 'resolved', argv: ['bun', 'run', 'test:files'], source: 'detection' });
+    expect(bunRun.files).toBe('after-separator');
+  });
+
   /** A task-runner target takes the globs of the first matched toolchain and the row of its runner. */
   it('ResolveProfile_AMakefileTestTargetInAGoRoot_ProbesWithTheGoGlobsAndTheMakeRow', () => {
     const root = rootWith({ 'go.mod': 'module example.com/fixture\n', Makefile: 'test:\n\tgo test ./...\n' });

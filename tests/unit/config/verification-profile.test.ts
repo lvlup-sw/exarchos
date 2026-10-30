@@ -366,6 +366,32 @@ describe('the layers of the verification profile', () => {
     });
   });
 
+  /**
+   * A user toolchain beside a built-in toolchain gives two matched toolchains, so the rules of a polyglot root hold.
+   * The configured probe needs configured globs, and the configured globs keep the test-name globs of the seeds.
+   */
+  it('ResolveProfile_AUserToolchainBesideABuiltInToolchain_HoldsTheRulesOfAPolyglotRoot', () => {
+    const toolchains = [{ id: 'zig', markers: ['build.zig'], commands: { test: 'zig build test' } }];
+    const probe = { command: 'zig build test' };
+    const files = { 'package.json': packageJson(NODE_SCRIPTS), 'build.zig': '' };
+
+    const noGlobs = profileAt(rootWith({ ...files, '.exarchos.yml': exarchosYml({ toolchains, verification: { tests: { probe } } }) }));
+    const configured = profileAt(
+      rootWith({ ...files, '.exarchos.yml': exarchosYml({ toolchains, verification: { tests: { globs: ['**/*_test.zig'], probe } } }) }),
+    );
+
+    expect(noGlobs.toolchains).toEqual(['zig', 'node']);
+    expect(noGlobs.tests.probe.command.state).toBe('unresolved');
+    expect(noGlobs.tests.probe.command.state === 'unresolved' && noGlobs.tests.probe.command.reason).toContain('#1629');
+    expect(configured.tests.probe.command).toEqual({ state: 'resolved', argv: ['zig', 'build', 'test'], source: 'config' });
+    expect(configured.tests.globs).toEqual({
+      state: 'resolved',
+      globs: ['**/*_test.zig'],
+      source: 'config',
+      replacedSeeds: ['**/*.test.*', '**/*.spec.*'],
+    });
+  });
+
   /** The loader runs once, and its config reaches each resolver below the profile resolver. The root holds no config file. */
   it('ResolveProfile_ACallThatPassesALoader_ReadsTheConfigOnce', () => {
     const root = rootWith({ 'pyproject.toml': '' });
