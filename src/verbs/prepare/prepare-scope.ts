@@ -18,7 +18,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { resolveEffectiveCatalog } from '../../architecture/resolve-effective-catalog.js';
-import { loadExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
+import { loadExarchosConfigOutcome, type ExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
 import { resolveConfig, type ResolvedProjectConfig } from '../../config/resolve.js';
 import type { FullExarchosConfig } from '../../config/yaml-schema.js';
 import { loadProjectConfig } from '../../config/yaml-loader.js';
@@ -149,6 +149,8 @@ export interface CheckoutConfig {
   readonly catalogConfig: FullExarchosConfig | undefined;
   /** The resolved policy and severities, from the reader that settle and the gates use. */
   readonly projectConfig: ResolvedProjectConfig;
+  /** The one read of the file. The resolver of the verification profile takes it, so the resolver reads the file no more and spawns no git. */
+  readonly outcome: ExarchosConfigOutcome;
 }
 
 /**
@@ -179,6 +181,7 @@ export function loadCheckoutConfig(
       source: loaded?.source,
       catalogConfig: loaded?.config,
       projectConfig: checkoutProjectConfig(checkout),
+      outcome,
     },
   };
 }

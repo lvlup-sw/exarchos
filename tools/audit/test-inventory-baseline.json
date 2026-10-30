@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1369,
-    "parsedFiles": 1324,
+    "testFiles": 1371,
+    "parsedFiles": 1326,
     "shellFiles": 45,
-    "cases": 15258,
+    "cases": 15275,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -89000,6 +89000,103 @@
         {
           "suite": "the verification config keys",
           "name": "SafeCommandClass_TheConfigTheResolverAndTheProfile_AcceptTheSameCharacters",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/prepare-profile.test.ts": {
+      "file": "tests/acceptance/prepare-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_AnEditedPackageScript_CompilesTheNextVersion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-profile.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_TheCapsule_PinsTheProfileOfTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_AnUnresolvedTerm_IsPinnedWithItsReasonAndNothingIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_AFirstPartyValueOutsideTheProfileBound_PinsAnUnresolvedTermAndIsNotRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_AnUnchangedCheckout_ReplaysTheRecordedProfiledCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_TheProfile_ComesFromTheReadOfPrepareAndNotFromASearchWithGit",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "PrepareEconomy_AReceiptWithAProfile_FitsTheBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_ATestsSupportKey_PinsItsSegments",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnIntegrationKey_PinsItsCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnIntegrationReportKey_PinsTheReport",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnIntegrationFailureExitCodesKey_PinsTheCodes",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_ATaskRunnerLintOrTypecheckTarget_PinsACheck",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnUnterminatedQuoteInACommand_PinsAnUnresolvedTermAndIsNotRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AContractCommandKey_PinsItResolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnEmptyStaticAnalysisBlock_PinsAnUnresolvedTermAndIsNotRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the compiler writes the profile into the settlement contract",
+          "name": "CompileCapsule_AProfileInTheInput_IsWrittenIntoTheSettlementContract",
+          "dynamic": false
+        },
+        {
+          "suite": "the compiler writes the profile into the settlement contract",
+          "name": "CompileCapsule_ACallerThatPassesNoProfile_GetsNone",
           "dynamic": false
         }
       ]

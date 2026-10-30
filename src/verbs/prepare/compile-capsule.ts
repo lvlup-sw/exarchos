@@ -25,6 +25,7 @@ import { TaskCompletedData, type DesignRevised } from '../../events/schemas.js';
 import { findActionInRegistry } from '../../registry.js';
 import { TASK_COMPLETION } from '../../runbooks/definitions.js';
 import { VERIFICATION_GATE_NAMES, type RiskTier } from '../../workflow/verification-policy.js';
+import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import {
   FACT_DECLARATION,
   TASKS_COMPLETE_CONDITION,
@@ -41,7 +42,7 @@ import type { PrepareRefusal } from './types.js';
  * The handler also keys its replay claim on this name, so a capsule of an earlier compiler is not replayed.
  * Raise the number when the compiler changes what it writes into a capsule.
  */
-export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-4';
+export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-5';
 
 /** The deviation kinds that a worker can propose when an assumption of the capsule does not hold. */
 export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption', 'missing-context'];
@@ -218,6 +219,11 @@ export interface CompileCapsuleInput {
    * A direct caller that passes none gets a capsule with no scope and no base commit, as an earlier compiler wrote it.
    */
   readonly pin?: ScopePin;
+  /**
+   * The verification profile of the checkout. The handler always passes it, so each capsule that it records pins the profile.
+   * A direct caller that passes none gets a capsule with no profile.
+   */
+  readonly verificationProfile?: VerificationProfile;
   /**
    * The capabilities that a runtime must hold to run this batch through the plane.
    * The handler derives them from the registry. An empty list attaches no profile.
@@ -422,7 +428,7 @@ function designChangeStatements(
  * The settlement contract freezes the terms of each task with its base commit, so settlement does not read them from the claim.
  *
  * The design source is a provenance source, and it is not part of the identity. It digests the bytes of a readable record, else the reference.
- * The settlement contract also pins the scope, and the patterns state where each task forks from.
+ * The settlement contract also pins the scope and the verification profile, and the patterns state where each task forks from.
  * The rationale states the design of record, and then the accepted changes that the revision rows name.
  * The digest of the revision rows is a provenance source, and a stream with no revision has no such source.
  */
@@ -543,6 +549,7 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
         ]),
       ),
       ...(pin !== undefined ? { scope: { ...pin.scope } } : {}),
+      ...(input.verificationProfile !== undefined ? { verificationProfile: input.verificationProfile } : {}),
     },
   };
 

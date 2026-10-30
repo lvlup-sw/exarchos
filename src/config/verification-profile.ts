@@ -1,5 +1,4 @@
 /**
- * RESERVED(issue: #1929, owner: exarchos, expires: 2027-01-31)
  * The resolver of the verification profile: each term that a gate runs or classifies with, read from the repository.
  * Each term takes its highest layer. The layers are a `verification:` key, a top-level key, a user toolchain, a task runner and the registry seed.
  * The seeds live in `toolchains.ts` and `task-runners.ts`, so this module holds no table of a language.

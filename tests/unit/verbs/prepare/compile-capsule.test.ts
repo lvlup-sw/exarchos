@@ -471,7 +471,7 @@ describe('delegation capsule compilation — the accepted design changes', () =>
    * The handler keys its replay claim on this name, so the raised name compiles that capsule again.
    */
   it('Compile_TheCompilerVersion_IsRaisedWithTheStatementBinding', () => {
-    expect(PREPARE_COMPILER_VERSION).toBe('exarchos-prepare-4');
+    expect(PREPARE_COMPILER_VERSION).toBe('exarchos-prepare-5');
 
     const outcome = compileDelegationCapsule(
       input({
@@ -481,7 +481,7 @@ describe('delegation capsule compilation — the accepted design changes', () =>
       }),
     );
     if (!outcome.ok) throw new Error(outcome.refusal.message);
-    expect(outcome.capsule.provenance.compilerVersion).toBe('exarchos-prepare-4');
+    expect(outcome.capsule.provenance.compilerVersion).toBe('exarchos-prepare-5');
     expect(outcome.capsule.knowledge.rationale.map((entry) => entry.statement)).toEqual([
       DESIGN_OF_RECORD,
       changeStatement(2, 'dev:one'),
