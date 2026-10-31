@@ -116,9 +116,9 @@ export const GATE_SEVERITY_REGISTER: readonly GateSeverityRegisterRow[] = Object
     action: 'check_mock_boundary',
     meaning: 'second-resolution',
     reason:
-      "The handler keeps a second, advisory resolution under review.gates['mock-boundary'], " +
-      'read from the config of the task worktree.',
-    owner: 'slice 4 (#1540, #1814)',
+      "The handler keeps a second, advisory resolution under review.gates['mock-boundary']. " +
+      'In a segment it reads the config of the checkout. On a direct call it reads the config of the worktree.',
+    owner: '#1927',
   },
 ]);
 

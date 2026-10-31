@@ -4,7 +4,8 @@
  *
  * It resolves `repoRoot`, with the worktree-aware `auto` mode. It resolves the merge base of the task base and the head once, as a SHA.
  * The changed-file diff and the revert both use that SHA.
- * It resolves the test command with `resolveScopedTestCommand` and runs it on the changed test files.
+ * It reads the test terms of the verification profile: the pinned profile of a segment, else the profile that resolves live at `repoRoot`.
+ * It runs the probe command on the changed test files, in the file form of the term.
  *
  * Evidence persistence is idempotent on the trusted operation id.
  * The result is an advisory carrier: `success: true`, with `data.passed` set from the probe verdict. A failed probe is a finding, not a tool error.
@@ -19,18 +20,24 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import {
   defaultGitExec,
+  profileOf,
+  profilePathOf,
   resolvePolicySkip,
   SKIPPED_BY_POLICY,
+  WHOLE_SUITE_MAX_OUTPUT_BYTES,
+  WHOLE_SUITE_TIMEOUT_MS,
+  withProfileRoute,
   type ClosedGateVerdict,
+  type GateAdvisorySkip,
   type GateCarrierVerdict,
+  type ProfiledGateArgs,
 } from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
-import { resolveScopedTestCommand, type ScopedTestCommand } from '../../config/test-runtime-resolver.js';
-import { splitCommand } from '../../config/tokenize-command.js';
-import { detectToolchain, resolveProbeTestGlobs, testGlobsForToolchain } from '../../config/toolchains.js';
+import { probeArgv } from '../../config/verification-profile.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
+import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import {
   runProbe,
@@ -46,7 +53,10 @@ import {
 import { assertNever } from '../../contract/error-families.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 
-export interface TestAdequacyArgs {
+/** The probe term of the verification profile. */
+type ProbeTerm = VerificationProfile['tests']['probe'];
+
+export interface TestAdequacyArgs extends ProfiledGateArgs {
   readonly featureId: string;
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
@@ -92,7 +102,7 @@ export interface TestAdequacyArgs {
   readonly projectConfig?: ResolvedProjectConfig;
   /** Git executor. Defaults to a 30s-ceiling shell-out. */
   readonly gitExec?: GitExec;
-  /** Test runner. Defaults to a shell-out of the command that `resolveScopedTestCommand` gives. */
+  /** Test runner. Defaults to a shell-out of the probe term of the profile. An injected runner replaces the check of that term. */
   readonly runTests?: TestRunFn;
 }
 
@@ -106,6 +116,20 @@ const SCOPED_TEST_MAX_OUTPUT_BYTES = 1024 * 1024;
 export interface ScopedTestRunLimits {
   readonly timeoutMs?: number;
   readonly maxOutputBytes?: number;
+}
+
+/**
+ * The limits of one run in the file form `form`: each given limit, else the default of the form for that limit.
+ * The `none` form runs a whole suite, so it takes the limits of a whole suite.
+ *
+ * @internal Exported so that a test can read the limits of each form without a run.
+ */
+export function runLimitsOf(form: ProbeTerm['files'], limits: ScopedTestRunLimits = {}): Required<ScopedTestRunLimits> {
+  const wholeSuite = form === 'none';
+  return {
+    timeoutMs: limits.timeoutMs ?? (wholeSuite ? WHOLE_SUITE_TIMEOUT_MS : SCOPED_TEST_TIMEOUT_MS),
+    maxOutputBytes: limits.maxOutputBytes ?? (wholeSuite ? WHOLE_SUITE_MAX_OUTPUT_BYTES : SCOPED_TEST_MAX_OUTPUT_BYTES),
+  };
 }
 
 /** Writes a list of exit codes as text, such as `1` or `1 or 101`. */
@@ -192,11 +216,11 @@ function removeProbeScratch(scratchDir: string): void {
 }
 
 /**
- * Builds a test runner of the probe from a resolved scoped test command.
- * `splitCommand` tokenizes the command with quoted arguments, and the runner appends the scoped test files after `--`.
- * A package script gets the files as its arguments. vitest, jest, `node --test`, and pytest accept path arguments in this form.
+ * Builds a test runner of the probe from the probe term of the profile. The term holds an argv, so the runner splits no string.
+ * `probeArgv` places the test files in the file form of the term.
+ * A term that is not resolved gives the run outcome `unresolved` with the reason of the term, and no process starts.
  *
- * Exit 0 is a green run. A test-failure exit code of the toolchain is a red run. Every other end gives no verdict, with its cause.
+ * Exit 0 is a green run. A red exit code of the term is a red run. Every other end gives no verdict, with its cause.
  * The runner uses `runCommandSync`, not `execFileSync`. On Windows, `execFile` refuses a `.cmd` shim with EINVAL.
  *
  * Each run gets a new scratch directory and the environment of {@link probeTestEnvironment}. The runner deletes the directory after the run.
@@ -204,34 +228,15 @@ function removeProbeScratch(scratchDir: string): void {
  * @internal Exported so that a test can run real processes through the runner of the probe.
  */
 export function buildScopedTestRunner(
-  scoped: ScopedTestCommand | null,
+  probe: ProbeTerm,
   repoRoot: string,
   limits: ScopedTestRunLimits = {},
 ): TestRunFn {
-  const resolvedLimits: Required<ScopedTestRunLimits> = {
-    timeoutMs: limits.timeoutMs ?? SCOPED_TEST_TIMEOUT_MS,
-    maxOutputBytes: limits.maxOutputBytes ?? SCOPED_TEST_MAX_OUTPUT_BYTES,
-  };
+  const resolvedLimits = runLimitsOf(probe.files, limits);
   return async ({ testFiles }) => {
-    if (scoped === null || scoped.command.trim().length === 0) {
-      return { kind: 'no-verdict', cause: 'no-command', detail: 'the resolver gave no scoped test command' };
-    }
-    let bin: string;
-    let rest: readonly string[];
-    try {
-      const tokens = splitCommand(scoped.command);
-      bin = tokens.cmd;
-      rest = tokens.args;
-    } catch (err) {
-      return {
-        kind: 'no-verdict',
-        cause: 'unparseable-command',
-        detail: `the command is "${scoped.command}": ${err instanceof Error ? err.message : String(err)}`,
-      };
-    }
-    if (!bin) {
-      return { kind: 'no-verdict', cause: 'no-command', detail: `the command "${scoped.command}" names no program` };
-    }
+    const { command } = probe;
+    if (command.state === 'unresolved') return { kind: 'unresolved', reason: command.reason };
+    const [bin = '', ...rest] = probeArgv(probe.files, command.argv, testFiles);
     let scratchDir: string;
     try {
       scratchDir = mkdtempSync(path.join(os.tmpdir(), PROBE_SCRATCH_PREFIX));
@@ -243,7 +248,7 @@ export function buildScopedTestRunner(
       };
     }
     try {
-      const stdout = runCommandSync(bin, [...rest, '--', ...testFiles], {
+      const stdout = runCommandSync(bin, rest, {
         cwd: repoRoot,
         env: probeTestEnvironment(process.env, scratchDir),
         timeout: resolvedLimits.timeoutMs,
@@ -253,19 +258,11 @@ export function buildScopedTestRunner(
       });
       return { kind: 'ran', result: 'green', stdout: outputText(stdout) };
     } catch (err) {
-      return failedRunOutcome(err, scoped.testFailureExitCodes, resolvedLimits);
+      return failedRunOutcome(err, probe.failureExitCodes.codes, resolvedLimits);
     } finally {
       removeProbeScratch(scratchDir);
     }
   };
-}
-
-/**
- * Builds the production test runner from the scoped test command of `repoRoot`. A `test:files` package script comes first, and the resolved test command is the fallback.
- * The toolchain registry gives the exit codes of a red run. With no known toolchain, only exit 1 is red.
- */
-export function buildDefaultRunTests(repoRoot: string, limits: ScopedTestRunLimits = {}): TestRunFn {
-  return buildScopedTestRunner(resolveScopedTestCommand(repoRoot), repoRoot, limits);
 }
 
 /** The changed files and the deleted subset of them, or the detail of a git failure. */
@@ -370,7 +367,8 @@ const BASE_MISSING_DETAIL =
  * Runs the preflight, then the kill probe inside the durable gate producer.
  * The preflight validates the dispatch context and the inputs, and resolves the worktree-aware `auto` repo root.
  * A policy skip returns a labelled advisory skip, not proof, because the ladder routed the gate out of the sequence.
- * The test globs of the toolchain add to the co-located `*.test.*` conventions and do not replace them.
+ * The profile gives the test globs, the test-support segments and the probe command. An unresolved glob term or probe command blocks.
+ * The globs of a probe whose command is unresolved name no runner, so the probe gets none, and the first run reports the term.
  */
 export async function handleTestAdequacy(
   args: TestAdequacyArgs,
@@ -436,15 +434,12 @@ export async function handleTestAdequacy(
       }
 
       const gitExec = args.gitExec ?? defaultGitExec;
-      const runTests = args.runTests ?? buildDefaultRunTests(repoRoot);
+      const { tests } = profileOf(args, repoRoot);
+      const runTests = args.runTests ?? buildScopedTestRunner(tests.probe, repoRoot);
       const mergeBase = resolveMergeBase(gitExec, repoRoot, baseBranch, args.branch);
       const changed: ChangedFilesResult = mergeBase.ok
         ? changedFilesFor(gitExec, repoRoot, mergeBase.sha, args.branch)
         : { ok: false, detail: mergeBase.detail };
-      const toolchain = detectToolchain(repoRoot);
-      const testGlobs = resolveProbeTestGlobs(
-        toolchain ? testGlobsForToolchain(toolchain.id) : null,
-      );
 
       const probe: ProbeResult = await runProbe({
         gitExec,
@@ -454,12 +449,20 @@ export async function handleTestAdequacy(
         ...(changed.ok ? { deletedFiles: changed.deletedFiles } : { diffFailed: true }),
         ...(args.riskTier ? { riskTier: args.riskTier } : {}),
         runTests,
-        testGlobs,
+        terms: {
+          globs: tests.globs,
+          supportSegments: tests.support.segments,
+          probeGlobs: tests.probe.command.state === 'resolved' ? tests.probe.globs : undefined,
+          withRoute: (reason) => withProfileRoute(args, reason),
+        },
       });
 
       return {
         success: true,
-        data: buildAdequacyCarrier(probe, args.riskTier),
+        data: buildAdequacyCarrier(probe, args.riskTier, {
+          path: profilePathOf(args, repoRoot),
+          unscoped: tests.probe.files === 'none',
+        }),
       };
     },
   );
@@ -472,6 +475,8 @@ export async function handleTestAdequacy(
 export interface AdequacyCarrier extends ClosedGateVerdict {
   readonly passed: boolean;
   readonly disposition: AdequacyDisposition;
+  /** The check with no verdict of a `degraded` carrier: the scoped run that the `none` form leaves out. */
+  readonly advisorySkips?: readonly GateAdvisorySkip[];
   readonly redObserved: boolean;
   readonly restoredClean: boolean;
   readonly probedTests: readonly string[];
@@ -484,6 +489,7 @@ export interface AdequacyCarrier extends ClosedGateVerdict {
 /**
  * The carrier verdict of a probe that blocks on an indeterminate cause.
  * A red run on the task source and a run with no verdict say nothing about the tests of the task, so they give `indeterminate`.
+ * A probe that ran no test says nothing about them too, so `unprobed-test-paths` and `profile-unresolved` give `indeterminate`.
  * The other causes keep the `fail` that they gave before the carrier stated a verdict. A change of them needs a decision of the owner.
  */
 const BLOCKED_CAUSE_VERDICT: Readonly<Record<AdequacyDiscriminant, GateCarrierVerdict>> = {
@@ -494,28 +500,47 @@ const BLOCKED_CAUSE_VERDICT: Readonly<Record<AdequacyDiscriminant, GateCarrierVe
   'base-missing': 'fail',
   'baseline-red': 'indeterminate',
   'run-no-verdict': 'indeterminate',
+  'unprobed-test-paths': 'indeterminate',
+  'profile-unresolved': 'indeterminate',
 };
+
+/** What the carrier states about the profile of a run: the words that name its source, and whether the run took no file list. */
+interface CarrierProfile {
+  readonly path: string;
+  readonly unscoped: boolean;
+}
+
+/** The advisory skip of a verdict that rests on a run of the whole command. */
+const UNSCOPED_RUN: GateAdvisorySkip = { name: 'Scoped run', cause: 'unscoped-run' };
 
 /**
  * Translates a {@link ProbeResult} into the advisory carrier with an exhaustive switch on the verdict union.
  * An `indeterminate` verdict (the probe cannot run) must be handled here, so it cannot arrive as a success.
  * An indeterminate verdict that degrades to an advisory skip carries `skipped: true` and the verdict `indeterminate`, so a reader can tell a skip from a pass.
- * The probe is one check, so each carrier states the completeness `complete`.
  * `verdictOf` uses the stamped union, or rebuilds one fail-closed, so a legacy-shaped result is judged by the union too.
  * A new verdict variant fails the build at `assertNever`.
+ *
+ * The probe is one check, so a carrier states the completeness `complete`.
+ * The exception is a conclusive verdict of a run with no file list. That verdict stands, and the carrier states `degraded` with the mark `unscoped-run`.
+ * The report names the source of the profile. A carrier of a call that read no profile has no such words.
  */
-function buildAdequacyCarrier(probe: ProbeResult, riskTier?: RiskTier): AdequacyCarrier {
+function buildAdequacyCarrier(probe: ProbeResult, riskTier?: RiskTier, profile?: CarrierProfile): AdequacyCarrier {
   const verdict = verdictOf(probe);
   const interpretation = interpretProbeVerdict(verdict, riskTier);
+  const report = [profile === undefined ? '' : `${profile.path}.`, interpretation.report ?? '']
+    .filter((part) => part.length > 0)
+    .join(' ');
+  const unscopedVerdict = profile?.unscoped === true && verdict.kind !== 'indeterminate';
 
   const base = {
     passed: interpretation.passed,
     disposition: interpretation.disposition,
-    completeness: 'complete',
+    completeness: unscopedVerdict ? 'degraded' : 'complete',
+    ...(unscopedVerdict ? { advisorySkips: [UNSCOPED_RUN] } : {}),
     redObserved: probe.redObserved === true,
     restoredClean: probe.restoredClean !== false,
     probedTests: probe.probedTests ?? [],
-    ...(interpretation.report ? { report: interpretation.report } : {}),
+    ...(report.length > 0 ? { report } : {}),
   } satisfies Omit<AdequacyCarrier, 'verdict'>;
 
   switch (verdict.kind) {

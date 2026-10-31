@@ -27,10 +27,9 @@ import { fileURLToPath } from 'node:url';
 import { EventStore } from '../../../../src/events/store.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { handleOrchestrate } from '../../../../src/verbs/composite.js';
-import { resolveScopedTestCommand } from '../../../../src/config/test-runtime-resolver.js';
+import { resolveVerificationProfile } from '../../../../src/config/verification-profile.js';
 import { PLUGIN_MODE_ENV_KEYS, STORE_LOCATION_ENV_KEYS } from '../../../../src/utils/paths.js';
 import {
-  buildDefaultRunTests,
   buildScopedTestRunner,
   PROBE_SCRATCH_PREFIX,
   type ScopedTestRunLimits,
@@ -41,6 +40,7 @@ import {
   type RunOutcome,
   type TestRunFn,
 } from '../../../../src/verbs/gates/test-adequacy.js';
+import type { VerificationProfile } from '../../../../src/workflow/verification/profile.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import { runAsTrustedCaller, seedActivePhaseAttempt, withTrustedCaller } from '../../../../tools/test-helpers/trusted-context.js';
 import { execFileAsync, isolatedSync } from '../../../../tools/test-helpers/spawn.js';
@@ -591,21 +591,46 @@ describe('check_test_adequacy acceptance (kill probe through handleOrchestrate)'
   );
 });
 
-/** The node binary of this run, quoted for `splitCommand`. */
-const NODE = JSON.stringify(process.execPath);
+/** The probe term of the verification profile. */
+type ProbeTerm = VerificationProfile['tests']['probe'];
 
 /** The test file list that each runner case passes. The runner appends it after `--`. */
 const TEST_FILES: readonly string[] = ['missing.test.ts'];
+
+/** A probe term that runs `argv` in the `after-separator` form. Only `failureExitCodes` read as a red run. */
+function probeTerm(argv: readonly string[], failureExitCodes: readonly number[] = [1]): ProbeTerm {
+  return {
+    command: { state: 'resolved', argv: [...argv], source: 'detection' },
+    files: 'after-separator',
+    failureExitCodes: { codes: [...failureExitCodes], source: 'detection' },
+  };
+}
+
+/** A probe term whose argv runs `script` with the node binary of this run. */
+function nodeProbeTerm(script: string): ProbeTerm {
+  return probeTerm([process.execPath, '-e', script]);
+}
+
+/** `probe` with its argv replaced by a run of `script` with the node binary of this run. The file form and the red codes stay. */
+function withNodeScript(probe: ProbeTerm, script: string): ProbeTerm {
+  return { ...probe, command: nodeProbeTerm(script).command };
+}
+
+/** The probe term of a fixture root, as the resolver gives it with no pin. */
+async function resolvedProbeTerm(repoRoot: string): Promise<ProbeTerm> {
+  const profile = await isolatedSync(() => resolveVerificationProfile(repoRoot));
+  return profile.tests.probe;
+}
 
 /** Runs one scoped test run of a runner. The runner spawns synchronously, so the call is isolated from the event loop of the worker. */
 function runOnce(runner: TestRunFn, repoRoot: string): Promise<RunOutcome> {
   return isolatedSync(() => runner({ repoRoot, testFiles: TEST_FILES }));
 }
 
-/** One row for each no-verdict cause: the command, the limits of the run, and a text that the detail must hold. */
+/** One row for each no-verdict cause: the argv, the limits of the run, and a text that the detail must hold. */
 interface NoVerdictRow {
   readonly cause: RunNoVerdictCause;
-  readonly command: string | null;
+  readonly argv: readonly string[];
   readonly limits?: ScopedTestRunLimits;
   readonly detail: string;
   readonly posixOnly?: boolean;
@@ -613,29 +638,27 @@ interface NoVerdictRow {
 
 /** Every no-verdict cause, each with a real process or a command that the runner cannot run. */
 const NO_VERDICT_ROWS: readonly NoVerdictRow[] = [
-  { cause: 'no-command', command: null, detail: 'no scoped test command' },
-  { cause: 'unparseable-command', command: `${NODE} -e "process.exit(0)`, detail: 'unterminated quote' },
-  { cause: 'did-not-start', command: 'exarchos-no-such-test-runner-for-this-test', detail: 'ENOENT' },
+  { cause: 'did-not-start', argv: ['exarchos-no-such-test-runner-for-this-test'], detail: 'ENOENT' },
   {
     cause: 'timeout',
-    command: `${NODE} -e "setTimeout(() => {}, 30000)"`,
+    argv: [process.execPath, '-e', 'setTimeout(() => {}, 30000)'],
     limits: { timeoutMs: 2_000 },
     detail: 'the limit is 2000 ms',
   },
   {
     cause: 'signal',
-    command: `${NODE} -e "process.kill(process.pid, 'SIGKILL')"`,
+    argv: [process.execPath, '-e', "process.kill(process.pid, 'SIGKILL')"],
     detail: 'the signal is SIGKILL',
     posixOnly: true,
   },
   {
     cause: 'overflow',
-    command: `${NODE} -e "process.stdout.write('x'.repeat(2 * 1024 * 1024))"`,
+    argv: [process.execPath, '-e', "process.stdout.write('x'.repeat(2 * 1024 * 1024))"],
     detail: 'the limit is 1048576 bytes',
   },
   {
     cause: 'unknown-exit-code',
-    command: `${NODE} -e "process.exit(2)"`,
+    argv: [process.execPath, '-e', 'process.exit(2)'],
     detail: 'the command exited 2, and only exit 1 reads as a red run',
   },
 ];
@@ -663,9 +686,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
     it.skipIf(row.posixOnly === true && process.platform === 'win32')(
       `ScopedTestRunner_${row.cause}_IsNoVerdictWithItsCause`,
       async () => {
-        const scoped = row.command === null ? null : { command: row.command, testFailureExitCodes: [1] };
-
-        const outcome = await runOnce(buildScopedTestRunner(scoped, workDir, row.limits), workDir);
+        const outcome = await runOnce(buildScopedTestRunner(probeTerm(row.argv), workDir, row.limits), workDir);
 
         expect(outcome.kind).toBe('no-verdict');
         if (outcome.kind !== 'no-verdict') return;
@@ -679,10 +700,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
   /** Each run gets a scratch directory. When the runner cannot make it, the run gives no verdict and starts no command. */
   it('ScopedTestRunner_ScratchDirectoryNotMade_IsNoVerdictAndStartsNoCommand', async () => {
     const marker = path.join(workDir, 'started-with-no-scratch').split(path.sep).join('/');
-    const runner = buildScopedTestRunner(
-      { command: `${NODE} -e "require('node:fs').writeFileSync('${marker}', '')"`, testFailureExitCodes: [1] },
-      workDir,
-    );
+    const runner = buildScopedTestRunner(nodeProbeTerm(`require('node:fs').writeFileSync('${marker}', '')`), workDir);
     let outcome: RunOutcome;
     try {
       for (const name of TEMP_VARIABLES) vi.stubEnv(name, path.join(workDir, 'missing-tmp'));
@@ -698,14 +716,14 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
   });
 
   it('ScopedTestRunner_ExitZero_IsAGreenRun', async () => {
-    const runner = buildScopedTestRunner({ command: `${NODE} -e "process.stdout.write('ok')"`, testFailureExitCodes: [1] }, workDir);
+    const runner = buildScopedTestRunner(nodeProbeTerm("process.stdout.write('ok')"), workDir);
 
     expect(await runOnce(runner, workDir)).toEqual({ kind: 'ran', result: 'green', stdout: 'ok' });
   });
 
   it('ScopedTestRunner_ExitOne_IsARedRunWithItsOutput', async () => {
     const runner = buildScopedTestRunner(
-      { command: `${NODE} -e "process.stdout.write('out'); process.stderr.write('err'); process.exit(1)"`, testFailureExitCodes: [1] },
+      nodeProbeTerm("process.stdout.write('out'); process.stderr.write('err'); process.exit(1)"),
       workDir,
     );
 
@@ -713,24 +731,18 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
   });
 
   /**
-   * `cargo test` exits 101 when a test fails. The resolver gives a Cargo project the exit codes of the rust toolchain.
+   * `cargo test` exits 101 when a test fails. The probe term of a Cargo project holds the exit codes of the rust toolchain.
    * With them, exit 101 is a red run, and exit 1 gives no verdict, with a detail that names both codes.
    */
   it('ScopedTestRunner_RustToolchain_ReadsExit101AsRedAndExit1AsNoVerdict', async () => {
     const cargoRepo = mkdtempSync(path.join(workDir, 'cargo-'));
     writeFileSync(path.join(cargoRepo, 'Cargo.toml'), '[package]\nname = "fixture"\nversion = "0.1.0"\n');
-    const resolved = await isolatedSync(() => resolveScopedTestCommand(cargoRepo));
-    expect(resolved).toEqual({ command: 'cargo test', testFailureExitCodes: [101] });
-    if (resolved === null) return;
+    const resolved = await resolvedProbeTerm(cargoRepo);
+    expect(resolved.command).toEqual({ state: 'resolved', argv: ['cargo', 'test'], source: 'detection' });
+    expect(resolved.failureExitCodes.codes).toEqual([101]);
 
-    const red = await runOnce(
-      buildScopedTestRunner({ ...resolved, command: `${NODE} -e "process.exit(101)"` }, cargoRepo),
-      cargoRepo,
-    );
-    const noVerdict = await runOnce(
-      buildScopedTestRunner({ ...resolved, command: `${NODE} -e "process.exit(1)"` }, cargoRepo),
-      cargoRepo,
-    );
+    const red = await runOnce(buildScopedTestRunner(withNodeScript(resolved, 'process.exit(101)'), cargoRepo), cargoRepo);
+    const noVerdict = await runOnce(buildScopedTestRunner(withNodeScript(resolved, 'process.exit(1)'), cargoRepo), cargoRepo);
 
     expect(red).toEqual({ kind: 'ran', result: 'red', stdout: '', stderr: '' });
     expect(noVerdict).toMatchObject({
@@ -742,23 +754,17 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
 
   /**
    * pytest exits 2 when a test module does not import, such as after the revert removes a function that the test imports.
-   * The resolver gives a Python project the exit codes 1 and 2. So exit 2 is a red run, and exit 4 gives no verdict.
+   * The probe term of a Python project holds the exit codes 1 and 2. So exit 2 is a red run, and exit 4 gives no verdict.
    */
   it('ScopedTestRunner_PythonToolchain_ReadsExit2AsRedAndExit4AsNoVerdict', async () => {
     const pythonRepo = mkdtempSync(path.join(workDir, 'python-'));
     writeFileSync(path.join(pythonRepo, 'pyproject.toml'), '[project]\nname = "fixture"\nversion = "0.0.1"\n');
-    const resolved = await isolatedSync(() => resolveScopedTestCommand(pythonRepo));
-    expect(resolved).toEqual({ command: 'pytest', testFailureExitCodes: [1, 2] });
-    if (resolved === null) return;
+    const resolved = await resolvedProbeTerm(pythonRepo);
+    expect(resolved.command).toEqual({ state: 'resolved', argv: ['pytest'], source: 'detection' });
+    expect(resolved.failureExitCodes.codes).toEqual([1, 2]);
 
-    const red = await runOnce(
-      buildScopedTestRunner({ ...resolved, command: `${NODE} -e "process.exit(2)"` }, pythonRepo),
-      pythonRepo,
-    );
-    const noVerdict = await runOnce(
-      buildScopedTestRunner({ ...resolved, command: `${NODE} -e "process.exit(4)"` }, pythonRepo),
-      pythonRepo,
-    );
+    const red = await runOnce(buildScopedTestRunner(withNodeScript(resolved, 'process.exit(2)'), pythonRepo), pythonRepo);
+    const noVerdict = await runOnce(buildScopedTestRunner(withNodeScript(resolved, 'process.exit(4)'), pythonRepo), pythonRepo);
 
     expect(red).toEqual({ kind: 'ran', result: 'red', stdout: '', stderr: '' });
     expect(noVerdict).toMatchObject({
@@ -782,7 +788,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
     writeFileSync(path.join(pythonRepo, 'pyproject.toml'), '[project]\nname = "fixture"\nversion = "0.0.1"\n');
     writeFileSync(path.join(pythonRepo, 'calc.py'), 'def add(a, b):\n    return a + b\n');
     writeFileSync(path.join(pythonRepo, 'test_calc.py'), 'from calc import add\n\n\ndef test_add():\n    assert add(1, 2) == 3\n');
-    const runner = await isolatedSync(() => buildDefaultRunTests(pythonRepo));
+    const runner = buildScopedTestRunner(await resolvedProbeTerm(pythonRepo), pythonRepo);
     const run = (): Promise<RunOutcome> => isolatedSync(() => runner({ repoRoot: pythonRepo, testFiles: ['test_calc.py'] }));
 
     const onTheTaskSource = await run();
@@ -807,7 +813,7 @@ describe('buildScopedTestRunner — each end of a real test run', () => {
       JSON.stringify({ name: 'fixture', private: true, scripts: { 'test:files': 'node run-test-files.mjs' } }),
     );
 
-    const outcome = await runOnce(await isolatedSync(() => buildDefaultRunTests(pkg)), pkg);
+    const outcome = await runOnce(buildScopedTestRunner(await resolvedProbeTerm(pkg), pkg), pkg);
 
     expect(outcome).toMatchObject({
       kind: 'no-verdict',
@@ -867,7 +873,7 @@ function readProjectMarker(pkg: string, name: string): unknown {
  * The production runner of the probe, the tracked `test:files` wrapper and the real vitest, in a scratch package.
  * The package has its own config, so no run reads the root config of this repository.
  */
-describe('buildDefaultRunTests — the test:files wrapper with a real vitest', () => {
+describe('buildScopedTestRunner — the test:files wrapper with a real vitest', () => {
   /**
    * The runner gets one file of each project. Each named file runs in the project that collects it, and a third file does not run.
    * The green source gives a green run. A reverted source makes both files red, and the run is red.
@@ -892,7 +898,7 @@ describe('buildDefaultRunTests — the test:files wrapper with a real vitest', (
         mkdirSync(path.join(pkg, 'tests', dir), { recursive: true });
         writeFileSync(path.join(pkg, 'tests', dir, `${name}.test.mjs`), scratchTestFile(name));
       }
-      const runner = await isolatedSync(() => buildDefaultRunTests(pkg));
+      const runner = buildScopedTestRunner(await resolvedProbeTerm(pkg), pkg);
       const testFiles = ['tests/scripts/scripts.test.mjs', 'tests/unit/unit.test.mjs'];
 
       const green = await isolatedSync(() => runner({ repoRoot: pkg, testFiles }));

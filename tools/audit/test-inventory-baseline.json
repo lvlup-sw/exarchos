@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1373,
-    "parsedFiles": 1328,
+    "testFiles": 1376,
+    "parsedFiles": 1331,
     "shellFiles": 45,
-    "cases": 15283,
+    "cases": 15311,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -59427,7 +59427,7 @@
           "dynamic": false
         },
         {
-          "suite": "buildDefaultRunTests — the test:files wrapper with a real vitest",
+          "suite": "buildScopedTestRunner — the test:files wrapper with a real vitest",
           "name": "DefaultRunTests_TestFilesWrapper_RunsEachNamedFileInItsProjectAndReadsItsResult",
           "dynamic": false
         }
@@ -89149,6 +89149,164 @@
         {
           "suite": "the compiler writes the profile into the settlement contract",
           "name": "CompileCapsule_ACallerThatPassesNoProfile_GetsNone",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/kill-probe-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/kill-probe-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ACSharpTestInANodeRootWithAConfiguredDotnetProbe_IsProbed",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ATypeScriptTestInAPolyglotRootWithAConfiguredDotnetProbe_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_AHelperUnderADirectoryGlobOfASecondToolchain_StaysTestSupport",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ACSharpTestInANodeRootWithTheSeededNodeProbe_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ACoLocatedTestInASolutionRoot_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ACSharpTestInASolutionRootWithAConfiguredNpmProbe_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_AConfiguredProbeInAPolyglotRootWithNoGlobs_BlocksWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ATestOfAnotherToolchainUnderASupportDirectory_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ADeletedTestOfAnotherToolchain_IsNotRevertedAndDoesNotBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "a diff that touches a test path never passes with nothing probed",
+          "name": "KillProbe_ACSharpTestThatNoGlobMatches_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "a diff that touches a test path never passes with nothing probed",
+          "name": "KillProbe_ADiffThatOnlyDeletesTests_BlocksAtEveryTier",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that the profile does not resolve blocks the probe",
+          "name": "KillProbe_AnUnresolvedGlobSet_BlocksAtEveryTierWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that the profile does not resolve blocks the probe",
+          "name": "KillProbe_AnUnresolvedProbeCommand_BlocksWithProfileUnresolvedAtTheFirstRun",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that the profile does not resolve blocks the probe",
+          "name": "KillProbe_APinnedUnresolvedTerm_NamesTheCheckoutANewPrepareAndANewBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_AConfiguredFailureExitCode_ReadsAsRed",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_TheAsArgumentsForm_PassesTheFilesWithNoSeparator",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_ConfiguredSupportSegments_KeepTheirFilesOutOfTheRevert",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_TheNoneForm_RunsTheWholeCommandAndMarksUnscopedRun",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_AnUnscopedRun_GetsTheLimitOfAWholeSuiteRun",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_ADirectCall_ResolvesTheProfileAtItsRepoRootAndSaysSo",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/mock-boundary-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/mock-boundary-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_InASegment_TakesItsSeverityFromTheCheckoutConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_APinnedCSharpGlob_ScansTheCSharpTestHunks",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_AnUnresolvedGlobSet_IsAnAdvisorySkipWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_AnUnresolvedFirstPartyTerm_IsAnAdvisorySkipWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_ADirectCall_ResolvesTheProfileAtItsRepoRootAndSaysSo",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_ADirectCallWithAConfigThatDoesNotLoad_ScansWithTheFallbackAndIsNoSkip",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/kill-probe-profile.test.ts": {
+      "file": "tests/acceptance/kill-probe-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle runs the kill probe under the pinned terms",
+          "name": "Settle_AWorktreeThatEmptiesItsTestGlobs_IsProbedWithThePinnedGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "settle runs the kill probe under the pinned terms",
+          "name": "Settle_AnUnscopedRun_GivesADegradedQualifierInTheTrace",
           "dynamic": false
         }
       ]
