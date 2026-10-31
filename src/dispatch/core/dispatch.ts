@@ -77,6 +77,7 @@ import {
 } from '../../utils/paths.js';
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
 import type { TreeObserver } from '../../utils/git-tree.js';
+import type { PinnedVerificationProfile } from '../../workflow/verification/profile.js';
 import type { ActionContract } from '../../registry/action-contract.js';
 import { evaluateDispatchAdmission, readActionContract } from './dispatch-admission.js';
 import {
@@ -147,6 +148,12 @@ export interface DispatchContext {
    * A caller over MCP or the CLI cannot set the field.
    */
   readonly treeObserver?: TreeObserver;
+  /**
+   * The verification profile that the capsule of a settlement pins, with the capsule version that pins it.
+   * `settle` sets it on the context of each segment, so each ladder gate of the segment gets it.
+   * The composition root sets no profile, and a caller over MCP or the CLI cannot set the field.
+   */
+  readonly verificationProfile?: PinnedVerificationProfile;
 }
 
 /**

@@ -403,6 +403,21 @@
           "test": "SettleConfig_AGateThatTheCheckoutDisables_IsSkippedAndTheTraceNamesDisabledByConfig",
           "keeps": "agentContext("
         }
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-profile.test.ts",
+        "default": "telemetry",
+        "owner": "@rsalus",
+        "reason": "The cases call `handleSettle` and the leaf handlers directly. Only `dispatch` reads the flag, so the flag has no effect here."
+      },
+      {
+        "file": "tests/unit/verbs/settle/settle-profile.test.ts",
+        "default": "git-tree-observer",
+        "twin": {
+          "file": "tests/acceptance/settle-config.test.ts",
+          "test": "SettleConfig_AGateThatTheCheckoutDisables_IsSkippedAndTheTraceNamesDisabledByConfig",
+          "keeps": "agentContext("
+        }
       }
     ],
     "contextSchema": {

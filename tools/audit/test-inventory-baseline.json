@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1371,
-    "parsedFiles": 1326,
+    "testFiles": 1373,
+    "parsedFiles": 1328,
     "shellFiles": 45,
-    "cases": 15275,
+    "cases": 15283,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -61302,6 +61302,22 @@
         }
       ]
     },
+    "tests/unit/verbs/ladder-gate-profile.test.ts": {
+      "file": "tests/unit/verbs/ladder-gate-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "adaptLadderGate — the verification profile",
+          "name": "LadderGateAdapter_AProfileInTheArgs_IsReplacedByTheContextProfile",
+          "dynamic": false
+        },
+        {
+          "suite": "adaptLadderGate — the verification profile",
+          "name": "LadderGateAdapter_NoContextProfile_RemovesTheProfileOfTheArgs",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/merge-transition-exclusivity.test.ts": {
       "file": "tests/unit/verbs/merge-transition-exclusivity.test.ts",
       "runner": "vitest:root",
@@ -65916,6 +65932,42 @@
         {
           "suite": "settle — the custody of a discarded attempt",
           "name": "Settle_ARedoneAttempt_LeavesOnlyAnUnreferencedBlob",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-profile.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a capsule that pins no profile",
+          "name": "Settle_ACapsuleThatPinsNoProfile_IsRefusedBeforeAnySegmentAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a capsule that pins no profile",
+          "name": "Settle_AnAcceptingDecisionOnAHeldUnprofiledBatch_IsRefusedAndNamesBothRoutes",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a capsule that pins no profile",
+          "name": "Settle_ARejectingDecisionOnAHeldUnprofiledBatch_Settles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a capsule that pins no profile",
+          "name": "Settle_AnUnscopedCapsule_GetsTheScopeRefusalBeforeTheProfileRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the pinned profile of a segment",
+          "name": "Settle_EachLeafOfTheSegment_GetsThePinnedProfile",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the pinned profile of a segment",
+          "name": "Settle_TheRequestDigestOfASegment_DoesNotCoverTheProfile",
           "dynamic": false
         }
       ]

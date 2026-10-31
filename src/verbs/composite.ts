@@ -219,8 +219,12 @@ async function resolveWorkflowTypeForGate(
  * Adapter for a verification-ladder gate. It copies `ctx.projectConfig` into the args when the args carry none.
  * The self-skip routing of the handler thus reads the dispatch config. An explicit `projectConfig` in the args, such as from a test, wins.
  * The severity wrapper of the action table applies the severity and the IMPLEMENT-phase audit mode, so this adapter does not.
+ *
+ * `verificationProfile` comes only from the context. The adapter removes a value that the args carry, so a wire caller cannot pin a profile.
+ *
+ * @internal Exported so that a test can call the adapter with a gate of its own.
  */
-function adaptLadderGate<T>(
+export function adaptLadderGate<T>(
   handler: (args: T, stateDir: string, eventStore: EventStore) => Promise<ToolResult>,
 ): ActionHandler {
   return async (args, stateDir, ctx) => {
@@ -234,7 +238,12 @@ function adaptLadderGate<T>(
       (args as { projectConfig?: unknown }).projectConfig === undefined
         ? { ...(args as Record<string, unknown>), projectConfig: ctx.projectConfig }
         : args;
-    return handler(enrichedArgs as unknown as T, stateDir, ctx.eventStore);
+    const { verificationProfile: _carried, ...unprofiledArgs } = enrichedArgs;
+    const gateArgs =
+      ctx.verificationProfile === undefined
+        ? unprofiledArgs
+        : { ...unprofiledArgs, verificationProfile: ctx.verificationProfile };
+    return handler(gateArgs as unknown as T, stateDir, ctx.eventStore);
   };
 }
 
