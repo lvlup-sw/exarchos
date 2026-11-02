@@ -18,13 +18,8 @@ import { resolveVerificationProfile } from '../../../../src/config/verification-
 import { EventStore } from '../../../../src/events/store.js';
 import type { ToolResult } from '../../../../src/format.js';
 import { handleStaticAnalysis, staticAnalysisCarrier } from '../../../../src/verbs/gates/static-analysis.js';
-import {
-  capFailDetail,
-  FAIL_DETAIL_MAX_LINES,
-  runStaticAnalysis,
-  type CommandResult,
-  type RunCommandFn,
-} from '../../../../src/verbs/pure/static-analysis.js';
+import { capFailDetail, FAIL_DETAIL_MAX_LINES } from '../../../../src/verbs/pure/fail-detail.js';
+import { runStaticAnalysis, type CommandResult, type RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 import {

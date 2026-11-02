@@ -19,6 +19,7 @@ import {
   removedPruneKnobMessage,
   unrecognizedPruneKeyMessage,
 } from './prune-removed-knobs.js';
+import { tokenizeCommand } from './tokenize-command.js';
 
 const DimensionSeverity = z.enum(['blocking', 'warning', 'disabled']);
 
@@ -285,9 +286,38 @@ const VerificationIntegrationConfig = z
   })
   .strict();
 
+/** The term of one boundary check of the profile. */
+const BOUNDARY_CHECK_TERM = PROFILE_TERMS.boundaryChecks.element;
+
+/** The maximum number of entries in `verification.boundaryChecks`. It is the bound of the boundary-check term of the profile. */
+const MAX_BOUNDARY_CHECKS = 4;
+
+/** True when `command` splits into an argv that the resolved command of a boundary check holds. */
+function fitsBoundaryCommand(command: string): boolean {
+  try {
+    const argv = [...tokenizeCommand(command)];
+    return BOUNDARY_CHECK_TERM.shape.command.safeParse({ state: 'resolved', argv, source: 'config' }).success;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One entry of `verification.boundaryChecks`. `adapter` picks the report reader, and `config` is the relative path of its config file.
+ * The boundary-check term has no unresolved state. So a command that does not fit the argv of the term does not load, and the capsule always parses.
+ */
+const VerificationBoundaryCheckConfig = z
+  .object({
+    adapter: BOUNDARY_CHECK_TERM.shape.adapter,
+    command: safeCommand.refine(fitsBoundaryCommand, { message: 'does not split into an argv of the safe-command class within the argv bound' }),
+    config: BOUNDARY_CHECK_TERM.shape.config,
+  })
+  .strict();
+
 /**
  * The `verification:` block. `policy` is the overlay of the ladder table.
- * `tests`, `staticAnalysis` and `integration` override the terms of the verification profile.
+ * `tests`, `staticAnalysis`, `integration` and `boundaryChecks` override the terms of the verification profile.
+ * `boundaryChecks` replaces every seeded adapter, and `[]` gives no boundary check.
  */
 const VerificationConfig = z
   .object({
@@ -295,6 +325,7 @@ const VerificationConfig = z
     tests: VerificationTestsConfig.optional(),
     staticAnalysis: VerificationStaticAnalysisConfig.optional(),
     integration: VerificationIntegrationConfig.optional(),
+    boundaryChecks: z.array(VerificationBoundaryCheckConfig).max(MAX_BOUNDARY_CHECKS).optional(),
   })
   .strict();
 

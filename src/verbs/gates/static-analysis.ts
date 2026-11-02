@@ -7,7 +7,7 @@ import { runCommandSync, execFailureFields, outputText } from '../../utils/proce
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { loadExarchosConfigOutcome, type ExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
-import { PROFILE_UNRESOLVED } from '../../workflow/verification/profile.js';
+import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 import { runDurableGateProducer, type GateSubjectScope } from './durable-gate-producer.js';
 import {
   profileOf,
@@ -228,12 +228,15 @@ export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolRe
   return { success: true, data: result };
 }
 
+/** The inputs of `runStaticAnalysis` that give the boundary leg its scope, or the fault that leaves it with none. */
+type BoundaryScope = Pick<StaticAnalysisInput, 'firstPartyGlobs' | 'unresolvedFirstParty' | 'projectConfigError'>;
+
 /**
  * The boundary scope of one config read: the `ownership.firstParty` globs of the `.exarchos.yml`.
  * No `.exarchos.yml`, or a file with no globs, gives no globs, and the boundary leg then uses the schema default.
  * A file that does not load or cannot be read gives the failure, and the boundary leg then fails with the file and the error.
  */
-function boundaryScopeOf(outcome: ExarchosConfigOutcome): Pick<StaticAnalysisInput, 'firstPartyGlobs' | 'projectConfigError'> {
+function boundaryScopeOf(outcome: ExarchosConfigOutcome): BoundaryScope {
   switch (outcome.kind) {
     case 'absent':
       return {};
@@ -242,6 +245,18 @@ function boundaryScopeOf(outcome: ExarchosConfigOutcome): Pick<StaticAnalysisInp
     case 'invalid':
       return { projectConfigError: { source: outcome.source, message: outcome.message } };
   }
+}
+
+/**
+ * The boundary scope under a pin. The scope comes from the pinned `firstParty` term, so a worktree cannot change what scans it.
+ * The worktree config gives only a load failure. A task that breaks its `.exarchos.yml` fails the boundary leg, as on a direct call, and a loaded file gives nothing.
+ */
+function pinnedBoundaryScope(firstParty: VerificationProfile['firstParty'], outcome: ExarchosConfigOutcome): BoundaryScope {
+  const { projectConfigError } = boundaryScopeOf(outcome);
+  return {
+    projectConfigError,
+    ...(firstParty.state === 'resolved' ? { firstPartyGlobs: firstParty.globs } : { unresolvedFirstParty: firstParty.reason }),
+  };
 }
 
 /**
@@ -265,19 +280,22 @@ function repoRootMissingRun(taskId: string): StaticAnalysisRun {
 }
 
 /**
- * Runs the checks of the profile at `repoRoot`. The worktree config gives the boundary scope, and a direct call resolves the profile with the same read.
+ * Runs the checks and the boundary checks of the profile at `repoRoot`. A direct call resolves the profile with one read of the worktree config, and that read gives the boundary scope.
+ * Under a pin, the pinned term gives the scope, and the read gives only a load failure.
  * Each term goes to `runStaticAnalysis` resolved or not, and that function decides the skip.
  */
 function runProfiledAnalysis(args: StaticAnalysisArgs, repoRoot: string): StaticAnalysisRun {
   const outcome = loadExarchosConfigOutcome(repoRoot);
+  const profile = profileOf(args, repoRoot, { loadConfig: () => outcome });
   return runStaticAnalysis({
     repoRoot,
     skipLint: args.skipLint,
     skipTypecheck: args.skipTypecheck,
-    checks: profileOf(args, repoRoot, { loadConfig: () => outcome }).staticAnalysis,
+    checks: profile.staticAnalysis,
+    boundaryChecks: profile.boundaryChecks,
     profilePath: profilePathOf(args, repoRoot),
     withRoute: (reason) => withProfileRoute(args, reason),
-    ...boundaryScopeOf(outcome),
+    ...(args.verificationProfile === undefined ? boundaryScopeOf(outcome) : pinnedBoundaryScope(profile.firstParty, outcome)),
     runCommand: execCommandRunner,
   });
 }

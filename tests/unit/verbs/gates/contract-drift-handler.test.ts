@@ -31,7 +31,8 @@ const gitMergeBase: GitExec = (_repoRoot, args) =>
 function cmdRunner(
   outcomes: { codegen?: number; typecheck?: number; diff?: { code: number; out: string } } = {},
 ): CommandRunFn {
-  return async ({ command }) => {
+  return async ({ argv }) => {
+    const command = argv.join(' ');
     if (command.includes('codegen')) return { exitCode: outcomes.codegen ?? 0, stdout: '' };
     if (command.includes('diff')) {
       return { exitCode: outcomes.diff?.code ?? 0, stdout: outcomes.diff?.out ?? '' };

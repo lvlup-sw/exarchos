@@ -2,27 +2,6 @@
   "$comment": "The language-specific literals that the gate sources hold today. tests/architecture/gates-carry-no-language-code.test.ts measures the live hits, and the sum of the counts of each file and rule must equal them. A change that removes a hit removes or lowers its row in the same commit. A false positive is fixed in the matcher with a clean-twin line, never with a row. The owner is the issue that removes the row, or self-scan for a scan of the Exarchos source itself.",
   "rows": [
     {
-      "file": "src/verbs/pure/static-analysis.ts",
-      "rule": "R1",
-      "count": 8,
-      "owner": "#1540",
-      "reason": "The boundary legs name depcruise and semgrep, and the taint leg starts its report text with semgrep. The adapters move into the registry as seeds that verification.boundaryChecks overrides."
-    },
-    {
-      "file": "src/verbs/pure/static-analysis.ts",
-      "rule": "R2",
-      "count": 5,
-      "owner": "#1540",
-      "reason": "The boundary legs hold the flags of their adapters: --validate and --output-type of depcruise, and --error, --quiet and --config of semgrep. The adapters move into the registry."
-    },
-    {
-      "file": "src/verbs/pure/static-analysis.ts",
-      "rule": "R3",
-      "count": 3,
-      "owner": "#1540",
-      "reason": "The dependency-cruiser leg names its config files .dependency-cruiser.cjs, .js and .mjs. The adapters move into the registry."
-    },
-    {
       "file": "src/verbs/gates/spec-coverage-check.ts",
       "rule": "R1",
       "count": 2,

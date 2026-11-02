@@ -7,6 +7,7 @@
  * Each term stays within the bound of its schema. A value outside its bound gives an unresolved term with a reason.
  */
 
+import { boundaryChecksAt } from './boundary-adapters.js';
 import { DEFAULT_FIRST_PARTY_GLOBS } from './exarchos-config-schema.js';
 import { loadExarchosConfigOutcome, type ExarchosConfigOutcome } from './load-exarchos-config.js';
 import { resolveTaskRunner, taskRunnerProbeRow } from './task-runners.js';
@@ -213,10 +214,7 @@ function contextOf(checkout: string, config: FullExarchosConfig | undefined): Pr
   return { checkout, config, matched, builtins, userMatch, polyglot: matched.length > 1 };
 }
 
-/**
- * Builds each term of the profile from the context and the commands of the resolvers below.
- * The profile pins no boundary check yet. The boundary adapters still live in the static-analysis gate.
- */
+/** Builds each term of the profile from the context and the commands of the resolvers below. */
 function profileOf(
   ctx: ProfileContext,
   runtime: ResolvedVerificationRuntime,
@@ -232,7 +230,7 @@ function profileOf(
     staticAnalysis: staticAnalysisTerm(ctx),
     integration: integrationTerm(ctx, runtime),
     contract: contractTerm(ctx, runtime),
-    boundaryChecks: [],
+    boundaryChecks: boundaryChecksTerm(ctx),
     firstParty: firstPartyTerm(ctx),
   };
 }
@@ -240,6 +238,7 @@ function profileOf(
 /**
  * The profile of a config that does not load. Each command term and each glob term is unresolved, and each reason holds the load error.
  * The test-support segments and the file forms keep their seeds, because they have no unresolved state.
+ * The boundary checks keep their seeds too, so the cruiser leg still runs, and static analysis fails it with the load error.
  */
 function withLoadError(profile: VerificationProfile, message: string): VerificationProfile {
   const term = (path: string): UnresolvedTerm =>
@@ -567,6 +566,21 @@ function contractTerm(ctx: ProfileContext, runtime: ResolvedVerificationRuntime)
       ? unresolved('contract.typecheck', 'no typecheck command resolves. Set typecheck: in .exarchos.yml.')
       : commandTerm('contract.typecheck', fieldOrigin(ctx, 'typecheck', runtime.typecheck));
   return { codegen: leg('codegen'), diff: leg('diff'), typecheck };
+}
+
+/**
+ * The boundary-check term. `verification.boundaryChecks` replaces every seed, and `[]` gives no check.
+ * Else the term holds one seed for each adapter whose config the root holds.
+ * A boundary check has no unresolved state, so the key refuses a command that does not fit its argv. Each entry that loads splits here.
+ */
+function boundaryChecksTerm(ctx: ProfileContext): VerificationProfile['boundaryChecks'] {
+  const configured = ctx.config?.verification?.boundaryChecks;
+  if (configured === undefined) return boundaryChecksAt(ctx.checkout);
+  return configured.map(({ adapter, command, config }) => ({
+    adapter,
+    command: { state: 'resolved', argv: [...tokenizeCommand(command)], source: 'config' },
+    config,
+  }));
 }
 
 /**

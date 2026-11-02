@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1379,
-    "parsedFiles": 1334,
+    "testFiles": 1384,
+    "parsedFiles": 1339,
     "shellFiles": 45,
-    "cases": 15333,
+    "cases": 15371,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -89435,6 +89435,226 @@
         {
           "suite": "settle — a pinned unresolved check",
           "name": "Settle_APinnedUnresolvedCheck_NamesTheCheckoutANewPrepareAndANewBatch",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/contract-drift-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/contract-drift-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "handleContractDrift — the contract term of the profile",
+          "name": "ContractDrift_InASegment_RunsThePinnedContractCommands",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — the contract term of the profile",
+          "name": "ContractDrift_NoContractTool_SkipsWithProfileUnresolvedAndAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — the contract term of the profile",
+          "name": "ContractDrift_ADirectCallWithNoContractTool_NamesItsRootAndARerun",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — the contract term of the profile",
+          "name": "ContractDrift_AnUnresolvedTypecheck_SkipsOnlyThatLeg",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/static-analysis-boundary-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/static-analysis-boundary-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_InASegment_UsesThePinnedFirstPartyGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_InASegment_AWorktreeConfigThatDoesNotLoad_FailsTheBoundaryLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_AWorktreeThatDeletesThePinnedCruiserConfig_FailsTheLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_AWorktreeThatDeletesThePinnedTaintRuleset_FailsTheLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_InASegment_AnUnresolvedFirstPartyTerm_FailsTheCruiserLegAndNamesTheKey",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_AConfiguredBoundaryCheck_RunsThePinnedArgvWithTheScanRoots",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_AConfiguredTaintCheck_RunsThePinnedArgvWithTheCoreSources",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_APinWithNoBoundaryCheck_RunsNoLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_TheBoundaryChecks_RunInListOrderWithTheLabelOfEachAdapter",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_ADirectCall_DropsAGlobThatLeavesTheRootAndNamesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary adapters — the report reader of a check",
+          "name": "BoundaryAdapters_TheCruiseReport_GivesTheVerdictNotTheExitCode",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary adapters — the report reader of a check",
+          "name": "BoundaryAdapters_ACommandWithNoReport_FailsAndTheRerunNamesItsArgv",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary adapters — the report reader of a check",
+          "name": "BoundaryAdapters_AnotherProgram_RunsAsItsArgvNamesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary adapters — the report reader of a check",
+          "name": "BoundaryAdapters_TheTaintRerun_NamesItsArgvWithoutTheQuietFlag",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-unresolved-qualifier.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-unresolved-qualifier.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a contract drift skip with no tool",
+          "name": "Settle_ANoContractToolSkip_GivesASkippedQualifierWithProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/boundary-checks-profile.test.ts": {
+      "file": "tests/unit/config/boundary-checks-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_ACruiserConfigAtTheCheckout_PinsTheAdapter",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_BothAdapterConfigsAtTheCheckout_PinTheCruiserThenTheTaintCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_ARootWithNoAdapterConfig_GivesNoBoundaryCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_ABoundaryChecksBlock_ReplacesTheSeededAdapters",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_AnEmptyBoundaryChecksBlock_GivesNoBoundaryCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_AConfigThatDoesNotLoad_KeepsTheSeededAdapters",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_ABoundaryChecksBlockAtItsBound_GivesAProfileThatParses",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryChecksBlock_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckWithAnUnknownAdapter_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckWithAMissingOrUnknownField_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckListPastItsBound_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckConfigThatLeavesTheRoot_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckCommandThatDoesNotFitItsTerm_IsRefusedAtItsPath",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/pure/fail-detail.test.ts": {
+      "file": "tests/unit/verbs/pure/fail-detail.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_ADottedWordInAMessage_IsNotAFile",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_ACodeLineThatOpensWithADottedWord_IsNotAFile",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_ABareNameThatOpensTheLineBeforeALocation_IsAFile",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_APathAfterADottedWord_IsTheFileOfTheLine",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_ABackslashPath_IsAFile",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_AVersion_IsNotAFile",
           "dynamic": false
         }
       ]

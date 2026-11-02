@@ -2,7 +2,7 @@
  * The shared verification profile fake. It is the profile of a Node fixture with the co-located test globs and `npm run test:files`.
  * It is equal to the output of the resolver for a Node root with the `test:files`, `test:run`, `lint` and `typecheck` scripts.
  * A test that calls a gate in a segment, or a gate at a root with no test command, pins this profile.
- * The other fakes each give one changed term: C# globs, polyglot globs, a probe of the `none` form, the static-analysis checks, or an unresolved term.
+ * The other fakes each give one changed term, such as C# globs, a probe of the `none` form, the contract legs or an unresolved term.
  * The fake imports only types, so it adds no runtime edge into the source.
  */
 
@@ -27,6 +27,16 @@ const TEST_SUPPORT_SEGMENTS: readonly string[] = [
 
 /** The test terms of the profile. */
 type TestTerms = VerificationProfile['tests'];
+
+/** One boundary check of the profile. */
+type BoundaryCheck = VerificationProfile['boundaryChecks'][number];
+
+/** The argv of each contract leg that resolves. A leg with no argv is unresolved. */
+interface ContractLegs {
+  readonly codegen?: readonly string[];
+  readonly diff?: readonly string[];
+  readonly typecheck?: readonly string[];
+}
 
 /** The reason of the unresolved glob term of {@link pinnedUnresolvedGlobProfile}. It is the reason of a configured empty list. */
 export const UNRESOLVED_GLOBS_REASON =
@@ -121,6 +131,44 @@ export function staticAnalysisTerm(checks: Readonly<Record<string, readonly stri
     })),
     source: 'config',
   };
+}
+
+/** A contract term with the given legs. Each other leg is unresolved, with the reason of a root that has no contract tool. */
+export function contractTerm(legs: ContractLegs): VerificationProfile['contract'] {
+  const leg = (name: keyof ContractLegs): VerificationProfile['contract'][keyof ContractLegs] => {
+    const argv = legs[name];
+    return argv === undefined
+      ? { state: 'unresolved', reason: `contract.${name}: no contract command resolves. Set contract.${name} in .exarchos.yml.` }
+      : { state: 'resolved', argv: [...argv], source: 'config' };
+  };
+  return { codegen: leg('codegen'), diff: leg('diff'), typecheck: leg('typecheck') };
+}
+
+/** The dependency-cruiser check of a root with `config`: the seed argv, the config and the adapter. */
+export function cruiserCheck(config = '.dependency-cruiser.cjs'): BoundaryCheck {
+  return {
+    adapter: 'dependency-cruiser',
+    command: { state: 'resolved', argv: ['depcruise', '--validate', config, '--output-type', 'json'], source: 'detection' },
+    config,
+  };
+}
+
+/** The semgrep-taint check of a root with `config`: the seed argv, the config and the adapter. */
+export function taintCheck(config = '.semgrep/no-raw-io-into-core.yml'): BoundaryCheck {
+  return {
+    adapter: 'semgrep-taint',
+    command: { state: 'resolved', argv: ['semgrep', '--error', '--quiet', '--config', config], source: 'detection' },
+    config,
+  };
+}
+
+/** The Node fixture profile with the given boundary checks. A given `firstParty` term replaces the term of the fixture. */
+export function boundaryProfile(
+  boundaryChecks: readonly BoundaryCheck[],
+  firstParty?: VerificationProfile['firstParty'],
+): VerificationProfile {
+  const profile = nodeTestProfile();
+  return { ...profile, boundaryChecks: [...boundaryChecks], firstParty: firstParty ?? profile.firstParty };
 }
 
 /** The profile of a Node fixture whose `lint` check is unresolved. Its `typecheck` check stays resolved. */

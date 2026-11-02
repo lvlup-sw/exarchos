@@ -1,7 +1,8 @@
 // Tests for the static-analysis gate: the `handleStaticAnalysis` handler, the boundary lint and taint
 // legs, and the skip-degrade rule of `runStaticAnalysis`.
 // The module mock replaces only `runStaticAnalysis`, so the handler tests inject canned results.
-// The other exports, `runBoundaryLint` included, pass through `importActual` and run for real.
+// The other exports pass through `importActual` and run for real. The boundary legs live in
+// `src/config/boundary-adapters.ts`, which the mock does not touch.
 // The durable gate producer is a stub that calls only the provider. `ladder-gate-evidence.test.ts`
 // tests the durable evidence against the real runner.
 
@@ -17,11 +18,13 @@ import {
   runBoundaryLint,
   runRawIoTaint,
   type BoundaryLintResult,
-  type CommandResult,
   type RawIoTaintResult,
-  type RunCommandFn,
-  type StaticAnalysisInput,
-  type StaticAnalysisResult,
+} from '../../../../src/config/boundary-adapters.js';
+import type {
+  CommandResult,
+  RunCommandFn,
+  StaticAnalysisInput,
+  StaticAnalysisResult,
 } from '../../../../src/verbs/pure/static-analysis.js';
 
 /**

@@ -44,10 +44,7 @@ const GATE_DIRECTORIES: readonly string[] = ['src/verbs/gates', 'src/verbs/pure'
 /** A scanned file can import a module under this root. The guard scans that module and follows no import out of it. */
 const CONFIG_ROOT = 'src/config/';
 
-/**
- * The registry: the allowed home of the facts of each language. The guard never scans these modules.
- * The resolver module and the boundary-adapter module do not exist yet. Later changes add them.
- */
+/** The registry: the allowed home of the facts of each language. The guard never scans these modules. */
 const REGISTRY_MODULES: ReadonlySet<string> = new Set([
   'src/config/toolchains.ts',
   'src/config/task-runners.ts',

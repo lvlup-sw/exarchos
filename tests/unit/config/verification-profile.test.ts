@@ -93,6 +93,17 @@ describe('the layers of the verification profile', () => {
     expect(profile.contract.diff.state).toBe('unresolved');
     expect(argvOf(profile.contract.typecheck)).toEqual(['npm', 'run', 'typecheck']);
     expect(profile.firstParty).toEqual({ state: 'resolved', globs: ['src/**', 'servers/*/src/**'], source: 'detection' });
+    expect(profile.boundaryChecks).toEqual([
+      {
+        adapter: 'dependency-cruiser',
+        command: {
+          state: 'resolved',
+          argv: ['depcruise', '--validate', '.dependency-cruiser.cjs', '--output-type', 'json'],
+          source: 'detection',
+        },
+        config: '.dependency-cruiser.cjs',
+      },
+    ]);
     expect({ ...profile, boundaryChecks: [] }).toEqual(nodeTestProfile());
   });
 

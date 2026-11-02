@@ -2,12 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
-import {
-  runStaticAnalysis,
-  BOUNDARY_NO_VERDICT_CAUSES,
-  FAIL_DETAIL_MAX_LINES,
-  FAIL_DETAIL_MAX_FILES,
-} from '../../../../src/verbs/pure/static-analysis.js';
+import { FAIL_DETAIL_MAX_FILES, FAIL_DETAIL_MAX_LINES } from '../../../../src/verbs/pure/fail-detail.js';
+import { runStaticAnalysis, BOUNDARY_NO_VERDICT_CAUSES } from '../../../../src/verbs/pure/static-analysis.js';
 import type { CommandResult, StaticAnalysisResult, RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
