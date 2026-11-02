@@ -1,13 +1,22 @@
-// The gate runs the suite through `npm run test:run -- --reporter=json`. npm
-// writes its preamble to the same stream as the vitest JSON reporter, so the
-// parser must find the report inside runner noise. These tests pin that at the
-// pure parser and through a real spawned process.
+/**
+ * A term with the `vitest-json` report reads the report from the stdout of the run.
+ * npm writes its preamble to the same stream as the reporter, so the parser must find the report inside runner noise.
+ * These tests pin that at the pure parser and through a real spawned process.
+ */
 
 import { describe, it, expect, vi } from 'vitest';
 
+import { parseVitestResult } from '../../../../src/config/suite-reports.js';
 import { execCommandRunner } from '../../../../src/verbs/gates/check-integration-suite.js';
-import { parseVitestResult, runIntegrationSuite } from '../../../../src/verbs/pure/integration-suite.js';
+import { runIntegrationSuite } from '../../../../src/verbs/pure/integration-suite.js';
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
+import { integrationTerm } from '../../../helpers/verification-profile.js';
+
+/** The argv of the term. The runner of each real-process case replays a run, so it starts no such command. */
+const SUITE_ARGV = ['npm', 'run', 'test:run'];
+
+/** The term of each real-process case. */
+const VITEST_JSON_TERM = integrationTerm(SUITE_ARGV, { report: 'vitest-json' });
 
 /** A green vitest run: no failed tests, no failed suites. */
 const GREEN_REPORT = JSON.stringify({
@@ -112,11 +121,11 @@ describe('runIntegrationSuite through a real spawned runner (WFQ-003)', () => {
     const result = runIntegrationSuite({
       repoRoot: process.cwd(),
       runCommand,
-      testScript: 'test:run',
+      integration: VITEST_JSON_TERM,
     });
 
     expect(runCommand).toHaveBeenCalledOnce();
-    expect(runCommand).toHaveBeenCalledWith('npm', ['run', 'test:run', '--', '--reporter=json'], { cwd: process.cwd() });
+    expect(runCommand).toHaveBeenCalledWith('npm', ['run', 'test:run'], { cwd: process.cwd() });
 
     expect(result.parseError).toBe(false);
     expect(result.parseFailureKind).toBeUndefined();
@@ -139,11 +148,11 @@ describe('runIntegrationSuite through a real spawned runner (WFQ-003)', () => {
     const result = runIntegrationSuite({
       repoRoot: process.cwd(),
       runCommand,
-      testScript: 'test:run',
+      integration: VITEST_JSON_TERM,
     });
 
     expect(runCommand).toHaveBeenCalledOnce();
-    expect(runCommand).toHaveBeenCalledWith('npm', ['run', 'test:run', '--', '--reporter=json'], { cwd: process.cwd() });
+    expect(runCommand).toHaveBeenCalledWith('npm', ['run', 'test:run'], { cwd: process.cwd() });
 
     expect(result.parseError).toBe(false);
     expect(result.passed).toBe(true);

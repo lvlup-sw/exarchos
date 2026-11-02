@@ -313,7 +313,7 @@ describe('delegation capsule compilation', () => {
     );
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
-      'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary.',
+      'A task at riskTier=high, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_integration_suite, check_contract_drift, check_mock_boundary.',
       'A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
       `Each task forks from feature/prepare-unit at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
     ]);
@@ -817,10 +817,10 @@ function designSourcesOf(outcome: ReturnType<typeof compileDelegationCapsule>): 
  */
 describe('delegation capsule compilation — the segment gates and the design source', () => {
   /**
-   * The built-in policy of a high-tier task names the integration suite, and the settlement segment never runs it.
-   * The pattern names the gates of the segment only.
+   * The built-in policy of a high-tier task names the integration suite, and the settlement segment runs it.
+   * The pattern names the gates of the segment only, so it names the suite.
    */
-  it('CompileCapsule_AHighTierPattern_NamesNoIntegrationSuite', () => {
+  it('CompileCapsule_AHighTierPattern_NamesTheIntegrationSuite', () => {
     const outcome = compileDelegationCapsule(
       input({
         batch: batchOf([{ id: 'T-1', title: 'high', status: 'pending', blockedBy: [], riskTier: 'high', boundaryTouching: false }]),
@@ -829,7 +829,7 @@ describe('delegation capsule compilation — the segment gates and the design so
     if (!outcome.ok) throw new Error(outcome.refusal.message);
     expect(resolveVerificationPolicy('high', false).sequence).toContain('check_integration_suite');
     expect(outcome.capsule.knowledge.patterns.map((p) => p.statement)).toEqual([
-      'A task at riskTier=high, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy.',
+      'A task at riskTier=high, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy, check_integration_suite.',
       `Each task forks from feature/prepare-unit at ${BASE_COMMIT}. Settlement refuses a worktree that does not hold ${BASE_COMMIT}.`,
     ]);
   });

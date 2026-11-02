@@ -82,13 +82,14 @@ describe('Runbook definitions', () => {
     }
   });
 
-  it('TaskCompletion_HasFiveSteps_TaskCompleteTerminal', () => {
-    expect(TASK_COMPLETION.steps).toHaveLength(5);
+  it('TaskCompletion_HasSixSteps_TaskCompleteTerminal', () => {
+    expect(TASK_COMPLETION.steps).toHaveLength(6);
     expect(TASK_COMPLETION.steps[0].action).toBe('check_test_adequacy');
     expect(TASK_COMPLETION.steps[1].action).toBe('check_contract_drift');
     expect(TASK_COMPLETION.steps[2].action).toBe('check_mock_boundary');
-    expect(TASK_COMPLETION.steps[3].action).toBe('check_static_analysis');
-    expect(TASK_COMPLETION.steps[4].action).toBe('task_complete');
+    expect(TASK_COMPLETION.steps[3].action).toBe('check_integration_suite');
+    expect(TASK_COMPLETION.steps[4].action).toBe('check_static_analysis');
+    expect(TASK_COMPLETION.steps[5].action).toBe('task_complete');
     expect(TASK_COMPLETION.phase).toBe('delegate');
   });
 
@@ -387,12 +388,6 @@ describe('Runbook definitions', () => {
    * from a task or an agent, so the step binds `<repoRoot>` for the orchestrator to fill.
    */
   it('DelegateRunbook_CumulativeIntegrationSuite_RunsOnceAtWaveBoundary', () => {
-    const perTaskActions = TASK_COMPLETION.steps.map((s) => s.action);
-    expect(
-      perTaskActions,
-      'the cumulative suite must not run inside the per-task loop',
-    ).not.toContain('check_integration_suite');
-
     const waveActions = AGENT_TEAMS_SAGA.steps.map((s) => s.action);
     const integrationIndices = waveActions
       .map((action, index) => (action === 'check_integration_suite' ? index : -1))

@@ -31,6 +31,9 @@ type TestTerms = VerificationProfile['tests'];
 /** One boundary check of the profile. */
 type BoundaryCheck = VerificationProfile['boundaryChecks'][number];
 
+/** The integration term of the profile. */
+type IntegrationTerm = VerificationProfile['integration'];
+
 /** The argv of each contract leg that resolves. A leg with no argv is unresolved. */
 interface ContractLegs {
   readonly codegen?: readonly string[];
@@ -49,6 +52,10 @@ export const UNRESOLVED_FIRST_PARTY_REASON =
 /** The reason of the unresolved check of {@link unresolvedLintProfile}. It is the reason of a Node seed with no `lint` script. */
 export const UNRESOLVED_LINT_REASON =
   "staticAnalysis.lint: no 'lint' script in package.json. Add the script, or set verification.staticAnalysis.lint or the top-level lint: key.";
+
+/** The reason of the term of {@link unresolvedIntegrationTerm}. It is the reason of a root with no test command. */
+export const UNRESOLVED_INTEGRATION_REASON =
+  'integration.command: no test command resolves at the checkout. Set verification.integration.command or test:.';
 
 /** Returns a new profile of a Node fixture on each call, so a test can change its copy. */
 export function nodeTestProfile(): VerificationProfile {
@@ -94,6 +101,35 @@ export function nodeTestProfile(): VerificationProfile {
 export function pinnedTestProfile(capsuleVersion: number, tests: Partial<TestTerms> = {}): PinnedVerificationProfile {
   const profile = nodeTestProfile();
   return { capsuleVersion, profile: { ...profile, tests: { ...profile.tests, ...tests } } };
+}
+
+/** A configured integration term that runs `argv`, with the `exit-code` report and the red code 1. Each given field replaces the field of the term. */
+export function integrationTerm(argv: readonly string[], fields: Partial<Omit<IntegrationTerm, 'command'>> = {}): IntegrationTerm {
+  return {
+    command: { state: 'resolved', argv: [...argv], source: 'config' },
+    report: 'exit-code',
+    failureExitCodes: { codes: [1], source: 'config' },
+    ...fields,
+  };
+}
+
+/** An integration term that is not resolved. */
+export function unresolvedIntegrationTerm(): IntegrationTerm {
+  return {
+    command: { state: 'unresolved', reason: UNRESOLVED_INTEGRATION_REASON },
+    report: 'exit-code',
+    failureExitCodes: { codes: [1], source: 'detection' },
+  };
+}
+
+/** The Node fixture profile with the given integration term. */
+export function integrationProfile(integration: IntegrationTerm): VerificationProfile {
+  return { ...nodeTestProfile(), integration };
+}
+
+/** The Node fixture profile with the given integration term, as capsule `capsuleVersion` pins it. */
+export function pinnedIntegrationProfile(capsuleVersion: number, integration: IntegrationTerm): PinnedVerificationProfile {
+  return { capsuleVersion, profile: integrationProfile(integration) };
 }
 
 /** A configured glob term that names only C# tests. */

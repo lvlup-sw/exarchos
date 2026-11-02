@@ -74,6 +74,11 @@ vi.mock('../../../../src/verbs/gates/mock-boundary-handler.js', async (importOri
   return { ...actual, handleMockBoundary: gateCalls.recording('check_mock_boundary', actual.handleMockBoundary) };
 });
 
+vi.mock('../../../../src/verbs/gates/check-integration-suite.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../../src/verbs/gates/check-integration-suite.js')>();
+  return { ...actual, handleCheckIntegrationSuite: gateCalls.recording('check_integration_suite', actual.handleCheckIntegrationSuite) };
+});
+
 vi.mock('../../../../src/verbs/gates/static-analysis.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../src/verbs/gates/static-analysis.js')>();
   return { ...actual, handleStaticAnalysis: gateCalls.recording('check_static_analysis', actual.handleStaticAnalysis) };
@@ -96,7 +101,13 @@ const WORKTREE = '/nonexistent-settle-profile-worktree';
 /** The capabilities that the composed leaves declare. The gate runner also needs a trusted caller. */
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
 /** The gates that the mocks of this file wrap, in the order of the shipped runbook. */
-const WRAPPED_GATES = ['check_test_adequacy', 'check_contract_drift', 'check_mock_boundary', 'check_static_analysis'];
+const WRAPPED_GATES = [
+  'check_test_adequacy',
+  'check_contract_drift',
+  'check_mock_boundary',
+  'check_integration_suite',
+  'check_static_analysis',
+];
 /** The deviation of each held batch. The capsule lists its kind as material, so the batch waits on a decision. */
 const MATERIAL: ProposedDeviation = { deviationKind: 'invalidated-assumption', statement: 'the store was not SQLite' };
 /** The bytes of a config edit after prepare. A comment loads as an empty config. */

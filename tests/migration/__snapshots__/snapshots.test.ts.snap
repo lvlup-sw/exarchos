@@ -237,6 +237,7 @@ and hides which run is authoritative when the two disagree.
 |-------|-------|---------------|---------------|
 | "This task's behavior is covered and its tests can fail" | **Settlement** | \`settle\` runs the task-completion runbook per accepted task, in-process, against the worktree the claim names, under the tier the capsule froze | The implementer runs its own tests in its worktree and reports; it runs no Exarchos gate. The lead **reads the findings**; it does not re-run the gates |
 | "This task's diff is clean (types, lint, contracts, mocks)" | **Settlement** | Same composed segment | Same |
+| "This high-tier task did not break the suite" | **Settlement** | Same composed segment: its \`check_integration_suite\` leaf runs the suite that the capsule pins | Same |
 | "The wave as a whole did not cascade" | Lead | **Once** at the wave boundary — \`check_integration_suite\` after every wave merge lands | Implementers never run the cumulative suite |
 | "The wave is complete" | Settlement + the transition guard | A settled batch leaves every accepted task complete; \`all-tasks-complete\` admits the transition | No separate completion check |
 
@@ -246,10 +247,12 @@ Two consequences bind the runbooks:
    settlement runs that runbook: every blocking gate has passed before a task
    is recorded complete, whoever drove it.
    \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\` lists the steps settlement composes; you do not run them.
-2. \`check_integration_suite\` is a **wave-boundary backstop**, not a per-task
-   gate. It runs exactly once per wave, after the merges, matching its own
-   action description. Per-task cascade risk is covered by the task's own
-   scoped gates.
+2. \`check_integration_suite\` is a **leaf of the high-tier segment** and a
+   **wave-boundary backstop**. The leaf runs the pinned suite after mock
+   boundary and before static analysis, and the policy skips it at low and
+   medium tier. The backstop stays: it runs exactly once per wave, after the
+   merges, matching its own action description. At a lower tier, per-task
+   cascade risk is covered by the task's own scoped gates.
 
 The lead's only independent verification is a **spot check** — reading the
 settlement's findings and the recorded evidence and, at most, sampling one
@@ -1503,6 +1506,7 @@ and hides which run is authoritative when the two disagree.
 |-------|-------|---------------|---------------|
 | "This task's behavior is covered and its tests can fail" | **Settlement** | \`settle\` runs the task-completion runbook per accepted task, in-process, against the worktree the claim names, under the tier the capsule froze | The implementer runs its own tests in its worktree and reports; it runs no Exarchos gate. The lead **reads the findings**; it does not re-run the gates |
 | "This task's diff is clean (types, lint, contracts, mocks)" | **Settlement** | Same composed segment | Same |
+| "This high-tier task did not break the suite" | **Settlement** | Same composed segment: its \`check_integration_suite\` leaf runs the suite that the capsule pins | Same |
 | "The wave as a whole did not cascade" | Lead | **Once** at the wave boundary — \`check_integration_suite\` after every wave merge lands | Implementers never run the cumulative suite |
 | "The wave is complete" | Settlement + the transition guard | A settled batch leaves every accepted task complete; \`all-tasks-complete\` admits the transition | No separate completion check |
 
@@ -1512,10 +1516,12 @@ Two consequences bind the runbooks:
    settlement runs that runbook: every blocking gate has passed before a task
    is recorded complete, whoever drove it.
    \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\` lists the steps settlement composes; you do not run them.
-2. \`check_integration_suite\` is a **wave-boundary backstop**, not a per-task
-   gate. It runs exactly once per wave, after the merges, matching its own
-   action description. Per-task cascade risk is covered by the task's own
-   scoped gates.
+2. \`check_integration_suite\` is a **leaf of the high-tier segment** and a
+   **wave-boundary backstop**. The leaf runs the pinned suite after mock
+   boundary and before static analysis, and the policy skips it at low and
+   medium tier. The backstop stays: it runs exactly once per wave, after the
+   merges, matching its own action description. At a lower tier, per-task
+   cascade risk is covered by the task's own scoped gates.
 
 The lead's only independent verification is a **spot check** — reading the
 settlement's findings and the recorded evidence and, at most, sampling one
@@ -2730,6 +2736,7 @@ and hides which run is authoritative when the two disagree.
 |-------|-------|---------------|---------------|
 | "This task's behavior is covered and its tests can fail" | **Settlement** | \`settle\` runs the task-completion runbook per accepted task, in-process, against the worktree the claim names, under the tier the capsule froze | The implementer runs its own tests in its worktree and reports; it runs no Exarchos gate. The lead **reads the findings**; it does not re-run the gates |
 | "This task's diff is clean (types, lint, contracts, mocks)" | **Settlement** | Same composed segment | Same |
+| "This high-tier task did not break the suite" | **Settlement** | Same composed segment: its \`check_integration_suite\` leaf runs the suite that the capsule pins | Same |
 | "The wave as a whole did not cascade" | Lead | **Once** at the wave boundary — \`check_integration_suite\` after every wave merge lands | Implementers never run the cumulative suite |
 | "The wave is complete" | Settlement + the transition guard | A settled batch leaves every accepted task complete; \`all-tasks-complete\` admits the transition | No separate completion check |
 
@@ -2739,10 +2746,12 @@ Two consequences bind the runbooks:
    settlement runs that runbook: every blocking gate has passed before a task
    is recorded complete, whoever drove it.
    \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\` lists the steps settlement composes; you do not run them.
-2. \`check_integration_suite\` is a **wave-boundary backstop**, not a per-task
-   gate. It runs exactly once per wave, after the merges, matching its own
-   action description. Per-task cascade risk is covered by the task's own
-   scoped gates.
+2. \`check_integration_suite\` is a **leaf of the high-tier segment** and a
+   **wave-boundary backstop**. The leaf runs the pinned suite after mock
+   boundary and before static analysis, and the policy skips it at low and
+   medium tier. The backstop stays: it runs exactly once per wave, after the
+   merges, matching its own action description. At a lower tier, per-task
+   cascade risk is covered by the task's own scoped gates.
 
 The lead's only independent verification is a **spot check** — reading the
 settlement's findings and the recorded evidence and, at most, sampling one
@@ -3958,6 +3967,7 @@ and hides which run is authoritative when the two disagree.
 |-------|-------|---------------|---------------|
 | "This task's behavior is covered and its tests can fail" | **Settlement** | \`settle\` runs the task-completion runbook per accepted task, in-process, against the worktree the claim names, under the tier the capsule froze | The implementer runs its own tests in its worktree and reports; it runs no Exarchos gate. The lead **reads the findings**; it does not re-run the gates |
 | "This task's diff is clean (types, lint, contracts, mocks)" | **Settlement** | Same composed segment | Same |
+| "This high-tier task did not break the suite" | **Settlement** | Same composed segment: its \`check_integration_suite\` leaf runs the suite that the capsule pins | Same |
 | "The wave as a whole did not cascade" | Lead | **Once** at the wave boundary — \`check_integration_suite\` after every wave merge lands | Implementers never run the cumulative suite |
 | "The wave is complete" | Settlement + the transition guard | A settled batch leaves every accepted task complete; \`all-tasks-complete\` admits the transition | No separate completion check |
 
@@ -3967,10 +3977,12 @@ Two consequences bind the runbooks:
    settlement runs that runbook: every blocking gate has passed before a task
    is recorded complete, whoever drove it.
    \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\` lists the steps settlement composes; you do not run them.
-2. \`check_integration_suite\` is a **wave-boundary backstop**, not a per-task
-   gate. It runs exactly once per wave, after the merges, matching its own
-   action description. Per-task cascade risk is covered by the task's own
-   scoped gates.
+2. \`check_integration_suite\` is a **leaf of the high-tier segment** and a
+   **wave-boundary backstop**. The leaf runs the pinned suite after mock
+   boundary and before static analysis, and the policy skips it at low and
+   medium tier. The backstop stays: it runs exactly once per wave, after the
+   merges, matching its own action description. At a lower tier, per-task
+   cascade risk is covered by the task's own scoped gates.
 
 The lead's only independent verification is a **spot check** — reading the
 settlement's findings and the recorded evidence and, at most, sampling one
@@ -5167,6 +5179,7 @@ and hides which run is authoritative when the two disagree.
 |-------|-------|---------------|---------------|
 | "This task's behavior is covered and its tests can fail" | **Settlement** | \`settle\` runs the task-completion runbook per accepted task, in-process, against the worktree the claim names, under the tier the capsule froze | The implementer runs its own tests in its worktree and reports; it runs no Exarchos gate. The lead **reads the findings**; it does not re-run the gates |
 | "This task's diff is clean (types, lint, contracts, mocks)" | **Settlement** | Same composed segment | Same |
+| "This high-tier task did not break the suite" | **Settlement** | Same composed segment: its \`check_integration_suite\` leaf runs the suite that the capsule pins | Same |
 | "The wave as a whole did not cascade" | Lead | **Once** at the wave boundary — \`check_integration_suite\` after every wave merge lands | Implementers never run the cumulative suite |
 | "The wave is complete" | Settlement + the transition guard | A settled batch leaves every accepted task complete; \`all-tasks-complete\` admits the transition | No separate completion check |
 
@@ -5176,10 +5189,12 @@ Two consequences bind the runbooks:
    settlement runs that runbook: every blocking gate has passed before a task
    is recorded complete, whoever drove it.
    \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\` lists the steps settlement composes; you do not run them.
-2. \`check_integration_suite\` is a **wave-boundary backstop**, not a per-task
-   gate. It runs exactly once per wave, after the merges, matching its own
-   action description. Per-task cascade risk is covered by the task's own
-   scoped gates.
+2. \`check_integration_suite\` is a **leaf of the high-tier segment** and a
+   **wave-boundary backstop**. The leaf runs the pinned suite after mock
+   boundary and before static analysis, and the policy skips it at low and
+   medium tier. The backstop stays: it runs exactly once per wave, after the
+   merges, matching its own action description. At a lower tier, per-task
+   cascade risk is covered by the task's own scoped gates.
 
 The lead's only independent verification is a **spot check** — reading the
 settlement's findings and the recorded evidence and, at most, sampling one
@@ -6394,6 +6409,7 @@ and hides which run is authoritative when the two disagree.
 |-------|-------|---------------|---------------|
 | "This task's behavior is covered and its tests can fail" | **Settlement** | \`settle\` runs the task-completion runbook per accepted task, in-process, against the worktree the claim names, under the tier the capsule froze | The implementer runs its own tests in its worktree and reports; it runs no Exarchos gate. The lead **reads the findings**; it does not re-run the gates |
 | "This task's diff is clean (types, lint, contracts, mocks)" | **Settlement** | Same composed segment | Same |
+| "This high-tier task did not break the suite" | **Settlement** | Same composed segment: its \`check_integration_suite\` leaf runs the suite that the capsule pins | Same |
 | "The wave as a whole did not cascade" | Lead | **Once** at the wave boundary — \`check_integration_suite\` after every wave merge lands | Implementers never run the cumulative suite |
 | "The wave is complete" | Settlement + the transition guard | A settled batch leaves every accepted task complete; \`all-tasks-complete\` admits the transition | No separate completion check |
 
@@ -6403,10 +6419,12 @@ Two consequences bind the runbooks:
    settlement runs that runbook: every blocking gate has passed before a task
    is recorded complete, whoever drove it.
    \`exarchos_orchestrate({ action: "runbook", id: "task-completion" })\` lists the steps settlement composes; you do not run them.
-2. \`check_integration_suite\` is a **wave-boundary backstop**, not a per-task
-   gate. It runs exactly once per wave, after the merges, matching its own
-   action description. Per-task cascade risk is covered by the task's own
-   scoped gates.
+2. \`check_integration_suite\` is a **leaf of the high-tier segment** and a
+   **wave-boundary backstop**. The leaf runs the pinned suite after mock
+   boundary and before static analysis, and the policy skips it at low and
+   medium tier. The backstop stays: it runs exactly once per wave, after the
+   merges, matching its own action description. At a lower tier, per-task
+   cascade risk is covered by the task's own scoped gates.
 
 The lead's only independent verification is a **spot check** — reading the
 settlement's findings and the recorded evidence and, at most, sampling one

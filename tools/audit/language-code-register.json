@@ -23,20 +23,6 @@
       "reason": "TEST_PATH_SUFFIX accepts only JavaScript and TypeScript test paths. The check is to classify with the resolved test globs."
     },
     {
-      "file": "src/verbs/pure/integration-suite.ts",
-      "rule": "R1",
-      "count": 7,
-      "owner": "#1929",
-      "reason": "resolveIntegrationCommand falls back to npm and tells the script runners npm, pnpm, yarn and bun apart. The suite is to run the resolved integration command."
-    },
-    {
-      "file": "src/verbs/pure/integration-suite.ts",
-      "rule": "R2",
-      "count": 7,
-      "owner": "#1929",
-      "reason": "resolveIntegrationCommand appends -- and --reporter=json to each runner. The suite is to read the exit code, and a vitest JSON report becomes opt-in."
-    },
-    {
       "file": "src/verbs/review/debug-review-gate.ts",
       "rule": "R3",
       "count": 1,

@@ -20,6 +20,7 @@ const STAMP_CONSUMING_ACTIONS = [
   'check_test_adequacy',
   'check_contract_drift',
   'check_mock_boundary',
+  'check_integration_suite',
 ] as const;
 
 function stepFor(runbook: RunbookDefinition, action: string): RunbookStep | undefined {

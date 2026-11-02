@@ -36,9 +36,9 @@ export interface CommandResult {
   /**
    * The error code of the process runner. The command did not start (ENOENT,
    * EACCES), or the runner stopped it (ENOBUFS when the output passed the
-   * buffer limit). Then `exitCode` and `stdout` are not authoritative. The
-   * integration-suite gate uses it to tell a spawn error from a JSON-shape
-   * mismatch.
+   * buffer limit, ETIMEDOUT when the run passed its time limit). Then `exitCode`
+   * and `stdout` are not authoritative. The integration-suite gate reads it
+   * before the exit code, so such an end cannot read as a red exit.
    */
   readonly spawnError?: string;
   /**
@@ -48,11 +48,14 @@ export interface CommandResult {
   readonly signal?: string;
 }
 
-/** Signature of the external command runner, so that tests can inject a fake. */
+/**
+ * Signature of the external command runner, so that tests can inject a fake.
+ * `timeoutMs` replaces the time limit of a runner that has one. A test sets it to drive a timeout with a real process.
+ */
 export type RunCommandFn = (
   cmd: string,
   args: readonly string[],
-  options?: { cwd?: string }
+  options?: { cwd?: string; timeoutMs?: number }
 ) => CommandResult;
 
 /** The static-analysis term of the verification profile. */

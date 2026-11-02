@@ -207,7 +207,7 @@ export function probeTestEnvironment(
 }
 
 /** Deletes a probe scratch directory. A failed delete leaves the directory, and the verdict of the run stays. */
-function removeProbeScratch(scratchDir: string): void {
+export function removeProbeScratch(scratchDir: string): void {
   try {
     rmSync(scratchDir, PROBE_SCRATCH_REMOVE);
   } catch {

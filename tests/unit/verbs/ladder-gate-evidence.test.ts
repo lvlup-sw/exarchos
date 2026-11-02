@@ -3,7 +3,7 @@
  *
  * The `runStaticAnalysis` double returns `skipCount` in each branch, because the handler destructures it from the result.
  */
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -261,7 +261,7 @@ describe('migrated ladder gate durable evidence', () => {
       baseBranch: 'integration',
       repoRoot: root,
     };
-    const run = () => {
+    const run = async () => {
       switch (gate) {
         case 'static-analysis':
           return handleStaticAnalysis(common, root, eventStore);
@@ -272,6 +272,7 @@ describe('migrated ladder gate durable evidence', () => {
             runTests: async () => ({ kind: 'ran', result: 'green' }),
           }, root, eventStore);
         case 'integration-suite':
+          await writeFile(join(root, 'package.json'), JSON.stringify({ name: 'ladder-evidence', scripts: { 'test:run': 'node --test' } }), 'utf-8');
           return handleCheckIntegrationSuite(
             common,
             root,

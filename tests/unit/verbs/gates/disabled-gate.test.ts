@@ -529,6 +529,7 @@ describe('a disabled kill probe in the task-completion segment', () => {
       ['check_test_adequacy', 'passed'],
       ['check_contract_drift', 'passed'],
       ['check_mock_boundary', 'passed'],
+      ['check_integration_suite', 'passed'],
       ['check_static_analysis', 'passed'],
       ['task_complete', 'passed'],
     ]);

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1384,
-    "parsedFiles": 1339,
+    "testFiles": 1388,
+    "parsedFiles": 1343,
     "shellFiles": 45,
-    "cases": 15371,
-    "dynamicTitles": 176,
+    "cases": 15392,
+    "dynamicTitles": 178,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -46267,7 +46267,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "TaskCompletion_HasFiveSteps_TaskCompleteTerminal",
+          "name": "TaskCompletion_HasSixSteps_TaskCompleteTerminal",
           "dynamic": false
         },
         {
@@ -54644,7 +54644,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "TaskCompletion_CompilesToFiveLocalLeaves",
+          "name": "TaskCompletion_CompilesToSixLocalLeaves",
           "dynamic": false
         },
         {
@@ -55976,32 +55976,12 @@
         },
         {
           "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "checkIntegrationSuite_ResolvesCommandViaToolchain",
-          "dynamic": false
-        },
-        {
-          "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "checkIntegrationSuite_TestScriptOverride_HonorsExplicit",
-          "dynamic": false
-        },
-        {
-          "suite": "check_integration_suite command resolution (#1537, DR-15)",
           "name": "checkIntegrationSuite_MonorepoRoot_ResolvesCommandAndParses",
           "dynamic": false
         },
         {
           "suite": "check_integration_suite command resolution (#1537, DR-15)",
           "name": "checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch",
-          "dynamic": false
-        },
-        {
-          "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "resolveIntegrationCommand_ExplicitScript_TakesPrecedence",
-          "dynamic": false
-        },
-        {
-          "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "resolveIntegrationCommand_ThisRepo_ResolvesNodeVitestCommand",
           "dynamic": false
         }
       ]
@@ -62218,7 +62198,7 @@
         },
         {
           "suite": "delegation capsule compilation — the segment gates and the design source",
-          "name": "CompileCapsule_AHighTierPattern_NamesNoIntegrationSuite",
+          "name": "CompileCapsule_AHighTierPattern_NamesTheIntegrationSuite",
           "dynamic": false
         },
         {
@@ -89435,6 +89415,155 @@
         {
           "suite": "settle — a pinned unresolved check",
           "name": "Settle_APinnedUnresolvedCheck_NamesTheCheckoutANewPrepareAndANewBatch",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-integration-leaf.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-integration-leaf.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — the integration-suite leaf",
+          "name": "Settle_AHighTierTaskWhoseSuiteFails_IsNotAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the integration-suite leaf",
+          "name": "Settle_AHighTierTaskWithAnUnresolvedSuite_IsNotAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the integration-suite leaf",
+          "name": "Settle_AMediumTierTask_SkipsTheSuiteByPolicy",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/integration-suite-verdict.test.ts": {
+      "file": "tests/unit/verbs/gates/integration-suite-verdict.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_ExitZero_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_AConfiguredFailureExitCode_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_AnUnknownExitCode_IsIndeterminateAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_TheResolvedCommand_RunsWithNoAddedFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_TheReport_NamesThePathOfTheProfile",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that is not resolved",
+          "name": "IntegrationSuite_AnUnresolvedTerm_BlocksRunsNothingAndNamesTheRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "IntegrationSuite_TheVitestJsonReport_FoldsLoadFailures",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "IntegrationSuite_AReportWithFailures_FailsOnExitZero",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "IntegrationSuite_ARedExitWithACleanReport_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "IntegrationSuite_AMissingReport_IsIndeterminateAndBlocks [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_ASignal_IsIndeterminateNotRed",
+          "dynamic": false
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_ARunPastItsLimit_IsIndeterminateAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_AnOutputPastItsLimit_IsIndeterminateAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_ACommandThatDoesNotStart_IsIndeterminateAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_TheSuite_RunsWithTheStoreKeysOfAScratchDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "the input of the gate",
+          "name": "CheckIntegrationSuite_ATestScriptArgument_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the input of the gate",
+          "name": "CheckIntegrationSuite_ALowTierTask_IsSkippedByPolicy",
+          "dynamic": false
+        },
+        {
+          "suite": "the input of the gate",
+          "name": "CheckIntegrationSuite_AHighTierTask_RunsTheSuite",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/runbooks/task-completion-integration-leaf.test.ts": {
+      "file": "tests/unit/runbooks/task-completion-integration-leaf.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the integration-suite leaf of the segment",
+          "name": "TaskCompletion_AHighTierSegment_RunsTheSuiteAfterMockBoundaryAndBeforeStaticAnalysis",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/prepare-settle-profile.test.ts": {
+      "file": "tests/process/prepare-settle-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the packaged chain of prepare and settle",
+          "name": "PackagedChain_PrepareFiveThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
           "dynamic": false
         }
       ]

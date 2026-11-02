@@ -11,9 +11,9 @@ import { z } from 'zod';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 
 /**
- * Arguments for `task-completion`: four per-task gates, then `task_complete`.
+ * Arguments for `task-completion`: five per-task gates, then `task_complete`.
  * `riskTier` and `boundaryTouching` come from the caller, because no durable per-task stamp
- * holds them. Both are required, because three gate steps bind them as `<var>` placeholders,
+ * holds them. Both are required, because four gate steps bind them as `<var>` placeholders,
  * and the compiler refuses an unbound placeholder. The enum matches the gate registrations.
  */
 export const TaskCompletionArgs = z
@@ -26,8 +26,8 @@ export const TaskCompletionArgs = z
     /**
      * The branch that the task forked from, frozen in the capsule. The key is `baseRef`, not `baseBranch`.
      * The compiler gives an argument to each leaf whose schema declares that key.
-     * Three diff gates bind it as `baseBranch: '<baseRef>'`: the kill probe, contract drift and mock boundary.
-     * Static analysis scans the whole tree and keeps its own base label.
+     * Four gates bind it as `baseBranch: '<baseRef>'`: the kill probe, contract drift, mock boundary and the integration suite.
+     * The integration suite only names it in its evidence subject. Static analysis scans the whole tree and keeps its own base label.
      */
     baseRef: CapsuleBaseRefSchema,
     /** The completion provenance. Only the `task_complete` leaf declares `result`, so it alone gets this value. */
