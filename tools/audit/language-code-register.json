@@ -2,34 +2,6 @@
   "$comment": "The language-specific literals that the gate sources hold today. tests/architecture/gates-carry-no-language-code.test.ts measures the live hits, and the sum of the counts of each file and rule must equal them. A change that removes a hit removes or lowers its row in the same commit. A false positive is fixed in the matcher with a clean-twin line, never with a row. The owner is the issue that removes the row, or self-scan for a scan of the Exarchos source itself.",
   "rows": [
     {
-      "file": "src/verbs/gates/spec-coverage-check.ts",
-      "rule": "R1",
-      "count": 2,
-      "owner": "#1929",
-      "reason": "The post-implementation check spawns npx vitest. The check is to run the resolved probe command."
-    },
-    {
-      "file": "src/verbs/gates/spec-coverage-check.ts",
-      "rule": "R2",
-      "count": 2,
-      "owner": "#1929",
-      "reason": "The npx vitest spawn passes run and --root. The check is to run the resolved probe command."
-    },
-    {
-      "file": "src/verbs/gates/spec-coverage-check.ts",
-      "rule": "R3",
-      "count": 1,
-      "owner": "#1929",
-      "reason": "TEST_PATH_SUFFIX accepts only JavaScript and TypeScript test paths. The check is to classify with the resolved test globs."
-    },
-    {
-      "file": "src/verbs/review/debug-review-gate.ts",
-      "rule": "R3",
-      "count": 1,
-      "owner": "#1814",
-      "reason": "TEST_FILE_PATTERN counts only JavaScript, TypeScript and shell test files as new tests. The gate is to count with the test-name globs of the profile."
-    },
-    {
       "file": "src/verbs/gates/mutation-adequacy.ts",
       "rule": "R3",
       "count": 16,

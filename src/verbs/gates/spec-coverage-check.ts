@@ -2,16 +2,23 @@
  * spec_coverage_check: checks the test files that a plan declares. At plan
  * time it checks only the shape of each declared path. After implementation,
  * each declared file must exist on disk, and its tests must run and pass.
+ * The test terms of the verification profile say which path is a test and which command runs it.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
-import { runCommandSync } from '../../utils/process.js';
 import { join } from 'node:path';
+import { globToRegExp } from '../../architecture/glob-to-regexp.js';
+import { DEFAULT_TEST_GLOBS } from '../../config/toolchains.js';
+import { matchesTestName } from '../../config/verification-profile.js';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
+import { profileOf, withProfileRoute, type ProfiledGateArgs } from './gate-utils.js';
+import { buildScopedTestRunner } from './test-adequacy-handler.js';
+import type { RunOutcome } from './test-adequacy.js';
 
 /**
  * The lifecycle point of a coverage check.
@@ -22,7 +29,7 @@ import { runPhaseGateWithEvidence } from './gate-runner.js';
  */
 export type SpecCoveragePhase = 'plan' | 'post-implementation';
 
-export interface SpecCoverageCheckArgs {
+export interface SpecCoverageCheckArgs extends ProfiledGateArgs {
   /** The stream the gate's durable evidence is recorded against. */
   readonly featureId: string;
   readonly planFile: string;
@@ -53,24 +60,42 @@ interface SpecCoverageResult {
   /** plan phase: declared paths that are not valid test-path declarations. */
   readonly malformed: readonly string[];
   readonly report: string;
+  /** Set only when the check needs a term of the profile and the term is not resolved. */
+  readonly discriminant?: typeof PROFILE_UNRESOLVED;
+  /** The reason of the term that is not resolved, with the route of a remedy. */
+  readonly reason?: string;
+}
+
+/** The probe term of the verification profile. */
+type ProbeTerm = VerificationProfile['tests']['probe'];
+
+/** What the test runs of one check give. */
+interface TestRunsResult {
+  readonly checks: readonly CheckEntry[];
+  /** The reason of a probe command that is not resolved. No test ran. */
+  readonly unresolvedReason?: string;
 }
 
 const TEST_FILE_PATTERN = /\*\*Test file:\*\*\s*`([^`]+)`/;
 const BACKTICK_PATH_PATTERN = /`([^`]+)`/g;
 
-/**
- * A path that names a test file, such as `foo.test.ts` or `foo.spec.tsx`. It
- * picks test paths out of a plan and checks path shape at plan time.
- */
-const TEST_PATH_SUFFIX = /\.(test|spec)\.[cm]?[jt]sx?$/i;
+/** A backticked text with whitespace is a command or prose. It is not a test path. */
+const WHITESPACE = /\s/;
+
+/** The name of the check of the one run of a probe command in the `none` form. */
+const UNSCOPED_RUN_CHECK = 'Tests pass: unscoped run, because the probe command takes no file list';
 
 /**
  * Extracts the test file paths that a plan or spec declares, in first-seen
  * order with no duplicates. It reads two forms:
- * 1. The legacy `**Test file:**` declaration. It takes precedence for its line.
- * 2. Any backticked path that names a test file, as in a `**Files:**` list.
+ * 1. The legacy `**Test file:**` declaration. It takes precedence for its line, because the author names the file as a test.
+ * 2. A backticked path that a test-name glob of `globs` matches, as in a `**Files:**` list.
+ *    A snapshot, a fixture or a directory that only a classification glob matches is not a declared test.
  */
-export function extractTestFiles(planContent: string): readonly string[] {
+export function extractTestFiles(
+  planContent: string,
+  globs: readonly string[] = DEFAULT_TEST_GLOBS,
+): readonly string[] {
   const files: string[] = [];
   const seen = new Set<string>();
 
@@ -89,7 +114,7 @@ export function extractTestFiles(planContent: string): readonly string[] {
     }
     for (const match of line.matchAll(BACKTICK_PATH_PATTERN)) {
       const candidate = match[1];
-      if (candidate !== undefined && TEST_PATH_SUFFIX.test(candidate)) {
+      if (candidate !== undefined && !WHITESPACE.test(candidate) && matchesTestName(candidate, globs)) {
         add(candidate);
       }
     }
@@ -98,13 +123,22 @@ export function extractTestFiles(planContent: string): readonly string[] {
   return files;
 }
 
+/** True when a glob of `globs` matches the repo-relative path. */
+function matchesAnyGlob(file: string, globs: readonly string[]): boolean {
+  return globs.some((glob) => globToRegExp(glob).test(file));
+}
+
 /**
  * Checks the shape of a declared test path at plan time. It returns `null` for
  * a valid forward declaration, or a reason. The path must be repo-relative,
- * must not escape with `..`, and must name a test file. It does not check that
- * the file exists.
+ * must not escape with `..`, must hold no whitespace, and must match a glob of
+ * `globs`. Each glob counts, because the author names the file as a test. It
+ * does not check that the file exists.
  */
-export function testPathWellFormednessError(testPath: string): string | null {
+export function testPathWellFormednessError(
+  testPath: string,
+  globs: readonly string[] = DEFAULT_TEST_GLOBS,
+): string | null {
   const trimmed = testPath.trim();
   if (trimmed.length === 0) {
     return 'Empty test path';
@@ -115,8 +149,11 @@ export function testPathWellFormednessError(testPath: string): string | null {
   if (trimmed.split(/[\\/]/).includes('..')) {
     return 'Path escapes the repo root via a ".." segment';
   }
-  if (!TEST_PATH_SUFFIX.test(trimmed)) {
-    return 'Does not name a test file (expected a .test.<ext> or .spec.<ext> suffix)';
+  if (WHITESPACE.test(trimmed)) {
+    return 'Does not name a test file (a test path holds no whitespace)';
+  }
+  if (!matchesAnyGlob(trimmed, globs)) {
+    return 'Does not name a test file (no glob of tests.globs matches the path)';
   }
   return null;
 }
@@ -240,10 +277,11 @@ export async function handleSpecCoverageCheck(
 /**
  * Reads the plan and runs the check for `coveragePhase`. Only the
  * post-implementation phase requires `repoRoot` to exist, so the plan check
- * can run before the worktree exists.
+ * can run before the worktree exists. A root that does not exist resolves the
+ * co-located globs only. A glob term that is not resolved fails each phase.
  */
-function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
-  const { planFile, repoRoot, skipRun = false, coveragePhase: phase = 'post-implementation' } = args;
+async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): Promise<ToolResult> {
+  const { planFile, repoRoot, coveragePhase: phase = 'post-implementation' } = args;
 
   if (!existsSync(planFile)) {
     return {
@@ -259,12 +297,44 @@ function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): ToolResult {
     };
   }
 
+  const { tests } = profileOf(args, repoRoot);
+  const globTerm = tests.globs;
+  if (globTerm.state === 'unresolved') {
+    return unresolvedGlobsResult(phase, planFile, repoRoot, withProfileRoute(args, globTerm.reason));
+  }
+
   const planContent = readFileSync(planFile, 'utf-8') as string;
-  const testFiles = extractTestFiles(planContent);
+  const testFiles = extractTestFiles(planContent, globTerm.globs);
 
   return phase === 'plan'
-    ? runPlanSyntaxCheck(planFile, repoRoot, testFiles)
-    : runImplementationCoverageCheck(planFile, repoRoot, testFiles, skipRun);
+    ? runPlanSyntaxCheck(planFile, repoRoot, testFiles, globTerm.globs)
+    : runImplementationCoverageCheck(args, testFiles, tests.probe);
+}
+
+/** The FAIL of a glob term that is not resolved. No path of the plan can read as a test, so the result declares none. */
+function unresolvedGlobsResult(
+  phase: SpecCoveragePhase,
+  planFile: string,
+  repoRoot: string,
+  reason: string,
+): ToolResult {
+  const check: CheckEntry = {
+    status: 'FAIL',
+    name: 'Test globs resolved',
+    detail: `${PROFILE_UNRESOLVED}: ${reason}`,
+  };
+  const result: SpecCoverageResult = {
+    phase,
+    passed: false,
+    totalTests: 0,
+    found: 0,
+    missing: [],
+    malformed: [],
+    report: generateReport(phase, planFile, repoRoot, 0, 0, [], [], [check]),
+    discriminant: PROFILE_UNRESOLVED,
+    reason,
+  };
+  return { success: true, data: result };
 }
 
 /**
@@ -275,6 +345,7 @@ function runPlanSyntaxCheck(
   planFile: string,
   repoRoot: string,
   testFiles: readonly string[],
+  globs: readonly string[],
 ): ToolResult {
   const checks: CheckEntry[] = [];
   const malformed: string[] = [];
@@ -288,7 +359,7 @@ function runPlanSyntaxCheck(
   }
 
   for (const testFile of testFiles) {
-    const problem = testPathWellFormednessError(testFile);
+    const problem = testPathWellFormednessError(testFile, globs);
     if (problem === null) {
       checks.push({ status: 'PASS', name: `Test path well-formed: ${testFile}` });
     } else {
@@ -327,20 +398,72 @@ function runPlanSyntaxCheck(
   return { success: true, data: result };
 }
 
+/** The reason of a declared test that the probe command cannot run. */
+function runnerFitReason(files: readonly string[]): string {
+  return (
+    `the probe command cannot run the declared test files ${files.join(', ')}. ` +
+    'Set verification.tests.probe to a command that runs them, or set verification.tests.globs to the test files that the probe command runs. ' +
+    'In a root where more than one toolchain matches, set both keys. One probe for each toolchain is #1629.'
+  );
+}
+
+/** The check of one run that started. Exit 0 passes, a red exit code fails, and any other end fails with no verdict. */
+function checkOfRun(name: string, outcome: Exclude<RunOutcome, { kind: 'unresolved' }>): CheckEntry {
+  if (outcome.kind === 'no-verdict') {
+    return { status: 'FAIL', name, detail: `no verdict (${outcome.cause}): ${outcome.detail}` };
+  }
+  return { status: outcome.result === 'green' ? 'PASS' : 'FAIL', name };
+}
+
+/**
+ * Runs the declared tests with the probe term, once for each file. The `none` form takes no file list, so it runs the command once.
+ * A declared test that no glob of the probe term matches fails before any run. A term with no `globs` takes each file.
+ * The runner of the kill probe checks the probe command at its first run. That runner gives the argv, the working directory, the limits and the scratch store.
+ */
+async function runDeclaredTests(
+  args: SpecCoverageCheckArgs,
+  testFiles: readonly string[],
+  probe: ProbeTerm,
+): Promise<TestRunsResult> {
+  const probeGlobs = probe.globs;
+  const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
+  if (unfit.length > 0) {
+    const detail = withProfileRoute(args, runnerFitReason(unfit));
+    return { checks: [{ status: 'FAIL', name: 'Probe command runs each declared test', detail }] };
+  }
+
+  const { repoRoot } = args;
+  const runTests = buildScopedTestRunner(probe, repoRoot);
+  const unscoped = probe.files === 'none';
+  const checks: CheckEntry[] = [];
+  for (const files of unscoped ? [testFiles] : testFiles.map((file) => [file])) {
+    const outcome = await runTests({ repoRoot, testFiles: files });
+    if (outcome.kind === 'unresolved') {
+      const unresolvedReason = withProfileRoute(args, outcome.reason);
+      const detail = `${PROFILE_UNRESOLVED}: ${unresolvedReason}`;
+      return { checks: [{ status: 'FAIL', name: 'Probe command resolved', detail }], unresolvedReason };
+    }
+    checks.push(checkOfRun(unscoped ? UNSCOPED_RUN_CHECK : `Test passes: ${files.join(', ')}`, outcome));
+  }
+  return { checks };
+}
+
 /**
  * Post-implementation check: each declared test file exists on disk. Unless
- * `skipRun` is set, each file then runs with `npx vitest run`. The tests run
- * only when no file is missing.
+ * `skipRun` is set, each file then runs with the probe command of the profile.
+ * The tests run only when no file is missing. Thus a probe command that is not
+ * resolved fails the check only in a run.
  */
-function runImplementationCoverageCheck(
-  planFile: string,
-  repoRoot: string,
+async function runImplementationCoverageCheck(
+  args: SpecCoverageCheckArgs,
   testFiles: readonly string[],
-  skipRun: boolean,
-): ToolResult {
+  probe: ProbeTerm,
+): Promise<ToolResult> {
+  const { planFile, repoRoot, skipRun = false } = args;
   const checks: CheckEntry[] = [];
   let found = 0;
   const missingList: string[] = [];
+  let unresolvedReason: string | undefined;
 
   if (testFiles.length === 0) {
     checks.push({
@@ -368,16 +491,9 @@ function runImplementationCoverageCheck(
   if (skipRun) {
     checks.push({ status: 'SKIP', name: 'Test execution (--skip-run)' });
   } else if (testFiles.length > 0 && missingList.length === 0) {
-    for (const testFile of testFiles) {
-      try {
-        runCommandSync('npx', ['vitest', 'run', '--root', repoRoot, testFile], {
-          stdio: 'pipe',
-        });
-        checks.push({ status: 'PASS', name: `Test passes: ${testFile}` });
-      } catch {
-        checks.push({ status: 'FAIL', name: `Test passes: ${testFile}` });
-      }
-    }
+    const runs = await runDeclaredTests(args, testFiles, probe);
+    checks.push(...runs.checks);
+    unresolvedReason = runs.unresolvedReason;
   }
 
   const report = generateReport(
@@ -402,6 +518,7 @@ function runImplementationCoverageCheck(
     missing: missingList,
     malformed: [],
     report,
+    ...(unresolvedReason === undefined ? {} : { discriminant: PROFILE_UNRESOLVED, reason: unresolvedReason }),
   };
 
   return { success: true, data: result };

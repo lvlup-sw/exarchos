@@ -225,7 +225,7 @@ export function removeProbeScratch(scratchDir: string): void {
  *
  * Each run gets a new scratch directory and the environment of {@link probeTestEnvironment}. The runner deletes the directory after the run.
  *
- * @internal Exported so that a test can run real processes through the runner of the probe.
+ * @internal Exported for `spec_coverage_check`, which runs its declared tests with this runner, and so that a test can run real processes through it.
  */
 export function buildScopedTestRunner(
   probe: ProbeTerm,
