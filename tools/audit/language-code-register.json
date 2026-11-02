@@ -4,34 +4,6 @@
     {
       "file": "src/verbs/pure/static-analysis.ts",
       "rule": "R1",
-      "count": 7,
-      "owner": "#1540",
-      "reason": "The language runners spawn their own programs: npm run for each Node script with its report text, dotnet build, go vet, cargo check and cargo clippy. Static analysis is to run the resolved checks."
-    },
-    {
-      "file": "src/verbs/pure/static-analysis.ts",
-      "rule": "R2",
-      "count": 6,
-      "owner": "#1540",
-      "reason": "The language runners inject their own arguments: run, --no-restore, -warnaserror, the -- separator and -D of clippy, and the --skip- detail of a flag skip."
-    },
-    {
-      "file": "src/verbs/pure/static-analysis.ts",
-      "rule": "R3",
-      "count": 3,
-      "owner": "#1540",
-      "reason": "The Node runner reads package.json twice, and the file-token regex of the FAIL detail lists source extensions. The resolved checks replace the reads, and the regex reads any extension."
-    },
-    {
-      "file": "src/verbs/pure/static-analysis.ts",
-      "rule": "R4",
-      "count": 12,
-      "owner": "#1540",
-      "reason": "The runner allowlist, its label set and the report switch name the project types Node.js, .NET, Rust and Go. The resolved checks need no project type."
-    },
-    {
-      "file": "src/verbs/pure/static-analysis.ts",
-      "rule": "R1",
       "count": 8,
       "owner": "#1540",
       "reason": "The boundary legs name depcruise and semgrep, and the taint leg starts its report text with semgrep. The adapters move into the registry as seeds that verification.boundaryChecks overrides."

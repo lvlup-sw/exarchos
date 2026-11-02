@@ -79,7 +79,7 @@ const CARRIED: readonly CarriedRecovery[] = [
     carrier: {
       kind: 'produced',
       test: 'tests/unit/tasks/tools.test.ts',
-      testCase: 'HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheMissingScript',
+      testCase: 'HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheSkipFlag',
       phrases: ['Add the missing scripts, or do not set the skip flags.'],
     },
   },

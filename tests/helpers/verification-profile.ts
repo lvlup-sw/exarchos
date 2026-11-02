@@ -2,7 +2,7 @@
  * The shared verification profile fake. It is the profile of a Node fixture with the co-located test globs and `npm run test:files`.
  * It is equal to the output of the resolver for a Node root with the `test:files`, `test:run`, `lint` and `typecheck` scripts.
  * A test that calls a gate in a segment, or a gate at a root with no test command, pins this profile.
- * The other fakes each give one changed term: C# globs, polyglot globs, a probe of the `none` form, or an unresolved term.
+ * The other fakes each give one changed term: C# globs, polyglot globs, a probe of the `none` form, the static-analysis checks, or an unresolved term.
  * The fake imports only types, so it adds no runtime edge into the source.
  */
 
@@ -35,6 +35,10 @@ export const UNRESOLVED_GLOBS_REASON =
 /** The reason of the unresolved term of {@link pinnedUnresolvedFirstPartyProfile}. It is the reason of a glob that leaves the root. */
 export const UNRESOLVED_FIRST_PARTY_REASON =
   "firstParty: ownership.firstParty holds the glob '../shared/**', which leaves the root. Each glob is a relative path with no '..' segment.";
+
+/** The reason of the unresolved check of {@link unresolvedLintProfile}. It is the reason of a Node seed with no `lint` script. */
+export const UNRESOLVED_LINT_REASON =
+  "staticAnalysis.lint: no 'lint' script in package.json. Add the script, or set verification.staticAnalysis.lint or the top-level lint: key.";
 
 /** Returns a new profile of a Node fixture on each call, so a test can change its copy. */
 export function nodeTestProfile(): VerificationProfile {
@@ -104,6 +108,36 @@ export function unscopedProbeTerm(argv: readonly string[]): TestTerms['probe'] {
     files: 'none',
     failureExitCodes: { codes: [1], source: 'detection' },
     globs: [...CO_LOCATED_TEST_GLOBS],
+  };
+}
+
+/** A resolved static-analysis term with one configured check for each entry of `checks`, in key order. */
+export function staticAnalysisTerm(checks: Readonly<Record<string, readonly string[]>>): VerificationProfile['staticAnalysis'] {
+  return {
+    state: 'resolved',
+    checks: Object.entries(checks).map(([name, argv]) => ({
+      name,
+      command: { state: 'resolved', argv: [...argv], source: 'config' },
+    })),
+    source: 'config',
+  };
+}
+
+/** The profile of a Node fixture whose `lint` check is unresolved. Its `typecheck` check stays resolved. */
+export function unresolvedLintProfile(): VerificationProfile {
+  return {
+    ...nodeTestProfile(),
+    staticAnalysis: {
+      state: 'resolved',
+      checks: [
+        { name: 'lint', command: { state: 'unresolved', reason: UNRESOLVED_LINT_REASON } },
+        {
+          name: 'typecheck',
+          command: { state: 'resolved', argv: ['npm', 'run', 'typecheck'], source: 'detection' },
+        },
+      ],
+      source: 'detection',
+    },
   };
 }
 

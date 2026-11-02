@@ -527,10 +527,20 @@ export function profileOf(
   return args.verificationProfile?.profile ?? resolveVerificationProfile(repoRoot, options);
 }
 
+/** The words that start the path of a pinned profile. The version of the capsule comes after them. */
+const PINNED_PATH_PREFIX = 'pinned by capsule v';
+
 /** The words that name the source of the profile of one gate call. Each gate report holds them. */
 export function profilePathOf(args: ProfiledGateArgs, repoRoot: string): string {
   const pinned = args.verificationProfile;
-  return pinned === undefined ? `resolved at ${repoRoot}` : `pinned by capsule v${pinned.capsuleVersion}`;
+  return pinned === undefined ? `resolved at ${repoRoot}` : `${PINNED_PATH_PREFIX}${pinned.capsuleVersion}`;
+}
+
+/** The version of the capsule that a reason names when it starts with the path of a pinned profile. Any other reason gives undefined. */
+export function pinnedCapsuleOf(reason: string | undefined): number | undefined {
+  if (reason === undefined || !reason.startsWith(PINNED_PATH_PREFIX)) return undefined;
+  const digits = /^\d+/.exec(reason.slice(PINNED_PATH_PREFIX.length));
+  return digits === null ? undefined : Number(digits[0]);
 }
 
 /**

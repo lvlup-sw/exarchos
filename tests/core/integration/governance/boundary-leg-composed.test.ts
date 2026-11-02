@@ -274,7 +274,7 @@ describe('governance — the boundary leg through the production composition', (
       passed: true,
       verdict: 'pass',
       completeness: 'complete',
-      passCount: 4,
+      passCount: 3,
       failCount: 0,
     });
     expect(passed.data).not.toHaveProperty('advisorySkips');

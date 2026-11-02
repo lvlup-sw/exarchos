@@ -1,14 +1,14 @@
 /**
- * Static analysis gate: runs lint, typecheck, and quality checks for the
+ * Static analysis gate: runs the checks of the verification profile for the
  * review workflow and reports a structured result. The caller injects the
  * command runner as a `RunCommandFn`.
  *
  * Status values:
- *   - `pass`: every applicable check ran and passed. Warnings are allowed.
+ *   - `pass`: every check ran and passed. Warnings are allowed.
  *   - `fail`: one or more checks failed.
- *   - `skip`: the result is inconclusive. `skipReason` is `no-toolchain` when
- *     no supported project type is found, or `constituent-skipped` when a
- *     check did not run and no check failed.
+ *   - `skip`: the result is inconclusive. `skipReason` is `profile-unresolved`
+ *     when the profile does not resolve a check, or `constituent-skipped` when
+ *     a skip flag skipped a check and no check failed.
  *   - `error`: a usage error, such as a missing or invalid repo root.
  *
  * An advisory check that gives no verdict does not change the status. The
@@ -17,9 +17,11 @@
 
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { detectToolchain, BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
+import { detectToolchain } from '../../config/toolchains.js';
+import { staticAnalysisSeedsAt } from '../../config/verification-profile.js';
 import { DEFAULT_FIRST_PARTY_GLOBS } from '../../config/exarchos-config-schema.js';
 import type { ExarchosConfigLoadFailure } from '../../config/load-exarchos-config.js';
+import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 
 /** Result of running an external command. */
 export interface CommandResult {
@@ -48,13 +50,28 @@ export type RunCommandFn = (
   options?: { cwd?: string }
 ) => CommandResult;
 
+/** The static-analysis term of the verification profile. */
+type StaticAnalysisTerm = VerificationProfile['staticAnalysis'];
+
+/** One check of a resolved static-analysis term. */
+type ProfileCheck = Extract<StaticAnalysisTerm, { state: 'resolved' }>['checks'][number];
+
 export interface StaticAnalysisInput {
   /** Repository root to analyze. */
   readonly repoRoot: string;
-  /** Skip lint check. */
+  /** Skip the check named `lint`. */
   readonly skipLint?: boolean | undefined;
-  /** Skip typecheck. */
+  /** Skip the check named `typecheck`. */
   readonly skipTypecheck?: boolean | undefined;
+  /**
+   * The static-analysis term of the profile. The gate runs its checks in their order, and it runs no other check.
+   * When absent, the gate takes the seeds of `repoRoot`.
+   */
+  readonly checks?: StaticAnalysisTerm | undefined;
+  /** The words that name the source of the profile. The report names them, and the reason of a `profile-unresolved` skip starts with them. */
+  readonly profilePath?: string | undefined;
+  /** Adds the route of a remedy to the reason of an unresolved term. */
+  readonly withRoute?: ((reason: string) => string) | undefined;
   /**
    * The `ownership.firstParty` globs of the project. The import-boundary leg
    * scans the source root of each glob that exists. A glob whose walk stops at
@@ -121,19 +138,24 @@ export interface AdvisorySkip {
 
 /**
  * Reason code for a `skip` status.
- * - `no-toolchain`: no supported project type in `repoRoot`.
- * - `constituent-skipped`: a toolchain was detected, but a check did not run.
+ * - `profile-unresolved`: the profile does not resolve the static-analysis term or one of its checks.
  *   The result is inconclusive and cannot be a pass.
+ * - `no-toolchain`: a code of an earlier build. The gate no longer writes it, and `task_complete` reads it as `profile-unresolved`.
+ * - `constituent-skipped`: a skip flag skipped a check. The result is inconclusive and cannot be a pass.
  * - `repo-root-missing`: the call named a task and no `repoRoot`. The gate
  *   handler scans nothing, because no directory is the worktree of the task.
  */
-export type StaticAnalysisSkipReason = 'no-toolchain' | 'constituent-skipped' | 'repo-root-missing';
+export type StaticAnalysisSkipReason =
+  | typeof PROFILE_UNRESOLVED
+  | 'no-toolchain'
+  | 'constituent-skipped'
+  | 'repo-root-missing';
 
 /** One check that did not run, with the cause that the report names for it. */
 export interface StaticAnalysisSkippedCheck {
-  /** The report label of the check, for example `Quality check`. */
+  /** The report label of the check, for example `Lint`. */
   readonly name: string;
-  /** Why the check did not run, for example a missing npm script or a skip flag. */
+  /** Why the check did not run, for example a skip flag or the reason of an unresolved term. */
   readonly detail?: string;
 }
 
@@ -143,8 +165,8 @@ export interface StaticAnalysisResult {
    * - `pass`: every counted check ran and passed. One skipped check prevents
    *   this value. An advisory check with no verdict does not, see `advisorySkips`.
    * - `fail`: one or more checks failed.
-   * - `skip`: inconclusive, see `skipReason`. A repo with no supported
-   *   toolchain, or with a check that did not run, is not reported as a pass.
+   * - `skip`: inconclusive, see `skipReason`. A profile that does not resolve
+   *   a check, or a check that a flag skipped, is not reported as a pass.
    * - `error`: a usage error, such as a missing or invalid repo root.
    */
   readonly status: 'pass' | 'fail' | 'skip' | 'error';
@@ -154,18 +176,23 @@ export interface StaticAnalysisResult {
   readonly error?: string;
   /** Reason code when status is 'skip'. */
   readonly skipReason?: StaticAnalysisSkipReason;
-  /** The checks that did not run, when `skipReason` is `constituent-skipped`. */
+  /** The checks that did not run, when `skipReason` is `constituent-skipped` or `profile-unresolved`. */
   readonly skippedChecks?: readonly StaticAnalysisSkippedCheck[];
+  /**
+   * The cause of a `profile-unresolved` skip. It starts with the profile path when the caller gives one.
+   * It then names each unresolved term and its keys, and the route of a remedy.
+   */
+  readonly unresolvedReason?: string;
   /** Number of checks that passed. */
   readonly passCount: number;
   /** Number of checks that failed. */
   readonly failCount: number;
   /**
-   * Number of checks that did not run, because of a missing script or a skip
+   * Number of checks that did not run, because of an unresolved term or a skip
    * flag. A non-zero count prevents `pass`.
    */
   readonly skipCount: number;
-  /** Detected project type (undefined if no recognized project). */
+  /** The registry label of the first matched toolchain (undefined if no toolchain matches). */
   readonly projectType?: string | undefined;
   /**
    * The advisory checks that apply but gave no verdict. They do not change
@@ -854,32 +881,8 @@ interface CheckResult {
   readonly name: string;
   readonly status: CheckStatus;
   readonly detail?: string;
-}
-
-/**
- * Check if an npm script exists in the package.json scripts field.
- */
-function hasNpmScript(packageJson: Record<string, unknown>, scriptName: string): boolean {
-  const scripts = packageJson['scripts'];
-  if (typeof scripts !== 'object' || scripts === null) return false;
-  return scriptName in (scripts as Record<string, unknown>);
-}
-
-/**
- * Read and parse package.json from a directory.
- * Returns `{ packageJson }` on success or `{ error }` on failure.
- */
-function readPackageJson(
-  repoRoot: string,
-): { packageJson: Record<string, unknown> } | { error: string } {
-  const pkgPath = path.join(repoRoot, 'package.json');
-  try {
-    const raw = fs.readFileSync(pkgPath, 'utf-8');
-    return { packageJson: JSON.parse(raw) as Record<string, unknown> };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { error: `Failed to read ${pkgPath}: ${message}` };
-  }
+  /** True on the SKIP of a term that the profile does not resolve. The SKIP of a skip flag does not set it. */
+  readonly unresolved?: true;
 }
 
 /** Maximum raw transcript lines kept in a FAIL detail before the cap engages. */
@@ -893,13 +896,13 @@ export const FAIL_DETAIL_MAX_LINES = 50;
 export const FAIL_DETAIL_MAX_FILES = 20;
 
 /**
- * A path-like token that ends in a known source extension. It attributes each
+ * A path-like token that ends in an extension of any name. It attributes each
  * transcript line to a file. It matches tsc (`src/foo.ts(12,5):`), eslint
  * stylish headers (`/abs/src/foo.ts`), eslint unix output (`src/foo.ts:12:5:`),
- * and bare file names (`foo.ts`).
+ * and bare file names (`foo.ts`). An extension starts with a letter, so a
+ * version such as `1.2.3` is not a file.
  */
-const FILE_TOKEN_RE =
-  /(?:\.{0,2}\/)?(?:[\w.-]+\/)*[\w.-]+\.(?:tsx?|jsx?|mts|cts|mjs|cjs|cs|go|rs|py|json|vue|svelte)\b/;
+const FILE_TOKEN_RE = /(?:\.{0,2}\/)?(?:[\w.-]+\/)*[\w.-]+\.[A-Za-z][A-Za-z0-9]*\b/;
 
 /** Extract the first file-path token on a transcript line, or null if none. */
 function extractFileToken(line: string): string | null {
@@ -958,96 +961,31 @@ export function capFailDetail(rawDetail: string, rerunCommand: string): string {
   return parts.join('\n');
 }
 
-function runNpmCheck(
-  name: string,
-  scriptName: string,
-  packageJson: Record<string, unknown>,
-  repoRoot: string,
-  runCommand: RunCommandFn,
-  skip: boolean
-): CheckResult {
-  if (skip) {
-    return { name, status: 'SKIP', detail: `--skip-${scriptName.replace('quality-', '')}` };
-  }
-
-  if (!hasNpmScript(packageJson, scriptName)) {
-    return { name, status: 'SKIP', detail: `no '${scriptName}' script in package.json` };
-  }
-
-  try {
-    const result = runCommand('npm', ['run', scriptName], { cwd: repoRoot });
-    if (result.exitCode === 0) {
-      return { name, status: 'PASS' };
-    }
-    const detail = capFailDetail(
-      result.stderr.trim() ||
-        result.stdout.trim() ||
-        `npm run ${scriptName} failed`,
-      `npm run ${scriptName}`,
-    );
-    return { name, status: 'FAIL', detail };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { name, status: 'FAIL', detail: message };
-  }
+/** The report label of a check: its key with a first capital letter. */
+function checkLabel(name: string): string {
+  return `${name.charAt(0).toUpperCase()}${name.slice(1)}`;
 }
 
-type ProjectType = 'Node.js' | '.NET' | 'Rust' | 'Go';
-
-/**
- * The toolchain ids that this gate has check runners for, mapped to the report
- * label. The shared registry does the detection. A toolchain without a runner
- * here gives `skip`.
- */
-const SUPPORTED_TOOLCHAINS: Readonly<Record<string, ProjectType>> = {
-  node: 'Node.js',
-  dotnet: '.NET',
-  rust: 'Rust',
-  go: 'Go',
-};
-
-/** Markers (registry-sourced) for the gate's supported toolchains, for the SKIP message. */
-function supportedMarkers(): string[] {
-  return Object.keys(SUPPORTED_TOOLCHAINS).flatMap(
-    (id) => BUILTIN_TOOLCHAINS.find((t) => t.id === id)?.markers ?? [],
-  );
-}
-
-/**
- * Detect project type via the shared toolchain registry, narrowed to the
- * toolchains this gate can actually check. Returns undefined when nothing is
- * detected or the detected toolchain has no runner here.
- */
-function detectProjectType(repoRoot: string): ProjectType | undefined {
-  const toolchain = detectToolchain(repoRoot);
-  if (toolchain && toolchain.id in SUPPORTED_TOOLCHAINS) {
-    return SUPPORTED_TOOLCHAINS[toolchain.id];
-  }
+/** The skip flag that skips the check of `name`, or undefined when no flag skips it. */
+function skipFlagOf(name: string, input: StaticAnalysisInput): 'skipLint' | 'skipTypecheck' | undefined {
+  if (name === 'lint' && input.skipLint === true) return 'skipLint';
+  if (name === 'typecheck' && input.skipTypecheck === true) return 'skipTypecheck';
   return undefined;
 }
 
-function runGenericCheck(
-  name: string,
-  cmd: string,
-  args: readonly string[],
-  repoRoot: string,
-  runCommand: RunCommandFn,
-  skip: boolean,
-): CheckResult {
-  if (skip) {
-    return { name, status: 'SKIP', detail: 'skipped by flag' };
-  }
-
+/**
+ * Runs one resolved argv in the repository root. Exit 0 is a PASS, and any other end is a FAIL.
+ * The detail of a FAIL is the capped output of the command, and the rerun text of the cap is the argv.
+ */
+function runArgv(name: string, argv: readonly string[], input: StaticAnalysisInput): CheckResult {
+  const [program = '', ...args] = argv;
+  const rerun = argv.join(' ');
   try {
-    const result = runCommand(cmd, args, { cwd: repoRoot });
+    const result = input.runCommand(program, args, { cwd: input.repoRoot });
     if (result.exitCode === 0) {
       return { name, status: 'PASS' };
     }
-    const rerun = `${cmd} ${args.join(' ')}`;
-    const detail = capFailDetail(
-      result.stderr.trim() || result.stdout.trim() || `${rerun} failed`,
-      rerun,
-    );
+    const detail = capFailDetail(result.stderr.trim() || result.stdout.trim() || `${rerun} failed`, rerun);
     return { name, status: 'FAIL', detail };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : String(err);
@@ -1055,57 +993,26 @@ function runGenericCheck(
   }
 }
 
-function runNodeChecks(
-  repoRoot: string,
-  runCommand: RunCommandFn,
-  skipLint: boolean,
-  skipTypecheck: boolean,
-): CheckResult[] {
-  const pkgResult = readPackageJson(repoRoot);
-  if ('error' in pkgResult) {
-    return [{ name: 'package.json', status: 'FAIL', detail: pkgResult.error }];
+/**
+ * Runs one check of the profile. An unresolved check is a SKIP that names its keys, also when a skip flag names it.
+ * Thus a flag cannot hide a check that the profile does not resolve.
+ */
+function runProfileCheck(check: ProfileCheck, input: StaticAnalysisInput): CheckResult {
+  const name = checkLabel(check.name);
+  if (check.command.state === 'unresolved') {
+    return { name, status: 'SKIP', detail: check.command.reason, unresolved: true };
   }
-  const { packageJson } = pkgResult;
-
-  return [
-    runNpmCheck('Lint', 'lint', packageJson, repoRoot, runCommand, skipLint),
-    runNpmCheck('Typecheck', 'typecheck', packageJson, repoRoot, runCommand, skipTypecheck),
-    runNpmCheck('Quality check', 'quality-check', packageJson, repoRoot, runCommand, false),
-  ];
+  const flag = skipFlagOf(check.name, input);
+  if (flag !== undefined) return { name, status: 'SKIP', detail: `skipped by the ${flag} flag` };
+  return runArgv(name, check.command.argv, input);
 }
 
-function runDotnetChecks(
-  repoRoot: string,
-  runCommand: RunCommandFn,
-  skipLint: boolean,
-  skipTypecheck: boolean,
-): CheckResult[] {
-  return [
-    runGenericCheck('Build', 'dotnet', ['build', '--no-restore', '-warnaserror'], repoRoot, runCommand, skipLint && skipTypecheck),
-  ];
-}
-
-function runGoChecks(
-  repoRoot: string,
-  runCommand: RunCommandFn,
-  skipLint: boolean,
-  skipTypecheck: boolean,
-): CheckResult[] {
-  return [
-    runGenericCheck('Vet', 'go', ['vet', './...'], repoRoot, runCommand, skipLint),
-  ];
-}
-
-function runRustChecks(
-  repoRoot: string,
-  runCommand: RunCommandFn,
-  skipLint: boolean,
-  skipTypecheck: boolean,
-): CheckResult[] {
-  return [
-    runGenericCheck('Check', 'cargo', ['check'], repoRoot, runCommand, skipTypecheck),
-    runGenericCheck('Clippy', 'cargo', ['clippy', '--', '-D', 'warnings'], repoRoot, runCommand, skipLint),
-  ];
+/** Runs the term of the profile. An unresolved term is one SKIP that names its keys. */
+function runProfileTerm(term: StaticAnalysisTerm, input: StaticAnalysisInput): CheckResult[] {
+  if (term.state === 'unresolved') {
+    return [{ name: 'Static analysis', status: 'SKIP', detail: term.reason, unresolved: true }];
+  }
+  return term.checks.map((check) => runProfileCheck(check, input));
 }
 
 /**
@@ -1149,15 +1056,37 @@ function foldAdvisoryLeg(
 }
 
 /**
- * Runs the checks for the detected project type and builds the report. The
- * boundary-lint and taint legs join through `foldAdvisoryLeg`. A skipped check
- * counts as a result. The precedence is FAIL, then DEGRADED (`skip`), then PASS.
- * Thus PASS needs every counted check to run and pass. An advisory leg with no
- * verdict is not a counted check, so a PASS can carry `advisorySkips`, and the
- * result line then says `degraded`.
+ * The fields of a `skip` result. An unresolved term gives `profile-unresolved`, also beside a check that a flag skipped.
+ * Else a flag skipped a check, which gives `constituent-skipped`.
+ */
+function skipFields(
+  checks: readonly CheckResult[],
+  input: StaticAnalysisInput,
+): Pick<StaticAnalysisResult, 'skipReason' | 'skippedChecks' | 'unresolvedReason'> {
+  const skippedChecks = checks
+    .filter((check) => check.status === 'SKIP')
+    .map(({ name, detail }): StaticAnalysisSkippedCheck => (detail === undefined ? { name } : { name, detail }));
+  const unresolved = checks.filter((check) => check.unresolved === true);
+  if (unresolved.length === 0) return { skipReason: 'constituent-skipped', skippedChecks };
+  const reasons = unresolved.map((check) => check.detail ?? check.name).join(' ');
+  const routed = input.withRoute?.(reasons) ?? reasons;
+  const unresolvedReason = input.profilePath === undefined ? routed : `${input.profilePath}. ${routed}`;
+  return { skipReason: PROFILE_UNRESOLVED, skippedChecks, unresolvedReason };
+}
+
+/**
+ * Runs the checks of the profile and builds the report. The boundary-lint and
+ * taint legs join through `foldAdvisoryLeg`. An unresolved check stops neither the
+ * other checks nor the legs.
+ *
+ * A skipped check counts as a result. The precedence is FAIL, then an unresolved
+ * term (`skip`, `**Result: SKIP**`), then a check that a flag skipped (`skip`,
+ * `**Result: DEGRADED**`), then PASS. Thus PASS needs every counted check to run
+ * and pass. An advisory leg with no verdict is not a counted check, so a PASS can
+ * carry `advisorySkips`, and the result line then says `degraded`.
  */
 export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisResult {
-  const { repoRoot, skipLint = false, skipTypecheck = false, runCommand } = input;
+  const { repoRoot, runCommand } = input;
 
   if (!repoRoot || repoRoot.trim().length === 0) {
     return {
@@ -1193,47 +1122,8 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     };
   }
 
-  const projectType = detectProjectType(repoRoot);
-
-  if (!projectType) {
-    const output = [
-      '## Static Analysis Report',
-      '',
-      `**Repository:** \`${repoRoot}\``,
-      '',
-      `- **SKIP**: No recognized project type (none of: ${supportedMarkers().join(', ')})`,
-      '',
-      '---',
-      '',
-      '**Result: SKIP** (no applicable toolchain detected)',
-    ].join('\n');
-
-    return {
-      status: 'skip',
-      output,
-      skipReason: 'no-toolchain',
-      passCount: 0,
-      failCount: 0,
-      skipCount: 0,
-      projectType: undefined,
-    };
-  }
-
-  let checks: CheckResult[];
-  switch (projectType) {
-    case 'Node.js':
-      checks = runNodeChecks(repoRoot, runCommand, skipLint, skipTypecheck);
-      break;
-    case '.NET':
-      checks = runDotnetChecks(repoRoot, runCommand, skipLint, skipTypecheck);
-      break;
-    case 'Go':
-      checks = runGoChecks(repoRoot, runCommand, skipLint, skipTypecheck);
-      break;
-    case 'Rust':
-      checks = runRustChecks(repoRoot, runCommand, skipLint, skipTypecheck);
-      break;
-  }
+  const projectType = detectToolchain(repoRoot)?.projectType;
+  const checks = runProfileTerm(input.checks ?? staticAnalysisSeedsAt(repoRoot), input);
 
   const advisorySkips: AdvisorySkip[] = [];
   foldAdvisoryLeg(
@@ -1263,7 +1153,8 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
     '## Static Analysis Report',
     '',
     `**Repository:** \`${repoRoot}\``,
-    `**Project type:** ${projectType}`,
+    ...(projectType === undefined ? [] : [`**Project type:** ${projectType}`]),
+    ...(input.profilePath === undefined ? [] : [`**Profile:** ${input.profilePath}`]),
     '',
   ];
 
@@ -1292,8 +1183,9 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   if (failCount > 0) {
     outputLines.push(`**Result: FAIL** (${failCount}/${total} checks failed${note})`);
   } else if (skipCount > 0) {
+    const label = checks.some((check) => check.unresolved === true) ? 'SKIP' : 'DEGRADED';
     outputLines.push(
-      `**Result: DEGRADED** (${passCount}/${total} checks passed, ` +
+      `**Result: ${label}** (${passCount}/${total} checks passed, ` +
         `${skipCount} skipped — inconclusive, not a pass${note})`,
     );
   } else {
@@ -1305,14 +1197,10 @@ export function runStaticAnalysis(input: StaticAnalysisInput): StaticAnalysisRes
   const status: StaticAnalysisResult['status'] =
     failCount > 0 ? 'fail' : skipCount > 0 ? 'skip' : 'pass';
 
-  const skippedChecks = checks
-    .filter((check) => check.status === 'SKIP')
-    .map(({ name, detail }): StaticAnalysisSkippedCheck => (detail === undefined ? { name } : { name, detail }));
-
   return {
     status,
     output,
-    ...(status === 'skip' ? { skipReason: 'constituent-skipped' as const, skippedChecks } : {}),
+    ...(status === 'skip' ? skipFields(checks, input) : {}),
     passCount,
     failCount,
     skipCount,

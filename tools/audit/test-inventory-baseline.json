@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1376,
-    "parsedFiles": 1331,
+    "testFiles": 1379,
+    "parsedFiles": 1334,
     "shellFiles": 45,
-    "cases": 15311,
+    "cases": 15333,
     "dynamicTitles": 176,
     "unparseableFiles": 0
   },
@@ -51437,12 +51437,12 @@
         },
         {
           "suite": "handleTaskComplete names the cause and the recovery of a refusal",
-          "name": "HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheMissingScript",
+          "name": "HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheSkipFlag",
           "dynamic": false
         },
         {
           "suite": "handleTaskComplete names the cause and the recovery of a refusal",
-          "name": "HandleTaskComplete_LatestRunHadNoToolchain_SaysThatNoRerunHelps",
+          "name": "HandleTaskComplete_LatestRunResolvedNoCheck_NamesTheConfigRecovery",
           "dynamic": false
         },
         {
@@ -59155,7 +59155,7 @@
         },
         {
           "suite": "DR-6 — a skipped constituent renders DEGRADED, never PASS",
-          "name": "StaticAnalysis_LintScriptAbsent_DegradesAndCannotReportPass",
+          "name": "StaticAnalysis_LintScriptAbsent_IsUnresolvedAndCannotReportPass",
           "dynamic": false
         },
         {
@@ -63695,7 +63695,7 @@
       "cases": [
         {
           "suite": "behavioral parity with static-analysis-gate.sh",
-          "name": "quality-check absent — DEGRADED, not PASS (2/2) (T-09 / DR-6)",
+          "name": "lint and typecheck pass — PASS (2/2)",
           "dynamic": false
         },
         {
@@ -63720,7 +63720,7 @@
         },
         {
           "suite": "quality-check path",
-          "name": "quality-check script present and passing — counted in totals",
+          "name": "quality-check script present — not a check, so not counted in totals",
           "dynamic": false
         }
       ]
@@ -63776,7 +63776,7 @@
         },
         {
           "suite": "runStaticAnalysis > missing npm scripts",
-          "name": "missing script in package.json degrades the aggregate (DR-6)",
+          "name": "missing script in package.json is an unresolved check (DR-6)",
           "dynamic": false
         },
         {
@@ -89307,6 +89307,134 @@
         {
           "suite": "settle runs the kill probe under the pinned terms",
           "name": "Settle_AnUnscopedRun_GivesADegradedQualifierInTheTrace",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/pure/static-analysis-profile.test.ts": {
+      "file": "tests/unit/verbs/pure/static-analysis-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_TheProfileChecks_RunInTheirOrderAndNoOtherCheckRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_ADotnetBuildWithTheNU1510RestoreWarningOnExitZero_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_ARepositoryWarnAsErrorTypecheck_RunsVerbatimAndFailsOnTheSameOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_APnpmRepository_RunsPnpmRunLintAndTypecheck",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_APnpmRepository_NamesThePnpmRerunOfACappedFail",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_APythonRepository_RunsRuffCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_ANodeRepositoryWithAQualityCheckScript_RunsOnlyLintAndTypecheck",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_TheRustSeed_RunsCargoCheckThenCargoClippyWithNoFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_AnUnresolvedCheck_SkipsWithProfileUnresolvedAndNamesItsKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_AnUnresolvedCheck_ReasonStartsWithTheProfilePathAndEndsWithTheRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_ASkipFlagOnAnUnresolvedCheck_StaysProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_AnUnresolvedTerm_IsOneSkipLine",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_AnUnresolvedTermBesideABoundaryFail_GivesFail",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the profile of a call",
+          "name": "StaticAnalysis_InASegment_AWorktreeThatDeletesAPinnedScript_FailsThatCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the profile of a call",
+          "name": "StaticAnalysis_InASegment_AnUnresolvedPinnedCheck_NamesTheCheckoutRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the profile of a call",
+          "name": "StaticAnalysis_ADirectCall_RunsTheKeysOfItsRootAndNamesTheRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — the file list",
+          "name": "CapFailDetail_AFilePathOfAnyExtension_IsCounted",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/tasks/task-complete-profile.test.ts": {
+      "file": "tests/unit/tasks/task-complete-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete — a skip of an unresolved term",
+          "name": "TaskComplete_AProfileUnresolvedSkip_NamesTheConfigRecovery",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete — a skip of an unresolved term",
+          "name": "TaskComplete_APinnedProfileUnresolvedSkip_NamesTheCheckoutANewPrepareAndANewBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete — a skip of an unresolved term",
+          "name": "TaskComplete_ANoToolchainRowOfAnEarlierBuild_ReadsAsProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete — a skip of an unresolved term",
+          "name": "TaskComplete_AnEarlierProfileUnresolvedRecord_NamesTheRerunOfThatRun",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-pinned-unresolved.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-pinned-unresolved.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a pinned unresolved check",
+          "name": "Settle_APinnedUnresolvedCheck_NamesTheCheckoutANewPrepareAndANewBatch",
           "dynamic": false
         }
       ]

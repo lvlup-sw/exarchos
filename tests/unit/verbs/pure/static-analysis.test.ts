@@ -11,14 +11,15 @@ import {
 import type { CommandResult, StaticAnalysisResult, RunCommandFn } from '../../../../src/verbs/pure/static-analysis.js';
 import { rmrf } from '../../../../tools/test-helpers/temp-dir.js';
 
-/** The counted checks of one run: the npm scripts of the fixture, and the script that exits 1. */
+/** The counted checks of one run: the npm scripts of the fixture, the script that exits 1, and the skip flag of the run. */
 interface CheckOutcome {
   readonly outcome: 'pass' | 'fail' | 'skip';
   readonly scripts: Record<string, string>;
   readonly failingScript?: string;
+  readonly skipLint?: boolean;
 }
 
-/** One outcome of the counted checks for each status that they give: each check passes, lint fails, or a script is missing. */
+/** One outcome of the counted checks for each status that they give: each check passes, lint fails, or a flag skips a check. */
 const CHECK_OUTCOMES: readonly CheckOutcome[] = [
   { outcome: 'pass', scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' } },
   {
@@ -26,7 +27,7 @@ const CHECK_OUTCOMES: readonly CheckOutcome[] = [
     scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit', 'quality-check': 'echo q' },
     failingScript: 'lint',
   },
-  { outcome: 'skip', scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit' } },
+  { outcome: 'skip', scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit' }, skipLint: true },
 ];
 
 /** How the boundary leg reaches one cause with no verdict: the result of the depcruise run, or globs that name no path. */
@@ -299,10 +300,10 @@ describe('runStaticAnalysis', () => {
 
   describe('missing npm scripts', () => {
     /**
-     * A missing script skips its check and does not fail it. The result is
-     * `skip`, because one check that ran cannot make a clean pass.
+     * A missing script is an unresolved check. It is not a failure, and it is not a skipped check.
+     * The result is `skip`, because one check that ran cannot make a clean pass.
      */
-    it('missing script in package.json degrades the aggregate (DR-6)', () => {
+    it('missing script in package.json is an unresolved check (DR-6)', () => {
       const repoRoot = createPackageJson({
         lint: 'eslint .',
       });
@@ -313,10 +314,10 @@ describe('runStaticAnalysis', () => {
       });
 
       expect(result.status).toBe('skip');
-      expect(result.skipReason).toBe('constituent-skipped');
-      expect(result.skipCount).toBe(2);
+      expect(result.skipReason).toBe('profile-unresolved');
+      expect(result.skipCount).toBe(1);
       expect(result.output).toContain('SKIP');
-      expect(result.output).toContain('Result: DEGRADED');
+      expect(result.output).toContain('Result: SKIP');
       expect(result.output).not.toContain('Result: PASS');
     });
 
@@ -334,7 +335,7 @@ describe('runStaticAnalysis', () => {
       expect(result.status).toBe('skip');
       expect(result.passCount).toBe(1);
       expect(result.failCount).toBe(0);
-      expect(result.skipCount).toBe(2);
+      expect(result.skipCount).toBe(1);
     });
 
     /** A positive control: the result is PASS when no check skips. */
@@ -381,7 +382,7 @@ describe('runStaticAnalysis', () => {
   });
 
   describe('usage errors', () => {
-    /** A directory with no recognized toolchain gives `skip`, so the gate cannot report a false pass. */
+    /** A directory where no layer sets a check gives `skip`, so the gate cannot report a false pass. */
     it('empty directory with no project files returns skip (no applicable toolchain)', () => {
       const emptyDir = path.join(tmpDir, 'empty');
       fs.mkdirSync(emptyDir, { recursive: true });
@@ -392,9 +393,9 @@ describe('runStaticAnalysis', () => {
       });
 
       expect(result.status).toBe('skip');
-      expect(result.skipReason).toBe('no-toolchain');
+      expect(result.skipReason).toBe('profile-unresolved');
       expect(result.projectType).toBeUndefined();
-      expect(result.output).toContain('No recognized project type');
+      expect(result.output).toContain('staticAnalysis: no layer sets a lint or typecheck check.');
     });
 
     it('non-existent repo root returns error', () => {
@@ -444,10 +445,10 @@ describe('runStaticAnalysis', () => {
       const result = runStaticAnalysis({ repoRoot, runCommand: runner });
 
       expect(result.status).toBe('fail');
-      expect(result.failCount).toBe(3);
+      expect(result.failCount).toBe(2);
       expect(result.skipCount).toBe(0);
       expect(result.advisorySkips).toBeUndefined();
-      for (const [name, script] of [['Lint', 'lint'], ['Typecheck', 'typecheck'], ['Quality check', 'quality-check']]) {
+      for (const [name, script] of [['Lint', 'lint'], ['Typecheck', 'typecheck']]) {
         expect(result.output).toContain(`- **FAIL**: ${name} — npm run ${script} failed`);
       }
     });
@@ -597,7 +598,7 @@ describe('runStaticAnalysis', () => {
       });
 
       expect(result.status).toBe('skip');
-      expect(result.skipReason).toBe('no-toolchain');
+      expect(result.skipReason).toBe('profile-unresolved');
       expect(result.projectType).toBeUndefined();
       expect(result.passCount).toBe(0);
       expect(result.failCount).toBe(0);
@@ -800,21 +801,21 @@ describe('runStaticAnalysis', () => {
         },
       ]);
       expect(result.output).toContain(
-        '**Result: FAIL** (1/3 checks failed, degraded: 1 advisory check gave no verdict)',
+        '**Result: FAIL** (1/2 checks failed, degraded: 1 advisory check gave no verdict)',
       );
     });
 
     it('StaticAnalysis_AdvisorySkipBesideAConstituentSkip_StaysInconclusive', () => {
       const repoRoot = withBoundaryConfig(createPackageJson({ lint: 'eslint .', typecheck: 'tsc --noEmit' }));
 
-      const result = runStaticAnalysis({ repoRoot, runCommand: stoppedDepcruiseRunner({}) });
+      const result = runStaticAnalysis({ repoRoot, skipLint: true, runCommand: stoppedDepcruiseRunner({}) });
 
       expect(result.status).toBe('skip');
       expect(result.skipReason).toBe('constituent-skipped');
       expect(result.skipCount).toBe(1);
       expect(result.advisorySkips).toHaveLength(1);
       expect(result.output).toContain(
-        '**Result: DEGRADED** (2/2 checks passed, 1 skipped — inconclusive, not a pass, ' +
+        '**Result: DEGRADED** (1/1 checks passed, 1 skipped — inconclusive, not a pass, ' +
           'degraded: 1 advisory check gave no verdict)',
       );
     });
@@ -828,7 +829,7 @@ describe('runStaticAnalysis', () => {
       expect(result.status).toBe('pass');
       expect(result.advisorySkips).toBeUndefined();
       expect(result.output).not.toContain('Import boundaries');
-      expect(result.output).toContain('**Result: PASS** (3/3 checks passed)');
+      expect(result.output).toContain('**Result: PASS** (2/2 checks passed)');
     });
 
     /** The handler passes the project globs through, so the leg scans the configured roots. */
@@ -862,7 +863,7 @@ describe('runStaticAnalysis', () => {
 
       for (const cause of BOUNDARY_NO_VERDICT_CAUSES) {
         const route = NO_VERDICT_ROUTES[cause];
-        for (const { outcome, scripts, failingScript } of CHECK_OUTCOMES) {
+        for (const { outcome, scripts, failingScript, skipLint } of CHECK_OUTCOMES) {
           const label = `${cause} beside a ${outcome}`;
           const runner: RunCommandFn = vi.fn((cmd: string, args: readonly string[]) => {
             if (isDepcruise(cmd)) return route?.depcruise ?? { exitCode: 0, stdout: '', stderr: '' };
@@ -874,11 +875,13 @@ describe('runStaticAnalysis', () => {
 
           const withLeg = runStaticAnalysis({
             repoRoot: makeRepo(tmpDir, `${cause}-${outcome}-leg`, scripts, true),
+            skipLint,
             runCommand: runner,
             firstPartyGlobs,
           });
           const twin = runStaticAnalysis({
             repoRoot: makeRepo(tmpDir, `${cause}-${outcome}-twin`, scripts, false),
+            skipLint,
             runCommand: runner,
             firstPartyGlobs,
           });

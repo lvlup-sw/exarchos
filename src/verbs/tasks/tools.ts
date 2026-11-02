@@ -29,9 +29,10 @@ import {
 } from '../../utils/git-tree.js';
 import { ladderRequirementId, readGateEvidenceRecords, selectSubject, treeStampOf } from '../gates/durable-gate-producer.js';
 import { gateRunnerObservationSource, gateSignalIdempotencyKey, type GateRunTree } from '../gates/gate-runner.js';
-import { DISABLED_BY_CONFIG } from '../gates/gate-utils.js';
+import { DISABLED_BY_CONFIG, pinnedCapsuleOf } from '../gates/gate-utils.js';
 import { staticAnalysisSubjectScope } from '../gates/static-analysis.js';
 import type { StaticAnalysisSkipReason } from '../pure/static-analysis.js';
+import { PROFILE_UNRESOLVED } from '../../workflow/verification/profile.js';
 import { DESIGN_REVISED_TYPE, designVersionId, revisedTasksAfter } from '../prepare/design-version.js';
 import {
   WORKFLOW_PREPARED_TYPE,
@@ -408,7 +409,8 @@ function hasStepParamsSubject(record: AdmissionEvidenceRecorded, streamId: strin
 /**
  * Why the static-analysis prerequisite of a task holds or does not hold.
  * `no-runner-verdict` says whether the task has a runner row. `skipped-check` carries the skipped checks that the runner row names.
- * `no-toolchain` is a no-toolchain skip that is the latest record of the task. `earlier-no-toolchain` is one that is not.
+ * `profile-unresolved` is a skip of an unresolved term that is the latest record of the task. It carries the reason of the runner row.
+ * `earlier-profile-unresolved` is such a skip that is not the latest record.
  *
  * `no-recorded-cause` is a record whose runner row is absent or names no known skip cause, as a row of an earlier build does.
  * `repo-root-missing` is a skip of a task run with no `repoRoot`, which scanned nothing.
@@ -419,8 +421,8 @@ type StaticAnalysisPrerequisite =
   | { readonly kind: 'no-runner-verdict'; readonly latestRow: boolean }
   | { readonly kind: 'failed'; readonly record: CauseRecord }
   | { readonly kind: 'skipped-check'; readonly record: CauseRecord; readonly skippedChecks: string | undefined }
-  | { readonly kind: 'no-toolchain' }
-  | { readonly kind: 'earlier-no-toolchain'; readonly record: CauseRecord }
+  | { readonly kind: typeof PROFILE_UNRESOLVED; readonly reason: string | undefined }
+  | { readonly kind: 'earlier-profile-unresolved'; readonly record: CauseRecord }
   | { readonly kind: 'repo-root-missing'; readonly record: CauseRecord }
   | { readonly kind: 'disabled-by-config'; readonly record: CauseRecord }
   | { readonly kind: 'no-recorded-cause'; readonly record: CauseRecord; readonly skipped: boolean };
@@ -467,7 +469,7 @@ type StaticAnalysisRefusalCause =
 /** Each cause of a refusal, keyed by its kind. */
 type RefusalCauseByKind = { readonly [Cause in StaticAnalysisRefusalCause as Cause['kind']]: Cause };
 
-/** The skip discriminant of a static-analysis run with no supported toolchain. */
+/** The skip discriminant that an earlier build wrote for a run with no supported toolchain. It reads as {@link PROFILE_UNRESOLVED}. */
 const NO_TOOLCHAIN: StaticAnalysisSkipReason = 'no-toolchain';
 
 /** The skip discriminant of a static-analysis run in which a check did not run. */
@@ -494,7 +496,7 @@ function causeRecordOf(
 /**
  * The cause of a refusal from an active record that does not pass. The verdict of the record tells a fail from a run with no verdict.
  * For a run with no verdict, the latest runner row of the record gives the skip cause by its closed `discriminant` code.
- * A no-toolchain skip says that no rerun helps only when it is the latest record of the task.
+ * A skip of an unresolved term gets the recovery of the profile only when it is the latest record of the task.
  */
 function recordCause(
   record: AdmissionEvidenceRecorded,
@@ -514,10 +516,10 @@ function recordCause(
   if (skip?.discriminant === CONSTITUENT_SKIPPED) {
     return { kind: 'skipped-check', record: cause, skippedChecks: skip.reason };
   }
-  if (skip?.discriminant === NO_TOOLCHAIN) {
+  if (skip?.discriminant === PROFILE_UNRESOLVED || skip?.discriminant === NO_TOOLCHAIN) {
     return evidenceId === latest.evidence.evidenceId
-      ? { kind: 'no-toolchain' }
-      : { kind: 'earlier-no-toolchain', record: cause };
+      ? { kind: PROFILE_UNRESOLVED, reason: skip.reason }
+      : { kind: 'earlier-profile-unresolved', record: cause };
   }
   if (skip?.discriminant === REPO_ROOT_MISSING) return { kind: 'repo-root-missing', record: cause };
   if (skip?.discriminant === DISABLED_BY_CONFIG) return { kind: 'disabled-by-config', record: cause };
@@ -618,10 +620,8 @@ const REFUSAL_RECOVERIES: {
   'no-runner-verdict': (rerun) => `To record a verdict, ${rerun}`,
   failed: (rerun) => `Fix the failing checks that the check_static_analysis report names. Then ${rerun}`,
   'skipped-check': (rerun) => `Add the missing scripts, or do not set the skip flags. Then ${rerun}`,
-  'no-toolchain': () =>
-    'A task cannot complete in this repository until static analysis can run configured commands (#1540). ' +
-    'A rerun gives the same skip.',
-  'earlier-no-toolchain': (rerun) => `Make sure that the run scans the worktree of the task. Then ${rerun}`,
+  [PROFILE_UNRESOLVED]: (rerun, cause) => profileRecovery(rerun, cause.reason),
+  'earlier-profile-unresolved': (rerun) => `Make sure that the run scans the worktree of the task. Then ${rerun}`,
   'repo-root-missing': treeRecovery,
   'disabled-by-config': (rerun) =>
     `Enable ${STATIC_ANALYSIS_ACTION} in the .exarchos.yml of the checkout: remove review.gates.${STATIC_ANALYSIS_ACTION}, ` +
@@ -640,6 +640,21 @@ function recoveryOf<Kind extends keyof RefusalCauseByKind>(
   rerun: string,
 ): string {
   return REFUSAL_RECOVERIES[kind](rerun, cause);
+}
+
+/**
+ * The recovery of a skip of an unresolved term. A reason that starts with `pinned by capsule v<N>` names a term that the capsule pins.
+ * A change in the worktree changes nothing then, so the route goes through the checkout, a new prepare and a new batch.
+ * Any other reason names a live resolution, or a row of an earlier build, so the route is a change and a rerun.
+ */
+function profileRecovery(rerun: string, reason: string | undefined): string {
+  const keys = 'set verification.staticAnalysis, or the top-level lint: and typecheck: keys, or add the scripts';
+  const capsuleVersion = pinnedCapsuleOf(reason);
+  if (capsuleVersion === undefined) return `To resolve the checks, ${keys}. Then ${rerun}`;
+  return (
+    `A rerun under capsule v${capsuleVersion} gives the same skip. To resolve the checks, ${keys}, at the checkout. ` +
+    'Then prepare again, and claim the task in a new batch.'
+  );
 }
 
 /**
@@ -725,15 +740,14 @@ function refusalCauseText(cause: StaticAnalysisRefusalCause, taskId: string): st
             `The check_static_analysis report names the check.${chainSentence(cause.record)}`
         : `${causeSubject(cause.record, taskId, 'run')} skipped a check, so it is not a pass: ` +
             `${cause.skippedChecks}.${chainSentence(cause.record)}`;
-    case 'no-toolchain':
+    case PROFILE_UNRESOLVED: {
+      const reason = cause.reason === undefined ? '' : `: ${cause.reason.replace(/\.$/, '')}`;
+      return `The latest static-analysis run for task '${taskId}' is a skip, because the profile resolved no static-analysis check${reason}.`;
+    }
+    case 'earlier-profile-unresolved':
       return (
-        `The latest static-analysis run for task '${taskId}' is a skip, ` +
-        'because the repository has no supported static-analysis toolchain.'
-      );
-    case 'earlier-no-toolchain':
-      return (
-        `${namedRecordSubject(cause.record, taskId, 'run')} is a skip, because it found no supported static-analysis ` +
-        `toolchain in the scanned directory. A later run of the task is not this skip.${chainSentence(cause.record)}`
+        `${namedRecordSubject(cause.record, taskId, 'run')} is a skip, because the run resolved no static-analysis check. ` +
+        `A later run of the task is not this skip.${chainSentence(cause.record)}`
       );
     case 'repo-root-missing':
       return (
