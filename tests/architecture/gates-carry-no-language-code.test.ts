@@ -9,8 +9,8 @@
  * The scan walks the syntax tree of each file and reads its string, template and regex literals.
  * Each literal gets one hit, from the first rule that matches: R1 program, R2 argument, R3 classifier
  * and R4 identity. The live hits must equal `tools/audit/language-code-register.json`, and a later
- * change removes its own rows. The guard proves its population with a planted line, and its matcher
- * with seeded violations and their clean twins.
+ * change removes its own rows. Only the content scanners and the census of the Exarchos source keep rows.
+ * The guard proves its population with a planted line, and its matcher with seeded violations and their clean twins.
  */
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -74,6 +74,25 @@ const EARLIER_GUARD_FILES: readonly string[] = [
   'src/verbs/review/debug-review-gate.ts',
   'src/verbs/pure/post-merge.ts',
 ];
+
+/** The content scanners. They read source text and run no verification command, so their rows wait for #2142. */
+const CONTENT_SCANNERS: ReadonlySet<string> = new Set([
+  'src/review/check-catalog.ts',
+  'src/verbs/gates/check-coverage-thresholds.ts',
+  'src/verbs/gates/check-polish-scope.ts',
+  'src/verbs/gates/context-economy.ts',
+  'src/verbs/gates/mock-boundary.ts',
+  'src/verbs/gates/needs-schema-sync.ts',
+  'src/verbs/gates/operational-resilience.ts',
+  'src/verbs/gates/security-scan.ts',
+  'src/verbs/gates/workflow-determinism.ts',
+  'src/verbs/pure/context-economy.ts',
+  'src/verbs/pure/operational-resilience.ts',
+  'src/verbs/pure/workflow-determinism.ts',
+]);
+
+/** The census walks the TypeScript source of Exarchos itself, so its row is permanent. */
+const SELF_SCAN_FILE = 'src/verbs/gates/gate-ownership-census.ts';
 
 /**
  * Programs that no registry row names. The list is a deliberate subset: JavaScript tools, and the
@@ -776,6 +795,16 @@ function hitCounts(hits: Iterable<Hit>): Record<string, number> {
   return countsByFileAndRule([...hits].map((hit) => ({ file: hit.file, rule: hit.rule, count: 1 })));
 }
 
+/**
+ * The owner that the end state of the register gives a file and a rule. A content scanner keeps rule R3 or R4 under #2142.
+ * The census keeps rule R3 under `self-scan`. Every other file and rule gives `undefined`, because the end state holds no hit of it.
+ */
+function endStateOwner(file: string, rule: Rule): string | undefined {
+  if (CONTENT_SCANNERS.has(file) && (rule === 'R3' || rule === 'R4')) return '#2142';
+  if (file === SELF_SCAN_FILE && rule === 'R3') return 'self-scan';
+  return undefined;
+}
+
 function measure(): LiveScan {
   const vocabulary = liveVocabulary();
   const denominator = deriveDenominator();
@@ -1028,5 +1057,28 @@ describe('gates carry no language code', () => {
 
     expect(ruleAndText(result.hits)).toEqual([]);
     expect(result.literalCount).toBe(26);
+  });
+
+  /**
+   * The end state of the ratchet. Each row and each live hit belongs to a content scanner under #2142, or to the census under `self-scan`.
+   * No row has rule R1 or R2, so no gate source holds a command or a flag.
+   */
+  it('LanguageCodeGuard_OnlyTheContentScannersAndTheSelfScanHoldRows', () => {
+    const { denominator, scans, register } = measured();
+    const hits = [...scans.values()].flatMap((scan) => scan.hits);
+    const strayRows = register
+      .filter((row) => endStateOwner(row.file, row.rule) !== row.owner)
+      .map((row) => `${row.file} ${row.rule} ${row.owner}`);
+    const strayHits = hits
+      .filter((hit) => endStateOwner(hit.file, hit.rule) === undefined)
+      .map((hit) => `${hit.file}:${hit.line} ${hit.rule} ${JSON.stringify(hit.text)}`);
+
+    for (const file of [...CONTENT_SCANNERS, SELF_SCAN_FILE]) expect(denominator.files).toContain(file);
+    expect(hits.length).toBeGreaterThan(0);
+    expect(register.some((row) => row.owner === '#2142')).toBe(true);
+    expect(strayRows).toEqual([]);
+    expect(strayHits).toEqual([]);
+    expect(register.filter((row) => row.owner === 'self-scan').map((row) => row.file)).toEqual([SELF_SCAN_FILE]);
+    expect(register.filter((row) => row.rule === 'R1' || row.rule === 'R2')).toEqual([]);
   });
 });

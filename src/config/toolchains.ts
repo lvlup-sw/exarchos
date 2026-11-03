@@ -4,7 +4,9 @@
  * The node entry holds the npm baseline. The resolver selects the package-manager commands from the vendored lockfile table.
  *
  * Each row also seeds the verification profile: its test globs, its probe file form and its static-analysis checks.
- * The module also holds the co-located test globs, the test-support segments, the mutation diff-scope table and the hermetic doubles.
+ * The module also holds the co-located test globs, the test-support segments, the mutation tables and the hermetic doubles.
+ * The mutation tables give the diff scope of each runner, the files that a runner mutates, and the config files of each runner.
+ * The module also holds the file extensions that the task decomposition gate reads as file paths in a plan.
  */
 
 import { existsSync, readdirSync } from 'node:fs';
@@ -59,7 +61,7 @@ export interface ToolchainCommands {
 export interface Toolchain {
   /** Stable id (`node`, `dotnet`, `rust`, …). */
   readonly id: string;
-  /** Human label surfaced by static-analysis (`Node.js`, `.NET`, `Rust`, …). */
+  /** The human label of the toolchain, such as `Node.js`, `.NET` or `Rust`. Static analysis and the worktree baseline report it. */
   readonly projectType: string;
   /**
    * Detection markers. Each is an exact root filename (`package.json`, `go.mod`)
@@ -542,6 +544,141 @@ export function resolveMutationDiffScope(toolchainId: string, base: string): Mut
     : `toolchain '${toolchainId}' has no resolved mutation runner to diff-scope; the mutation run is unscoped`;
   return { kind: 'unscoped-warning', warning: reason };
 }
+
+/**
+ * Source extensions that a mutation runner can make mutants from. This is a
+ * property of the file, not a list of directories, because a directory list
+ * goes stale when the tree moves.
+ */
+export const MUTATABLE_EXTENSIONS: readonly string[] = [
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.py', '.rs', '.cs', '.go', '.kt',
+];
+
+/** Path segments whose contents no runner mutates (tests are the oracle, not the subject). */
+export const NON_MUTATABLE_MARKERS: readonly string[] = [
+  '.test.', '.spec.', '/__tests__/', '/__mocks__/', '/__fixtures__/', '/fixtures/', '/node_modules/', '/dist/',
+];
+
+/**
+ * Maps changed `.java` paths to class names for PIT `-DtargetClasses`. The name
+ * is the path below `src/main/java/`, `src/test/java/`, or `java/`, with `/`
+ * changed to `.` and no extension. A path with no source root uses its full
+ * dotted form. Other files are ignored. The result has no duplicates and keeps
+ * the order.
+ */
+export function changedJavaClasses(files: readonly string[]): string[] {
+  const classes = new Set<string>();
+  for (const file of files) {
+    const posix = file.replace(/\\/g, '/');
+    if (!posix.endsWith('.java')) continue;
+    const noExt = posix.slice(0, -'.java'.length);
+    const rooted = noExt.match(/(?:^|\/)(?:src\/(?:main|test)\/java|java)\/(.+)$/);
+    const rel = (rooted ? rooted[1] : noExt) ?? noExt;
+    classes.add(rel.replace(/\//g, '.'));
+  }
+  return [...classes];
+}
+
+/**
+ * The changed `.py` paths for the mutmut `--paths-to-mutate` flag, in POSIX
+ * form, with no duplicates, in order. Mutmut also has a line-level scope with
+ * `--use-patch-file`, but that needs a patch file on disk.
+ */
+export function changedPythonPaths(files: readonly string[]): string[] {
+  const paths = new Set<string>();
+  for (const file of files) {
+    const posix = file.replace(/\\/g, '/');
+    if (posix.endsWith('.py')) paths.add(posix);
+  }
+  return [...paths];
+}
+
+/**
+ * Filenames that identify the config of a mutation runner, in this order:
+ * StrykerJS, Stryker.NET, Infection (PHP), mutant (Ruby), and cargo-mutants.
+ * The directory of the match is the package that owns the config.
+ */
+export const MUTATION_CONFIG_FILE_PATTERNS: readonly RegExp[] = [
+  /^\.?stryker\.conf(ig)?\.(mjs|cjs|js|json|jsonc)$/i,
+  /^stryker-config\.(json|ya?ml)$/i,
+  /^infection\.json5?(\.dist)?$/i,
+  /^\.?mutant\.ya?ml$/i,
+  /^\.?(cargo-)?mutants\.toml$/i,
+];
+
+/**
+ * Configs inside a file that the project has for other reasons. The basename
+ * alone proves nothing, so the file must also contain the section of the
+ * runner. That is `[tool.mutmut]` or `[mutmut]` for mutmut, and `pitest` for
+ * PIT in Maven or Gradle files.
+ */
+export const MUTATION_CONFIG_SECTION_MARKERS: ReadonlyArray<{
+  readonly basename: string;
+  readonly marker: RegExp;
+}> = [
+  { basename: 'pyproject.toml', marker: /^\s*\[tool\.mutmut\]/m },
+  { basename: 'setup.cfg', marker: /^\s*\[mutmut\]/m },
+  { basename: 'pom.xml', marker: /pitest/i },
+  { basename: 'build.gradle', marker: /pitest/i },
+  { basename: 'build.gradle.kts', marker: /pitest/i },
+];
+
+/**
+ * Directory names that never hold the config of a project: dependency trees
+ * and build output. They are kinds of directory, not named subtrees, so the
+ * scan root stays the whole repository.
+ */
+export const NON_SCANNABLE_DIRS: ReadonlySet<string> = new Set([
+  'node_modules', 'dist', 'build', 'out', 'coverage', 'reports', 'target', 'vendor', 'tmp',
+]);
+
+/**
+ * The extensions that let a command token with no directory part name a file, such as `stryker.conf.mjs`.
+ * Each JavaScript or TypeScript form can have a `c` or `m` before its stem and an `x` after it. Four script extensions follow.
+ * The mutation gate builds its path-token pattern from this list, and the pattern ignores case.
+ */
+export const COMMAND_PATH_EXTENSIONS: readonly string[] = [
+  '.js', '.jsx', '.ts', '.tsx',
+  '.cjs', '.cjsx', '.cts', '.ctsx',
+  '.mjs', '.mjsx', '.mts', '.mtsx',
+  '.sh', '.py', '.rb', '.php',
+];
+
+/**
+ * The file extensions that `extractFiles` and `validateTaskStructure` accept as file paths. A token
+ * with another suffix, such as the field reference `imageProvenance.isFirstParty` in prose, is not a
+ * file. This prevents false parallel-safety conflicts. Both regexes use this one list.
+ */
+export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
+  'ts',
+  'tsx',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'json',
+  'md',
+  'yml',
+  'yaml',
+  'sh',
+  'ps1',
+  'sql',
+  'kql',
+  'bicep',
+  'cs',
+  'csproj',
+  'sln',
+  'go',
+  'rs',
+  'toml',
+  /** Extensions of other source languages, such as the `.py` path of a pytest task. */
+  'py',
+  'rb',
+  'java',
+  'kt',
+  'cpp',
+  'tf',
+];
 
 /**
  * The class of an unowned dependency, for hermetic-double resolution.

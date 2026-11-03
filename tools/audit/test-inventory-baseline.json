@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1390,
-    "parsedFiles": 1345,
+    "testFiles": 1392,
+    "parsedFiles": 1347,
     "shellFiles": 45,
-    "cases": 15412,
+    "cases": 15417,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -88362,6 +88362,11 @@
           "suite": "gates carry no language code",
           "name": "LanguageCodeGuard_Matcher_IgnoresCommentsImportsGitArgvAndProse",
           "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_OnlyTheContentScannersAndTheSelfScanHoldRows",
+          "dynamic": false
         }
       ]
     },
@@ -89896,6 +89901,38 @@
         {
           "suite": "handleDebugReviewGate — the test globs of the profile",
           "name": "DebugReviewGate_AConfigThatDoesNotLoad_FailsWithProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/mutation-targets.test.ts": {
+      "file": "tests/unit/config/mutation-targets.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the mutation tables of the registry",
+          "name": "MutationTargets_EachToolchain_GivesTheTablesThatTheGateUsed",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/worktree-baseline-label.test.ts": {
+      "file": "tests/unit/verbs/gates/worktree-baseline-label.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the label of the worktree baseline",
+          "name": "VerifyWorktreeBaseline_AGoRepository_GetsTheLabelOfItsRegistryRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the label of the worktree baseline",
+          "name": "VerifyWorktreeBaseline_TheLabel_ComesFromTheRegistry",
+          "dynamic": false
+        },
+        {
+          "suite": "the label of the worktree baseline",
+          "name": "VerifyWorktreeBaseline_TheRefusal_NamesTheMarkersOfTheRegistry",
           "dynamic": false
         }
       ]

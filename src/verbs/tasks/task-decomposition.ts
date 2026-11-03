@@ -13,6 +13,7 @@ import { createEvidenceSubject } from '../../workflow/admission/evidence-subject
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
 import { requireGateEvent, sameOperationGateKey } from '../gates/gate-utils.js';
 import { canonicaliseTaskId } from '../../utils/task-id.js';
+import { FILE_EXTENSION_ALLOWLIST } from '../../config/toolchains.js';
 import {
   assessDecompositionPlausibility,
   countBehaviors,
@@ -91,42 +92,6 @@ interface TaskDecompositionResult {
   readonly plausibility: PlausibilityAssessment;
   readonly report: string;
 }
-
-/**
- * The file extensions that `extractFiles` and `validateTaskStructure` accept as file paths. A token
- * with another suffix, such as the field reference `imageProvenance.isFirstParty` in prose, is not a
- * file. This prevents false parallel-safety conflicts. Both regexes use this one list.
- */
-export const FILE_EXTENSION_ALLOWLIST: readonly string[] = [
-  'ts',
-  'tsx',
-  'js',
-  'jsx',
-  'mjs',
-  'cjs',
-  'json',
-  'md',
-  'yml',
-  'yaml',
-  'sh',
-  'ps1',
-  'sql',
-  'kql',
-  'bicep',
-  'cs',
-  'csproj',
-  'sln',
-  'go',
-  'rs',
-  'toml',
-  /** Extensions of other source languages, such as the `.py` path of a pytest task. */
-  'py',
-  'rb',
-  'java',
-  'kt',
-  'cpp',
-  'tf',
-];
 
 /**
  * Regex source fragment matching a backtick-quoted file path whose suffix

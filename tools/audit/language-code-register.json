@@ -2,34 +2,6 @@
   "$comment": "The language-specific literals that the gate sources hold today. tests/architecture/gates-carry-no-language-code.test.ts measures the live hits, and the sum of the counts of each file and rule must equal them. A change that removes a hit removes or lowers its row in the same commit. A false positive is fixed in the matcher with a clean-twin line, never with a row. The owner is the issue that removes the row, or self-scan for a scan of the Exarchos source itself.",
   "rows": [
     {
-      "file": "src/verbs/gates/mutation-adequacy.ts",
-      "rule": "R3",
-      "count": 16,
-      "owner": "#1929",
-      "reason": "The mutatable extension table, the Python path filter, the StrykerJS config pattern, the config-section markers and the path-token regex hold the facts of each language. They move into the registry."
-    },
-    {
-      "file": "src/verbs/gates/verify-worktree-baseline.ts",
-      "rule": "R1",
-      "count": 7,
-      "owner": "#1929",
-      "reason": "projectTypeFromTestCommand compares the resolved test command with seven built-in commands. The label is to come from the registry row of the command."
-    },
-    {
-      "file": "src/verbs/gates/verify-worktree-baseline.ts",
-      "rule": "R4",
-      "count": 8,
-      "owner": "#1929",
-      "reason": "DetectedProjectType and the label table name the project types Node.js, .NET, Rust and Python. The label is to come from the registry row of the command."
-    },
-    {
-      "file": "src/verbs/tasks/task-decomposition.ts",
-      "rule": "R3",
-      "count": 11,
-      "owner": "#1929",
-      "reason": "FILE_EXTENSION_ALLOWLIST holds the bare stems of the vocabulary extensions. The list is to come from the registry."
-    },
-    {
       "file": "src/review/check-catalog.ts",
       "rule": "R3",
       "count": 18,
