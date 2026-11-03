@@ -156,6 +156,33 @@ describe('classification of a declared test', () => {
     expect(data.malformed).toEqual([]);
     expect(data.passed).toBe(true);
   });
+
+  /**
+   * A text in backticks can match a test-name glob and name no file. The final `*` of a glob takes `ts:83`, a quote or a parenthesis.
+   * This case is a twin of `SpecCoverage_ADeclaredDotnetTest_MatchesTheResolvedGlobs`. The old suffix refuses each such text too, so a full revert does not change the declared tests.
+   * It pins the filter of a declared path against a build that keeps only the whitespace rule.
+   */
+  it('SpecCoverage_ALineAnchorAndAGlobInBackticks_AreNotDeclaredTests', async () => {
+    writeFiles({ 'src/a.test.ts': '' });
+    const plan = filesList([
+      'src/a.test.ts',
+      'tests/a.test.ts:83',
+      '**/*.test.*',
+      'tests/a.test.ts?',
+      '{tests/a.test.ts,tests/b.test.ts}',
+      "name.endsWith('.test.ts')",
+      'name.endsWith(".test.ts")',
+      '.test.',
+      '.spec.',
+    ]);
+
+    const data = await check(plan, { verificationProfile: pinnedTestProfile(1) });
+
+    expect(extractTestFiles(plan)).toEqual(['src/a.test.ts']);
+    expect(data.passed).toBe(true);
+    expect(data.totalTests).toBe(1);
+    expect(runs()).toEqual([['npm', ['run', 'test:files', '--', 'src/a.test.ts']]]);
+  });
 });
 
 describe('the run of the declared tests', () => {

@@ -7,7 +7,7 @@
     "testFiles": 1390,
     "parsedFiles": 1345,
     "shellFiles": 45,
-    "cases": 15410,
+    "cases": 15411,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -89815,6 +89815,11 @@
         {
           "suite": "classification of a declared test",
           "name": "SpecCoverage_AnExplicitRustTestDeclaration_IsWellFormed",
+          "dynamic": false
+        },
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_ALineAnchorAndAGlobInBackticks_AreNotDeclaredTests",
           "dynamic": false
         },
         {

@@ -82,6 +82,9 @@ const BACKTICK_PATH_PATTERN = /`([^`]+)`/g;
 /** A backticked text with whitespace is a command or prose. It is not a test path. */
 const WHITESPACE = /\s/;
 
+/** A declared path holds no whitespace and none of these characters, and it does not end in a dot. */
+const NOT_A_DECLARED_PATH = /[\s:*?{}()'",]|\.$/;
+
 /** The name of the check of the one run of a probe command in the `none` form. */
 const UNSCOPED_RUN_CHECK = 'Tests pass: unscoped run, because the probe command takes no file list';
 
@@ -91,6 +94,7 @@ const UNSCOPED_RUN_CHECK = 'Tests pass: unscoped run, because the probe command 
  * 1. The legacy `**Test file:**` declaration. It takes precedence for its line, because the author names the file as a test.
  * 2. A backticked path that a test-name glob of `globs` matches, as in a `**Files:**` list.
  *    A snapshot, a fixture or a directory that only a classification glob matches is not a declared test.
+ *    A line anchor, a glob or a code text that a test-name glob matches is not a declared test. It is not a path.
  */
 export function extractTestFiles(
   planContent: string,
@@ -114,7 +118,7 @@ export function extractTestFiles(
     }
     for (const match of line.matchAll(BACKTICK_PATH_PATTERN)) {
       const candidate = match[1];
-      if (candidate !== undefined && !WHITESPACE.test(candidate) && matchesTestName(candidate, globs)) {
+      if (candidate !== undefined && !NOT_A_DECLARED_PATH.test(candidate) && matchesTestName(candidate, globs)) {
         add(candidate);
       }
     }
