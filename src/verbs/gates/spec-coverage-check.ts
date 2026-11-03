@@ -82,8 +82,12 @@ const BACKTICK_PATH_PATTERN = /`([^`]+)`/g;
 /** A backticked text with whitespace is a command or prose. It is not a test path. */
 const WHITESPACE = /\s/;
 
-/** A declared path holds no whitespace and none of these characters, and it does not end in a dot. */
-const NOT_A_DECLARED_PATH = /[\s:*?{}()'",]|\.$/;
+/**
+ * A declared path holds no whitespace and none of these characters, and it does not end in a dot.
+ * A parenthesis stays legal, because `src/app/(auth)/page.test.tsx` is a real path and a quote already refuses a code text.
+ * A bare name with no slash that starts with a dot is not a declared path. `.test.sh` and `.test.ts` are words in prose.
+ */
+const NOT_A_DECLARED_PATH = /[\s:*?{}'",]|\.$|^\.[^/]*$/;
 
 /** The name of the check of the one run of a probe command in the `none` form. */
 const UNSCOPED_RUN_CHECK = 'Tests pass: unscoped run, because the probe command takes no file list';

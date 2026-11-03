@@ -7,7 +7,7 @@
     "testFiles": 1390,
     "parsedFiles": 1345,
     "shellFiles": 45,
-    "cases": 15411,
+    "cases": 15412,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -89820,6 +89820,11 @@
         {
           "suite": "classification of a declared test",
           "name": "SpecCoverage_ALineAnchorAndAGlobInBackticks_AreNotDeclaredTests",
+          "dynamic": false
+        },
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_APathWithParentheses_IsADeclaredTest",
           "dynamic": false
         },
         {

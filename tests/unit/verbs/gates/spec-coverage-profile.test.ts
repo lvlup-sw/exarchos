@@ -158,22 +158,25 @@ describe('classification of a declared test', () => {
   });
 
   /**
-   * A text in backticks can match a test-name glob and name no file. The final `*` of a glob takes `ts:83`, a quote or a parenthesis.
+   * A text in backticks can match a test-name glob and name no file. The final `*` of a glob takes `ts:83` or a quote, and it can be empty.
    * This case is a twin of `SpecCoverage_ADeclaredDotnetTest_MatchesTheResolvedGlobs`. The old suffix refuses each such text too, so a full revert does not change the declared tests.
-   * It pins the filter of a declared path against a build that keeps only the whitespace rule.
+   * Each text holds one part of the filter and no other, so a build that drops one part declares its text.
    */
   it('SpecCoverage_ALineAnchorAndAGlobInBackticks_AreNotDeclaredTests', async () => {
     writeFiles({ 'src/a.test.ts': '' });
     const plan = filesList([
       'src/a.test.ts',
+      'tests/a.test.ts b',
       'tests/a.test.ts:83',
       '**/*.test.*',
       'tests/a.test.ts?',
-      '{tests/a.test.ts,tests/b.test.ts}',
-      "name.endsWith('.test.ts')",
-      'name.endsWith(".test.ts")',
-      '.test.',
-      '.spec.',
+      'tests/a.test.ts{',
+      'tests/a.test.ts}',
+      "tests/a.test.ts'",
+      'tests/a.test.ts"',
+      'tests/a.test.ts,',
+      'tests/a.test.',
+      '.test.sh',
     ]);
 
     const data = await check(plan, { verificationProfile: pinnedTestProfile(1) });
@@ -182,6 +185,23 @@ describe('classification of a declared test', () => {
     expect(data.passed).toBe(true);
     expect(data.totalTests).toBe(1);
     expect(runs()).toEqual([['npm', ['run', 'test:files', '--', 'src/a.test.ts']]]);
+  });
+
+  /**
+   * A route group puts parentheses in a real path, so the filter of a declared path does not refuse them.
+   * The killing assertion on a full revert: the old check runs another program, and the old suffix takes this path too.
+   */
+  it('SpecCoverage_APathWithParentheses_IsADeclaredTest', async () => {
+    const path = 'src/app/(auth)/page.test.tsx';
+    writeFiles({ [path]: '' });
+    const plan = filesList([path]);
+
+    const data = await check(plan, { verificationProfile: pinnedTestProfile(1) });
+
+    expect(extractTestFiles(plan)).toEqual([path]);
+    expect(data.passed).toBe(true);
+    expect(data.totalTests).toBe(1);
+    expect(runs()).toEqual([['npm', ['run', 'test:files', '--', path]]]);
   });
 });
 
