@@ -8652,7 +8652,7 @@ exarchos_orchestrate({
 })
 \`\`\`
 
-The script auto-detects project type (Node.js, .NET, Rust) and runs the appropriate test command.
+The check resolves the test command of the worktree and runs it. Each built-in toolchain row of the registry gives the project-type label of its test command, such as \`Go\` for \`go test ./...\`, and a package-manager profile gives the label of its package manager. A test command of no row and no profile gets a label that names its source.
 
 **On \`passed: true\`:** Baseline tests pass — worktree is ready for implementation.
 **On \`passed: false\`:** Baseline tests failed or unknown project type — investigate before proceeding.

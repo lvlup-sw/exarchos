@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1392,
-    "parsedFiles": 1347,
+    "testFiles": 1395,
+    "parsedFiles": 1350,
     "shellFiles": 45,
-    "cases": 15417,
+    "cases": 15423,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -89933,6 +89933,54 @@
         {
           "suite": "the label of the worktree baseline",
           "name": "VerifyWorktreeBaseline_TheRefusal_NamesTheMarkersOfTheRegistry",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/contract-drift-one-leg.test.ts": {
+      "file": "tests/unit/verbs/gates/contract-drift-one-leg.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "runContractDrift — a codegen or diff leg that does not resolve",
+          "name": "ContractDrift_OneUnresolvedLeg_RunsTheOtherAndNamesTheLegThatDidNotRun",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — a codegen or diff leg that does not resolve",
+          "name": "ContractDrift_OneUnresolvedLeg_GivesNoCleanPassSteer",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — a codegen or diff leg that does not resolve",
+          "name": "ContractDrift_TwoUnresolvedLegs_TheSkipReportDoesNotClaimAMissingBlock",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/spec-coverage-unfit-unresolved-probe.test.ts": {
+      "file": "tests/unit/verbs/gates/spec-coverage-unfit-unresolved-probe.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "an unresolved probe command beside a declared test that its globs do not hold",
+          "name": "SpecCoverage_AnUnresolvedProbeWithAnUnfitDeclaredTest_FailsWithProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/integration-suite-guardrails.test.ts": {
+      "file": "tests/unit/verbs/gates/integration-suite-guardrails.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "check_integration_suite guardrails",
+          "name": "IntegrationSuite_TheActionDescription_SaysWhenNotToUseIt",
+          "dynamic": false
+        },
+        {
+          "suite": "check_integration_suite guardrails",
+          "name": "IntegrationSuite_ARunnerErrorWithNoStatusAndNoSpawnCode_IsNeverExitOne",
           "dynamic": false
         }
       ]

@@ -36,7 +36,7 @@ import {
 } from './contract-drift.js';
 
 /**
- * The next action on a pass that is not a skip. A contract pins the shape of a
+ * The next action on a pass that is not a skip and that ran each codegen and diff leg. A contract pins the shape of a
  * boundary, not its meaning. Thus one semantic test of the boundary is enough,
  * and unit-test shape assertions are redundant.
  */
@@ -121,18 +121,24 @@ const BASE_MISSING_REPORT =
   'Pass the branch that the task forked from. The task-completion runbook binds it from the capsule `baseRef`.';
 
 /**
- * The fields that a skip adds to the carrier. A skip descriptor rides on the carrier, so it reaches the `gate.executed` row and the trace qualifier.
- * The reason starts with the profile path and ends with the route of a remedy. A run that did not skip adds no field.
+ * The fields that an unresolved term adds to the carrier. A skip descriptor rides on the carrier, so it reaches the `gate.executed` row and the trace qualifier.
+ * A pass that did not run a codegen or diff leg gets the discriminant and the reason, with no `skipped` field.
+ * The reason starts with the profile path and ends with the route of a remedy. A run with no unresolved leg adds no field.
  */
-function skipFields(args: ContractDriftHandlerArgs, repoRoot: string, drift: ContractDriftResult): Record<string, unknown> {
-  if (!drift.skipped) return {};
+function unresolvedFields(args: ContractDriftHandlerArgs, repoRoot: string, drift: ContractDriftResult): Record<string, unknown> {
+  if (!drift.skipped && drift.discriminant === undefined) return {};
   return {
-    skipped: true,
+    ...(drift.skipped ? { skipped: true } : {}),
     ...(drift.discriminant === undefined ? {} : { discriminant: drift.discriminant }),
     ...(drift.reason === undefined
       ? {}
       : { reason: `${profilePathOf(args, repoRoot)}. ${withProfileRoute(args, drift.reason)}` }),
   };
+}
+
+/** True for a pass that ran each codegen and diff leg. Only such a pass gets {@link ONE_SEMANTIC_TEST_STEER}. */
+function isCleanPass(drift: ContractDriftResult): boolean {
+  return drift.passed && !drift.skipped && drift.discriminant === undefined;
 }
 
 /**
@@ -227,8 +233,8 @@ export async function handleContractDrift(
           drift: drift.drift,
           breaking: drift.breaking,
           report: `profile = ${profilePathOf(args, repoRoot)}\n${drift.report}`,
-          ...skipFields(args, repoRoot, drift),
-          ...(drift.passed && !drift.skipped ? { next_actions: [ONE_SEMANTIC_TEST_STEER] } : {}),
+          ...unresolvedFields(args, repoRoot, drift),
+          ...(isCleanPass(drift) ? { next_actions: [ONE_SEMANTIC_TEST_STEER] } : {}),
         },
       };
     },

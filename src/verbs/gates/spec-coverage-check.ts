@@ -427,13 +427,16 @@ function checkOfRun(name: string, outcome: Exclude<RunOutcome, { kind: 'unresolv
  * Runs the declared tests with the probe term, once for each file. The `none` form takes no file list, so it runs the command once.
  * A declared test that no glob of the probe term matches fails before any run. A term with no `globs` takes each file.
  * The runner of the kill probe checks the probe command at its first run. That runner gives the argv, the working directory, the limits and the scratch store.
+ *
+ * The check reads the probe globs only when the probe command is resolved, as the kill probe does.
+ * Thus an unresolved command fails with `profile-unresolved`, not with the runner-fit reason.
  */
 async function runDeclaredTests(
   args: SpecCoverageCheckArgs,
   testFiles: readonly string[],
   probe: ProbeTerm,
 ): Promise<TestRunsResult> {
-  const probeGlobs = probe.globs;
+  const probeGlobs = probe.command.state === 'resolved' ? probe.globs : undefined;
   const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
   if (unfit.length > 0) {
     const detail = withProfileRoute(args, runnerFitReason(unfit));

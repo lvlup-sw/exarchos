@@ -99,8 +99,9 @@ export const gateActions: readonly BuiltinToolAction[] = [
       'A report format is opt-in and folds file-LOAD failures into the count (#1329). ' +
       'A leaf of the high-tier task segment; the policy skips it at lower tiers. ' +
       'Also the cumulative backstop between merges: set repoRoot to the integration ' +
-      'worktree (or "auto" to resolve the calling delegation\'s worktree). Persists ' +
-      'canonical subject-bound evidence.',
+      'worktree (or "auto" for the calling delegation\'s worktree). Persists ' +
+      'subject-bound evidence. Do NOT use for one task\'s scoped tests: use ' +
+      'check_static_analysis / check_test_adequacy.',
     schema: z.object({
       featureId: z.string().min(1),
       repoRoot: z.string().optional(),
