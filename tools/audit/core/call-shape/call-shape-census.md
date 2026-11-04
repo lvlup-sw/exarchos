@@ -178,7 +178,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 - Registry: 127 actions over 5 tools (4 visible), action ids sha256 `912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `tools/audit/registered-actions-snapshot.json`.
 - Contract authority `action-id-registry` digest `sha256:912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `src/contract/contract-authority.lock.json`.
-- `content/delivery/skills/delegate/SKILL.md` sha256 `4d887a5814613415514273deba95b65eaf853ca3997072b3a9b3a20cdf149527`
+- `content/delivery/skills/delegate/SKILL.md` sha256 `77dc1a04c96af6b1d9caa78e2768144ee25a0f352eb9579d2bcd3cdc5c40928f`
 - `content/design/skills/plan/SKILL.md` sha256 `9a2570c714172a108502486d7f6e138cd4ef4d84ade159f699663002132f6c6b`
 - `content/review/skills/review/SKILL.md` sha256 `a852d4c7bb7c36028d70382057470504550295bbfb561974d9990094b696369d`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `22c020a7069bbd9a5ec0ee443a8599af683eb830441e38c442db4d4307b66960`
