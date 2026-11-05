@@ -29,7 +29,7 @@
   ],
   "counts": {
     "files": 554,
-    "bytes": 13075142
+    "bytes": 13083607
   },
   "entries": [
     {
@@ -1481,8 +1481,8 @@
     {
       "source": "docs/guides/exarchos-yml-verification.md",
       "destination": "exarchos/docs/guides/exarchos-yml-verification.md",
-      "bytes": 3838,
-      "digest": "sha256:43f52ab22a4762809eb551e63544a5a3ec391e2d9afe6deaf84ebaad5171d8b9"
+      "bytes": 9602,
+      "digest": "sha256:e9a537f4e32c26528474776379f65dd79335dff7b3035afb461cab83dcf31e1e"
     },
     {
       "source": "docs/guides/flywheel-activation.md",
@@ -1511,8 +1511,8 @@
     {
       "source": "docs/guides/toolchain-resolution.md",
       "destination": "exarchos/docs/guides/toolchain-resolution.md",
-      "bytes": 5903,
-      "digest": "sha256:4891903ee472ecdfd38658cebd8a48fe05197df688e38a497fddc919e32be037"
+      "bytes": 8604,
+      "digest": "sha256:df05c0452c500c7158aeec62d86c6053825409b120264a18a24c3b78fc776308"
     },
     {
       "source": "docs/market/copy-templates.md",
