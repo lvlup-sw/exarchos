@@ -68,8 +68,11 @@ function argvOf(term: VerificationProfile['integration']['command']): readonly s
 }
 
 describe('the layers of the verification profile', () => {
-  /** This repository sets no new key, so its profile repeats the commands of the old gates, less the quality-check leg. */
-  it('ResolveProfile_ThisRepository_ReproducesTheCommandsOfTheOldGatesLessQualityCheck', () => {
+  /**
+   * This repository sets only `verification.staticAnalysis` and `verification.integration.command`.
+   * So the checks of the old gates come back with `quality-check`, the suite is every project but `process`, and every other term is the seed.
+   */
+  it('ResolveProfile_ThisRepository_TakesItsChecksAndItsSuiteFromItsConfig', () => {
     const profile = profileAt(REPO_ROOT);
 
     expect(profile.toolchains).toEqual(['node']);
@@ -80,12 +83,17 @@ describe('the layers of the verification profile', () => {
       failureExitCodes: { codes: [1], source: 'detection' },
       globs: CO_LOCATED,
     });
-    expect(profile.staticAnalysis.state === 'resolved' && profile.staticAnalysis.checks).toEqual([
-      { name: 'lint', command: { state: 'resolved', argv: ['npm', 'run', 'lint'], source: 'detection' } },
-      { name: 'typecheck', command: { state: 'resolved', argv: ['npm', 'run', 'typecheck'], source: 'detection' } },
-    ]);
+    expect(profile.staticAnalysis).toEqual({
+      state: 'resolved',
+      checks: [
+        { name: 'lint', command: { state: 'resolved', argv: ['npm', 'run', 'lint'], source: 'config' } },
+        { name: 'typecheck', command: { state: 'resolved', argv: ['npm', 'run', 'typecheck'], source: 'config' } },
+        { name: 'quality-check', command: { state: 'resolved', argv: ['npm', 'run', 'quality-check'], source: 'config' } },
+      ],
+      source: 'config',
+    });
     expect(profile.integration).toEqual({
-      command: { state: 'resolved', argv: ['npm', 'run', 'test:run'], source: 'detection' },
+      command: { state: 'resolved', argv: ['npm', 'run', 'test:integration'], source: 'config' },
       report: 'exit-code',
       failureExitCodes: { codes: [1], source: 'detection' },
     });
@@ -104,7 +112,8 @@ describe('the layers of the verification profile', () => {
         config: '.dependency-cruiser.cjs',
       },
     ]);
-    expect({ ...profile, boundaryChecks: [] }).toEqual(nodeTestProfile());
+    const seeds = nodeTestProfile();
+    expect({ ...profile, boundaryChecks: [], staticAnalysis: seeds.staticAnalysis, integration: seeds.integration }).toEqual(seeds);
   });
 
   /** A second toolchain adds only its test-name globs, so the dotnet directory globs claim no file of a Node root. */

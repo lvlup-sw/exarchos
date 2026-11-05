@@ -7,7 +7,7 @@
     "testFiles": 1392,
     "parsedFiles": 1347,
     "shellFiles": 45,
-    "cases": 15384,
+    "cases": 15385,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -6702,6 +6702,11 @@
         {
           "suite": "package.json scripts",
           "name": "PackageJson_BenchScript_RunsCoreProjectOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "package.json scripts",
+          "name": "PackageJson_IntegrationScript_RunsEveryProjectButProcess",
           "dynamic": false
         }
       ]
@@ -88595,7 +88600,7 @@
       "cases": [
         {
           "suite": "the layers of the verification profile",
-          "name": "ResolveProfile_ThisRepository_ReproducesTheCommandsOfTheOldGatesLessQualityCheck",
+          "name": "ResolveProfile_ThisRepository_TakesItsChecksAndItsSuiteFromItsConfig",
           "dynamic": false
         },
         {
