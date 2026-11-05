@@ -632,7 +632,11 @@ decisions:
   - date: "2026-11-05"
     source: "the lead, after the pull request review of #2174 (CodeRabbit), and Reed's word to merge"
     decision: "CodeRabbit asked for two Minor changes on #2174, and the lead made both in b09b2202d. package.json declares ajv as a devDependency with ~8.18.0, the range of @stryker-mutator/core, so the lockfile keeps one copy. The relocation ledger of the test inventory maps the deleted guard phase-gates-resolve-test-command.test.ts to gates-carry-no-language-code.test.ts, so a baseline that still lists the old file regenerates. Reed said to merge, and #2174 was squash-merged as 00b0a8321, with the tree of b09b2202d."
-    status: "done. Since 2026-11-05 the PATH binary is a build of main 00b0a8321. #2175 sets verification.staticAnalysis (with quality-check) and verification.integration.command (npx vitest run) for this repository, and it merges after each Exarchos session runs that build."
+    status: "done. Since 2026-11-05 the PATH binary is a build of main 00b0a8321, and each Exarchos session runs it. #2175 sets verification.staticAnalysis (with quality-check) and verification.integration.command for this repository."
+  - date: "2026-11-05"
+    source: "Reed, after the CodeRabbit review of #2175"
+    decision: "The integration suite of this repository is every vitest project but process, through a test:integration script that runs vitest run --project '!process'. The process project tests the exarchos binary on PATH, not the tree of the task, so a whole-suite run in a task worktree judges another build. This replaces the whole root suite of the decision of 2026-11-04. The negated project lives in the script, because the safe-command class of .exarchos.yml has no '!'. A vitest project added later joins the script by default, and CI keeps the process tier with its own build."
+    status: "built in #2175 (c4afa5d50). npm run test:integration passed 16753 tests in 1324 files, with no file of the process project."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
