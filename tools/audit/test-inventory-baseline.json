@@ -4548,6 +4548,10 @@
     {
       "from": "tools/test-helpers/comment-prose.test.ts",
       "to": "tests/scripts/lib/comment-prose.test.ts"
+    },
+    {
+      "from": "tests/architecture/phase-gates-resolve-test-command.test.ts",
+      "to": "tests/architecture/gates-carry-no-language-code.test.ts"
     }
   ],
   "files": {
