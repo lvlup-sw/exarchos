@@ -6,6 +6,7 @@ import {
   type CommandRunFn,
 } from '../../../../src/verbs/gates/contract-drift.js';
 import type { GitExec } from '../../../../src/verbs/pure/execute-merge.js';
+import { contractTerm } from '../../../helpers/verification-profile.js';
 
 /** A gitExec stub. It answers `merge-base` with a fixed sha and every other command with exit code 0. */
 function gitExecWithMergeBase(mergeBaseSha: string, calls: string[][] = []): GitExec {
@@ -18,7 +19,7 @@ function gitExecWithMergeBase(mergeBaseSha: string, calls: string[][] = []): Git
   };
 }
 
-/** A command runner stub. It picks the outcome of each leg from the command string. */
+/** A command runner stub. It picks the outcome of each leg from the argv. */
 function makeRunCommand(
   outcomes: {
     codegen?: { exitCode: number; stdout?: string };
@@ -27,7 +28,8 @@ function makeRunCommand(
   },
   recorder?: string[],
 ): CommandRunFn {
-  return async ({ command }) => {
+  return async ({ argv }) => {
+    const command = argv.join(' ');
     recorder?.push(command);
     if (command.includes('codegen')) {
       return { exitCode: outcomes.codegen?.exitCode ?? 0, stdout: outcomes.codegen?.stdout ?? '' };
@@ -47,8 +49,7 @@ const BASE_ARGS = (
 ): ContractDriftArgs => ({
   repoRoot: '/repo',
   baseRef: 'main',
-  contract: { codegen: 'run codegen', diff: 'run diff' },
-  typecheck: 'tsc --noEmit',
+  contract: contractTerm({ codegen: ['run', 'codegen'], diff: ['run', 'diff'], typecheck: ['tsc', '--noEmit'] }),
   gitExec: gitExecWithMergeBase('MERGEBASE0'),
   runCommand: makeRunCommand({}),
   ...over,
@@ -110,7 +111,7 @@ describe('runContractDrift', () => {
   /** With no contract tool, the gate skips as advisory and does not fail. */
   it('ContractDrift_NoToolResolves_SkippedAdvisory', async () => {
     const result = await runContractDrift(
-      BASE_ARGS({ contract: null }),
+      BASE_ARGS({ contract: contractTerm({ typecheck: ['tsc', '--noEmit'] }) }),
     );
     expect(result.passed).toBe(true);
     expect(result.skipped).toBe(true);
@@ -133,7 +134,7 @@ describe('runContractDrift', () => {
     const diffCalls: string[] = [];
     const result = await runContractDrift(
       BASE_ARGS({
-        contract: { codegen: null, diff: 'run diff' },
+        contract: contractTerm({ diff: ['run', 'diff'], typecheck: ['tsc', '--noEmit'] }),
         runCommand: makeRunCommand({ diff: { exitCode: 0 } }, diffCalls),
       }),
     );

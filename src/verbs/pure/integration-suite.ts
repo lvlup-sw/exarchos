@@ -1,272 +1,59 @@
 /**
- * The integration suite gate logic. It runs the vitest suite against the
- * integration tip and adds file load failures to the failure count.
+ * The integration suite gate logic. It runs the `integration` term of the verification profile and reads the exit code.
+ * Exit 0 passes, and a red code of the term fails. Each other end gives no verdict, and it blocks.
+ * A term that is not resolved gives `profile-unresolved`, and no process starts.
  *
- * Vitest counts a test file that throws at import as one failed suite with
- * zero failed tests. A gate that reads only the failed-test count passes it.
- * The parser (`parseVitestResult`) is pure, and the runner calls an injected
- * `RunCommandFn`, so unit tests do not run vitest.
+ * A term that selects a report also reads the report of the run. The reader adds the counts and the load failures,
+ * so a report with failures fails on exit 0 too. The runner calls an injected `RunCommandFn`, so a unit test starts no process.
  */
 
-import type { RunCommandFn } from './static-analysis.js';
-import { detectToolchain, type Toolchain } from '../../config/toolchains.js';
+import { parseVitestResult, type IntegrationSuiteParse } from '../../config/suite-reports.js';
+import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
+import type { ClosedGateVerdict } from '../gates/gate-utils.js';
+import type { CommandResult, RunCommandFn } from './static-analysis.js';
 
-/** Parsed, folded-in view of a vitest run. */
-export interface IntegrationSuiteParse {
-  /** True only when there are no failed tests AND no load failures. */
-  readonly passed: boolean;
-  /** Number of test SUITES that failed (vitest `numFailedTestSuites`). */
-  readonly failedSuites: number;
-  /** Number of individual tests that failed (vitest `numFailedTests`). */
-  readonly failedTests: number;
-  /** Number of suites that failed with zero failed tests — the silent load-failure cohort. */
-  readonly loadFailures: number;
-  /** Total tests collected (vitest `numTotalTests`). */
-  readonly totalTests: number;
-  /**
-   * Overall failure count, with load-failures FOLDED IN:
-   *   failCount = failedTests + loadFailures
-   * This is the number the gate reports so a load cascade can never read as 0.
-   */
-  readonly failCount: number;
-  /** Names of files that failed to load (for the report), when discernible. */
-  readonly loadFailureFiles: readonly string[];
-}
+/** The integration term of the verification profile. */
+type IntegrationTerm = VerificationProfile['integration'];
+
+/** Why a run of the suite gave no verdict. Each cause blocks, and none reads as a red exit. */
+export type IntegrationNoVerdictCause =
+  | 'unknown-exit'
+  | 'signal'
+  | 'timeout'
+  | 'overflow'
+  | 'spawn-error'
+  | 'shape-mismatch';
+
+/** The exit code of a run with no exit status. No red code of a term can equal it, because a red code is from 1 to 255. */
+export const NO_EXIT_STATUS = -1;
 
 export interface RunIntegrationSuiteInput {
   /** Repository root to run the suite against (worktree-aware). */
   readonly repoRoot: string;
   /** External command runner (dependency injection). */
   readonly runCommand: RunCommandFn;
-  /**
-   * An npm script that writes vitest JSON to stdout. When set, it takes
-   * precedence over toolchain resolution. When absent, the layered toolchain
-   * resolver gives the test command, so a workspace layout or a `.exarchos.yml`
-   * override selects the correct command.
-   */
-  readonly testScript?: string | undefined;
-  /**
-   * The toolchain detector, {@link detectToolchain} by default. Tests inject a
-   * stub. A config-aware detector lets `.exarchos.yml` `toolchains:` overrides
-   * apply.
-   */
-  readonly detectToolchain?: (repoRoot: string) => Toolchain | undefined;
+  /** The integration term of the profile, resolved or not. This function decides `profile-unresolved`. */
+  readonly integration: IntegrationTerm;
 }
 
-export interface RunIntegrationSuiteResult extends IntegrationSuiteParse {
-  /** True when the runner output does not parse as vitest JSON. */
+export interface RunIntegrationSuiteResult extends IntegrationSuiteParse, ClosedGateVerdict {
+  /** The cause of an `indeterminate` verdict of a run. Unset on a verdict, and on a term that is not resolved. */
+  readonly noVerdictCause?: IntegrationNoVerdictCause;
+  /** Set only for a term that is not resolved. */
+  readonly discriminant?: typeof PROFILE_UNRESOLVED;
+  /** The reason of a term that is not resolved. */
+  readonly reason?: string;
+  /** True when the verdict is `indeterminate`. The counts are then not authoritative. */
   readonly parseError: boolean;
   /**
-   * The cause of a `parseError`. `'spawn-failure'` means that the runner command
-   * did not start. `'shape-mismatch'` means that it ran, but the output does not
-   * parse. Unset on a clean parse.
+   * The cause of a `parseError` that names the output of the command. `'spawn-failure'` means that the
+   * command did not start. `'shape-mismatch'` means that it ran, but the report does not parse.
    */
   readonly parseFailureKind?: 'spawn-failure' | 'shape-mismatch';
   /** Raw exit code from the runner. */
   readonly exitCode: number;
   /** Structured markdown report. */
   readonly report: string;
-}
-
-/** A resolved test command split into an executable + argv. */
-export interface ResolvedTestCommand {
-  readonly cmd: string;
-  readonly args: readonly string[];
-}
-
-/**
- * Resolves the integration-suite test command for `repoRoot`, in this order:
- *   1. An explicit `testScript` gives `npm run <script> -- --reporter=json`.
- *   2. Else the `commands.test` of the detected toolchain, split on spaces, with
- *      `--reporter=json` added. A script runner (npm, pnpm, yarn, bun) gets the
- *      flag after a `--` passthrough.
- *   3. Else `npm run test:run -- --reporter=json`.
- */
-export function resolveIntegrationCommand(
-  repoRoot: string,
-  testScript: string | undefined,
-  detect: (repoRoot: string) => Toolchain | undefined = detectToolchain,
-): ResolvedTestCommand {
-  if (testScript) {
-    return { cmd: 'npm', args: ['run', testScript, '--', '--reporter=json'] };
-  }
-
-  const resolved = detect(repoRoot)?.commands.test;
-  if (resolved && resolved.trim().length > 0) {
-    const [cmd = 'npm', ...rest] = resolved.trim().split(/\s+/);
-    const isScriptRunner = cmd === 'npm' || cmd === 'pnpm' || cmd === 'yarn' || cmd === 'bun';
-    const args = isScriptRunner ? [...rest, '--', '--reporter=json'] : [...rest, '--reporter=json'];
-    return { cmd, args };
-  }
-
-  return { cmd: 'npm', args: ['run', 'test:run', '--', '--reporter=json'] };
-}
-
-interface VitestTestResult {
-  readonly name?: string;
-  readonly status?: string;
-  readonly message?: string;
-  readonly assertionResults?: readonly unknown[];
-}
-
-interface VitestJson {
-  readonly numFailedTestSuites?: number;
-  readonly numFailedTests?: number;
-  readonly numTotalTests?: number;
-  readonly testResults?: readonly VitestTestResult[];
-}
-
-/**
- * Yields candidate JSON documents from the raw stdout of a runner. A script
- * runner writes a preamble, such as `> pkg@1.0.0 test:run`, before the reporter
- * JSON on the same stream.
- *
- * It yields the whole trimmed stream first. Then it yields each complete
- * top-level `{…}` span in reverse order, because the reporter JSON comes after
- * the preamble. Braces inside JSON strings do not change the depth.
- */
-function* vitestJsonCandidates(raw: string): Generator<string> {
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return;
-  yield trimmed;
-
-  const spans: string[] = [];
-  let depth = 0;
-  let start = -1;
-  let inString = false;
-  let escaped = false;
-
-  for (let i = 0; i < trimmed.length; i++) {
-    const ch = trimmed[i];
-    if (inString) {
-      if (escaped) {
-        escaped = false;
-      } else if (ch === '\\') {
-        escaped = true;
-      } else if (ch === '"') {
-        inString = false;
-      }
-      continue;
-    }
-    if (ch === '"') {
-      inString = true;
-      continue;
-    }
-    if (ch === '{') {
-      if (depth === 0) start = i;
-      depth++;
-      continue;
-    }
-    if (ch === '}') {
-      if (depth === 0) continue;
-      depth--;
-      if (depth === 0 && start >= 0) {
-        spans.push(trimmed.slice(start, i + 1));
-        start = -1;
-      }
-    }
-  }
-
-  for (let i = spans.length - 1; i >= 0; i--) {
-    const span = spans[i];
-    if (span !== undefined && span !== trimmed) yield span;
-  }
-}
-
-/**
- * Parses one candidate JSON document into a failure view with load failures
- * added. It returns `null` for text that is not JSON, a value that is not a
- * plain object, or an object with no summary counter. If the parser reads
- * such a value as zero failures, the gate fails open.
- *
- * A load failure is a failed suite with zero assertion results. Without that
- * per-suite detail, failed suites with no failed tests count as load failures.
- * `failCount` is `failedTests + loadFailures`.
- */
-function parseVitestDocument(candidate: string): IntegrationSuiteParse | null {
-  let json: VitestJson;
-  try {
-    json = JSON.parse(candidate) as VitestJson;
-  } catch {
-    return null;
-  }
-
-  if (typeof json !== 'object' || json === null || Array.isArray(json)) {
-    return null;
-  }
-
-  const hasSummaryCounter =
-    typeof json.numFailedTests === 'number' ||
-    typeof json.numFailedTestSuites === 'number' ||
-    typeof json.numTotalTests === 'number';
-  if (!hasSummaryCounter) {
-    return null;
-  }
-
-  const failedTests =
-    typeof json.numFailedTests === 'number' && json.numFailedTests >= 0
-      ? json.numFailedTests
-      : 0;
-  const failedSuites =
-    typeof json.numFailedTestSuites === 'number' && json.numFailedTestSuites >= 0
-      ? json.numFailedTestSuites
-      : 0;
-  const totalTests =
-    typeof json.numTotalTests === 'number' && json.numTotalTests >= 0
-      ? json.numTotalTests
-      : 0;
-
-  const results = Array.isArray(json.testResults) ? json.testResults : [];
-  const loadFailureFiles: string[] = [];
-  let suitesWithFailedTests = 0;
-
-  for (const r of results) {
-    if (r.status !== 'failed') continue;
-    const assertionCount = Array.isArray(r.assertionResults) ? r.assertionResults.length : 0;
-    if (assertionCount === 0) {
-      loadFailureFiles.push(typeof r.name === 'string' ? r.name : '<unknown>');
-    } else {
-      suitesWithFailedTests++;
-    }
-  }
-
-  let loadFailures: number;
-  if (loadFailureFiles.length > 0) {
-    loadFailures = loadFailureFiles.length;
-  } else if (failedSuites > suitesWithFailedTests) {
-    loadFailures = failedSuites - suitesWithFailedTests;
-  } else if (failedSuites > 0 && failedTests === 0) {
-    loadFailures = failedSuites;
-  } else {
-    loadFailures = 0;
-  }
-
-  const failCount = failedTests + loadFailures;
-  const passed = failCount === 0;
-
-  return {
-    passed,
-    failedSuites,
-    failedTests,
-    loadFailures,
-    totalTests,
-    failCount,
-    loadFailureFiles,
-  };
-}
-
-/**
- * Parses the raw stdout of a runner into a failure view. It tries each
- * candidate from {@link vitestJsonCandidates} in turn. It returns `null` only
- * when no candidate is a vitest result, and the caller then fails closed with
- * `shape-mismatch`.
- */
-export function parseVitestResult(raw: string): IntegrationSuiteParse | null {
-  for (const candidate of vitestJsonCandidates(raw)) {
-    const parsed = parseVitestDocument(candidate);
-    if (parsed !== null) return parsed;
-  }
-  return null;
 }
 
 /**
@@ -276,11 +63,33 @@ export function parseVitestResult(raw: string): IntegrationSuiteParse | null {
  */
 export const LOAD_FAILURE_LIST_CAP = 20;
 
-function buildReport(repoRoot: string, parse: IntegrationSuiteParse): string {
+/** The counts of an end with no verdict. They are not authoritative, and one failure keeps the count above zero. */
+const NO_VERDICT_COUNTS: IntegrationSuiteParse = {
+  passed: false,
+  failedSuites: 1,
+  failedTests: 0,
+  loadFailures: 1,
+  totalTests: 0,
+  failCount: 1,
+  loadFailureFiles: [],
+};
+
+/** The words of a report that name the repository. */
+function reportHead(repoRoot: string): string[] {
+  return ['## Integration Suite Report', '', `**Repository:** \`${repoRoot}\``];
+}
+
+/** The report of a run that the exit code judges. A report format adds the counts. */
+function exitCodeReport(repoRoot: string, argv: readonly string[], exitCode: number): string {
+  const result = exitCode === 0 ? '**Result: PASS** (exit 0)' : `**Result: FAIL** (exit ${exitCode})`;
+  return [...reportHead(repoRoot), `**Command:** \`${argv.join(' ')}\``, `**Exit code:** ${exitCode}`, '', '---', '', result].join('\n');
+}
+
+/** The report of a run with a parsed report. A red exit with a clean report fails, so the result line names the exit. */
+function parsedReport(repoRoot: string, parse: IntegrationSuiteParse, exitCode: number): string {
   const lines: string[] = [
-    '## Integration Suite Report',
-    '',
-    `**Repository:** \`${repoRoot}\``,
+    ...reportHead(repoRoot),
+    `**Exit code:** ${exitCode}`,
     `**Tests collected:** ${parse.totalTests}`,
     `**Failed tests:** ${parse.failedTests}`,
     `**Failed suites:** ${parse.failedSuites}`,
@@ -305,8 +114,10 @@ function buildReport(repoRoot: string, parse: IntegrationSuiteParse): string {
   }
 
   lines.push('---', '');
-  if (parse.passed) {
+  if (parse.passed && exitCode === 0) {
     lines.push(`**Result: PASS** (${parse.totalTests} tests, no load failures)`);
+  } else if (parse.passed) {
+    lines.push(`**Result: FAIL** (exit ${exitCode}, and the report names no failure)`);
   } else {
     lines.push(
       `**Result: FAIL** (${parse.failCount} failures: ${parse.failedTests} test + ${parse.loadFailures} load)`,
@@ -316,78 +127,135 @@ function buildReport(repoRoot: string, parse: IntegrationSuiteParse): string {
   return lines.join('\n');
 }
 
-/**
- * Builds a fail-closed result with a `parseFailureKind` and a report. Both
- * kinds fail closed because the counts are not authoritative. The kind and the
- * report tell the operator the cause.
- */
-function failClosed(
-  repoRoot: string,
-  exitCode: number,
-  kind: 'spawn-failure' | 'shape-mismatch',
-  detail: string,
-): RunIntegrationSuiteResult {
+/** The end of a run with no verdict: its cause and the words that the report gives it. */
+interface NoVerdictEnd {
+  readonly cause: IntegrationNoVerdictCause;
+  readonly detail: string;
+}
+
+/** The parse-failure kind of each cause that names the output of the command. */
+const PARSE_FAILURE_KINDS: Partial<Record<IntegrationNoVerdictCause, NonNullable<RunIntegrationSuiteResult['parseFailureKind']>>> = {
+  'spawn-error': 'spawn-failure',
+  'shape-mismatch': 'shape-mismatch',
+};
+
+/** Builds the fail-closed result of an end with no verdict. The report names its cause. */
+function noVerdictResult(repoRoot: string, exitCode: number, end: NoVerdictEnd): RunIntegrationSuiteResult {
+  const parseFailureKind = PARSE_FAILURE_KINDS[end.cause];
   return {
-    passed: false,
-    failedSuites: 1,
-    failedTests: 0,
-    loadFailures: 1,
-    totalTests: 0,
-    failCount: 1,
-    loadFailureFiles: [],
+    ...NO_VERDICT_COUNTS,
+    verdict: 'indeterminate',
+    completeness: 'complete',
+    noVerdictCause: end.cause,
     parseError: true,
-    parseFailureKind: kind,
+    ...(parseFailureKind === undefined ? {} : { parseFailureKind }),
     exitCode,
     report: [
-      '## Integration Suite Report',
+      ...reportHead(repoRoot),
       '',
-      `**Repository:** \`${repoRoot}\``,
-      '',
-      `- **FAIL**: ${detail}; gate failed closed`,
+      `- **BLOCKED**: ${end.detail}; the run gave no verdict, so the gate fails closed`,
       '',
       '---',
       '',
-      `**Result: FAIL** (${kind === 'spawn-failure' ? 'runner spawn failure' : 'unparseable output'})`,
+      `**Result: NO VERDICT** (${end.cause})`,
     ].join('\n'),
   };
 }
 
+/** Builds the result of a term that is not resolved. No process starts, so the result has no exit status and no cause of a run. */
+function unresolvedResult(repoRoot: string, reason: string): RunIntegrationSuiteResult {
+  return {
+    ...NO_VERDICT_COUNTS,
+    verdict: 'indeterminate',
+    completeness: 'complete',
+    discriminant: PROFILE_UNRESOLVED,
+    reason,
+    parseError: true,
+    exitCode: NO_EXIT_STATUS,
+    report: [...reportHead(repoRoot), '', `- **BLOCKED**: ${reason}`, '', '---', '', `**Result: NO VERDICT** (${PROFILE_UNRESOLVED})`].join('\n'),
+  };
+}
+
 /**
- * Runs the test command from {@link resolveIntegrationCommand} in `repoRoot`
- * and parses the stdout. It has no side effect other than the injected
- * `runCommand`. A spawn failure gives `spawn-failure`. Output that is not vitest
- * JSON gives `shape-mismatch`, also on a zero exit, because a crashed reporter
- * can exit zero.
+ * The end of a run that gave no verdict, or undefined for an exit that the term reads.
+ * A timeout and an overflow carry a code and a signal, so the code comes first. Any other code means that the command did not start.
+ * An exit code outside the red codes of the term gives no verdict.
  */
-export function runIntegrationSuite(input: RunIntegrationSuiteInput): RunIntegrationSuiteResult {
-  const { repoRoot, runCommand, testScript, detectToolchain: detect } = input;
-
-  const { cmd, args } = resolveIntegrationCommand(repoRoot, testScript, detect ?? detectToolchain);
-  const cmdResult = runCommand(cmd, args as string[], { cwd: repoRoot });
-
-  if (cmdResult.spawnError) {
-    return failClosed(
-      repoRoot,
-      cmdResult.exitCode,
-      'spawn-failure',
-      `runner failed to spawn (\`${cmd}\`: ${cmdResult.spawnError})`,
-    );
+function noVerdictEndOf(run: CommandResult, program: string, redCodes: readonly number[]): NoVerdictEnd | undefined {
+  if (run.spawnError === 'ETIMEDOUT') return { cause: 'timeout', detail: 'the run passed its time limit' };
+  if (run.spawnError === 'ENOBUFS') return { cause: 'overflow', detail: 'the run passed its output limit' };
+  if (run.spawnError !== undefined) {
+    return { cause: 'spawn-error', detail: `runner failed to spawn (\`${program}\`: ${run.spawnError})` };
   }
-
-  const parse = parseVitestResult(cmdResult.stdout);
-  if (parse === null) {
-    return failClosed(
-      repoRoot,
-      cmdResult.exitCode,
-      'shape-mismatch',
-      'runner produced no parseable vitest JSON (ran, but the output shape was unrecognized)',
-    );
+  if (run.signal !== undefined) return { cause: 'signal', detail: `the signal ${run.signal} stopped the run` };
+  if (run.exitCode !== 0 && !redCodes.includes(run.exitCode)) {
+    return {
+      cause: 'unknown-exit',
+      detail: `the command exited ${run.exitCode}, and only exit ${redCodes.join(' or ')} reads as a red run`,
+    };
   }
+  return undefined;
+}
 
+/** The result of an exit that the term reads, with no report. The run gives no counts, so a red exit counts as one failure. */
+function exitCodeResult(repoRoot: string, argv: readonly string[], exitCode: number): RunIntegrationSuiteResult {
+  const passed = exitCode === 0;
+  return {
+    passed,
+    failedSuites: 0,
+    failedTests: 0,
+    loadFailures: 0,
+    totalTests: 0,
+    failCount: passed ? 0 : 1,
+    loadFailureFiles: [],
+    verdict: passed ? 'pass' : 'fail',
+    completeness: 'complete',
+    parseError: false,
+    exitCode,
+    report: exitCodeReport(repoRoot, argv, exitCode),
+  };
+}
+
+/** The result of an exit that the term reads, with a parsed report. A report with failures fails on exit 0, and a red exit fails with a clean report. */
+function parsedResult(repoRoot: string, parse: IntegrationSuiteParse, exitCode: number): RunIntegrationSuiteResult {
+  const passed = parse.passed && exitCode === 0;
   return {
     ...parse,
+    passed,
+    failCount: passed ? 0 : Math.max(parse.failCount, 1),
+    verdict: passed ? 'pass' : 'fail',
+    completeness: 'complete',
     parseError: false,
-    exitCode: cmdResult.exitCode,
-    report: buildReport(repoRoot, parse),
+    exitCode,
+    report: parsedReport(repoRoot, parse, exitCode),
   };
+}
+
+/**
+ * Runs the command of the integration term in `repoRoot` and judges the exit code.
+ * It has no side effect other than the injected `runCommand`, and the runner gets exactly the argv of the term.
+ * When the term selects a report, a report that does not parse gives `shape-mismatch` on each exit that the term reads.
+ * A crashed reporter can exit 0, so exit 0 does not prove the run.
+ */
+export function runIntegrationSuite(input: RunIntegrationSuiteInput): RunIntegrationSuiteResult {
+  const { repoRoot, runCommand, integration } = input;
+  const { command } = integration;
+  if (command.state === 'unresolved') return unresolvedResult(repoRoot, command.reason);
+
+  const [program = '', ...args] = command.argv;
+  const run = runCommand(program, args, { cwd: repoRoot });
+
+  const end = noVerdictEndOf(run, program, integration.failureExitCodes.codes);
+  if (end !== undefined) return noVerdictResult(repoRoot, run.exitCode, end);
+
+  if (integration.report === 'exit-code') return exitCodeResult(repoRoot, command.argv, run.exitCode);
+
+  const parse = parseVitestResult(run.stdout);
+  if (parse === null) {
+    return noVerdictResult(repoRoot, run.exitCode, {
+      cause: 'shape-mismatch',
+      detail: 'runner produced no parseable vitest JSON (ran, but the output shape was unrecognized)',
+    });
+  }
+  return parsedResult(repoRoot, parse, run.exitCode);
 }

@@ -68,6 +68,16 @@ export const TASK_COMPLETION = literalRunbook({
         riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
       note: 'ADVISORY (SIV-4 #1530): flags unowned mocks in new test hunks; steers toward hermetic fixtures' },
     /**
+     * Integration-suite gate. It runs the pinned suite against the agent worktree, so a task
+     * that breaks a test outside its own scope halts here. The policy runs it only for a
+     * high-tier task, and each other tier records a skip. Static analysis stays last, because
+     * `task_complete` and the trace read its row.
+     */
+    { tool: 'exarchos_orchestrate', action: 'check_integration_suite', onFail: 'stop',
+      params: { repoRoot: 'auto', worktreePath: '<worktreePath>',
+        riskTier: '<riskTier>', boundaryTouching: '<boundaryTouching>', baseBranch: '<baseRef>' },
+      note: 'high-tier leaf: runs the pinned suite and judges its exit code; any other tier skips by policy' },
+    /**
      * Static-analysis gate. `repoRoot: 'auto'` and the `<worktreePath>` variable
      * make it run in the agent worktree, not in the orchestrator directory. The
      * `<taskId>` variable binds the gate record to the task. `task_complete`
@@ -78,7 +88,7 @@ export const TASK_COMPLETION = literalRunbook({
       note: '#1330: run against the agent worktree via repoRoot:auto + worktreePath template var. Run it per task with taskId: task_complete reads only the run for that task' },
     /**
      * Terminal step. All blocking per-task gates must pass before it. The
-     * cumulative integration suite runs once per wave in `AGENT_TEAMS_SAGA`.
+     * cumulative integration suite also runs once per wave in `AGENT_TEAMS_SAGA`.
      */
     { tool: 'exarchos_orchestrate', action: 'task_complete', onFail: 'stop',
       note: 'WFQ-004: terminal step — no blocking per-task gate may follow it' },

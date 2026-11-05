@@ -1,8 +1,9 @@
 /**
  * check_contract_drift: runs the contract-drift gate for the schema-boundary
  * changes of a task. The drift legs live in `contract-drift.ts`. This handler
- * resolves `repoRoot` and the contract and typecheck commands. It runs each leg
- * as a command and persists the evidence through the durable gate producer.
+ * resolves `repoRoot` and reads the `contract` term of the verification profile.
+ * A segment reads the pinned term, and a direct call resolves the term live.
+ * The handler runs each leg as an argv and persists the evidence through the durable gate producer.
  *
  * A drift finding is a verdict, not a tool error. Thus the result is
  * `success: true` with the verdict in `data.passed`.
@@ -14,13 +15,19 @@
 import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import {
+  defaultGitExec,
+  profileOf,
+  profilePathOf,
+  resolvePolicySkip,
+  SKIPPED_BY_POLICY,
+  withProfileRoute,
+  type ProfiledGateArgs,
+} from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
-import { resolveVerificationRuntime } from '../../config/test-runtime-resolver.js';
-import { splitCommand } from '../../config/tokenize-command.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import {
   runContractDrift,
@@ -29,7 +36,7 @@ import {
 } from './contract-drift.js';
 
 /**
- * The next action on a pass that is not a skip. A contract pins the shape of a
+ * The next action on a pass that is not a skip and that ran each codegen and diff leg. A contract pins the shape of a
  * boundary, not its meaning. Thus one semantic test of the boundary is enough,
  * and unit-test shape assertions are redundant.
  */
@@ -37,7 +44,7 @@ export const ONE_SEMANTIC_TEST_STEER =
   'contracts verify shape, not meaning — keep exactly ONE semantic test for ' +
   'this boundary; delete redundant shape assertions';
 
-export interface ContractDriftHandlerArgs {
+export interface ContractDriftHandlerArgs extends ProfiledGateArgs {
   readonly featureId: string;
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
@@ -81,22 +88,15 @@ export interface ContractDriftHandlerArgs {
 }
 
 /**
- * The default command runner. It splits the command, runs it in the repository,
- * and returns the exit code with stdout. On a non-zero exit, the output also
- * holds stderr. It does not throw on a non-zero exit, because the gate reads
- * the exit code as the verdict of the leg. A command that does not split gives
- * exit code 1.
+ * The default command runner. It spawns the first token of `argv` with the rest,
+ * in the repository, and returns the exit code with stdout. On a non-zero exit, the
+ * output also holds stderr. It does not throw on a non-zero exit, because the gate
+ * reads the exit code as the verdict of the leg.
  */
-const defaultRunCommand: CommandRunFn = async ({ repoRoot, command }) => {
-  let cmd: string;
-  let cmdArgs: readonly string[];
+const defaultRunCommand: CommandRunFn = async ({ repoRoot, argv }) => {
+  const [program = '', ...args] = argv;
   try {
-    ({ cmd, args: cmdArgs } = splitCommand(command));
-  } catch (err) {
-    return { exitCode: 1, stdout: `unparseable command "${command}": ${err instanceof Error ? err.message : String(err)}` };
-  }
-  try {
-    const stdout = runCommandSync(cmd, [...cmdArgs], {
+    const stdout = runCommandSync(program, args, {
       cwd: repoRoot,
       timeout: 120_000,
       encoding: 'utf-8',
@@ -119,6 +119,27 @@ const BASE_MISSING = 'base-missing';
 const BASE_MISSING_REPORT =
   'check_contract_drift did not run: no base was supplied (`baseBranch`), so the diff has nothing to be measured from. ' +
   'Pass the branch that the task forked from. The task-completion runbook binds it from the capsule `baseRef`.';
+
+/**
+ * The fields that an unresolved term adds to the carrier. A skip descriptor rides on the carrier, so it reaches the `gate.executed` row and the trace qualifier.
+ * A pass that did not run a codegen or diff leg gets the discriminant and the reason, with no `skipped` field.
+ * The reason starts with the profile path and ends with the route of a remedy. A run with no unresolved leg adds no field.
+ */
+function unresolvedFields(args: ContractDriftHandlerArgs, repoRoot: string, drift: ContractDriftResult): Record<string, unknown> {
+  if (!drift.skipped && drift.discriminant === undefined) return {};
+  return {
+    ...(drift.skipped ? { skipped: true } : {}),
+    ...(drift.discriminant === undefined ? {} : { discriminant: drift.discriminant }),
+    ...(drift.reason === undefined
+      ? {}
+      : { reason: `${profilePathOf(args, repoRoot)}. ${withProfileRoute(args, drift.reason)}` }),
+  };
+}
+
+/** True for a pass that ran each codegen and diff leg. Only such a pass gets {@link ONE_SEMANTIC_TEST_STEER}. */
+function isCleanPass(drift: ContractDriftResult): boolean {
+  return drift.passed && !drift.skipped && drift.discriminant === undefined;
+}
 
 /**
  * Runs the shared gate preflight, which requires `taskId`. Then it runs the
@@ -197,12 +218,10 @@ export async function handleContractDrift(
 
       const gitExec = args.gitExec ?? defaultGitExec;
       const runCommand = args.runCommand ?? defaultRunCommand;
-      const runtime = resolveVerificationRuntime(repoRoot);
       const drift: ContractDriftResult = await runContractDrift({
         repoRoot,
         baseRef,
-        contract: runtime.contract,
-        typecheck: runtime.typecheck,
+        contract: profileOf(args, repoRoot).contract,
         gitExec,
         runCommand,
       });
@@ -213,9 +232,9 @@ export async function handleContractDrift(
           passed: drift.passed,
           drift: drift.drift,
           breaking: drift.breaking,
-          report: drift.report,
-          ...(drift.skipped ? { skipped: true } : {}),
-          ...(drift.passed && !drift.skipped ? { next_actions: [ONE_SEMANTIC_TEST_STEER] } : {}),
+          report: `profile = ${profilePathOf(args, repoRoot)}\n${drift.report}`,
+          ...unresolvedFields(args, repoRoot, drift),
+          ...(isCleanPass(drift) ? { next_actions: [ONE_SEMANTIC_TEST_STEER] } : {}),
         },
       };
     },

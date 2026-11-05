@@ -79,7 +79,7 @@ const CARRIED: readonly CarriedRecovery[] = [
     carrier: {
       kind: 'produced',
       test: 'tests/unit/tasks/tools.test.ts',
-      testCase: 'HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheMissingScript',
+      testCase: 'HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheSkipFlag',
       phrases: ['Add the missing scripts, or do not set the skip flags.'],
     },
   },
@@ -101,6 +101,15 @@ const CARRIED: readonly CarriedRecovery[] = [
       test: 'tests/unit/verbs/gates/test-adequacy.integration.test.ts',
       testCase: 'ScopedTestRunner_WrapperRefusalThroughNpm_PassesExit2ThroughAsNoVerdict',
       phrases: ['the command exited 2', 'only exit 1 reads as a red run'],
+    },
+  },
+  {
+    id: 'probe-test-support-path',
+    notes: 'Recovery: when the report says that the task changes no source file',
+    carrier: {
+      kind: 'shipped-text',
+      path: 'rendered/skills/claude/delegate/references/testing-patterns.md',
+      phrases: ['verification.tests.support'],
     },
   },
   {
@@ -404,6 +413,45 @@ const CARRIED: readonly CarriedRecovery[] = [
       ],
     },
   },
+  {
+    id: 'settle-unprofiled-capsule',
+    notes: 'Recovery: when `settle` refuses `CAPSULE_UNRESOLVED` because the capsule pins no verification profile',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/settle/settle-profile.test.ts',
+      testCase: 'Settle_AnAcceptingDecisionOnAHeldUnprofiledBatch_IsRefusedAndNamesBothRoutes',
+      phrases: [
+        'pins no verification profile',
+        'Decide by rejecting, which runs no segment',
+        'prepare again with this build, whose compiler pins the profile, then claim the tasks in a new batch',
+      ],
+    },
+  },
+  {
+    id: 'completion-profile-unresolved',
+    notes: 'Recovery: when `task_complete` refuses a `profile-unresolved` skip whose reason starts with `resolved at`',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/tasks/task-complete-profile.test.ts',
+      testCase: 'TaskComplete_AProfileUnresolvedSkip_NamesTheConfigRecovery',
+      phrases: ['profile-unresolved', 'because the profile resolved no static-analysis check: resolved at '],
+    },
+  },
+  {
+    id: 'settle-pinned-unresolved',
+    notes: 'Recovery: when `settle` halts on `task_complete` with a `profile-unresolved` skip',
+    carrier: {
+      kind: 'produced',
+      test: 'tests/unit/verbs/settle/settle-pinned-unresolved.test.ts',
+      testCase: 'Settle_APinnedUnresolvedCheck_NamesTheCheckoutANewPrepareAndANewBatch',
+      phrases: [
+        "halted on 'task_complete'",
+        'gives the same skip.',
+        'at the checkout',
+        'Then prepare again, and claim the task in a new batch.',
+      ],
+    },
+  },
 ];
 
 /**
@@ -418,14 +466,6 @@ const REGISTERED: readonly RegisteredRecovery[] = [
     reason:
       'a human control: no row names the build that wrote it, so no reader can refuse a row of an earlier build. ' +
       'A stamp with the build commit is a follow-up',
-  },
-  {
-    id: 'probe-test-support-path',
-    notes: 'Recovery: when the report says that the task changes no source file',
-    owner: '#1540, which makes the test-support table of the probe configurable',
-    reason:
-      'no shipped text names the directory segments of the table. The report says only that the probe keeps ' +
-      'test-support files, and it names no file that the probe did not revert',
   },
   {
     id: 'boundary-narrowed-scope',

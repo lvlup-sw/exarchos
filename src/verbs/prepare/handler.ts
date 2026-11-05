@@ -11,7 +11,7 @@
  * The config, the catalogs and the design record come from the checkout of that repository.
  *
  * The claim key is the digest of the compilation inputs, so a retry returns the recorded capsule. The inputs include the base,
- * its commit, the scope, the design version, a readable design record and the compiler name.
+ * its commit, the scope, the verification profile, the design version, a readable design record and the compiler name.
  *
  * The first prepare after a design revision is a continuation. Its commit also records
  * `capsule.recompiled`, which names the unfinished tasks that the revision invalidated.
@@ -27,6 +27,7 @@ import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
+import { resolveVerificationProfile } from '../../config/verification-profile.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { runExclusivePerOperation } from '../../dispatch/core/operation-serializer.js';
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
@@ -50,9 +51,9 @@ import { decodeSettlementBundle, type SettlementBundleV1 } from '../settle/settl
 import type { CatalogInvariant } from './bind-authority.js';
 import {
   compileDelegationCapsule,
+  ladderCells,
   PREPARE_COMPILER_VERSION,
   selectDesignChanges,
-  verificationProfiles,
   type AcceptedDesignChange,
   type CompileCapsuleInput,
 } from './compile-capsule.js';
@@ -453,7 +454,7 @@ function catalogOf(deps: PrepareDeps, input: CheckoutCatalogInput): CatalogOutco
  * because a second `task.assigned` moves a task back to `assigned`.
  *
  * The runtime check occurs before compilation. Then git observes the scope, and the config, the catalog and the design
- * record load from the checkout. The scope holds the config digest, so any config edit compiles the next version.
+ * record load from the checkout. The scope holds the config digest and the inputs hold the profile, so a change of either compiles the next version.
  * A replay returns the receipt of its claim and reads no bundle. Only a call that compiles reads
  * the capsule of the latest prepared record, and then the settlement bundles of the revisions that its capsule binds.
  */
@@ -541,7 +542,8 @@ export async function handlePrepare(
   const { checkout, repository, baseCommit } = observed.observed;
   const loaded = loadCheckoutConfig(checkout);
   if (!loaded.ok) return refused(loaded.refusal);
-  const { projectConfig } = loaded.config;
+  const { projectConfig, outcome } = loaded.config;
+  const verificationProfile = resolveVerificationProfile(checkout, { loadConfig: () => outcome });
 
   const catalog = catalogOf(deps, { checkout, config: loaded.config, phase, workflowType });
   if (!catalog.ok) return refused(catalog.refusal);
@@ -562,10 +564,10 @@ export async function handlePrepare(
 
   const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
     resolveVerificationPolicy(riskTier, boundaryTouching, projectConfig).sequence;
-  const verificationTerms = verificationProfiles(batch).map((profile) => ({
-    riskTier: profile.riskTier,
-    boundaryTouching: profile.boundaryTouching,
-    sequence: [...sequenceOf(profile.riskTier, profile.boundaryTouching)],
+  const verificationTerms = ladderCells(batch).map((cell) => ({
+    riskTier: cell.riskTier,
+    boundaryTouching: cell.boundaryTouching,
+    sequence: [...sequenceOf(cell.riskTier, cell.boundaryTouching)],
   }));
 
   const inputs = {
@@ -582,6 +584,7 @@ export async function handlePrepare(
     baseRef,
     baseCommit,
     scope,
+    verificationProfile,
     ...(designRecordDigest !== undefined ? { designSource: { sourceId: 'design-record', digest: designRecordDigest } } : {}),
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
@@ -621,6 +624,7 @@ export async function handlePrepare(
       compilerVersion,
       baseRef,
       pin: { scope, baseCommit },
+      verificationProfile,
       executionProfile: { capabilities },
       verificationSequence: sequenceOf,
       disabledGates,

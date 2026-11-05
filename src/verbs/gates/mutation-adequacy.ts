@@ -25,7 +25,15 @@ import {
   type ResolvedVerificationRuntime,
 } from '../../config/test-runtime-resolver.js';
 import {
+  changedJavaClasses,
+  changedPythonPaths,
+  COMMAND_PATH_EXTENSIONS,
   detectToolchain,
+  MUTATABLE_EXTENSIONS,
+  MUTATION_CONFIG_FILE_PATTERNS,
+  MUTATION_CONFIG_SECTION_MARKERS,
+  NON_MUTATABLE_MARKERS,
+  NON_SCANNABLE_DIRS,
   resolveMutationDiffScope,
   type MutationDiffScope,
 } from '../../config/toolchains.js';
@@ -300,20 +308,6 @@ export const defaultRunDiff: RunDiff = (base, repoRoot) => {
 };
 
 /**
- * Source extensions that a mutation runner can make mutants from. This is a
- * property of the file, not a list of directories, because a directory list
- * goes stale when the tree moves.
- */
-const MUTATABLE_EXTENSIONS: readonly string[] = [
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.java', '.py', '.rs', '.cs', '.go', '.kt',
-];
-
-/** Path segments whose contents no runner mutates (tests are the oracle, not the subject). */
-const NON_MUTATABLE_MARKERS: readonly string[] = [
-  '.test.', '.spec.', '/__tests__/', '/__mocks__/', '/__fixtures__/', '/fixtures/', '/node_modules/', '/dist/',
-];
-
-/**
  * The changed files that a mutation runner can make mutants from. With it, the
  * handler tells "no mutatable source changed" apart from "the run did not
  * reach the change" when a run gives zero mutants.
@@ -331,40 +325,6 @@ export interface ScopeContext {
   readonly base: string;
   readonly repoRoot: string;
   readonly runDiff: RunDiff;
-}
-
-/**
- * Maps changed `.java` paths to class names for PIT `-DtargetClasses`. The name
- * is the path below `src/main/java/`, `src/test/java/`, or `java/`, with `/`
- * changed to `.` and no extension. A path with no source root uses its full
- * dotted form. Other files are ignored. The result has no duplicates and keeps
- * the order.
- */
-function changedJavaClasses(files: readonly string[]): string[] {
-  const classes = new Set<string>();
-  for (const file of files) {
-    const posix = file.replace(/\\/g, '/');
-    if (!posix.endsWith('.java')) continue;
-    const noExt = posix.slice(0, -'.java'.length);
-    const rooted = noExt.match(/(?:^|\/)(?:src\/(?:main|test)\/java|java)\/(.+)$/);
-    const rel = (rooted ? rooted[1] : noExt) ?? noExt;
-    classes.add(rel.replace(/\//g, '.'));
-  }
-  return [...classes];
-}
-
-/**
- * The changed `.py` paths for the mutmut `--paths-to-mutate` flag, in POSIX
- * form, with no duplicates, in order. Mutmut also has a line-level scope with
- * `--use-patch-file`, but that needs a patch file on disk.
- */
-function changedPythonPaths(files: readonly string[]): string[] {
-  const paths = new Set<string>();
-  for (const file of files) {
-    const posix = file.replace(/\\/g, '/');
-    if (posix.endsWith('.py')) paths.add(posix);
-  }
-  return [...paths];
 }
 
 /**
@@ -432,45 +392,6 @@ export type ReadDirSync = (dir: string) => readonly DirEntry[];
 
 /** A bounded read of the head of a file. It gives `''` for an unreadable file. */
 export type ReadFileHead = (file: string) => string;
-
-/**
- * Filenames that identify the config of a mutation runner, in this order:
- * StrykerJS, Stryker.NET, Infection (PHP), mutant (Ruby), and cargo-mutants.
- * The directory of the match is the package that owns the config.
- */
-export const MUTATION_CONFIG_FILE_PATTERNS: readonly RegExp[] = [
-  /^\.?stryker\.conf(ig)?\.(mjs|cjs|js|json|jsonc)$/i,
-  /^stryker-config\.(json|ya?ml)$/i,
-  /^infection\.json5?(\.dist)?$/i,
-  /^\.?mutant\.ya?ml$/i,
-  /^\.?(cargo-)?mutants\.toml$/i,
-];
-
-/**
- * Configs inside a file that the project has for other reasons. The basename
- * alone proves nothing, so the file must also contain the section of the
- * runner. That is `[tool.mutmut]` or `[mutmut]` for mutmut, and `pitest` for
- * PIT in Maven or Gradle files.
- */
-export const MUTATION_CONFIG_SECTION_MARKERS: ReadonlyArray<{
-  readonly basename: string;
-  readonly marker: RegExp;
-}> = [
-  { basename: 'pyproject.toml', marker: /^\s*\[tool\.mutmut\]/m },
-  { basename: 'setup.cfg', marker: /^\s*\[mutmut\]/m },
-  { basename: 'pom.xml', marker: /pitest/i },
-  { basename: 'build.gradle', marker: /pitest/i },
-  { basename: 'build.gradle.kts', marker: /pitest/i },
-];
-
-/**
- * Directory names that never hold the config of a project: dependency trees
- * and build output. They are kinds of directory, not named subtrees, so the
- * scan root stays the whole repository.
- */
-const NON_SCANNABLE_DIRS: ReadonlySet<string> = new Set([
-  'node_modules', 'dist', 'build', 'out', 'coverage', 'reports', 'target', 'vendor', 'tmp',
-]);
 
 /** Depth bound on the discovery walk, counted in directories below the root. */
 export const MUTATION_CONFIG_SCAN_MAX_DEPTH = 5;
@@ -588,12 +509,18 @@ export type MutationCwdResult =
     }
   | { readonly ok: false; readonly reason: string };
 
+/** A token that ends in an extension of the registry list of command paths, in any case. */
+const COMMAND_PATH_PATTERN = new RegExp(
+  `\\.(?:${COMMAND_PATH_EXTENSIONS.map((extension) => extension.slice(1)).join('|')})$`,
+  'i',
+);
+
 /** Tokens that can name a file: flags never do, and a bare word is too ambiguous. */
 function commandPathTokens(command: string): string[] {
   return command
     .split(/\s+/)
     .filter((t) => t.length > 0 && !t.startsWith('-'))
-    .filter((t) => t.includes('/') || t.includes('\\') || /\.[cm]?[jt]sx?$|\.(sh|py|rb|php)$/i.test(t));
+    .filter((t) => t.includes('/') || t.includes('\\') || COMMAND_PATH_PATTERN.test(t));
 }
 
 /**

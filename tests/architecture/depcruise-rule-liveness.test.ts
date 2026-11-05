@@ -1,7 +1,7 @@
 // Liveness of the depcruise rule `no-domain-core-to-io-adapters`.
 //
 // The rule has `severity: 'error'`, and `runBoundaryLint` in
-// `src/verbs/pure/static-analysis.ts` runs it. Its `from` side is a path regex
+// `src/config/boundary-adapters.ts` runs it. Its `from` side is a path regex
 // that names directories. A directory rename does not break the rule. The
 // rename empties it. A rule that matches zero modules always passes, and in CI
 // it looks the same as a rule that the code obeys.
@@ -159,16 +159,16 @@ describe('DepcruiseRule_SeededViolation_StillFails', () => {
 
   /**
    * If the gate does not invoke the config, liveness has no value. The gate
-   * returns `SKIP` when it finds no config, so the gate source must name the
-   * config file. The first pattern matches only the description of
-   * `runBoundaryLint`, because the call passes its arguments as an array.
+   * runs no boundary leg when it finds no config, so the adapter source must name
+   * the config file. The first pattern matches only the description of
+   * `runBoundaryLint`, because the seed holds its argv as an array.
    */
   it('the rule is the one static analysis actually runs', () => {
-    const staticAnalysis = readFileSync(
-      path.join(REPO_ROOT, 'src/verbs/pure/static-analysis.ts'),
+    const boundaryAdapters = readFileSync(
+      path.join(REPO_ROOT, 'src/config/boundary-adapters.ts'),
       'utf8',
     );
-    expect(staticAnalysis).toMatch(/depcruise --validate/);
-    expect(staticAnalysis).toMatch(/\.dependency-cruiser/);
+    expect(boundaryAdapters).toMatch(/depcruise --validate/);
+    expect(boundaryAdapters).toMatch(/\.dependency-cruiser/);
   });
 });

@@ -1,12 +1,12 @@
 /**
  * Parity tests for `runStaticAnalysis` against the behavior of the retired `static-analysis-gate.sh` script.
- * The gate runs lint, typecheck, and quality-check through npm scripts. A missing script gives a SKIP.
+ * The gate runs the `lint` and `typecheck` scripts of the profile seeds. The `quality-check` leg of the script is gone, by a decided change.
  *
  * One case differs from the script on purpose. The script let a SKIP leave the result at PASS, so `PASS (2/2)` showed while checks did not run.
  * In the TS port, a SKIP counts, and the result degrades to `status: 'skip'`, `skipReason: 'constituent-skipped'`, and `**Result: DEGRADED**`.
  * The PASS case without a skip, the FAIL case, and the error case keep parity.
  *
- * The `node:fs` mock gives `readPackageJson` a `package.json` without disk access.
+ * The `node:fs` mock gives the seeds a `package.json` without disk access.
  * It also stubs `readdirSync`, because `detectToolchain` lists the directory for a glob marker.
  */
 import { describe, it, expect, vi } from 'vitest';
@@ -44,14 +44,12 @@ function makeLintFailRunner(): RunCommandFn {
 }
 
 describe('behavioral parity with static-analysis-gate.sh', () => {
-  it('quality-check absent — DEGRADED, not PASS (2/2) (T-09 / DR-6)', () => {
+  it('lint and typecheck pass — PASS (2/2)', () => {
     expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
       runCommand: makePassRunner(),
     })).toEqual({
-      status: 'skip',
-      skipReason: 'constituent-skipped',
-      skippedChecks: [{ name: 'Quality check', detail: "no 'quality-check' script in package.json" }],
+      status: 'pass',
       output: [
         '## Static Analysis Report',
         '',
@@ -60,20 +58,18 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '',
         '- **PASS**: Lint',
         '- **PASS**: Typecheck',
-        "- **SKIP**: Quality check — no 'quality-check' script in package.json",
         '',
         '---',
         '',
-        '**Result: DEGRADED** (2/2 checks passed, 1 skipped — inconclusive, not a pass)',
+        '**Result: PASS** (2/2 checks passed)',
       ].join('\n'),
       passCount: 2,
       failCount: 0,
-      skipCount: 1,
+      skipCount: 0,
       projectType: 'Node.js',
     });
   });
 
-  /** A FAIL wins over a SKIP, as in the script. */
   it('lint fail — FAIL (1/2), typecheck passes', () => {
     expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
@@ -88,7 +84,6 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '',
         '- **FAIL**: Lint — Lint errors found',
         '- **PASS**: Typecheck',
-        "- **SKIP**: Quality check — no 'quality-check' script in package.json",
         '',
         '---',
         '',
@@ -96,7 +91,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
       ].join('\n'),
       passCount: 1,
       failCount: 1,
-      skipCount: 1,
+      skipCount: 0,
       projectType: 'Node.js',
     });
   });
@@ -109,24 +104,23 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
     })).toEqual({
       status: 'skip',
       skipReason: 'constituent-skipped',
-      skippedChecks: [{ name: 'Lint', detail: '--skip-lint' }, { name: 'Quality check', detail: "no 'quality-check' script in package.json" }],
+      skippedChecks: [{ name: 'Lint', detail: 'skipped by the skipLint flag' }],
       output: [
         '## Static Analysis Report',
         '',
         '**Repository:** `/fake/repo`',
         '**Project type:** Node.js',
         '',
-        '- **SKIP**: Lint — --skip-lint',
+        '- **SKIP**: Lint — skipped by the skipLint flag',
         '- **PASS**: Typecheck',
-        "- **SKIP**: Quality check — no 'quality-check' script in package.json",
         '',
         '---',
         '',
-        '**Result: DEGRADED** (1/1 checks passed, 2 skipped — inconclusive, not a pass)',
+        '**Result: DEGRADED** (1/1 checks passed, 1 skipped — inconclusive, not a pass)',
       ].join('\n'),
       passCount: 1,
       failCount: 0,
-      skipCount: 2,
+      skipCount: 1,
       projectType: 'Node.js',
     });
   });
@@ -139,10 +133,7 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
     })).toEqual({
       status: 'skip',
       skipReason: 'constituent-skipped',
-      skippedChecks: [
-        { name: 'Typecheck', detail: '--skip-typecheck' },
-        { name: 'Quality check', detail: "no 'quality-check' script in package.json" },
-      ],
+      skippedChecks: [{ name: 'Typecheck', detail: 'skipped by the skipTypecheck flag' }],
       output: [
         '## Static Analysis Report',
         '',
@@ -150,16 +141,15 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
         '**Project type:** Node.js',
         '',
         '- **PASS**: Lint',
-        '- **SKIP**: Typecheck — --skip-typecheck',
-        "- **SKIP**: Quality check — no 'quality-check' script in package.json",
+        '- **SKIP**: Typecheck — skipped by the skipTypecheck flag',
         '',
         '---',
         '',
-        '**Result: DEGRADED** (1/1 checks passed, 2 skipped — inconclusive, not a pass)',
+        '**Result: DEGRADED** (1/1 checks passed, 1 skipped — inconclusive, not a pass)',
       ].join('\n'),
       passCount: 1,
       failCount: 0,
-      skipCount: 2,
+      skipCount: 1,
       projectType: 'Node.js',
     });
   });
@@ -180,21 +170,25 @@ describe('behavioral parity with static-analysis-gate.sh', () => {
 });
 
 describe('quality-check path', () => {
-  it('quality-check script present and passing — counted in totals', async () => {
+  it('quality-check script present — not a check, so not counted in totals', async () => {
     const { readFileSync } = await import('node:fs');
-    (readFileSync as ReturnType<typeof vi.fn>).mockReturnValueOnce(
-      JSON.stringify({
-        scripts: {
-          lint: 'eslint .',
-          typecheck: 'tsc --noEmit',
-          'quality-check': 'npm run test:quality',
-        },
-      })
-    );
+    const withQualityCheck = JSON.stringify({
+      scripts: {
+        lint: 'eslint .',
+        typecheck: 'tsc --noEmit',
+        'quality-check': 'npm run test:quality',
+      },
+    });
+    vi.mocked(readFileSync).mockImplementation(() => withQualityCheck);
+    const ran: string[] = [];
+    const recordingRunner: RunCommandFn = (cmd, args, options) => {
+      ran.push([cmd, ...args].join(' '));
+      return makePassRunner()(cmd, args, options);
+    };
 
     expect(runStaticAnalysis({
       repoRoot: '/fake/repo',
-      runCommand: makePassRunner(),
+      runCommand: recordingRunner,
     })).toEqual({
       status: 'pass',
       output: [
@@ -205,16 +199,16 @@ describe('quality-check path', () => {
         '',
         '- **PASS**: Lint',
         '- **PASS**: Typecheck',
-        '- **PASS**: Quality check',
         '',
         '---',
         '',
-        '**Result: PASS** (3/3 checks passed)',
+        '**Result: PASS** (2/2 checks passed)',
       ].join('\n'),
-      passCount: 3,
+      passCount: 2,
       failCount: 0,
       skipCount: 0,
       projectType: 'Node.js',
     });
+    expect(ran.filter((line) => line.includes('quality-check'))).toEqual([]);
   });
 });

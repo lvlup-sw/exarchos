@@ -12,8 +12,8 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 
 import * as os from 'node:os';
 import * as path from 'node:path';
 
+import { DEFAULT_TEST_SUPPORT_SEGMENTS } from '../../../../src/config/toolchains.js';
 import {
-  DEFAULT_TEST_SUPPORT_SEGMENTS,
   splitHunks,
   snapshotWorkingTree,
   revertSourceFiles,
@@ -649,7 +649,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
 
   /**
    * A test file that the task deletes is not at the head, so a run of it collects nothing. The probe must not run it.
-   * The remaining test files are probed. With no test file left, the verdict is `no-new-tests`.
+   * The remaining test files are probed. With no test file left, the diff still touches a test path, so the verdict is `unprobed-test-paths`.
    */
   it(
     'Probe_DeletedTestFile_IsNeverProbed',
@@ -689,7 +689,7 @@ describe('runProbe (compose split → snapshot → revert → run → restore)',
         },
         riskTier: 'high',
       });
-      expect(onlyDeleted.discriminant).toBe('no-new-tests');
+      expect(onlyDeleted.discriminant).toBe('unprobed-test-paths');
       expect(onlyDeleted.passed).toBe(false);
     },
     30_000,

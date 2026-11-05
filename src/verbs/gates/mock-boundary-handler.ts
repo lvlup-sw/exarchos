@@ -1,8 +1,8 @@
 /**
  * The `check_mock_boundary` orchestrate action. It runs the mock-boundary gate on the diff of a
  * task and persists subject-bound evidence. The pure core `mock-boundary.ts` does the detection.
- * This handler resolves the repo root, parses the `baseRef...HEAD` diff, reads the
- * `ownership.firstParty` globs, resolves the gate severity, and persists the evidence.
+ * This handler resolves the repo root and parses the `baseRef...HEAD` diff. It reads the test globs and the
+ * `firstParty` globs of the verification profile, resolves the gate severity, and persists the evidence.
  *
  * The result is an advisory carrier: `success: true`, with `data.passed` as the verdict. An
  * unowned mock is a finding, not a tool error.
@@ -16,13 +16,23 @@
 
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { defaultGitExec, resolvePolicySkip, SKIPPED_BY_POLICY } from './gate-utils.js';
+import {
+  defaultGitExec,
+  profileOf,
+  profilePathOf,
+  resolvePolicySkip,
+  SKIPPED_BY_POLICY,
+  withProfileRoute,
+  type ProfiledGateArgs,
+} from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runDurableGateProducer } from './durable-gate-producer.js';
 import type { RiskTier } from '../../workflow/verification-policy.js';
 import { resolveGateSeverity } from './gate-severity.js';
 import { DEFAULTS, resolveConfig, type ResolvedProjectConfig } from '../../config/resolve.js';
+import { DEFAULT_FIRST_PARTY_GLOBS } from '../../config/exarchos-config-schema.js';
 import { loadExarchosConfigOutcome, type ExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
+import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import {
   detectMockFindings,
@@ -59,7 +69,7 @@ export function steerForFinding(finding: MockFinding): string {
   );
 }
 
-export interface MockBoundaryHandlerArgs {
+export interface MockBoundaryHandlerArgs extends ProfiledGateArgs {
   readonly featureId: string;
   readonly taskId: string;
   /** The task branch (HEAD side of the diff). Defaults to the current branch. */
@@ -94,12 +104,13 @@ export interface MockBoundaryHandlerArgs {
   /**
    * The resolved project config from the dispatch adapter. The self-skip routing thus uses the
    * same policy sequence as the delegation stamp. Without it, the resolver uses the built-in
-   * table. {@link loadConfig} is separate and reads the per-worktree globs and severity.
+   * table. In a segment it is the config of the checkout, and it also gives the severity.
+   * {@link loadConfig} is separate and reads the per-worktree terms and severity of a direct call.
    */
   readonly projectConfig?: ResolvedProjectConfig;
   /** Test seam. Defaults to `defaultGitExec`. */
   readonly gitExec?: GitExec;
-  /** Config reader for ownership globs + review-gate severity. Defaults to `loadExarchosConfigOutcome`. */
+  /** Config reader of a direct call, for the profile and the review-gate severity. Defaults to `loadExarchosConfigOutcome`. */
   readonly loadConfig?: (worktreePath: string) => ExarchosConfigOutcome;
 }
 
@@ -110,6 +121,43 @@ const BASE_MISSING = 'base-missing';
 const BASE_MISSING_REPORT =
   'check_mock_boundary did not scan: no base was supplied (`baseBranch`), so the new test hunks have nothing to be measured from. ' +
   'Pass the branch that the task forked from. The task-completion runbook binds it from the capsule `baseRef`.';
+
+/** What one run reads: the profile, the config of the severity, and the error of a config that does not load. */
+interface MockBoundaryReading {
+  /** Absent for a config that does not load. The run then keeps the fallback of the seeded globs. */
+  readonly profile?: VerificationProfile;
+  readonly severityConfig: ResolvedProjectConfig;
+  readonly configLoadError?: string;
+}
+
+/**
+ * Reads the terms of one run. A pinned profile comes with the config of the checkout that the capsule pins, so a segment reads no worktree config.
+ * A direct call reads the config once through `args.loadConfig`, and it resolves the profile with that read.
+ * A config that does not load gives no profile, so the caller keeps the fallback and reads no unresolved term.
+ */
+function readTerms(args: MockBoundaryHandlerArgs, repoRoot: string): MockBoundaryReading {
+  if (args.verificationProfile !== undefined) {
+    return { profile: args.verificationProfile.profile, severityConfig: args.projectConfig ?? DEFAULTS };
+  }
+  const outcome = (args.loadConfig ?? loadExarchosConfigOutcome)(repoRoot);
+  if (outcome.kind === 'invalid') return { severityConfig: DEFAULTS, configLoadError: outcome.message };
+  const profile = profileOf(args, repoRoot, { loadConfig: () => outcome });
+  if (outcome.kind === 'absent') return { profile, severityConfig: DEFAULTS };
+  try {
+    return { profile, severityConfig: resolveConfig(outcome.result.config) };
+  } catch (err) {
+    return { profile, severityConfig: DEFAULTS, configLoadError: err instanceof Error ? err.message : String(err) };
+  }
+}
+
+/** The advisory skip of a term that the profile does not resolve. The gate is advisory, so the skip does not block. */
+function unresolvedTermSkip(args: MockBoundaryHandlerArgs, repoRoot: string, termReason: string): ToolResult {
+  const reason = `${profilePathOf(args, repoRoot)}. ${withProfileRoute(args, termReason)}`;
+  return {
+    success: true,
+    data: { passed: true, skipped: true, findings: [], report: reason, discriminant: PROFILE_UNRESOLVED, reason },
+  };
+}
 
 const DIFF_GIT_RE = /^diff --git a\/(.+?) b\/(.+)$/;
 const HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/;
@@ -173,15 +221,16 @@ export function parseUnifiedDiff(diff: string): FileDiff[] {
 /**
  * Runs the mock-boundary gate for one task.
  *
+ * The profile is the pinned profile, or the profile that resolves at the repo root. `profilePath` names which.
+ * An unresolved glob term or `firstParty` term gives an advisory skip with `profile-unresolved`.
+ *
  * A missing or malformed `.exarchos.yml` falls back to the default globs and severity, and never
- * fails the gate. A malformed file, or a file whose review settings do not resolve, also sets
- * `configLoadError` on the result. Thus the fallback is visible.
+ * fails the gate. A malformed file, or a file whose review settings do not resolve, also sets `configLoadError`.
  *
- * The diff uses `--no-ext-diff`, because a `diff.external` wrapper replaces the unified diff and
- * gives zero findings. A git failure gives zero findings.
+ * The diff uses `--no-ext-diff`, because a `diff.external` wrapper replaces the unified diff and gives zero findings. A git failure gives zero findings.
  *
- * The gate fails only when the severity is blocking, an unowned mock exists, and no `reason` is
- * given. The built-in severity is `warning`, so only a project override makes the gate block.
+ * The gate fails only when the severity is blocking, an unowned mock exists, and no `reason` is given.
+ * The built-in severity is `warning`, so only a project override makes the gate block.
  * Steers appear only when findings exist and no `reason` is given.
  *
  * With no base, the gate passes after the policy skip with `base-missing` and an `indeterminate` verdict, and reads no diff.
@@ -251,29 +300,20 @@ export async function handleMockBoundary(
       }
 
       const gitExec = args.gitExec ?? defaultGitExec;
-      const loadConfig = args.loadConfig ?? loadExarchosConfigOutcome;
+      const { profile, severityConfig, configLoadError } = readTerms(args, repoRoot);
+      const globTerm = profile?.tests.globs;
+      if (globTerm?.state === 'unresolved') return unresolvedTermSkip(args, repoRoot, globTerm.reason);
+      const firstPartyTerm = profile?.firstParty;
+      if (firstPartyTerm?.state === 'unresolved') return unresolvedTermSkip(args, repoRoot, firstPartyTerm.reason);
 
-      let firstPartyGlobs: readonly string[] = DEFAULT_FIRST_PARTY_GLOBS;
-      let resolvedConfig: ResolvedProjectConfig | undefined;
-      const outcome = loadConfig(repoRoot);
-      let configLoadError = outcome.kind === 'invalid' ? outcome.message : undefined;
-      if (outcome.kind === 'loaded') {
-        const { config } = outcome.result;
-        if (config.ownership?.firstParty) {
-          firstPartyGlobs = config.ownership.firstParty;
-        }
-        try {
-          resolvedConfig = resolveConfig(config);
-        } catch (err) {
-          configLoadError = err instanceof Error ? err.message : String(err);
-        }
-      }
-
-      const severity = resolveGateSeverity('mock-boundary', 'D1', resolvedConfig ?? DEFAULTS);
+      const severity = resolveGateSeverity('mock-boundary', 'D1', severityConfig);
 
       const diffResult = gitExec(repoRoot, ['diff', '--no-ext-diff', `${baseRef}...HEAD`]);
       const fileDiffs = diffResult.exitCode === 0 ? parseUnifiedDiff(diffResult.stdout) : [];
-      const findings = detectMockFindings(fileDiffs, { firstPartyGlobs });
+      const findings = detectMockFindings(fileDiffs, {
+        firstPartyGlobs: firstPartyTerm?.globs ?? DEFAULT_FIRST_PARTY_GLOBS,
+        ...(globTerm === undefined ? {} : { testGlobs: globTerm.globs }),
+      });
 
       const reason = typeof args.reason === 'string' ? args.reason.trim() : '';
       const escapeHatch = reason.length > 0 ? { acknowledged: true, reason } : undefined;
@@ -290,6 +330,7 @@ export async function handleMockBoundary(
           passed,
           findings,
           severity,
+          profilePath: profilePathOf(args, repoRoot),
           ...(escapeHatch ? { escapeHatch } : {}),
           ...(nextActions.length > 0 ? { next_actions: nextActions } : {}),
           ...(configLoadError === undefined ? {} : { configLoadError }),
@@ -298,9 +339,3 @@ export async function handleMockBoundary(
     },
   );
 }
-
-/**
- * A copy of the `ownership.firstParty` schema default, so the handler uses the same scope when no
- * `.exarchos.yml` exists. Keep it in sync with `exarchos-config-schema.ts`.
- */
-const DEFAULT_FIRST_PARTY_GLOBS: readonly string[] = ['src/**', 'servers/*/src/**'];

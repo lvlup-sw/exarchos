@@ -8,6 +8,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('node:fs', () => ({
   existsSync: vi.fn(),
   readFileSync: vi.fn(),
+  mkdtempSync: vi.fn(() => '/tmp/spec-coverage-scratch'),
+  rmSync: vi.fn(),
 }));
 
 vi.mock('node:child_process', () => ({
@@ -47,8 +49,12 @@ import {
 import type { SpecCoverageCheckArgs } from '../../../../src/verbs/gates/spec-coverage-check.js';
 import type { ToolResult } from '../../../../src/format.js';
 import type { EventStore } from '../../../../src/events/store.js';
+import { pinnedTestProfile } from '../../../helpers/verification-profile.js';
 
 const STATE_DIR = '/tmp/test-spec-coverage-check';
+
+/** The roots of this file hold no test command, so each case that runs the tests pins the Node fixture profile. */
+const NODE_PROFILE = pinnedTestProfile(1);
 
 /** The evidence runner needs a store. The stubbed runner never reaches it. */
 const stubStore = {
@@ -114,6 +120,7 @@ describe('handleSpecCoverageCheck', () => {
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
+      verificationProfile: NODE_PROFILE,
     });
 
     expect(result.success).toBe(true);
@@ -196,7 +203,7 @@ describe('handleSpecCoverageCheck', () => {
     mockedExecFileSync.mockImplementation((_cmd: unknown, args?: unknown) => {
       const argsArr = args as readonly string[];
       if (argsArr && argsArr.some((a: string) => a.includes('utils.test.ts'))) {
-        throw new Error('Test failed');
+        throw Object.assign(new Error('Test failed'), { status: 1 });
       }
       return Buffer.from('');
     });
@@ -204,6 +211,7 @@ describe('handleSpecCoverageCheck', () => {
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
+      verificationProfile: NODE_PROFILE,
     });
 
     expect(result.success).toBe(true);
@@ -333,6 +341,7 @@ describe('handleSpecCoverageCheck', () => {
     const result = await runSpecCoverageCheck({
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
+      verificationProfile: NODE_PROFILE,
     });
 
     expect(result.success).toBe(true);
@@ -565,6 +574,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'post-implementation',
+      verificationProfile: NODE_PROFILE,
     });
 
     expect(result.success).toBe(true);
@@ -585,7 +595,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
     mockedExecFileSync.mockImplementation((_cmd: unknown, args?: unknown) => {
       const argsArr = args as readonly string[];
       if (argsArr && argsArr.some((a: string) => a.includes('utils.test.ts'))) {
-        throw new Error('Test failed');
+        throw Object.assign(new Error('Test failed'), { status: 1 });
       }
       return Buffer.from('');
     });
@@ -594,6 +604,7 @@ describe('handleSpecCoverageCheck — post-implementation phase (WFQ-010)', () =
       planFile: '/repo/plan.md',
       repoRoot: '/repo',
       coveragePhase: 'post-implementation',
+      verificationProfile: NODE_PROFILE,
     });
 
     expect(result.success).toBe(true);

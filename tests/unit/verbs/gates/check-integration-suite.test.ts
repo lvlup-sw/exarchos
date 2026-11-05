@@ -20,16 +20,21 @@ const mockStore = {
   query: vi.fn().mockResolvedValue([]),
 };
 
+import { parseVitestResult } from '../../../../src/config/suite-reports.js';
 import { handleCheckIntegrationSuite, isSpawnFailure } from '../../../../src/verbs/gates/check-integration-suite.js';
-import {
-  parseVitestResult,
-  runIntegrationSuite,
-  resolveIntegrationCommand,
-  LOAD_FAILURE_LIST_CAP,
-} from '../../../../src/verbs/pure/integration-suite.js';
-import type { Toolchain } from '../../../../src/config/toolchains.js';
+import { runIntegrationSuite, LOAD_FAILURE_LIST_CAP } from '../../../../src/verbs/pure/integration-suite.js';
+import { integrationTerm, pinnedIntegrationProfile, pinnedTestProfile } from '../../../helpers/verification-profile.js';
 
 const STATE_DIR = '/tmp/test-integration-suite';
+
+/** The term of a suite that prints a vitest report. */
+const VITEST_JSON_TERM = integrationTerm(['npm', 'run', 'test:run'], { report: 'vitest-json' });
+
+/** The pin of a case that reads the exit code. The roots of this file hold no test command, so each handler case pins its term. */
+const EXIT_CODE_PIN = pinnedTestProfile(1);
+
+/** The pin of a case that reads a vitest report. */
+const VITEST_JSON_PIN = pinnedIntegrationProfile(1, VITEST_JSON_TERM);
 
 /**
  * A vitest JSON result in which one file fails at import: one failed suite and
@@ -77,7 +82,7 @@ describe('handleCheckIntegrationSuite', () => {
   it('CheckIntegrationSuite_FileFailsToLoad_ReturnsFailedAndCountsIt', async () => {
     const runner = stubRunnerReturning(vitestLoadFailureJson());
 
-    const args = { featureId: 'feat-1', repoRoot: '/repo' };
+    const args = { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: VITEST_JSON_PIN };
 
     const result = await handleCheckIntegrationSuite(
       args,
@@ -109,7 +114,7 @@ describe('handleCheckIntegrationSuite', () => {
     const runner = stubRunnerReturning(cleanJson, 0);
 
     const result = await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo' },
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -125,7 +130,7 @@ describe('handleCheckIntegrationSuite', () => {
     const runner = stubRunnerReturning(vitestLoadFailureJson());
 
     await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo' },
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -138,14 +143,14 @@ describe('handleCheckIntegrationSuite', () => {
     const runner = stubRunnerReturning(vitestLoadFailureJson());
 
     await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/worktrees/agent-x' },
+      { featureId: 'feat-1', repoRoot: '/worktrees/agent-x', verificationProfile: EXIT_CODE_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
     );
 
     expect(runner).toHaveBeenCalledTimes(1);
-    const opts = runner.mock.calls[0][2];
+    const opts = runner.mock.calls[0]?.[2];
     expect(opts?.cwd).toBe('/worktrees/agent-x');
   });
 
@@ -158,7 +163,7 @@ describe('handleCheckIntegrationSuite', () => {
     const runner = stubRunnerReturning('this is not vitest json', 0);
 
     const result = await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo' },
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: VITEST_JSON_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -207,7 +212,7 @@ describe('handleCheckIntegrationSuite', () => {
     const runner = stubRunnerReturning(cascadeJson);
 
     const result = await handleCheckIntegrationSuite(
-      { featureId: 'feat-1', repoRoot: '/repo' },
+      { featureId: 'feat-1', repoRoot: '/repo', verificationProfile: VITEST_JSON_PIN },
       STATE_DIR,
       mockStore as unknown as EventStore,
       runner,
@@ -339,15 +344,6 @@ describe('isSpawnFailure spawn-vs-shape classification (#1537)', () => {
 });
 
 describe('check_integration_suite command resolution (#1537, DR-15)', () => {
-  function stubToolchain(test: string | null): Toolchain {
-    return {
-      id: 'stub',
-      projectType: 'Stub',
-      markers: [],
-      commands: { test, typecheck: null, install: null, mutation: null, lint: null, contract: null },
-    };
-  }
-
   const passingVitestJson = JSON.stringify({
     numFailedTestSuites: 0,
     numFailedTests: 0,
@@ -355,43 +351,12 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     testResults: [],
   });
 
-  it('checkIntegrationSuite_ResolvesCommandViaToolchain', () => {
-    const seen: Array<{ cmd: string; args: readonly string[] }> = [];
-    runIntegrationSuite({
-      repoRoot: '/repo',
-      runCommand: (cmd, args): CommandResult => {
-        seen.push({ cmd, args });
-        return { exitCode: 0, stdout: passingVitestJson, stderr: '' };
-      },
-      detectToolchain: () => stubToolchain('npm run ws:test'),
-    });
-    expect(seen).toHaveLength(1);
-    expect(seen[0].cmd).toBe('npm');
-    expect(seen[0].args).toContain('ws:test');
-    expect(seen[0].args).toContain('--reporter=json');
-  });
-
-  it('checkIntegrationSuite_TestScriptOverride_HonorsExplicit', () => {
-    const seen: Array<{ cmd: string; args: readonly string[] }> = [];
-    runIntegrationSuite({
-      repoRoot: '/repo',
-      testScript: 'test:ci',
-      runCommand: (cmd, args): CommandResult => {
-        seen.push({ cmd, args });
-        return { exitCode: 0, stdout: passingVitestJson, stderr: '' };
-      },
-      detectToolchain: () => stubToolchain('npm run should-not-be-used'),
-    });
-    expect(seen[0].args).toContain('test:ci');
-    expect(seen[0].args).not.toContain('should-not-be-used');
-  });
-
   /** A green suite at the monorepo root must parse and must not fail closed. */
   it('checkIntegrationSuite_MonorepoRoot_ResolvesCommandAndParses', () => {
     const result = runIntegrationSuite({
       repoRoot: '/monorepo',
       runCommand: (): CommandResult => ({ exitCode: 0, stdout: passingVitestJson, stderr: '' }),
-      detectToolchain: () => stubToolchain('npm run test:run'),
+      integration: VITEST_JSON_TERM,
     });
     expect(result.parseError).toBe(false);
     expect(result.passed).toBe(true);
@@ -411,12 +376,12 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
         stderr: 'command not found',
         spawnError: 'ENOENT',
       }),
-      detectToolchain: () => stubToolchain('npm run test:run'),
+      integration: VITEST_JSON_TERM,
     });
     const shape = runIntegrationSuite({
       repoRoot: '/repo',
       runCommand: (): CommandResult => ({ exitCode: 0, stdout: 'not json at all', stderr: '' }),
-      detectToolchain: () => stubToolchain('npm run test:run'),
+      integration: VITEST_JSON_TERM,
     });
 
     expect(spawn.passed).toBe(false);
@@ -425,22 +390,5 @@ describe('check_integration_suite command resolution (#1537, DR-15)', () => {
     expect(shape.parseFailureKind).toBe('shape-mismatch');
     expect(spawn.report).not.toBe(shape.report);
     expect(spawn.report.toLowerCase()).toContain('spawn');
-  });
-
-  it('resolveIntegrationCommand_ExplicitScript_TakesPrecedence', () => {
-    const r = resolveIntegrationCommand('/repo', 'my:test', () => stubToolchain('cargo test'));
-    expect(r.cmd).toBe('npm');
-    expect(r.args).toEqual(['run', 'my:test', '--', '--reporter=json']);
-  });
-
-  /**
-   * Resolves the command in the current working directory. That directory is
-   * this repository, which uses the node toolchain. The test does not run the
-   * command, because a run starts vitest again inside vitest.
-   */
-  it('resolveIntegrationCommand_ThisRepo_ResolvesNodeVitestCommand', () => {
-    const r = resolveIntegrationCommand(process.cwd(), undefined);
-    expect(r.cmd).toBe('npm');
-    expect(r.args).toEqual(['run', 'test:run', '--', '--reporter=json']);
   });
 });

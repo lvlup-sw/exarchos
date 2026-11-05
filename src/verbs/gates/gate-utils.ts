@@ -10,11 +10,13 @@ import { orchestrateLogger } from '../../logger.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
+import { resolveVerificationProfile, type ResolveProfileOptions } from '../../config/verification-profile.js';
 import {
   type GateName,
   type RiskTier,
 } from '../../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
+import type { PinnedVerificationProfile, VerificationProfile } from '../../workflow/verification/profile.js';
 import type { PhaseKind } from '../../workflow/phase-kind.js';
 import type { GitExec } from '../pure/execute-merge.js';
 import type { EvidenceArtifactReferenceV1 } from '../../workflow/admission/evidence-artifact.js';
@@ -502,4 +504,57 @@ export function resolvePolicySkip(args: {
       `sequence for riskTier='${riskTier}', boundaryTouching=${boundaryTouching} ` +
       `(sequence: ${sequence.join(', ') || 'none'}; policy: ${source})`,
   };
+}
+
+/** The time limit of one run of a whole test suite. A run past it gives no verdict and blocks. */
+export const WHOLE_SUITE_TIMEOUT_MS = 600_000;
+
+/** The output limit of one run of a whole test suite. A whole build can print each warning twice, so the scoped limit is too small for it. */
+export const WHOLE_SUITE_MAX_OUTPUT_BYTES = 64 * 1024 * 1024;
+
+/** The arguments of a gate that reads the verification profile. */
+export interface ProfiledGateArgs {
+  /** The profile that the capsule of the segment pins. Only the dispatch context sets it, so a wire caller cannot pin a profile. */
+  readonly verificationProfile?: PinnedVerificationProfile;
+}
+
+/** Returns the profile that the arguments pin. A direct call pins none, so the profile resolves live at `repoRoot`. */
+export function profileOf(
+  args: ProfiledGateArgs,
+  repoRoot: string,
+  options?: ResolveProfileOptions,
+): VerificationProfile {
+  return args.verificationProfile?.profile ?? resolveVerificationProfile(repoRoot, options);
+}
+
+/** The words that start the path of a pinned profile. The version of the capsule comes after them. */
+const PINNED_PATH_PREFIX = 'pinned by capsule v';
+
+/** The words that name the source of the profile of one gate call. Each gate report holds them. */
+export function profilePathOf(args: ProfiledGateArgs, repoRoot: string): string {
+  const pinned = args.verificationProfile;
+  return pinned === undefined ? `resolved at ${repoRoot}` : `${PINNED_PATH_PREFIX}${pinned.capsuleVersion}`;
+}
+
+/** The version of the capsule that a reason names when it starts with the path of a pinned profile. Any other reason gives undefined. */
+export function pinnedCapsuleOf(reason: string | undefined): number | undefined {
+  if (reason === undefined || !reason.startsWith(PINNED_PATH_PREFIX)) return undefined;
+  const digits = /^\d+/.exec(reason.slice(PINNED_PATH_PREFIX.length));
+  return digits === null ? undefined : Number(digits[0]);
+}
+
+/**
+ * Adds the route of a remedy to the reason of a term. A change in the worktree changes nothing under a pin.
+ * A change at the checkout with no new prepare changes nothing too. So the route under a pin names the checkout, a new prepare and a new batch.
+ * On a live resolution, the route names a rerun.
+ */
+export function withProfileRoute(args: ProfiledGateArgs, reason: string): string {
+  const pinned = args.verificationProfile;
+  if (pinned === undefined) return `${reason} Then run the gate again.`;
+  const version = pinned.capsuleVersion;
+  return (
+    `${reason} Capsule v${version} pins this term, so a change in the worktree changes nothing. ` +
+    'Make the change at the checkout, run a new prepare, then claim the task in a new batch. ' +
+    `A rerun under capsule v${version} gives the same verdict.`
+  );
 }

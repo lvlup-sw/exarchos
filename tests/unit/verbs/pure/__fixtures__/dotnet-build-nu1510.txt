@@ -1,0 +1,14 @@
+  Determining projects to restore...
+/repo/src/Sample.Api/Sample.Api.csproj : warning NU1510: PackageReference System.Text.Json will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+  Restored /repo/src/Sample.Api/Sample.Api.csproj (in 563 ms).
+/repo/src/Sample.Api/Sample.Api.csproj : warning NU1510: PackageReference System.Text.Json will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+  Sample.Api -> /repo/src/Sample.Api/bin/Debug/net10.0/Sample.Api.dll
+
+Build succeeded.
+
+/repo/src/Sample.Api/Sample.Api.csproj : warning NU1510: PackageReference System.Text.Json will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+/repo/src/Sample.Api/Sample.Api.csproj : warning NU1510: PackageReference System.Text.Json will not be pruned. Consider removing this package from your dependencies, as it is likely unnecessary.
+    2 Warning(s)
+    0 Error(s)
+
+Time Elapsed 00:00:01.13
