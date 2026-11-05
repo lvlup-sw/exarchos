@@ -41,9 +41,9 @@ jobs:
       # The org action checks the body against the org template: the five
       # headings in order, no other heading, no template hint, no footer and
       # at most 250 words. Both local templates must stay copies of it.
-      # Move this pin to the org release tag that ships actions/pr-body.
+      # v1.11 is the first org release that ships actions/pr-body.
       - name: Validate PR body
-        uses: lvlup-sw/.github/actions/pr-body@eff7fa80b8595be0bf5f6a74aab7f750bab99819 # lvlup-sw/.github#48
+        uses: lvlup-sw/.github/actions/pr-body@v1.11
         with:
           same-as: |
             .github/PULL_REQUEST_TEMPLATE.md
