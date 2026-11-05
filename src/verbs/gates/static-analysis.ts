@@ -1,13 +1,21 @@
 /**
- * Static analysis gate. It runs lint and typecheck through the durable gate producer, which records the gate evidence.
+ * Static analysis gate. It runs the checks of the verification profile through the durable gate producer, which records the gate evidence.
+ * A segment reads the profile that the capsule pins. A direct call resolves the profile live at its root.
  */
 
 import { runCommandSync, execFailureFields, outputText } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
-import { loadExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
+import { loadExarchosConfigOutcome, type ExarchosConfigOutcome } from '../../config/load-exarchos-config.js';
+import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 import { runDurableGateProducer, type GateSubjectScope } from './durable-gate-producer.js';
-import type { GateCarrierVerdict } from './gate-utils.js';
+import {
+  profileOf,
+  profilePathOf,
+  withProfileRoute,
+  type GateCarrierVerdict,
+  type ProfiledGateArgs,
+} from './gate-utils.js';
 import { runGatePreflight } from '../pure/gate-preflight.js';
 import { runStaticAnalysis } from '../pure/static-analysis.js';
 import type {
@@ -19,7 +27,7 @@ import type {
   StaticAnalysisSkipReason,
 } from '../pure/static-analysis.js';
 
-interface StaticAnalysisArgs {
+interface StaticAnalysisArgs extends ProfiledGateArgs {
   readonly featureId: string;
   /**
    * Repository root to analyze. The gate uses a literal path as given.
@@ -58,23 +66,23 @@ interface StaticAnalysisCarrierFields {
   readonly skipCount: number;
   readonly report: string;
   /**
-   * True when the gate is inconclusive. One cause is no recognized toolchain.
-   * The other cause is a constituent check that did not run, because of a missing npm script or a `--skip-*` flag.
+   * True when the gate is inconclusive. One cause is a term that the profile does not resolve.
+   * The other cause is a constituent check that a skip flag skipped.
    * `passed: false` without `skipped` is a real failure. Callers must treat a skipped gate as inconclusive, not as a pass.
    */
   readonly skipped?: boolean;
-  /** Reason code when `skipped` is true ('no-toolchain' | 'constituent-skipped' | 'repo-root-missing'). */
+  /** Reason code when `skipped` is true ('profile-unresolved' | 'constituent-skipped' | 'repo-root-missing'). */
   readonly skipReason?: string;
   /**
    * The reason code of a skip again, because the gate runner copies only `discriminant` and `reason` into the `gate.executed` row.
-   * `task_complete` reads it to tell a missing toolchain from a skipped check.
+   * `task_complete` reads it to tell an unresolved term from a skipped check.
    */
   readonly discriminant?: StaticAnalysisSkipReason;
-  /** The cause of a skip as text. It names each check that did not run, or the missing toolchain. */
+  /** The cause of a skip as text. It names each check that did not run, or each term that the profile does not resolve. */
   readonly reason?: string;
   /**
    * True when a check did not run or gave no verdict.
-   * With `skipped: true`, a constituent check did not run. That is distinct from a no-toolchain skip, and it is never a pass.
+   * With `skipped: true`, a skip flag skipped a constituent check. That is distinct from a `profile-unresolved` skip, and it is never a pass.
    * Without `skipped`, an advisory check gave no verdict. `advisorySkips` names it, and `passed` is the verdict of the other checks.
    *
    * It is the older flag, and its values stay for stored rows and readers. `completeness` covers advisory checks only.
@@ -146,8 +154,11 @@ export function staticAnalysisSubjectScope(
   };
 }
 
-/** The text of a skip cause. It names each check that did not run and its cause, the missing toolchain, or the missing root. */
+/** The text of a skip cause. It names each unresolved term, each check that did not run and its cause, or the missing root. */
 function skipCauseText(skipReason: StaticAnalysisSkipReason, analysisResult: StaticAnalysisRun): string {
+  if (skipReason === PROFILE_UNRESOLVED) {
+    return analysisResult.unresolvedReason ?? 'the profile resolved no static-analysis check';
+  }
   if (skipReason === 'no-toolchain') return 'no supported static-analysis toolchain in the scanned directory';
   if (skipReason === 'repo-root-missing') return 'the call named a task and no repoRoot, so the run scanned nothing';
   const checks = (analysisResult.skippedChecks ?? []).map(({ name, detail }) =>
@@ -196,7 +207,7 @@ export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolRe
 
   const skipped = analysisResult.status === 'skip';
   const passed = analysisResult.status === 'pass';
-  const skipReason = analysisResult.skipReason ?? 'no-toolchain';
+  const skipReason = analysisResult.skipReason ?? PROFILE_UNRESOLVED;
   const { passCount, failCount, skipCount, output } = analysisResult;
   const completeness = completenessOf(analysisResult.advisorySkips);
   const degraded = (skipped && skipReason === 'constituent-skipped') || completeness.completeness === 'degraded';
@@ -217,13 +228,15 @@ export function staticAnalysisCarrier(analysisResult: StaticAnalysisRun): ToolRe
   return { success: true, data: result };
 }
 
+/** The inputs of `runStaticAnalysis` that give the boundary leg its scope, or the fault that leaves it with none. */
+type BoundaryScope = Pick<StaticAnalysisInput, 'firstPartyGlobs' | 'unresolvedFirstParty' | 'projectConfigError'>;
+
 /**
- * Reads the boundary scope of the project at `repoRoot`: the `ownership.firstParty` globs of its `.exarchos.yml`.
+ * The boundary scope of one config read: the `ownership.firstParty` globs of the `.exarchos.yml`.
  * No `.exarchos.yml`, or a file with no globs, gives no globs, and the boundary leg then uses the schema default.
  * A file that does not load or cannot be read gives the failure, and the boundary leg then fails with the file and the error.
  */
-function readBoundaryScope(repoRoot: string): Pick<StaticAnalysisInput, 'firstPartyGlobs' | 'projectConfigError'> {
-  const outcome = loadExarchosConfigOutcome(repoRoot);
+function boundaryScopeOf(outcome: ExarchosConfigOutcome): BoundaryScope {
   switch (outcome.kind) {
     case 'absent':
       return {};
@@ -232,6 +245,18 @@ function readBoundaryScope(repoRoot: string): Pick<StaticAnalysisInput, 'firstPa
     case 'invalid':
       return { projectConfigError: { source: outcome.source, message: outcome.message } };
   }
+}
+
+/**
+ * The boundary scope under a pin. The scope comes from the pinned `firstParty` term, so a worktree cannot change what scans it.
+ * The worktree config gives only a load failure. A task that breaks its `.exarchos.yml` fails the boundary leg, as on a direct call, and a loaded file gives nothing.
+ */
+function pinnedBoundaryScope(firstParty: VerificationProfile['firstParty'], outcome: ExarchosConfigOutcome): BoundaryScope {
+  const { projectConfigError } = boundaryScopeOf(outcome);
+  return {
+    projectConfigError,
+    ...(firstParty.state === 'resolved' ? { firstPartyGlobs: firstParty.globs } : { unresolvedFirstParty: firstParty.reason }),
+  };
 }
 
 /**
@@ -252,6 +277,27 @@ function repoRootMissingRun(taskId: string): StaticAnalysisRun {
     failCount: 0,
     skipCount: 0,
   };
+}
+
+/**
+ * Runs the checks and the boundary checks of the profile at `repoRoot`. A direct call resolves the profile with one read of the worktree config, and that read gives the boundary scope.
+ * Under a pin, the pinned term gives the scope, and the read gives only a load failure.
+ * Each term goes to `runStaticAnalysis` resolved or not, and that function decides the skip.
+ */
+function runProfiledAnalysis(args: StaticAnalysisArgs, repoRoot: string): StaticAnalysisRun {
+  const outcome = loadExarchosConfigOutcome(repoRoot);
+  const profile = profileOf(args, repoRoot, { loadConfig: () => outcome });
+  return runStaticAnalysis({
+    repoRoot,
+    skipLint: args.skipLint,
+    skipTypecheck: args.skipTypecheck,
+    checks: profile.staticAnalysis,
+    boundaryChecks: profile.boundaryChecks,
+    profilePath: profilePathOf(args, repoRoot),
+    withRoute: (reason) => withProfileRoute(args, reason),
+    ...(args.verificationProfile === undefined ? boundaryScopeOf(outcome) : pinnedBoundaryScope(profile.firstParty, outcome)),
+    runCommand: execCommandRunner,
+  });
 }
 
 /**
@@ -282,16 +328,6 @@ export async function handleStaticAnalysis(
 
   return runDurableGateProducer(
     { ...staticAnalysisSubjectScope(args, repoRoot), stateDir, eventStore, unscanned: missing !== undefined },
-    async () =>
-      staticAnalysisCarrier(
-        missing ??
-          runStaticAnalysis({
-            repoRoot,
-            skipLint: args.skipLint,
-            skipTypecheck: args.skipTypecheck,
-            ...readBoundaryScope(repoRoot),
-            runCommand: execCommandRunner,
-          }),
-      ),
+    async () => staticAnalysisCarrier(missing ?? runProfiledAnalysis(args, repoRoot)),
   );
 }

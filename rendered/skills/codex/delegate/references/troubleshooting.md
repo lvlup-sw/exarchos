@@ -74,9 +74,10 @@ Under `settle`, correct the cause and settle the claim under a new batch id.
 
 ## `settle` Refuses `CAPSULE_UNRESOLVED`
 
-When a batch needs a segment, settlement refuses two more kinds of capsule, and it records nothing:
+When a batch needs a segment, settlement refuses three more kinds of capsule, and it records nothing:
 
 - **A capsule that pins no scope**, from an earlier compiler, or a task with no `baseCommit`. On a submission, `prepare` again under a compiler that pins the scope, then claim the tasks in a new batch. On a decision round, decide by rejecting, which runs no segment, or `prepare` again and claim the tasks in a new batch.
+- **A capsule that pins no verification profile**, from a compiler before `exarchos-prepare-5`. On a submission, `prepare` again with this build, whose compiler pins the profile, then claim the tasks in a new batch. On a decision round, decide by rejecting, which runs no segment, or `prepare` again and claim the tasks in a new batch.
 - **A config that changed after `prepare`.** The digest of `.exarchos.yml` and `.exarchos.yaml` at the checkout differs from `scope.configDigest`. On a submission, `prepare` again with the same `repoRoot`, then claim the tasks in a new batch. On a decision round, a new `prepare` does not help, because a held batch stays on its capsule version. Put the config files back to the bytes that `prepare` read and send the same decision again, or decide by rejecting, then `prepare` again and propose the deviation again in a new batch.
 
 ## Subagent Not Responding

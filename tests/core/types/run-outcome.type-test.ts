@@ -36,6 +36,10 @@ void _unknownCause;
 const _noDetail: RunOutcome = { kind: 'no-verdict', cause: 'timeout' };
 void _noDetail;
 
+// @ts-expect-error — an unresolved run carries the reason of its term.
+const _noReason: RunOutcome = { kind: 'unresolved' };
+void _noReason;
+
 /** A reader that handles only the `ran` member does not compile, because the `no-verdict` member reaches `assertNever`. */
 function readsOnlyARun(outcome: RunOutcome): string {
   switch (outcome.kind) {
@@ -48,13 +52,15 @@ function readsOnlyARun(outcome: RunOutcome): string {
 }
 void readsOnlyARun;
 
-/** The positive control: a reader that handles both members compiles. */
+/** The positive control: a reader that handles each member compiles. */
 function readsEveryEnd(outcome: RunOutcome): string {
   switch (outcome.kind) {
     case 'ran':
       return outcome.result;
     case 'no-verdict':
       return outcome.cause;
+    case 'unresolved':
+      return outcome.reason;
     default:
       return assertNever(outcome, 'RunOutcome');
   }
@@ -64,8 +70,10 @@ function readsEveryEnd(outcome: RunOutcome): string {
 const _green: RunOutcome = { kind: 'ran', result: 'green' };
 const _red: RunOutcome = { kind: 'ran', result: 'red', stdout: 'out', stderr: 'err' };
 const _timeout: RunOutcome = { kind: 'no-verdict', cause: 'timeout', detail: 'the limit is 120000 ms' };
+const _unresolved: RunOutcome = { kind: 'unresolved', reason: 'tests.probe.command: no test command resolves at the checkout.' };
 const _runner: TestRunFn = async () => _green;
 void _red;
+void _unresolved;
 void _runner;
 
 // @ts-expect-error — a gate carrier states its closed verdict, so a carrier with no verdict field is not an adequacy carrier.

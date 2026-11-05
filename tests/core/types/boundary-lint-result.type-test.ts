@@ -10,11 +10,11 @@ import { it, expect } from 'vitest';
 import { assertNever } from '../../../src/contract/error-families.js';
 import {
   positiveCount,
-  type AdvisorySkip,
   type BoundaryLintResult,
   type PositiveCount,
   type RawIoTaintResult,
-} from '../../../src/verbs/pure/static-analysis.js';
+} from '../../../src/config/boundary-adapters.js';
+import type { AdvisorySkip } from '../../../src/verbs/pure/static-analysis.js';
 import type { StaticAnalysisCarrier } from '../../../src/verbs/gates/static-analysis.js';
 
 // @ts-expect-error — a boundary PASS carries the count of the modules that the scan checked.

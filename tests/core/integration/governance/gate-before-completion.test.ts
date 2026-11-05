@@ -234,9 +234,9 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
 
   /**
    * A skipped constituent cannot render as a pass.
-   * BLOCKING ARM: a fixture without `quality-check` has no failure and one skip, but the gate reports `passed: false` and `degraded`.
+   * BLOCKING ARM: the `skipLint` flag on the wire gives no failure and one skip, but the gate reports `passed: false` and `degraded`.
    * The signal has `passed: false` with the verdict `indeterminate`, and `task_complete` gets `GATE_NOT_PASSED`.
-   * NEGATIVE TWIN: with the missing script added to the same repository, the identical run reports a pass.
+   * NEGATIVE TWIN: the identical run with no flag on the same repository reports a pass.
    */
   it('Governance_Dr6_SkippedConstituent_RendersDegradedNotPass', async () => {
     const partial = await makeNodeFixture({ lint: OK, typecheck: OK });
@@ -244,7 +244,7 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     const degraded = await harness.runAction(
       'exarchos_orchestrate',
       'check_static_analysis',
-      { featureId: FEATURE_ID, taskId: 'T-skip', repoRoot: partial },
+      { featureId: FEATURE_ID, taskId: 'T-skip', repoRoot: partial, skipLint: true },
       { timeoutMs: 180_000 },
     );
     const d = payload(degraded);
@@ -267,13 +267,6 @@ describe('T2 governance — gate before completion (DR-1, DR-2, DR-6)', () => {
     });
     expect(refused.errorCode).toBe('GATE_NOT_PASSED');
     expect(refused.result?.error?.unmetGates).toEqual(['static-analysis']);
-
-    const pkgPath = path.join(partial, 'package.json');
-    const pkg = JSON.parse(await fs.readFile(pkgPath, 'utf-8')) as {
-      scripts: Record<string, string>;
-    };
-    pkg.scripts['quality-check'] = OK;
-    await fs.writeFile(pkgPath, JSON.stringify(pkg, null, 2), 'utf-8');
 
     const complete = await harness.runAction(
       'exarchos_orchestrate',

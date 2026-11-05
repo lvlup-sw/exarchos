@@ -1,17 +1,21 @@
 /**
- * The debug review gate. It checks that the diff of a debug fix changes at least one test file. It runs
- * `npm run test:run` when the diff is not empty and `skipRun` is not set.
+ * The debug review gate. It checks that the diff of a debug fix changes at least one test file.
+ * A changed file is a test when a test-name glob of the verification profile matches it.
+ * The gate runs the test command that the resolver gives when the diff is not empty and `skipRun` is not set.
  */
 import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../../utils/process.js';
 import { existsSync } from 'node:fs';
 import type { ToolResult } from '../../format.js';
 import { resolveRunnableCommand } from '../../config/test-runtime-resolver.js';
+import { matchesTestName } from '../../config/verification-profile.js';
 import type { EventStore } from '../../events/store.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
+import { PROFILE_UNRESOLVED } from '../../workflow/verification/profile.js';
 import { runPhaseGateWithEvidence } from '../gates/gate-runner.js';
+import { profileOf, withProfileRoute, type ProfiledGateArgs } from '../gates/gate-utils.js';
 
-export interface DebugReviewGateArgs {
+export interface DebugReviewGateArgs extends ProfiledGateArgs {
   /** The stream the gate's durable evidence is recorded against. */
   readonly featureId: string;
   readonly repoRoot: string;
@@ -24,8 +28,6 @@ interface CheckCounts {
   fail: number;
   skip: number;
 }
-
-const TEST_FILE_PATTERN = /\.(test|spec)\.(ts|js|sh)$/;
 
 /**
  * Runs the gate through the shared phase-gate runner, which records durable gate evidence before a
@@ -104,13 +106,20 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
     };
   }
 
-  if (changedFiles.length === 0) {
+  const globTerm = profileOf(args, args.repoRoot).tests.globs;
+  let unresolvedReason: string | undefined;
+
+  if (globTerm.state === 'unresolved') {
+    unresolvedReason = withProfileRoute(args, globTerm.reason);
+    results.push(`- **FAIL**: New test files added — ${PROFILE_UNRESOLVED}: ${unresolvedReason}`);
+    checks.fail++;
+  } else if (changedFiles.length === 0) {
     results.push(
       `- **FAIL**: New test files added — No changed files found between ${args.baseBranch} and HEAD`,
     );
     checks.fail++;
   } else {
-    const testFiles = changedFiles.filter((f) => TEST_FILE_PATTERN.test(f));
+    const testFiles = changedFiles.filter((f) => matchesTestName(f, globTerm.globs));
 
     if (testFiles.length === 0) {
       results.push(
@@ -149,7 +158,12 @@ function executeDebugReviewGate(args: DebugReviewGateArgs): ToolResult {
 
   return {
     success: true,
-    data: { passed, report, checks },
+    data: {
+      passed,
+      report,
+      checks,
+      ...(unresolvedReason === undefined ? {} : { discriminant: PROFILE_UNRESOLVED, reason: unresolvedReason }),
+    },
   };
 }
 

@@ -1,0 +1,54 @@
+{
+  "$comment": "The language-specific literals that the gate sources hold today. tests/architecture/gates-carry-no-language-code.test.ts measures the live hits, and the sum of the counts of each file and rule must equal them. A change that removes a hit removes or lowers its row in the same commit. A false positive is fixed in the matcher with a clean-twin line, never with a row. The owner is the issue that removes the row, or self-scan for a scan of the Exarchos source itself.",
+  "rows": [
+    {
+      "file": "src/review/check-catalog.ts",
+      "rule": "R3",
+      "count": 18,
+      "owner": "#2142",
+      "reason": "A content scanner: the grep checks of the review catalog read only *.ts and *.test.ts files. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/gates/check-polish-scope.ts",
+      "rule": "R3",
+      "count": 5,
+      "owner": "#2142",
+      "reason": "A content scanner: the polish-scope check reads .ts files and their sibling .test.ts files. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/gates/needs-schema-sync.ts",
+      "rule": "R3",
+      "count": 5,
+      "owner": "#2142",
+      "reason": "A content scanner: the API patterns of the schema-sync check match C# files only. It reads changed paths and runs no verification command."
+    },
+    {
+      "file": "src/verbs/pure/context-economy.ts",
+      "rule": "R3",
+      "count": 2,
+      "owner": "#2142",
+      "reason": "A content scanner: the context-economy check reads only .ts and .js source files. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/pure/operational-resilience.ts",
+      "rule": "R3",
+      "count": 2,
+      "owner": "#2142",
+      "reason": "A content scanner: the operational-resilience check reads only .ts and .js source files. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/pure/workflow-determinism.ts",
+      "rule": "R3",
+      "count": 1,
+      "owner": "#2142",
+      "reason": "A content scanner: the workflow-determinism check tells JavaScript and TypeScript test files by their name. It reads source text and runs no verification command."
+    },
+    {
+      "file": "src/verbs/gates/gate-ownership-census.ts",
+      "rule": "R3",
+      "count": 4,
+      "owner": "self-scan",
+      "reason": "The census walks the TypeScript source of Exarchos itself, not the repository under verification. Its .ts, .test.ts, .bench.ts and .d.ts suffix tests are right for that tree, so the row is permanent."
+    }
+  ]
+}

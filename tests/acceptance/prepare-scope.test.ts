@@ -218,7 +218,7 @@ describe('prepare pins the scope of repoRoot', () => {
       'A task at riskTier=low, boundaryTouching=false is verified at settlement by: check_static_analysis.',
       `Each task forks from ${INTEGRATION_BRANCH} at ${repository.baseCommit}. Settlement refuses a worktree that does not hold ${repository.baseCommit}.`,
     ]);
-    expect(receipt.capsule.provenance.compilerVersion).toBe('exarchos-prepare-4');
+    expect(receipt.capsule.provenance.compilerVersion).toBe('exarchos-prepare-5');
   }, CASE_TIMEOUT_MS);
 
   /**

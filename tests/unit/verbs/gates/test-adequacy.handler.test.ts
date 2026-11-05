@@ -360,8 +360,8 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
 
   /**
    * The carrier verdict of each cause at each tier. A blocked probe states the verdict of its cause. A red run on the task
-   * source and a run with no verdict give `indeterminate`. The other causes give `fail`. An advisory skip gives
-   * `indeterminate`. A cause that is not in the table fails the test, so a new cause gets a verdict here.
+   * source, a run with no verdict and a probe that ran no test give `indeterminate`. The other causes give `fail`.
+   * An advisory skip gives `indeterminate`. A cause that is not in the table fails the test, so a new cause gets a verdict here.
    */
   it('CheckTestAdequacy_EachIndeterminateCause_StatesTheVerdictOfItsCause', async () => {
     const ctx = await makeCtx();
@@ -373,6 +373,8 @@ describe('check_test_adequacy routing + idempotency (task 014)', () => {
       'base-missing': 'fail',
       'baseline-red': 'indeterminate',
       'run-no-verdict': 'indeterminate',
+      'unprobed-test-paths': 'indeterminate',
+      'profile-unresolved': 'indeterminate',
     };
     expect(Object.keys(blockedVerdict)).toHaveLength(ADEQUACY_DISCRIMINANTS.length);
     for (const cause of ADEQUACY_DISCRIMINANTS) expect(Object.keys(blockedVerdict)).toContain(cause);

@@ -6,7 +6,8 @@ import { z } from 'zod';
  */
 const SAFE_COMMAND_REGEX = /^[a-zA-Z0-9_\- :.=\/+,@"'\\]+$/;
 
-const safeCommand = z
+/** A command of `.exarchos.yml`: a trimmed string that is not empty and holds only the characters of the safe-command class. */
+export const safeCommand = z
   .string()
   .trim()
   .min(1, 'must not be empty or whitespace-only')

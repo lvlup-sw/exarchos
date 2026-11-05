@@ -3,7 +3,7 @@
  *
  * Each consumer that needs the gates for a task must call `resolveVerificationPolicy`
  * and must not call `resolveVerificationSequence` directly. A guard test enforces this.
- * A task profile is one of six cells: three risk tiers times two boundary values.
+ * A ladder cell is one of six: three risk tiers times two boundary values.
  * A config cell that is present, also an empty array, fully replaces the built-in
  * cell. An unset cell uses the built-in table. The module is pure and does no I/O.
  */
@@ -91,8 +91,8 @@ export function resolveBoundaryTouching(raw: unknown): boolean {
   return boundaryStatusTouches(normalizeBoundaryStatus(raw));
 }
 
-/** A concrete six-cell ladder coordinate. */
-export interface VerificationProfile {
+/** A ladder cell: one concrete coordinate of the six-cell ladder. */
+export interface LadderCell {
   readonly riskTier: RiskTier;
   readonly boundaryTouching: boolean;
 }
@@ -102,10 +102,10 @@ export interface VerificationProfile {
  * cell, `high` and boundary-touching. Thus a `policy.low: []` override never
  * applies to a task with no tier claim.
  */
-export function failSafeVerificationProfile(
+export function failSafeLadderCell(
   riskTier: ResolvedRiskTier,
   boundaryTouching: boolean,
-): VerificationProfile {
+): LadderCell {
   if (riskTier === 'unknown') return { riskTier: 'high', boundaryTouching: true };
   return { riskTier, boundaryTouching };
 }
@@ -114,7 +114,7 @@ export function failSafeVerificationProfile(
  * The tier argument for the review roster in `getRequiredReviews`. An `unknown`
  * tier gives `undefined`, so no tier-coupled dimension applies.
  *
- * This direction is the opposite of {@link failSafeVerificationProfile} on purpose.
+ * This direction is the opposite of {@link failSafeLadderCell} on purpose.
  * An `unknown` tier that became `high` adds `mutation-adequacy` to a workflow without a
  * tier stamp. No producer satisfies that dimension there, so the review guard deadlocks.
  */
@@ -124,15 +124,15 @@ export function reviewRosterTier(riskTier: ResolvedRiskTier): RiskTier | undefin
 
 /** A resolved verification sequence plus its provenance. */
 export interface ResolvedVerificationPolicy {
-  /** Ordered, frozen gate sequence for the requested task profile. */
+  /** Ordered, frozen gate sequence for the requested ladder cell. */
   readonly sequence: readonly GateName[];
   /** `config` when an `.exarchos.yml` cell applies, `builtin` when the base table applies. */
   readonly source: VerificationPolicySource;
 }
 
 /**
- * Resolve the gate sequence for a task profile. The config cell applies over the
- * built-in table. An `unknown` tier resolves through {@link failSafeVerificationProfile}.
+ * Resolve the gate sequence for a ladder cell. The config cell applies over the
+ * built-in table. An `unknown` tier resolves through {@link failSafeLadderCell}.
  * A config without a `verification` block acts as no config. The returned sequence
  * is frozen and never aliases the config array.
  *
@@ -146,18 +146,18 @@ export function resolveVerificationPolicy(
   boundaryTouching: boolean,
   config?: ResolvedProjectConfig,
 ): ResolvedVerificationPolicy {
-  const profile = failSafeVerificationProfile(riskTier, boundaryTouching);
+  const ladderCell = failSafeLadderCell(riskTier, boundaryTouching);
   const policy = config?.verification?.policy;
-  const cell = profile.boundaryTouching
-    ? policy?.boundary?.[profile.riskTier]
-    : policy?.[profile.riskTier];
+  const cell = ladderCell.boundaryTouching
+    ? policy?.boundary?.[ladderCell.riskTier]
+    : policy?.[ladderCell.riskTier];
 
   if (cell !== undefined) {
     return { sequence: Object.freeze([...cell]), source: 'config' };
   }
 
   return {
-    sequence: resolveVerificationSequence(profile.riskTier, profile.boundaryTouching),
+    sequence: resolveVerificationSequence(ladderCell.riskTier, ladderCell.boundaryTouching),
     source: 'builtin',
   };
 }

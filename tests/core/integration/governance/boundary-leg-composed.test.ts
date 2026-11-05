@@ -15,7 +15,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createPublicRootHarness, type PublicRootHarness } from '../_harness.js';
 import { deriveLocalOperatorIdentity } from '../../../../src/dispatch/caller-identity.js';
-import { findLocalDepcruise } from '../../../../src/verbs/pure/static-analysis.js';
+import { findLocalDepcruise } from '../../../../src/config/boundary-adapters.js';
 import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 
 type Rec = Record<string, unknown>;
@@ -274,7 +274,7 @@ describe('governance — the boundary leg through the production composition', (
       passed: true,
       verdict: 'pass',
       completeness: 'complete',
-      passCount: 4,
+      passCount: 3,
       failCount: 0,
     });
     expect(passed.data).not.toHaveProperty('advisorySkips');

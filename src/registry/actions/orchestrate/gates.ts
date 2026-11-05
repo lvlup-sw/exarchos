@@ -94,14 +94,14 @@ export const gateActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'check_integration_suite',
     description:
-      'Run the FULL test suite against the integration tip and fold file-LOAD ' +
-      'failures into the failure count (#1329). vitest counts a file that throws ' +
-      'at import as "1 failed suite / 0 failed tests" — invisible to per-task ' +
-      'gates; this gate makes a load cascade a hard FAIL. Set repoRoot to the ' +
-      'integration worktree (or "auto" to resolve the calling delegation\'s ' +
-      'worktree). Persists canonical subject-bound evidence. Do NOT use for a single task\'s scoped tests — use ' +
-      'check_static_analysis / check_test_adequacy for per-task verification; ' +
-      'this gate is the cumulative-regression backstop between merges.',
+      'Run the resolved integration command and judge its exit code: 0 passes, a ' +
+      'configured failure code fails, any other end is indeterminate and blocks. ' +
+      'A report format is opt-in and folds file-LOAD failures into the count (#1329). ' +
+      'A leaf of the high-tier task segment; the policy skips it at lower tiers. ' +
+      'Also the cumulative backstop between merges: set repoRoot to the integration ' +
+      'worktree (or "auto" for the calling delegation\'s worktree). Persists ' +
+      'subject-bound evidence. Do NOT use for one task\'s scoped tests: use ' +
+      'check_static_analysis / check_test_adequacy.',
     schema: z.object({
       featureId: z.string().min(1),
       repoRoot: z.string().optional(),
@@ -109,8 +109,9 @@ export const gateActions: readonly BuiltinToolAction[] = [
       taskId: z.string().optional(),
       branch: z.string().optional(),
       baseBranch: z.string().optional(),
-      testScript: z.string().optional(),
-    }),
+      riskTier: z.enum(['low', 'medium', 'high']).optional(),
+      boundaryTouching: z.boolean().optional(),
+    }).strict(),
     phases: STACK_PHASES,
     roles: ROLE_LEAD,
     gate: { blocking: true, dimension: 'D2', gateClass: 'integration-suite' },

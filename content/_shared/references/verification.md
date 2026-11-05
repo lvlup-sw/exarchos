@@ -31,7 +31,7 @@ When a task is high-tier (or you have chosen to write a test for a medium-tier b
 ### Integration coverage (high tier)
 1. Real-collaborator coverage across the seam belongs in the task's own scoped tests — write them at the layer the seam lives at
 2. Refactor freely while those tests stay green
-3. The cumulative `check_integration_suite` gate is **not** yours to run: it is a wave-boundary backstop owned by the lead and runs once, after the wave's merges land
+3. The `check_integration_suite` gate is **not** yours to run: `settle` runs the pinned suite for a high-tier task, and it is also a wave-boundary backstop owned by the lead that runs once, after the wave's merges land
 
 ## Conventions
 

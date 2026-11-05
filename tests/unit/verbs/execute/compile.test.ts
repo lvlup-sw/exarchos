@@ -324,7 +324,7 @@ describe('compileIntent argument construction', () => {
 
 describe('compileIntent over the live registry', () => {
   /** The runbook literal stays, the gate gets the frozen steering, and the terminal leaf gets the subject under both names. */
-  it('TaskCompletion_CompilesToFiveLocalLeaves', () => {
+  it('TaskCompletion_CompilesToSixLocalLeaves', () => {
     const outcome = compileIntent(
       'task-completion',
       { streamId: 'wf-live' },
@@ -336,6 +336,7 @@ describe('compileIntent over the live registry', () => {
       'check_test_adequacy',
       'check_contract_drift',
       'check_mock_boundary',
+      'check_integration_suite',
       'check_static_analysis',
       'task_complete',
     ]);
@@ -347,12 +348,12 @@ describe('compileIntent over the live registry', () => {
       featureId: 'wf-live',
       taskId: 'task-9',
     });
-    expect(leaves[4]?.args).toMatchObject({
+    expect(leaves[5]?.args).toMatchObject({
       taskId: 'task-9',
       featureId: 'wf-live',
       streamId: 'wf-live',
     });
-    expect(leaves.map((leaf) => leaf.onFail)).toEqual(['stop', 'stop', 'continue', 'stop', 'stop']);
+    expect(leaves.map((leaf) => leaf.onFail)).toEqual(['stop', 'stop', 'continue', 'stop', 'stop', 'stop']);
   });
 
   /** The three diff gates measure from the frozen base. Static analysis scans the whole tree, so it gets no base. */

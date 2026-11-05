@@ -45,6 +45,7 @@ export const TASK_COMPLETION_LEAF_CLASSES: Readonly<Record<TaskCompletionLeaf, '
   check_test_adequacy: 'gate',
   check_contract_drift: 'gate',
   check_mock_boundary: 'gate',
+  check_integration_suite: 'gate',
   check_static_analysis: 'gate',
   task_complete: 'completion',
 };

@@ -280,7 +280,7 @@ describe('a direct diff-gate run with no base', () => {
 
     const control = await dispatch('exarchos_orchestrate', { ...args, taskId: 'task-with-base', baseBranch: 'main' }, ctx);
     expect(control.success).toBe(true);
-    expect(dataOf(control).discriminant).toBeUndefined();
+    expect(dataOf(control).discriminant).toBe('profile-unresolved');
 
     const result = await dispatch('exarchos_orchestrate', { ...args, taskId: 'task-no-base' }, ctx);
 

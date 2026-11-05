@@ -9,6 +9,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -18,6 +19,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 2,\n  \"numFailedTests\": 3,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -31,6 +33,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -40,6 +43,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 4,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 0,\n  \"testResults\": [\n    {\n      \"name\": \"src/a.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    },\n    {\n      \"name\": \"src/b.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    },\n    {\n      \"name\": \"src/c.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    },\n    {\n      \"name\": \"src/d.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    }\n  ]\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -53,6 +57,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -62,6 +67,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 1,\n  \"numFailedTests\": 1,\n  \"numTotalTests\": 40,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -75,6 +81,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -84,6 +91,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 2,\n  \"numFailedTests\": 2,\n  \"numTotalTests\": 30,\n  \"testResults\": [\n    {\n      \"name\": \"src/x.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": [\n        {},\n        {}\n      ]\n    },\n    {\n      \"name\": \"src/y.test.js\",\n      \"status\": \"failed\",\n      \"assertionResults\": []\n    }\n  ]\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -97,6 +105,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -106,6 +115,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 5,\n  \"numFailedTests\": 9,\n  \"numTotalTests\": 60,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -121,6 +131,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -130,6 +141,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -143,6 +155,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -152,6 +165,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 50,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -165,6 +179,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -174,6 +189,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 7,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -187,6 +203,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -196,6 +213,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 128,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",
@@ -209,6 +227,7 @@
       "base": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 42,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature1 = () => 1;\n",
@@ -218,6 +237,7 @@
       "head": {
         "package.json": "{\n  \"name\": \"seeded-fixture\",\n  \"version\": \"1.0.0\",\n  \"private\": true,\n  \"type\": \"module\",\n  \"scripts\": {\n    \"test:run\": \"node print-report.mjs\"\n  }\n}\n",
         ".npmrc": "loglevel=silent\n",
+        ".exarchos.yml": "verification:\n  integration:\n    command: npm run test:run\n    report: vitest-json\n",
         "print-report.mjs": "import { readFileSync } from 'node:fs';\nprocess.stdout.write(readFileSync(new URL('./report.json', import.meta.url), 'utf-8'));\n",
         "report.json": "{\n  \"numFailedTestSuites\": 0,\n  \"numFailedTests\": 0,\n  \"numTotalTests\": 33,\n  \"testResults\": []\n}\n",
         "src/a.js": "export const feature11 = () => 11;\n",

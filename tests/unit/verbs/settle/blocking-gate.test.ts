@@ -81,7 +81,7 @@ async function git(cwd: string, args: readonly string[]): Promise<void> {
 async function vacuousTaskWorktree(): Promise<string> {
   const dir = await realpath(await mkdtemp(path.join(tmpdir(), 'settle-blocking-gate-worktree-')));
   scratchDirs.push(dir);
-  const scripts = { 'test:run': 'node --test', lint: OK, typecheck: OK, 'quality-check': OK };
+  const scripts = { 'test:files': 'node --test', 'test:run': 'node --test', lint: OK, typecheck: OK, 'quality-check': OK };
   await writeFile(
     path.join(dir, 'package.json'),
     JSON.stringify({ name: 'settle-blocking-gate', version: '1.0.0', private: true, scripts }, null, 2),
@@ -199,6 +199,8 @@ describe('settle — a blocking gate that blocks', () => {
     expect((await rowsOf(INTENT_EXECUTED_EVENT)).map((row) => row.outcome)).toEqual(['failed']);
     const gates = await rowsOf('gate.executed');
     expect(gates.map((row) => [row.gateName, row.passed])).toEqual([['test-adequacy', false]]);
+    expect(gates[0]?.details).not.toHaveProperty('discriminant');
+    expect(gates[0]?.details).toMatchObject({ verdict: 'fail' });
 
     const [settled] = await rowsOf('execution.settled');
     expect(ExecutionSettledData.parse(settled).outcome).toBe('corrective-capsule');
