@@ -13,7 +13,11 @@ import { getPlaybook } from '../../../src/workflow/playbooks.js';
 import { getReservedEventAppendRegistration } from '../../../src/registry/gate-metadata.js';
 import { findActionInRegistry } from '../../../src/registry.js';
 import { STATIC_ANALYSIS_STEP_PARAMS } from '../../../src/runbooks/definitions.js';
-import { runStaticAnalysis, type StaticAnalysisResult } from '../../../src/verbs/pure/static-analysis.js';
+import {
+  runStaticAnalysis,
+  type StaticAnalysisInput,
+  type StaticAnalysisResult,
+} from '../../../src/verbs/pure/static-analysis.js';
 import { rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { seedStaticAnalysisVerdict } from '../../helpers/static-analysis-verdict.js';
 
@@ -1318,12 +1322,15 @@ function unnamedStepParams(text: string, form: { readonly rerunFor: string } | '
     .filter((named) => !text.includes(named));
 }
 
-/** A run outcome of the real `runStaticAnalysis` on a scratch project. Each command that it runs exits 0. */
-async function realRunOutcome(files: Readonly<Record<string, string>>): Promise<StaticAnalysisResult> {
+/** A run outcome of the real `runStaticAnalysis` on a scratch project, with the given skip flags. Each command that it runs exits 0. */
+async function realRunOutcome(
+  files: Readonly<Record<string, string>>,
+  flags: Pick<StaticAnalysisInput, 'skipLint' | 'skipTypecheck'> = {},
+): Promise<StaticAnalysisResult> {
   const repoRoot = path.join(tempDir, `project-${randomUUID()}`);
   await mkdir(repoRoot, { recursive: true });
   for (const [name, content] of Object.entries(files)) await writeFile(path.join(repoRoot, name), content);
-  return runStaticAnalysis({ repoRoot, runCommand: () => ({ exitCode: 0, stdout: '', stderr: '' }) });
+  return runStaticAnalysis({ repoRoot, ...flags, runCommand: () => ({ exitCode: 0, stdout: '', stderr: '' }) });
 }
 
 /**
@@ -1361,21 +1368,22 @@ describe('handleTaskComplete names the cause and the recovery of a refusal', () 
   });
 
   /**
-   * A run with a missing script is a skip. The runner row names the skipped check, and the refusal names it and the
-   * fix. The fixture is a real run on a project with no `quality-check` script.
+   * A run with a skip flag is a skip. The runner row names the skipped check, and the refusal names it and the
+   * fix. The fixture is a real run with `skipLint` on a project that holds both scripts.
    */
-  it('HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheMissingScript', async () => {
+  it('HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheSkipFlag', async () => {
     const store = new EventStore(tempDir);
-    const outcome = await realRunOutcome({
-      'package.json': JSON.stringify({ scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit' } }),
-    });
+    const outcome = await realRunOutcome(
+      { 'package.json': JSON.stringify({ scripts: { lint: 'eslint .', typecheck: 'tsc --noEmit' } }) },
+      { skipLint: true },
+    );
     expect(outcome).toMatchObject({ status: 'skip', skipReason: 'constituent-skipped' });
     await seedStaticAnalysisVerdict(store, { streamId: 'wf-cause-skip', taskId: 'T-01', stateDir: tempDir, outcome });
     const [signal] = await store.query('wf-cause-skip', { type: 'gate.executed' });
     expect(signal?.data?.details).toMatchObject({
       skipped: true,
       discriminant: 'constituent-skipped',
-      reason: "Quality check did not run (no 'quality-check' script in package.json)",
+      reason: 'Lint did not run (skipped by the skipLint flag)',
     });
 
     const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-cause-skip' }, tempDir, store);
@@ -1383,28 +1391,30 @@ describe('handleTaskComplete names the cause and the recovery of a refusal', () 
     const message = result.error?.message ?? '';
     expect(message).toContain(
       "The latest static-analysis run for task 'T-01' skipped a check, so it is not a pass: " +
-        "Quality check did not run (no 'quality-check' script in package.json).",
+        'Lint did not run (skipped by the skipLint flag).',
     );
     expect(message).toContain('Add the missing scripts, or do not set the skip flags.');
     expect(unnamedStepParams(message, { rerunFor: 'T-01' })).toEqual([]);
   });
 
   /**
-   * A run with no supported toolchain is a skip that no rerun fixes. The refusal says so and names the later change
-   * that lets static analysis run configured commands. The fixture is a real run on an empty project.
+   * A run where no layer sets a check is a skip that a change at the root fixes. The refusal names the keys, the scripts
+   * and the rerun of the step. The fixture is a real run on an empty project.
    */
-  it('HandleTaskComplete_LatestRunHadNoToolchain_SaysThatNoRerunHelps', async () => {
+  it('HandleTaskComplete_LatestRunResolvedNoCheck_NamesTheConfigRecovery', async () => {
     const store = new EventStore(tempDir);
     const outcome = await realRunOutcome({ 'README.md': '# no toolchain' });
-    expect(outcome).toMatchObject({ status: 'skip', skipReason: 'no-toolchain' });
+    expect(outcome).toMatchObject({ status: 'skip', skipReason: 'profile-unresolved' });
     await seedStaticAnalysisVerdict(store, { streamId: 'wf-cause-tool', taskId: 'T-01', stateDir: tempDir, outcome });
 
     const result = await handleTaskComplete({ taskId: 'T-01', streamId: 'wf-cause-tool' }, tempDir, store);
 
     const message = result.error?.message ?? '';
-    expect(message).toContain('the repository has no supported static-analysis toolchain');
-    expect(message).toContain('A task cannot complete in this repository until static analysis can run configured commands (#1540).');
-    expect(message).not.toContain('check_static_analysis with');
+    expect(message).toContain('because the profile resolved no static-analysis check');
+    expect(message).toContain('set verification.staticAnalysis, or the top-level lint: and typecheck: keys, or add the scripts');
+    expect(unnamedStepParams(message, { rerunFor: 'T-01' })).toEqual([]);
+    expect(message).not.toContain('(#1540)');
+    expect(message).not.toContain('A rerun gives the same skip.');
     expect(message).not.toContain('Add the missing scripts');
   });
 
@@ -1441,7 +1451,10 @@ describe('handleTaskComplete names the cause and the recovery of a refusal', () 
   /** Each cause gets its own text, so no two causes share a refusal. */
   it('HandleTaskComplete_EachCause_GetsItsOwnText', async () => {
     const store = new EventStore(tempDir);
-    const skipped = await realRunOutcome({ 'package.json': JSON.stringify({ scripts: { lint: 'x', typecheck: 'y' } }) });
+    const skipped = await realRunOutcome(
+      { 'package.json': JSON.stringify({ scripts: { lint: 'x', typecheck: 'y' } }) },
+      { skipLint: true },
+    );
     const noToolchain = await realRunOutcome({});
     await seedStaticAnalysisVerdict(store, { streamId: 'wf-each', taskId: 'fail', stateDir: tempDir, verdict: 'fail' });
     await seedStaticAnalysisVerdict(store, { streamId: 'wf-each', taskId: 'skip', stateDir: tempDir, outcome: skipped });
@@ -1821,8 +1834,8 @@ describe('handleTaskComplete reads the active record of the task', () => {
   });
 
   /**
-   * A no-toolchain skip on another branch is not the latest run of the task, because a later run on the main base passed.
-   * The refusal names that run and the rerun on its branch, and it does not say that no rerun helps.
+   * A no-toolchain skip of an earlier build is on another branch. It is not the latest run of the task, because a later run on the main base passed.
+   * It reads as an earlier unresolved skip. The refusal names that run and the rerun on its branch, and it does not say that no rerun helps.
    * A passing run on that branch supersedes the skip and completes the task.
    */
   it('HandleTaskComplete_NoToolchainRecordOnAnotherBranchUnderALaterPass_NamesTheRerunOfThatRun', async () => {
@@ -1840,7 +1853,7 @@ describe('handleTaskComplete reads the active record of the task', () => {
     const message = refused.error?.message ?? '';
     expect(refused.error?.code).toBe('GATE_NOT_PASSED');
     expect(message).toContain(`The static-analysis run of evidence '${skipId}'`);
-    expect(message).toContain('is a skip, because it found no supported static-analysis toolchain in the scanned directory.');
+    expect(message).toContain('is a skip, because the run resolved no static-analysis check.');
     expect(message).toContain('That run is on another branch or base than the latest run of the task');
     expect(message).toContain("taskId 'T-01' and the branch and baseBranch of that run");
     expect(message).not.toContain('(#1540)');

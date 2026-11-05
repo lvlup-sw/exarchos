@@ -1,7 +1,8 @@
 // Tests for the static-analysis gate: the `handleStaticAnalysis` handler, the boundary lint and taint
 // legs, and the skip-degrade rule of `runStaticAnalysis`.
 // The module mock replaces only `runStaticAnalysis`, so the handler tests inject canned results.
-// The other exports, `runBoundaryLint` included, pass through `importActual` and run for real.
+// The other exports pass through `importActual` and run for real. The boundary legs live in
+// `src/config/boundary-adapters.ts`, which the mock does not touch.
 // The durable gate producer is a stub that calls only the provider. `ladder-gate-evidence.test.ts`
 // tests the durable evidence against the real runner.
 
@@ -17,11 +18,13 @@ import {
   runBoundaryLint,
   runRawIoTaint,
   type BoundaryLintResult,
-  type CommandResult,
   type RawIoTaintResult,
-  type RunCommandFn,
-  type StaticAnalysisInput,
-  type StaticAnalysisResult,
+} from '../../../../src/config/boundary-adapters.js';
+import type {
+  CommandResult,
+  RunCommandFn,
+  StaticAnalysisInput,
+  StaticAnalysisResult,
 } from '../../../../src/verbs/pure/static-analysis.js';
 
 /**
@@ -1236,8 +1239,8 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
   });
 
   /**
-   * Runs the real `runStaticAnalysis`, which the handler suite mocks. The fixture declares all three
-   * npm scripts, because a skipped constituent moves the aggregate off PASS.
+   * Runs the real `runStaticAnalysis`, which the handler suite mocks. The fixture declares the `lint` and
+   * `typecheck` npm scripts, because an unresolved check moves the aggregate off PASS.
    */
   it('StaticAnalysis_BoundaryConfigPresent_FoldsLegIntoFullReport', () => {
     const repoRoot = makeBoundaryFixture({ withConfig: true, withViolation: false });
@@ -1259,10 +1262,10 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
     const result = realRunStaticAnalysis({ repoRoot, runCommand: runner, firstPartyGlobs: ['src/**'] });
 
     expect(result.status).toBe('pass');
-    expect(result.passCount).toBe(4);
+    expect(result.passCount).toBe(3);
     expect(result.advisorySkips).toBeUndefined();
     expect(result.output).toContain('- **PASS**: Import boundaries — 2 modules checked');
-    expect(result.output).toContain('**Result: PASS** (4/4 checks passed)');
+    expect(result.output).toContain('**Result: PASS** (3/3 checks passed)');
   });
 
   /**
@@ -1290,7 +1293,7 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
 
     expect(result.status).toBe('pass');
     expect(result.skipCount).toBe(0);
-    expect(result.passCount).toBe(3);
+    expect(result.passCount).toBe(2);
     expect(result.advisorySkips).toEqual([
       { name: 'Import boundaries', cause: 'out-of-memory', detail: 'dependency-cruiser gave no verdict: it ran out of memory' },
     ]);
@@ -1298,7 +1301,7 @@ describe('runBoundaryLint — import-boundary leg (SIV-3 Layer A, task 027)', ()
       '- **SKIP**: Import boundaries — dependency-cruiser gave no verdict: it ran out of memory',
     );
     expect(result.output).toContain(
-      '**Result: PASS** (3/3 checks passed, degraded: 1 advisory check gave no verdict)',
+      '**Result: PASS** (2/2 checks passed, degraded: 1 advisory check gave no verdict)',
     );
   });
 
@@ -1816,7 +1819,7 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
     const result = realRunStaticAnalysis({ repoRoot, runCommand: runner });
 
     expect(result.status).toBe('pass');
-    expect(result.passCount).toBe(3);
+    expect(result.passCount).toBe(2);
     expect(result.advisorySkips).toEqual([
       { name: 'Boundary IO taint', cause: 'missing-tool', detail: 'semgrep gave no verdict: the runner reported ENOENT' },
     ]);
@@ -1824,15 +1827,16 @@ describe('runRawIoTaint — boundary-parse taint leg (SIV-3 Layer B, #1529)', ()
       '- **SKIP**: Boundary IO taint — semgrep gave no verdict: the runner reported ENOENT',
     );
     expect(result.output).toContain(
-      '**Result: PASS** (3/3 checks passed, degraded: 1 advisory check gave no verdict)',
+      '**Result: PASS** (2/2 checks passed, degraded: 1 advisory check gave no verdict)',
     );
   });
 });
 
 /**
  * A skipped constituent check must not render as PASS. `runStaticAnalysis` counts SKIP, and the order
- * of precedence is FAIL, then DEGRADED, then PASS. A skipped constituent without a failure gives
- * `status: 'skip'`, `skipReason: 'constituent-skipped'` and a `**Result: DEGRADED**` line.
+ * of precedence is FAIL, then SKIP, then DEGRADED, then PASS. A check that a flag skipped, without a failure
+ * and without an unresolved check, gives `status: 'skip'`, `skipReason: 'constituent-skipped'` and a
+ * `**Result: DEGRADED**` line.
  */
 describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
   let tmpDir: string;
@@ -1873,23 +1877,25 @@ describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
     return vi.fn(() => ({ exitCode: 0, stdout: '', stderr: '' }));
   }
 
-  /** Without `lint` and `quality-check` scripts, a passing `typecheck` alone must not report PASS. */
-  it('StaticAnalysis_LintScriptAbsent_DegradesAndCannotReportPass', () => {
+  /** Without a `lint` script, the `lint` check is unresolved, so a passing `typecheck` alone must not report PASS. */
+  it('StaticAnalysis_LintScriptAbsent_IsUnresolvedAndCannotReportPass', () => {
     const repoRoot = nodeFixture({ typecheck: 'tsc --noEmit' });
 
     const result = realRunStaticAnalysis({ repoRoot, runCommand: passRunner() });
 
     expect(result.status).not.toBe('pass');
     expect(result.status).toBe('skip');
-    expect(result.skipReason).toBe('constituent-skipped');
-    expect(result.skipCount).toBe(2);
+    expect(result.skipReason).toBe('profile-unresolved');
+    expect(result.skipCount).toBe(1);
     expect(result.failCount).toBe(0);
     expect(result.output).not.toContain('Result: PASS');
-    expect(result.output).toContain('Result: DEGRADED');
+    expect(result.output).toContain('Result: SKIP');
     expect(result.output).toContain("no 'lint' script in package.json");
+    expect(result.unresolvedReason).toContain('verification.staticAnalysis.lint');
+    expect(result.unresolvedReason).toContain('lint: key');
   });
 
-  /** A `--skip-*` flag narrows the scope, but the check that did not run is not evidence of a pass. */
+  /** A skip flag narrows the scope, but the check that did not run is not evidence of a pass. */
   it('StaticAnalysis_ConstituentSkippedByFlag_DegradesAndCannotReportPass', () => {
     const repoRoot = nodeFixture(ALL_SCRIPTS);
 
@@ -1919,7 +1925,7 @@ describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
 
     expect(result.status).toBe('pass');
     expect(result.skipCount).toBe(0);
-    expect(result.passCount).toBe(3);
+    expect(result.passCount).toBe(2);
     expect(result.output).toContain('Result: PASS');
     expect(result.output).not.toContain('Result: DEGRADED');
 
@@ -1932,9 +1938,9 @@ describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
     ).toBe(true);
   });
 
-  /** A real finding takes precedence over the degrade, so DEGRADED must not hide a FAIL. */
+  /** A real finding takes precedence over a skip, so an unresolved check must not hide a FAIL. */
   it('StaticAnalysis_FailureAlongsideSkip_ReportsFailNotDegraded', () => {
-    const repoRoot = nodeFixture({ lint: 'eslint .', typecheck: 'tsc --noEmit' });
+    const repoRoot = nodeFixture({ lint: 'eslint .' });
 
     const runner: RunCommandFn = vi.fn((_cmd: string, args: readonly string[]) =>
       args.join(' ') === 'run lint'
@@ -2095,8 +2101,8 @@ describe('DR-6 — a skipped constituent renders DEGRADED, never PASS', () => {
   });
 
   /**
-   * The root `lint` script must run eslint with `eslint.config.js`, not a no-op that cannot fail. The
-   * root must also declare `quality-check`, or the static-analysis dimension of this repo always degrades.
+   * The root `lint` script must run eslint with `eslint.config.js`, not a no-op that cannot fail.
+   * The root keeps `quality-check`, because the build server reads it and a later chore restores it as a configured check.
    */
   it('RootPackageJson_DeclaresRealLintScript_NotANoOp', () => {
     const repoRoot = path.resolve(

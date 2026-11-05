@@ -196,6 +196,8 @@ const PROBE_CAUSE_MEASUREMENT: Readonly<Record<AdequacyDiscriminant, 'probed' | 
   'base-missing': 'not-probed',
   'baseline-red': 'not-probed',
   'run-no-verdict': 'not-probed',
+  'unprobed-test-paths': 'not-probed',
+  'profile-unresolved': 'not-probed',
 };
 
 /** The injectable probe seam. The default is the production {@link runProbe}. */

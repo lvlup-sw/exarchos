@@ -146,7 +146,7 @@ async function prepareOutOfCustody(featureId: string): Promise<void> {
       definitionVersion: 'definition-1',
       designVersion: 'design-v1',
       capsuleDigest: 'd'.repeat(64),
-      compilerVersion: 'exarchos-prepare-4',
+      compilerVersion: 'exarchos-prepare-5',
       taskCount: 1,
       requestDigest: `request:${featureId}`,
       bundleRefs: [

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1360,
-    "parsedFiles": 1315,
+    "testFiles": 1392,
+    "parsedFiles": 1347,
     "shellFiles": 45,
-    "cases": 15157,
-    "dynamicTitles": 176,
+    "cases": 15384,
+    "dynamicTitles": 178,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -110,8 +110,16 @@
       "to": "tests/scripts/audit/check-base-substrate.test.ts"
     },
     {
+      "from": "scripts/audit/check-no-duplicate-suites.test.ts",
+      "to": "tests/scripts/audit/check-no-duplicate-suites.test.ts"
+    },
+    {
       "from": "scripts/audit/check-protected.test.ts",
       "to": "tests/scripts/audit/check-protected.test.ts"
+    },
+    {
+      "from": "scripts/audit/consolidate-suite.test.ts",
+      "to": "tests/scripts/audit/consolidate-suite.test.ts"
     },
     {
       "from": "scripts/audit/cycle-gate.test.sh",
@@ -128,6 +136,10 @@
     {
       "from": "scripts/audit/knip-diff.test.ts",
       "to": "tests/scripts/audit/knip-diff.test.ts"
+    },
+    {
+      "from": "scripts/audit/manifest-gate-ci.test.ts",
+      "to": "tests/scripts/audit/manifest-gate-ci.test.ts"
     },
     {
       "from": "scripts/audit/register-entry-schema.test.ts",
@@ -4536,6 +4548,10 @@
     {
       "from": "tools/test-helpers/comment-prose.test.ts",
       "to": "tests/scripts/lib/comment-prose.test.ts"
+    },
+    {
+      "from": "tests/architecture/phase-gates-resolve-test-command.test.ts",
+      "to": "tests/architecture/gates-carry-no-language-code.test.ts"
     }
   ],
   "files": {
@@ -46042,7 +46058,7 @@
         },
         {
           "suite": "Runbook definitions",
-          "name": "TaskCompletion_HasFiveSteps_TaskCompleteTerminal",
+          "name": "TaskCompletion_HasSixSteps_TaskCompleteTerminal",
           "dynamic": false
         },
         {
@@ -51212,12 +51228,12 @@
         },
         {
           "suite": "handleTaskComplete names the cause and the recovery of a refusal",
-          "name": "HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheMissingScript",
+          "name": "HandleTaskComplete_LatestRunSkippedACheck_NamesTheCheckAndTheSkipFlag",
           "dynamic": false
         },
         {
           "suite": "handleTaskComplete names the cause and the recovery of a refusal",
-          "name": "HandleTaskComplete_LatestRunHadNoToolchain_SaysThatNoRerunHelps",
+          "name": "HandleTaskComplete_LatestRunResolvedNoCheck_NamesTheConfigRecovery",
           "dynamic": false
         },
         {
@@ -54419,7 +54435,7 @@
         },
         {
           "suite": "compileIntent over the live registry",
-          "name": "TaskCompletion_CompilesToFiveLocalLeaves",
+          "name": "TaskCompletion_CompilesToSixLocalLeaves",
           "dynamic": false
         },
         {
@@ -55751,32 +55767,12 @@
         },
         {
           "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "checkIntegrationSuite_ResolvesCommandViaToolchain",
-          "dynamic": false
-        },
-        {
-          "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "checkIntegrationSuite_TestScriptOverride_HonorsExplicit",
-          "dynamic": false
-        },
-        {
-          "suite": "check_integration_suite command resolution (#1537, DR-15)",
           "name": "checkIntegrationSuite_MonorepoRoot_ResolvesCommandAndParses",
           "dynamic": false
         },
         {
           "suite": "check_integration_suite command resolution (#1537, DR-15)",
           "name": "checkIntegrationSuite_RunnerSpawnFailure_DistinctFromJsonShapeMismatch",
-          "dynamic": false
-        },
-        {
-          "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "resolveIntegrationCommand_ExplicitScript_TakesPrecedence",
-          "dynamic": false
-        },
-        {
-          "suite": "check_integration_suite command resolution (#1537, DR-15)",
-          "name": "resolveIntegrationCommand_ThisRepo_ResolvesNodeVitestCommand",
           "dynamic": false
         }
       ]
@@ -58930,7 +58926,7 @@
         },
         {
           "suite": "DR-6 — a skipped constituent renders DEGRADED, never PASS",
-          "name": "StaticAnalysis_LintScriptAbsent_DegradesAndCannotReportPass",
+          "name": "StaticAnalysis_LintScriptAbsent_IsUnresolvedAndCannotReportPass",
           "dynamic": false
         },
         {
@@ -59202,7 +59198,7 @@
           "dynamic": false
         },
         {
-          "suite": "buildDefaultRunTests — the test:files wrapper with a real vitest",
+          "suite": "buildScopedTestRunner — the test:files wrapper with a real vitest",
           "name": "DefaultRunTests_TestFilesWrapper_RunsEachNamedFileInItsProjectAndReadsItsResult",
           "dynamic": false
         }
@@ -61077,6 +61073,22 @@
         }
       ]
     },
+    "tests/unit/verbs/ladder-gate-profile.test.ts": {
+      "file": "tests/unit/verbs/ladder-gate-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "adaptLadderGate — the verification profile",
+          "name": "LadderGateAdapter_AProfileInTheArgs_IsReplacedByTheContextProfile",
+          "dynamic": false
+        },
+        {
+          "suite": "adaptLadderGate — the verification profile",
+          "name": "LadderGateAdapter_NoContextProfile_RemovesTheProfileOfTheArgs",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/verbs/merge-transition-exclusivity.test.ts": {
       "file": "tests/unit/verbs/merge-transition-exclusivity.test.ts",
       "runner": "vitest:root",
@@ -61977,7 +61989,7 @@
         },
         {
           "suite": "delegation capsule compilation — the segment gates and the design source",
-          "name": "CompileCapsule_AHighTierPattern_NamesNoIntegrationSuite",
+          "name": "CompileCapsule_AHighTierPattern_NamesTheIntegrationSuite",
           "dynamic": false
         },
         {
@@ -63454,7 +63466,7 @@
       "cases": [
         {
           "suite": "behavioral parity with static-analysis-gate.sh",
-          "name": "quality-check absent — DEGRADED, not PASS (2/2) (T-09 / DR-6)",
+          "name": "lint and typecheck pass — PASS (2/2)",
           "dynamic": false
         },
         {
@@ -63479,7 +63491,7 @@
         },
         {
           "suite": "quality-check path",
-          "name": "quality-check script present and passing — counted in totals",
+          "name": "quality-check script present — not a check, so not counted in totals",
           "dynamic": false
         }
       ]
@@ -63535,7 +63547,7 @@
         },
         {
           "suite": "runStaticAnalysis > missing npm scripts",
-          "name": "missing script in package.json degrades the aggregate (DR-6)",
+          "name": "missing script in package.json is an unresolved check (DR-6)",
           "dynamic": false
         },
         {
@@ -65691,6 +65703,42 @@
         {
           "suite": "settle — the custody of a discarded attempt",
           "name": "Settle_ARedoneAttempt_LeavesOnlyAnUnreferencedBlob",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-profile.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a capsule that pins no profile",
+          "name": "Settle_ACapsuleThatPinsNoProfile_IsRefusedBeforeAnySegmentAndRecordsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a capsule that pins no profile",
+          "name": "Settle_AnAcceptingDecisionOnAHeldUnprofiledBatch_IsRefusedAndNamesBothRoutes",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a capsule that pins no profile",
+          "name": "Settle_ARejectingDecisionOnAHeldUnprofiledBatch_Settles",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — a capsule that pins no profile",
+          "name": "Settle_AnUnscopedCapsule_GetsTheScopeRefusalBeforeTheProfileRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the pinned profile of a segment",
+          "name": "Settle_EachLeafOfTheSegment_GetsThePinnedProfile",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the pinned profile of a segment",
+          "name": "Settle_TheRequestDigestOfASegment_DoesNotCoverTheProfile",
           "dynamic": false
         }
       ]
@@ -88047,28 +88095,68 @@
         }
       ]
     },
-    "tests/architecture/phase-gates-resolve-test-command.test.ts": {
-      "file": "tests/architecture/phase-gates-resolve-test-command.test.ts",
+    "tests/architecture/gates-carry-no-language-code.test.ts": {
+      "file": "tests/architecture/gates-carry-no-language-code.test.ts",
       "runner": "vitest:root",
       "cases": [
         {
-          "suite": "phase gates resolve their test command",
-          "name": "PhaseGateGuard_ScansAllFourGateFiles",
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_EveryGateAction_ResolvesToAHandlerModule",
           "dynamic": false
         },
         {
-          "suite": "phase gates resolve their test command",
-          "name": "PhaseGateGuard_NoGateBuildsAnNpmOrNpxCommand",
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Denominator_HoldsEachSegmentGateAndEachCommandPhaseGate",
           "dynamic": false
         },
         {
-          "suite": "phase gates resolve their test command",
-          "name": "PhaseGateGuard_Matcher_FindsSeededViolations",
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Denominator_HoldsEachFileOfTheGateDirectories",
           "dynamic": false
         },
         {
-          "suite": "phase gates resolve their test command",
-          "name": "PhaseGateGuard_Matcher_IgnoresCommentsAndOtherPrograms",
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Denominator_HoldsEachConfigModuleThatAGateImports",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_EachScannedFile_HoldsAStringLiteral",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Vocabulary_DerivesFromTheToolchainRegistry",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_LiveHits_EqualTheRegister",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_EachRegisterRow_NamesAnOwnerAndAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_APlantedLineInALiveGateFile_IsFound",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Matcher_FindsEachSeededViolation",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_Matcher_IgnoresCommentsImportsGitArgvAndProse",
+          "dynamic": false
+        },
+        {
+          "suite": "gates carry no language code",
+          "name": "LanguageCodeGuard_OnlyTheContentScannersAndTheSelfScanHoldRows",
           "dynamic": false
         }
       ]
@@ -88429,6 +88517,1261 @@
         {
           "suite": "scopedRepository with an inherited repository location",
           "name": "ScopedRepository_AnInheritedGitDir_DoesNotRedirectTheFixture",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/verification-profile.test.ts": {
+      "file": "tests/unit/workflow/verification-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AnExitCodeOfZero_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AnArgvTokenWithAShellMetacharacter_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AResolvedGlobTermWithNoGlob_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AGlobThatLeavesTheRoot_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfileSchema_AnUnknownKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfile_TheSharedPinnedFake_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification profile schema",
+          "name": "VerificationProfile_TheUnresolvedDiscriminant_IsProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/contract/capsule/capsule-profile.test.ts": {
+      "file": "tests/unit/contract/capsule/capsule-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a capsule that pins a verification profile",
+          "name": "CapsuleSchema_AProfiledCapsule_RoundTripsThroughItsJsonSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "a capsule that pins a verification profile",
+          "name": "CapsuleSchema_ACapsuleOfAnEarlierCompiler_StillParses",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/stored-shapes-profile.test.ts": {
+      "file": "tests/architecture/stored-shapes-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the stored-shape decision of the verification profile",
+          "name": "StoredShapes_TheProfileDecision_MovesOnlyThePreparedBundleDigest",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/verification-profile.test.ts": {
+      "file": "tests/unit/config/verification-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ThisRepository_ReproducesTheCommandsOfTheOldGatesLessQualityCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ARootPackageJsonBesideASolution_UnionsTheDotnetTestGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_APackageJsonBesideARequirementsFile_SeedsAndReplacesOnlyThePythonTestNameGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredEmptyGlobSet_IsUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfigThatDoesNotLoad_GivesEveryCommandTermUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ARepositoryTypecheckKey_ReplacesTheSeededCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AStaticAnalysisBlock_ReplacesEverySeededCheckInKeyOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ANodeRepositoryWithNoLintScript_GivesAnUnresolvedCheckThatNamesBothKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AUserToolchain_GivesItsLintAndTypecheckChecks",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ALintKeyInADotnetRepository_AddsALintCheckAfterTheTypecheckSeed",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AJavaRepositoryWithNoKey_GivesAnUnresolvedStaticAnalysisTerm",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredGlobSet_GivesAProbeWithNoGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredProbe_KeepsItsFileFormAndItsExitCodesAndTakesTheGlobsOfItsRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredProbeInAPolyglotRootWithNoGlobs_IsUnresolvedAndNamesBothKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AConfiguredProbeInAPolyglotRootWithConfiguredGlobs_IsResolved",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AUserToolchainBesideABuiltInToolchain_HoldsTheRulesOfAPolyglotRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_ACallThatPassesALoader_ReadsTheConfigOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AnEmptyFirstPartyList_ResolvesToNoGlob",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AFirstPartyGlobThatLeavesTheRoot_GivesAnUnresolvedFirstPartyTerm",
+          "dynamic": false
+        },
+        {
+          "suite": "the layers of the verification profile",
+          "name": "ResolveProfile_AValueOfAnOlderKeyPastItsBound_GivesAProfileThatParses",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/verification-profile-seeds.test.ts": {
+      "file": "tests/unit/config/verification-profile-seeds.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "TestNameRule_TheShapeOfAGlob_DecidesATestNameGlob",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "TestNameRule_AFinalStar_MatchesOneExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_TheDotnetSeed_IsDotnetBuildWithNoFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_TheRustSeed_RunsClippyWithNoDenyWarnings",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ACargoRepository_ProbesWithTheNoneFormAndExitCode101",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_APnpmRepository_SeedsPnpmRun",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ABunRepository_ProbesWithTheFormOfItsCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_AMakefileTestTargetInAGoRoot_ProbesWithTheGoGlobsAndTheMakeRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ATestKeyInAPythonRoot_ProbesWithThePythonRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ACargoTestKey_ProbesWithTheNoneFormAndExitCode101",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_AConfiguredDotnetProbeWithNoFileForm_TakesTheNoneForm",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ATestKeyOfAProgramWithNoSeedRow_ProbesWithAfterSeparatorAndExitCodeOne",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_ASolutionRootWithAClientAppPackage_ProbesWithTheDotnetGlobsOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_AConfiguredNpmProbeInASolutionRoot_TakesTheCoLocatedGlobsOfTheNodeRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ResolveProfile_TheRubySeedAndEachTaskRunnerTarget_ProbeWithTheNoneForm",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "ProbeArgv_EachForm_PlacesTheFilesAsItsNameSays",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry seeds of the verification profile",
+          "name": "DetectToolchains_ARootWithTwoMarkers_GivesBothInPriorityOrder",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/verification-config.test.ts": {
+      "file": "tests/unit/config/verification-config.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_EachNewBlock_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_AnUnknownKeyInANewBlock_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_AFailureExitCodeOfZero_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_AListPastTheBoundOfItsTerm_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_AGlobThatLeavesTheRoot_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_ACheckNameThatStartsWithADigit_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "VerificationConfig_ThePolicyBlockAlone_StillParses",
+          "dynamic": false
+        },
+        {
+          "suite": "the verification config keys",
+          "name": "SafeCommandClass_TheConfigTheResolverAndTheProfile_AcceptTheSameCharacters",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/prepare-profile.test.ts": {
+      "file": "tests/acceptance/prepare-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_AnEditedPackageScript_CompilesTheNextVersion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-profile.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_TheCapsule_PinsTheProfileOfTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_AnUnresolvedTerm_IsPinnedWithItsReasonAndNothingIsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_AFirstPartyValueOutsideTheProfileBound_PinsAnUnresolvedTermAndIsNotRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_AnUnchangedCheckout_ReplaysTheRecordedProfiledCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "Prepare_TheProfile_ComesFromTheReadOfPrepareAndNotFromASearchWithGit",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins the profile of the checkout",
+          "name": "PrepareEconomy_AReceiptWithAProfile_FitsTheBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_ATestsSupportKey_PinsItsSegments",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnIntegrationKey_PinsItsCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnIntegrationReportKey_PinsTheReport",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnIntegrationFailureExitCodesKey_PinsTheCodes",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_ATaskRunnerLintOrTypecheckTarget_PinsACheck",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnUnterminatedQuoteInACommand_PinsAnUnresolvedTermAndIsNotRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AContractCommandKey_PinsItResolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare pins each term from its key",
+          "name": "Prepare_AnEmptyStaticAnalysisBlock_PinsAnUnresolvedTermAndIsNotRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the compiler writes the profile into the settlement contract",
+          "name": "CompileCapsule_AProfileInTheInput_IsWrittenIntoTheSettlementContract",
+          "dynamic": false
+        },
+        {
+          "suite": "the compiler writes the profile into the settlement contract",
+          "name": "CompileCapsule_ACallerThatPassesNoProfile_GetsNone",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/kill-probe-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/kill-probe-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ACSharpTestInANodeRootWithAConfiguredDotnetProbe_IsProbed",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ATypeScriptTestInAPolyglotRootWithAConfiguredDotnetProbe_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_AHelperUnderADirectoryGlobOfASecondToolchain_StaysTestSupport",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ACSharpTestInANodeRootWithTheSeededNodeProbe_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ACoLocatedTestInASolutionRoot_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ACSharpTestInASolutionRootWithAConfiguredNpmProbe_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_AConfiguredProbeInAPolyglotRootWithNoGlobs_BlocksWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ATestOfAnotherToolchainUnderASupportDirectory_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "the kill probe in a root where a test of another toolchain can change",
+          "name": "KillProbe_ADeletedTestOfAnotherToolchain_IsNotRevertedAndDoesNotBlock",
+          "dynamic": false
+        },
+        {
+          "suite": "a diff that touches a test path never passes with nothing probed",
+          "name": "KillProbe_ACSharpTestThatNoGlobMatches_BlocksAsUnprobedTestPaths",
+          "dynamic": false
+        },
+        {
+          "suite": "a diff that touches a test path never passes with nothing probed",
+          "name": "KillProbe_ADiffThatOnlyDeletesTests_BlocksAtEveryTier",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that the profile does not resolve blocks the probe",
+          "name": "KillProbe_AnUnresolvedGlobSet_BlocksAtEveryTierWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that the profile does not resolve blocks the probe",
+          "name": "KillProbe_AnUnresolvedProbeCommand_BlocksWithProfileUnresolvedAtTheFirstRun",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that the profile does not resolve blocks the probe",
+          "name": "KillProbe_APinnedUnresolvedTerm_NamesTheCheckoutANewPrepareAndANewBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_AConfiguredFailureExitCode_ReadsAsRed",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_TheAsArgumentsForm_PassesTheFilesWithNoSeparator",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_ConfiguredSupportSegments_KeepTheirFilesOutOfTheRevert",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_TheNoneForm_RunsTheWholeCommandAndMarksUnscopedRun",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_AnUnscopedRun_GetsTheLimitOfAWholeSuiteRun",
+          "dynamic": false
+        },
+        {
+          "suite": "the probe runs the command of its term",
+          "name": "KillProbe_ADirectCall_ResolvesTheProfileAtItsRepoRootAndSaysSo",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/mock-boundary-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/mock-boundary-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_InASegment_TakesItsSeverityFromTheCheckoutConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_APinnedCSharpGlob_ScansTheCSharpTestHunks",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_AnUnresolvedGlobSet_IsAnAdvisorySkipWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_AnUnresolvedFirstPartyTerm_IsAnAdvisorySkipWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_ADirectCall_ResolvesTheProfileAtItsRepoRootAndSaysSo",
+          "dynamic": false
+        },
+        {
+          "suite": "check_mock_boundary reads the terms of the profile",
+          "name": "MockBoundary_ADirectCallWithAConfigThatDoesNotLoad_ScansWithTheFallbackAndIsNoSkip",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/kill-probe-profile.test.ts": {
+      "file": "tests/acceptance/kill-probe-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle runs the kill probe under the pinned terms",
+          "name": "Settle_AWorktreeThatEmptiesItsTestGlobs_IsProbedWithThePinnedGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "settle runs the kill probe under the pinned terms",
+          "name": "Settle_AnUnscopedRun_GivesADegradedQualifierInTheTrace",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/pure/static-analysis-profile.test.ts": {
+      "file": "tests/unit/verbs/pure/static-analysis-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_TheProfileChecks_RunInTheirOrderAndNoOtherCheckRuns",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_ADotnetBuildWithTheNU1510RestoreWarningOnExitZero_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_ARepositoryWarnAsErrorTypecheck_RunsVerbatimAndFailsOnTheSameOutput",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_APnpmRepository_RunsPnpmRunLintAndTypecheck",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_APnpmRepository_NamesThePnpmRerunOfACappedFail",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_APythonRepository_RunsRuffCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_ANodeRepositoryWithAQualityCheckScript_RunsOnlyLintAndTypecheck",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — the checks of the profile",
+          "name": "StaticAnalysis_TheRustSeed_RunsCargoCheckThenCargoClippyWithNoFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_AnUnresolvedCheck_SkipsWithProfileUnresolvedAndNamesItsKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_AnUnresolvedCheck_ReasonStartsWithTheProfilePathAndEndsWithTheRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_ASkipFlagOnAnUnresolvedCheck_StaysProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_AnUnresolvedTerm_IsOneSkipLine",
+          "dynamic": false
+        },
+        {
+          "suite": "runStaticAnalysis — a term that does not resolve",
+          "name": "StaticAnalysis_AnUnresolvedTermBesideABoundaryFail_GivesFail",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the profile of a call",
+          "name": "StaticAnalysis_InASegment_AWorktreeThatDeletesAPinnedScript_FailsThatCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the profile of a call",
+          "name": "StaticAnalysis_InASegment_AnUnresolvedPinnedCheck_NamesTheCheckoutRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the profile of a call",
+          "name": "StaticAnalysis_ADirectCall_RunsTheKeysOfItsRootAndNamesTheRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — the file list",
+          "name": "CapFailDetail_AFilePathOfAnyExtension_IsCounted",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/tasks/task-complete-profile.test.ts": {
+      "file": "tests/unit/tasks/task-complete-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "task_complete — a skip of an unresolved term",
+          "name": "TaskComplete_AProfileUnresolvedSkip_NamesTheConfigRecovery",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete — a skip of an unresolved term",
+          "name": "TaskComplete_APinnedProfileUnresolvedSkip_NamesTheCheckoutANewPrepareAndANewBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete — a skip of an unresolved term",
+          "name": "TaskComplete_ANoToolchainRowOfAnEarlierBuild_ReadsAsProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "task_complete — a skip of an unresolved term",
+          "name": "TaskComplete_AnEarlierProfileUnresolvedRecord_NamesTheRerunOfThatRun",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-pinned-unresolved.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-pinned-unresolved.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a pinned unresolved check",
+          "name": "Settle_APinnedUnresolvedCheck_NamesTheCheckoutANewPrepareAndANewBatch",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-integration-leaf.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-integration-leaf.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — the integration-suite leaf",
+          "name": "Settle_AHighTierTaskWhoseSuiteFails_IsNotAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the integration-suite leaf",
+          "name": "Settle_AHighTierTaskWithAnUnresolvedSuite_IsNotAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "settle — the integration-suite leaf",
+          "name": "Settle_AMediumTierTask_SkipsTheSuiteByPolicy",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/integration-suite-verdict.test.ts": {
+      "file": "tests/unit/verbs/gates/integration-suite-verdict.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_ExitZero_Passes",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_AConfiguredFailureExitCode_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_AnUnknownExitCode_IsIndeterminateAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_TheResolvedCommand_RunsWithNoAddedFlag",
+          "dynamic": false
+        },
+        {
+          "suite": "the verdict of the exit code",
+          "name": "IntegrationSuite_TheReport_NamesThePathOfTheProfile",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that is not resolved",
+          "name": "IntegrationSuite_AnUnresolvedTerm_BlocksRunsNothingAndNamesTheRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "IntegrationSuite_TheVitestJsonReport_FoldsLoadFailures",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "IntegrationSuite_AReportWithFailures_FailsOnExitZero",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "IntegrationSuite_ARedExitWithACleanReport_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "IntegrationSuite_AMissingReport_IsIndeterminateAndBlocks [%s]",
+          "dynamic": false
+        },
+        {
+          "suite": "the report of a term that selects one",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_ASignal_IsIndeterminateNotRed",
+          "dynamic": false
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_ARunPastItsLimit_IsIndeterminateAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_AnOutputPastItsLimit_IsIndeterminateAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_ACommandThatDoesNotStart_IsIndeterminateAndBlocks",
+          "dynamic": false
+        },
+        {
+          "suite": "an end of a real process that is not an exit",
+          "name": "IntegrationSuite_TheSuite_RunsWithTheStoreKeysOfAScratchDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "the input of the gate",
+          "name": "CheckIntegrationSuite_ATestScriptArgument_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the input of the gate",
+          "name": "CheckIntegrationSuite_ALowTierTask_IsSkippedByPolicy",
+          "dynamic": false
+        },
+        {
+          "suite": "the input of the gate",
+          "name": "CheckIntegrationSuite_AHighTierTask_RunsTheSuite",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/runbooks/task-completion-integration-leaf.test.ts": {
+      "file": "tests/unit/runbooks/task-completion-integration-leaf.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the integration-suite leaf of the segment",
+          "name": "TaskCompletion_AHighTierSegment_RunsTheSuiteAfterMockBoundaryAndBeforeStaticAnalysis",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/prepare-settle-profile.test.ts": {
+      "file": "tests/process/prepare-settle-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the packaged chain of prepare and settle",
+          "name": "PackagedChain_PrepareFiveThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/contract-drift-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/contract-drift-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "handleContractDrift — the contract term of the profile",
+          "name": "ContractDrift_InASegment_RunsThePinnedContractCommands",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — the contract term of the profile",
+          "name": "ContractDrift_NoContractTool_SkipsWithProfileUnresolvedAndAReason",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — the contract term of the profile",
+          "name": "ContractDrift_ADirectCallWithNoContractTool_NamesItsRootAndARerun",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — the contract term of the profile",
+          "name": "ContractDrift_AnUnresolvedTypecheck_SkipsOnlyThatLeg",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/static-analysis-boundary-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/static-analysis-boundary-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_InASegment_UsesThePinnedFirstPartyGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_InASegment_AWorktreeConfigThatDoesNotLoad_FailsTheBoundaryLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_AWorktreeThatDeletesThePinnedCruiserConfig_FailsTheLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_AWorktreeThatDeletesThePinnedTaintRuleset_FailsTheLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_InASegment_AnUnresolvedFirstPartyTerm_FailsTheCruiserLegAndNamesTheKey",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_AConfiguredBoundaryCheck_RunsThePinnedArgvWithTheScanRoots",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_AConfiguredTaintCheck_RunsThePinnedArgvWithTheCoreSources",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_APinWithNoBoundaryCheck_RunsNoLeg",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_TheBoundaryChecks_RunInListOrderWithTheLabelOfEachAdapter",
+          "dynamic": false
+        },
+        {
+          "suite": "handleStaticAnalysis — the boundary terms of the pin",
+          "name": "StaticAnalysis_ADirectCall_DropsAGlobThatLeavesTheRootAndNamesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary adapters — the report reader of a check",
+          "name": "BoundaryAdapters_TheCruiseReport_GivesTheVerdictNotTheExitCode",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary adapters — the report reader of a check",
+          "name": "BoundaryAdapters_ACommandWithNoReport_FailsAndTheRerunNamesItsArgv",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary adapters — the report reader of a check",
+          "name": "BoundaryAdapters_AnotherProgram_RunsAsItsArgvNamesIt",
+          "dynamic": false
+        },
+        {
+          "suite": "boundary adapters — the report reader of a check",
+          "name": "BoundaryAdapters_TheTaintRerun_NamesItsArgvWithoutTheQuietFlag",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-unresolved-qualifier.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-unresolved-qualifier.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle — a contract drift skip with no tool",
+          "name": "Settle_ANoContractToolSkip_GivesASkippedQualifierWithProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/boundary-checks-profile.test.ts": {
+      "file": "tests/unit/config/boundary-checks-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_ACruiserConfigAtTheCheckout_PinsTheAdapter",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_BothAdapterConfigsAtTheCheckout_PinTheCruiserThenTheTaintCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_ARootWithNoAdapterConfig_GivesNoBoundaryCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_ABoundaryChecksBlock_ReplacesTheSeededAdapters",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_AnEmptyBoundaryChecksBlock_GivesNoBoundaryCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_AConfigThatDoesNotLoad_KeepsTheSeededAdapters",
+          "dynamic": false
+        },
+        {
+          "suite": "resolveVerificationProfile — the boundaryChecks term",
+          "name": "ResolveProfile_ABoundaryChecksBlockAtItsBound_GivesAProfileThatParses",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryChecksBlock_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckWithAnUnknownAdapter_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckWithAMissingOrUnknownField_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckListPastItsBound_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckConfigThatLeavesTheRoot_IsRefusedAtItsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "verification.boundaryChecks — the key",
+          "name": "VerificationConfig_ABoundaryCheckCommandThatDoesNotFitItsTerm_IsRefusedAtItsPath",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/pure/fail-detail.test.ts": {
+      "file": "tests/unit/verbs/pure/fail-detail.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_ADottedWordInAMessage_IsNotAFile",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_ACodeLineThatOpensWithADottedWord_IsNotAFile",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_ABareNameThatOpensTheLineBeforeALocation_IsAFile",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_APathAfterADottedWord_IsTheFileOfTheLine",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_ABackslashPath_IsAFile",
+          "dynamic": false
+        },
+        {
+          "suite": "capFailDetail — what counts as a failing file",
+          "name": "CapFailDetail_AVersion_IsNotAFile",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/spec-coverage-profile.test.ts": {
+      "file": "tests/unit/verbs/gates/spec-coverage-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_ACommandStringInBackticks_IsNotATestPath",
+          "dynamic": false
+        },
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_ADeclaredDotnetTest_MatchesTheResolvedGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_ASnapshotPathInAFilesList_IsNotADeclaredTest",
+          "dynamic": false
+        },
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_AFixtureAndAConftestPathInAPythonRoot_AreNotDeclaredTests",
+          "dynamic": false
+        },
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_AnExplicitRustTestDeclaration_IsWellFormed",
+          "dynamic": false
+        },
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_ALineAnchorAndAGlobInBackticks_AreNotDeclaredTests",
+          "dynamic": false
+        },
+        {
+          "suite": "classification of a declared test",
+          "name": "SpecCoverage_APathWithParentheses_IsADeclaredTest",
+          "dynamic": false
+        },
+        {
+          "suite": "the run of the declared tests",
+          "name": "SpecCoverage_PostImplementation_RunsTheProbeCommandForEachFile",
+          "dynamic": false
+        },
+        {
+          "suite": "the run of the declared tests",
+          "name": "SpecCoverage_TheNoneForm_RunsTheCommandOnceAndSaysTheRunIsUnscoped",
+          "dynamic": false
+        },
+        {
+          "suite": "the run of the declared tests",
+          "name": "SpecCoverage_AnUnknownExitCode_FailsWithNoVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "the run of the declared tests",
+          "name": "SpecCoverage_ADeclaredTestThatTheProbeCannotRun_FailsAndNamesBothKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the run of the declared tests",
+          "name": "SpecCoverage_ACoLocatedTestInASolutionRoot_FailsAndRunsNoCommand",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that is not resolved",
+          "name": "SpecCoverage_AnUnresolvedProbe_FailsWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that is not resolved",
+          "name": "SpecCoverage_AnUnresolvedProbeInThePlanPhase_DoesNotFail",
+          "dynamic": false
+        },
+        {
+          "suite": "a term that is not resolved",
+          "name": "SpecCoverage_AnUnresolvedGlobTerm_FailsInEachPhaseWithProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/review/debug-review-gate-profile.test.ts": {
+      "file": "tests/unit/verbs/review/debug-review-gate-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "handleDebugReviewGate — the test globs of the profile",
+          "name": "DebugReviewGate_AGoTestFile_CountsAsANewTest",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate — the test globs of the profile",
+          "name": "DebugReviewGate_ASnapshotOnlyFix_AddsNoNewTest",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate — the test globs of the profile",
+          "name": "DebugReviewGate_ACSharpTestInANodeRootBesideASolution_CountsAsANewTest",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate — the test globs of the profile",
+          "name": "DebugReviewGate_AnUnresolvedGlobSet_FailsWithProfileUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "handleDebugReviewGate — the test globs of the profile",
+          "name": "DebugReviewGate_AConfigThatDoesNotLoad_FailsWithProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/config/mutation-targets.test.ts": {
+      "file": "tests/unit/config/mutation-targets.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the mutation tables of the registry",
+          "name": "MutationTargets_EachToolchain_GivesTheTablesThatTheGateUsed",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/worktree-baseline-label.test.ts": {
+      "file": "tests/unit/verbs/gates/worktree-baseline-label.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the label of the worktree baseline",
+          "name": "VerifyWorktreeBaseline_AGoRepository_GetsTheLabelOfItsRegistryRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the label of the worktree baseline",
+          "name": "VerifyWorktreeBaseline_TheLabel_ComesFromTheRegistry",
+          "dynamic": false
+        },
+        {
+          "suite": "the label of the worktree baseline",
+          "name": "VerifyWorktreeBaseline_TheRefusal_NamesTheMarkersOfTheRegistry",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/contract-drift-one-leg.test.ts": {
+      "file": "tests/unit/verbs/gates/contract-drift-one-leg.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "runContractDrift — a codegen or diff leg that does not resolve",
+          "name": "ContractDrift_OneUnresolvedLeg_RunsTheOtherAndNamesTheLegThatDidNotRun",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — a codegen or diff leg that does not resolve",
+          "name": "ContractDrift_OneUnresolvedLeg_GivesNoCleanPassSteer",
+          "dynamic": false
+        },
+        {
+          "suite": "handleContractDrift — a codegen or diff leg that does not resolve",
+          "name": "ContractDrift_TwoUnresolvedLegs_TheSkipReportDoesNotClaimAMissingBlock",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/spec-coverage-unfit-unresolved-probe.test.ts": {
+      "file": "tests/unit/verbs/gates/spec-coverage-unfit-unresolved-probe.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "an unresolved probe command beside a declared test that its globs do not hold",
+          "name": "SpecCoverage_AnUnresolvedProbeWithAnUnfitDeclaredTest_FailsWithProfileUnresolved",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/gates/integration-suite-guardrails.test.ts": {
+      "file": "tests/unit/verbs/gates/integration-suite-guardrails.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "check_integration_suite guardrails",
+          "name": "IntegrationSuite_TheActionDescription_SaysWhenNotToUseIt",
+          "dynamic": false
+        },
+        {
+          "suite": "check_integration_suite guardrails",
+          "name": "IntegrationSuite_ARunnerErrorWithNoStatusAndNoSpawnCode_IsNeverExitOne",
           "dynamic": false
         }
       ]

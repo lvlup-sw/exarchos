@@ -7,6 +7,7 @@
  * neither rule.
  */
 
+import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import { contentDigest } from './capsule-digest.js';
 import type { ExarchosCapsuleV1 } from './exarchos-capsule.js';
 
@@ -134,6 +135,76 @@ export function scopedValidCapsule(): ExarchosCapsuleV1 {
   };
 }
 
+/**
+ * The verification profile of the profiled capsule. It holds a resolved and an unresolved form of each command term.
+ * Thus both validators read each branch of each union.
+ */
+function corpusProfile(): VerificationProfile {
+  return {
+    toolchains: ['node', 'dotnet'],
+    tests: {
+      globs: {
+        state: 'resolved',
+        globs: ['**/*.test.*', '**/*.spec.*', 'checks/**/*.check.mjs'],
+        source: 'config',
+        replacedSeeds: ['**/*.test.*', '**/*.spec.*', '**/*Tests.cs'],
+      },
+      support: { segments: ['tests', '__fixtures__', 'test-helpers'], source: 'detection' },
+      probe: {
+        command: { state: 'resolved', argv: ['npm', 'run', 'test:files'], source: 'detection' },
+        files: 'after-separator',
+        failureExitCodes: { codes: [1], source: 'detection' },
+        globs: ['**/*.test.*', '**/*.spec.*'],
+      },
+    },
+    staticAnalysis: {
+      state: 'resolved',
+      checks: [
+        { name: 'lint', command: { state: 'resolved', argv: ['npm', 'run', 'lint'], source: 'detection' } },
+        {
+          name: 'typecheck',
+          command: { state: 'unresolved', reason: 'verification.staticAnalysis.typecheck: the script typecheck is absent' },
+        },
+      ],
+      source: 'detection',
+    },
+    integration: {
+      command: { state: 'resolved', argv: ['npm', 'run', 'test:run'], source: 'detection' },
+      report: 'exit-code',
+      failureExitCodes: { codes: [1, 2], source: 'config' },
+    },
+    contract: {
+      codegen: { state: 'unresolved', reason: 'contract.codegen: no contract toolchain matches the checkout' },
+      diff: { state: 'unresolved', reason: 'contract.diff: no contract toolchain matches the checkout' },
+      typecheck: { state: 'resolved', argv: ['npm', 'run', 'typecheck'], source: 'detection' },
+    },
+    boundaryChecks: [
+      {
+        adapter: 'dependency-cruiser',
+        command: {
+          state: 'resolved',
+          argv: ['depcruise', '--validate', '.dependency-cruiser.cjs', '--output-type', 'json'],
+          source: 'detection',
+        },
+        config: '.dependency-cruiser.cjs',
+      },
+    ],
+    firstParty: { state: 'resolved', globs: ['src/**', 'servers/*/src/**'], source: 'detection' },
+  };
+}
+
+/**
+ * The scoped capsule as a compiler that pins the verification profile writes it.
+ * The scoped capsule keeps no profile, so a capsule of an earlier compiler stays in the corpus.
+ */
+export function profiledValidCapsule(): ExarchosCapsuleV1 {
+  const scoped = scopedValidCapsule();
+  return {
+    ...scoped,
+    settlementContract: { ...scoped.settlementContract, verificationProfile: corpusProfile() },
+  };
+}
+
 /** The smallest accepted capsule: no `executionProfile`, no verification terms, empty optional arrays. */
 export function minimalValidCapsule(): ExarchosCapsuleV1 {
   const base = baseValidCapsule();
@@ -196,6 +267,26 @@ function withBaseCommit(scoped: ExarchosCapsuleV1, baseCommit: string): unknown 
   };
 }
 
+/** A rejecting fixture that changes the probe term of the profiled capsule. It breaks exactly one property of that capsule. */
+function bendProbe(
+  name: string,
+  mutate: (probe: VerificationProfile['tests']['probe']) => unknown,
+): CapsuleFixture {
+  const profiled = profiledValidCapsule();
+  const profile = corpusProfile();
+  return {
+    name,
+    valid: false,
+    document: {
+      ...profiled,
+      settlementContract: {
+        ...profiled.settlementContract,
+        verificationProfile: { ...profile, tests: { ...profile.tests, probe: mutate(profile.tests.probe) } },
+      },
+    },
+  };
+}
+
 /** The base capsule with a list of material deviation kinds on its envelope, and nothing else changed. */
 function withMaterialKinds(base: ExarchosCapsuleV1, materialDeviationKinds: readonly unknown[]): unknown {
   return {
@@ -244,6 +335,16 @@ export const CAPSULE_ROUNDTRIP_FIXTURES: readonly CapsuleFixture[] = [
     valid: true,
     document: withScopeField(scopedValidCapsule(), 'checkout', 'C:/repos/capsule-corpus'),
   },
+  { name: 'a profiled capsule', valid: true, document: profiledValidCapsule() },
+
+  bendProbe('a profile probe whose red exit code is zero', (probe) => ({
+    ...probe,
+    failureExitCodes: { ...probe.failureExitCodes, codes: [0] },
+  })),
+  bendProbe('a profile probe whose argv token holds a shell metacharacter', (probe) => ({
+    ...probe,
+    command: { state: 'resolved', argv: ['npm', 'run', 'test:files;reboot'], source: 'detection' },
+  })),
 
   bendScoped('a scope repository that is not absolute', (s) => withScopeField(s, 'repository', 'repos/corpus/.git')),
   bendScoped('a scope checkout that is not absolute', (s) => withScopeField(s, 'checkout', 'repos/corpus')),

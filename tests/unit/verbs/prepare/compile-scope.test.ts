@@ -82,7 +82,7 @@ describe('the compiler pins the scope and the base commit', () => {
       'T-2': { riskTier: 'medium', boundaryTouching: false, baseRef: BASE_REF, baseCommit: BASE_COMMIT },
     });
     expect(ExarchosCapsuleV1Schema.parse(outcome.capsule).settlementContract.scope?.checkout).toBe('/repos/compile-scope');
-    expect(outcome.capsule.provenance.compilerVersion).toBe('exarchos-prepare-4');
+    expect(outcome.capsule.provenance.compilerVersion).toBe('exarchos-prepare-5');
   });
 
   /**

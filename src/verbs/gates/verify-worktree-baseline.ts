@@ -7,7 +7,12 @@ import { existsSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { runCommandSync } from '../../utils/process.js';
 import type { ToolResult } from '../../format.js';
-import { resolveTestRuntime, type ResolvedRuntime } from '../../config/test-runtime-resolver.js';
+import {
+  packageManagerProjectType,
+  resolveTestRuntime,
+  type ResolvedRuntime,
+} from '../../config/test-runtime-resolver.js';
+import { BUILTIN_TOOLCHAINS } from '../../config/toolchains.js';
 import { splitCommand } from '../../config/tokenize-command.js';
 
 interface VerifyWorktreeBaselineArgs {
@@ -40,20 +45,11 @@ interface LeakDetection {
   readonly paths: readonly LeakPathEntry[];
 }
 
-type DetectedProjectType =
-  | 'Node.js'
-  | 'Node.js (bun)'
-  | 'Node.js (pnpm)'
-  | 'Node.js (yarn)'
-  | '.NET'
-  | 'Rust'
-  | 'Python';
-
 /**
- * Project type label. A built-in test command maps to a `DetectedProjectType`.
+ * Project type label. The test command of a package-manager profile or of a toolchain row of the registry takes the `projectType` of that profile or row.
  * Any other command gets a label that names its source.
  */
-type ProjectType = DetectedProjectType | 'Configured (.exarchos.yml)' | 'Override';
+type ProjectType = string;
 
 interface ProjectDetection {
   readonly projectType: ProjectType;
@@ -62,22 +58,24 @@ interface ProjectDetection {
   readonly args: readonly string[];
 }
 
-/** Maps a resolver test command to a project-type label, or to `undefined` for a command outside the built-in set. */
-function projectTypeFromTestCommand(test: string): DetectedProjectType | undefined {
-  if (test === 'npm run test:run') return 'Node.js';
-  if (test === 'bun test') return 'Node.js (bun)';
-  if (test === 'pnpm test') return 'Node.js (pnpm)';
-  if (test === 'yarn test') return 'Node.js (yarn)';
-  if (test === 'dotnet test') return '.NET';
-  if (test === 'cargo test') return 'Rust';
-  if (test === 'pytest') return 'Python';
-  return undefined;
+/** The marker files of the built-in toolchains, in priority order. The refusal of a worktree with no test command names them. */
+const REGISTRY_MARKERS: readonly string[] = BUILTIN_TOOLCHAINS.flatMap((toolchain) => toolchain.markers);
+
+/**
+ * Maps a resolver test command to the `projectType` of its package-manager profile, else of its toolchain row.
+ * A command of no profile and no row gives `undefined`.
+ */
+function projectTypeFromTestCommand(test: string): ProjectType | undefined {
+  return (
+    packageManagerProjectType(test) ??
+    BUILTIN_TOOLCHAINS.find((toolchain) => toolchain.commands.test === test)?.projectType
+  );
 }
 
 /**
  * Accepts a test command from any resolver source, because a `.exarchos.yml` or override command is as authoritative as a detected one.
  * It returns `undefined` for no test command, an empty command, or a command where `splitCommand` throws on an unterminated quote.
- * A command with no built-in label, such as `make test`, gets a label that names its source.
+ * A command of no profile and no row, such as `make test`, gets a label that names its source.
  */
 function toProjectDetection(runtime: ResolvedRuntime): ProjectDetection | undefined {
   if (runtime.test === null) return undefined;
@@ -260,7 +258,7 @@ export async function handleVerifyWorktreeBaseline(
       success: false,
       error: {
         code: 'UNKNOWN_PROJECT_TYPE',
-        message: `No recognized project files found in ${worktreePath} (package.json, *.csproj, Cargo.toml, pyproject.toml). Manual verification required.`,
+        message: `No recognized project files found in ${worktreePath} (${REGISTRY_MARKERS.join(', ')}). Manual verification required.`,
       },
     };
   }

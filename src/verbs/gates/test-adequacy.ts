@@ -9,35 +9,8 @@
 
 import type { GitExec } from '../pure/execute-merge.js';
 import { assertNever } from '../../contract/error-families.js';
-
-/**
- * Default test-file globs when the resolved toolchain/config supplies none.
- * Co-located convention: `*.test.*`, `*.spec.*`, and anything under a
- * `__tests__/` directory. Matched against the full (repo-relative) path.
- */
-export const DEFAULT_TEST_GLOBS: readonly string[] = [
-  '**/*.test.*',
-  '**/*.spec.*',
-  '**/__tests__/**',
-];
-
-/**
- * The directory names that mark test support, such as a helper, a mock or a fixture.
- * A changed file that is not a test file and has a directory segment with one of these names is test support.
- * The probe does not revert test support. A reverted helper can make a test fail to load, and such a red run proves no kill.
- *
- * The table is a deliberate subset of the names that projects use for test support, such as `testdata` or `spec`.
- * Each name keeps more files out of the revert, so the owner chose a short table. A later change can make it configurable.
- */
-export const DEFAULT_TEST_SUPPORT_SEGMENTS: readonly string[] = [
-  'tests',
-  'test',
-  '__tests__',
-  '__mocks__',
-  '__fixtures__',
-  'fixtures',
-  'test-helpers',
-];
+import { DEFAULT_TEST_GLOBS, DEFAULT_TEST_SUPPORT_SEGMENTS } from '../../config/toolchains.js';
+import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 
 export interface SplitHunksOptions {
   /**
@@ -47,6 +20,8 @@ export interface SplitHunksOptions {
    * is used.
    */
   readonly testGlobs?: readonly string[] | undefined;
+  /** The directory names that mark test support. They replace the registry seed. When omitted, {@link DEFAULT_TEST_SUPPORT_SEGMENTS} is used. */
+  readonly supportSegments?: readonly string[] | undefined;
 }
 
 export interface SplitHunksResult {
@@ -91,12 +66,17 @@ function globToRegExp(glob: string): RegExp {
   return new RegExp(out);
 }
 
-/** Returns true when a directory segment of the repo-relative path is in {@link DEFAULT_TEST_SUPPORT_SEGMENTS}. The file name is not a directory segment. */
-function isTestSupport(file: string): boolean {
+/** Returns true when a glob of `globs` matches the repo-relative path. It matches as {@link splitHunks} does. */
+function matchesAnyGlob(file: string, globs: readonly string[]): boolean {
+  return globs.some((glob) => globToRegExp(glob).test(file));
+}
+
+/** Returns true when a directory segment of the repo-relative path is in `segments`. The file name is not a directory segment. */
+function isTestSupport(file: string, segments: readonly string[]): boolean {
   return file
     .split('/')
     .slice(0, -1)
-    .some((segment) => DEFAULT_TEST_SUPPORT_SEGMENTS.includes(segment));
+    .some((segment) => segments.includes(segment));
 }
 
 /**
@@ -107,12 +87,14 @@ function isTestSupport(file: string): boolean {
  *
  * @param changedFiles - repo-relative paths changed by the task diff
  * @param options.testGlobs - optional override for the test-file globs
+ * @param options.supportSegments - optional override for the test-support directory names
  */
 export function splitHunks(
   changedFiles: readonly string[],
   options?: SplitHunksOptions,
 ): SplitHunksResult {
   const globs = options?.testGlobs ?? DEFAULT_TEST_GLOBS;
+  const supportSegments = options?.supportSegments ?? DEFAULT_TEST_SUPPORT_SEGMENTS;
   const matchers = globs.map(globToRegExp);
 
   const testFiles: string[] = [];
@@ -122,7 +104,7 @@ export function splitHunks(
   for (const file of changedFiles) {
     if (matchers.some((re) => re.test(file))) {
       testFiles.push(file);
-    } else if (isTestSupport(file)) {
+    } else if (isTestSupport(file, supportSegments)) {
       supportFiles.push(file);
     } else {
       sourceFiles.push(file);
@@ -130,24 +112,6 @@ export function splitHunks(
   }
 
   return { testFiles, sourceFiles, supportFiles };
-}
-
-/**
- * Resolves the test globs for the probe from the globs that a detected toolchain prescribes.
- * `testGlobsForToolchain` returns a replacement set, and `splitHunks` uses it in place of the defaults.
- * With only the toolchain globs, a polyglot repo (python at the root, `*.test.ts` beside the source) classifies each co-located test as source.
- * So the result is the union of the defaults and the toolchain globs, deduplicated, with the defaults first.
- * A test misclassified as source gives a false pass, so the union errs in the safe direction.
- */
-export function resolveProbeTestGlobs(
-  toolchainGlobs: readonly string[] | null | undefined,
-): readonly string[] {
-  if (!toolchainGlobs || toolchainGlobs.length === 0) return DEFAULT_TEST_GLOBS;
-  const merged = [...DEFAULT_TEST_GLOBS];
-  for (const glob of toolchainGlobs) {
-    if (!merged.includes(glob)) merged.push(glob);
-  }
-  return merged;
 }
 
 /** Returns the listed names as a tuple of literal types, so one list can feed each closed type and each total table. */
@@ -158,6 +122,8 @@ function closedNames<const Names extends readonly [string, ...string[]]>(...name
 /**
  * Each cause of an indeterminate probe, in one list. A reader that needs every cause, such as a grader or a test table, reads this list.
  * `run-no-verdict` means that a scoped test run ended with no green and no red result.
+ * `unprobed-test-paths` means that the diff touches a test path, and the probe command cannot run it or no test file is left.
+ * `profile-unresolved` means that the glob term or the probe command is unresolved.
  */
 export const ADEQUACY_DISCRIMINANTS = closedNames(
   'no-new-tests',
@@ -167,6 +133,8 @@ export const ADEQUACY_DISCRIMINANTS = closedNames(
   'base-missing',
   'baseline-red',
   'run-no-verdict',
+  'unprobed-test-paths',
+  PROFILE_UNRESOLVED,
 );
 
 /** Discriminants for the gate's failure modes (carried on the result). */
@@ -212,6 +180,8 @@ type IndeterminateHandling =
  * A diff, revert, or restore that fails is an execution failure of a probe that had to run. It fails closed on every tier, including low.
  * Tests that fail on the task source make a kill impossible to observe, so `baseline-red` also fails closed on every tier.
  * A test run with no verdict is never a kill and never a pass, so `run-no-verdict` fails closed on every tier.
+ * A diff that touches a test path that the probe cannot run never passes with nothing probed, so `unprobed-test-paths` fails closed on every tier.
+ * A probe with no resolved term cannot run, so `profile-unresolved` fails closed on every tier.
  */
 const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, IndeterminateHandling>> = {
   'no-new-tests': 'advisory-skippable',
@@ -221,6 +191,8 @@ const INDETERMINATE_HANDLING: Readonly<Record<AdequacyDiscriminant, Indeterminat
   'base-missing': 'always-blocking',
   'baseline-red': 'always-blocking',
   'run-no-verdict': 'always-blocking',
+  'unprobed-test-paths': 'always-blocking',
+  'profile-unresolved': 'always-blocking',
 };
 
 /**
@@ -237,6 +209,8 @@ const INDETERMINATE_OUTCOME: Readonly<Record<AdequacyDiscriminant, string>> = {
     'the kill probe stopped before the revert, because a red run after the revert proves no kill when the tests are red before it',
   'run-no-verdict':
     'the kill probe reached no verdict, because a scoped test run ended with no green and no red result, and such a run is never a kill',
+  'unprobed-test-paths': 'the kill probe did not run, because it cannot run each test path that the diff touches',
+  'profile-unresolved': 'the kill probe did not run, because it has no resolved term to run with',
 };
 
 /**
@@ -550,8 +524,6 @@ export function restoreWorkingTree(
  * `unknown-exit-code` is an exit code that is not 0 and not a test-failure code of the toolchain.
  */
 export const RUN_NO_VERDICT_CAUSES = closedNames(
-  'no-command',
-  'unparseable-command',
   'did-not-start',
   'timeout',
   'signal',
@@ -564,8 +536,6 @@ export type RunNoVerdictCause = (typeof RUN_NO_VERDICT_CAUSES)[number];
 
 /** The words of the probe text for each no-verdict cause. It is a total `Record`, so a new cause without a text is a compile error. */
 const RUN_NO_VERDICT_TEXT: Readonly<Record<RunNoVerdictCause, string>> = {
-  'no-command': 'no test command resolves for the repository',
-  'unparseable-command': 'the test command does not split into a program and its arguments',
   'did-not-start': 'the test command did not start',
   timeout: 'the test command ran past its time limit',
   signal: 'a signal stopped the test command',
@@ -577,7 +547,8 @@ const RUN_NO_VERDICT_TEXT: Readonly<Record<RunNoVerdictCause, string>> = {
  * The outcome of one scoped test run during the probe.
  * `ran` is a run with a verdict: `green` for exit 0, and `red` for a test-failure exit code of the toolchain.
  * `no-verdict` is every other end, with its cause and a detail that names the fact, such as the exit code or the signal.
- * The probe never reads a `no-verdict` run as a kill or as a pass.
+ * `unresolved` is a run that started no process, because the probe command is unresolved. It is not a no-verdict cause, and the probe reads it as `profile-unresolved`.
+ * The probe never reads a `no-verdict` or an `unresolved` run as a kill or as a pass.
  */
 export type RunOutcome =
   | {
@@ -592,6 +563,12 @@ export type RunOutcome =
       readonly detail: string;
       readonly stdout?: string;
       readonly stderr?: string;
+    }
+  | {
+      readonly kind: 'unresolved';
+      readonly reason: string;
+      readonly stdout?: undefined;
+      readonly stderr?: undefined;
     };
 
 /**
@@ -601,6 +578,21 @@ export type TestRunFn = (input: {
   readonly repoRoot: string;
   readonly testFiles: readonly string[];
 }) => Promise<RunOutcome>;
+
+/**
+ * The test terms of the verification profile. The handler always passes them, resolved or not, and the probe decides `profile-unresolved`.
+ * A caller that passes none gets the registry seeds.
+ */
+interface ProbeTerms {
+  /** The glob term. An unresolved term blocks before the probe classifies a file. */
+  readonly globs: VerificationProfile['tests']['globs'];
+  /** The directory names that mark test support. */
+  readonly supportSegments: readonly string[];
+  /** The globs of the test files that the probe command runs. Without them, the command runs each file of the glob term. */
+  readonly probeGlobs?: readonly string[] | undefined;
+  /** Adds the route of a remedy to a reason. */
+  readonly withRoute: (reason: string) => string;
+}
 
 export interface ProbeArgs {
   readonly gitExec: GitExec;
@@ -617,8 +609,10 @@ export interface ProbeArgs {
   readonly deletedFiles?: readonly string[];
   /** Runs the scoped test command and returns its run outcome. */
   readonly runTests: TestRunFn;
-  /** Optional test-glob override forwarded to {@link splitHunks}. */
+  /** Optional test-glob override forwarded to {@link splitHunks}. The glob term of {@link terms} wins over it. */
   readonly testGlobs?: readonly string[];
+  /** The test terms of the verification profile. */
+  readonly terms?: ProbeTerms;
   /**
    * Risk tier of the task under probe. Governs whether an empty test set is an
    * advisory skip (low / unset) or a blocking failure (medium / high). See
@@ -739,6 +733,7 @@ function isGreenRun(outcome: RunOutcome): boolean {
     case 'ran':
       return outcome.result === 'green';
     case 'no-verdict':
+    case 'unresolved':
       return false;
     default:
       return assertNever(outcome, 'RunOutcome');
@@ -759,9 +754,9 @@ function noVerdictDetail(
 
 /**
  * Reads the run on the task source. A green run returns `undefined`, so the probe goes on to the revert.
- * A red run gives `baseline-red`, and a run with no verdict gives `run-no-verdict`.
+ * A red run gives `baseline-red`, a run with no verdict gives `run-no-verdict`, and an unresolved command gives `profile-unresolved`.
  */
-function preRunVerdict(outcome: RunOutcome): ProbeVerdict | undefined {
+function preRunVerdict(outcome: RunOutcome, withRoute: (reason: string) => string): ProbeVerdict | undefined {
   switch (outcome.kind) {
     case 'ran':
       return outcome.result === 'green'
@@ -775,6 +770,8 @@ function preRunVerdict(outcome: RunOutcome): ProbeVerdict | undefined {
           };
     case 'no-verdict':
       return { kind: 'indeterminate', cause: 'run-no-verdict', detail: noVerdictDetail('on the task source', outcome) };
+    case 'unresolved':
+      return { kind: 'indeterminate', cause: PROFILE_UNRESOLVED, detail: withRoute(outcome.reason) };
     default:
       return assertNever(outcome, 'RunOutcome');
   }
@@ -782,9 +779,13 @@ function preRunVerdict(outcome: RunOutcome): ProbeVerdict | undefined {
 
 /**
  * Reads the run after the revert. A red run is a kill and gives `passed`. A green run gives `failed`, because the tests survived the revert.
- * A run with no verdict gives `run-no-verdict`, never a kill.
+ * A run with no verdict gives `run-no-verdict`, never a kill. An unresolved command gives `profile-unresolved`, never a kill.
  */
-function postRevertVerdict(outcome: RunOutcome, probedTests: string[]): ProbeVerdict {
+function postRevertVerdict(
+  outcome: RunOutcome,
+  probedTests: string[],
+  withRoute: (reason: string) => string,
+): ProbeVerdict {
   switch (outcome.kind) {
     case 'ran':
       return outcome.result === 'red'
@@ -798,29 +799,72 @@ function postRevertVerdict(outcome: RunOutcome, probedTests: string[]): ProbeVer
           };
     case 'no-verdict':
       return { kind: 'indeterminate', cause: 'run-no-verdict', detail: noVerdictDetail('after the revert', outcome) };
+    case 'unresolved':
+      return { kind: 'indeterminate', cause: PROFILE_UNRESOLVED, detail: withRoute(outcome.reason) };
     default:
       return assertNever(outcome, 'RunOutcome');
   }
 }
 
 /**
+ * The files of a diff that the glob term does not claim and a replaced seed does. They are tests of another toolchain.
+ * A term has `replacedSeeds` only in a root where more than one toolchain matches.
+ */
+function replacedSeedFiles(
+  changedFiles: readonly string[],
+  term: Extract<ProbeTerms['globs'], { readonly state: 'resolved' }> | undefined,
+): string[] {
+  if (term?.replacedSeeds === undefined) return [];
+  const seeds = term.replacedSeeds;
+  return changedFiles.filter((file) => matchesAnyGlob(file, seeds) && !matchesAnyGlob(file, term.globs));
+}
+
+/** The reason of a test file that a replaced seed claims. */
+function replacedSeedReason(files: readonly string[]): string {
+  return (
+    `the changed files ${files.join(', ')} are tests of another toolchain, because a seed that verification.tests.globs replaces matches them. ` +
+    'In a root where more than one toolchain matches, verification.tests.globs names only the test files that the command of verification.tests.probe runs. ' +
+    'To probe these files, set both keys to them. One probe for each toolchain is #1629.'
+  );
+}
+
+/** The reason of a test file that the probe command cannot run. */
+function runnerFitReason(files: readonly string[]): string {
+  return (
+    `the probe command cannot run the changed test files ${files.join(', ')}. ` +
+    'Set verification.tests.probe to a command that runs them, or set verification.tests.globs to the test files that the probe command runs. ' +
+    'In a root where more than one toolchain matches, set both keys. One probe for each toolchain is #1629.'
+  );
+}
+
+/** The reason of a diff that touches test paths and leaves no test file to run. */
+function noTestLeftReason(files: readonly string[]): string {
+  return (
+    `the diff touches the test paths ${files.join(', ')}, and no test file is left to probe. ` +
+    'A deleted test does not run, and a test-support file is not a test. ' +
+    'Add a test that verification.tests.globs names, or set verification.tests.globs to the test files of the task.'
+  );
+}
+
+/**
  * Runs the kill probe. The test runner and the changed-file list are injected, so unit tests need no real test command.
  *
- *   1. Split the diff into test, test-support and source files. A deleted test file is not run. No test file left gives `no-new-tests`.
+ *   1. Check the glob term and split the diff. A deleted test file is not run. A stop here gives `profile-unresolved`, `unprobed-test-paths` or `no-new-tests`.
  *   2. Snapshot the working tree (a failed snapshot stops the probe before any change).
  *   3. Run the scoped tests on the task source. A red run gives `baseline-red`, because a later red run proves no kill.
  *   4. Revert only the source files to `baseRef` and run the tests again. A task with no source file skips this step and fails.
  *   5. Restore the working tree in a `finally`, so the restore runs even when a test run throws.
  *
- * Red after green gives `passed`, and green after green gives `failed`. A failed revert or restore gives `indeterminate`. A failed restore wins over `baseline-red` and `run-no-verdict`.
- * A run with no verdict, such as a timeout, a signal or an unknown exit code, gives `run-no-verdict`. A run that does not finish is never a kill.
+ * Red after green gives `passed`, and green after green gives `failed`. A failed revert or restore gives `indeterminate`. A failed restore wins over each cause of a run.
+ * A run with no verdict gives `run-no-verdict`. The runner checks the probe command at its first run, and an injected runner replaces that check.
  *
  * Limit: the probe reads every red run after the revert as a kill. A test can fail to load when the revert removes or changes a module that it imports.
  * An example is a module that the task adds or renames. A reverted config file, such as `package.json`, can make the run red or collect no test. Test files and test-support files are never reverted.
  */
 export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
-  const { gitExec, repoRoot, baseRef, changedFiles, runTests, testGlobs } = args;
+  const { gitExec, repoRoot, baseRef, changedFiles, runTests, terms } = args;
   const riskTier = args.riskTier;
+  const withRoute = terms?.withRoute ?? ((reason: string): string => reason);
 
   if (args.diffFailed === true) {
     return toProbeResult(
@@ -834,10 +878,35 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
     );
   }
 
+  const globTerm = terms?.globs;
+  if (globTerm?.state === 'unresolved') {
+    return probeNotRun(PROFILE_UNRESOLVED, withRoute(globTerm.reason), riskTier);
+  }
+
   const deleted = new Set(args.deletedFiles ?? []);
-  const split = splitHunks(changedFiles, { testGlobs });
+  const claimed = replacedSeedFiles(changedFiles, globTerm);
+  const split = splitHunks(
+    changedFiles.filter((file) => !claimed.includes(file)),
+    { testGlobs: globTerm?.globs ?? args.testGlobs, supportSegments: terms?.supportSegments },
+  );
   const testFiles = split.testFiles.filter((file) => !deleted.has(file));
   const sourceFiles = split.sourceFiles;
+
+  const foreignTests = claimed.filter((file) => !deleted.has(file));
+  if (foreignTests.length > 0) {
+    return probeNotRun('unprobed-test-paths', withRoute(replacedSeedReason(foreignTests)), riskTier);
+  }
+
+  const touchedTestPaths = [...claimed, ...split.testFiles, ...split.supportFiles];
+  if (testFiles.length === 0 && touchedTestPaths.length > 0) {
+    return probeNotRun('unprobed-test-paths', withRoute(noTestLeftReason(touchedTestPaths)), riskTier);
+  }
+
+  const probeGlobs = terms?.probeGlobs;
+  const unfit = probeGlobs === undefined ? [] : testFiles.filter((file) => !matchesAnyGlob(file, probeGlobs));
+  if (unfit.length > 0) {
+    return probeNotRun('unprobed-test-paths', withRoute(runnerFitReason(unfit)), riskTier);
+  }
 
   if (testFiles.length === 0) {
     return toProbeResult(
@@ -913,11 +982,11 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
     );
   }
 
-  const stoppedBeforeRevert = preRunVerdict(preRun);
+  const stoppedBeforeRevert = preRunVerdict(preRun, withRoute);
   if (stoppedBeforeRevert !== undefined) {
     return toProbeResult(
       stoppedBeforeRevert,
-      { probedTests: testFiles, redObserved: false, restoredClean },
+      { probedTests: preRun.kind === 'unresolved' ? [] : testFiles, redObserved: false, restoredClean },
       riskTier,
     );
   }
@@ -938,7 +1007,7 @@ export async function runProbe(args: ProbeArgs): Promise<ProbeResult> {
   }
 
   return toProbeResult(
-    postRevertVerdict(postRevert, testFiles),
+    postRevertVerdict(postRevert, testFiles, withRoute),
     { probedTests: testFiles, redObserved, restoredClean },
     riskTier,
   );

@@ -5,6 +5,7 @@
  * The result is a {@link ResolvedRuntime} with the commands and the highest layer that supplied one.
  *
  * {@link resolveScopedTestCommand} resolves the test command of the kill probe. It is not a field of that result.
+ * {@link packageManagerProjectType} gives the project-type label of the test command of a Node package manager.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -217,6 +218,12 @@ interface ScopedTestProfile {
   scopedTest: string;
 }
 
+/** The test command of a Node package manager, and its project-type label. The worktree baseline reports the label for that command. */
+interface TestCommandLabel {
+  readonly test: string;
+  readonly projectType: string;
+}
+
 /**
  * Script profiles for pnpm, yarn and npm. `detect` handles bun separately, because `bun test` needs no `scripts.test` entry.
  * `testScript` is the script that must exist for a runnable `test` command. `install` is a function, so yarn can select the flag for Berry or Classic.
@@ -224,9 +231,8 @@ interface ScopedTestProfile {
  */
 const NODE_SCRIPT_PROFILES: Record<
   'pnpm' | 'yarn' | 'npm',
-  ScopedTestProfile & {
+  ScopedTestProfile & TestCommandLabel & {
     testScript: string;
-    test: string;
     typecheck: string;
     install: (repoRoot: string, pkg: PackageJsonShape | null) => string;
   }
@@ -234,6 +240,7 @@ const NODE_SCRIPT_PROFILES: Record<
   pnpm: {
     testScript: 'test',
     test: 'pnpm test',
+    projectType: 'Node.js (pnpm)',
     scopedTestScript: 'test:files',
     scopedTest: 'pnpm run test:files',
     typecheck: 'pnpm run typecheck',
@@ -242,6 +249,7 @@ const NODE_SCRIPT_PROFILES: Record<
   yarn: {
     testScript: 'test',
     test: 'yarn test',
+    projectType: 'Node.js (yarn)',
     scopedTestScript: 'test:files',
     scopedTest: 'yarn run test:files',
     typecheck: 'yarn run typecheck',
@@ -251,6 +259,7 @@ const NODE_SCRIPT_PROFILES: Record<
   npm: {
     testScript: 'test:run',
     test: 'npm run test:run',
+    projectType: 'Node.js',
     scopedTestScript: 'test:files',
     scopedTest: 'npm run test:files',
     typecheck: 'npm run typecheck',
@@ -258,11 +267,21 @@ const NODE_SCRIPT_PROFILES: Record<
   },
 };
 
-/** The scoped test script of bun. `detect` handles bun outside the profile table, so bun has its own entry. */
-const BUN_SCOPED_TEST_PROFILE: ScopedTestProfile = {
+/**
+ * The scripts and the label of bun. `detect` handles bun outside the profile table, so bun has its own entry.
+ * `test` is the Bun runner, which `detect` gives when the root has no `test:run` script.
+ */
+const BUN_PROFILE: ScopedTestProfile & TestCommandLabel = {
   scopedTestScript: 'test:files',
   scopedTest: 'bun run test:files',
+  test: 'bun test',
+  projectType: 'Node.js (bun)',
 };
+
+/** Returns the project-type label of the package-manager profile whose test command is `test`. A command of no profile gives `undefined`. */
+export function packageManagerProjectType(test: string): string | undefined {
+  return [...Object.values(NODE_SCRIPT_PROFILES), BUN_PROFILE].find((profile) => profile.test === test)?.projectType;
+}
 
 /**
  * Returns the scoped test command of a Node project, or null. The result is null when no Node package manager is found,
@@ -273,8 +292,20 @@ function detectScopedTest(repoRoot: string): string | null {
   if (pm === null) return null;
   const { json: pkg, malformed } = readPackageJson(repoRoot);
   if (malformed) return null;
-  const profile = pm === 'bun' ? BUN_SCOPED_TEST_PROFILE : NODE_SCRIPT_PROFILES[pm];
+  const profile = pm === 'bun' ? BUN_PROFILE : NODE_SCRIPT_PROFILES[pm];
   return hasScript(pkg, profile.scopedTestScript) ? profile.scopedTest : null;
+}
+
+/**
+ * Returns the command that runs one package script with the package manager of the root, such as `pnpm run lint`.
+ * It returns null when the root has no `package.json`, when the file does not parse, or when the script is absent or blank.
+ */
+export function packageScriptCommand(repoRoot: string, script: string): string | null {
+  const pm = detectNodePackageManager(repoRoot);
+  if (pm === null) return null;
+  const { json: pkg, malformed } = readPackageJson(repoRoot);
+  if (malformed || !hasScript(pkg, script)) return null;
+  return `${pm} run ${script}`;
 }
 
 /** The command that the kill probe runs, and the exit codes that read as a red run of it. */
@@ -290,12 +321,17 @@ export interface ScopedTestCommand {
  * Without that script, the command is the `test` field of {@link resolveTestRuntime}.
  * The command is not a field of {@link ResolvedRuntime}. It has no source layer and no `command.resolved` event.
  *
+ * `options.loadConfig` goes to {@link resolveTestRuntime}. A call that passes it reads no config file and spawns no git.
+ *
  * The exit codes come from the detected built-in toolchain when the command is the command that its detection gives.
  * Any other command has no known toolchain, so only exit 1 reads as red.
  */
-export function resolveScopedTestCommand(repoRoot: string): ScopedTestCommand | null {
+export function resolveScopedTestCommand(
+  repoRoot: string,
+  options?: Pick<ResolveOptions, 'loadConfig'>,
+): ScopedTestCommand | null {
   const scoped = detectScopedTest(repoRoot);
-  const command = scoped ?? resolveTestRuntime(repoRoot).test;
+  const command = scoped ?? resolveTestRuntime(repoRoot, options).test;
   if (command === null) return null;
   const detectedCommand = scoped ?? detect(repoRoot).test;
   const toolchain = command === detectedCommand ? detectToolchain(repoRoot) : undefined;
@@ -324,7 +360,7 @@ function detect(repoRoot: string): DetectionResult {
     }
     if (pm === 'bun') {
       return {
-        test: hasScript(pkg, 'test:run') ? 'bun run test:run' : 'bun test',
+        test: hasScript(pkg, 'test:run') ? 'bun run test:run' : BUN_PROFILE.test,
         typecheck: hasScript(pkg, 'typecheck') ? 'bun run typecheck' : 'tsc --noEmit',
         install: 'bun install',
         detected: true,

@@ -29,11 +29,10 @@ import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import {
   interpretProbeVerdict,
   verdictOf,
-  resolveProbeTestGlobs,
   ADEQUACY_DISCRIMINANTS,
-  DEFAULT_TEST_GLOBS,
   type AdequacyDiscriminant,
 } from '../../../../src/verbs/gates/test-adequacy.js';
+import { DEFAULT_TEST_GLOBS, resolveProbeTestGlobs } from '../../../../src/config/toolchains.js';
 
 
 function git(repoRoot: string, args: readonly string[]): Promise<string> {
@@ -234,15 +233,17 @@ describe('check_test_adequacy production path', () => {
 
   /**
    * The root marker `pyproject.toml` selects python, but the task adds the
-   * co-located test `src/calc.test.ts`. The probe must include that file. The
-   * injected `runTests` reports green on the task source and red on the
-   * reverted source, so the disposition is `proved`. The test enters at
-   * `handleOrchestrate` to inject `runTests`.
+   * co-located test `src/calc.test.ts`. The root sets a probe of the node row, so
+   * the probe can run that file, and it must include it. The seeded `pytest` probe
+   * cannot run it and blocks. The injected `runTests` reports green on the task
+   * source and red on the reverted source, so the disposition is `proved`. The
+   * test enters at `handleOrchestrate` to inject `runTests`.
    */
   it('ProductionPath_ColocatedTestsUnderLayoutToolchain_ResolvesNonEmptyProbedTests', async () => {
     const repoRoot = await initRepo('prodpath-subject-');
     cleanups.push(() => rmrf(repoRoot));
     writeFileSync(path.join(repoRoot, 'pyproject.toml'), '[project]\nname = "fx"\n');
+    writeFileSync(path.join(repoRoot, '.exarchos.yml'), 'verification:\n  tests:\n    probe:\n      command: npm run test:files\n');
     mkdirSync(path.join(repoRoot, 'src'), { recursive: true });
     writeFileSync(path.join(repoRoot, 'src', 'calc.ts'), 'export const v = () => 1;\n');
     await git(repoRoot, ['add', '.']);
@@ -497,7 +498,13 @@ describe('ProbeVerdict algebra', () => {
    * so its report must not say that the probe did not run. A probe that never started must say so.
    */
   it('Indeterminate_Report_StatesWhatTheProbeDidForEachCause', () => {
-    const neverStarted: readonly AdequacyDiscriminant[] = ['no-new-tests', 'diff-failed', 'base-missing'];
+    const neverStarted: readonly AdequacyDiscriminant[] = [
+      'no-new-tests',
+      'diff-failed',
+      'base-missing',
+      'unprobed-test-paths',
+      'profile-unresolved',
+    ];
     for (const cause of ALL_CAUSES) {
       for (const tier of [undefined, 'low', 'medium', 'high']) {
         const report = interpretProbeVerdict({ kind: 'indeterminate', cause, detail: 'detail' }, tier).report ?? '';

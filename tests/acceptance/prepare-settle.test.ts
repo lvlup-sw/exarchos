@@ -303,7 +303,7 @@ async function workRowsOf(taskIds: readonly string[]): Promise<{ type: string; s
   return rows;
 }
 
-/** The number of rows of each type. Each task leaves four gate verdicts, one for each ladder gate. */
+/** The number of rows of each type. Each task leaves five gate verdicts, one for each ladder gate. */
 function countsByType(rows: readonly { readonly type: string }[]): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const row of rows) counts[row.type] = (counts[row.type] ?? 0) + 1;
@@ -610,7 +610,7 @@ describe('prepare then settle, through the dispatcher', () => {
    * the same leaf. `verified` is the flag of that leaf for caller-attached evidence, and a settled
    * claim attaches none. The verification is the durable gate row, not a field on the fact.
    *
-   * Each of the four ladder gates leaves an evidence row for each task, and a policy-skipped gate
+   * Each of the five ladder gates leaves an evidence row for each task, and a policy-skipped gate
    * records the skip. The three static-analysis rows hold the verdicts that decided the batch.
    *
    * The projection reads the facts as progress. The transition is a separate call with its own
@@ -638,7 +638,7 @@ describe('prepare then settle, through the dispatcher', () => {
     const evidence = (await rowsOf('admission.evidence-recorded')) as {
       data: { evidence: { requirementId: string; verdict: string } };
     }[];
-    expect(evidence).toHaveLength(12);
+    expect(evidence).toHaveLength(15);
     const decided = evidence.filter((e) => e.data.evidence.requirementId === 'verification-ladder:static-analysis');
     expect(decided.map((e) => e.data.evidence.verdict)).toEqual(['pass', 'pass', 'pass']);
 
@@ -872,8 +872,8 @@ describe('prepare then settle, through the dispatcher', () => {
       ['batch-1', 'corrective-capsule', [{ taskId: 'task-b', cause: 'verification-failed' }]],
     ]);
     const passed = await workRowsOf(['task-a', 'task-c']);
-    expect(countsByType(passed)).toEqual({ 'task.assigned': 2, 'gate.executed': 8, 'task.completed': 2 });
-    expect(countsByType(await workRowsOf(['task-b']))).toEqual({ 'task.assigned': 1, 'gate.executed': 4 });
+    expect(countsByType(passed)).toEqual({ 'task.assigned': 2, 'gate.executed': 10, 'task.completed': 2 });
+    expect(countsByType(await workRowsOf(['task-b']))).toEqual({ 'task.assigned': 1, 'gate.executed': 5 });
     const partial = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
     expect(partial.data).toMatchObject({
       tasks: [
@@ -920,7 +920,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await workRowsOf(['task-a', 'task-c'])).toEqual(passed);
     expect(countsByType(await workRowsOf(['task-b']))).toEqual({
       'task.assigned': 1,
-      'gate.executed': 8,
+      'gate.executed': 10,
       'task.completed': 1,
     });
     await expectReplayReturnsTheReceiptAndTheSettleActionAppendsNoRow(correction, corrected);
@@ -997,6 +997,7 @@ describe('prepare then settle, through the dispatcher', () => {
       ['test-adequacy', 'pass'],
       ['contract-drift', 'skipped-by-policy'],
       ['mock-boundary', 'skipped-by-policy'],
+      ['integration-suite', 'skipped-by-policy'],
       ['static-analysis', 'pass'],
     ]);
     expect(await gateVerdictsOf(second.id)).toEqual([['test-adequacy', 'fail']]);
@@ -1043,6 +1044,7 @@ describe('prepare then settle, through the dispatcher', () => {
       ['test-adequacy', 'pass'],
       ['contract-drift', 'skipped-by-policy'],
       ['mock-boundary', 'skipped-by-policy'],
+      ['integration-suite', 'skipped-by-policy'],
       ['static-analysis', 'pass'],
     ]);
     expect((await settlementRecords()).map((record) => [record.batchId, record.outcome, record.unresolvedTasks])).toEqual([
@@ -1098,7 +1100,7 @@ describe('prepare then settle, through the dispatcher', () => {
     ]);
     expect(countsByType(await workRowsOf(['task-a', 'task-c']))).toEqual({
       'task.assigned': 2,
-      'gate.executed': 8,
+      'gate.executed': 10,
       'task.completed': 2,
     });
     const reported = countsByType(await workRowsOf(['task-b']));
@@ -1322,7 +1324,7 @@ describe('prepare then settle, through the dispatcher', () => {
     ]);
     expect(countsByType(await workRowsOf(['task-a', 'task-b', 'task-c']))).toEqual({
       'task.assigned': 3,
-      'gate.executed': 12,
+      'gate.executed': 15,
       'task.completed': 3,
     });
     const got = await call('exarchos_workflow', { action: 'get', featureId: STREAM });
@@ -1781,7 +1783,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(decided.success, JSON.stringify(decided)).toBe(true);
     expect(decided.data).toMatchObject({ outcome: 'settled', acceptedTasks: [first.id, second.id] });
     const finishedWork = await workRowsOf([first.id, second.id]);
-    expect(countsByType(finishedWork)).toEqual({ 'task.assigned': 2, 'gate.executed': 8, 'task.completed': 2 });
+    expect(countsByType(finishedWork)).toEqual({ 'task.assigned': 2, 'gate.executed': 10, 'task.completed': 2 });
 
     const recompiled = await call('exarchos_orchestrate', { action: 'prepare', featureId: STREAM, repoRoot: repository.checkout });
     expect(recompiled.success, JSON.stringify(recompiled)).toBe(true);
@@ -1853,7 +1855,7 @@ describe('prepare then settle, through the dispatcher', () => {
     expect(await workRowsOf([first.id, second.id])).toEqual(finishedWork);
     expect(countsByType(await workRowsOf([third.id]))).toEqual({
       'task.assigned': 1,
-      'gate.executed': 4,
+      'gate.executed': 5,
       'task.completed': 1,
     });
 
@@ -1965,7 +1967,7 @@ describe('prepare then settle, through the dispatcher', () => {
     });
     expect(countsByType(await workRowsOf([done.id]))).toEqual({
       'task.assigned': 1,
-      'gate.executed': 4,
+      'gate.executed': 5,
       'task.completed': 1,
     });
     expect(countsByType(await workRowsOf([named.id]))).toEqual({ 'task.assigned': 1 });

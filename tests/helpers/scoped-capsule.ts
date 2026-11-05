@@ -3,8 +3,10 @@
  *
  * `inScopeObserver` replaces the git observation of settle. For any path, it gives a work tree of the pinned
  * repository at that path. So a claim on a path that does not exist passes the scope rules of settle.
- * `scopeOfCheckout` and `withScope` give a hand-built capsule the scope terms that a compiler which pins the scope writes.
- * The scope names a temp checkout, and its digest is the digest of the config files there, so settle runs its segments.
+ *
+ * `scopeOfCheckout` and `withScope` give a hand-built capsule the terms that a compiler which pins the scope and the profile writes.
+ * The scope names a temp checkout, and its digest is the digest of the config files there. The profile is the shared Node fake.
+ * So settle runs the segments of such a capsule.
  */
 import { mkdir } from 'node:fs/promises';
 import * as path from 'node:path';
@@ -12,6 +14,7 @@ import * as path from 'node:path';
 import type { CapsuleScope, ExarchosCapsuleV1 } from '../../src/contract/capsule/exarchos-capsule.js';
 import { canonicalPath, type TreeObserver } from '../../src/utils/git-tree.js';
 import { configDigestAt } from '../../src/verbs/prepare/prepare-scope.js';
+import { nodeTestProfile } from './verification-profile.js';
 
 /** The base commit that a hand-built capsule pins for each task: a full SHA-1 object name. */
 const SCOPED_BASE_COMMIT = 'c'.repeat(40);
@@ -48,8 +51,9 @@ export async function scopeOfCheckout(dir: string): Promise<CapsuleScope> {
 }
 
 /**
- * A hand-built capsule with the scope terms of a compiler that pins the scope. The settlement contract gets the scope,
- * and the terms of each task get a base commit. A task whose terms hold a base commit keeps it.
+ * A hand-built capsule with the terms of a compiler that pins the scope and the profile. The settlement contract gets the scope
+ * and the shared Node profile, and the terms of each task get a base commit. A capsule that holds a profile keeps it, and a task
+ * whose terms hold a base commit keeps it.
  */
 export function withScope(capsule: ExarchosCapsuleV1, scope: CapsuleScope): ExarchosCapsuleV1 {
   const terms = capsule.settlementContract.taskVerification;
@@ -65,6 +69,7 @@ export function withScope(capsule: ExarchosCapsuleV1, scope: CapsuleScope): Exar
             ),
           }),
       scope,
+      verificationProfile: capsule.settlementContract.verificationProfile ?? nodeTestProfile(),
     },
   };
 }

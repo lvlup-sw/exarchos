@@ -5,14 +5,21 @@ import {
   StorageConfigSchema,
   SynthesisConfigSchema,
   EscalationConfigSchema,
+  safeCommand,
 } from './exarchos-config-schema.js';
 import { VERIFICATION_GATE_NAMES } from '../workflow/verification-policy.js';
+import {
+  PROBE_FILE_FORMS,
+  SUITE_REPORT_FORMATS,
+  VerificationProfileSchema,
+} from '../workflow/verification/profile.js';
 import {
   REMOVED_PRUNE_CONFIG_KNOBS,
   PRUNE_CONFIG_KNOWN_KEYS,
   removedPruneKnobMessage,
   unrecognizedPruneKeyMessage,
 } from './prune-removed-knobs.js';
+import { tokenizeCommand } from './tokenize-command.js';
 
 const DimensionSeverity = z.enum(['blocking', 'warning', 'disabled']);
 
@@ -207,9 +214,118 @@ const VerificationPolicyConfig = z
   })
   .strict();
 
+/**
+ * The terms of the verification profile. Each new key of the `verification:` block takes the rule of its term from them.
+ * Thus a value that loads always fits its term, and no key holds its own copy of a path or code rule.
+ */
+const PROFILE_TERMS = VerificationProfileSchema.shape;
+
+/**
+ * At most 64 globs, each relative with no `..` segment: the glob list of a resolved `firstParty` term.
+ * `[]` loads, and the profile reads an empty `tests.globs` as an unresolved term.
+ */
+const ProfileGlobList = PROFILE_TERMS.firstParty.options[0].shape.globs;
+
+/** At most 64 directory names: the segments of the test-support term. */
+const ProfileSupportSegments = PROFILE_TERMS.tests.shape.support.shape.segments;
+
+/** 1 to 16 red exit codes, each an integer from 1 to 255. Thus exit 0 can never be red. */
+const ProfileFailureExitCodes = PROFILE_TERMS.integration.shape.failureExitCodes.shape.codes;
+
+/**
+ * The name of one check of `verification.staticAnalysis`: a check name of the profile that starts with a letter.
+ * A name that is an integer changes the key order of a parsed map, and the key order is the run order.
+ */
+const StaticAnalysisCheckName = PROFILE_TERMS.staticAnalysis.options[0].shape.checks.element.shape.name.regex(
+  /^[A-Za-z]/,
+  'a check name starts with a letter',
+);
+
+/** The maximum number of checks in `verification.staticAnalysis`. It is the bound of the static-analysis term of the profile. */
+const MAX_STATIC_ANALYSIS_CHECKS = 16;
+
+/**
+ * `verification.tests`: the test globs, the test-support segments and the probe command.
+ * `globs` replaces every seeded glob, and `support` replaces the seeded segments.
+ * A probe key that is absent comes from the seed row of the program of `command`.
+ */
+const VerificationTestsConfig = z
+  .object({
+    globs: ProfileGlobList.optional(),
+    support: ProfileSupportSegments.optional(),
+    probe: z
+      .object({
+        command: safeCommand,
+        files: z.enum(PROBE_FILE_FORMS).optional(),
+        failureExitCodes: ProfileFailureExitCodes.optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+/**
+ * `verification.staticAnalysis`: a map of named checks, each a command, run in key order. It replaces every seeded check.
+ * `{}` loads, and the profile reads it as an unresolved term.
+ */
+const VerificationStaticAnalysisConfig = z
+  .record(StaticAnalysisCheckName, safeCommand)
+  .refine((checks) => Object.keys(checks).length <= MAX_STATIC_ANALYSIS_CHECKS, {
+    message: `holds more than ${MAX_STATIC_ANALYSIS_CHECKS} checks`,
+  });
+
+/**
+ * `verification.integration`: the command of the integration suite, the format of its report and its red exit codes.
+ * `report` defaults to `exit-code`. Absent codes come from the seed row of the program of `command`.
+ */
+const VerificationIntegrationConfig = z
+  .object({
+    command: safeCommand,
+    report: z.enum(SUITE_REPORT_FORMATS).optional(),
+    failureExitCodes: ProfileFailureExitCodes.optional(),
+  })
+  .strict();
+
+/** The term of one boundary check of the profile. */
+const BOUNDARY_CHECK_TERM = PROFILE_TERMS.boundaryChecks.element;
+
+/** The maximum number of entries in `verification.boundaryChecks`. It is the bound of the boundary-check term of the profile. */
+const MAX_BOUNDARY_CHECKS = 4;
+
+/** True when `command` splits into an argv that the resolved command of a boundary check holds. */
+function fitsBoundaryCommand(command: string): boolean {
+  try {
+    const argv = [...tokenizeCommand(command)];
+    return BOUNDARY_CHECK_TERM.shape.command.safeParse({ state: 'resolved', argv, source: 'config' }).success;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One entry of `verification.boundaryChecks`. `adapter` picks the report reader, and `config` is the relative path of its config file.
+ * The boundary-check term has no unresolved state. So a command that does not fit the argv of the term does not load, and the capsule always parses.
+ */
+const VerificationBoundaryCheckConfig = z
+  .object({
+    adapter: BOUNDARY_CHECK_TERM.shape.adapter,
+    command: safeCommand.refine(fitsBoundaryCommand, { message: 'does not split into an argv of the safe-command class within the argv bound' }),
+    config: BOUNDARY_CHECK_TERM.shape.config,
+  })
+  .strict();
+
+/**
+ * The `verification:` block. `policy` is the overlay of the ladder table.
+ * `tests`, `staticAnalysis`, `integration` and `boundaryChecks` override the terms of the verification profile.
+ * `boundaryChecks` replaces every seeded adapter, and `[]` gives no boundary check.
+ */
 const VerificationConfig = z
   .object({
     policy: VerificationPolicyConfig.optional(),
+    tests: VerificationTestsConfig.optional(),
+    staticAnalysis: VerificationStaticAnalysisConfig.optional(),
+    integration: VerificationIntegrationConfig.optional(),
+    boundaryChecks: z.array(VerificationBoundaryCheckConfig).max(MAX_BOUNDARY_CHECKS).optional(),
   })
   .strict();
 
