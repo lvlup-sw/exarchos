@@ -25,4 +25,14 @@ describe('package.json scripts', () => {
     const parsed = JSON.parse(raw) as { scripts?: Record<string, string> };
     expect(parsed.scripts?.bench).toBe('vitest bench --project core');
   });
+
+  /**
+   * `.exarchos.yml` names this script as the integration suite of a high-tier settle. The `process`
+   * project tests the installed `exarchos` binary, not the tree of the task, so the script leaves it out.
+   */
+  it('PackageJson_IntegrationScript_RunsEveryProjectButProcess', () => {
+    const raw = fs.readFileSync(path.join(REPO_ROOT, 'package.json'), 'utf8');
+    const parsed = JSON.parse(raw) as { scripts?: Record<string, string> };
+    expect(parsed.scripts?.['test:integration']).toBe("vitest run --project '!process'");
+  });
 });

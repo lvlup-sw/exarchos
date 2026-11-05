@@ -70,7 +70,7 @@ function argvOf(term: VerificationProfile['integration']['command']): readonly s
 describe('the layers of the verification profile', () => {
   /**
    * This repository sets only `verification.staticAnalysis` and `verification.integration.command`.
-   * So the checks of the old gates come back with `quality-check`, the suite is the whole root suite, and every other term is the seed.
+   * So the checks of the old gates come back with `quality-check`, the suite is every project but `process`, and every other term is the seed.
    */
   it('ResolveProfile_ThisRepository_TakesItsChecksAndItsSuiteFromItsConfig', () => {
     const profile = profileAt(REPO_ROOT);
@@ -93,7 +93,7 @@ describe('the layers of the verification profile', () => {
       source: 'config',
     });
     expect(profile.integration).toEqual({
-      command: { state: 'resolved', argv: ['npx', 'vitest', 'run'], source: 'config' },
+      command: { state: 'resolved', argv: ['npm', 'run', 'test:integration'], source: 'config' },
       report: 'exit-code',
       failureExitCodes: { codes: [1], source: 'detection' },
     });

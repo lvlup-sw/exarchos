@@ -7,7 +7,7 @@
     "testFiles": 1395,
     "parsedFiles": 1350,
     "shellFiles": 45,
-    "cases": 15423,
+    "cases": 15424,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -6702,6 +6702,11 @@
         {
           "suite": "package.json scripts",
           "name": "PackageJson_BenchScript_RunsCoreProjectOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "package.json scripts",
+          "name": "PackageJson_IntegrationScript_RunsEveryProjectButProcess",
           "dynamic": false
         }
       ]

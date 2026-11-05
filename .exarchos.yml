@@ -57,11 +57,12 @@ invariants:
 
 # The verification profile terms that this repository sets. The built-in
 # seeds give only `lint` and `typecheck`, so `quality-check` comes back here.
-# The integration suite is the whole root suite, not the `unit` project only.
+# The integration suite is every root project but `process`, which tests the
+# installed `exarchos` binary, not the tree of the task.
 verification:
   staticAnalysis:
     lint: npm run lint
     typecheck: npm run typecheck
     quality-check: npm run quality-check
   integration:
-    command: npx vitest run
+    command: npm run test:integration
