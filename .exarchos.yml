@@ -54,3 +54,14 @@ plugins:
 invariants:
   catalogs:
     - { path: .exarchos/invariants.md, tier: dev }
+
+# The verification profile terms that this repository sets. The built-in
+# seeds give only `lint` and `typecheck`, so `quality-check` comes back here.
+# The integration suite is the whole root suite, not the `unit` project only.
+verification:
+  staticAnalysis:
+    lint: npm run lint
+    typecheck: npm run typecheck
+    quality-check: npm run quality-check
+  integration:
+    command: npx vitest run

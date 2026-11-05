@@ -88808,7 +88808,7 @@
       "cases": [
         {
           "suite": "the layers of the verification profile",
-          "name": "ResolveProfile_ThisRepository_ReproducesTheCommandsOfTheOldGatesLessQualityCheck",
+          "name": "ResolveProfile_ThisRepository_TakesItsChecksAndItsSuiteFromItsConfig",
           "dynamic": false
         },
         {
