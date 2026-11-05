@@ -63,6 +63,8 @@ EXEMPT_SUBSTRATE="src/events/atomic-appender.ts"
 
 # The exempt path must name a live file that defines the guarded method. A
 # stale exemption or a renamed API makes every scan pass with nothing to check.
+# The match is a method declaration at the start of a line, so a comment or a
+# call that names withSession does not count as the definition.
 SUBSTRATE_FILE="$(find "$SCAN_DIR" -path "*/$EXEMPT_SUBSTRATE" -type f -print -quit 2>/dev/null || true)"
 if [[ -z "$SUBSTRATE_FILE" ]]; then
     echo "ERROR: the exempt substrate $EXEMPT_SUBSTRATE is not under $SCAN_DIR." >&2
@@ -70,7 +72,7 @@ if [[ -z "$SUBSTRATE_FILE" ]]; then
     echo "Update EXEMPT_SUBSTRATE when the substrate moves." >&2
     exit 2
 fi
-if ! grep -qE '\bwithSession[[:space:]]*[<(]' "$SUBSTRATE_FILE"; then
+if ! grep -qE '^[[:space:]]*((public|private|protected|static|async|override)[[:space:]]+)*withSession[[:space:]]*[<(]' "$SUBSTRATE_FILE"; then
     echo "ERROR: $SUBSTRATE_FILE does not define withSession." >&2
     echo "The gate cannot judge call sites of an API that does not exist." >&2
     exit 2

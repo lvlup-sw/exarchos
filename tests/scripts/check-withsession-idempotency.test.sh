@@ -353,7 +353,33 @@ fi
 teardown
 
 # --------------------------------------------------
-# Test 14: MissingScanDir_ExitsTwo
+# Test 14: SubstrateNamingWithSessionOnlyInCommentsAndCalls_ExitsTwo
+# --------------------------------------------------
+# A removed declaration can leave the name in a comment or a call. Neither one
+# defines the API, so the scan has nothing to check.
+setup
+cat > "$TMPDIR_ROOT/src/events/atomic-appender.ts" << 'EOF'
+// Callers use withSession(streamId, reducerId, fn, opts).
+/**
+ * withSession<TState>(streamId) was removed.
+ */
+export class AtomicAppender {
+  async retry(streamId: string) {
+    return this.withSession(streamId);
+  }
+}
+EOF
+OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "$TMPDIR_ROOT" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
+if [[ $EXIT_CODE -eq 2 ]]; then
+    pass "SubstrateNamingWithSessionOnlyInCommentsAndCalls_ExitsTwo"
+else
+    fail "SubstrateNamingWithSessionOnlyInCommentsAndCalls_ExitsTwo (exit=$EXIT_CODE, expected 2)"
+    echo "  Output: $OUTPUT"
+fi
+teardown
+
+# --------------------------------------------------
+# Test 15: MissingScanDir_ExitsTwo
 # --------------------------------------------------
 OUTPUT="$(bash "$SCRIPT_UNDER_TEST" "/nonexistent-withsession-scan-dir" 2>&1)" && EXIT_CODE=$? || EXIT_CODE=$?
 if [[ $EXIT_CODE -eq 2 ]]; then
