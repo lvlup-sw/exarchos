@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1393,
-    "parsedFiles": 1348,
+    "testFiles": 1394,
+    "parsedFiles": 1349,
     "shellFiles": 45,
-    "cases": 15399,
+    "cases": 15413,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -75962,6 +75962,82 @@
         {
           "suite": "the golden of the built-in workflows",
           "name": "BuiltInGolden_EachSecondGuardCase_FailsOnTheSecondInnerGuard",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/extension.test.ts": {
+      "file": "tests/unit/workflow/definitions/extension.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AValidDocument_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_TheKernelSchema_AcceptsABrokenExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AnUnknownKey_IsRefusedAtEveryLevel",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AConditionWithACommandKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AnEdgeWithNoTransition_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_ATransitionWithNoEdge_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AStepInTwoGroups_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_ANonContiguousGroup_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AHistoryOtherThanShallow_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AUniversalEdgeToANonTerminalStep_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_ATopLevelKeyOutsideTheKernel_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_ACompositeGuardId_IsAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_EachFinding_NamesItsRuleAndPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_TheMachineModule_ImportsTheEffectType",
           "dynamic": false
         }
       ]

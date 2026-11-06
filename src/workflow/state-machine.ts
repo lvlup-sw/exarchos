@@ -30,10 +30,9 @@ import {
   createOneshotHSM,
   createDiscoveryHSM,
 } from './hsm-definitions.js';
+import type { Effect } from './definitions/extension.js';
 
 export type { Guard, GuardResult };
-
-export type Effect = 'checkpoint' | 'log' | 'increment-fix-cycle';
 
 /**
  * The fields that every state variant shares, so a read of `.initial`, `.maxFixCycles` or `.parent` needs no narrowing.
