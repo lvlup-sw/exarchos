@@ -68,6 +68,30 @@ export const PARITY_CONTRACT: ParitySpec[] = [
       '_cacheHints',
     ],
   },
+  {
+    action: 'orchestrate.prepare',
+    /**
+     * `data` is the prepare receipt with the whole capsule. A retry returns the recorded receipt,
+     * so the receipt of the second transport must be equal to the receipt of the first.
+     */
+    fieldsRequiringEquality: ['success', 'data', 'next_actions', '_eventHints'],
+    fieldsAllowedToDiffer: ['_transport.requestId', '_meta', '_perf'],
+  },
+  {
+    action: 'orchestrate.settle',
+    /**
+     * `data` is the settlement receipt. A duplicate settle of the same batch returns the recorded
+     * decision, so the receipt must be equal on both transports.
+     */
+    fieldsRequiringEquality: ['success', 'data', 'next_actions', '_eventHints'],
+    fieldsAllowedToDiffer: ['_transport.requestId', '_meta', '_perf'],
+  },
+  {
+    action: 'orchestrate.refusal',
+    /** A refused `prepare` or `settle` returns `error` with its code and message, and no `data`. */
+    fieldsRequiringEquality: ['success', 'error'],
+    fieldsAllowedToDiffer: ['_transport.requestId', '_meta', '_perf'],
+  },
 ];
 
 /**

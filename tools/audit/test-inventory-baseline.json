@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1395,
-    "parsedFiles": 1350,
+    "testFiles": 1396,
+    "parsedFiles": 1351,
     "shellFiles": 45,
-    "cases": 15424,
+    "cases": 15430,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -9865,6 +9865,16 @@
         },
         {
           "suite": "PARITY_CONTRACT",
+          "name": "paritySpec_orchestratePrepareAndSettle_listRequiredFields",
+          "dynamic": false
+        },
+        {
+          "suite": "PARITY_CONTRACT",
+          "name": "paritySpec_orchestrateRefusal_listsRequiredFields",
+          "dynamic": false
+        },
+        {
+          "suite": "PARITY_CONTRACT",
           "name": "paritySpec_actionUniqueness_eachActionHasOneEntry",
           "dynamic": false
         },
@@ -11151,6 +11161,32 @@
         {
           "suite": "parity: exarchos event query — CLI ↔ MCP",
           "name": "eventQuery_cliVsMcp_envelopesMatchAfterNormalize",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/parity-prepare-settle.test.ts": {
+      "file": "tests/process/parity-prepare-settle.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
+          "name": "prepare_cliRetryOfMcpPrepare_envelopesMatchAfterNormalize",
+          "dynamic": false
+        },
+        {
+          "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
+          "name": "settle_mcpRetryOfCliSettle_envelopesMatchAfterNormalize",
+          "dynamic": false
+        },
+        {
+          "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
+          "name": "settle_duplicateOnEachTransport_returnsThePriorDecision",
+          "dynamic": false
+        },
+        {
+          "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
+          "name": "prepareAndSettle_refusedOnEachTransport_envelopesMatchAfterNormalize",
           "dynamic": false
         }
       ]

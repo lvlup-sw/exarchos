@@ -1131,7 +1131,8 @@ jobs:
   #   - P1 fixtures (preflight, runCli, spawnMcpClient, normalizers)
   #   - P2 saga primitives and the #1208 regression
   #   - P3 parity tests (workflow.describe, event.query, workflow.rehydrate with
-  #     F6.1 reconstructability)
+  #     F6.1 reconstructability, and orchestrate prepare and settle with a
+  #     duplicate settle and a refusal of each verb)
   #   - P4 CLI surface tests (version, doctor, install-skills, schema, topology,
   #     emissions, mcp start/stop)
   #
