@@ -24,8 +24,16 @@ import { describe, expect, it } from 'vitest';
 
 import { lexModule } from '../../tools/test-helpers/module-lexer.js';
 import { listTrackedFiles } from '../../tools/test-helpers/tracked-population.js';
+import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+/**
+ * The time budget of a case that lexes every tracked source file. On a CI runner with coverage,
+ * one walk took 3.9 seconds. The `unit` default is 5 seconds. The win32 factor of the
+ * tier scales the budget.
+ */
+const SOURCE_SCAN_TIMEOUT_MS = 20_000 * WIN32_SPAWN_HEADROOM;
 
 interface Policy {
   readonly enablerNamePatterns: readonly { readonly pattern: string }[];
@@ -201,7 +209,7 @@ describe('reachable controls', () => {
         'enables them, so the paths they guard cannot run. Call them from the composition ' +
         'root, remove them, or add an allowlist entry with a reason, an owner and an expiry.',
     ).toEqual([]);
-  });
+  }, SOURCE_SCAN_TIMEOUT_MS);
 
   /**
    * The self-test. The function that scans the source tree must find the
