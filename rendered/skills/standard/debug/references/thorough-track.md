@@ -164,9 +164,9 @@ Continue investigation without time constraint.
 
 If fix requires architectural changes:
 
-**Escalate to blocked:**
+**Escalate and cancel:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the field shapes, then record the investigation findings with `update` and call `transition` with `target: "cancelled"`. The debug workflow has no transition into `blocked`.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the field shapes, then record the investigation findings with `update`. Then call `exarchos_workflow({ action: "cancel", featureId, reason })` to end the debug workflow. Use `cancel`, not `transition`: only `cancel` runs the saga compensation, and the debug workflow has no transition into `blocked`.
 
 Output to user:
 > This issue requires architectural changes that exceed bug fix scope.
