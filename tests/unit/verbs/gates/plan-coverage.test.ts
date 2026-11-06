@@ -390,6 +390,32 @@ describe('computeCoverage — DR-N traceability at plan time (WFQ-006)', () => {
     expect(result.passed).toBe(false);
     expect(result.gapSections).toEqual(['DR-1: Render widgets']);
   });
+
+  /**
+   * A plain `Implements:` line covers a requirement, also as a list item, as in
+   * `check_provenance_chain`. The same label inside a prose sentence does not cover the third one.
+   */
+  it('ComputeCoverage_PlainImplementsLine_CoversTheDr_ProseLabelDoesNot', () => {
+    const sections = ['DR-1: Render widgets', 'DR-2: Cache widget state', 'DR-3: Export widgets'];
+    const planContent = [
+      '## Decomposition',
+      '',
+      '### Task 001: Build widget renderer',
+      '',
+      'Implements: DR-1',
+      '',
+      '### Task 002: Build widget cache',
+      '',
+      '- Implements: DR-2',
+      '',
+      'Later work implements: DR-3, after this task.',
+    ].join('\n');
+    const tasks = parsePlanTasks(planContent);
+
+    const result = computeCoverage(sections, tasks, planContent, []);
+    expect(result.coverage).toEqual({ covered: 2, gaps: 1, deferred: 0, total: 3 });
+    expect(result.gapSections).toEqual(['DR-3: Export widgets']);
+  });
 });
 
 describe('handlePlanCoverage — canonical unified spec (WFQ-006)', () => {
