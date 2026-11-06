@@ -7,7 +7,7 @@
     "testFiles": 1392,
     "parsedFiles": 1347,
     "shellFiles": 45,
-    "cases": 15387,
+    "cases": 15388,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -39841,6 +39841,11 @@
         {
           "suite": "generateHints > workflow_set hints",
           "name": "should suggest batching when p95DurationMs > 200",
+          "dynamic": false
+        },
+        {
+          "suite": "generateHints > workflow_set hints",
+          "name": "should name an action that the workflow tool declares",
           "dynamic": false
         },
         {
