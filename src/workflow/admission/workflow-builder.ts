@@ -1,4 +1,4 @@
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
+// RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28) — production
 // authoring API that waits for the legacy HSM cutover. No production code builds
 // workflow IR through it yet. The built-in definitions move to it when the legacy
 // guard path goes away.
