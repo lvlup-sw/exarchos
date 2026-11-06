@@ -131,6 +131,17 @@ const FORMER_TEST_ROOTS: ReadonlyArray<{ prefix: string; task: string }> = [
   { prefix: 'renovate-config/', task: '036' },
 ];
 
+
+/**
+ * Test files that left with the tool that they tested. A consolidated test ends only by a move or by the
+ * deletion of its subject. A row whose path is tracked again, or whose tool still exists, fails the check.
+ */
+const RETIRED_TEST_FILES: ReadonlyArray<{ path: string; subject: string }> = [
+  { path: 'tests/scripts/audit/check-no-duplicate-suites.test.ts', subject: 'tools/audit/check-no-duplicate-suites.mjs' },
+  { path: 'tests/scripts/audit/consolidate-suite.test.ts', subject: 'tools/audit/consolidate-suite.mjs' },
+  { path: 'tests/scripts/audit/manifest-gate-ci.test.ts', subject: 'tools/audit/manifest-gate-ci.mjs' },
+];
+
 describe('test inventory', () => {
   it('TestInventory_AtBaseline_RecordsEveryDiscoveredTestId', () => {
     expect(inventory.totals.testFiles).toBe(fileEntries.length);
@@ -213,6 +224,13 @@ describe('test inventory', () => {
   it('TestInventory_AfterFullConsolidation_ReconcilesAgainstBaseline', async () => {
     const current = new Set(await trackedTestFiles());
     const tracked = await trackedTestFiles();
+    const retired = RETIRED_TEST_FILES.map((r) => r.path);
+    expect(retired.filter((p) => current.has(p)), 'a retired test file is tracked again').toEqual([]);
+    expect(
+      RETIRED_TEST_FILES.filter((r) => fs.existsSync(path.join(REPO_ROOT, r.subject))).map((r) => r.subject),
+      'a retired test file names a tool that still exists',
+    ).toEqual([]);
+    const accounted = new Set([...current, ...retired]);
 
     for (const { prefix, task } of FORMER_TEST_ROOTS) {
       const left = tracked.filter((f) => f.startsWith(prefix));
@@ -227,7 +245,7 @@ describe('test inventory', () => {
       ).toBeGreaterThan(0);
 
       expect(
-        unaccountedFor(fromHere, current, inventory.relocations),
+        unaccountedFor(fromHere, accounted, inventory.relocations),
         `tests lost from ${prefix} (task ${task})`,
       ).toEqual([]);
     }
