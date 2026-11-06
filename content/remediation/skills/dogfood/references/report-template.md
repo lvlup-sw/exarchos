@@ -46,7 +46,7 @@
 ### Code Bugs
 
 #### [CB-1] [Title]
-- **Tool:** `exarchos_workflow` action `set`
+- **Tool:** `exarchos_workflow` action `update`
 - **Error:** `INVALID_INPUT: ...`
 - **Root cause:** [diagnosis]
 - **Trace evidence:** [what describe/view/event query revealed]

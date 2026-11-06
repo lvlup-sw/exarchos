@@ -190,6 +190,9 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
    * The transition goes through the HSM guard and `recordLiveTransition` to
    * `adjudicateEdge`, which calls `selectEdge`. The decision names the matched
    * edges in priority order, and its verdict stays `allow`.
+   *
+   * The event log decides the `blocked` route, so a get payload leaves that edge
+   * undecidable.
    */
   it('SelectEdge_TwoSimultaneouslyTrueConditions_ReportsMultiMatch', async () => {
     const featureId = 'route-selector-multi-match';
@@ -262,7 +265,8 @@ describe('DR-34 — multi-match detection on the live transition path', () => {
     );
     expect(verdicts.get('delegate')?.multiMatch).toBe(true);
     expect(verdicts.get('plan')?.multiMatch).toBe(true);
-    expect(verdicts.get('blocked')?.multiMatch).toBe(true);
+    expect(verdicts.get('blocked')?.undecidable).toBe(true);
+    expect(verdicts.get('blocked')?.multiMatch).toBe(false);
 
     const planEdge = getEdgeIR('feature', 'plan-review', 'plan');
     expect(planEdge).toBeDefined();

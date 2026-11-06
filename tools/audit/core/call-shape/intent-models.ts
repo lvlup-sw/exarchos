@@ -98,10 +98,9 @@ const PLAN: IntentModel = {
     },
     { ref: at('plan', `${O}.check_plan_coverage`, '**REQUIRED:** Run'), kind: 'restatement', why: 'the transition section restates the coverage gate as the revise trigger' },
     {
-      ref: at('plan', `${W}.set`, 'Phase transitions auto-emit `workflow.transition` events via'),
-      kind: 'stale-unregistered',
-      why: 'the integration note names a workflow action the registry no longer serves',
-      flag: 'The plan skill says phase transitions emit through `exarchos_workflow` `set`, an action the registry does not serve; the same skill prescribes `transition` for the phase change.',
+      ref: at('plan', `${W}.transition`, 'Phase transitions auto-emit `workflow.transition` events via'),
+      kind: 'restatement',
+      why: 'the integration note restates the transition call of the State Management section to say which event it emits',
     },
   ],
 };

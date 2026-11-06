@@ -156,11 +156,16 @@ Use `describe` to discover the full state schema at runtime: `exarchos_workflow(
 
 ### Phase Transitions and Guards
 
-> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, `explore` must transition to `brief` before `overhaul-plan` — attempting `explore` → `overhaul-plan` directly will be rejected by the HSM. From `brief` you must go to `polish-implement` or `overhaul-plan`, not directly to `completed`. Each transition requires its guard to be satisfied via `updates` sent alongside the `phase` parameter in a single `set` call. See `@skills/refactor/references/polish-track.md` or `@skills/refactor/references/overhaul-track.md` for the exact tool call at each step.
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, `explore` must transition to `brief` before `overhaul-plan` — attempting `explore` → `overhaul-plan` directly will be rejected by the HSM. From `brief` you must go to `polish-implement` or `overhaul-plan`, not directly to `completed`. Each transition requires its guard to be satisfied: write the guard prerequisite with `update`, then change the phase with `transition`. See `@skills/refactor/references/polish-track.md` or `@skills/refactor/references/overhaul-track.md` for the exact tool call at each step.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult `@skills/checkpoint/references/phase-transitions.md` for the exact prerequisite for each guard.
 
-The pattern for every transition: send the guard prerequisite in `updates` and the target in `phase` in a single `set` call.
+The pattern for every transition is two calls. `update` writes the guard prerequisite, and `transition` moves the workflow to the target phase. `update` rejects a `phase` key, and `transition` takes no `updates`:
+
+```text
+action: "update", featureId: "<id>", updates: { <guard prerequisite fields> }
+action: "transition", featureId: "<id>", target: "<next phase>"
+```
 
 ### Schema Discovery
 
@@ -217,8 +222,8 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 When Exarchos MCP tools are available, emit events throughout the refactor workflow:
 
 1. **At workflow start (explore):** `mcp__exarchos__exarchos_event` with `action: "append"` → `workflow.started` with workflowType "refactor"
-2. **On track selection:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with selected track (polish/overhaul)
-3. **On each phase transition:** Auto-emitted by `exarchos_workflow` `set` when `phase` is provided — emits `workflow.transition` with from/to/trigger/featureId
+2. **On track selection:** Auto-emitted by `exarchos_workflow` `transition` — emits `workflow.transition` with selected track (polish/overhaul)
+3. **On each phase transition:** Auto-emitted by `exarchos_workflow` `transition` — emits `workflow.transition` with from/to/trigger/featureId
 4. **Overhaul track stacking:** Handled by `/delegate` (subagents use `git commit` + `git push` per implementer prompt)
 5. **Polish track commit:** Single `git commit -m "refactor: <description>"` + `git push` — no multi-branch stacking needed
-6. **On complete:** Auto-emitted by `exarchos_workflow` `set` when transitioning to terminal state — emits `workflow.transition` to "completed"
+6. **On complete:** Auto-emitted by `exarchos_workflow` `transition` to the terminal state — emits `workflow.transition` to "completed"

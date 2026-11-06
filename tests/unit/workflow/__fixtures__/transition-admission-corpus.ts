@@ -93,6 +93,25 @@ function edgeCases(edge: EdgeCases): readonly LegacyTransitionFixture[] {
   ];
 }
 
+/**
+ * An event log with `count` plan-review dispatch rows, in the shape of `state._events`.
+ * The first dispatch is the initial review, so `count` rows consume `count - 1` revisions.
+ */
+function planReviewDispatches(count: number): readonly Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, ordinal) => ({
+    type: 'workflow.plan-review-dispatched',
+    ordinal,
+  }));
+}
+
+/** An event log with `count` overhaul revise-edge rows. Each row consumes one revision. */
+function planRevisionEdges(count: number): readonly Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, index) => ({
+    type: 'workflow.plan-revision',
+    count: index + 1,
+  }));
+}
+
 const featureCases: readonly LegacyTransitionFixture[] = [
   ...edgeCases({
     workflowType: 'feature',
@@ -117,8 +136,8 @@ const featureCases: readonly LegacyTransitionFixture[] = [
     from: 'plan-review',
     to: 'blocked',
     guardId: 'revisions-exhausted',
-    pass: { planReview: { revisionCount: 1 } },
-    fail: { planReview: { revisionCount: 0 } },
+    pass: { _events: planReviewDispatches(2) },
+    fail: { _events: planReviewDispatches(1) },
     failReason: 'revisions-exhausted not satisfied: 0/1 revisions',
   }),
   ...edgeCases({
@@ -514,8 +533,8 @@ const refactorCases: readonly LegacyTransitionFixture[] = [
     from: 'overhaul-plan-review',
     to: 'blocked',
     guardId: 'revisions-exhausted',
-    pass: { planReview: { revisionCount: 1 } },
-    fail: { planReview: { revisionCount: 0 } },
+    pass: { _events: planRevisionEdges(1) },
+    fail: { _events: planReviewDispatches(1) },
     failReason: 'revisions-exhausted not satisfied: 0/1 revisions',
   }),
   ...edgeCases({
@@ -701,7 +720,7 @@ const planRevisionCapCases: readonly LegacyTransitionFixture[] = [
     'feature',
     'plan-review',
     'blocked',
-    { planReview: { revisionCount: 1 }, _maxPlanRevisions: 3 },
+    { _events: planReviewDispatches(2), _maxPlanRevisions: 3 },
     'deny',
     "Guard 'revisions-exhausted' failed: revisions-exhausted not satisfied: 1/3 revisions",
   ),
@@ -710,7 +729,7 @@ const planRevisionCapCases: readonly LegacyTransitionFixture[] = [
     'feature',
     'plan-review',
     'blocked',
-    { planReview: { revisionCount: 3 }, _maxPlanRevisions: 3 },
+    { _events: planReviewDispatches(4), _maxPlanRevisions: 3 },
     'allow',
     'Legacy HSM admitted plan-review -> blocked at the configured cap',
   ),
@@ -720,7 +739,7 @@ const planRevisionCapCases: readonly LegacyTransitionFixture[] = [
     'feature',
     'plan-review',
     'blocked',
-    { planReview: { revisionCount: 0 }, _maxPlanRevisions: 0 },
+    { _events: planReviewDispatches(1), _maxPlanRevisions: 0 },
     'allow',
     'Legacy HSM admitted plan-review -> blocked (cap 0 is immediately exhausted)',
   ),
@@ -729,7 +748,7 @@ const planRevisionCapCases: readonly LegacyTransitionFixture[] = [
     'refactor',
     'overhaul-plan-review',
     'blocked',
-    { planReview: { revisionCount: 1 }, _maxPlanRevisions: 3 },
+    { _events: planRevisionEdges(1), _maxPlanRevisions: 3 },
     'deny',
     "Guard 'revisions-exhausted' failed: revisions-exhausted not satisfied: 1/3 revisions",
   ),

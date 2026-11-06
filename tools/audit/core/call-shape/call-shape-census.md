@@ -159,10 +159,9 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 ## Findings
 
-- Unregistered: `exarchos_workflow.set` (unregistered) at `content/design/skills/plan/SKILL.md:302`, plan:excluded:stale-unregistered.
+- No located call names an unregistered action.
 - synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:53` but spells a different path. Only in the runbook: `exarchos_orchestrate.validate_pr_stack`, `native:bash.gh_pr_create`. Only in the prose: `exarchos_orchestrate.create_pr`, `exarchos_orchestrate.list_prs`, `exarchos_orchestrate.merge_pr`, `exarchos_workflow.update`, `native:Bash`.
 - plan, `exarchos_orchestrate.check_coverage_thresholds` at `content/design/skills/plan/SKILL.md:282`: A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.
-- plan, `exarchos_workflow.set` at `content/design/skills/plan/SKILL.md:302`: The plan skill says phase transitions emit through `exarchos_workflow` `set`, an action the registry does not serve; the same skill prescribes `transition` for the phase change.
 - review, `exarchos_orchestrate.check_test_adequacy` at `content/review/skills/review/SKILL.md:62`: The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.
 
 ## Scope
@@ -179,7 +178,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 - Registry: 127 actions over 5 tools (4 visible), action ids sha256 `912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `tools/audit/registered-actions-snapshot.json`.
 - Contract authority `action-id-registry` digest `sha256:912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `src/contract/contract-authority.lock.json`.
 - `content/delivery/skills/delegate/SKILL.md` sha256 `77dc1a04c96af6b1d9caa78e2768144ee25a0f352eb9579d2bcd3cdc5c40928f`
-- `content/design/skills/plan/SKILL.md` sha256 `9a2570c714172a108502486d7f6e138cd4ef4d84ade159f699663002132f6c6b`
+- `content/design/skills/plan/SKILL.md` sha256 `518d5348b475e8109fd4bfebf3a30d950129af40bf29230e466e0f077c085748`
 - `content/review/skills/review/SKILL.md` sha256 `a852d4c7bb7c36028d70382057470504550295bbfb561974d9990094b696369d`
-- `content/synthesis/skills/synthesize/SKILL.md` sha256 `22c020a7069bbd9a5ec0ee443a8599af683eb830441e38c442db4d4307b66960`
+- `content/synthesis/skills/synthesize/SKILL.md` sha256 `34f0bc3afa8823275b374ccb6d6c1b89ed08af0210256f1e951beedbc7eaf21b`
 - `src/runbooks/definitions.ts` sha256 `e873e609e5094e84b506804936bfb45c8cb1e7ecffc69310d587a77e69006d02`

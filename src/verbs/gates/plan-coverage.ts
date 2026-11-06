@@ -77,13 +77,14 @@ export function parseDesignRequirements(markdown: string): string[] {
 }
 
 /**
- * Maps each `DR-N` to the ids of the plan tasks that declare it in an `**Implements:**` line. It
- * reads the same signal as `check_provenance_chain`.
+ * Maps each `DR-N` to the ids of the plan tasks that declare it in an Implements line. The line holds
+ * a bold `**Implements:**` label, or starts with a plain `Implements:` label, also as a list item.
+ * `check_provenance_chain` accepts both forms. A `DR-N` in other task prose does not count.
  */
 function extractImplementsByDr(planContent: string): Map<string, string[]> {
   const byDr = new Map<string, string[]>();
   const taskPattern = /^###\s+Task\s+([A-Za-z0-9-]+):/;
-  const implementsPattern = /\*\*Implements:\*\*\s*(.+)/i;
+  const implementsPattern = /(?:\*\*Implements:\*\*|^\s*(?:[-*+]\s+)?Implements:)\s*(.+)/i;
   let currentTaskId: string | null = null;
 
   for (const line of planContent.split('\n')) {
@@ -448,10 +449,11 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
 /**
  * Computes the coverage of the design sections by the plan tasks.
  *
- * A section that matches a deferred name counts as deferred, not as a gap. A `DR-N` section first
- * resolves through the `**Implements:**` references. Then come substring and keyword matches on
- * the task titles, and then on the task bodies without table rows. A section without a match is a
- * gap.
+ * A section that matches a deferred name counts as deferred, not as a gap. A `DR-N` section is
+ * covered only when a task names it in a bold or plain Implements line.
+ * Shared words in a task title or body do not cover it. Another section uses substring and keyword
+ * matches on the task titles, and then on the task bodies without table rows. A section without a
+ * match is a gap.
  *
  * With `designContent`, it also adds advisories for Given/When/Then requirements without an
  * acceptance test task. Advisories do not change the verdict.
@@ -491,9 +493,7 @@ export function computeCoverage(
       for (const id of implementsByDr.get(drMatch[0].toUpperCase()) ?? []) {
         matchedTasks.push(`Task ${id}`);
       }
-    }
-
-    if (matchedTasks.length === 0) {
+    } else {
       for (const task of tasks) {
         if (task.title.toLowerCase().includes(section.toLowerCase())) {
           matchedTasks.push(task.title);
@@ -509,7 +509,7 @@ export function computeCoverage(
       }
     }
 
-    if (matchedTasks.length === 0) {
+    if (!drMatch && matchedTasks.length === 0) {
       const taskBodies = extractTaskBodies(planContent);
       for (const body of taskBodies) {
         const cleanBody = body
@@ -653,7 +653,10 @@ function buildReport(
     lines.push('### Unmapped Sections');
     lines.push('');
     for (const gap of gapSections) {
-      lines.push(`- **${gap}** \u2014 No task maps to this design section`);
+      const reason = /\bDR-\d+\b/i.test(gap)
+        ? 'No task names this requirement in an `**Implements:**` line'
+        : 'No task maps to this design section';
+      lines.push(`- **${gap}** \u2014 ${reason}`);
     }
     lines.push('');
   }

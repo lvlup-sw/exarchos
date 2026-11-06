@@ -1,4 +1,8 @@
 import { isPlainObject } from './state-mutation.js';
+import {
+  planRevisionCapReached,
+  tallyPlanRevisions,
+} from '../projections/shared/plan-revision-count.js';
 
 export interface GuardFailure {
   readonly passed: false;
@@ -924,19 +928,19 @@ export const guards = {
   },
 
   /**
-   * Pass when `planReview.revisionCount` reaches the cap. The cap is the injected
-   * `_maxPlanRevisions` config value, or the default. It is not event-sourced state.
+   * Pass when the plan revisions in `state._events` reach the cap. `tallyPlanRevisions` gives the
+   * count, the same count that the `prepare_review` cap reads. The guard does not read
+   * `planReview.revisionCount` from the state document, because only a reconcile writes it there.
+   * The cap is the injected `_maxPlanRevisions` config value, or the default.
    */
   revisionsExhausted: {
     id: 'revisions-exhausted',
     description: 'Plan revision count has reached the maximum allowed',
     evaluate: (state: Record<string, unknown>): GuardResult => {
-      const planReview = readObjectField(state, 'planReview');
-      const rawCount = planReview?.revisionCount;
-      const count = typeof rawCount === 'number' && Number.isFinite(rawCount) ? rawCount : 0;
+      const count = tallyPlanRevisions(readRecordArrayField(state, '_events')).revisions;
       const rawCap = state._maxPlanRevisions;
       const cap = typeof rawCap === 'number' && Number.isFinite(rawCap) ? rawCap : DEFAULT_MAX_PLAN_REVISIONS;
-      if (count >= cap) return true;
+      if (planRevisionCapReached(count, cap)) return true;
       return {
         passed: false,
         reason: `revisions-exhausted not satisfied: ${count}/${cap} revisions`,

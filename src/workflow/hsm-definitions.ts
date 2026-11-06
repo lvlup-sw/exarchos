@@ -157,8 +157,8 @@ const mergePendingExit: Guard = {
  * `merge-pending` has kind MERGE, not SYNTHESIZE, so the boundary does not
  * freeze synthesis legs that the merge playbook never runs. Transitions are
  * first-match-wins, so `blocked` comes before the revise edge, and the revision
- * cap ends the loop. The revise edge sets `isRevision`, which emits the counted
- * `plan-revision` event that the cap reads.
+ * cap ends the loop. The cap counts the `prepare_review` dispatch events of this
+ * loop, because the standard revise edge emits no `plan-revision` event.
  */
 export function createFeatureHSM(): HSMDefinition {
   const states: Record<string, State> = {
