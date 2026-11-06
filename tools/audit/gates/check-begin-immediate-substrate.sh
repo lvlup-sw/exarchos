@@ -21,7 +21,10 @@
 #
 # Allowed paths (the substrate):
 #   src/storage/**
-#   src/event-store/**
+#
+# The substrate must hold at least one live `.immediate(` call. If it holds
+# none, the primitive moved or the driver API changed, and the call check (1)
+# guards nothing. The gate exits 2 in that case, apart from a violation (1).
 #
 # Exempt:
 #   *.test.ts files (may reference the primitive in assertions/fixtures)
@@ -32,7 +35,8 @@
 #   check-begin-immediate-substrate.sh [<scan-root>]
 #
 # <scan-root> defaults to the current working directory.
-# Exits non-zero and prints offending file:line on any violation.
+# Exit 1 prints each offending file:line. Exit 2 means the gate cannot judge:
+# a scan error, or no live `.immediate(` call in the substrate.
 #
 # Uses grep -rn (POSIX) so it works in non-interactive bash contexts
 # where rg may not be available as a standalone binary.
@@ -46,6 +50,9 @@ SCAN_ROOT="$(cd "$SCAN_ROOT" && pwd)"
 
 # Violations, tagged by which pattern fired: "<tag>|<file>:<line>:<content>"
 VIOLATIONS=()
+
+# Live `.immediate(` calls found inside the substrate. Zero means check (1) is vacuous.
+SUBSTRATE_CALLS=0
 
 # strip_comments <content-line>
 # Echoes <content-line> with comment text removed, so the caller can ask whether
@@ -87,9 +94,6 @@ is_exempt() {
 
     # Allow: storage substrate
     [[ "$abs_filepath" == */src/storage/* ]] && return 0
-
-    # Allow: event-store substrate
-    [[ "$abs_filepath" == */src/event-store/* ]] && return 0
 
     # Allow: test files (*.test.ts)
     [[ "$abs_filepath" == *.test.ts ]] && return 0
@@ -175,6 +179,11 @@ scan() {
         content="${match#*:}"    # strip filepath
         content="${content#*:}"  # strip lineno
 
+        if [[ "$tag" == "immediate-call" && "$abs_filepath" == */src/storage/* && "$abs_filepath" != *.test.ts ]] &&
+            printf '%s' "$(strip_comments "$content")" | grep -qE "$pattern"; then
+            SUBSTRATE_CALLS=$((SUBSTRATE_CALLS + 1))
+        fi
+
         if is_exempt "$abs_filepath" "$content" "$pattern"; then
             continue
         fi
@@ -190,7 +199,14 @@ scan "immediate-call" '\.immediate[[:space:]]*\('
 scan "begin-immediate-literal" 'BEGIN IMMEDIATE'
 
 if [[ ${#VIOLATIONS[@]} -eq 0 ]]; then
-    echo "OK: no immediate-transaction substrate leaks found in $SCAN_ROOT"
+    if [[ $SUBSTRATE_CALLS -eq 0 ]]; then
+        echo "ERROR: no live \`.immediate(\` call under src/storage/ in $SCAN_ROOT." >&2
+        echo "The substrate moved or the driver API changed, so the call check guards" >&2
+        echo "nothing. Update the substrate path or the pattern." >&2
+        exit 2
+    fi
+    echo "OK: no immediate-transaction substrate leaks found in $SCAN_ROOT" \
+         "($SUBSTRATE_CALLS substrate call(s) seen)"
     exit 0
 fi
 
@@ -205,6 +221,5 @@ echo ""
 echo "\`.immediate()\` / \`BEGIN IMMEDIATE\` are SQLite WAL substrate primitives."
 echo "They must only appear under:"
 echo "  src/storage/"
-echo "  src/event-store/"
 echo "Application code should use the withSession() abstraction instead."
 exit 1

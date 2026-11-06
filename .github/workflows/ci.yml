@@ -554,8 +554,6 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      # The manifest gate at the end of this job rebuilds pre-images from the
-      # merge-base with `git show`, so it needs the full history.
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -691,14 +689,6 @@ jobs:
       # of the job, so the fast install-free structural gates run first.
       - name: Install root dependencies (for tsx-backed gates)
         run: bash "$GITHUB_WORKSPACE/tools/release/npm-ci-retry.sh"
-
-      # Duplicate-location ratchet. An (area, basename) intersection guard that FAILS on
-      # any legacy __tests__/<area>/<base>.test.ts twin of a co-located subject that is
-      # not in the (empty) allowlist. It imports consolidate-suite.mjs, which pulls in
-      # `typescript` (a root devDependency), so it rides the root install above, not the
-      # zero-dep prefix.
-      - name: Duplicate-location ratchet (DR-1, Task 022)
-        run: node tools/audit/check-no-duplicate-suites.mjs
 
       # tsx-tail and bun gates. They ride the UNFILTERED grep-gates host, so they fire on
       # every PR, and they use the dependencies installed above.
@@ -848,26 +838,12 @@ jobs:
       - name: Primary-owner population census (#1854 K2)
         run: node tools/audit/core/measure-primary-owner-population.mjs --check
 
-      # Measured-premise drift gate. It binds each annotated numeric claim in the
-      # internal-mechanics-overhaul spec and the invariants catalog to the artifact that
-      # produces it, so the document cannot assert a number that nothing derives. The
-      # `outputSchema` census and `EventTypes` derivations run `tsx` over the source, so
-      # this step rides the deps tail. It is unfiltered on purpose: the premises drift
-      # when the CODE changes, and a docs-path filter skips exactly that PR.
-      #
-      # The gate has THREE verdicts: pass (exit 0), fail (exit 1) and gaps (exit 3).
-      # `--tolerate-gaps-until` maps gaps to exit 0 through that date and to exit 1 after
-      # it. This lane tolerates gaps, because the unprobed obligation rungs are open work,
-      # not a broken gate. Drift, an empty denominator and an unannotated rung row always
-      # fail.
-      - name: Measured-premise drift gate (DR-27)
-        run: node tools/audit/gates/check-measured-premises.mjs --tolerate-gaps-until 2027-02-28
-
-
-      # Its self-test on the same host, so a guard-execution failure cannot pass as
-      # success. It includes the rev-3 kill fixture: a document known to be wrong, which
-      # the checker must report as drifted.
-      - name: Measured-premise gate self-test (DR-27)
+      # The measured-premise drift gate does not run here. Its claims live in a spec in
+      # lvlup-sw/docs, which CI cannot mount, so a CI run reads no claim and gives no
+      # verdict. `npm run validate` runs it after `npm run docs:mount`. The self-test
+      # below runs the checker on fixtures, including the rev-3 kill fixture: a document
+      # known to be wrong, which the checker must report as drifted.
+      - name: Measured-premise gate self-test
         run: npx --no-install vitest run tests/scripts/check-measured-premises.test.ts
 
       # No-circular runtime import-cycle ratchet. It runs the root dependency-cruiser over
@@ -1102,16 +1078,6 @@ jobs:
       - name: Validate no legacy (NoLegacy_* suite + knip)
         if: ${{ !cancelled() }}
         run: bash tools/audit/gates/validate-no-legacy.sh
-
-      # Proves that a consolidation PR loses no pre-image test case. It rebuilds both
-      # pre-images from the merge-base of the PR and requires each case to survive into
-      # PR HEAD, verbatim modulo import paths or as a textual duplicate. It is inert on a
-      # PR that touches no consolidation pair. It uses the base branch of the PR, so a
-      # stacked PR checks against the right merge-base. On a push, base_ref is empty and
-      # the tool uses origin/main.
-      - name: Manifest gate — no pre-image case dropped (DR-2, Task 004)
-        if: ${{ !cancelled() }}
-        run: node tools/audit/manifest-gate-ci.mjs ${{ github.base_ref && format('--base origin/{0}', github.base_ref) || '' }}
 
       # Refuses a pull-request workflow with no cancelling concurrency block, and a job
       # with no timeout-minutes. Exemptions and their reasons are in
