@@ -1,6 +1,7 @@
 /**
  * Handler for the `discover_bridge` action. It links PLAN authoring on the `deep` rung to a `discover` research workflow.
- * The bridge is opt-in. `next_actions` publishes the affordance, and only a call with `confirm: true` performs the escalation.
+ * The bridge is a manual escalation. No `next_actions` entry offers it, so the author calls this action directly.
+ * A call without `confirm: true` only describes the affordance. Only a call with `confirm: true` performs the escalation.
  *
  * On confirmation it records the link as a `state.patched` event on the feature stream, with a shared `correlationId`.
  * A provenance query can then span the spec stream and the discover stream.
