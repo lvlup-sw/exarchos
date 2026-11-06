@@ -9,6 +9,7 @@ import {
 } from '../../../src/workflow/playbooks.js';
 import type { SerializedPlaybooks, SerializedPhasePlaybook } from '../../../src/workflow/playbooks.js';
 import { phaseRuntimeEmissions } from '../../../src/workflow/topology/phase-events.js';
+import { guards } from '../../../src/workflow/guards.js';
 import {
   getRequiredReviews,
   getRequiredReviewsPrerequisite,
@@ -263,6 +264,34 @@ describe('Refactor workflow playbooks', () => {
   it('getPlaybook_RefactorSynthesize_IsHumanCheckpoint', () => {
     const playbook = getPlaybook('refactor', 'synthesize')!;
     expect(playbook.humanCheckpoint).toBe(true);
+  });
+});
+
+/**
+ * Gives the `update` payload text that the revise guard of plan-review asks for. The text comes from
+ * the expected shape of the guard reply, so a renamed guard field changes the text.
+ */
+function reviseGuardWrite(): string {
+  const result = guards.planReviewGapsFound.evaluate({});
+  if (result === true) throw new Error('planReviewGapsFound passed on an empty state');
+  const shape = result.expectedShape?.['planReview'];
+  if (typeof shape !== 'object' || shape === null) throw new Error('the guard reply names no planReview shape');
+  const fields = Object.keys(shape);
+  if (fields.length !== 1) throw new Error(`the guard reply names ${fields.length} planReview fields, not 1`);
+  return `planReview: { ${fields.join('')}: true }`;
+}
+
+describe('Plan-review gaps path names the revise guard field', () => {
+  /** The revise edge reads `planReview.gapsFound`, so the gaps path of the feature playbook names that write. */
+  it('getPlaybook_FeaturePlanReview_GapsPathNamesReviseGuardField', () => {
+    const playbook = getPlaybook('feature', 'plan-review')!;
+    expect(playbook.compactGuidance).toContain(`Gaps → \`exarchos_workflow\` update { ${reviseGuardWrite()} }`);
+  });
+
+  /** The refactor plan review has the same revise guard, so its playbook names the same write. */
+  it('getPlaybook_RefactorOverhaulPlanReview_GapsPathNamesReviseGuardField', () => {
+    const playbook = getPlaybook('refactor', 'overhaul-plan-review')!;
+    expect(playbook.compactGuidance).toContain(`gaps with updates: { ${reviseGuardWrite()} }`);
   });
 });
 

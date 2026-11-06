@@ -186,7 +186,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at the plan-review checkpoint over the unified docs/specs/ artifact. plan-review is a DISPATCHED, fresh-context, adversarial pass (DR-10): provision a read-only reviewer with only {artifact + spec} (never this transcript) via prepare_review scope:"plan", prompted to refute the plan, depth scaled by frozen designDepth (deep → multi-voter panel, varied framings / self-consistency; thin → single light pass). On the verdict: gaps → revise via the counted HSM edge, NOT update+re-invoke — first `exarchos_workflow` transition to `blocked` (its `revisions-exhausted` guard reads the injected `.exarchos.yml workflow.maxPlanRevisions` cap, default 1); on GUARD_FAILED (under cap) transition to `plan` (emits a counted `plan-revision`) then `/exarchos:plan --revise`; on success (cap reached) park at `blocked` for human. Survives → update { planReview: { approved: true } } then transition to delegate. Anti-pattern: rubber-stamping without a task per DR-N; hand-looping past the cap.',
+    'You are at the plan-review checkpoint over the unified docs/specs/ artifact. plan-review is a DISPATCHED, fresh-context, adversarial pass (DR-10): provision a read-only reviewer with only {artifact + spec} (never this transcript) via prepare_review scope:"plan", prompted to refute the plan, depth scaled by frozen designDepth (deep → multi-voter panel, varied framings / self-consistency; thin → single light pass). Gaps → `exarchos_workflow` update { planReview: { gapsFound: true } }, then revise via the counted edge, not a re-invoke: first transition to `blocked` (its `revisions-exhausted` guard reads the `.exarchos.yml workflow.maxPlanRevisions` cap, default 1); on GUARD_FAILED (under cap) transition to `plan` (a counted `plan-revision`), then `/exarchos:plan --revise`; on success (cap reached) park at `blocked` for human. Survives → update { planReview: { approved: true } } then transition to delegate. Anti-pattern: rubber-stamping without a task per DR-N; hand-looping past the cap.',
 });
 
 register({
@@ -798,7 +798,7 @@ register({
   validationScripts: [],
   humanCheckpoint: true,
   compactGuidance:
-    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow update using updates: { planReview: { approved: true } }. Transition to overhaul-delegate on approval, back to overhaul-plan if gaps found, or to blocked when revisions are exhausted. Key decision: approve vs revise with specific actionable feedback. Anti-pattern: rubber-stamping without checking task coverage of all brief goals. Escalate: 3+ revision cycles without convergence.',
+    'You are at a human checkpoint reviewing the overhaul refactoring plan. Wait for user approval or revision feedback. Record approval with exarchos_workflow update using updates: { planReview: { approved: true } }, and gaps with updates: { planReview: { gapsFound: true } }. Transition to overhaul-delegate on approval, back to overhaul-plan if gaps found, or to blocked when revisions are exhausted. Key decision: approve vs revise with specific actionable feedback. Anti-pattern: rubber-stamping without checking task coverage of all brief goals. Escalate: 3+ revision cycles without convergence.',
 });
 
 register({

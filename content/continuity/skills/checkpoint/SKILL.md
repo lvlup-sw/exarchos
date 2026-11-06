@@ -139,7 +139,7 @@ The dot-path parser used by `set updates` recognizes only **numeric** array brac
 | `ideate` starts | `init` the workflow (initial phase `plan`) |
 | Design & Rationale authored | `update: { "artifacts.spec": "<path>" }` (no transition — `plan` is the initial phase) |
 | Decomposition added | `update: { "artifacts.plan": "<path>", "tasks": [...] }`, then `transition target: "plan-review"` |
-| Plan-review gaps found | `update: { "planReview.gaps": [...] }`, auto-loop to plan |
+| Plan-review gaps found | `update: { "planReview.gapsFound": true, "planReview.gaps": [...] }`, auto-loop to plan |
 | Plan-review approved | `update: { "planReview.approved": true }`, then `transition target: "delegate"` |
 | Task dispatched | Set task `status = "in_progress"`, `startedAt` |
 | Task complete | No update: `task_complete` or `settle` marks the task complete |

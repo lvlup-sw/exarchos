@@ -7,7 +7,7 @@
     "testFiles": 1395,
     "parsedFiles": 1350,
     "shellFiles": 45,
-    "cases": 15424,
+    "cases": 15426,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -78933,6 +78933,16 @@
           "dynamic": false
         },
         {
+          "suite": "Plan-review gaps path names the revise guard field",
+          "name": "getPlaybook_FeaturePlanReview_GapsPathNamesReviseGuardField",
+          "dynamic": false
+        },
+        {
+          "suite": "Plan-review gaps path names the revise guard field",
+          "name": "getPlaybook_RefactorOverhaulPlanReview_GapsPathNamesReviseGuardField",
+          "dynamic": false
+        },
+        {
           "suite": "Synthesize phase guidance references GitHub CLI",
           "name": "playbookGuidance_FeatureSynthesizePhase_ReferencesGhCli",
           "dynamic": false
@@ -78979,7 +78989,7 @@
         },
         {
           "suite": "EventInstruction fields property",
-          "name": "EventInstruction_TaskAssigned_HasRequiredFields",
+          "name": "EventInstruction_TaskAssigned_IsDisclosedAsTheRuntimesNotInstructed",
           "dynamic": false
         },
         {

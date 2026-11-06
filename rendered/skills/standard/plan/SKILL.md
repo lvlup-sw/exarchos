@@ -291,7 +291,7 @@ exarchos_orchestrate({
 ## Transition
 
 After decomposition completes, **auto-continue to plan-review**. Transition to the appropriate review phase (feature: `plan-review`, refactor: `overhaul-plan-review`). Plan-review is no longer an inline plan-vs-design delta (one artifact now) — it is a **dispatched, fresh-context, adversarial** read-only pass over the unified artifact (DR-10): a clean reviewer provisioned with only {artifact + spec} (never this authoring transcript), prompted to refute the plan, its adversarial depth scaled by the frozen `designDepth`. Provision it via `exarchos_orchestrate({ action: "prepare_review", scope: "plan", artifact: "docs/specs/<...>", designDepth: "<frozen>" })`.
-- Refuted (gaps): set `.planReview.gaps`, auto-loop back to `plan --revise`
+- Refuted (gaps): set `.planReview.gapsFound = true` (the revise guard reads it) and record the findings in `.planReview.gaps`, auto-loop back to `plan --revise`
 - Survives: present to user for approval (the single human checkpoint)
 - On approval: set `.planReview.approved = true`, invoke `delegate`
 

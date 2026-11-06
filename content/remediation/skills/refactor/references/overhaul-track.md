@@ -75,7 +75,7 @@ The `/exarchos:plan` skill:
 Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-plan → overhaul-plan-review` guard requirements, then write the required fields (plan artifact, tasks array) with `update` and call `transition` with `target: "overhaul-plan-review"`.
 
 **Human checkpoint:** Plan-review verifies plan coverage against the brief before committing to delegation. The orchestrator compares design sections against planned tasks.
-- Gaps found → set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
+- Gaps found → set `.planReview.gapsFound = true` (the revise guard reads it) and record the findings in `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
 - Approved → set `.planReview.approved = true`, auto-invoke delegate
 
 Then auto-invoke delegate:

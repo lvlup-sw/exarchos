@@ -7613,7 +7613,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 | \`ideate\` starts | \`init\` the workflow (initial phase \`plan\`) |
 | Design & Rationale authored | \`update: { "artifacts.spec": "<path>" }\` (no transition — \`plan\` is the initial phase) |
 | Decomposition added | \`update: { "artifacts.plan": "<path>", "tasks": [...] }\`, then \`transition target: "plan-review"\` |
-| Plan-review gaps found | \`update: { "planReview.gaps": [...] }\`, auto-loop to plan |
+| Plan-review gaps found | \`update: { "planReview.gapsFound": true, "planReview.gaps": [...] }\`, auto-loop to plan |
 | Plan-review approved | \`update: { "planReview.approved": true }\`, then \`transition target: "delegate"\` |
 | Task dispatched | Set task \`status = "in_progress"\`, \`startedAt\` |
 | Task complete | No update: \`task_complete\` or \`settle\` marks the task complete |
@@ -10334,7 +10334,7 @@ exarchos_orchestrate({
 ## Transition
 
 After decomposition completes, **auto-continue to plan-review**. Transition to the appropriate review phase (feature: \`plan-review\`, refactor: \`overhaul-plan-review\`). Plan-review is no longer an inline plan-vs-design delta (one artifact now) — it is a **dispatched, fresh-context, adversarial** read-only pass over the unified artifact (DR-10): a clean reviewer provisioned with only {artifact + spec} (never this authoring transcript), prompted to refute the plan, its adversarial depth scaled by the frozen \`designDepth\`. Provision it via \`exarchos_orchestrate({ action: "prepare_review", scope: "plan", artifact: "docs/specs/<...>", designDepth: "<frozen>" })\`.
-- Refuted (gaps): set \`.planReview.gaps\`, auto-loop back to \`plan --revise\`
+- Refuted (gaps): set \`.planReview.gapsFound = true\` (the revise guard reads it) and record the findings in \`.planReview.gaps\`, auto-loop back to \`plan --revise\`
 - Survives: present to user for approval (the single human checkpoint)
 - On approval: set \`.planReview.approved = true\`, invoke \`delegate\`
 
