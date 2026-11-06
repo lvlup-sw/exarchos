@@ -8,6 +8,7 @@ import {
   } from '../../../src/workflow/tools.js';
 
 import { EventStore } from '../../../src/events/store.js';
+import { handlePrepareReview } from '../../../src/verbs/team/prepare-review.js';
 import { registerWorkflowType, unregisterWorkflowType } from '../../../src/workflow/state-machine.js';
 import { extendWorkflowTypeEnum, unextendWorkflowTypeEnum } from '../../../src/workflow/schemas.js';
 import { registerCustomWorkflows, clearRegisteredGuards } from '../../../src/config/register.js';
@@ -432,12 +433,15 @@ describe('handleSet_UnifiedHydration', () => {
 /**
  * `handleSet` passes the `maxPlanRevisions` option to the pure `revisionsExhausted` guard as
  * `_maxPlanRevisions`. It deletes the field before the write, because config is not a fact.
+ * The revisions come from real `prepare_review` dispatches, which only append events. The guard
+ * reads them from the log that `handleSet` loads, not from a field of the state document.
  */
 describe('handleSet_PlanRevisionCapInjection', () => {
-  async function driveToPlanReviewWithRevisions(
+  async function driveToPlanReviewWithDispatches(
     featureId: string,
     eventStore: EventStore,
-    revisionCount: number,
+    dispatches: number,
+    repoRoot?: string,
   ): Promise<void> {
     await handleInit({ featureId, workflowType: 'feature' }, tmpDir, eventStore);
     await handleSet(
@@ -446,8 +450,21 @@ describe('handleSet_PlanRevisionCapInjection', () => {
       eventStore,
     );
     await handleSet({ featureId, phase: 'plan-review' }, tmpDir, eventStore);
+    for (let i = 0; i < dispatches; i++) {
+      const dispatched = await handlePrepareReview(
+        {
+          featureId,
+          scope: 'plan',
+          artifact: 'docs/specs/x.md',
+          ...(repoRoot ? { repoRoot } : {}),
+        },
+        tmpDir,
+        eventStore,
+      );
+      expect(dispatched.success).toBe(true);
+    }
     await handleSet(
-      { featureId, updates: { planReview: { gapsFound: true, revisionCount } } },
+      { featureId, updates: { planReview: { gapsFound: true } } },
       tmpDir,
       eventStore,
     );
@@ -456,7 +473,7 @@ describe('handleSet_PlanRevisionCapInjection', () => {
   /** The injected cap must not reach the state file. */
   it('AtInjectedCap_TransitionToBlockedSucceeds_AndCapNotPersisted', async () => {
     const eventStore = new EventStore(tmpDir);
-    await driveToPlanReviewWithRevisions('cap-at', eventStore, 1);
+    await driveToPlanReviewWithDispatches('cap-at', eventStore, 2);
 
     const result = await handleSet(
       { featureId: 'cap-at', phase: 'blocked' },
@@ -477,7 +494,7 @@ describe('handleSet_PlanRevisionCapInjection', () => {
   /** A cap of 3 keeps the revise loop open at one revision, so the guard blocks `plan-review` to `blocked`. */
   it('BelowInjectedCap_TransitionToBlockedIsGuarded', async () => {
     const eventStore = new EventStore(tmpDir);
-    await driveToPlanReviewWithRevisions('cap-below', eventStore, 1);
+    await driveToPlanReviewWithDispatches('cap-below', eventStore, 2);
 
     const result = await handleSet(
       { featureId: 'cap-below', phase: 'blocked' },
@@ -488,12 +505,13 @@ describe('handleSet_PlanRevisionCapInjection', () => {
 
     expect(result.success).toBe(false);
     expect((result.error as Record<string, unknown>).code).toBe('GUARD_FAILED');
+    expect(JSON.stringify(result.error)).toContain('1/3');
   });
 
   /** Without an injected cap, the guard uses the default cap of 1. */
   it('DefaultCap_NoInjection_BlockedAtOneRevision', async () => {
     const eventStore = new EventStore(tmpDir);
-    await driveToPlanReviewWithRevisions('cap-default', eventStore, 1);
+    await driveToPlanReviewWithDispatches('cap-default', eventStore, 2);
 
     const result = await handleSet(
       { featureId: 'cap-default', phase: 'blocked' },
@@ -503,6 +521,62 @@ describe('handleSet_PlanRevisionCapInjection', () => {
 
     expect(result.success).toBe(true);
     expect((result.data as Record<string, unknown>).phase).toBe('blocked');
+  });
+
+  /** The initial review is not a revision, so the guard admits more review below the cap and keeps `blocked` closed. */
+  it('DefaultCap_InitialReviewOnly_BlockedIsGuarded', async () => {
+    const eventStore = new EventStore(tmpDir);
+    await driveToPlanReviewWithDispatches('cap-initial', eventStore, 1);
+
+    const result = await handleSet(
+      { featureId: 'cap-initial', phase: 'blocked' },
+      tmpDir,
+      eventStore,
+    );
+
+    expect(result.success).toBe(false);
+    expect((result.error as Record<string, unknown>).code).toBe('GUARD_FAILED');
+    expect(JSON.stringify(result.error)).toContain('0/1');
+  });
+
+  /**
+   * The guard and `prepare_review` read one count. For each number of dispatches, the guard opens
+   * `blocked` exactly when the next `prepare_review` call refuses with PLAN_REVISIONS_EXHAUSTED.
+   * Both read a cap of 2 from config. The run must see both outcomes, so it cannot agree by default.
+   */
+  it('GuardAndPrepareReview_AgreeOnTheCap_ForEachDispatchCount', async () => {
+    const cap = 2;
+    const repo = await fs.mkdtemp(path.join(os.tmpdir(), 'cap-agree-repo-'));
+    try {
+      await fs.writeFile(
+        path.join(repo, '.exarchos.yml'),
+        `workflow:\n  max-plan-revisions: ${cap}\n`,
+      );
+      const outcomes: { dispatches: number; blocked: boolean; refused: boolean }[] = [];
+      for (let dispatches = 1; dispatches <= cap + 1; dispatches++) {
+        const featureId = `cap-agree-${dispatches}`;
+        const eventStore = new EventStore(tmpDir);
+        await driveToPlanReviewWithDispatches(featureId, eventStore, dispatches, repo);
+
+        const blocked = await handleSet(
+          { featureId, phase: 'blocked' },
+          tmpDir,
+          eventStore,
+          { maxPlanRevisions: cap },
+        );
+        const next = await handlePrepareReview(
+          { featureId, scope: 'plan', artifact: 'docs/specs/x.md', repoRoot: repo },
+          tmpDir,
+          eventStore,
+        );
+        const refused = next.success === false && next.error?.code === 'PLAN_REVISIONS_EXHAUSTED';
+        outcomes.push({ dispatches, blocked: blocked.success, refused });
+        expect(blocked.success, `dispatches=${dispatches}`).toBe(refused);
+      }
+      expect(outcomes.map((o) => o.blocked)).toEqual([false, false, true]);
+    } finally {
+      await rmrfAsync(repo);
+    }
   });
 });
 

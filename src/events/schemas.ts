@@ -181,14 +181,14 @@ export const EventTypes = [
   'workflow.transition',
   'workflow.fix-cycle',
   /**
-   * A counted revise cycle of plan review, emitted on the `plan-review → plan` revise edge. The
-   * projection folds it into `state.planReview.revisionCount`, which `revisionsExhausted` reads.
+   * A counted revise cycle of plan review, emitted on the overhaul revise edge. The
+   * `revisionsExhausted` guard counts it through `tallyPlanRevisions`.
    */
   'workflow.plan-revision',
   /**
    * A counted plan-review dispatch. The `prepare_review scope:plan` handler appends it on every
-   * provisioning of the plan review, so an agent cannot re-review without a count. The projection
-   * folds the maximum 0-based `ordinal` into `planReview.revisionCount`. The idempotency key
+   * provisioning of the plan review, so an agent cannot re-review without a count. The guard and
+   * the handler count it through `tallyPlanRevisions`. The idempotency key
    * `${featureId}:plan-review-dispatch:${ordinal}` collapses a crash retry of the same ordinal.
    */
   'workflow.plan-review-dispatched',

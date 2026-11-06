@@ -62,7 +62,7 @@ export interface Transition {
   /**
    * Marks a revise edge. The executor emits a counted `plan-revision` event for it, except on the standard feature `plan-review → plan` edge.
    * The count is an event and not an `Effect`, so it comes from the log and is stable on replay.
-   * The projection folds it into `state.planReview.revisionCount`, which the `revisionsExhausted` guard reads.
+   * The `revisionsExhausted` guard counts these events in `_events` through `tallyPlanRevisions`.
    */
   readonly isRevision?: boolean;
 }

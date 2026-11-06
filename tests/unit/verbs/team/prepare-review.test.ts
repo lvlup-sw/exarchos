@@ -9,6 +9,8 @@ import { rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { execFileAsync } from '../../../../tools/test-helpers/spawn.js';
 import { resolveWorkflowState } from '../../../../src/verbs/resolve-state.js';
 import type { ToolResult } from '../../../../src/format.js';
+import { hydrateEventsFromStore } from '../../../../src/workflow/state-store.js';
+import { guards } from '../../../../src/workflow/guards.js';
 
 interface IntentGrounding {
   mode: string;
@@ -318,8 +320,8 @@ describe('handlePrepareReview', () => {
  * An agent must call `prepare_review` with `scope: 'plan'` to get a plan review, so this
  * action can bound the revision loop. Each call appends a `workflow.plan-review-dispatched`
  * event with an ordinal. The projection folds the highest ordinal into
- * `planReview.revisionCount`, which the `revisionsExhausted` guard reads. The action
- * refuses a call past the cap and offers `blocked` as the next action.
+ * `planReview.revisionCount`. The `revisionsExhausted` guard counts the same events. The
+ * action refuses a call past the cap and offers `blocked` as the next action.
  */
 describe('plan-review bound at the provisioning seam (WLM-6 DR-2, task 004)', () => {
   const DISPATCH_EVENT = 'workflow.plan-review-dispatched';
@@ -479,6 +481,36 @@ describe('plan-review bound regressions (WLM-6 DR-2, task 005)', () => {
     } finally {
       await rmrfAsync(repo);
     }
+  });
+
+  /**
+   * The handler reads the whole stream through the count that the `revisions-exhausted` guard reads.
+   * An overhaul revise edge consumes the one default revision. Thus the next dispatch is refused,
+   * and the guard on the same log opens `blocked`.
+   */
+  it('PlanReview_ReviseEdgeRow_CountsLikeTheGuard', async () => {
+    const featureId = 'dr2-revise-edge';
+    expect((await callPrepareReview(planArgs(featureId))).success).toBe(true);
+    expect(
+      guards.revisionsExhausted.evaluate({
+        _events: await hydrateEventsFromStore(featureId, eventStore),
+      }),
+    ).not.toBe(true);
+
+    await eventStore.append(featureId, {
+      type: 'workflow.plan-revision',
+      data: { featureId, count: 1 },
+    });
+
+    const refused = await callPrepareReview(planArgs(featureId));
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('PLAN_REVISIONS_EXHAUSTED');
+    expect(refused.error?.message).toContain('1/1');
+    expect(
+      guards.revisionsExhausted.evaluate({
+        _events: await hydrateEventsFromStore(featureId, eventStore),
+      }),
+    ).toBe(true);
   });
 
   /** A "survives" verdict leads to no second call, so the count stays 0. */

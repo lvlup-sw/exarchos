@@ -95,21 +95,49 @@ const ONESHOT_DIRECT_COMMIT: EdgeRef = {
   to: 'completed',
 };
 
-describe('plan-revision cap: admission reads the same injected cap as the guard', () => {
+/** An event log with `dispatches` plan-review dispatch rows and `edges` overhaul revise-edge rows. */
+function revisionLog(dispatches: number, edges: number): Record<string, unknown>[] {
+  return [
+    ...Array.from({ length: dispatches }, (_, ordinal) => ({
+      type: 'workflow.plan-review-dispatched',
+      ordinal,
+    })),
+    ...Array.from({ length: edges }, (_, index) => ({
+      type: 'workflow.plan-revision',
+      count: index + 1,
+    })),
+  ];
+}
+
+/**
+ * Both authorities count the plan revisions in `_events` through one helper. The grid also records
+ * each legacy verdict, so a grid where every point denies cannot pass as agreement.
+ */
+describe('plan-revision cap: admission reads the same injected cap and count as the guard', () => {
   const caps: readonly (number | undefined)[] = [undefined, 0, 1, 2, 3, 5];
-  const counts: readonly number[] = [0, 1, 2, 3, 5, 6];
+  const dispatchCounts: readonly number[] = [0, 1, 2, 3, 4, 6, 7];
+  const edgeCounts: readonly number[] = [0, 1, 3];
 
   for (const ref of [FEATURE_BLOCKED, REFACTOR_BLOCKED]) {
-    it(`agrees across every (cap × revisionCount) pair — ${ref.workflowType}`, () => {
+    it(`agrees across every (cap × event log) pair — ${ref.workflowType}`, () => {
+      const legacyVerdicts = new Set<boolean>();
       for (const cap of caps) {
-        for (const count of counts) {
-          const state: Record<string, unknown> = {
-            planReview: { revisionCount: count },
-            ...(cap === undefined ? {} : { _maxPlanRevisions: cap }),
-          };
-          expectAgreement(ref, state, `cap=${String(cap)} count=${count}`);
+        for (const dispatches of dispatchCounts) {
+          for (const edges of edgeCounts) {
+            const state: Record<string, unknown> = {
+              _events: revisionLog(dispatches, edges),
+              ...(cap === undefined ? {} : { _maxPlanRevisions: cap }),
+            };
+            legacyVerdicts.add(legacyAllows(ref, state));
+            expectAgreement(
+              ref,
+              state,
+              `cap=${String(cap)} dispatches=${dispatches} edges=${edges}`,
+            );
+          }
         }
       }
+      expect(legacyVerdicts).toEqual(new Set([true, false]));
     });
   }
 
@@ -120,11 +148,11 @@ describe('plan-revision cap: admission reads the same injected cap as the guard'
       projectStateToFacts({ _maxPlanRevisions: 3 }).fields['policy.maxPlanRevisions'],
     ).toBe(3);
     expect(
-      projectStateToFacts({ planReview: { revisionCount: 1 }, _maxPlanRevisions: 3 })
+      projectStateToFacts({ _events: revisionLog(2, 0), _maxPlanRevisions: 3 })
         .fields['planReview.revisionsExhausted'],
     ).toBe(false);
     expect(
-      projectStateToFacts({ planReview: { revisionCount: 1 } }).fields[
+      projectStateToFacts({ _events: revisionLog(2, 0) }).fields[
         'planReview.revisionsExhausted'
       ],
     ).toBe(true);
@@ -134,7 +162,7 @@ describe('plan-revision cap: admission reads the same injected cap as the guard'
     for (const bad of ['3', null, Number.NaN, {}]) {
       expectAgreement(
         FEATURE_BLOCKED,
-        { planReview: { revisionCount: 1 }, _maxPlanRevisions: bad },
+        { _events: revisionLog(2, 0), _maxPlanRevisions: bad },
         `malformed cap ${JSON.stringify(bad)}`,
       );
     }
