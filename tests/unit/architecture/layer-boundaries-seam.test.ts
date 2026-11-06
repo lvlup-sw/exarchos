@@ -53,6 +53,21 @@ const SRC_ROOT = join(dirname(fileURLToPath(import.meta.url)), '../../../src');
 const REPO_ROOT = join(SRC_ROOT, '..');
 
 /**
+ * The time budget of a case that walks the live tree for SDK imports.
+ * On a CI runner with coverage, one walk takes 17 to 58 seconds, and the tier gives 60 seconds.
+ */
+const LIVE_SDK_SCAN_BUDGET_MS = 180_000;
+
+/** The one walk of the live tree for SDK imports. The cases share it, because the scan result is frozen. */
+let liveSdkScan: Promise<SdkSeamBoundaryScan> | undefined;
+
+/** Returns the shared walk of the live tree, and starts it on the first call. */
+function scanLiveSdkSeam(): Promise<SdkSeamBoundaryScan> {
+  liveSdkScan ??= scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
+  return liveSdkScan;
+}
+
+/**
  * Counts the modules that git tracks under `root`, without the walker.
  * `git ls-files` knows nothing of the exclusions or the recursion of the scan.
  * As a result, agreement between the two counts shows that the walk reached the tree.
@@ -797,7 +812,7 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
     expect(seeded.isSeam, 'the fixture is NOT the owned seam').toBe(false);
     expect(seeded.imports.map((i) => i.generation)).toEqual(['v1', 'v1']);
 
-    const live = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
+    const live = await scanLiveSdkSeam();
     const result = runSdkSeamBoundaryCensus({
       ...live,
       usages: [...live.usages, seeded],
@@ -813,7 +828,7 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
       'every direct SDK import in the seeded module must be named, not just the first',
     ).toBe(2);
     expect(rejections[0]?.message).toContain(SDK_SEAM_BOUNDARY.seamModule);
-  });
+  }, LIVE_SDK_SCAN_BUDGET_MS);
 
   /**
    * NEGATIVE TWIN 1: the rule measures the bypass, not any use of the SDK.
@@ -832,9 +847,9 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
 
     expect(detectSdkSeamUsage(ROGUE_MODULE, throughSeam, parseModuleSpecifiers)).toBeUndefined();
 
-    const live = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
+    const live = await scanLiveSdkSeam();
     expect(runSdkSeamBoundaryCensus(live).ok).toBe(true);
-  });
+  }, LIVE_SDK_SCAN_BUDGET_MS);
 
   /**
    * NEGATIVE TWIN 2: the rule reads the syntax tree, not the text.
@@ -863,7 +878,7 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
    * A literal `['v1','v2']` compares the tree with itself and can never disagree.
    */
   it('SdkSeam_MigratedTree_ResolvesEverySiteThroughSeam', async () => {
-    const scan = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
+    const scan = await scanLiveSdkSeam();
 
     const trackedModules = await countTrackedModules(REPO_ROOT);
     expect(
@@ -911,14 +926,14 @@ describe('DR-26 — SDK generation seam: a direct SDK import fails the rule', ()
       'no @modelcontextprotocol dependency resolved — the second authority is empty',
     ).toBeGreaterThan(0);
     expect([...seamGenerations].sort()).toEqual([...installedGenerations].sort());
-  });
+  }, LIVE_SDK_SCAN_BUDGET_MS);
 
   /** The shipped entry point, which composes the scan and the census. */
   it('SdkSeam_AuditOverLiveTree_IsGreen', async () => {
     const result = await auditSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
-  });
+  }, LIVE_SDK_SCAN_BUDGET_MS);
 });
 
 /**
@@ -1082,11 +1097,11 @@ describe('Task 040a — neither seam may pass by matching nothing', () => {
     expect(declaration.consumerCount).toBeGreaterThan(1);
     expect(declaration.resolvedStorageCount).toBeGreaterThan(0);
 
-    const sdk = await scanSdkSeamBoundary(REPO_ROOT, parseModuleSpecifiers);
+    const sdk = await scanLiveSdkSeam();
     expect(sdk.moduleCount).toBeGreaterThan(100);
     expect(sdk.usages.length).toBeGreaterThan(0);
     expect(sdk.seamModulePresent).toBe(true);
-  });
+  }, LIVE_SDK_SCAN_BUDGET_MS);
 
   /**
    * The three censuses live in one module, so a change to the layering census can reach the two seams.
