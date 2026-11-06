@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import { BUILT_IN_WORKFLOW_TYPES } from '../workflow/admission/built-in-workflow-ir.js';
 
-export const BUILTIN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor'] as const;
+const BUILT_IN_WORKFLOW_NAMES: ReadonlySet<string> = new Set(BUILT_IN_WORKFLOW_TYPES);
 
 export const guardDefinitionSchema = z.object({
   command: z.string().min(1, 'Guard command must not be empty'),
@@ -111,15 +112,15 @@ export const exarchosConfigSchema = z.object({
       if (!workflows) return;
 
       const knownWorkflowNames = new Set<string>([
-        ...BUILTIN_WORKFLOW_TYPES,
+        ...BUILT_IN_WORKFLOW_NAMES,
         ...Object.keys(workflows),
       ]);
 
       for (const [name, workflow] of Object.entries(workflows)) {
-        if ((BUILTIN_WORKFLOW_TYPES as readonly string[]).includes(name)) {
+        if (BUILT_IN_WORKFLOW_NAMES.has(name)) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
-            message: `Workflow name "${name}" conflicts with built-in type. Built-in types: [${BUILTIN_WORKFLOW_TYPES.join(', ')}]`,
+            message: `Workflow name "${name}" conflicts with built-in type. Built-in types: [${BUILT_IN_WORKFLOW_TYPES.join(', ')}]`,
             path: [name],
           });
         }

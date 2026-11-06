@@ -1,4 +1,4 @@
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production
+// RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28) — production
 // code that waits for the legacy HSM cutover. Bootstrap is useful only after
 // admission is the authoritative decider. Before that, nothing reads the
 // attempt state that it appends.

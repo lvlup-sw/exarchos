@@ -1,5 +1,5 @@
 // Explains a persisted `TransitionDecided` to the caller.
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31): this module waits for the legacy HSM cutover.
+// RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28): this module waits for the legacy HSM cutover.
 // Until then, nothing in production produces a `TransitionDecided`.
 //
 // The explanation holds the requirement results, evidence ids, decision digests and policy identity.

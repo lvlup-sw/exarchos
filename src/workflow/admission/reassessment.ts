@@ -1,5 +1,5 @@
 // Reassesses the obligations of a phase attempt under a newer, explicit policy version. History does not change.
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31): this module waits for the legacy HSM cutover.
+// RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28): this module waits for the legacy HSM cutover.
 //
 // When the frozen set changes, a new generation with its own digest becomes active.
 // The prior generation stays in `requirementSetHistory`.

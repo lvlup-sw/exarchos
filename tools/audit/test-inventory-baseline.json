@@ -7,7 +7,7 @@
     "testFiles": 1392,
     "parsedFiles": 1347,
     "shellFiles": 45,
-    "cases": 15389,
+    "cases": 15393,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -20476,6 +20476,26 @@
         {
           "suite": "validateConfig",
           "name": "ValidateConfig_ExtendsUnknownWorkflow_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "validateConfig",
+          "name": "ValidateConfig_ExtendsOneshot_Succeeds",
+          "dynamic": false
+        },
+        {
+          "suite": "validateConfig",
+          "name": "ValidateConfig_ExtendsDiscovery_Succeeds",
+          "dynamic": false
+        },
+        {
+          "suite": "validateConfig",
+          "name": "ValidateConfig_ExtendsNearMissOfBuiltinName_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "validateConfig",
+          "name": "ValidateConfig_OneshotOrDiscoveryAsCustomName_Fails",
           "dynamic": false
         },
         {
