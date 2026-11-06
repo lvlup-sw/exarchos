@@ -79,13 +79,13 @@ See `overhaul-review.md` for detailed criteria.
 **After delegation complete:**
 
 ```
-action: "update", featureId: "refactor-<slug>", phase: "review"
+action: "transition", featureId: "refactor-<slug>", target: "overhaul-review"
 ```
 
 **After review passes:**
 
 ```
-action: "update", featureId: "refactor-<slug>", phase: "update-docs"
+action: "transition", featureId: "refactor-<slug>", target: "overhaul-update-docs"
 ```
 
 **After review fails (dispatch fix tasks, loop back):**
@@ -111,7 +111,7 @@ No human checkpoints in this chain. Automatic progression:
 
 After all tasks complete, auto-continue to review:
 
-1. Update state: `.phase = "review"`
+1. Transition: `action: "transition"`, `target: "overhaul-review"`
 2. Output: "All tasks complete. Auto-continuing to review..."
 3. Invoke immediately:
    ```typescript

@@ -192,19 +192,17 @@ echo "Switching to overhaul track recommended."
 ### Switch Protocol
 
 1. **Commit current work** - Don't lose progress
-2. **Record switch and change track:**
+2. **Record the switch reason:**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
   "implement.switchReason": "<reason for switch>",
-  "implement.switchedAt": "<ISO8601>",
-  "track": "overhaul"
-}, phase: "overhaul-plan"
+  "implement.switchedAt": "<ISO8601>"
+}
 ```
 
-3. **Create worktree** (if not already in one)
-4. **Invoke `/exarchos:plan`** - Extract remaining work into tasks
-5. **Continue via overhaul track**
+3. **Stop and ask the user.** The HSM has no edge from `polish-implement` to `overhaul-plan`, so `transition` cannot change the track after `brief`.
+4. **To continue on the overhaul track**, `cancel` this workflow and start a new refactor workflow. Select the overhaul track in its `explore` phase.
 
 ### Output to User
 
@@ -212,12 +210,11 @@ action: "update", featureId: "refactor-<slug>", updates: {
 Scope has expanded beyond polish limits.
 Reason: [specific reason]
 
-Switching to overhaul track. This means:
-- Work will continue in an isolated worktree
-- Remaining changes will be delegated to subagents
-- Full review process will be applied
+The polish track cannot switch to overhaul after the brief. Options:
+- Cancel this workflow and start a new refactor on the overhaul track
+- Reduce the scope and continue on the polish track
 
-Current progress has been committed. Continue? (Y/n)
+Current progress has been committed. Which option?
 ```
 
 ## State Updates
@@ -252,27 +249,29 @@ Note: For array appends, the MCP tool handles merging with existing array entrie
 
 ### Implementation Complete
 
-**Record completion and advance to validate:**
+**Record completion, then advance to validate:**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
   "implement.completedAt": "<ISO8601>",
   "implement.totalFiles": <count>,
   "implement.totalCommits": <count>
-}, phase: "polish-validate"
+}
+action: "transition", featureId: "refactor-<slug>", target: "polish-validate"
 ```
 
 ### Track Switch (if needed)
 
-**Record switch and change track:**
+**Record the switch reason, then stop and ask the user:**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
   "implement.switchReason": "<reason>",
-  "implement.switchedAt": "<ISO8601>",
-  "track": "overhaul"
-}, phase: "overhaul-plan"
+  "implement.switchedAt": "<ISO8601>"
+}
 ```
+
+No `transition` follows. The HSM has no edge from `polish-implement` to `overhaul-plan`.
 
 ## Exit Conditions
 
@@ -288,26 +287,20 @@ Implementation phase exits when:
 **Advance to validate:**
 
 ```
-action: "update", featureId: "refactor-<slug>", phase: "polish-validate"
+action: "transition", featureId: "refactor-<slug>", target: "polish-validate"
 ```
 
 Next action: `AUTO:polish-validate`
 
-### Track Switch Exit -> Plan Phase
+### Scope Expansion Exit -> Ask the User
 
 - Scope expanded beyond polish limits
-- Track switched to overhaul
+- Switch reason recorded (see Track Switch above)
 - Current work committed
 
-**Switch to overhaul track:**
+The HSM has no edge from `polish-implement` to `overhaul-plan`. The workflow stays in `polish-implement` until the user chooses: reduce the scope, or `cancel` and start a new refactor on the overhaul track.
 
-```
-action: "update", featureId: "refactor-<slug>", updates: {
-  "track": "overhaul"
-}, phase: "overhaul-plan"
-```
-
-Next action: `AUTO:overhaul-plan`
+Next action: ask the user
 
 ## Anti-Patterns
 

@@ -7,7 +7,7 @@
       {
         "flag": "A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.",
         "intent": "plan",
-        "line": 282,
+        "line": 284,
         "source": "content/design/skills/plan/SKILL.md",
         "subject": "exarchos_orchestrate.check_coverage_thresholds"
       },
@@ -47,13 +47,13 @@
     {
       "boundary": {
         "label": "transition plan -> plan-review",
-        "line": 252,
+        "line": 254,
         "source": "content/design/skills/plan/SKILL.md"
       },
       "conditional": [
         {
           "call": "exarchos_workflow.describe",
-          "line": 256,
+          "line": 258,
           "per": "once",
           "role": "describe",
           "source": "content/design/skills/plan/SKILL.md",
@@ -61,7 +61,7 @@
         },
         {
           "call": "exarchos_workflow.describe",
-          "line": 257,
+          "line": 259,
           "per": "once",
           "role": "describe",
           "source": "content/design/skills/plan/SKILL.md",
@@ -69,7 +69,7 @@
         },
         {
           "call": "exarchos_orchestrate.describe",
-          "line": 259,
+          "line": 261,
           "per": "once",
           "role": "describe",
           "source": "content/design/skills/plan/SKILL.md",
@@ -135,7 +135,7 @@
           "reentersNormalPath": true,
           "through": "exarchos_orchestrate.check_plan_coverage",
           "trigger": {
-            "line": 298,
+            "line": 300,
             "source": "content/design/skills/plan/SKILL.md"
           }
         }
@@ -144,70 +144,70 @@
         {
           "call": "exarchos_orchestrate.check_test_adequacy",
           "kind": "other-phase",
-          "line": 66,
+          "line": 68,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "the verification-ladder section shows the kill probe a task runs after implementation, not a planning call"
         },
         {
           "call": "exarchos_orchestrate.generate_traceability",
           "kind": "restatement",
-          "line": 265,
+          "line": 267,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "completion checklist restates the traceability step"
         },
         {
           "call": "exarchos_orchestrate.check_plan_coverage",
           "kind": "restatement",
-          "line": 271,
+          "line": 273,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "completion checklist restates the coverage step"
         },
         {
           "call": "exarchos_orchestrate.check_provenance_chain",
           "kind": "restatement",
-          "line": 272,
+          "line": 274,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "completion checklist restates the provenance step"
         },
         {
           "call": "exarchos_orchestrate.check_task_decomposition",
           "kind": "restatement",
-          "line": 273,
+          "line": 275,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "completion checklist restates the decomposition step"
         },
         {
           "call": "exarchos_orchestrate.spec_coverage_check",
           "kind": "restatement",
-          "line": 274,
+          "line": 276,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "completion checklist restates the spec coverage step"
         },
         {
           "call": "exarchos_orchestrate.check_coverage_thresholds",
           "kind": "restatement",
-          "line": 275,
+          "line": 277,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "the checklist line names the call whose full recipe follows it"
         },
         {
           "call": "exarchos_orchestrate.prepare_review",
           "kind": "beyond-boundary",
-          "line": 293,
+          "line": 295,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "provisions the plan-review pass, which runs after the transition this intent ends at"
         },
         {
           "call": "exarchos_orchestrate.check_plan_coverage",
           "kind": "restatement",
-          "line": 298,
+          "line": 300,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "the transition section restates the coverage gate as the revise trigger"
         },
         {
           "call": "exarchos_workflow.transition",
           "kind": "restatement",
-          "line": 302,
+          "line": 304,
           "source": "content/design/skills/plan/SKILL.md",
           "why": "the integration note restates the transition call of the State Management section to say which event it emits"
         }
@@ -217,7 +217,7 @@
         "calls": [
           {
             "call": "exarchos_orchestrate.generate_traceability",
-            "line": 101,
+            "line": 103,
             "per": "once",
             "role": "work",
             "source": "content/design/skills/plan/SKILL.md",
@@ -225,7 +225,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_plan_coverage",
-            "line": 148,
+            "line": 150,
             "per": "once",
             "role": "work",
             "source": "content/design/skills/plan/SKILL.md",
@@ -233,7 +233,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_provenance_chain",
-            "line": 163,
+            "line": 165,
             "per": "once",
             "role": "work",
             "source": "content/design/skills/plan/SKILL.md",
@@ -241,7 +241,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_task_decomposition",
-            "line": 178,
+            "line": 180,
             "per": "once",
             "role": "work",
             "source": "content/design/skills/plan/SKILL.md",
@@ -249,7 +249,7 @@
           },
           {
             "call": "exarchos_orchestrate.spec_coverage_check",
-            "line": 194,
+            "line": 196,
             "per": "once",
             "role": "work",
             "source": "content/design/skills/plan/SKILL.md",
@@ -257,7 +257,7 @@
           },
           {
             "call": "exarchos_orchestrate.check_coverage_thresholds",
-            "line": 278,
+            "line": 280,
             "per": "once",
             "role": "work",
             "source": "content/design/skills/plan/SKILL.md",
@@ -265,7 +265,7 @@
           },
           {
             "call": "exarchos_workflow.update",
-            "line": 241,
+            "line": 243,
             "per": "once",
             "role": "work",
             "source": "content/design/skills/plan/SKILL.md",
@@ -273,7 +273,7 @@
           },
           {
             "call": "exarchos_workflow.transition",
-            "line": 245,
+            "line": 247,
             "per": "once",
             "role": "work",
             "source": "content/design/skills/plan/SKILL.md",
@@ -1991,7 +1991,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "boundary",
-      "line": 252,
+      "line": 254,
       "path": "boundary",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "boundary"
@@ -2001,7 +2001,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "site",
-      "line": 179,
+      "line": 181,
       "path": "normal",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.check_task_decomposition"
@@ -2011,7 +2011,7 @@
       "flag": "A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.",
       "intent": "plan",
       "kind": "site",
-      "line": 282,
+      "line": 284,
       "path": "normal",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.check_coverage_thresholds"
@@ -2021,7 +2021,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "site",
-      "line": 241,
+      "line": 243,
       "path": "normal",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_workflow.update"
@@ -2031,7 +2031,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "exception",
-      "line": 298,
+      "line": 300,
       "path": "exception:coverage-gaps-revise",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "the coverage gate fails, so the plan is revised and re-run"
@@ -2051,17 +2051,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "site",
-      "line": 256,
-      "path": "conditional",
-      "source": "content/design/skills/plan/SKILL.md",
-      "subject": "exarchos_workflow.describe"
-    },
-    {
-      "decision": "schema-discovery reference: consulted when a schema is needed, not prescribed on every run",
-      "flag": null,
-      "intent": "plan",
-      "kind": "site",
-      "line": 257,
+      "line": 258,
       "path": "conditional",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_workflow.describe"
@@ -2074,6 +2064,16 @@
       "line": 259,
       "path": "conditional",
       "source": "content/design/skills/plan/SKILL.md",
+      "subject": "exarchos_workflow.describe"
+    },
+    {
+      "decision": "schema-discovery reference: consulted when a schema is needed, not prescribed on every run",
+      "flag": null,
+      "intent": "plan",
+      "kind": "site",
+      "line": 261,
+      "path": "conditional",
+      "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.describe"
     },
     {
@@ -2081,7 +2081,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "other-phase",
-      "line": 66,
+      "line": 68,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.check_test_adequacy"
@@ -2091,7 +2091,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "restatement",
-      "line": 265,
+      "line": 267,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.generate_traceability"
@@ -2101,7 +2101,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "restatement",
-      "line": 271,
+      "line": 273,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.check_plan_coverage"
@@ -2111,7 +2111,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "restatement",
-      "line": 272,
+      "line": 274,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.check_provenance_chain"
@@ -2121,7 +2121,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "restatement",
-      "line": 273,
+      "line": 275,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.check_task_decomposition"
@@ -2131,7 +2131,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "restatement",
-      "line": 274,
+      "line": 276,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.spec_coverage_check"
@@ -2141,7 +2141,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "restatement",
-      "line": 275,
+      "line": 277,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.check_coverage_thresholds"
@@ -2151,7 +2151,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "beyond-boundary",
-      "line": 293,
+      "line": 295,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.prepare_review"
@@ -2161,7 +2161,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "restatement",
-      "line": 298,
+      "line": 300,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_orchestrate.check_plan_coverage"
@@ -2171,7 +2171,7 @@
       "flag": null,
       "intent": "plan",
       "kind": "restatement",
-      "line": 302,
+      "line": 304,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
       "subject": "exarchos_workflow.transition"
@@ -3029,11 +3029,11 @@
     "inputs": [
       {
         "file": "content/delivery/skills/delegate/SKILL.md",
-        "sha256": "77dc1a04c96af6b1d9caa78e2768144ee25a0f352eb9579d2bcd3cdc5c40928f"
+        "sha256": "f475db6b7d79133586981066c5ae61a743d03d06d4050786109ead1406ba2ef4"
       },
       {
         "file": "content/design/skills/plan/SKILL.md",
-        "sha256": "518d5348b475e8109fd4bfebf3a30d950129af40bf29230e466e0f077c085748"
+        "sha256": "4055244678114ee3d81b3cb61d994106b48097773d6f1396532ad226b15dcff6"
       },
       {
         "file": "content/review/skills/review/SKILL.md",
@@ -4172,8 +4172,8 @@
         "dispositions": [
           "plan:excluded:other-phase"
         ],
-        "endLine": 75,
-        "line": 66,
+        "endLine": 77,
+        "line": 68,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4183,8 +4183,8 @@
         "dispositions": [
           "plan:normal"
         ],
-        "endLine": 106,
-        "line": 101,
+        "endLine": 108,
+        "line": 103,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4194,8 +4194,8 @@
         "dispositions": [
           "plan:normal"
         ],
-        "endLine": 153,
-        "line": 148,
+        "endLine": 155,
+        "line": 150,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4205,8 +4205,8 @@
         "dispositions": [
           "plan:normal"
         ],
-        "endLine": 168,
-        "line": 163,
+        "endLine": 170,
+        "line": 165,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4216,8 +4216,8 @@
         "dispositions": [
           "plan:normal"
         ],
-        "endLine": 182,
-        "line": 178,
+        "endLine": 184,
+        "line": 180,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4227,8 +4227,8 @@
         "dispositions": [
           "plan:normal"
         ],
-        "endLine": 200,
-        "line": 194,
+        "endLine": 202,
+        "line": 196,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4238,8 +4238,8 @@
         "dispositions": [
           "plan:normal"
         ],
-        "endLine": 241,
-        "line": 241,
+        "endLine": 243,
+        "line": 243,
         "pattern": "bare-action-key",
         "runbookId": null,
         "status": "registered"
@@ -4249,8 +4249,8 @@
         "dispositions": [
           "plan:normal"
         ],
-        "endLine": 245,
-        "line": 245,
+        "endLine": 247,
+        "line": 247,
         "pattern": "bare-action-key",
         "runbookId": null,
         "status": "registered"
@@ -4260,25 +4260,14 @@
         "dispositions": [
           "plan:conditional"
         ],
-        "endLine": 256,
-        "line": 256,
+        "endLine": 258,
+        "line": 258,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
       },
       {
         "call": "exarchos_workflow.describe",
-        "dispositions": [
-          "plan:conditional"
-        ],
-        "endLine": 257,
-        "line": 257,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
-        "call": "exarchos_orchestrate.describe",
         "dispositions": [
           "plan:conditional"
         ],
@@ -4289,40 +4278,29 @@
         "status": "registered"
       },
       {
+        "call": "exarchos_orchestrate.describe",
+        "dispositions": [
+          "plan:conditional"
+        ],
+        "endLine": 261,
+        "line": 261,
+        "pattern": "call-expression",
+        "runbookId": null,
+        "status": "registered"
+      },
+      {
         "call": "exarchos_orchestrate.generate_traceability",
         "dispositions": [
           "plan:excluded:restatement"
         ],
-        "endLine": 265,
-        "line": 265,
+        "endLine": 267,
+        "line": 267,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
       },
       {
         "call": "exarchos_orchestrate.check_plan_coverage",
-        "dispositions": [
-          "plan:excluded:restatement"
-        ],
-        "endLine": 271,
-        "line": 271,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
-        "call": "exarchos_orchestrate.check_provenance_chain",
-        "dispositions": [
-          "plan:excluded:restatement"
-        ],
-        "endLine": 272,
-        "line": 272,
-        "pattern": "call-expression",
-        "runbookId": null,
-        "status": "registered"
-      },
-      {
-        "call": "exarchos_orchestrate.check_task_decomposition",
         "dispositions": [
           "plan:excluded:restatement"
         ],
@@ -4333,7 +4311,7 @@
         "status": "registered"
       },
       {
-        "call": "exarchos_orchestrate.spec_coverage_check",
+        "call": "exarchos_orchestrate.check_provenance_chain",
         "dispositions": [
           "plan:excluded:restatement"
         ],
@@ -4344,7 +4322,7 @@
         "status": "registered"
       },
       {
-        "call": "exarchos_orchestrate.check_coverage_thresholds",
+        "call": "exarchos_orchestrate.check_task_decomposition",
         "dispositions": [
           "plan:excluded:restatement"
         ],
@@ -4355,12 +4333,34 @@
         "status": "registered"
       },
       {
+        "call": "exarchos_orchestrate.spec_coverage_check",
+        "dispositions": [
+          "plan:excluded:restatement"
+        ],
+        "endLine": 276,
+        "line": 276,
+        "pattern": "call-expression",
+        "runbookId": null,
+        "status": "registered"
+      },
+      {
+        "call": "exarchos_orchestrate.check_coverage_thresholds",
+        "dispositions": [
+          "plan:excluded:restatement"
+        ],
+        "endLine": 277,
+        "line": 277,
+        "pattern": "call-expression",
+        "runbookId": null,
+        "status": "registered"
+      },
+      {
         "call": "exarchos_orchestrate.check_coverage_thresholds",
         "dispositions": [
           "plan:normal"
         ],
-        "endLine": 285,
-        "line": 278,
+        "endLine": 287,
+        "line": 280,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4370,8 +4370,8 @@
         "dispositions": [
           "plan:excluded:beyond-boundary"
         ],
-        "endLine": 293,
-        "line": 293,
+        "endLine": 295,
+        "line": 295,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4381,8 +4381,8 @@
         "dispositions": [
           "plan:excluded:restatement"
         ],
-        "endLine": 298,
-        "line": 298,
+        "endLine": 300,
+        "line": 300,
         "pattern": "call-expression",
         "runbookId": null,
         "status": "registered"
@@ -4392,8 +4392,8 @@
         "dispositions": [
           "plan:excluded:restatement"
         ],
-        "endLine": 302,
-        "line": 302,
+        "endLine": 304,
+        "line": 304,
         "pattern": "tool-verb-span",
         "runbookId": null,
         "status": "registered"

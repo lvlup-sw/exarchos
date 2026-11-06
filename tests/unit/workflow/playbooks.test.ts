@@ -10,6 +10,8 @@ import {
 import type { SerializedPlaybooks, SerializedPhasePlaybook } from '../../../src/workflow/playbooks.js';
 import { phaseRuntimeEmissions } from '../../../src/workflow/topology/phase-events.js';
 import { guards } from '../../../src/workflow/guards.js';
+import { executeTransition } from '../../../src/workflow/state-machine.js';
+import { createFeatureHSM } from '../../../src/workflow/hsm-definitions.js';
 import {
   getRequiredReviews,
   getRequiredReviewsPrerequisite,
@@ -292,6 +294,28 @@ describe('Plan-review gaps path names the revise guard field', () => {
   it('getPlaybook_RefactorOverhaulPlanReview_GapsPathNamesReviseGuardField', () => {
     const playbook = getPlaybook('refactor', 'overhaul-plan-review')!;
     expect(playbook.compactGuidance).toContain(`gaps with updates: { ${reviseGuardWrite()} }`);
+  });
+});
+
+/**
+ * Tells whether a traversal of the feature `plan-review → plan` edge emits a `plan-revision` event.
+ * The playbook text depends on this result, so an executor change also changes what the text must say.
+ */
+function featureReviseEdgeEmitsPlanRevision(): boolean {
+  const state = { phase: 'plan-review', planReview: { gapsFound: true }, _events: [] };
+  const result = executeTransition(createFeatureHSM(), state, 'plan');
+  if (!result.success) throw new Error('the feature revise edge did not transition');
+  return result.events.some((e) => e.type === 'plan-revision');
+}
+
+describe('Plan-review revise path names the counter of the loop', () => {
+  /** The feature revise edge emits no `plan-revision`. Thus the playbook names `prepare_review` as the counter and claims no counted edge. */
+  it('getPlaybook_FeaturePlanReview_NamesTheCounterThatTheExecutorUses', () => {
+    const guidance = getPlaybook('feature', 'plan-review')!.compactGuidance;
+    expect(featureReviseEdgeEmitsPlanRevision()).toBe(false);
+    expect(guidance).toContain('transition to `plan` (no `plan-revision`: prepare_review counts each dispatch)');
+    expect(guidance).not.toContain('counted `plan-revision`');
+    expect(guidance).not.toContain('counted edge');
   });
 });
 

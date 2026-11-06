@@ -80,7 +80,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
-| `graph.tasks[]`, `graph.dependencies[]`, `graph.joins[]` | The batch, and the order it must run in — a `dependencies` edge `{ from, to }` means `to` waits for `from` |
+| `graph.tasks[]`, `graph.dependencies[]`, `graph.joins[]` | The batch and its join. Every task in the batch is ready, so no task waits for another and `graph.dependencies[]` is empty |
 | `settlementContract.taskVerification[taskId]` | The task's `riskTier` and `boundaryTouching`, frozen from the plan — the model tier, and the gates settlement will run — its `baseRef`, the integration branch the kill probe measures its diff from, and its `baseCommit`, the commit of `baseRef` at `prepare`, where the task's worktree starts |
 | `settlementContract.scope` | The repository (`repository`, its git common dir), the checkout that `prepare` read (`checkout`) and the digest of the config files of that checkout (`configDigest`). Settlement refuses a claimed worktree outside this scope, and a config that changed after `prepare` |
 | `knowledge.patterns[]` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
@@ -120,7 +120,7 @@ The capsule pins the **terms**; the plan carries the **body**. From the implemen
 - Full task description (paste inline; never reference external files)
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. `src/foo.ts`) — never an absolute parent-repo path, and never a `..` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
-- Dependencies on other tasks — from `graph.dependencies`, which is the plan's `blockedBy` compiled
+- Dependencies on other tasks — from the plan's `blockedBy`. The capsule holds only the ready frontier, so `graph.dependencies` is empty
 - Property-based testing flag (`testingStrategy.propertyTests`)
 
 For a complete worked example of this flow, see `references/worked-example.md`.

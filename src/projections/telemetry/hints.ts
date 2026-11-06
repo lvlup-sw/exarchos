@@ -37,7 +37,7 @@ const rules: readonly HintRule[] = [
   },
   (metrics, toolName) => {
     if (toolName === 'workflow_set' && metrics.p95DurationMs > WORKFLOW_SET_DURATION_THRESHOLD) {
-      return { tool: toolName, hint: 'Batch multiple field updates into a single `set` call' };
+      return { tool: toolName, hint: 'Batch multiple field updates into a single `exarchos_workflow update` call' };
     }
     return null;
   },

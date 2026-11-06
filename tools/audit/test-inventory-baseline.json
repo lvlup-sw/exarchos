@@ -7,7 +7,7 @@
     "testFiles": 1393,
     "parsedFiles": 1348,
     "shellFiles": 45,
-    "cases": 15397,
+    "cases": 15399,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -39875,6 +39875,11 @@
         },
         {
           "suite": "generateHints > workflow_set hints",
+          "name": "should name an action that the workflow tool declares",
+          "dynamic": false
+        },
+        {
+          "suite": "generateHints > workflow_set hints",
           "name": "should not hint when p95DurationMs <= 200",
           "dynamic": false
         },
@@ -78757,6 +78762,11 @@
         {
           "suite": "Plan-review gaps path names the revise guard field",
           "name": "getPlaybook_RefactorOverhaulPlanReview_GapsPathNamesReviseGuardField",
+          "dynamic": false
+        },
+        {
+          "suite": "Plan-review revise path names the counter of the loop",
+          "name": "getPlaybook_FeaturePlanReview_NamesTheCounterThatTheExecutorUses",
           "dynamic": false
         },
         {
