@@ -306,7 +306,7 @@ describe('D.8 — annotations.safety is queryable from registry (DIM-1 SoT)', ()
  * `discover_bridge` is a registry action, so it is never a control verb.
  */
 describe('computeNextActions — deep-rung affordances (DR-7, task 018)', () => {
-  it('NextActions_DeepDepth_PublishesDiscoverBridge', () => {
+  it('NextActions_DeepDepth_OmitsDiscoverBridge', () => {
     const hsm = getHSMDefinition('feature');
     const { control, registry } = computeNextActionEnvelopes(
       { phase: 'plan', workflowType: 'feature', designDepth: 'deep' },

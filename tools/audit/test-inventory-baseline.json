@@ -37062,7 +37062,7 @@
         },
         {
           "suite": "computeNextActions — deep-rung affordances (DR-7, task 018)",
-          "name": "NextActions_DeepDepth_PublishesDiscoverBridge",
+          "name": "NextActions_DeepDepth_OmitsDiscoverBridge",
           "dynamic": false
         },
         {

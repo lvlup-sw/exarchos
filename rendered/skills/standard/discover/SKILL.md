@@ -29,7 +29,7 @@ no verification gates (nothing to test), so the verification ladder does not app
 
 ## Discover bridge (the deep-rung escalation)
 
-At the `deep` planning rung, `/exarchos:ideate` can escalate to this workflow as a **first-class, event-linked research pre-pass** instead of a manual "go start a new workflow" handoff. The bridge is **opt-in** (author-confirmed, never auto-run): the affordance is surfaced on `next_actions`, and the `discover_bridge` orchestrate action — invoked with `confirm: true` — stitches this discovery run to the originating spec by a deterministic `correlationId` (recorded as a `state.patched` link event on the feature stream). When you run a discovery escalated this way, cite the report path in the spec's `## Design & Rationale` → Exploration section, and `init` this workflow with the bridge's `correlationId` so provenance spans both documents.
+At the `deep` planning rung, `/exarchos:ideate` can escalate to this workflow as an **event-linked research pre-pass**. The bridge is **opt-in** and never auto-runs. No `next_actions` affordance offers it: the ideate author escalates by hand, and only after the user confirms. The author then calls the `discover_bridge` orchestrate action with `confirm: true`. It stitches this discovery run to the originating spec by a deterministic `correlationId`, recorded as a `state.patched` link event on the feature stream. When you run a discovery escalated this way, `init` this workflow with the `discoverFeatureId` that the bridge returns. Cite the report path and the `correlationId` in the spec's `## Design & Rationale` → Exploration section so provenance spans both documents.
 
 ## Phases
 

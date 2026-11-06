@@ -972,7 +972,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`/exarchos:discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`/exarchos:discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__plugin_exarchos_exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -1004,7 +1004,7 @@ The user can override: \`/exarchos:ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -2211,7 +2211,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -2243,7 +2243,7 @@ The user can override: \`ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -3442,7 +3442,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`/discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`/discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -3474,7 +3474,7 @@ The user can override: \`/ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -4683,7 +4683,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -4715,7 +4715,7 @@ The user can override: \`ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -5895,7 +5895,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -5927,7 +5927,7 @@ The user can override: \`ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -7134,7 +7134,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`/discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`/discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -7166,7 +7166,7 @@ The user can override: \`/ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -8292,7 +8292,7 @@ no verification gates (nothing to test), so the verification ladder does not app
 
 ## Discover bridge (the deep-rung escalation)
 
-At the \`deep\` planning rung, \`/exarchos:ideate\` can escalate to this workflow as a **first-class, event-linked research pre-pass** instead of a manual "go start a new workflow" handoff. The bridge is **opt-in** (author-confirmed, never auto-run): the affordance is surfaced on \`next_actions\`, and the \`discover_bridge\` orchestrate action — invoked with \`confirm: true\` — stitches this discovery run to the originating spec by a deterministic \`correlationId\` (recorded as a \`state.patched\` link event on the feature stream). When you run a discovery escalated this way, cite the report path in the spec's \`## Design & Rationale\` → Exploration section, and \`init\` this workflow with the bridge's \`correlationId\` so provenance spans both documents.
+At the \`deep\` planning rung, \`/exarchos:ideate\` can escalate to this workflow as an **event-linked research pre-pass**. The bridge is **opt-in** and never auto-runs. No \`next_actions\` affordance offers it: the ideate author escalates by hand, and only after the user confirms. The author then calls the \`discover_bridge\` orchestrate action with \`confirm: true\`. It stitches this discovery run to the originating spec by a deterministic \`correlationId\`, recorded as a \`state.patched\` link event on the feature stream. When you run a discovery escalated this way, \`init\` this workflow with the \`discoverFeatureId\` that the bridge returns. Cite the report path and the \`correlationId\` in the spec's \`## Design & Rationale\` → Exploration section so provenance spans both documents.
 
 ## Phases
 
