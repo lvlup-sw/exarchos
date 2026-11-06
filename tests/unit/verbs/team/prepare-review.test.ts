@@ -483,34 +483,59 @@ describe('plan-review bound regressions (WLM-6 DR-2, task 005)', () => {
     }
   });
 
+  async function guardExhausted(featureId: string): Promise<boolean> {
+    const result = guards.revisionsExhausted.evaluate({
+      _events: await hydrateEventsFromStore(featureId, eventStore),
+    });
+    return result === true;
+  }
+
   /**
-   * The handler reads the whole stream through the count that the `revisions-exhausted` guard reads.
-   * An overhaul revise edge consumes the one default revision. Thus the next dispatch is refused,
-   * and the guard on the same log opens `blocked`.
+   * An overhaul revise edge counts its revision before the re-review. At the default cap of 1, the
+   * handler provisions the re-review of that revision and refuses the next dispatch. The guard on
+   * the same log opens `blocked` from the revise edge on.
    */
-  it('PlanReview_ReviseEdgeRow_CountsLikeTheGuard', async () => {
+  it('PlanReview_ReviseEdgeRow_AdmitsItsReReview_ThenCaps', async () => {
     const featureId = 'dr2-revise-edge';
     expect((await callPrepareReview(planArgs(featureId))).success).toBe(true);
-    expect(
-      guards.revisionsExhausted.evaluate({
-        _events: await hydrateEventsFromStore(featureId, eventStore),
-      }),
-    ).not.toBe(true);
+    expect(await guardExhausted(featureId)).toBe(false);
 
     await eventStore.append(featureId, {
       type: 'workflow.plan-revision',
       data: { featureId, count: 1 },
     });
+    expect(await guardExhausted(featureId)).toBe(true);
+
+    expect((await callPrepareReview(planArgs(featureId))).success).toBe(true);
 
     const refused = await callPrepareReview(planArgs(featureId));
     expect(refused.success).toBe(false);
     expect(refused.error?.code).toBe('PLAN_REVISIONS_EXHAUSTED');
     expect(refused.error?.message).toContain('1/1');
-    expect(
-      guards.revisionsExhausted.evaluate({
-        _events: await hydrateEventsFromStore(featureId, eventStore),
-      }),
-    ).toBe(true);
+    expect(await guardExhausted(featureId)).toBe(true);
+    expect(await eventStore.query(featureId, { type: DISPATCH_EVENT })).toHaveLength(2);
+  });
+
+  /**
+   * Two overhaul revise edges with no re-review between them consume two revisions. The handler
+   * refuses the next dispatch past the default cap of 1, although the log holds one dispatch row.
+   */
+  it('PlanReview_ReviseEdgeRowsPastTheCap_RefuseTheNextDispatch', async () => {
+    const featureId = 'dr2-revise-edges';
+    expect((await callPrepareReview(planArgs(featureId))).success).toBe(true);
+    for (const count of [1, 2]) {
+      await eventStore.append(featureId, {
+        type: 'workflow.plan-revision',
+        data: { featureId, count },
+      });
+    }
+
+    const refused = await callPrepareReview(planArgs(featureId));
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('PLAN_REVISIONS_EXHAUSTED');
+    expect(refused.error?.message).toContain('2/1');
+    expect(await guardExhausted(featureId)).toBe(true);
+    expect(await eventStore.query(featureId, { type: DISPATCH_EVENT })).toHaveLength(1);
   });
 
   /** A "survives" verdict leads to no second call, so the count stays 0. */

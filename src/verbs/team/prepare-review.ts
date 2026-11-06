@@ -15,7 +15,8 @@ import { loadProjectConfig } from '../../config/yaml-loader.js';
 import { resolveConfig, DEFAULTS } from '../../config/resolve.js';
 import { DEFAULT_MAX_PLAN_REVISIONS } from '../../workflow/guards.js';
 import {
-  planRevisionCapReached,
+  PLAN_REVISION_COUNTED_STORE_TYPES,
+  planReviewDispatchExceedsCap,
   tallyPlanRevisions,
 } from '../../projections/shared/plan-revision-count.js';
 import { resolvePlanReviewDepth, type PlanReviewRung } from '../../workflow/phase-kind.js';
@@ -225,14 +226,15 @@ function assemblePlanReviewProvisioning(args: PrepareReviewArgs): PlanReviewProv
 /**
  * Provisions a plan review and counts it against the revision cap.
  *
- * An agent must call this action to get a plan review, so the count occurs
- * here. Without it, an agent can loop in `plan-review` and never cross the
- * counted edge back to `plan`. The `ordinal` is the number of earlier dispatch
- * events. The first dispatch appends ordinal 0 and uses no revision, but its
- * marker lets the next dispatch count as a revision. `tallyPlanRevisions` reads
- * the whole stream, so the count is the count that the `revisions-exhausted`
- * guard reads. At the cap, the handler refuses with PLAN_REVISIONS_EXHAUSTED and
- * a `blocked` next action.
+ * An agent must call this action to get a plan review, so the count occurs here. The `ordinal` is
+ * the number of earlier dispatch events. The first dispatch appends ordinal 0 and uses no revision,
+ * but its marker lets the next dispatch count as a revision. The handler reads only the row types
+ * that `tallyPlanRevisions` counts, so its count is the count that the `revisions-exhausted` guard
+ * reads.
+ *
+ * The handler refuses a dispatch that takes the count past the cap, with PLAN_REVISIONS_EXHAUSTED
+ * and a `blocked` next action. The re-review after an overhaul revise edge uses the revision of
+ * that edge.
  */
 async function buildPlanReviewProvisioning(
   args: PrepareReviewArgs,
@@ -250,11 +252,15 @@ async function buildPlanReviewProvisioning(
 
   const maxPlanRevisions = resolveMaxPlanRevisions(args.repoRoot);
 
-  const tally = tallyPlanRevisions(await eventStore.query(args.featureId));
+  const countedRows: unknown[] = [];
+  for (const type of PLAN_REVISION_COUNTED_STORE_TYPES) {
+    countedRows.push(...(await eventStore.query(args.featureId, { type })));
+  }
+  const tally = tallyPlanRevisions(countedRows);
   const ordinal = tally.dispatches;
   const revisionCount = tally.revisions;
 
-  if (ordinal > 0 && planRevisionCapReached(revisionCount, maxPlanRevisions)) {
+  if (planReviewDispatchExceedsCap(tally, maxPlanRevisions)) {
     const message =
       `plan-review revision cap reached: ${revisionCount}/${maxPlanRevisions} ` +
       `revisions consumed. No further adversarial plan-review will be provisioned — ` +

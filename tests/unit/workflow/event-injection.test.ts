@@ -578,6 +578,72 @@ describe('handleSet_PlanRevisionCapInjection', () => {
       await rmrfAsync(repo);
     }
   });
+
+  /**
+   * On the refactor overhaul track, the revise edge counts its revision before the re-review. At the
+   * default cap of 1, `prepare_review` still provisions that re-review, as on the feature track.
+   * The dispatch after it is refused, and `blocked` is then admitted.
+   */
+  it('Overhaul_ReReviewAfterReviseEdge_IsProvisionedAtDefaultCap', async () => {
+    const eventStore = new EventStore(tmpDir);
+    const featureId = 'cap-overhaul';
+    const set = (input: { updates?: Record<string, unknown>; phase?: string }) =>
+      handleSet({ featureId, ...input }, tmpDir, eventStore);
+    const review = () =>
+      handlePrepareReview(
+        { featureId, scope: 'plan', artifact: 'docs/specs/x.md' },
+        tmpDir,
+        eventStore,
+      );
+
+    await handleInit({ featureId, workflowType: 'refactor' }, tmpDir, eventStore);
+    expect(
+      (await set({ updates: { explore: { scopeAssessment: 'big' } }, phase: 'brief' })).success,
+    ).toBe(true);
+    expect(
+      (
+        await set({
+          updates: {
+            track: 'overhaul',
+            brief: {
+              goals: ['g'],
+              problem: 'p',
+              approach: 'a',
+              affectedAreas: ['x'],
+              outOfScope: [],
+              successCriteria: ['s'],
+              docsToUpdate: [],
+            },
+          },
+          phase: 'overhaul-plan',
+        })
+      ).success,
+    ).toBe(true);
+    expect(
+      (
+        await set({
+          updates: { artifacts: { plan: 'docs/specs/x.md' } },
+          phase: 'overhaul-plan-review',
+        })
+      ).success,
+    ).toBe(true);
+    expect((await review()).success).toBe(true);
+
+    await set({ updates: { planReview: { gapsFound: true } } });
+    expect((await set({ phase: 'overhaul-plan' })).success).toBe(true);
+    await set({ updates: { planReview: { gapsFound: false } } });
+    expect((await set({ phase: 'overhaul-plan-review' })).success).toBe(true);
+
+    expect((await review()).success).toBe(true);
+    const refused = await review();
+    expect(refused.success).toBe(false);
+    expect(refused.error?.code).toBe('PLAN_REVISIONS_EXHAUSTED');
+
+    await set({ updates: { planReview: { gapsFound: true } } });
+    const blocked = await set({ phase: 'blocked' });
+    expect(blocked.success).toBe(true);
+    expect((blocked.data as Record<string, unknown>).phase).toBe('blocked');
+  });
 });
 
 /**
