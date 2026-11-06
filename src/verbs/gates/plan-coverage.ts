@@ -448,10 +448,11 @@ export function parseAcceptanceTestTasks(planContent: string): AcceptanceTestTas
 /**
  * Computes the coverage of the design sections by the plan tasks.
  *
- * A section that matches a deferred name counts as deferred, not as a gap. A `DR-N` section first
- * resolves through the `**Implements:**` references. Then come substring and keyword matches on
- * the task titles, and then on the task bodies without table rows. A section without a match is a
- * gap.
+ * A section that matches a deferred name counts as deferred, not as a gap. A `DR-N` section is
+ * covered only when a task names it in an `**Implements:**` line, as in `check_provenance_chain`.
+ * Shared words in a task title or body do not cover it. Another section uses substring and keyword
+ * matches on the task titles, and then on the task bodies without table rows. A section without a
+ * match is a gap.
  *
  * With `designContent`, it also adds advisories for Given/When/Then requirements without an
  * acceptance test task. Advisories do not change the verdict.
@@ -491,9 +492,7 @@ export function computeCoverage(
       for (const id of implementsByDr.get(drMatch[0].toUpperCase()) ?? []) {
         matchedTasks.push(`Task ${id}`);
       }
-    }
-
-    if (matchedTasks.length === 0) {
+    } else {
       for (const task of tasks) {
         if (task.title.toLowerCase().includes(section.toLowerCase())) {
           matchedTasks.push(task.title);
@@ -509,7 +508,7 @@ export function computeCoverage(
       }
     }
 
-    if (matchedTasks.length === 0) {
+    if (!drMatch && matchedTasks.length === 0) {
       const taskBodies = extractTaskBodies(planContent);
       for (const body of taskBodies) {
         const cleanBody = body
@@ -653,7 +652,10 @@ function buildReport(
     lines.push('### Unmapped Sections');
     lines.push('');
     for (const gap of gapSections) {
-      lines.push(`- **${gap}** \u2014 No task maps to this design section`);
+      const reason = /\bDR-\d+\b/i.test(gap)
+        ? 'No task names this requirement in an `**Implements:**` line'
+        : 'No task maps to this design section';
+      lines.push(`- **${gap}** \u2014 ${reason}`);
     }
     lines.push('');
   }

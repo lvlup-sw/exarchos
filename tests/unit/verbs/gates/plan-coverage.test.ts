@@ -329,6 +329,67 @@ describe('computeCoverage — DR-N traceability at plan time (WFQ-006)', () => {
     expect(result.coverage.gaps).toBe(1);
     expect(result.gapSections).toEqual(['DR-2: Telemetry export pipeline']);
   });
+
+  /**
+   * The only task title shares words with both requirements, but its `**Implements:**` line names
+   * only the first. A title match does not cover a requirement, so the second is a gap. This is
+   * also the verdict of `check_provenance_chain`.
+   */
+  it('ComputeCoverage_DrSharesWordsWithTaskTitle_NoImplementsLine_IsGap', () => {
+    const sections = ['DR-1: Render widgets', 'DR-2: Cache widget state'];
+    const planContent = [
+      '## Decomposition',
+      '',
+      '### Task 001: Render widgets and cache widget state',
+      '',
+      '**Implements:** DR-1',
+    ].join('\n');
+    const tasks = parsePlanTasks(planContent);
+
+    const result = computeCoverage(sections, tasks, planContent, []);
+    expect(result.passed).toBe(false);
+    expect(result.coverage).toEqual({ covered: 1, gaps: 1, deferred: 0, total: 2 });
+    expect(result.gapSections).toEqual(['DR-2: Cache widget state']);
+    expect(result.report).toContain(
+      '- **DR-2: Cache widget state** \u2014 No task names this requirement in an `**Implements:**` line',
+    );
+  });
+
+  /** The task prose names the second requirement by its full heading, but no `**Implements:**` line names it. It stays uncovered. */
+  it('ComputeCoverage_DrNamedInTaskProse_NoImplementsLine_IsUncovered', () => {
+    const sections = ['DR-1: Render widgets', 'DR-2: Cache widget state'];
+    const planContent = [
+      '## Decomposition',
+      '',
+      '### Task 001: Build widget renderer',
+      '',
+      '**Implements:** DR-1',
+      '',
+      'This task also prepares DR-2: Cache widget state, so the cache can follow.',
+    ].join('\n');
+    const tasks = parsePlanTasks(planContent);
+
+    const result = computeCoverage(sections, tasks, planContent, []);
+    expect(result.passed).toBe(false);
+    expect(result.gapSections).toEqual(['DR-2: Cache widget state']);
+  });
+
+  /** A plan with no `**Implements:**` line covers no `DR-N`, whatever its task titles say. */
+  it('ComputeCoverage_PlanWithoutImplementsLines_LeavesEveryDrUncovered', () => {
+    const sections = ['DR-1: Render widgets'];
+    const planContent = [
+      '## Decomposition',
+      '',
+      '### Task 001: Render widgets',
+      '',
+      'Renders the widgets.',
+    ].join('\n');
+    const tasks = parsePlanTasks(planContent);
+
+    const result = computeCoverage(sections, tasks, planContent, []);
+    expect(result.passed).toBe(false);
+    expect(result.gapSections).toEqual(['DR-1: Render widgets']);
+  });
 });
 
 describe('handlePlanCoverage — canonical unified spec (WFQ-006)', () => {
