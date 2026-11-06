@@ -299,7 +299,7 @@ After decomposition completes, **auto-continue to plan-review**. Transition to t
 
 ## Exarchos Integration
 
-Phase transitions auto-emit `workflow.transition` events via `exarchos_workflow` `set`. No manual `exarchos_event` append needed.
+Phase transitions auto-emit `workflow.transition` events via `exarchos_workflow` `transition`. No manual `exarchos_event` append needed.
 
 ## Troubleshooting
 

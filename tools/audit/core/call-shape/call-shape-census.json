@@ -12,13 +12,6 @@
         "subject": "exarchos_orchestrate.check_coverage_thresholds"
       },
       {
-        "flag": "The plan skill says phase transitions emit through `exarchos_workflow` `set`, an action the registry does not serve; the same skill prescribes `transition` for the phase change.",
-        "intent": "plan",
-        "line": 302,
-        "source": "content/design/skills/plan/SKILL.md",
-        "subject": "exarchos_workflow.set"
-      },
-      {
         "flag": "The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.",
         "intent": "review",
         "line": 62,
@@ -48,17 +41,7 @@
       }
     ],
     "unregisteredRunbookSteps": [],
-    "unregisteredSites": [
-      {
-        "call": "exarchos_workflow.set",
-        "dispositions": [
-          "plan:excluded:stale-unregistered"
-        ],
-        "line": 302,
-        "source": "content/design/skills/plan/SKILL.md",
-        "status": "unregistered"
-      }
-    ]
+    "unregisteredSites": []
   },
   "intents": [
     {
@@ -222,11 +205,11 @@
           "why": "the transition section restates the coverage gate as the revise trigger"
         },
         {
-          "call": "exarchos_workflow.set",
-          "kind": "stale-unregistered",
+          "call": "exarchos_workflow.transition",
+          "kind": "restatement",
           "line": 302,
           "source": "content/design/skills/plan/SKILL.md",
-          "why": "the integration note names a workflow action the registry no longer serves"
+          "why": "the integration note restates the transition call of the State Management section to say which event it emits"
         }
       ],
       "id": "plan",
@@ -2184,14 +2167,14 @@
       "subject": "exarchos_orchestrate.check_plan_coverage"
     },
     {
-      "decision": "the integration note names a workflow action the registry no longer serves",
-      "flag": "The plan skill says phase transitions emit through `exarchos_workflow` `set`, an action the registry does not serve; the same skill prescribes `transition` for the phase change.",
+      "decision": "the integration note restates the transition call of the State Management section to say which event it emits",
+      "flag": null,
       "intent": "plan",
-      "kind": "stale-unregistered",
+      "kind": "restatement",
       "line": 302,
       "path": "excluded",
       "source": "content/design/skills/plan/SKILL.md",
-      "subject": "exarchos_workflow.set"
+      "subject": "exarchos_workflow.transition"
     },
     {
       "decision": "transition delegate -> review",
@@ -3050,7 +3033,7 @@
       },
       {
         "file": "content/design/skills/plan/SKILL.md",
-        "sha256": "9a2570c714172a108502486d7f6e138cd4ef4d84ade159f699663002132f6c6b"
+        "sha256": "961682134e9bddce5cd81fdae7c04f3d40328cdfd3f1dbb569898044a8d97bdb"
       },
       {
         "file": "content/review/skills/review/SKILL.md",
@@ -3058,7 +3041,7 @@
       },
       {
         "file": "content/synthesis/skills/synthesize/SKILL.md",
-        "sha256": "22c020a7069bbd9a5ec0ee443a8599af683eb830441e38c442db4d4307b66960"
+        "sha256": "34f0bc3afa8823275b374ccb6d6c1b89ed08af0210256f1e951beedbc7eaf21b"
       },
       {
         "file": "src/runbooks/definitions.ts",
@@ -4405,15 +4388,15 @@
         "status": "registered"
       },
       {
-        "call": "exarchos_workflow.set",
+        "call": "exarchos_workflow.transition",
         "dispositions": [
-          "plan:excluded:stale-unregistered"
+          "plan:excluded:restatement"
         ],
         "endLine": 302,
         "line": 302,
         "pattern": "tool-verb-span",
         "runbookId": null,
-        "status": "unregistered"
+        "status": "registered"
       }
     ],
     "content/review/skills/review/SKILL.md": [

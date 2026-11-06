@@ -4,7 +4,7 @@ Use specialized MCP tools over generic approaches:
 
 1. **Workflow state** — Exarchos MCP, never manual JSON
 2. **PR creation** — VCS MCP action (`exarchos_orchestrate({ action: "create_pr", base: "<base-branch>", title: "...", body: "..." })`)
-3. **State management** — `exarchos_workflow` set/get, never edit JSON directly
+3. **State management** — `exarchos_workflow` get/update/transition, never edit JSON directly
 
 > Additional tool guidance (Serena, GitHub MCP, Context7) is provided by optional companions. Install: `npx create-exarchos`
 
@@ -30,7 +30,8 @@ Before calling, consult `@skills/checkpoint/references/mcp-tool-reference.md` fo
 | Action | Key Parameters |
 |--------|---------------|
 | `get` | `featureId`, optional `query` (dot-path, returns `{ "<query>": <value> }`) or `fields` (string array for projection) |
-| `set` | `featureId`, `updates` (object), `phase` (string) — send both in one call for guarded transitions |
+| `update` | `featureId`, `updates` (object) — non-phase fields only; a `phase` key is rejected |
+| `transition` | `featureId`, `target` (phase) — write the guard prerequisites with `update` first |
 | `init` | `featureId`, `workflowType` (`"feature"` / `"debug"` / `"refactor"` / `"oneshot"`); for `oneshot`, optional `synthesisPolicy` (`"always"` / `"never"` / `"on-request"`, default `"on-request"`) |
 | `cleanup` | `featureId`, `mergeVerified: true`, `prUrl`, `mergedBranches` |
 | `cancel` | `featureId`, optional `dryRun: true` |

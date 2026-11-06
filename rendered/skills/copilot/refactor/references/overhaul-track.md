@@ -35,11 +35,11 @@ action: "init", featureId: "refactor-<slug>", workflowType: "refactor"
 
 **Set track and scope assessment, then transition to brief:**
 
-Before calling `set`, query the required guard shape:
+Before you call `update` and `transition`, query the required guard shape:
 ```
 exarchos_workflow({ action: "describe", playbook: "refactor" })
 ```
-Use the returned guard requirements for the `explore → brief` transition to construct your `set` call with the correct fields.
+Use the returned guard requirements for the `explore → brief` transition. Write the required fields with `update`, then call `transition` with `target: "brief"`.
 
 ### 2. Brief Phase
 
@@ -49,7 +49,7 @@ Detailed capture of refactor intent (more thorough than polish).
 
 **Save brief and advance to overhaul-plan:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `brief → overhaul-plan` guard requirements, then `set` the required fields and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `brief → overhaul-plan` guard requirements, then write the required fields with `update` and call `transition` with `target: "overhaul-plan"`.
 
 Then auto-invoke plan:
 ```typescript
@@ -72,7 +72,7 @@ The `/exarchos:plan` skill:
 
 **Save plan and advance to plan-review:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-plan → overhaul-plan-review` guard requirements, then `set` the required fields (plan artifact, tasks array) and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-plan → overhaul-plan-review` guard requirements, then write the required fields (plan artifact, tasks array) with `update` and call `transition` with `target: "overhaul-plan-review"`.
 
 **Human checkpoint:** Plan-review verifies plan coverage against the brief before committing to delegation. The orchestrator compares design sections against planned tasks.
 - Gaps found → set `.planReview.gaps`, auto-loop back to `/exarchos:plan --revise`
@@ -100,7 +100,7 @@ The `/exarchos:delegate` skill:
 
 **Advance to review:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-delegate → overhaul-review` guard requirements, then `set` the phase.
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-delegate → overhaul-review` guard requirements, then call `transition` with `target: "overhaul-review"`.
 
 Then auto-invoke review:
 ```typescript
@@ -122,7 +122,7 @@ The `/exarchos:review` skill:
 
 **Advance to doc updates:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-review → overhaul-update-docs` guard requirements, then `set` the phase.
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-review → overhaul-update-docs` guard requirements, then call `transition` with `target: "overhaul-update-docs"`.
 
 ### 6. Update Docs Phase
 
@@ -148,7 +148,7 @@ For overhaul, typically includes:
 
 **Mark docs updated and advance to synthesize:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-update-docs → synthesize` guard requirements, then `set` the required fields (validation, artifacts) and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "refactor" })` for the `overhaul-update-docs → synthesize` guard requirements, then write the required fields (validation, artifacts) with `update` and call `transition` with `target: "synthesize"`.
 
 Then auto-invoke synthesize:
 ```typescript
