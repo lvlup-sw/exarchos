@@ -108,7 +108,7 @@ Based on exploration, preparing brief for <polish|overhaul> track.
 
 ## State Update
 
-**Save brief and advance:**
+**Save brief, then advance:**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
@@ -122,7 +122,8 @@ action: "update", featureId: "refactor-<slug>", updates: {
     "docsToUpdate": ["<from explore>"],
     "capturedAt": "<ISO8601>"
   }
-}, phase: "<polish-implement|overhaul-plan>"
+}
+action: "transition", featureId: "refactor-<slug>", target: "<polish-implement|overhaul-plan>"
 ```
 
 Phase transitions:
@@ -160,13 +161,13 @@ After brief is captured, auto-continue to next phase:
 
 ### Polish Track
 
-1. Update state: `.phase = "polish-implement"`
+1. Transition: `action: "transition"`, `target: "polish-implement"`
 2. Output: "Brief captured. Auto-continuing to implementation..."
 3. Continue with implement phase inline (no Skill invocation - orchestrator implements directly)
 
 ### Overhaul Track
 
-1. Update state: `.phase = "overhaul-plan"`
+1. Transition: `action: "transition"`, `target: "overhaul-plan"`
 2. Output: "Brief captured. Auto-continuing to planning..."
 3. Invoke immediately:
    ```typescript

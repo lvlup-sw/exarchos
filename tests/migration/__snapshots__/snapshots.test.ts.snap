@@ -9872,11 +9872,14 @@ Agent:
      tests=[readme has no occurrence of 'recieve']
   3. exarchos_workflow update {
        featureId: "fix-readme-typo",
-       phase: "implementing",                   // top-level
        updates: {
          "artifacts.plan": "...",
          "oneshot.planSummary": "..."
        }
+     }
+     exarchos_workflow transition {
+       featureId: "fix-readme-typo",
+       target: "implementing"
      }
   4. edits README, fixes typo (low tier — a docs one-liner; static analysis
         suffices, no test-first ceremony)

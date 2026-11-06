@@ -255,11 +255,13 @@ action: "update", featureId: "refactor-<slug>", updates: {
 
 ### On Approval
 
-**Advance to synthesize:**
+**Advance to doc updates:**
 
 ```
-action: "update", featureId: "refactor-<slug>", phase: "synthesize"
+action: "transition", featureId: "refactor-<slug>", target: "overhaul-update-docs"
 ```
+
+The HSM has no edge from `overhaul-review` to `synthesize`. The `overhaul-update-docs` phase transitions to `synthesize`.
 
 ### On Needs Fixes
 
@@ -275,9 +277,9 @@ action: "update", featureId: "refactor-<slug>", updates: {
 ## Transition
 
 ### If APPROVED:
-1. Update state: `.phase = "synthesize"`
-2. Output: "Overhaul review passed. All goals achieved, behavior preserved. Auto-continuing to synthesis..."
-3. Auto-invoke:
+1. Transition: `action: "transition"`, `target: "overhaul-update-docs"`
+2. Output: "Overhaul review passed. All goals achieved, behavior preserved. Auto-continuing to doc updates..."
+3. Update the docs (see `update-docs.md`). That phase transitions to `synthesize`, then auto-invokes:
    ```typescript
    Skill({ skill: "exarchos:synthesize", args: "<feature-name>" })
    ```
@@ -291,9 +293,9 @@ action: "update", featureId: "refactor-<slug>", updates: {
    ```
 
 ### If BLOCKED:
-1. Update state: `.phase = "blocked"`
-2. Output: "Overhaul review blocked: [issue]. Returning to brief..."
-3. Prompt for brief revision
+1. Record the issue: `action: "update"`, `updates: { "reviews.overhaul.issues": ["<issue>"] }`
+2. Output: "Overhaul review blocked: [issue]. The brief needs a revision."
+3. Stop and prompt the user for the brief revision. The HSM has no edge from `overhaul-review` to `blocked` or to `brief`.
 
 ## Exit Conditions
 

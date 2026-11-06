@@ -136,7 +136,8 @@ action: "update", featureId: "refactor-<slug>", updates: {
 action: "update", featureId: "refactor-<slug>", updates: {
   "validation.testsPass": true,
   "validation.completedAt": "<ISO8601>"
-}, phase: "polish-update-docs"
+}
+action: "transition", featureId: "refactor-<slug>", target: "polish-update-docs"
 ```
 
 **On failed validation:**
@@ -145,8 +146,10 @@ action: "update", featureId: "refactor-<slug>", updates: {
 action: "update", featureId: "refactor-<slug>", updates: {
   "validation.testsPass": false,
   "validation.failureReason": "<reason>"
-}, phase: "polish-implement"
+}
 ```
+
+No `transition` follows. The HSM has no edge from `polish-validate` back to `polish-implement`. Stay in `polish-validate`, fix the issues, and validate again.
 
 ## Pass/Fail Handling
 
@@ -154,7 +157,7 @@ action: "update", featureId: "refactor-<slug>", updates: {
 
 All criteria met:
 1. Update state with successful validation results
-2. Transition to `update-docs` phase
+2. Transition to the `polish-update-docs` phase
 3. Auto-chain continues workflow
 
 ### Validation Failed
@@ -189,7 +192,7 @@ On successful validation:
 - Automatically proceeds to update documentation
 
 On failed validation:
-- Next action: `AUTO:polish-implement` (return to fix issues)
+- Next action: fix the issues in `polish-validate`, then validate again
 - Does not proceed until validation passes
 
 ## Common Issues

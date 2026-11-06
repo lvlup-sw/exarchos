@@ -59,7 +59,7 @@ exarchos_orchestrate({
 
 ## Output
 
-**Save assessment and advance to brief:**
+**Save assessment, then advance to brief:**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
@@ -71,5 +71,6 @@ action: "update", featureId: "refactor-<slug>", updates: {
   },
   "track": "<selected-track>",
   "explore.completedAt": "<ISO8601>"
-}, phase: "brief"
+}
+action: "transition", featureId: "refactor-<slug>", target: "brief"
 ```

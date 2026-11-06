@@ -252,11 +252,13 @@ action: "update", featureId: "refactor-<slug>", updates: {
 }
 ```
 
-**Advance to delegate:**
+**Advance to plan review:**
 
 ```
-action: "update", featureId: "refactor-<slug>", phase: "delegate"
+action: "transition", featureId: "refactor-<slug>", target: "overhaul-plan-review"
 ```
+
+The `planArtifactExists` guard reads `artifacts.plan`. The HSM reaches `overhaul-delegate` only from `overhaul-plan-review`.
 
 ### Task State Structure
 
@@ -274,7 +276,7 @@ action: "update", featureId: "refactor-<slug>", phase: "delegate"
 
 ## Exit Conditions
 
-Transition to `delegate` phase when:
+Transition to `overhaul-plan-review` when:
 
 - [ ] Plan document created at `docs/plans/`
 - [ ] All brief goals mapped to tasks
@@ -282,20 +284,25 @@ Transition to `delegate` phase when:
 - [ ] Rollback points identified (minimum 1)
 - [ ] Test strategy defined per task
 - [ ] State file updated with plan path and tasks
-- [ ] Phase set to `delegate`
+- [ ] Workflow transitioned to `overhaul-plan-review`
 
 ## Transition to Delegate
 
-After plan completion, auto-continue to delegate:
+After plan completion, go through plan review, then delegate:
 
-1. Update state with plan path and tasks (see State Updates above)
-2. Output: "Refactor plan created with [N] tasks and [M] rollback points. Auto-continuing to delegation..."
-3. Invoke immediately:
+1. Update state with plan path and tasks, then transition to `overhaul-plan-review` (see State Updates above)
+2. Plan review is a human checkpoint. On approval, record it, then transition to `overhaul-delegate`:
+   ```
+   action: "update", featureId: "refactor-<slug>", updates: { "planReview": { "approved": true } }
+   action: "transition", featureId: "refactor-<slug>", target: "overhaul-delegate"
+   ```
+3. Output: "Refactor plan created with [N] tasks and [M] rollback points. Auto-continuing to delegation..."
+4. Invoke immediately:
    ```typescript
    Skill({ skill: "exarchos:delegate", args: "~/.claude/workflow-state/<feature>.state.json" })
    ```
 
-This is NOT a human checkpoint - workflow continues autonomously.
+The plan review is the only human checkpoint in this chain.
 
 ## Anti-Patterns
 

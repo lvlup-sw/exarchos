@@ -58,7 +58,7 @@ List documentation files that need updating after refactor.
 
 ## State Update
 
-**Save brief and advance:**
+**Save brief, then advance:**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
@@ -71,8 +71,11 @@ action: "update", featureId: "refactor-<slug>", updates: {
     "successCriteria": ["<criterion 1>", "<criterion 2>"],
     "docsToUpdate": ["<doc 1>", "<doc 2>"]
   }
-}, phase: "polish-implement | overhaul-plan"
+}
+action: "transition", featureId: "refactor-<slug>", target: "<polish-implement|overhaul-plan>"
 ```
+
+The target follows `track`: `polish` goes to `polish-implement`, and `overhaul` goes to `overhaul-plan`.
 
 ## Polish vs Overhaul Brief Depth
 
