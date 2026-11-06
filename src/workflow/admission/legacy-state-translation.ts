@@ -62,6 +62,10 @@ import {
   type EdgeObligation,
   type WorkflowEdgeIR,
 } from './built-in-workflow-ir.js';
+import {
+  planRevisionCapReached,
+  tallyPlanRevisions,
+} from '../../projections/shared/plan-revision-count.js';
 
 /** The producer/approver principal the translation attributes minted evidence to. */
 export const TRANSLATION_PRODUCER_ID = 'translator.legacy-state';
@@ -513,6 +517,7 @@ function teamDisbandedOk(
  * This module cannot import `guards.ts`, so `legacy-guard-parity.test.ts` keeps the two copies in step.
  * The synthesis policy defaults to `'on-request'`, because an empty sentinel deadlocks the default oneshot flow.
  * `planReview.revisionsExhausted` uses the injected cap, so the IR has one authority for the cap.
+ * Its count comes from `_events` through `tallyPlanRevisions`, the same count that the legacy guard reads.
  */
 export function projectStateToFacts(
   state: Record<string, unknown>,
@@ -584,11 +589,11 @@ export function projectStateToFacts(
   fields['mergePending.exitReady'] = mergePendingExitReady(state, events);
   fields['team.disbandedOk'] = teamDisbandedOk(events);
 
-  const revisionCount = readNumber(readPath(state, 'planReview.revisionCount'));
+  const revisionCount = tallyPlanRevisions(events).revisions;
   const maxPlanRevisions = readMaxPlanRevisions(state);
   fields['planReview.revisionCount'] = revisionCount;
   fields['policy.maxPlanRevisions'] = maxPlanRevisions;
-  fields['planReview.revisionsExhausted'] = revisionCount >= maxPlanRevisions;
+  fields['planReview.revisionsExhausted'] = planRevisionCapReached(revisionCount, maxPlanRevisions);
 
   fields['synthesis.retryCount'] = readNumber(
     readPath(state, 'synthesis.retryCount'),
@@ -1279,6 +1284,8 @@ export const EVENT_DERIVED_FACTS: ReadonlySet<string> = Object.freeze(
     'mergePending.entryReady',
     'mergePending.exitReady',
     'team.disbandedOk',
+    'planReview.revisionCount',
+    'planReview.revisionsExhausted',
   ]),
 );
 

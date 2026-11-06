@@ -66,18 +66,28 @@ describe('projectStateToFacts — reads real legacy state', () => {
   /**
    * These facts are resolved obligations, not raw state reads.
    * The shared IR reads them and does not hardcode the threshold, so admission does not over-admit on a configured project.
+   * The revision count comes from `_events`, so a state document field alone does not count.
    */
   it('resolves CONFIG-BEARING obligations from the same injected state the guards read', () => {
+    const twoDispatches = [
+      { type: 'workflow.plan-review-dispatched', ordinal: 0 },
+      { type: 'workflow.plan-review-dispatched', ordinal: 1 },
+    ];
     const configured = projectStateToFacts({
-      planReview: { revisionCount: 1 },
+      _events: twoDispatches,
       _maxPlanRevisions: 3,
     });
     expect(configured.fields['policy.maxPlanRevisions']).toBe(3);
+    expect(configured.fields['planReview.revisionCount']).toBe(1);
     expect(configured.fields['planReview.revisionsExhausted']).toBe(false);
 
-    const defaulted = projectStateToFacts({ planReview: { revisionCount: 1 } });
+    const defaulted = projectStateToFacts({ _events: twoDispatches });
     expect(defaulted.fields['policy.maxPlanRevisions']).toBe(1);
     expect(defaulted.fields['planReview.revisionsExhausted']).toBe(true);
+
+    const documentFieldOnly = projectStateToFacts({ planReview: { revisionCount: 5 } });
+    expect(documentFieldOnly.fields['planReview.revisionCount']).toBe(0);
+    expect(documentFieldOnly.fields['planReview.revisionsExhausted']).toBe(false);
   });
 
   /**
