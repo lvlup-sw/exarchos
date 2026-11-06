@@ -10,8 +10,10 @@
  *
  * `ALLOWLIST` is the composition root. The gate skips `*.test.ts`, `*.bench.ts`, and any
  * path under `__tests__/` or `benchmarks/`. `--src-root <path>` sets the root to walk.
+ * Each allowlist entry must name a live file in the real `src` tree that constructs an
+ * EventStore. A stale entry exits 1, whatever root the walk uses.
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import * as path from 'node:path';
 import process from 'node:process';
@@ -36,7 +38,6 @@ const ALLOWLIST = new Set([
    * so no parent composition root can pass it a store. Tests inject `deps.eventStore`.
    */
   path.join('lifecycle', 'subagent-stop.ts'),
-  path.join('evals', 'run-evals-cli.ts'),
   /** Builds a throwaway `mkdtemp` store for a durability probe. It is not the app store. */
   path.join('verbs', 'gates', 'gate-ownership-census.ts'),
   /** Opens the VCS-mutation ledger at `<repoRoot>/.git/exarchos/vcs-mutations`, not the app store. */
@@ -161,6 +162,27 @@ function findViolations(srcRoot) {
   return violations;
 }
 
+/**
+ * Returns each `ALLOWLIST` entry that names no file in `srcRoot`, or a file with no
+ * `new EventStore(` outside comments. Such an entry exempts nothing real, and it hides a
+ * future rogue construction at that path.
+ */
+function findStaleAllowlistEntries(srcRoot) {
+  const stale = [];
+  for (const relPath of ALLOWLIST) {
+    const filePath = path.join(srcRoot, relPath);
+    if (!existsSync(filePath)) {
+      stale.push({ path: toPosix(relPath), reason: 'file does not exist' });
+      continue;
+    }
+    ROGUE_PATTERN.lastIndex = 0;
+    if (!ROGUE_PATTERN.test(stripComments(readFileSync(filePath, 'utf8')))) {
+      stale.push({ path: toPosix(relPath), reason: 'file constructs no EventStore' });
+    }
+  }
+  return stale;
+}
+
 /** The failure message lists the files of `ALLOWLIST`, so the message cannot drift from the set. */
 function main() {
   const args = parseArgs(process.argv);
@@ -177,6 +199,14 @@ function main() {
   if (!stat.isDirectory()) {
     process.stderr.write(`src-root is not a directory: ${args.srcRoot}\n`);
     process.exit(2);
+  }
+
+  const stale = findStaleAllowlistEntries(DEFAULT_SRC_ROOT);
+  if (stale.length > 0) {
+    process.stderr.write(`Found ${stale.length} stale composition-root allowlist entr${stale.length === 1 ? 'y' : 'ies'}:\n`);
+    for (const s of stale) process.stderr.write(`  src/${s.path}  ${s.reason}\n`);
+    process.stderr.write('\nRemove or retarget each entry in ALLOWLIST.\n');
+    process.exit(1);
   }
 
   const violations = findViolations(args.srcRoot);
