@@ -7,7 +7,7 @@
     "testFiles": 1392,
     "parsedFiles": 1347,
     "shellFiles": 45,
-    "cases": 15388,
+    "cases": 15389,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -78732,6 +78732,11 @@
         {
           "suite": "Plan-review gaps path names the revise guard field",
           "name": "getPlaybook_RefactorOverhaulPlanReview_GapsPathNamesReviseGuardField",
+          "dynamic": false
+        },
+        {
+          "suite": "Plan-review revise path names the counter of the loop",
+          "name": "getPlaybook_FeaturePlanReview_NamesTheCounterThatTheExecutorUses",
           "dynamic": false
         },
         {
