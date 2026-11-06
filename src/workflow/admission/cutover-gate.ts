@@ -1,7 +1,7 @@
 /**
  * The cutover gate decides when enforcement can move from the legacy HSM guard path to the admission engine.
  *
- * RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31)
+ * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
  *
  * Enforcement can flip only when all six conditions hold:
  *   1. `deterministic-corpus-clean`: the shadow corpus has zero unexplained disagreements.

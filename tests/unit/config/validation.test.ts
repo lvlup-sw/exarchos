@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { validateConfig, BUILTIN_WORKFLOW_TYPES } from '../../../src/config/validation.js';
+import { validateConfig } from '../../../src/config/validation.js';
+import { BUILT_IN_WORKFLOW_TYPES } from '../../../src/workflow/admission/built-in-workflow-ir.js';
 
 describe('validateConfig', () => {
   it('ValidateConfig_EmptyObject_Succeeds', () => {
@@ -145,7 +146,7 @@ describe('validateConfig', () => {
   });
 
   it('ValidateConfig_BuiltinWorkflowName_Fails', () => {
-    for (const builtinName of BUILTIN_WORKFLOW_TYPES) {
+    for (const builtinName of BUILT_IN_WORKFLOW_TYPES) {
       const result = validateConfig({
         workflows: {
           [builtinName]: {
@@ -175,6 +176,73 @@ describe('validateConfig', () => {
 
     expect(result.success).toBe(false);
     expect(result.errors?.some((e) => e.includes('nonexistent') && e.includes('unknown workflow'))).toBe(true);
+  });
+
+  it('ValidateConfig_ExtendsOneshot_Succeeds', () => {
+    const result = validateConfig({
+      workflows: {
+        'quick-fix': {
+          extends: 'oneshot',
+          phases: ['plan', 'implementing'],
+          initialPhase: 'plan',
+          transitions: [{ from: 'plan', to: 'implementing', event: 'planned' }],
+        },
+      },
+    });
+
+    expect(result.errors).toBeUndefined();
+    expect(result.success).toBe(true);
+  });
+
+  it('ValidateConfig_ExtendsDiscovery_Succeeds', () => {
+    const result = validateConfig({
+      workflows: {
+        'vendor-review': {
+          extends: 'discovery',
+          phases: ['gathering', 'synthesizing'],
+          initialPhase: 'gathering',
+          transitions: [{ from: 'gathering', to: 'synthesizing', event: 'gathered' }],
+        },
+      },
+    });
+
+    expect(result.errors).toBeUndefined();
+    expect(result.success).toBe(true);
+  });
+
+  it('ValidateConfig_ExtendsNearMissOfBuiltinName_Fails', () => {
+    for (const nearMiss of ['one-shot', 'Discovery']) {
+      const result = validateConfig({
+        workflows: {
+          'my-workflow': {
+            extends: nearMiss,
+            phases: ['a'],
+            initialPhase: 'a',
+            transitions: [],
+          },
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes(`"${nearMiss}"`) && e.includes('unknown workflow'))).toBe(true);
+    }
+  });
+
+  it('ValidateConfig_OneshotOrDiscoveryAsCustomName_Fails', () => {
+    for (const builtinName of ['oneshot', 'discovery']) {
+      const result = validateConfig({
+        workflows: {
+          [builtinName]: {
+            phases: ['a'],
+            initialPhase: 'a',
+            transitions: [],
+          },
+        },
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.errors?.some((e) => e.includes(`"${builtinName}"`) && e.includes('built-in'))).toBe(true);
+    }
   });
 
   it('ValidateConfig_ExtendsSelf_Fails', () => {
