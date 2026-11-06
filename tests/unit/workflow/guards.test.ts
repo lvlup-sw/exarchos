@@ -163,24 +163,41 @@ describe('escalationRequired', () => {
   });
 });
 
+/** An event log with `count` plan-review dispatch rows, in the shape that the set handler loads. */
+function dispatches(count: number): Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, ordinal) => ({
+    type: 'workflow.plan-review-dispatched',
+    ordinal,
+  }));
+}
+
+/** An event log with `count` overhaul revise-edge rows. */
+function reviseEdges(count: number): Record<string, unknown>[] {
+  return Array.from({ length: count }, (_, index) => ({
+    type: 'workflow.plan-revision',
+    count: index + 1,
+  }));
+}
+
 /**
- * The cap is `state._maxPlanRevisions`, which the set handler injects from config. Without it, the
- * cap is `DEFAULT_MAX_PLAN_REVISIONS` (1). `revisionCount` is an event-sourced fact, but the cap is
- * policy and is not event-sourced.
+ * The guard counts the plan revisions in `state._events`. Each dispatch after the initial review is
+ * one revision. The cap is `state._maxPlanRevisions`, which the set handler injects from config.
+ * Without it, the cap is `DEFAULT_MAX_PLAN_REVISIONS` (1). The cap is policy, not an event.
  */
 describe('revisionsExhausted', () => {
-  it('revisionsExhausted_DefaultCap_CountAtOne_ReturnsTrue', () => {
-    const state: Record<string, unknown> = { planReview: { revisionCount: 1 } };
+  it('revisionsExhausted_DefaultCap_SecondDispatch_ReturnsTrue', () => {
+    const state: Record<string, unknown> = { _events: dispatches(2) };
     expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 
   it('revisionsExhausted_DefaultCap_CountAboveDefault_ReturnsTrue', () => {
-    const state: Record<string, unknown> = { planReview: { revisionCount: 5 } };
+    const state: Record<string, unknown> = { _events: dispatches(6) };
     expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
   });
 
-  it('revisionsExhausted_DefaultCap_ZeroRevisions_ReturnsFailure', () => {
-    const state: Record<string, unknown> = { planReview: { revisionCount: 0 } };
+  /** The initial review is not a revision, so one dispatch stays below the default cap. */
+  it('revisionsExhausted_DefaultCap_InitialDispatchOnly_ReturnsFailure', () => {
+    const state: Record<string, unknown> = { _events: dispatches(1) };
 
     const result = guards.revisionsExhausted.evaluate(state);
 
@@ -191,7 +208,7 @@ describe('revisionsExhausted', () => {
     expect(failure.reason).toContain('0/1');
   });
 
-  it('revisionsExhausted_NoRevisionCount_ReturnsFailure', () => {
+  it('revisionsExhausted_NoEvents_ReturnsFailure', () => {
     const state: Record<string, unknown> = {};
 
     const result = guards.revisionsExhausted.evaluate(state);
@@ -202,9 +219,24 @@ describe('revisionsExhausted', () => {
     expect(failure.reason).toContain('0/1');
   });
 
+  /**
+   * Only a reconcile writes `planReview.revisionCount` to the state document, so the guard does not
+   * read it. Events at the cap pass with no field, and a field at the cap with no events fails.
+   */
+  it('revisionsExhausted_ReadsTheEventLog_NotTheStateDocumentField', () => {
+    expect(guards.revisionsExhausted.evaluate({ _events: dispatches(2) })).toBe(true);
+
+    const fieldOnly = guards.revisionsExhausted.evaluate({
+      planReview: { revisionCount: 5 },
+      _events: dispatches(1),
+    });
+    expect(fieldOnly).not.toBe(true);
+    expect((fieldOnly as GuardFailure).reason).toContain('0/1');
+  });
+
   it('revisionsExhausted_InjectedCap_CountBelowCap_ReturnsFailure', () => {
     const state: Record<string, unknown> = {
-      planReview: { revisionCount: 1 },
+      _events: dispatches(2),
       _maxPlanRevisions: 3,
     };
 
@@ -218,7 +250,7 @@ describe('revisionsExhausted', () => {
 
   it('revisionsExhausted_InjectedCap_CountAtCap_ReturnsTrue', () => {
     const state: Record<string, unknown> = {
-      planReview: { revisionCount: 3 },
+      _events: dispatches(4),
       _maxPlanRevisions: 3,
     };
     expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
@@ -227,13 +259,13 @@ describe('revisionsExhausted', () => {
   /** With cap 2, one revision stays below the cap and the second reaches it. */
   it('revisionsExhausted_InjectedCap_BoundaryAtTwo', () => {
     const below: Record<string, unknown> = {
-      planReview: { revisionCount: 1 },
+      _events: dispatches(2),
       _maxPlanRevisions: 2,
     };
     expect(guards.revisionsExhausted.evaluate(below)).not.toBe(true);
 
     const at: Record<string, unknown> = {
-      planReview: { revisionCount: 2 },
+      _events: dispatches(3),
       _maxPlanRevisions: 2,
     };
     expect(guards.revisionsExhausted.evaluate(at)).toBe(true);
@@ -242,10 +274,24 @@ describe('revisionsExhausted', () => {
   /** A malformed injected cap must not disable the bound, so the guard falls back to 1. */
   it('revisionsExhausted_NonFiniteInjectedCap_FallsBackToDefault', () => {
     const state: Record<string, unknown> = {
-      planReview: { revisionCount: 1 },
+      _events: dispatches(2),
       _maxPlanRevisions: Number.NaN,
     };
     expect(guards.revisionsExhausted.evaluate(state)).toBe(true);
+  });
+
+  /** The overhaul track counts each revise edge. A loop that adds both kinds of row counts once. */
+  it('revisionsExhausted_OverhaulReviseEdges_CountOncePerLoop', () => {
+    expect(
+      guards.revisionsExhausted.evaluate({ _events: reviseEdges(1), _maxPlanRevisions: 1 }),
+    ).toBe(true);
+
+    const oneLoopBothRows = guards.revisionsExhausted.evaluate({
+      _events: [...dispatches(2), ...reviseEdges(1)],
+      _maxPlanRevisions: 2,
+    });
+    expect(oneLoopBothRows).not.toBe(true);
+    expect((oneLoopBothRows as GuardFailure).reason).toContain('1/2');
   });
 });
 

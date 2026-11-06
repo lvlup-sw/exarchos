@@ -497,7 +497,6 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
       { approved: false, gapsFound: false, revisionCount: 0 },
       { approved: true, gapsFound: false, revisionCount: 0 },
       { approved: false, gapsFound: true, revisionCount: 0 },
-      { approved: false, gapsFound: false, revisionCount: 99 },
     ]) {
       const state = planReviewState({ planReview });
       const published = computeNextActions(
@@ -518,6 +517,48 @@ describe('computeNextActions — admission-derived affordances (DR-9, T-13)', ()
     ).map((a) => a.verb);
     expect(topologyOnly).toContain('delegate');
     expect(disagreements(topologyOnly, 'plan-review', state)).toContain('delegate');
+  });
+
+  /**
+   * The event log decides `plan-review` to `blocked`, so a `planReview.revisionCount` field cannot
+   * open it. With the log, the list publishes `blocked` exactly when admission allows it. One
+   * dispatch row is the initial review, and a second one consumes the default cap of 1.
+   */
+  it('NextActions_EventLogDecidesBlocked_PublishesItOnlyAtTheCap', () => {
+    const hsm = getHSMDefinition('feature');
+    const blockedEdge = getEdgeIR('feature', 'plan-review', 'blocked');
+    expect(blockedEdge).toBeDefined();
+    expect(edgeDependsOnEventLog(blockedEdge!)).toBe(true);
+
+    const dispatched = {
+      type: 'workflow.plan-review-dispatched',
+      data: { featureId: 'feat-dr9' },
+    };
+    const outcomes = [1, 2].map((dispatches) => {
+      const state = planReviewState({
+        planReview: { approved: false, gapsFound: false, revisionCount: 99 },
+        _events: Array.from({ length: dispatches }, () => dispatched),
+      });
+      const published = computeNextActions(
+        {
+          phase: 'plan-review',
+          workflowType: 'feature',
+          admission: { ...admissionFor(state), eventLogAvailable: true },
+        },
+        hsm,
+      ).map((a) => a.verb);
+      const verdict = adjudicateEdge(
+        blockedEdge!,
+        state,
+        defaultTranslationContext(EVALUATED_AT),
+      );
+      return { published: published.includes('blocked'), verdict };
+    });
+
+    expect(outcomes).toEqual([
+      { published: false, verdict: 'deny' },
+      { published: true, verdict: 'allow' },
+    ]);
   });
 
   /** The list is advisory, so a caller that supplies no facts must keep its affordances. */

@@ -100,8 +100,9 @@ export interface WorkflowStateView {
    */
   mergeOrchestrator?: MergeOrchestratorView;
   /**
-   * Fields without a declared type. The `revisionsExhausted` guard reads
-   * `planReview.revisionCount`. `workflow.plan-revision` adds 1 to it.
+   * Fields without a declared type. `planReview.revisionCount` is a view of the plan
+   * revisions. The `revisionsExhausted` guard counts them from the log through
+   * `tallyPlanRevisions`, not from this field. `workflow.plan-revision` adds 1 to it.
    * `workflow.plan-review-dispatched` sets it to the max of the count and its 0-based
    * `ordinal`. So the first review is revision 0, and a retry does not count twice.
    *

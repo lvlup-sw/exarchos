@@ -318,8 +318,8 @@ export const GUARD_CLASSIFICATIONS: Readonly<Record<string, GuardClassificationE
       id: 'revisions-exhausted',
       category: 'bounded-loop-rule',
       rationale:
-        'Terminates the plan-review → plan revision loop when planReview.revisionCount ' +
-        'reaches the cap (state._maxPlanRevisions, default DEFAULT_MAX_PLAN_REVISIONS=1). ' +
+        'Terminates the plan-review → plan revision loop when the plan revisions counted from ' +
+        '_events (tallyPlanRevisions, the count that prepare_review caps on) reach the cap (state._maxPlanRevisions, default DEFAULT_MAX_PLAN_REVISIONS=1). ' +
         'DR-1: ordered BEFORE the plan-review-gaps-found revise edge so the cap fires first.',
     },
 
