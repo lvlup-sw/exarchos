@@ -16,18 +16,18 @@ Counts read `fixed + k*tasks + m*prs`. The N=1 columns set every loop variable t
 
 ## plan
 
-Ends at: transition plan -> plan-review (`content/design/skills/plan/SKILL.md:252`)
+Ends at: transition plan -> plan-review (`content/design/skills/plan/SKILL.md:254`)
 
-1. `exarchos_orchestrate.generate_traceability` (work) `content/design/skills/plan/SKILL.md:101`
-2. `exarchos_orchestrate.check_plan_coverage` (work) `content/design/skills/plan/SKILL.md:148`
-3. `exarchos_orchestrate.check_provenance_chain` (work) `content/design/skills/plan/SKILL.md:163`
-4. `exarchos_orchestrate.check_task_decomposition` (work) `content/design/skills/plan/SKILL.md:178`
-5. `exarchos_orchestrate.spec_coverage_check` (work) `content/design/skills/plan/SKILL.md:194`
-6. `exarchos_orchestrate.check_coverage_thresholds` (work) `content/design/skills/plan/SKILL.md:278`
-7. `exarchos_workflow.update` (work) `content/design/skills/plan/SKILL.md:241`
-8. `exarchos_workflow.transition` (work) `content/design/skills/plan/SKILL.md:245`
+1. `exarchos_orchestrate.generate_traceability` (work) `content/design/skills/plan/SKILL.md:103`
+2. `exarchos_orchestrate.check_plan_coverage` (work) `content/design/skills/plan/SKILL.md:150`
+3. `exarchos_orchestrate.check_provenance_chain` (work) `content/design/skills/plan/SKILL.md:165`
+4. `exarchos_orchestrate.check_task_decomposition` (work) `content/design/skills/plan/SKILL.md:180`
+5. `exarchos_orchestrate.spec_coverage_check` (work) `content/design/skills/plan/SKILL.md:196`
+6. `exarchos_orchestrate.check_coverage_thresholds` (work) `content/design/skills/plan/SKILL.md:280`
+7. `exarchos_workflow.update` (work) `content/design/skills/plan/SKILL.md:243`
+8. `exarchos_workflow.transition` (work) `content/design/skills/plan/SKILL.md:247`
 
-Exception `coverage-gaps-revise`: the coverage gate fails, so the plan is revised and re-run (`content/design/skills/plan/SKILL.md:298`)
+Exception `coverage-gaps-revise`: the coverage gate fails, so the plan is revised and re-run (`content/design/skills/plan/SKILL.md:300`)
 
 - Runs the normal path through `exarchos_orchestrate.check_plan_coverage`, adds `exarchos_workflow.update`, then the whole normal path again, at most 3 times (`content/design/skills/plan/SKILL.md:37`).
 - Exarchos 11; describe 0; runbook fetch 0; harness 0.
@@ -161,7 +161,7 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 - No located call names an unregistered action.
 - synthesis fetches runbook synthesis-flow at `content/synthesis/skills/synthesize/SKILL.md:53` but spells a different path. Only in the runbook: `exarchos_orchestrate.validate_pr_stack`, `native:bash.gh_pr_create`. Only in the prose: `exarchos_orchestrate.create_pr`, `exarchos_orchestrate.list_prs`, `exarchos_orchestrate.merge_pr`, `exarchos_workflow.update`, `native:Bash`.
-- plan, `exarchos_orchestrate.check_coverage_thresholds` at `content/design/skills/plan/SKILL.md:282`: A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.
+- plan, `exarchos_orchestrate.check_coverage_thresholds` at `content/design/skills/plan/SKILL.md:284`: A plan-phase completion criterion prescribes a coverage-threshold gate, but no coverage summary exists at plan time for it to read.
 - review, `exarchos_orchestrate.check_test_adequacy` at `content/review/skills/review/SKILL.md:62`: The review recipe for the kill probe carries a single `taskId`, while the pass reviews the integrated diff across every task.
 
 ## Scope
@@ -177,8 +177,8 @@ Exception `readiness-fails`: the readiness check fails, so synthesis returns to 
 
 - Registry: 127 actions over 5 tools (4 visible), action ids sha256 `912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `tools/audit/registered-actions-snapshot.json`.
 - Contract authority `action-id-registry` digest `sha256:912b77180a58d6f959b6a1ba244ad8ba735aeda89f47998aafdc1e9b6b8e8753` from `src/contract/contract-authority.lock.json`.
-- `content/delivery/skills/delegate/SKILL.md` sha256 `77dc1a04c96af6b1d9caa78e2768144ee25a0f352eb9579d2bcd3cdc5c40928f`
-- `content/design/skills/plan/SKILL.md` sha256 `518d5348b475e8109fd4bfebf3a30d950129af40bf29230e466e0f077c085748`
+- `content/delivery/skills/delegate/SKILL.md` sha256 `f475db6b7d79133586981066c5ae61a743d03d06d4050786109ead1406ba2ef4`
+- `content/design/skills/plan/SKILL.md` sha256 `4055244678114ee3d81b3cb61d994106b48097773d6f1396532ad226b15dcff6`
 - `content/review/skills/review/SKILL.md` sha256 `a852d4c7bb7c36028d70382057470504550295bbfb561974d9990094b696369d`
 - `content/synthesis/skills/synthesize/SKILL.md` sha256 `34f0bc3afa8823275b374ccb6d6c1b89ed08af0210256f1e951beedbc7eaf21b`
 - `src/runbooks/definitions.ts` sha256 `e873e609e5094e84b506804936bfb45c8cb1e7ecffc69310d587a77e69006d02`

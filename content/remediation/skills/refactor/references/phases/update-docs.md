@@ -134,22 +134,24 @@ Update when:
 
 ## State Updates
 
-**Record docs and advance (polish track):**
+**Record docs, then advance (polish track):**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
   "artifacts.updatedDocs": ["docs/architecture/modules.md"],
   "validation.docsUpdated": true
-}, phase: "completed"
+}
+action: "transition", featureId: "refactor-<slug>", target: "completed"
 ```
 
-**Record docs and advance (overhaul track):**
+**Record docs, then advance (overhaul track):**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
   "artifacts.updatedDocs": ["docs/architecture/modules.md"],
   "validation.docsUpdated": true
-}, phase: "synthesize"
+}
+action: "transition", featureId: "refactor-<slug>", target: "synthesize"
 ```
 
 ## Exit Conditions
@@ -188,7 +190,7 @@ After completing documentation updates:
 **Advance to synthesize:**
 
 ```
-action: "update", featureId: "refactor-<slug>", phase: "synthesize"
+action: "transition", featureId: "refactor-<slug>", target: "synthesize"
 ```
 
 5. Auto-invoke synthesize immediately:

@@ -79,11 +79,11 @@ Significant doc updates → overhaul track indicator.
 
 ## Output
 
-**Save assessment and advance to brief:**
+**Save assessment, then advance to brief:**
 
 ```
 action: "update", featureId: "refactor-<slug>", updates: {
-  "explore": {
+  "explore.scopeAssessment": {
     "filesAffected": <count>,
     "filesList": ["<path1>", "<path2>"],
     "modulesAffected": ["<module1>"],
@@ -91,11 +91,15 @@ action: "update", featureId: "refactor-<slug>", updates: {
     "crossModule": <true|false>,
     "testCoverage": "<good|gaps|none>",
     "docsImpacted": ["<doc1>"],
-    "recommendedTrack": "<polish|overhaul>",
-    "completedAt": "<ISO8601>"
-  }
-}, phase: "brief"
+    "recommendedTrack": "<polish|overhaul>"
+  },
+  "track": "<polish|overhaul>",
+  "explore.completedAt": "<ISO8601>"
+}
+action: "transition", featureId: "refactor-<slug>", target: "brief"
 ```
+
+The `explore → brief` guard reads `explore.scopeAssessment`. The `brief` guards read `track`.
 
 ## Exit Conditions
 

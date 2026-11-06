@@ -3,6 +3,7 @@ import { generateHints } from '../../../../src/projections/telemetry/hints.js';
 import type { Hint } from '../../../../src/projections/telemetry/hints.js';
 import type { TelemetryViewState, ToolMetrics } from '../../../../src/projections/telemetry/telemetry-projection.js';
 import { initToolMetrics } from '../../../../src/projections/telemetry/telemetry-projection.js';
+import { TOOL_REGISTRY } from '../../../../src/registry.js';
 
 function makeState(tools: Record<string, Partial<ToolMetrics>>): TelemetryViewState {
   const fullTools: Record<string, ToolMetrics> = {};
@@ -73,7 +74,18 @@ describe('generateHints', () => {
       const hints = generateHints(state);
       expect(hints).toHaveLength(1);
       expect(hints[0].tool).toBe('workflow_set');
-      expect(hints[0].hint).toContain('Batch multiple field updates into a single `set` call');
+      expect(hints[0].hint).toContain('Batch multiple field updates into a single `exarchos_workflow update` call');
+    });
+
+    /** The hint names a call that the registry serves. The workflow tool declares `update` and no `set` action. */
+    it('should name an action that the workflow tool declares', () => {
+      const state = makeState({ workflow_set: { p95DurationMs: 250 } });
+      const [hint] = generateHints(state);
+      const workflow = TOOL_REGISTRY.find((t) => t.name === 'exarchos_workflow');
+      const actionNames = (workflow?.actions ?? []).map((a) => a.name);
+      expect(actionNames).toContain('update');
+      expect(actionNames).not.toContain('set');
+      expect(hint?.hint).toMatch(/`exarchos_workflow update`/);
     });
 
     it('should not hint when p95DurationMs <= 200', () => {

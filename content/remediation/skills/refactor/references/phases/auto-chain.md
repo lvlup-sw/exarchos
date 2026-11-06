@@ -138,25 +138,25 @@ Review PR and approve merge, or request changes.
 
 ## Track Switching
 
-If polish track discovers scope expansion, it switches to overhaul:
+The track can change only in `explore` or `brief`. The HSM has no edge from `polish-implement` to `overhaul-plan`:
 
 ```text
-polish-implement → [scope expands] → overhaul-plan
+brief → [scope exceeds polish limits] → overhaul-plan
 ```
 
-Auto-chain handles this via MCP tools:
+In `brief`, switch with two `mcp__plugin_exarchos_exarchos__exarchos_workflow` calls:
 
 ```text
-# When scope expands during implement, use mcp__plugin_exarchos_exarchos__exarchos_workflow with action: "update":
-# 1. First call: Set updates
-updates: { "implement.switchReason": "<reason>", "implement.switchedAt": "<ISO8601>" }
+# 1. update: select the overhaul track
+action: "update", featureId: "<id>", updates: { "track": "overhaul", "explore.scopeAssessment.recommendedTrack": "overhaul" }
 
-# 2. Second call: Transition phase and track
-phase: "overhaul-plan"
-updates: { "track": "overhaul" }
+# 2. transition: the overhaulTrackSelected guard reads track
+action: "transition", featureId: "<id>", target: "overhaul-plan"
 
 # Next action: run {{COMMAND_PREFIX}}rehydrate <featureId> — next_actions[0].verb = overhaul-plan
 ```
+
+When scope expands during `polish-implement`, record the reason with `update` (`implement.switchReason`, `implement.switchedAt`), then stop and ask the user. To continue on the overhaul track, `cancel` this workflow and start a new refactor workflow.
 
 ## Failure Handling
 

@@ -37,9 +37,11 @@ When invoked with `--revise`, plan-review found gaps. Read `.planReview.gaps` fr
 Max revisions: 3 per plan.
 
 After 3 failed revisions:
-1. Set `planReview.revisionsExhausted = true`
+1. Stop revising. Do not write `planReview.revisionsExhausted`: no guard reads that field, so the write has no effect.
 2. Output: "Plan revision failed after 3 attempts. Design may be incomplete."
 3. Escalate: Suggest `ideate --redesign` to revisit design
+
+The plan-review loop has a separate cap in the runtime: `workflow.max-plan-revisions` in `.exarchos.yml` (default 1). `prepare_review` counts each plan-review dispatch in the event log. The first dispatch is revision 0, and each later dispatch is one revision. When the count reaches the cap, `prepare_review` refuses the next dispatch with `PLAN_REVISIONS_EXHAUSTED` and names `blocked`. Do not revise again. If the guard of the `blocked` transition refuses, escalate to the user as above.
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult `references/rationalization-refutation.md`. Every common excuse is catalogued with a counter-argument and the correct action.
 
@@ -308,7 +310,7 @@ Phase transitions auto-emit `workflow.transition` events via `exarchos_workflow`
 | `check_plan_coverage` returns passed: false | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
 | `spec_coverage_check` passed: false | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
 | `generate_traceability` passed: false | Design doc missing expected `##`/`###` headers | Verify design uses standard Markdown headings |
-| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set `planReview.revisionsExhausted = true`, suggest `ideate --redesign` |
+| Revision loop (3+ attempts, or `PLAN_REVISIONS_EXHAUSTED`) | Persistent gaps between design and plan | Stop revising and suggest `ideate --redesign`. A write to `planReview.revisionsExhausted` has no effect |
 
 ## Performance Notes
 

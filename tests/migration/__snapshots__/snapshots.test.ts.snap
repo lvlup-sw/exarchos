@@ -92,7 +92,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
-| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch, and the order it must run in — a \`dependencies\` edge \`{ from, to }\` means \`to\` waits for \`from\` |
+| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch and its join. Every task in the batch is ready, so no task waits for another and \`graph.dependencies[]\` is empty |
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — its \`baseRef\`, the integration branch the kill probe measures its diff from, and its \`baseCommit\`, the commit of \`baseRef\` at \`prepare\`, where the task's worktree starts |
 | \`settlementContract.scope\` | The repository (\`repository\`, its git common dir), the checkout that \`prepare\` read (\`checkout\`) and the digest of the config files of that checkout (\`configDigest\`). Settlement refuses a claimed worktree outside this scope, and a config that changed after \`prepare\` |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
@@ -132,7 +132,7 @@ The capsule pins the **terms**; the plan carries the **body**. From the implemen
 - Full task description (paste inline; never reference external files)
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. \`src/foo.ts\`) — never an absolute parent-repo path, and never a \`..\` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
-- Dependencies on other tasks — from \`graph.dependencies\`, which is the plan's \`blockedBy\` compiled
+- Dependencies on other tasks — from the plan's \`blockedBy\`. The capsule holds only the ready frontier, so \`graph.dependencies\` is empty
 - Property-based testing flag (\`testingStrategy.propertyTests\`)
 
 For a complete worked example of this flow, see \`references/worked-example.md\`.
@@ -1392,7 +1392,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
-| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch, and the order it must run in — a \`dependencies\` edge \`{ from, to }\` means \`to\` waits for \`from\` |
+| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch and its join. Every task in the batch is ready, so no task waits for another and \`graph.dependencies[]\` is empty |
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — its \`baseRef\`, the integration branch the kill probe measures its diff from, and its \`baseCommit\`, the commit of \`baseRef\` at \`prepare\`, where the task's worktree starts |
 | \`settlementContract.scope\` | The repository (\`repository\`, its git common dir), the checkout that \`prepare\` read (\`checkout\`) and the digest of the config files of that checkout (\`configDigest\`). Settlement refuses a claimed worktree outside this scope, and a config that changed after \`prepare\` |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
@@ -1432,7 +1432,7 @@ The capsule pins the **terms**; the plan carries the **body**. From the implemen
 - Full task description (paste inline; never reference external files)
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. \`src/foo.ts\`) — never an absolute parent-repo path, and never a \`..\` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
-- Dependencies on other tasks — from \`graph.dependencies\`, which is the plan's \`blockedBy\` compiled
+- Dependencies on other tasks — from the plan's \`blockedBy\`. The capsule holds only the ready frontier, so \`graph.dependencies\` is empty
 - Property-based testing flag (\`testingStrategy.propertyTests\`)
 
 For a complete worked example of this flow, see \`references/worked-example.md\`.
@@ -2631,7 +2631,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
-| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch, and the order it must run in — a \`dependencies\` edge \`{ from, to }\` means \`to\` waits for \`from\` |
+| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch and its join. Every task in the batch is ready, so no task waits for another and \`graph.dependencies[]\` is empty |
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — its \`baseRef\`, the integration branch the kill probe measures its diff from, and its \`baseCommit\`, the commit of \`baseRef\` at \`prepare\`, where the task's worktree starts |
 | \`settlementContract.scope\` | The repository (\`repository\`, its git common dir), the checkout that \`prepare\` read (\`checkout\`) and the digest of the config files of that checkout (\`configDigest\`). Settlement refuses a claimed worktree outside this scope, and a config that changed after \`prepare\` |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
@@ -2671,7 +2671,7 @@ The capsule pins the **terms**; the plan carries the **body**. From the implemen
 - Full task description (paste inline; never reference external files)
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. \`src/foo.ts\`) — never an absolute parent-repo path, and never a \`..\` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
-- Dependencies on other tasks — from \`graph.dependencies\`, which is the plan's \`blockedBy\` compiled
+- Dependencies on other tasks — from the plan's \`blockedBy\`. The capsule holds only the ready frontier, so \`graph.dependencies\` is empty
 - Property-based testing flag (\`testingStrategy.propertyTests\`)
 
 For a complete worked example of this flow, see \`references/worked-example.md\`.
@@ -3862,7 +3862,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
-| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch, and the order it must run in — a \`dependencies\` edge \`{ from, to }\` means \`to\` waits for \`from\` |
+| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch and its join. Every task in the batch is ready, so no task waits for another and \`graph.dependencies[]\` is empty |
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — its \`baseRef\`, the integration branch the kill probe measures its diff from, and its \`baseCommit\`, the commit of \`baseRef\` at \`prepare\`, where the task's worktree starts |
 | \`settlementContract.scope\` | The repository (\`repository\`, its git common dir), the checkout that \`prepare\` read (\`checkout\`) and the digest of the config files of that checkout (\`configDigest\`). Settlement refuses a claimed worktree outside this scope, and a config that changed after \`prepare\` |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
@@ -3902,7 +3902,7 @@ The capsule pins the **terms**; the plan carries the **body**. From the implemen
 - Full task description (paste inline; never reference external files)
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. \`src/foo.ts\`) — never an absolute parent-repo path, and never a \`..\` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
-- Dependencies on other tasks — from \`graph.dependencies\`, which is the plan's \`blockedBy\` compiled
+- Dependencies on other tasks — from the plan's \`blockedBy\`. The capsule holds only the ready frontier, so \`graph.dependencies\` is empty
 - Property-based testing flag (\`testingStrategy.propertyTests\`)
 
 For a complete worked example of this flow, see \`references/worked-example.md\`.
@@ -5103,7 +5103,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
-| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch, and the order it must run in — a \`dependencies\` edge \`{ from, to }\` means \`to\` waits for \`from\` |
+| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch and its join. Every task in the batch is ready, so no task waits for another and \`graph.dependencies[]\` is empty |
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — its \`baseRef\`, the integration branch the kill probe measures its diff from, and its \`baseCommit\`, the commit of \`baseRef\` at \`prepare\`, where the task's worktree starts |
 | \`settlementContract.scope\` | The repository (\`repository\`, its git common dir), the checkout that \`prepare\` read (\`checkout\`) and the digest of the config files of that checkout (\`configDigest\`). Settlement refuses a claimed worktree outside this scope, and a config that changed after \`prepare\` |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
@@ -5143,7 +5143,7 @@ The capsule pins the **terms**; the plan carries the **body**. From the implemen
 - Full task description (paste inline; never reference external files)
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. \`src/foo.ts\`) — never an absolute parent-repo path, and never a \`..\` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
-- Dependencies on other tasks — from \`graph.dependencies\`, which is the plan's \`blockedBy\` compiled
+- Dependencies on other tasks — from the plan's \`blockedBy\`. The capsule holds only the ready frontier, so \`graph.dependencies\` is empty
 - Property-based testing flag (\`testingStrategy.propertyTests\`)
 
 For a complete worked example of this flow, see \`references/worked-example.md\`.
@@ -6315,7 +6315,7 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 
 | In the capsule | What you read off it |
 |----------------|----------------------|
-| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch, and the order it must run in — a \`dependencies\` edge \`{ from, to }\` means \`to\` waits for \`from\` |
+| \`graph.tasks[]\`, \`graph.dependencies[]\`, \`graph.joins[]\` | The batch and its join. Every task in the batch is ready, so no task waits for another and \`graph.dependencies[]\` is empty |
 | \`settlementContract.taskVerification[taskId]\` | The task's \`riskTier\` and \`boundaryTouching\`, frozen from the plan — the model tier, and the gates settlement will run — its \`baseRef\`, the integration branch the kill probe measures its diff from, and its \`baseCommit\`, the commit of \`baseRef\` at \`prepare\`, where the task's worktree starts |
 | \`settlementContract.scope\` | The repository (\`repository\`, its git common dir), the checkout that \`prepare\` read (\`checkout\`) and the digest of the config files of that checkout (\`configDigest\`). Settlement refuses a claimed worktree outside this scope, and a config that changed after \`prepare\` |
 | \`knowledge.patterns[]\` | One statement per tier in the batch naming those gates — splice it into the worker's prompt verbatim |
@@ -6355,7 +6355,7 @@ The capsule pins the **terms**; the plan carries the **body**. From the implemen
 - Full task description (paste inline; never reference external files)
 - Files to create/modify as **worktree-relative paths rooted inside the worktree** (e.g. \`src/foo.ts\`) — never an absolute parent-repo path, and never a \`..\` sequence that escapes the worktree root. Either form resolves outside the agent's worktree cwd and silently writes into the main worktree. This is the platform-agnostic line of defense — it must hold on every runtime.
 - Test file paths (worktree-relative) and expected test names
-- Dependencies on other tasks — from \`graph.dependencies\`, which is the plan's \`blockedBy\` compiled
+- Dependencies on other tasks — from the plan's \`blockedBy\`. The capsule holds only the ready frontier, so \`graph.dependencies\` is empty
 - Property-based testing flag (\`testingStrategy.propertyTests\`)
 
 For a complete worked example of this flow, see \`references/worked-example.md\`.
@@ -9872,11 +9872,14 @@ Agent:
      tests=[readme has no occurrence of 'recieve']
   3. exarchos_workflow update {
        featureId: "fix-readme-typo",
-       phase: "implementing",                   // top-level
        updates: {
          "artifacts.plan": "...",
          "oneshot.planSummary": "..."
        }
+     }
+     exarchos_workflow transition {
+       featureId: "fix-readme-typo",
+       target: "implementing"
      }
   4. edits README, fixes typo (low tier — a docs one-liner; static analysis
         suffices, no test-first ceremony)
@@ -10080,9 +10083,11 @@ When invoked with \`--revise\`, plan-review found gaps. Read \`.planReview.gaps\
 Max revisions: 3 per plan.
 
 After 3 failed revisions:
-1. Set \`planReview.revisionsExhausted = true\`
+1. Stop revising. Do not write \`planReview.revisionsExhausted\`: no guard reads that field, so the write has no effect.
 2. Output: "Plan revision failed after 3 attempts. Design may be incomplete."
 3. Escalate: Suggest \`ideate --redesign\` to revisit design
+
+The plan-review loop has a separate cap in the runtime: \`workflow.max-plan-revisions\` in \`.exarchos.yml\` (default 1). \`prepare_review\` counts each plan-review dispatch in the event log. The first dispatch is revision 0, and each later dispatch is one revision. When the count reaches the cap, \`prepare_review\` refuses the next dispatch with \`PLAN_REVISIONS_EXHAUSTED\` and names \`blocked\`. Do not revise again. If the guard of the \`blocked\` transition refuses, escalate to the user as above.
 
 > **MANDATORY:** Before accepting any rationalization for skipping tests, planning, or TDD steps, consult \`references/rationalization-refutation.md\`. Every common excuse is catalogued with a counter-argument and the correct action.
 
@@ -10351,7 +10356,7 @@ Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workfl
 | \`check_plan_coverage\` returns passed: false | Design sections not mapped to tasks | Add tasks for uncovered sections or add explicit deferral rationale |
 | \`spec_coverage_check\` passed: false | Planned test files missing or failing | Create missing test stubs, verify file paths in plan match actual paths |
 | \`generate_traceability\` passed: false | Design doc missing expected \`##\`/\`###\` headers | Verify design uses standard Markdown headings |
-| Revision loop (3+ attempts) | Persistent gaps between design and plan | Set \`planReview.revisionsExhausted = true\`, suggest \`ideate --redesign\` |
+| Revision loop (3+ attempts, or \`PLAN_REVISIONS_EXHAUSTED\`) | Persistent gaps between design and plan | Stop revising and suggest \`ideate --redesign\`. A write to \`planReview.revisionsExhausted\` has no effect |
 
 ## Performance Notes
 
