@@ -27,7 +27,7 @@ Same as hotfix, but set track to "thorough":
 
 **Set track and advance to investigate:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `triage → investigate` guard requirements, then `set` the track to `"thorough"` and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `triage → investigate` guard requirements, then set `track` to `"thorough"` with `update` and call `transition` with `target: "investigate"`.
 
 ### 2. Investigate Phase
 
@@ -50,7 +50,7 @@ Update state:
 
 **Record RCA artifact and advance to design:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `rca → design` guard requirements, then `set` the required fields (artifacts.rca) and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `rca → design` guard requirements, then write the required fields (artifacts.rca) with `update` and call `transition` with `target: "design"`.
 
 ### 4. Design Phase
 
@@ -62,7 +62,7 @@ Brief fix approach (NOT a full design document).
 
 **Record fix design and advance to implement:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `design → debug-implement` guard requirements, then `set` the required fields (artifacts.fixDesign) and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `design → debug-implement` guard requirements, then write the required fields (artifacts.fixDesign) with `update` and call `transition` with `target: "debug-implement"`.
 
 ### 5. Implement Phase
 
@@ -81,7 +81,7 @@ Update state:
 
 **Record worktree and advance to validate:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `debug-implement → debug-validate` guard requirements, then `set` the required fields (worktrees) and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `debug-implement → debug-validate` guard requirements, then write the required fields (worktrees) with `update` and call `transition` with `target: "debug-validate"`.
 
 ### 6. Review Phase
 
@@ -109,7 +109,7 @@ Update state:
 
 **Advance to synthesize:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `debug-review → synthesize` guard requirements, then `set` the phase.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `debug-review → synthesize` guard requirements, then call `transition` with `target: "synthesize"`.
 
 ### 7. Synthesize Phase
 
@@ -156,7 +156,7 @@ When `exarchos_orchestrate({ action: "investigation_timer" })` returns `passed: 
 
 **Switch to thorough track:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the field shapes, then `set` the track to `"thorough"` and record the switch reason in `investigation.findings`.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the field shapes, then call `update` to set `track` to `"thorough"` and record the switch reason in `investigation.findings`.
 
 Continue investigation without time constraint.
 
@@ -164,9 +164,9 @@ Continue investigation without time constraint.
 
 If fix requires architectural changes:
 
-**Escalate to blocked:**
+**Escalate and cancel:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the guard requirements, then `set` the investigation findings and phase to `"blocked"`.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the field shapes, then record the investigation findings with `update`. Then call `exarchos_workflow({ action: "cancel", featureId, reason })` to end the debug workflow. Use `cancel`, not `transition`: only `cancel` runs the saga compensation, and the debug workflow has no transition into `blocked`.
 
 Output to user:
 > This issue requires architectural changes that exceed bug fix scope.

@@ -70,7 +70,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when `designDepth: 'deep'`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from `references/design-template.md`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the `deep` rung the runtime publishes a discover-bridge affordance via `next_actions` (DR-7) — an event-linked, `correlationId`-stitched escalation to the `{{COMMAND_PREFIX}}discover` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and `correlationId` in the Exploration section so provenance spans both documents.
+Use the approach format from `references/design-template.md`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the `deep` rung you can escalate to the `{{COMMAND_PREFIX}}discover` research workflow. No `next_actions` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call `{{MCP_PREFIX}}exarchos_orchestrate` with `action: "discover_bridge"`, the spec `artifact` and `confirm: true` to record the event-linked, `correlationId`-stitched link, then start the discover workflow. Cite the discover report by path and `correlationId` in the Exploration section so provenance spans both documents.
 
 At `thin`/`standard`, skip this phase — converge directly in Phase 3.
 
@@ -102,7 +102,7 @@ The user can override: `{{COMMAND_PREFIX}}ideate --max-iterations 5`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate `docs/designs/` doc | Author the Design & Rationale § of the one `docs/specs/` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 

@@ -7,7 +7,7 @@
     "testFiles": 1392,
     "parsedFiles": 1347,
     "shellFiles": 45,
-    "cases": 15385,
+    "cases": 15387,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -36849,7 +36849,7 @@
         },
         {
           "suite": "computeNextActions — deep-rung affordances (DR-7, task 018)",
-          "name": "NextActions_DeepDepth_PublishesDiscoverBridge",
+          "name": "NextActions_DeepDepth_OmitsDiscoverBridge",
           "dynamic": false
         },
         {
@@ -78720,6 +78720,16 @@
           "dynamic": false
         },
         {
+          "suite": "Plan-review gaps path names the revise guard field",
+          "name": "getPlaybook_FeaturePlanReview_GapsPathNamesReviseGuardField",
+          "dynamic": false
+        },
+        {
+          "suite": "Plan-review gaps path names the revise guard field",
+          "name": "getPlaybook_RefactorOverhaulPlanReview_GapsPathNamesReviseGuardField",
+          "dynamic": false
+        },
+        {
           "suite": "Synthesize phase guidance references GitHub CLI",
           "name": "playbookGuidance_FeatureSynthesizePhase_ReferencesGhCli",
           "dynamic": false
@@ -78766,7 +78776,7 @@
         },
         {
           "suite": "EventInstruction fields property",
-          "name": "EventInstruction_TaskAssigned_HasRequiredFields",
+          "name": "EventInstruction_TaskAssigned_IsDisclosedAsTheRuntimesNotInstructed",
           "dynamic": false
         },
         {
