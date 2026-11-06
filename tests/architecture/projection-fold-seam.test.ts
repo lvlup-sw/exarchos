@@ -20,8 +20,16 @@ import { describe, expect, it } from 'vitest';
 
 import { lexModule } from '../../tools/test-helpers/module-lexer.js';
 import { listTrackedFiles } from '../../tools/test-helpers/tracked-population.js';
+import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+
+/**
+ * The time budget of a case that lexes every tracked source file. On a CI runner with coverage,
+ * one walk took 4.4 to 5.2 seconds. The `unit` default is 5 seconds. The win32 factor of the
+ * tier scales the budget.
+ */
+const SOURCE_SCAN_TIMEOUT_MS = 20_000 * WIN32_SPAWN_HEADROOM;
 
 interface Policy {
   readonly seam: {
@@ -121,7 +129,7 @@ describe('projection fold seam', () => {
         'evidence that it covers the durable event tail. Route it through ' +
         `${POLICY.seam.module}, or add an allowlist entry with an owner and an expiry.`,
     ).toEqual([]);
-  });
+  }, SOURCE_SCAN_TIMEOUT_MS);
 
   /** A guard for a seam that nothing calls forbids nothing. */
   it('ProjectionFoldSeam_EntryPoint_HasRealCallers', async () => {
@@ -144,7 +152,7 @@ describe('projection fold seam', () => {
       `${POLICY.seam.entryPoint} has no production caller — the seam is dead and the ` +
         'guard above is protecting nothing',
     ).toBeGreaterThanOrEqual(POLICY.minimumCallSites);
-  });
+  }, SOURCE_SCAN_TIMEOUT_MS);
 
   /** The self-test. The fixture holds the bypass, and the function that scans `src/` must report it. */
   it('ProjectionFoldSeam_KillFixture_IsReportedByTheSameScanner', () => {
