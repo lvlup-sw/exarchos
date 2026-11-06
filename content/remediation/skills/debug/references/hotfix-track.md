@@ -41,7 +41,7 @@ exarchos_orchestrate({
 
 **Save triage results and advance to investigate:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `triage → investigate` guard requirements, then `set` the required fields (triage, urgency, track) and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `triage → investigate` guard requirements, then write the required fields (triage, urgency, track) with `update` and call `transition` with `target: "investigate"`.
 
 ### 2. Investigate Phase (15 min max)
 
@@ -61,7 +61,7 @@ exarchos_orchestrate({
 
 **Record findings and advance when root cause found:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `investigate → hotfix-implement` guard requirements and the expected field shapes for investigation findings, then `set` accordingly.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `investigate → hotfix-implement` guard requirements and the expected field shapes for investigation findings, then record the findings with `update` and call `transition` with `target: "hotfix-implement"`.
 
 ### 3. Implement Phase
 
@@ -70,7 +70,7 @@ Apply minimal fix directly (no worktree):
 - No new features or refactoring
 - Record fix approach in state
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `hotfix-implement → hotfix-validate` guard requirements, then `set` the required fields (artifacts) and phase.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `hotfix-implement → hotfix-validate` guard requirements, then write the required fields (artifacts) with `update` and call `transition` with `target: "hotfix-validate"`.
 
 ### 4. Validate Phase
 
@@ -79,7 +79,7 @@ Run affected tests only:
 npm run test:run -- <affected-test-files>
 ```
 
-If tests pass, call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `hotfix-validate → completed` guard requirements, then `set` the required fields (followUp) and phase.
+If tests pass, call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `hotfix-validate → completed` guard requirements, then write the required fields (followUp) with `update` and call `transition` with `target: "completed"`.
 
 Create follow-up task for proper RCA:
 ```bash

@@ -972,7 +972,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`/exarchos:discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`/exarchos:discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__plugin_exarchos_exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -1004,7 +1004,7 @@ The user can override: \`/exarchos:ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -1235,11 +1235,16 @@ Use \`describe\` to discover the full state schema at runtime: \`exarchos_workfl
 
 ### Phase Transitions and Guards
 
-> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied via \`updates\` sent alongside the \`phase\` parameter in a single \`set\` call. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied: write the guard prerequisite with \`update\`, then change the phase with \`transition\`. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult \`@skills/checkpoint/references/phase-transitions.md\` for the exact prerequisite for each guard.
 
-The pattern for every transition: send the guard prerequisite in \`updates\` and the target in \`phase\` in a single \`set\` call.
+The pattern for every transition is two calls. \`update\` writes the guard prerequisite, and \`transition\` moves the workflow to the target phase. \`update\` rejects a \`phase\` key, and \`transition\` takes no \`updates\`:
+
+\`\`\`text
+action: "update", featureId: "<id>", updates: { <guard prerequisite fields> }
+action: "transition", featureId: "<id>", target: "<next phase>"
+\`\`\`
 
 ### Schema Discovery
 
@@ -1296,11 +1301,11 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 When Exarchos MCP tools are available, emit events throughout the refactor workflow:
 
 1. **At workflow start (explore):** \`mcp__plugin_exarchos_exarchos__exarchos_event\` with \`action: "append"\` → \`workflow.started\` with workflowType "refactor"
-2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with selected track (polish/overhaul)
-3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with from/to/trigger/featureId
+2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with selected track (polish/overhaul)
+3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with from/to/trigger/featureId
 4. **Overhaul track stacking:** Handled by \`/exarchos:delegate\` (subagents use \`git commit\` + \`git push\` per implementer prompt)
 5. **Polish track commit:** Single \`git commit -m "refactor: <description>"\` + \`git push\` — no multi-branch stacking needed
-6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`set\` when transitioning to terminal state — emits \`workflow.transition\` to "completed"
+6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`transition\` to the terminal state — emits \`workflow.transition\` to "completed"
 "
 `;
 
@@ -2206,7 +2211,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -2238,7 +2243,7 @@ The user can override: \`ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -2469,11 +2474,16 @@ Use \`describe\` to discover the full state schema at runtime: \`exarchos_workfl
 
 ### Phase Transitions and Guards
 
-> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied via \`updates\` sent alongside the \`phase\` parameter in a single \`set\` call. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied: write the guard prerequisite with \`update\`, then change the phase with \`transition\`. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult \`@skills/checkpoint/references/phase-transitions.md\` for the exact prerequisite for each guard.
 
-The pattern for every transition: send the guard prerequisite in \`updates\` and the target in \`phase\` in a single \`set\` call.
+The pattern for every transition is two calls. \`update\` writes the guard prerequisite, and \`transition\` moves the workflow to the target phase. \`update\` rejects a \`phase\` key, and \`transition\` takes no \`updates\`:
+
+\`\`\`text
+action: "update", featureId: "<id>", updates: { <guard prerequisite fields> }
+action: "transition", featureId: "<id>", target: "<next phase>"
+\`\`\`
 
 ### Schema Discovery
 
@@ -2530,11 +2540,11 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 When Exarchos MCP tools are available, emit events throughout the refactor workflow:
 
 1. **At workflow start (explore):** \`mcp__exarchos__exarchos_event\` with \`action: "append"\` → \`workflow.started\` with workflowType "refactor"
-2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with selected track (polish/overhaul)
-3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with from/to/trigger/featureId
+2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with selected track (polish/overhaul)
+3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with from/to/trigger/featureId
 4. **Overhaul track stacking:** Handled by \`delegate\` (subagents use \`git commit\` + \`git push\` per implementer prompt)
 5. **Polish track commit:** Single \`git commit -m "refactor: <description>"\` + \`git push\` — no multi-branch stacking needed
-6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`set\` when transitioning to terminal state — emits \`workflow.transition\` to "completed"
+6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`transition\` to the terminal state — emits \`workflow.transition\` to "completed"
 "
 `;
 
@@ -3432,7 +3442,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`/discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`/discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -3464,7 +3474,7 @@ The user can override: \`/ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -3695,11 +3705,16 @@ Use \`describe\` to discover the full state schema at runtime: \`exarchos_workfl
 
 ### Phase Transitions and Guards
 
-> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied via \`updates\` sent alongside the \`phase\` parameter in a single \`set\` call. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied: write the guard prerequisite with \`update\`, then change the phase with \`transition\`. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult \`@skills/checkpoint/references/phase-transitions.md\` for the exact prerequisite for each guard.
 
-The pattern for every transition: send the guard prerequisite in \`updates\` and the target in \`phase\` in a single \`set\` call.
+The pattern for every transition is two calls. \`update\` writes the guard prerequisite, and \`transition\` moves the workflow to the target phase. \`update\` rejects a \`phase\` key, and \`transition\` takes no \`updates\`:
+
+\`\`\`text
+action: "update", featureId: "<id>", updates: { <guard prerequisite fields> }
+action: "transition", featureId: "<id>", target: "<next phase>"
+\`\`\`
 
 ### Schema Discovery
 
@@ -3756,11 +3771,11 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 When Exarchos MCP tools are available, emit events throughout the refactor workflow:
 
 1. **At workflow start (explore):** \`mcp__exarchos__exarchos_event\` with \`action: "append"\` → \`workflow.started\` with workflowType "refactor"
-2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with selected track (polish/overhaul)
-3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with from/to/trigger/featureId
+2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with selected track (polish/overhaul)
+3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with from/to/trigger/featureId
 4. **Overhaul track stacking:** Handled by \`/delegate\` (subagents use \`git commit\` + \`git push\` per implementer prompt)
 5. **Polish track commit:** Single \`git commit -m "refactor: <description>"\` + \`git push\` — no multi-branch stacking needed
-6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`set\` when transitioning to terminal state — emits \`workflow.transition\` to "completed"
+6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`transition\` to the terminal state — emits \`workflow.transition\` to "completed"
 "
 `;
 
@@ -4668,7 +4683,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -4700,7 +4715,7 @@ The user can override: \`ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -4931,11 +4946,16 @@ Use \`describe\` to discover the full state schema at runtime: \`exarchos_workfl
 
 ### Phase Transitions and Guards
 
-> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied via \`updates\` sent alongside the \`phase\` parameter in a single \`set\` call. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied: write the guard prerequisite with \`update\`, then change the phase with \`transition\`. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult \`@skills/checkpoint/references/phase-transitions.md\` for the exact prerequisite for each guard.
 
-The pattern for every transition: send the guard prerequisite in \`updates\` and the target in \`phase\` in a single \`set\` call.
+The pattern for every transition is two calls. \`update\` writes the guard prerequisite, and \`transition\` moves the workflow to the target phase. \`update\` rejects a \`phase\` key, and \`transition\` takes no \`updates\`:
+
+\`\`\`text
+action: "update", featureId: "<id>", updates: { <guard prerequisite fields> }
+action: "transition", featureId: "<id>", target: "<next phase>"
+\`\`\`
 
 ### Schema Discovery
 
@@ -4992,11 +5012,11 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 When Exarchos MCP tools are available, emit events throughout the refactor workflow:
 
 1. **At workflow start (explore):** \`mcp__exarchos__exarchos_event\` with \`action: "append"\` → \`workflow.started\` with workflowType "refactor"
-2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with selected track (polish/overhaul)
-3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with from/to/trigger/featureId
+2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with selected track (polish/overhaul)
+3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with from/to/trigger/featureId
 4. **Overhaul track stacking:** Handled by \`delegate\` (subagents use \`git commit\` + \`git push\` per implementer prompt)
 5. **Polish track commit:** Single \`git commit -m "refactor: <description>"\` + \`git push\` — no multi-branch stacking needed
-6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`set\` when transitioning to terminal state — emits \`workflow.transition\` to "completed"
+6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`transition\` to the terminal state — emits \`workflow.transition\` to "completed"
 "
 `;
 
@@ -5875,7 +5895,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -5907,7 +5927,7 @@ The user can override: \`ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -6138,11 +6158,16 @@ Use \`describe\` to discover the full state schema at runtime: \`exarchos_workfl
 
 ### Phase Transitions and Guards
 
-> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied via \`updates\` sent alongside the \`phase\` parameter in a single \`set\` call. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied: write the guard prerequisite with \`update\`, then change the phase with \`transition\`. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult \`@skills/checkpoint/references/phase-transitions.md\` for the exact prerequisite for each guard.
 
-The pattern for every transition: send the guard prerequisite in \`updates\` and the target in \`phase\` in a single \`set\` call.
+The pattern for every transition is two calls. \`update\` writes the guard prerequisite, and \`transition\` moves the workflow to the target phase. \`update\` rejects a \`phase\` key, and \`transition\` takes no \`updates\`:
+
+\`\`\`text
+action: "update", featureId: "<id>", updates: { <guard prerequisite fields> }
+action: "transition", featureId: "<id>", target: "<next phase>"
+\`\`\`
 
 ### Schema Discovery
 
@@ -6199,11 +6224,11 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 When Exarchos MCP tools are available, emit events throughout the refactor workflow:
 
 1. **At workflow start (explore):** \`mcp__exarchos__exarchos_event\` with \`action: "append"\` → \`workflow.started\` with workflowType "refactor"
-2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with selected track (polish/overhaul)
-3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with from/to/trigger/featureId
+2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with selected track (polish/overhaul)
+3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with from/to/trigger/featureId
 4. **Overhaul track stacking:** Handled by \`delegate\` (subagents use \`git commit\` + \`git push\` per implementer prompt)
 5. **Polish track commit:** Single \`git commit -m "refactor: <description>"\` + \`git push\` — no multi-branch stacking needed
-6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`set\` when transitioning to terminal state — emits \`workflow.transition\` to "completed"
+6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`transition\` to the terminal state — emits \`workflow.transition\` to "completed"
 "
 `;
 
@@ -7109,7 +7134,7 @@ Emit the **Constraints** section (per that reference) *before* Phase 1 so the cl
 
 **Goal (when \`designDepth: 'deep'\`):** Present 2-3 distinct approaches with honest trade-offs, recommend one, and converge through human back-and-forth.
 
-Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung the runtime publishes a discover-bridge affordance via \`next_actions\` (DR-7) — an event-linked, \`correlationId\`-stitched escalation to the \`/discover\` research workflow. It **never** auto-runs; surface it to the author and only escalate on confirmation. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
+Use the approach format from \`references/design-template.md\`. Present genuinely different approaches; recommend one with rationale. **Opt-in discover bridge:** at the \`deep\` rung you can escalate to the \`/discover\` research workflow. No \`next_actions\` affordance offers this escalation, so offer it to the user yourself. It **never** auto-runs: escalate by hand, and only after the user confirms. Call \`mcp__exarchos__exarchos_orchestrate\` with \`action: "discover_bridge"\`, the spec \`artifact\` and \`confirm: true\` to record the event-linked, \`correlationId\`-stitched link, then start the discover workflow. Cite the discover report by path and \`correlationId\` in the Exploration section so provenance spans both documents.
 
 At \`thin\`/\`standard\`, skip this phase — converge directly in Phase 3.
 
@@ -7141,7 +7166,7 @@ The user can override: \`/ideate --max-iterations 5\`
 | Write walls of text | Use 200-300 word sections max |
 | Ignore existing patterns | Reference codebase conventions |
 | Write a separate \`docs/designs/\` doc | Author the Design & Rationale § of the one \`docs/specs/\` artifact |
-| Auto-escalate to discover | Surface the bridge; escalate only on author confirmation |
+| Auto-escalate to discover | Offer the escalation yourself; escalate by hand only after the user confirms |
 
 ## State Management
 
@@ -7372,11 +7397,16 @@ Use \`describe\` to discover the full state schema at runtime: \`exarchos_workfl
 
 ### Phase Transitions and Guards
 
-> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied via \`updates\` sent alongside the \`phase\` parameter in a single \`set\` call. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
+> **Sequential traversal required.** Every phase MUST be traversed in order — you cannot skip phases, even if you have all the data for a later phase ready. For example, \`explore\` must transition to \`brief\` before \`overhaul-plan\` — attempting \`explore\` → \`overhaul-plan\` directly will be rejected by the HSM. From \`brief\` you must go to \`polish-implement\` or \`overhaul-plan\`, not directly to \`completed\`. Each transition requires its guard to be satisfied: write the guard prerequisite with \`update\`, then change the phase with \`transition\`. See \`@skills/refactor/references/polish-track.md\` or \`@skills/refactor/references/overhaul-track.md\` for the exact tool call at each step.
 
 Every phase transition has a guard that must be satisfied. Before transitioning, consult \`@skills/checkpoint/references/phase-transitions.md\` for the exact prerequisite for each guard.
 
-The pattern for every transition: send the guard prerequisite in \`updates\` and the target in \`phase\` in a single \`set\` call.
+The pattern for every transition is two calls. \`update\` writes the guard prerequisite, and \`transition\` moves the workflow to the target phase. \`update\` rejects a \`phase\` key, and \`transition\` takes no \`updates\`:
+
+\`\`\`text
+action: "update", featureId: "<id>", updates: { <guard prerequisite fields> }
+action: "transition", featureId: "<id>", target: "<next phase>"
+\`\`\`
 
 ### Schema Discovery
 
@@ -7433,11 +7463,11 @@ Output: "Scope expanded beyond polish limits. Switching to overhaul track."
 When Exarchos MCP tools are available, emit events throughout the refactor workflow:
 
 1. **At workflow start (explore):** \`mcp__exarchos__exarchos_event\` with \`action: "append"\` → \`workflow.started\` with workflowType "refactor"
-2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with selected track (polish/overhaul)
-3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`set\` when \`phase\` is provided — emits \`workflow.transition\` with from/to/trigger/featureId
+2. **On track selection:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with selected track (polish/overhaul)
+3. **On each phase transition:** Auto-emitted by \`exarchos_workflow\` \`transition\` — emits \`workflow.transition\` with from/to/trigger/featureId
 4. **Overhaul track stacking:** Handled by \`/delegate\` (subagents use \`git commit\` + \`git push\` per implementer prompt)
 5. **Polish track commit:** Single \`git commit -m "refactor: <description>"\` + \`git push\` — no multi-branch stacking needed
-6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`set\` when transitioning to terminal state — emits \`workflow.transition\` to "completed"
+6. **On complete:** Auto-emitted by \`exarchos_workflow\` \`transition\` to the terminal state — emits \`workflow.transition\` to "completed"
 "
 `;
 
@@ -7539,7 +7569,7 @@ Transitions are HSM-validated and emit a \`workflow.transition\` event. Guarded 
 
 #### Editing the \`tasks\` array
 
-The dot-path parser used by \`set updates\` recognizes only **numeric** array brackets (\`tasks[0]\`, \`tasks[1]\`, …). Keyed forms like \`tasks[id=T-001]\` are NOT supported and now throw an \`INVALID_INPUT\` error with a clear message — earlier versions silently wrote to a bogus top-level key, returning \`success: true\` while the actual task was untouched. Three patterns are supported:
+The dot-path parser used by \`update\` (its \`updates\` argument) recognizes only **numeric** array brackets (\`tasks[0]\`, \`tasks[1]\`, …). Keyed forms like \`tasks[id=T-001]\` are NOT supported and now throw an \`INVALID_INPUT\` error with a clear message — earlier versions silently wrote to a bogus top-level key, returning \`success: true\` while the actual task was untouched. Three patterns are supported:
 
 1. **Replace the whole array** (use this when the plan is being revised wholesale):
    \`\`\`typescript
@@ -7583,7 +7613,7 @@ The dot-path parser used by \`set updates\` recognizes only **numeric** array br
 | \`ideate\` starts | \`init\` the workflow (initial phase \`plan\`) |
 | Design & Rationale authored | \`update: { "artifacts.spec": "<path>" }\` (no transition — \`plan\` is the initial phase) |
 | Decomposition added | \`update: { "artifacts.plan": "<path>", "tasks": [...] }\`, then \`transition target: "plan-review"\` |
-| Plan-review gaps found | \`update: { "planReview.gaps": [...] }\`, auto-loop to plan |
+| Plan-review gaps found | \`update: { "planReview.gapsFound": true, "planReview.gaps": [...] }\`, auto-loop to plan |
 | Plan-review approved | \`update: { "planReview.approved": true }\`, then \`transition target: "delegate"\` |
 | Task dispatched | Set task \`status = "in_progress"\`, \`startedAt\` |
 | Task complete | No update: \`task_complete\` or \`settle\` marks the task complete |
@@ -8262,7 +8292,7 @@ no verification gates (nothing to test), so the verification ladder does not app
 
 ## Discover bridge (the deep-rung escalation)
 
-At the \`deep\` planning rung, \`/exarchos:ideate\` can escalate to this workflow as a **first-class, event-linked research pre-pass** instead of a manual "go start a new workflow" handoff. The bridge is **opt-in** (author-confirmed, never auto-run): the affordance is surfaced on \`next_actions\`, and the \`discover_bridge\` orchestrate action — invoked with \`confirm: true\` — stitches this discovery run to the originating spec by a deterministic \`correlationId\` (recorded as a \`state.patched\` link event on the feature stream). When you run a discovery escalated this way, cite the report path in the spec's \`## Design & Rationale\` → Exploration section, and \`init\` this workflow with the bridge's \`correlationId\` so provenance spans both documents.
+At the \`deep\` planning rung, \`/exarchos:ideate\` can escalate to this workflow as an **event-linked research pre-pass**. The bridge is **opt-in** and never auto-runs. No \`next_actions\` affordance offers it: the ideate author escalates by hand, and only after the user confirms. The author then calls the \`discover_bridge\` orchestrate action with \`confirm: true\`. It stitches this discovery run to the originating spec by a deterministic \`correlationId\`, recorded as a \`state.patched\` link event on the feature stream. When you run a discovery escalated this way, \`init\` this workflow with the \`discoverFeatureId\` that the bridge returns. Cite the report path and the \`correlationId\` in the spec's \`## Design & Rationale\` → Exploration section so provenance spans both documents.
 
 ## Phases
 
@@ -10304,7 +10334,7 @@ exarchos_orchestrate({
 ## Transition
 
 After decomposition completes, **auto-continue to plan-review**. Transition to the appropriate review phase (feature: \`plan-review\`, refactor: \`overhaul-plan-review\`). Plan-review is no longer an inline plan-vs-design delta (one artifact now) — it is a **dispatched, fresh-context, adversarial** read-only pass over the unified artifact (DR-10): a clean reviewer provisioned with only {artifact + spec} (never this authoring transcript), prompted to refute the plan, its adversarial depth scaled by the frozen \`designDepth\`. Provision it via \`exarchos_orchestrate({ action: "prepare_review", scope: "plan", artifact: "docs/specs/<...>", designDepth: "<frozen>" })\`.
-- Refuted (gaps): set \`.planReview.gaps\`, auto-loop back to \`plan --revise\`
+- Refuted (gaps): set \`.planReview.gapsFound = true\` (the revise guard reads it) and record the findings in \`.planReview.gaps\`, auto-loop back to \`plan --revise\`
 - Survives: present to user for approval (the single human checkpoint)
 - On approval: set \`.planReview.approved = true\`, invoke \`delegate\`
 
@@ -10312,7 +10342,7 @@ After decomposition completes, **auto-continue to plan-review**. Transition to t
 
 ## Exarchos Integration
 
-Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workflow\` \`set\`. No manual \`exarchos_event\` append needed.
+Phase transitions auto-emit \`workflow.transition\` events via \`exarchos_workflow\` \`transition\`. No manual \`exarchos_event\` append needed.
 
 ## Troubleshooting
 
@@ -11566,7 +11596,7 @@ See \`references/troubleshooting.md\` for test failures, PR check failures, merg
 
 For the full transition table, consult \`@skills/checkpoint/references/phase-transitions.md\`.
 
-**Quick reference:** The \`synthesize\` → \`completed\` transition requires guard \`pr-url-exists\` — set \`synthesis.prUrl\` or \`artifacts.pr\` in the same \`set\` call as \`phase\`.
+**Quick reference:** The \`synthesize\` → \`completed\` transition requires guard \`pr-url-exists\` — write \`synthesis.prUrl\` or \`artifacts.pr\` with \`update\` before the \`transition\` call.
 
 ### Schema Discovery
 

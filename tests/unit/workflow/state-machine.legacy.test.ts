@@ -2561,9 +2561,8 @@ describe('Feature HSM Plan Revision Termination', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'plan-review',
-      planReview: { revisionCount: 3 },
       _maxPlanRevisions: 3,
-      _events: [],
+      _events: Array.from({ length: 4 }, (_, ordinal) => ({ type: 'workflow.plan-review-dispatched', ordinal })),
       _history: {},
     };
 
@@ -2577,9 +2576,8 @@ describe('Feature HSM Plan Revision Termination', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'plan-review',
-      planReview: { revisionCount: 1 },
       _maxPlanRevisions: 3,
-      _events: [],
+      _events: Array.from({ length: 2 }, (_, ordinal) => ({ type: 'workflow.plan-review-dispatched', ordinal })),
       _history: {},
     };
 
@@ -2594,8 +2592,7 @@ describe('Feature HSM Plan Revision Termination', () => {
     const hsm = getHSMDefinition('feature');
     const state: Record<string, unknown> = {
       phase: 'plan-review',
-      planReview: { revisionCount: 1 },
-      _events: [],
+      _events: Array.from({ length: 2 }, (_, ordinal) => ({ type: 'workflow.plan-review-dispatched', ordinal })),
       _history: {},
     };
 

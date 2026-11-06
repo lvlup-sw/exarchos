@@ -11,7 +11,7 @@
  * The pure admission pieces run before the transaction opens.
  */
 
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — production code that waits for the legacy HSM cutover.
+// RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28) — production code that waits for the legacy HSM cutover.
 // Until the cutover, `hsm-transition-guard.ts` stays the authoritative decider.
 
 import { createHash } from 'node:crypto';

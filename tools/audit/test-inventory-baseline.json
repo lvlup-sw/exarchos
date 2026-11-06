@@ -7,7 +7,7 @@
     "testFiles": 1393,
     "parsedFiles": 1348,
     "shellFiles": 45,
-    "cases": 15391,
+    "cases": 15397,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -20490,6 +20490,26 @@
         },
         {
           "suite": "validateConfig",
+          "name": "ValidateConfig_ExtendsOneshot_Succeeds",
+          "dynamic": false
+        },
+        {
+          "suite": "validateConfig",
+          "name": "ValidateConfig_ExtendsDiscovery_Succeeds",
+          "dynamic": false
+        },
+        {
+          "suite": "validateConfig",
+          "name": "ValidateConfig_ExtendsNearMissOfBuiltinName_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "validateConfig",
+          "name": "ValidateConfig_OneshotOrDiscoveryAsCustomName_Fails",
+          "dynamic": false
+        },
+        {
+          "suite": "validateConfig",
           "name": "ValidateConfig_ExtendsSelf_Fails",
           "dynamic": false
         },
@@ -36859,7 +36879,7 @@
         },
         {
           "suite": "computeNextActions — deep-rung affordances (DR-7, task 018)",
-          "name": "NextActions_DeepDepth_PublishesDiscoverBridge",
+          "name": "NextActions_DeepDepth_OmitsDiscoverBridge",
           "dynamic": false
         },
         {
@@ -78730,6 +78750,16 @@
           "dynamic": false
         },
         {
+          "suite": "Plan-review gaps path names the revise guard field",
+          "name": "getPlaybook_FeaturePlanReview_GapsPathNamesReviseGuardField",
+          "dynamic": false
+        },
+        {
+          "suite": "Plan-review gaps path names the revise guard field",
+          "name": "getPlaybook_RefactorOverhaulPlanReview_GapsPathNamesReviseGuardField",
+          "dynamic": false
+        },
+        {
           "suite": "Synthesize phase guidance references GitHub CLI",
           "name": "playbookGuidance_FeatureSynthesizePhase_ReferencesGhCli",
           "dynamic": false
@@ -78776,7 +78806,7 @@
         },
         {
           "suite": "EventInstruction fields property",
-          "name": "EventInstruction_TaskAssigned_HasRequiredFields",
+          "name": "EventInstruction_TaskAssigned_IsDisclosedAsTheRuntimesNotInstructed",
           "dynamic": false
         },
         {

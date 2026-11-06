@@ -266,7 +266,7 @@ See `references/troubleshooting.md` for test failures, PR check failures, merge 
 
 For the full transition table, consult `@skills/checkpoint/references/phase-transitions.md`.
 
-**Quick reference:** The `synthesize` → `completed` transition requires guard `pr-url-exists` — set `synthesis.prUrl` or `artifacts.pr` in the same `set` call as `phase`.
+**Quick reference:** The `synthesize` → `completed` transition requires guard `pr-url-exists` — write `synthesis.prUrl` or `artifacts.pr` with `update` before the `transition` call.
 
 ### Schema Discovery
 

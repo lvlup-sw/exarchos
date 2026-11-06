@@ -1,4 +1,4 @@
-// RESERVED(issue: #1590, owner: exarchos, expires: 2027-01-31) — the mechanical
+// RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28) — the mechanical
 // disposition proof that gates the retirement of the legacy admission authorities.
 // Only tests call it. It retires with the legacy path that it audits, behind the
 // same cutover issue as `workflow/admission/cutover-gate.ts`.

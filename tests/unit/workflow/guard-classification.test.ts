@@ -202,15 +202,18 @@ describe('GuardClassification_BoundedLoopRules_UseNumericCounter (P06-01)', () =
     expect(BOUNDED_LOOP_GUARD_IDS.has('revisions-exhausted')).toBe(true);
   });
 
-  /** The default cap is 1 (`DEFAULT_MAX_PLAN_REVISIONS`). */
+  /**
+   * The default cap is 1 (`DEFAULT_MAX_PLAN_REVISIONS`). The count is the plan-review dispatches in
+   * `_events` after the initial review.
+   */
   it('revisions-exhausted passes when count >= cap', () => {
     const passCap1 = guards.revisionsExhausted.evaluate({
-      planReview: { revisionCount: 1 },
+      _events: Array.from({ length: 2 }, (_, ordinal) => ({ type: 'workflow.plan-review-dispatched', ordinal })),
     });
     expect(passCap1).toBe(true);
 
     const passCap2 = guards.revisionsExhausted.evaluate({
-      planReview: { revisionCount: 3 },
+      _events: Array.from({ length: 4 }, (_, ordinal) => ({ type: 'workflow.plan-review-dispatched', ordinal })),
       _maxPlanRevisions: 2,
     });
     expect(passCap2).toBe(true);
@@ -218,7 +221,7 @@ describe('GuardClassification_BoundedLoopRules_UseNumericCounter (P06-01)', () =
 
   it('revisions-exhausted fails when count < cap', () => {
     const fail = guards.revisionsExhausted.evaluate({
-      planReview: { revisionCount: 0 },
+      _events: Array.from({ length: 1 }, (_, ordinal) => ({ type: 'workflow.plan-review-dispatched', ordinal })),
     });
     expect(fail).not.toBe(true);
     const result = fail as { passed: false; reason: string };
@@ -229,7 +232,7 @@ describe('GuardClassification_BoundedLoopRules_UseNumericCounter (P06-01)', () =
 
   it('revisions-exhausted uses _maxPlanRevisions injection when present', () => {
     const failWithHighCap = guards.revisionsExhausted.evaluate({
-      planReview: { revisionCount: 1 },
+      _events: Array.from({ length: 2 }, (_, ordinal) => ({ type: 'workflow.plan-review-dispatched', ordinal })),
       _maxPlanRevisions: 3,
     });
     expect(failWithHighCap).not.toBe(true);
