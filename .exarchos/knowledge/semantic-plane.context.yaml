@@ -18,7 +18,7 @@ packet:
   id: exarchos-semantic-plane
   version: 2
   as_of: 2026-11-05
-  main_at: 00b0a8321
+  main_at: a983571b9
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -637,6 +637,15 @@ decisions:
     source: "Reed, after the CodeRabbit review of #2175"
     decision: "The integration suite of this repository is every vitest project but process, through a test:integration script that runs vitest run --project \"!process\" (double quotes, so the script holds on cmd.exe). The process project tests the exarchos binary on PATH, not the tree of the task, so a whole-suite run in a task worktree judges another build. This replaces the whole root suite of the decision of 2026-11-04. The negated project lives in the script, because the safe-command class of .exarchos.yml has no '!'. A vitest project added later joins the script by default, and CI keeps the process tier with its own build."
     status: "built in #2175 (c4afa5d50). npm run test:integration passed 16753 tests in 1324 files, with no file of the process project."
+  - date: "2026-11-05"
+    source: "the lead, slice plan of the workflow-scoped capsule (#1927)"
+    decision: "#1927 is built in twelve slices, by name: S1 'the baseline', S2 'the definitions are the source', S3 'any registered definition compiles', S4 'one guard input, in shadow', S5 'settlement moves the phase', S6 'the plan is a compile input', S7 'every task in one capsule', S8 'the critic and the synthesis boundary', S9 'every built-in compiles', S10 'the skills speak prepare and settle', S11 'the forgeable routes close' and S12 'the phase machine is deleted'. S1 and S4 run off the critical path. No slice adds an event kind, because an earlier fold throws on an unknown type. settle moves the phase with the standard workflow.transition, phase.exited and phase.entered rows inside its commit. A slice that moves a stored shape appends one storedShapes decision and bumps the compiler. Four minor pull requests that need no decision come first: the plan-gate counts (#1828, #1999), the skill texts (the set action that does not exist, #1829, #2034), the config roster with the RESERVED headers, and the parity of prepare and settle (#1254). #1377 waits for the v3.0 release train."
+    known: "The plan came from six read-only maps of main bad691e47, three plans from different angles and two judges. The judges refuted these premises. design.revised cannot record a first design: the row needs nextDesignVersion of 2 or more and one deviation id. No run-bundle manifest exists. #1928 is a v3.0 leg, not a minor change, and it gates S8. #1536 is a closed prepare_synthesis bug and owns no verb retirement. graph.dependencies is always empty, but the delegate skill says that it is the compiled blockedBy."
+  - date: "2026-11-05"
+    source: "Reed, on the slice plan of #1927"
+    decision: "Reed accepted ten decisions. D1: the edge guards live in a namespaced exarchos extension of the kernel definition, keyed by transitionId, and the extension reuses the admission IR. The kernel slot is proposed upstream with #1249 later. D2: design and plan authoring sit outside the plane. ideate and plan write the design record and a typed plan with no Exarchos call, the approval is a term of the first prepare, and the plan gates become refusals of prepare. This closes the open question design-authoring. D3: each task has a commit diff base. A dependent task names its fork commit, and settle checks it with isAncestor. D4: settle judges a critic claim with computeVerdict on the observed head, and NEEDS_FIXES goes to a corrective batch (3 calls). D5: the synthesis boundary is an open pull request that #1928 observes. The merge stays outside Exarchos. D6: the workflows key of exarchos.config.ts retires in v3.0 as a breaking change, and .exarchos/workflows/ replaces it. D7: #1248, #1250 and #1381 move to v3.1, #1005 moves to #1677, and #1120 and #1237 leave the checklist of #1927. D8: the ledger fold and the content-addressed bundle store replace the state document as the guard input. No run manifest is built. D9: the skill guard of S10 refuses the call recipes (a transition call, a next_actions read, a playbook lookup), not the word transition. transition stays an idempotent operator verb. D10: INV-9, INV-12 and INV-6 are amended. The definitions are the authority, the HSM is an internal projection, next_actions publishes the affordances of the handlers, and workflow specifics live in definitions. The amendment lands in S10."
+    known: "Reed chose D1, D2, D6 and D10 from options. The lead stated D3, D4, D5, D7, D8 and D9 with their recommendations, and Reed did not object."
+    status: "D7 is done on the issues: #1248, #1250 and #1381 are lines of #1249 (#1248 and #1250 moved to v3.1.0), #1005 is a line of #1677, and #1120 and #1237 are open again on v3.1.0. #1927 holds the slice table, and its scope items 2, 5 and 6 record D6, D8 and D2."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -671,7 +680,8 @@ build_order:
       status: "decided"
       refs: "#1928 (every Git/PR write; related #1884, #1835)"
     - leg: "conformance: workflow-scoped capsule (definitions first; whole workflow per capsule; settlement carries phase; next_actions, playbooks, state document retire)"
-      status: "decided"
+      status: "planned in twelve slices (decisions of 2026-11-05). Not started. Four minor pull requests come first."
+      slices: "S1 the baseline (#1687); S2 the definitions are the source (#1253 wave 1); S3 any registered definition compiles (#1251, #1252); S4 one guard input, in shadow; S5 settlement moves the phase; S6 the plan is a compile input (#1657, #1999); S7 every task in one capsule; S8 the critic and the synthesis boundary (#1976, #1928); S9 every built-in compiles; S10 the skills speak prepare and settle (#1687, #2034, #1829); S11 the forgeable routes close; S12 the phase machine is deleted (#1253, #1251, #1258)"
       refs: "#1927 (vehicle #1253; #1258, #1248, #1250, #1251, #1254)"
     - leg: "conformance: knowledge binding C2 (interim repo-local binder; DKG hot path)"
       status: "not started"
@@ -726,7 +736,7 @@ drift:
   - id: "state-document"
     design: ".state.json retired for the run manifest"
     built: "transition guards read the document; settle syncs it"
-    resolution: "workflow-scoped capsule leg (#1927)"
+    resolution: "workflow-scoped capsule leg (#1927). Decided 2026-11-05 (D8): the ledger fold and the content-addressed bundle store replace the document as the guard input, and no run manifest is built. The fold runs in shadow in S4, the guards switch in S5, and the writes close in S11."
   - id: "workers-on-mcp"
     design: "workers never call MCP"
     built: "agent-teams worker prompt calls exarchos_workflow get, exarchos_view tasks, exarchos_event append"
@@ -745,7 +755,7 @@ drift:
     resolution: "#1943 resolved by #1975 (2026-10-01); verdict-shaped gates #1976 (v3.0.0)"
   - id: "measurement"
     design: "2-call acceptance metric per workflow"
-    built: "census per intent (plan 8, delegation 6, task-completion 5, review 10, synthesis 7 at N=1)"
+    built: "census per intent (plan 8, delegation 6, task-completion 6, review 10, synthesis 7 at N=1)"
     resolution: "re-aim #1687"
   - id: "run-bundle-location"
     design: "repo-local .exarchos/runs/ (gitignored)"
@@ -925,9 +935,6 @@ measured:
 # ─── open questions ──────────────────────────────────────────────────────────
 
 open_questions:
-  - id: design-authoring
-    question: Where does design and plan authoring fit when the unit is one capsule per workflow? prepare binds design knowledge, so a design must exist first.
-    candidate: a design stage whose accepted result is design.revised (v1); a continuation prepare then compiles the implementation slice. Roughly 4-5 calls per feature, not 2.
   - id: agent-teams
     question: Is agent-teams mode re-designed for the plane (no worker MCP, team.* events as runtime journal) or retired?
   - id: long-running-settle
@@ -1039,3 +1046,5 @@ traps:
   - "A reserved completion row is not a proven gate run. A guard on the writer of a fact proves nothing when the writer reads a forgeable input: task_complete accepted a gate.executed row that the generic append could write (#1886), until gate.executed was reserved too. The same holds for a field. The transition guards and the prepare frontier read tasks[].status, which exarchos_workflow update and a generic state.patched append write with no gate."
   - "A rationale is not a deviation and not evidence. It names a delegated decision of the capsule, it takes no decision round, and it changes no gate. A choice outside the delegated decisions goes in deviations."
   - "degraded: true on a static-analysis result is not a degraded verdict. An inconclusive run (skipReason constituent-skipped) has it too, as in earlier builds. completeness: 'degraded' marks a verdict that leaves out an advisory check with no verdict, and the gate.executed details and the settle trace carry that mark."
+  - "design.revised cannot record a first design. The row needs nextDesignVersion of 2 or more and at least one deviation id, and design version 1 is the start with no row."
+  - "Scope item 5 of #1927 names a run-bundle manifest. No manifest exists: the bundle store is flat and content-addressed. The ledger fold is the guard input (decision of 2026-11-05)."
