@@ -1,0 +1,236 @@
+{
+  "schemaVersion": "1.0",
+  "name": "exarchos.oneshot",
+  "steps": [
+    {
+      "kind": "skill",
+      "stepId": "plan",
+      "stepName": "plan",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "PLAN"
+    },
+    {
+      "kind": "skill",
+      "stepId": "implementing",
+      "stepName": "implementing",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "IMPLEMENT"
+    },
+    {
+      "kind": "skill",
+      "stepId": "synthesize",
+      "stepName": "synthesize",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "SYNTHESIZE"
+    },
+    {
+      "kind": "skill",
+      "stepId": "completed",
+      "stepName": "completed",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    },
+    {
+      "kind": "skill",
+      "stepId": "cancelled",
+      "stepName": "cancelled",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    }
+  ],
+  "transitions": [
+    {
+      "transitionId": "plan->implementing",
+      "fromStepId": "plan",
+      "toStepId": "implementing",
+      "isDefault": false
+    },
+    {
+      "transitionId": "implementing->synthesize",
+      "fromStepId": "implementing",
+      "toStepId": "synthesize",
+      "isDefault": false
+    },
+    {
+      "transitionId": "implementing->completed",
+      "fromStepId": "implementing",
+      "toStepId": "completed",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesize->completed",
+      "fromStepId": "synthesize",
+      "toStepId": "completed",
+      "isDefault": false
+    }
+  ],
+  "branchPoints": [],
+  "loops": [],
+  "forkPoints": [],
+  "failureHandlers": [],
+  "approvalPoints": [],
+  "authority": {
+    "invariants": [
+      {
+        "id": "append-only-history",
+        "statement": "Workflow history is append-only: a recorded event is never rewritten or removed."
+      },
+      {
+        "id": "pinned-terms",
+        "statement": "Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation."
+      },
+      {
+        "id": "evidenced-completion",
+        "statement": "A task is complete only when its result is returned with evidence of a kind the capsule admits."
+      }
+    ],
+    "assumptions": [
+      {
+        "id": "plan-is-current",
+        "statement": "The plan's tasks and their dependencies are current as of this compilation."
+      },
+      {
+        "id": "tasks-are-separable",
+        "statement": "Each task can be completed without changing the declared result shape of another task."
+      }
+    ],
+    "delegatedDecisions": [
+      {
+        "id": "implementation-approach",
+        "statement": "How a task is implemented, within its declared result shape."
+      },
+      {
+        "id": "execution-order",
+        "statement": "The order and concurrency of tasks whose dependencies are satisfied."
+      }
+    ],
+    "escalationBoundaries": [
+      {
+        "id": "published-contract-change",
+        "statement": "Any change to a published schema, event type or action contract."
+      },
+      {
+        "id": "work-outside-the-plan",
+        "statement": "Completing a task requires work the plan's task list does not contain."
+      },
+      {
+        "id": "assumption-invalidated",
+        "statement": "Evidence that an assumption of this capsule does not hold."
+      }
+    ]
+  },
+  "entryStepId": "plan",
+  "exarchos": {
+    "extensionVersion": "1",
+    "groups": [],
+    "edges": {
+      "plan->implementing": {
+        "guardId": "oneshot-plan-set",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "oneshot-plan",
+          "presence": {
+            "kind": "factEquals",
+            "field": "artifacts.planNonEmpty",
+            "value": true
+          }
+        }
+      },
+      "implementing->synthesize": {
+        "guardId": "synthesis-opted-in",
+        "category": "route-condition",
+        "route": {
+          "kind": "any",
+          "operands": [
+            {
+              "kind": "factEquals",
+              "field": "oneshot.synthesisPolicy",
+              "value": "always"
+            },
+            {
+              "kind": "all",
+              "operands": [
+                {
+                  "kind": "factEquals",
+                  "field": "oneshot.synthesisPolicy",
+                  "value": "on-request"
+                },
+                {
+                  "kind": "eventObserved",
+                  "event": "synthesize.requested"
+                }
+              ]
+            }
+          ]
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "implementing->completed": {
+        "guardId": "synthesis-opted-out",
+        "category": "route-condition",
+        "route": {
+          "kind": "any",
+          "operands": [
+            {
+              "kind": "factEquals",
+              "field": "oneshot.synthesisPolicy",
+              "value": "never"
+            },
+            {
+              "kind": "all",
+              "operands": [
+                {
+                  "kind": "factEquals",
+                  "field": "oneshot.synthesisPolicy",
+                  "value": "on-request"
+                },
+                {
+                  "kind": "not",
+                  "operand": {
+                    "kind": "eventObserved",
+                    "event": "synthesize.requested"
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "synthesize->completed": {
+        "guardId": "merge-verified",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "merge-verified",
+          "presence": {
+            "kind": "factEquals",
+            "field": "cleanup.mergeVerified",
+            "value": true
+          }
+        }
+      }
+    },
+    "universal": [
+      {
+        "edgeKind": "cancel",
+        "to": "cancelled"
+      },
+      {
+        "edgeKind": "cleanup",
+        "to": "completed",
+        "guardId": "merge-verified"
+      }
+    ]
+  }
+}

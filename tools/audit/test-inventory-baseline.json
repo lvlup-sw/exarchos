@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1394,
-    "parsedFiles": 1349,
+    "testFiles": 1397,
+    "parsedFiles": 1352,
     "shellFiles": 45,
-    "cases": 15413,
-    "dynamicTitles": 178,
+    "cases": 15431,
+    "dynamicTitles": 181,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -8584,6 +8584,17 @@
         {
           "suite": "ensureBinaryBuilt (T-38 / DR-29 serialized build)",
           "name": "EnsureBinaryBuilt_AlreadyFreshBinary_SkipsBuildEntirely",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/process/binary-inputs.test.ts": {
+      "file": "tests/core/process/binary-inputs.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the input scan of the compiled binary",
+          "name": "EnsureBinaryBuilt_AJsonInputNewerThanTheBinary_RebuildsTheBinary",
           "dynamic": false
         }
       ]
@@ -75926,6 +75937,103 @@
         {
           "suite": "HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)",
           "name": "composite init dispatch stamps the caller repo key on workflow.started",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/authored-equals-golden.test.ts": {
+      "file": "tests/unit/workflow/definitions/authored-equals-golden.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the authored built-in definitions against the golden",
+          "name": "AuthoredDefinition_%s_EqualsTheGoldenProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "the authored built-in definitions against the golden",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the authored built-in definitions against the golden",
+          "name": "AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd51Edges",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/built-in-definitions.test.ts": {
+      "file": "tests/unit/workflow/definitions/built-in-definitions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_%s_ParsesWithTheKernelAndTheExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_%s_PassesTheBuiltInRules",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AStrayStepKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AStrayTransitionKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnAuthorityOtherThanTheBuiltIn_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnEdgeWithNoGuardId_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_TheUniversalEdges_AreTheExecutorUniversals",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_EachDefinition_IsDeepFrozen",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_TheKernelCopy_HoldsNoExtensionKey",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_ANameOutsideTheRoster_IsNotABuiltInType",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_ABrokenRawSet_ThrowsAndNamesEachRuleAndPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_TheFiveImports_LoadWithNoFinding",
           "dynamic": false
         }
       ]

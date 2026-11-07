@@ -1,0 +1,583 @@
+{
+  "schemaVersion": "1.0",
+  "name": "exarchos.debug",
+  "steps": [
+    {
+      "kind": "skill",
+      "stepId": "triage",
+      "stepName": "triage",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    },
+    {
+      "kind": "skill",
+      "stepId": "investigate",
+      "stepName": "investigate",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    },
+    {
+      "kind": "skill",
+      "stepId": "rca",
+      "stepName": "rca",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "PLAN"
+    },
+    {
+      "kind": "skill",
+      "stepId": "design",
+      "stepName": "design",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "PLAN"
+    },
+    {
+      "kind": "skill",
+      "stepId": "debug-implement",
+      "stepName": "debug-implement",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "IMPLEMENT"
+    },
+    {
+      "kind": "skill",
+      "stepId": "debug-validate",
+      "stepName": "debug-validate",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "REVIEW"
+    },
+    {
+      "kind": "skill",
+      "stepId": "debug-review",
+      "stepName": "debug-review",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "REVIEW"
+    },
+    {
+      "kind": "skill",
+      "stepId": "hotfix-implement",
+      "stepName": "hotfix-implement",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "IMPLEMENT"
+    },
+    {
+      "kind": "skill",
+      "stepId": "hotfix-validate",
+      "stepName": "hotfix-validate",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "REVIEW"
+    },
+    {
+      "kind": "skill",
+      "stepId": "synthesize",
+      "stepName": "synthesize",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "SYNTHESIZE"
+    },
+    {
+      "kind": "skill",
+      "stepId": "completed",
+      "stepName": "completed",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    },
+    {
+      "kind": "skill",
+      "stepId": "cancelled",
+      "stepName": "cancelled",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    },
+    {
+      "kind": "skill",
+      "stepId": "blocked",
+      "stepName": "blocked",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    }
+  ],
+  "transitions": [
+    {
+      "transitionId": "triage->investigate",
+      "fromStepId": "triage",
+      "toStepId": "investigate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "investigate->rca",
+      "fromStepId": "investigate",
+      "toStepId": "rca",
+      "isDefault": false
+    },
+    {
+      "transitionId": "investigate->hotfix-implement",
+      "fromStepId": "investigate",
+      "toStepId": "hotfix-implement",
+      "isDefault": false
+    },
+    {
+      "transitionId": "investigate->cancelled",
+      "fromStepId": "investigate",
+      "toStepId": "cancelled",
+      "isDefault": false
+    },
+    {
+      "transitionId": "investigate->completed",
+      "fromStepId": "investigate",
+      "toStepId": "completed",
+      "isDefault": false
+    },
+    {
+      "transitionId": "rca->design",
+      "fromStepId": "rca",
+      "toStepId": "design",
+      "isDefault": false
+    },
+    {
+      "transitionId": "design->debug-implement",
+      "fromStepId": "design",
+      "toStepId": "debug-implement",
+      "isDefault": false
+    },
+    {
+      "transitionId": "debug-implement->debug-validate",
+      "fromStepId": "debug-implement",
+      "toStepId": "debug-validate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "debug-validate->debug-review",
+      "fromStepId": "debug-validate",
+      "toStepId": "debug-review",
+      "isDefault": false
+    },
+    {
+      "transitionId": "debug-review->synthesize",
+      "fromStepId": "debug-review",
+      "toStepId": "synthesize",
+      "isDefault": false
+    },
+    {
+      "transitionId": "hotfix-implement->hotfix-validate",
+      "fromStepId": "hotfix-implement",
+      "toStepId": "hotfix-validate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "hotfix-validate->synthesize",
+      "fromStepId": "hotfix-validate",
+      "toStepId": "synthesize",
+      "isDefault": false
+    },
+    {
+      "transitionId": "hotfix-validate->completed",
+      "fromStepId": "hotfix-validate",
+      "toStepId": "completed",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesize->debug-implement",
+      "fromStepId": "synthesize",
+      "toStepId": "debug-implement",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesize->hotfix-implement",
+      "fromStepId": "synthesize",
+      "toStepId": "hotfix-implement",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesize->completed",
+      "fromStepId": "synthesize",
+      "toStepId": "completed",
+      "isDefault": false
+    }
+  ],
+  "branchPoints": [],
+  "loops": [],
+  "forkPoints": [],
+  "failureHandlers": [],
+  "approvalPoints": [],
+  "authority": {
+    "invariants": [
+      {
+        "id": "append-only-history",
+        "statement": "Workflow history is append-only: a recorded event is never rewritten or removed."
+      },
+      {
+        "id": "pinned-terms",
+        "statement": "Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation."
+      },
+      {
+        "id": "evidenced-completion",
+        "statement": "A task is complete only when its result is returned with evidence of a kind the capsule admits."
+      }
+    ],
+    "assumptions": [
+      {
+        "id": "plan-is-current",
+        "statement": "The plan's tasks and their dependencies are current as of this compilation."
+      },
+      {
+        "id": "tasks-are-separable",
+        "statement": "Each task can be completed without changing the declared result shape of another task."
+      }
+    ],
+    "delegatedDecisions": [
+      {
+        "id": "implementation-approach",
+        "statement": "How a task is implemented, within its declared result shape."
+      },
+      {
+        "id": "execution-order",
+        "statement": "The order and concurrency of tasks whose dependencies are satisfied."
+      }
+    ],
+    "escalationBoundaries": [
+      {
+        "id": "published-contract-change",
+        "statement": "Any change to a published schema, event type or action contract."
+      },
+      {
+        "id": "work-outside-the-plan",
+        "statement": "Completing a task requires work the plan's task list does not contain."
+      },
+      {
+        "id": "assumption-invalidated",
+        "statement": "Evidence that an assumption of this capsule does not hold."
+      }
+    ]
+  },
+  "entryStepId": "triage",
+  "exarchos": {
+    "extensionVersion": "1",
+    "groups": [
+      {
+        "groupId": "thorough-track",
+        "members": [
+          "rca",
+          "design",
+          "debug-implement",
+          "debug-validate",
+          "debug-review"
+        ],
+        "initial": "rca",
+        "maxFixCycles": 2,
+        "history": "shallow",
+        "onEntry": [
+          "log"
+        ],
+        "onExit": [
+          "log"
+        ]
+      },
+      {
+        "groupId": "hotfix-track",
+        "members": [
+          "hotfix-implement",
+          "hotfix-validate"
+        ],
+        "initial": "hotfix-implement",
+        "history": "shallow",
+        "onEntry": [
+          "log"
+        ],
+        "onExit": [
+          "log"
+        ]
+      }
+    ],
+    "edges": {
+      "triage->investigate": {
+        "guardId": "triage-complete",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "triage",
+          "presence": {
+            "kind": "factPresent",
+            "field": "triage.symptom"
+          }
+        }
+      },
+      "investigate->rca": {
+        "guardId": "thorough-track-selected",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "track",
+          "value": "thorough"
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "investigate->hotfix-implement": {
+        "guardId": "hotfix-track-selected",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "track",
+          "value": "hotfix"
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "investigate->cancelled": {
+        "guardId": "escalation-required",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "investigation.escalate",
+          "value": true
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "investigate->completed": {
+        "guardId": "fix-verified-directly",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "fix-verified-directly",
+          "presence": {
+            "kind": "all",
+            "operands": [
+              {
+                "kind": "factEquals",
+                "field": "resolution.directPush",
+                "value": true
+              },
+              {
+                "kind": "factPresent",
+                "field": "resolution.commitSha"
+              }
+            ]
+          }
+        }
+      },
+      "rca->design": {
+        "guardId": "rca-document-complete",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "rca-document",
+          "presence": {
+            "kind": "factPresent",
+            "field": "artifacts.rca"
+          }
+        }
+      },
+      "design->debug-implement": {
+        "guardId": "fix-design-complete",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "fix-design",
+          "presence": {
+            "kind": "factPresent",
+            "field": "artifacts.fixDesign"
+          }
+        }
+      },
+      "debug-implement->debug-validate": {
+        "guardId": "implementation-complete",
+        "category": "obsolete-predicate",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "implementation",
+          "presence": {
+            "kind": "factEquals",
+            "field": "implementation.complete",
+            "value": true
+          }
+        }
+      },
+      "debug-validate->debug-review": {
+        "guardId": "validation-passed",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "validation",
+          "presence": {
+            "kind": "factEquals",
+            "field": "validation.testsPass",
+            "value": true
+          }
+        }
+      },
+      "debug-review->synthesize": {
+        "guardId": "review-passed",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "review",
+          "presence": {
+            "kind": "factEquals",
+            "field": "reviews.allPassed",
+            "value": true
+          }
+        }
+      },
+      "hotfix-implement->hotfix-validate": {
+        "guardId": "implementation-complete",
+        "category": "obsolete-predicate",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "implementation",
+          "presence": {
+            "kind": "factEquals",
+            "field": "implementation.complete",
+            "value": true
+          }
+        }
+      },
+      "hotfix-validate->synthesize": {
+        "guardId": "validation+pr-requested",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "validation-and-pr",
+          "presence": {
+            "kind": "all",
+            "operands": [
+              {
+                "kind": "factEquals",
+                "field": "validation.testsPass",
+                "value": true
+              },
+              {
+                "kind": "factEquals",
+                "field": "synthesis.requested",
+                "value": true
+              }
+            ]
+          }
+        }
+      },
+      "hotfix-validate->completed": {
+        "guardId": "validation-passed",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "validation",
+          "presence": {
+            "kind": "factEquals",
+            "field": "validation.testsPass",
+            "value": true
+          }
+        }
+      },
+      "synthesize->debug-implement": {
+        "guardId": "synthesize-retryable+thorough-track",
+        "category": "bounded-loop-rule",
+        "route": {
+          "kind": "all",
+          "operands": [
+            {
+              "kind": "all",
+              "operands": [
+                {
+                  "kind": "factPresent",
+                  "field": "synthesis.lastError"
+                },
+                {
+                  "kind": "counterCompare",
+                  "field": "synthesis.retryCount",
+                  "op": "lt",
+                  "value": 3
+                }
+              ]
+            },
+            {
+              "kind": "factEquals",
+              "field": "track",
+              "value": "thorough"
+            }
+          ]
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "synthesize->hotfix-implement": {
+        "guardId": "synthesize-retryable+hotfix-track",
+        "category": "bounded-loop-rule",
+        "route": {
+          "kind": "all",
+          "operands": [
+            {
+              "kind": "all",
+              "operands": [
+                {
+                  "kind": "factPresent",
+                  "field": "synthesis.lastError"
+                },
+                {
+                  "kind": "counterCompare",
+                  "field": "synthesis.retryCount",
+                  "op": "lt",
+                  "value": 3
+                }
+              ]
+            },
+            {
+              "kind": "factEquals",
+              "field": "track",
+              "value": "hotfix"
+            }
+          ]
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "synthesize->completed": {
+        "guardId": "pr-url-exists",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "pr-url",
+          "presence": {
+            "kind": "any",
+            "operands": [
+              {
+                "kind": "factPresent",
+                "field": "synthesis.prUrl"
+              },
+              {
+                "kind": "factPresent",
+                "field": "artifacts.pr"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "universal": [
+      {
+        "edgeKind": "cancel",
+        "to": "cancelled"
+      },
+      {
+        "edgeKind": "cleanup",
+        "to": "completed",
+        "guardId": "merge-verified"
+      }
+    ]
+  }
+}

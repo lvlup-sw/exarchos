@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "1.0",
+  "name": "exarchos.discovery",
+  "steps": [
+    {
+      "kind": "skill",
+      "stepId": "gathering",
+      "stepName": "gathering",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    },
+    {
+      "kind": "skill",
+      "stepId": "synthesizing",
+      "stepName": "synthesizing",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    },
+    {
+      "kind": "skill",
+      "stepId": "completed",
+      "stepName": "completed",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    },
+    {
+      "kind": "skill",
+      "stepId": "cancelled",
+      "stepName": "cancelled",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    }
+  ],
+  "transitions": [
+    {
+      "transitionId": "gathering->synthesizing",
+      "fromStepId": "gathering",
+      "toStepId": "synthesizing",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesizing->completed",
+      "fromStepId": "synthesizing",
+      "toStepId": "completed",
+      "isDefault": false
+    }
+  ],
+  "branchPoints": [],
+  "loops": [],
+  "forkPoints": [],
+  "failureHandlers": [],
+  "approvalPoints": [],
+  "authority": {
+    "invariants": [
+      {
+        "id": "append-only-history",
+        "statement": "Workflow history is append-only: a recorded event is never rewritten or removed."
+      },
+      {
+        "id": "pinned-terms",
+        "statement": "Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation."
+      },
+      {
+        "id": "evidenced-completion",
+        "statement": "A task is complete only when its result is returned with evidence of a kind the capsule admits."
+      }
+    ],
+    "assumptions": [
+      {
+        "id": "plan-is-current",
+        "statement": "The plan's tasks and their dependencies are current as of this compilation."
+      },
+      {
+        "id": "tasks-are-separable",
+        "statement": "Each task can be completed without changing the declared result shape of another task."
+      }
+    ],
+    "delegatedDecisions": [
+      {
+        "id": "implementation-approach",
+        "statement": "How a task is implemented, within its declared result shape."
+      },
+      {
+        "id": "execution-order",
+        "statement": "The order and concurrency of tasks whose dependencies are satisfied."
+      }
+    ],
+    "escalationBoundaries": [
+      {
+        "id": "published-contract-change",
+        "statement": "Any change to a published schema, event type or action contract."
+      },
+      {
+        "id": "work-outside-the-plan",
+        "statement": "Completing a task requires work the plan's task list does not contain."
+      },
+      {
+        "id": "assumption-invalidated",
+        "statement": "Evidence that an assumption of this capsule does not hold."
+      }
+    ]
+  },
+  "entryStepId": "gathering",
+  "exarchos": {
+    "extensionVersion": "1",
+    "groups": [],
+    "edges": {
+      "gathering->synthesizing": {
+        "guardId": "sources-collected",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "sources",
+          "presence": {
+            "kind": "counterCompare",
+            "field": "artifacts.sources.count",
+            "op": "gte",
+            "value": 1
+          }
+        }
+      },
+      "synthesizing->completed": {
+        "guardId": "report-artifact-exists",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "report",
+          "presence": {
+            "kind": "factPresent",
+            "field": "artifacts.report"
+          }
+        }
+      }
+    },
+    "universal": [
+      {
+        "edgeKind": "cancel",
+        "to": "cancelled"
+      },
+      {
+        "edgeKind": "cleanup",
+        "to": "completed",
+        "guardId": "merge-verified"
+      }
+    ]
+  }
+}
