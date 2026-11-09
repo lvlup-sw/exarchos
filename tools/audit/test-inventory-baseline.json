@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1393,
-    "parsedFiles": 1348,
+    "testFiles": 1396,
+    "parsedFiles": 1351,
     "shellFiles": 45,
-    "cases": 15399,
+    "cases": 15428,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -89853,6 +89853,169 @@
         {
           "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
           "name": "prepareAndSettle_refusedOnEachTransport_envelopesMatchAfterNormalize",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/workflow-replay-helper.test.ts": {
+      "file": "tests/unit/events/workflow-replay-helper.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_AStreamWithReservedRows_CopiesEachRowThroughTheAppender",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ACopiedRow_KeepsEachFieldButItsEventId",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_AKeyedBatchOfTwoRows_IsCopiedInOneAppend",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_AKeyThatTwoRunsShare_IsRefusedBeforeAnyWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ABound_CopiesTheRowsThroughItsSequenceOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ABoundInsideAKeyedRun_IsRefusedBeforeAnyWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_EachNamedBundle_ResolvesInTheTargetByTheSameDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ADigestThatASettlementBundleNames_IsCopied",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ABundleMissingInTheSource_IsRefusedWithItsDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ATargetThatHoldsTheStream_IsRefused",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/workflow-replay.test.ts": {
+      "file": "tests/acceptance/workflow-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheSettledStream_HoldsEachLedgerKind",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheWalk_KeepsTheStateDocumentInTheWorkflowStateRow",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheWalk_CallsAsAnMcpSessionWithTheDefaultGrant",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheCopy_HoldsTheSameRowsInTheSameSequences",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_EachKeyOfTheWalk_HasTheSameIdempotencyClaimInBothStores",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheWalk_ReturnsAfterTheEmissionRowOfEachCall",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_BothFolds_ReturnAState",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheCopy_FoldsToTheSameProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheCopy_FoldsToThePhaseAndTasksThatTheWalkSaw",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheFactsOfTheWalk_HoldElevenEntriesOverThreeReceipts",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheSettlementFactsOfTheCopy_EqualTheFactsOfTheWalk",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_ASeededFactDivergence_IsFoundWhileTheRowsStayEqual",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_NoClaimOfTheWalk_CitesEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheCopiedBundles_PassTheCustodySweepWithTheSameCount",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_EachSettlementBundle_DecodesFromTheFreshStore",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_APrefixWithoutTheLastTransition_FoldsToAnotherPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheFreshStore_HoldsNoOperationClaim",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/replay-helper-is-test-only.test.ts": {
+      "file": "tests/architecture/replay-helper-is-test-only.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the replay helper is test-only",
+          "name": "ReplayHelper_NoModuleUnderSrcOrTools_ImportsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "the replay helper is test-only",
+          "name": "ReplayHelper_APlantedImport_IsFound",
           "dynamic": false
         }
       ]
