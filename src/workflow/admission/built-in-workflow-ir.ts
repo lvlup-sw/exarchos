@@ -1,6 +1,9 @@
 /**
  * The five built-in workflows in the shared admission IR.
  *
+ * The edges derive from the authored built-in definitions. Each kernel transition gives one edge, in kernel order.
+ * The `exarchos` extension of the definition gives the guard id, the category, the route and the obligation of the edge.
+ *
  * Each edge has a route condition as a compiled {@link CompiledEdgeCondition} and an admission obligation as data.
  * It also carries the phase kind and the legacy guard id for the live shadow observer.
  * Route conditions and presence probes use one fact vocabulary, {@link FACT_DECLARATION}.
@@ -15,29 +18,17 @@ import {
   type CompiledEdgeCondition,
   type EdgeConditionDeclaration,
 } from './edge-condition.js';
-import type { PhaseKind } from '../phase-kind.js';
+import { KIND_OBLIGATIONS, type PhaseKind } from '../phase-kind.js';
+import {
+  BUILT_IN_WORKFLOW_TYPES,
+  builtInDefinition,
+  type BuiltInDefinition,
+  type BuiltInWorkflowType,
+} from '../definitions/built-in.js';
+import type { EdgeCategory, ExarchosExtension } from '../definitions/extension.js';
 
-export type BuiltInWorkflowType =
-  | 'feature'
-  | 'debug'
-  | 'refactor'
-  | 'oneshot'
-  | 'discovery';
-
-export const BUILT_IN_WORKFLOW_TYPES: readonly BuiltInWorkflowType[] =
-  Object.freeze(['feature', 'debug', 'refactor', 'oneshot', 'discovery']);
-
-/**
- * The legacy-guard classification category of an edge.
- * It is a string union and not an import of the classification fixture, so this module has no fixture dependency.
- * A test checks it against the corpus.
- */
-export type EdgeCategory =
-  | 'route-condition'
-  | 'admission-requirement'
-  | 'bounded-loop-rule'
-  | 'approval'
-  | 'obsolete-predicate';
+export { BUILT_IN_WORKFLOW_TYPES };
+export type { BuiltInWorkflowType, EdgeCategory };
 
 /**
  * The admission obligation of an edge after the route is legal.
@@ -131,585 +122,129 @@ function compile(node: unknown): CompiledEdgeCondition {
   return compileEdgeCondition(node, FACT_DECLARATION);
 }
 
-const present = (field: string): unknown => ({ kind: 'factPresent', field });
-const eqBool = (field: string, value: boolean): unknown => ({
-  kind: 'factEquals',
-  field,
-  value,
-});
-const eqStr = (field: string, value: string): unknown => ({
-  kind: 'factEquals',
-  field,
-  value,
-});
-const cmp = (
-  field: string,
-  op: 'lt' | 'lte' | 'eq' | 'gte' | 'gt',
-  value: number,
-): unknown => ({ kind: 'counterCompare', field, op, value });
-const all = (...operands: unknown[]): unknown => ({ kind: 'all', operands });
-const any = (...operands: unknown[]): unknown => ({ kind: 'any', operands });
-const not = (operand: unknown): unknown => ({ kind: 'not', operand });
-const evt = (event: string): unknown => ({ kind: 'eventObserved', event });
-
 /** The always-legal route (no branch selector on the edge). */
 const ALWAYS_LEGAL: CompiledEdgeCondition = compile({ kind: 'all', operands: [] });
 
 const NONE: EdgeObligation = Object.freeze({ kind: 'none' });
-const gate = (gateId: string, presence: unknown): EdgeObligation =>
-  Object.freeze({ kind: 'gate', gateId, presence: compile(presence) });
-const approval = (
-  approvalClass: string,
-  presence: unknown,
-  minimumApprovals = 1,
-): EdgeObligation =>
-  Object.freeze({
-    kind: 'approval',
-    approvalClass,
-    minimumApprovals,
-    presence: compile(presence),
-  });
 
-/**
- * The plan-revision cap is project config in `state._maxPlanRevisions`, not a constant here.
- * The projection resolves `revisionCount >= cap` and publishes it as `planReview.revisionsExhausted`.
- */
-const REVISIONS_EXHAUSTED = eqBool('planReview.revisionsExhausted', true);
-
-/**
- * The legacy `all-reviews-passed` guard checks the present reviews, the `_requiredReviews` dimensions and high-tier mutation enforcement.
- * The projection resolves all three from the injected state and publishes the conjunction.
- */
-const REQUIRED_REVIEWS_SATISFIED = eqBool('reviews.requiredSatisfied', true);
-
-/**
- * The oneshot synthesis branch. It matches `synthesisOptedIn` and `synthesisOptedOut`, with `'on-request'` as the default.
- * `never` is an absolute opt-out, and a stray `synthesize.requested` event does not reopen synthesis.
- * `on-request` without a request event takes the direct-commit edge.
- */
-const SYNTHESIS_OPTED_IN = any(
-  eqStr('oneshot.synthesisPolicy', 'always'),
-  all(eqStr('oneshot.synthesisPolicy', 'on-request'), evt('synthesize.requested')),
-);
-const SYNTHESIS_OPTED_OUT = any(
-  eqStr('oneshot.synthesisPolicy', 'never'),
-  all(
-    eqStr('oneshot.synthesisPolicy', 'on-request'),
-    not(evt('synthesize.requested')),
-  ),
-);
-
-/** The synthesize retry cap. */
-const MAX_SYNTHESIZE_RETRIES = 3;
-
-interface EdgeSpec {
-  readonly from: string;
-  readonly to: string;
-  readonly toPhaseKind: PhaseKind;
-  readonly category: EdgeCategory;
-  readonly legacyGuardId: string | null;
-  readonly route?: CompiledEdgeCondition;
-  readonly obligation: EdgeObligation;
-}
-
-function buildEdges(
-  workflowType: BuiltInWorkflowType,
-  specs: readonly EdgeSpec[],
-): readonly WorkflowEdgeIR[] {
-  return specs.map((s) =>
-    Object.freeze({
-      workflowType,
-      from: s.from,
-      to: s.to,
-      toPhaseKind: s.toPhaseKind,
-      category: s.category,
-      legacyGuardId: s.legacyGuardId,
-      routeCondition: s.route ?? ALWAYS_LEGAL,
-      obligation: s.obligation,
-    }),
-  );
-}
-
-/** The plan presence probe. More than one workflow uses it. */
-const PLAN_ARTIFACT_PRESENT = any(present('artifacts.plan'), present('plan'));
-const PR_URL_PRESENT = any(present('synthesis.prUrl'), present('artifacts.pr'));
-const TASKS_COMPLETE = all(
-  cmp('tasks.count', 'gte', 1),
-  eqBool('tasks.allComplete', true),
-);
+/** The condition that the plan has at least one task and that every task is complete. */
+const TASKS_COMPLETE = {
+  kind: 'all',
+  operands: [
+    { kind: 'counterCompare', field: 'tasks.count', op: 'gte', value: 1 },
+    { kind: 'factEquals', field: 'tasks.allComplete', value: true },
+  ],
+};
 
 /**
  * The compiled obligation that every planned task is complete. The capsule compiler uses it.
  * The feature delegate edge also requires team teardown, but teardown is a harness detail.
  * Thus a capsule that requires teardown binds every runtime to one harness.
+ * A test proves that it equals the gate presence of the refactor edge from `overhaul-delegate` to `overhaul-review`.
  */
 export const TASKS_COMPLETE_CONDITION: CompiledEdgeCondition = compile(TASKS_COMPLETE);
-const RETRYABLE = all(
-  present('synthesis.lastError'),
-  cmp('synthesis.retryCount', 'lt', MAX_SYNTHESIZE_RETRIES),
+
+/** The guard data of one edge in an authored definition. */
+type AuthoredEdge = ExarchosExtension['edges'][string];
+
+/** True when the value is a phase kind, a key of the obligation table. */
+function isPhaseKind(value: unknown): value is PhaseKind {
+  return typeof value === 'string' && Object.hasOwn(KIND_OBLIGATIONS, value);
+}
+
+/** Returns the phase kind of each step that has one. A final step has no phase kind. */
+function stepKinds(definition: BuiltInDefinition): ReadonlyMap<string, PhaseKind> {
+  const kinds = new Map<string, PhaseKind>();
+  for (const step of definition.steps) {
+    const stepType: unknown = 'stepType' in step ? step.stepType : undefined;
+    if (isPhaseKind(stepType)) kinds.set(step.stepId, stepType);
+  }
+  return kinds;
+}
+
+/**
+ * Compiles one condition of an edge against the fact vocabulary.
+ * @throws When the condition does not compile. The message names the workflow type, the transition and the part of the edge.
+ */
+function compileEdgePart(
+  type: BuiltInWorkflowType,
+  transitionId: string,
+  part: 'route' | 'presence',
+  node: unknown,
+): CompiledEdgeCondition {
+  try {
+    return compile(node);
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error);
+    throw new Error(`the ${part} of the built-in edge '${type} ${transitionId}' does not compile: ${reason}`, {
+      cause: error,
+    });
+  }
+}
+
+/** Returns the IR obligation of an authored edge. A gate or an approval compiles its presence probe. */
+function obligationOf(type: BuiltInWorkflowType, transitionId: string, edge: AuthoredEdge): EdgeObligation {
+  const obligation = edge.obligation;
+  switch (obligation.kind) {
+    case 'none':
+      return NONE;
+    case 'gate':
+      return Object.freeze({
+        kind: 'gate',
+        gateId: obligation.gateId,
+        presence: compileEdgePart(type, transitionId, 'presence', obligation.presence),
+      });
+    case 'approval':
+      return Object.freeze({
+        kind: 'approval',
+        approvalClass: obligation.approvalClass,
+        minimumApprovals: obligation.minimumApprovals,
+        presence: compileEdgePart(type, transitionId, 'presence', obligation.presence),
+      });
+  }
+}
+
+/**
+ * Derives the IR edges of one built-in workflow from its definition, in kernel order.
+ * An edge enters the phase kind of its target. An edge to a final step enters the phase kind of its source.
+ * @throws When a transition has no authored edge, when an endpoint has no phase kind, or when a condition does not compile.
+ * The message names the edge.
+ */
+export function deriveWorkflowEdges(
+  type: BuiltInWorkflowType,
+  definition: BuiltInDefinition,
+): readonly WorkflowEdgeIR[] {
+  const kinds = stepKinds(definition);
+  const finals = new Set(definition.steps.filter((step) => step.isTerminal).map((step) => step.stepId));
+  return definition.transitions.map((transition) => {
+    const { transitionId, fromStepId: from, toStepId: to } = transition;
+    const edge = definition.exarchos.edges[transitionId];
+    if (edge === undefined) {
+      throw new Error(`the built-in edge '${type} ${transitionId}' has no authored edge`);
+    }
+    const sourceKind = kinds.get(from);
+    const targetKind = kinds.get(to);
+    if (sourceKind === undefined || (targetKind === undefined && !finals.has(to))) {
+      throw new Error(`the built-in edge '${type} ${transitionId}' has an endpoint with no phase kind`);
+    }
+    return Object.freeze({
+      workflowType: type,
+      from,
+      to,
+      toPhaseKind: targetKind ?? sourceKind,
+      category: edge.category,
+      legacyGuardId: edge.guardId ?? null,
+      routeCondition:
+        edge.route === undefined ? ALWAYS_LEGAL : compileEdgePart(type, transitionId, 'route', edge.route),
+      obligation: obligationOf(type, transitionId, edge),
+    });
+  });
+}
+
+/** All built-in workflow edges in shared IR: the types in roster order, and the edges of each type in kernel order. */
+export const BUILT_IN_WORKFLOW_IR: readonly WorkflowEdgeIR[] = Object.freeze(
+  BUILT_IN_WORKFLOW_TYPES.flatMap((type) => deriveWorkflowEdges(type, builtInDefinition(type))),
 );
-
-const FEATURE_EDGES = buildEdges('feature', [
-  {
-    from: 'plan',
-    to: 'plan-review',
-    toPhaseKind: 'PLAN',
-    category: 'admission-requirement',
-    legacyGuardId: 'plan-artifact-exists',
-    obligation: gate('plan-artifact', PLAN_ARTIFACT_PRESENT),
-  },
-  {
-    from: 'plan-review',
-    to: 'delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'approval',
-    legacyGuardId: 'plan-review-complete',
-    obligation: approval('plan-review', eqBool('planReview.approved', true)),
-  },
-  {
-    from: 'plan-review',
-    to: 'blocked',
-    toPhaseKind: 'GATHER',
-    category: 'bounded-loop-rule',
-    legacyGuardId: 'revisions-exhausted',
-    route: compile(REVISIONS_EXHAUSTED),
-    obligation: NONE,
-  },
-  {
-    from: 'plan-review',
-    to: 'plan',
-    toPhaseKind: 'PLAN',
-    category: 'route-condition',
-    legacyGuardId: 'plan-review-gaps-found',
-    route: compile(eqBool('planReview.gapsFound', true)),
-    obligation: NONE,
-  },
-  {
-    from: 'delegate',
-    to: 'review',
-    toPhaseKind: 'REVIEW',
-    category: 'admission-requirement',
-    legacyGuardId: 'all-tasks-complete+team-disbanded',
-    obligation: gate(
-      'tasks-and-team',
-      all(TASKS_COMPLETE, eqBool('team.disbandedOk', true)),
-    ),
-  },
-  {
-    from: 'delegate',
-    to: 'merge-pending',
-    toPhaseKind: 'MERGE',
-    category: 'admission-requirement',
-    legacyGuardId: 'merge-pending-entry',
-    obligation: gate('merge-pending-entry', eqBool('mergePending.entryReady', true)),
-  },
-  {
-    from: 'merge-pending',
-    to: 'delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'admission-requirement',
-    legacyGuardId: 'merge-pending-exit',
-    obligation: gate('merge-pending-exit', eqBool('mergePending.exitReady', true)),
-  },
-  {
-    from: 'review',
-    to: 'synthesize',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'approval',
-    legacyGuardId: 'all-reviews-passed',
-    obligation: approval('reviews', REQUIRED_REVIEWS_SATISFIED),
-  },
-  {
-    from: 'review',
-    to: 'delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'route-condition',
-    legacyGuardId: 'any-review-failed',
-    route: compile(eqBool('reviews.anyFailed', true)),
-    obligation: NONE,
-  },
-  {
-    from: 'synthesize',
-    to: 'delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'bounded-loop-rule',
-    legacyGuardId: 'synthesize-retryable',
-    route: compile(RETRYABLE),
-    obligation: NONE,
-  },
-  {
-    from: 'synthesize',
-    to: 'completed',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'admission-requirement',
-    legacyGuardId: 'pr-url-exists',
-    obligation: gate('pr-url', PR_URL_PRESENT),
-  },
-  {
-    from: 'blocked',
-    to: 'delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'approval',
-    legacyGuardId: 'human-unblocked',
-    obligation: approval('unblock', eqBool('unblocked', true)),
-  },
-]);
-
-const DEBUG_EDGES = buildEdges('debug', [
-  {
-    from: 'triage',
-    to: 'investigate',
-    toPhaseKind: 'GATHER',
-    category: 'admission-requirement',
-    legacyGuardId: 'triage-complete',
-    obligation: gate('triage', present('triage.symptom')),
-  },
-  {
-    from: 'investigate',
-    to: 'rca',
-    toPhaseKind: 'PLAN',
-    category: 'route-condition',
-    legacyGuardId: 'thorough-track-selected',
-    route: compile(eqStr('track', 'thorough')),
-    obligation: NONE,
-  },
-  {
-    from: 'investigate',
-    to: 'hotfix-implement',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'route-condition',
-    legacyGuardId: 'hotfix-track-selected',
-    route: compile(eqStr('track', 'hotfix')),
-    obligation: NONE,
-  },
-  {
-    from: 'investigate',
-    to: 'cancelled',
-    toPhaseKind: 'GATHER',
-    category: 'route-condition',
-    legacyGuardId: 'escalation-required',
-    route: compile(eqBool('investigation.escalate', true)),
-    obligation: NONE,
-  },
-  {
-    from: 'investigate',
-    to: 'completed',
-    toPhaseKind: 'GATHER',
-    category: 'admission-requirement',
-    legacyGuardId: 'fix-verified-directly',
-    obligation: gate(
-      'fix-verified-directly',
-      all(eqBool('resolution.directPush', true), present('resolution.commitSha')),
-    ),
-  },
-  {
-    from: 'rca',
-    to: 'design',
-    toPhaseKind: 'PLAN',
-    category: 'admission-requirement',
-    legacyGuardId: 'rca-document-complete',
-    obligation: gate('rca-document', present('artifacts.rca')),
-  },
-  {
-    from: 'design',
-    to: 'debug-implement',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'admission-requirement',
-    legacyGuardId: 'fix-design-complete',
-    obligation: gate('fix-design', present('artifacts.fixDesign')),
-  },
-  {
-    from: 'debug-implement',
-    to: 'debug-validate',
-    toPhaseKind: 'REVIEW',
-    category: 'obsolete-predicate',
-    legacyGuardId: 'implementation-complete',
-    obligation: gate('implementation', eqBool('implementation.complete', true)),
-  },
-  {
-    from: 'debug-validate',
-    to: 'debug-review',
-    toPhaseKind: 'REVIEW',
-    category: 'admission-requirement',
-    legacyGuardId: 'validation-passed',
-    obligation: gate('validation', eqBool('validation.testsPass', true)),
-  },
-  {
-    from: 'debug-review',
-    to: 'synthesize',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'admission-requirement',
-    legacyGuardId: 'review-passed',
-    obligation: gate('review', eqBool('reviews.allPassed', true)),
-  },
-  {
-    from: 'hotfix-implement',
-    to: 'hotfix-validate',
-    toPhaseKind: 'REVIEW',
-    category: 'obsolete-predicate',
-    legacyGuardId: 'implementation-complete',
-    obligation: gate('implementation', eqBool('implementation.complete', true)),
-  },
-  {
-    from: 'hotfix-validate',
-    to: 'synthesize',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'admission-requirement',
-    legacyGuardId: 'validation+pr-requested',
-    obligation: gate(
-      'validation-and-pr',
-      all(eqBool('validation.testsPass', true), eqBool('synthesis.requested', true)),
-    ),
-  },
-  {
-    from: 'hotfix-validate',
-    to: 'completed',
-    toPhaseKind: 'REVIEW',
-    category: 'admission-requirement',
-    legacyGuardId: 'validation-passed',
-    obligation: gate('validation', eqBool('validation.testsPass', true)),
-  },
-  {
-    from: 'synthesize',
-    to: 'debug-implement',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'bounded-loop-rule',
-    legacyGuardId: 'synthesize-retryable+thorough-track',
-    route: compile(all(RETRYABLE, eqStr('track', 'thorough'))),
-    obligation: NONE,
-  },
-  {
-    from: 'synthesize',
-    to: 'hotfix-implement',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'bounded-loop-rule',
-    legacyGuardId: 'synthesize-retryable+hotfix-track',
-    route: compile(all(RETRYABLE, eqStr('track', 'hotfix'))),
-    obligation: NONE,
-  },
-  {
-    from: 'synthesize',
-    to: 'completed',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'admission-requirement',
-    legacyGuardId: 'pr-url-exists',
-    obligation: gate('pr-url', PR_URL_PRESENT),
-  },
-]);
-
-const ONESHOT_EDGES = buildEdges('oneshot', [
-  {
-    from: 'plan',
-    to: 'implementing',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'admission-requirement',
-    legacyGuardId: 'oneshot-plan-set',
-    /**
-     * `oneshotPlanSet` requires a trimmed, non-empty string.
-     * A bare `factPresent` admits `true`, `{}` or blanks, which the guard denies.
-     */
-    obligation: gate('oneshot-plan', eqBool('artifacts.planNonEmpty', true)),
-  },
-  {
-    from: 'implementing',
-    to: 'synthesize',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'route-condition',
-    legacyGuardId: 'synthesis-opted-in',
-    route: compile(SYNTHESIS_OPTED_IN),
-    obligation: NONE,
-  },
-  {
-    from: 'implementing',
-    to: 'completed',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'route-condition',
-    legacyGuardId: 'synthesis-opted-out',
-    route: compile(SYNTHESIS_OPTED_OUT),
-    obligation: NONE,
-  },
-  {
-    from: 'synthesize',
-    to: 'completed',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'admission-requirement',
-    legacyGuardId: 'merge-verified',
-    obligation: gate('merge-verified', eqBool('cleanup.mergeVerified', true)),
-  },
-]);
-
-const DISCOVERY_EDGES = buildEdges('discovery', [
-  {
-    from: 'gathering',
-    to: 'synthesizing',
-    toPhaseKind: 'GATHER',
-    category: 'admission-requirement',
-    legacyGuardId: 'sources-collected',
-    obligation: gate('sources', cmp('artifacts.sources.count', 'gte', 1)),
-  },
-  {
-    from: 'synthesizing',
-    to: 'completed',
-    toPhaseKind: 'GATHER',
-    category: 'admission-requirement',
-    legacyGuardId: 'report-artifact-exists',
-    obligation: gate('report', present('artifacts.report')),
-  },
-]);
-
-const REFACTOR_EDGES = buildEdges('refactor', [
-  {
-    from: 'explore',
-    to: 'brief',
-    toPhaseKind: 'PLAN',
-    category: 'admission-requirement',
-    legacyGuardId: 'scope-assessment-complete',
-    obligation: gate('scope-assessment', present('explore.scopeAssessment')),
-  },
-  {
-    from: 'brief',
-    to: 'polish-implement',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'route-condition',
-    legacyGuardId: 'polish-track-selected',
-    route: compile(eqStr('track', 'polish')),
-    obligation: NONE,
-  },
-  {
-    from: 'brief',
-    to: 'overhaul-plan',
-    toPhaseKind: 'PLAN',
-    category: 'route-condition',
-    legacyGuardId: 'overhaul-track-selected',
-    route: compile(eqStr('track', 'overhaul')),
-    obligation: NONE,
-  },
-  {
-    from: 'polish-implement',
-    to: 'polish-validate',
-    toPhaseKind: 'REVIEW',
-    category: 'obsolete-predicate',
-    legacyGuardId: 'implementation-complete',
-    obligation: gate('implementation', eqBool('implementation.complete', true)),
-  },
-  {
-    from: 'polish-validate',
-    to: 'polish-update-docs',
-    toPhaseKind: 'GATHER',
-    category: 'admission-requirement',
-    legacyGuardId: 'goals-verified',
-    obligation: gate('goals-verified', eqBool('validation.testsPass', true)),
-  },
-  {
-    from: 'polish-update-docs',
-    to: 'completed',
-    toPhaseKind: 'GATHER',
-    category: 'admission-requirement',
-    legacyGuardId: 'docs-updated',
-    obligation: gate('docs-updated', eqBool('validation.docsUpdated', true)),
-  },
-  {
-    from: 'overhaul-plan',
-    to: 'overhaul-plan-review',
-    toPhaseKind: 'PLAN',
-    category: 'admission-requirement',
-    legacyGuardId: 'plan-artifact-exists',
-    obligation: gate('plan-artifact', PLAN_ARTIFACT_PRESENT),
-  },
-  {
-    from: 'overhaul-plan-review',
-    to: 'overhaul-delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'approval',
-    legacyGuardId: 'plan-review-complete',
-    obligation: approval('plan-review', eqBool('planReview.approved', true)),
-  },
-  {
-    from: 'overhaul-plan-review',
-    to: 'blocked',
-    toPhaseKind: 'GATHER',
-    category: 'bounded-loop-rule',
-    legacyGuardId: 'revisions-exhausted',
-    route: compile(REVISIONS_EXHAUSTED),
-    obligation: NONE,
-  },
-  {
-    from: 'overhaul-plan-review',
-    to: 'overhaul-plan',
-    toPhaseKind: 'PLAN',
-    category: 'route-condition',
-    legacyGuardId: 'plan-review-gaps-found',
-    route: compile(eqBool('planReview.gapsFound', true)),
-    obligation: NONE,
-  },
-  {
-    from: 'blocked',
-    to: 'overhaul-delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'approval',
-    legacyGuardId: 'human-unblocked',
-    obligation: approval('unblock', eqBool('unblocked', true)),
-  },
-  {
-    from: 'overhaul-delegate',
-    to: 'overhaul-review',
-    toPhaseKind: 'REVIEW',
-    category: 'admission-requirement',
-    legacyGuardId: 'all-tasks-complete',
-    obligation: gate('all-tasks-complete', TASKS_COMPLETE),
-  },
-  {
-    from: 'overhaul-review',
-    to: 'overhaul-update-docs',
-    toPhaseKind: 'GATHER',
-    category: 'approval',
-    legacyGuardId: 'all-reviews-passed',
-    obligation: approval('reviews', REQUIRED_REVIEWS_SATISFIED),
-  },
-  {
-    from: 'overhaul-review',
-    to: 'overhaul-delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'route-condition',
-    legacyGuardId: 'any-review-failed',
-    route: compile(eqBool('reviews.anyFailed', true)),
-    obligation: NONE,
-  },
-  {
-    from: 'overhaul-update-docs',
-    to: 'synthesize',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'admission-requirement',
-    legacyGuardId: 'docs-updated',
-    obligation: gate('docs-updated', eqBool('validation.docsUpdated', true)),
-  },
-  {
-    from: 'synthesize',
-    to: 'overhaul-delegate',
-    toPhaseKind: 'IMPLEMENT',
-    category: 'bounded-loop-rule',
-    legacyGuardId: 'synthesize-retryable',
-    route: compile(RETRYABLE),
-    obligation: NONE,
-  },
-  {
-    from: 'synthesize',
-    to: 'completed',
-    toPhaseKind: 'SYNTHESIZE',
-    category: 'admission-requirement',
-    legacyGuardId: 'pr-url-exists',
-    obligation: gate('pr-url', PR_URL_PRESENT),
-  },
-]);
-
-/** All built-in workflow edges in shared IR, in a fixed order. */
-export const BUILT_IN_WORKFLOW_IR: readonly WorkflowEdgeIR[] = Object.freeze([
-  ...FEATURE_EDGES,
-  ...DEBUG_EDGES,
-  ...REFACTOR_EDGES,
-  ...ONESHOT_EDGES,
-  ...DISCOVERY_EDGES,
-]);
 
 const EDGE_INDEX: ReadonlyMap<string, WorkflowEdgeIR> = new Map(
   BUILT_IN_WORKFLOW_IR.map((e) => [edgeKey(e.workflowType, e.from, e.to), e]),
