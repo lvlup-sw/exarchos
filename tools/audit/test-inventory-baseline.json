@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1396,
-    "parsedFiles": 1351,
+    "testFiles": 1397,
+    "parsedFiles": 1352,
     "shellFiles": 45,
-    "cases": 15428,
+    "cases": 15435,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -90016,6 +90016,47 @@
         {
           "suite": "the replay helper is test-only",
           "name": "ReplayHelper_APlantedImport_IsFound",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/mixed-history-golden.test.ts": {
+      "file": "tests/unit/projections/mixed-history-golden.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_EachRow_ParsesWithTheSchemaOfItsType",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_TheTypesWithNoDataSchema_AreOnlyStatePatched",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_TheFixture_HoldsEachSettlementKindAndThreeTransitions",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_TheFold_GivesThePinnedPhaseAfterEachRow",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_NoSettlementRow_MovesThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_EachTransitionRow_HasAPhaseEnteredRowForItsTarget",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_TheLastRow_EndsInReviewWithTheObligationOfReview",
           "dynamic": false
         }
       ]
