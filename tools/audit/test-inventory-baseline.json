@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1397,
-    "parsedFiles": 1352,
+    "testFiles": 1398,
+    "parsedFiles": 1353,
     "shellFiles": 45,
-    "cases": 15431,
-    "dynamicTitles": 181,
+    "cases": 15436,
+    "dynamicTitles": 183,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -62220,6 +62220,37 @@
           "suite": "prepare — the compilation endpoint > refusals happen before any effect",
           "name": "Prepare_NoSubject_IsRefused",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/lower-definition-source.test.ts": {
+      "file": "tests/unit/verbs/prepare/lower-definition-source.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "LowerDefinition_TheModule_ReadsTheDefinitionsAndNotTheMachine",
+          "dynamic": false
+        },
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "LowerDefinition_%s_IsTheDefinitionWithoutItsExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "LowerDefinition_%s_EqualsTheMachineLowering",
+          "dynamic": false
+        },
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
         }
       ]
     },

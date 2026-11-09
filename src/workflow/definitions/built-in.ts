@@ -1,8 +1,6 @@
 /**
  * The five built-in workflow definitions, loaded from their checked-in files.
  *
- * RESERVED(issue: #1927, owner: exarchos, expires: 2026-12-31)
- *
  * Each file is one kernel definition with one more top-level key, `exarchos`. At module load, the
  * loader parses each file with the loose kernel schema and with the strict extension schema. Then it
  * runs the reference rules and the built-in rules. A finding stops the load with one error that
