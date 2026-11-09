@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1397,
-    "parsedFiles": 1352,
+    "testFiles": 1398,
+    "parsedFiles": 1353,
     "shellFiles": 45,
-    "cases": 15435,
+    "cases": 15445,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -39158,6 +39158,62 @@
         {
           "suite": "Session Provenance Projection > Edge cases",
           "name": "materializeSession_MissingEventsFile_ReturnsEmptyResult",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/session/transcript-parser-actions.test.ts": {
+      "file": "tests/unit/projections/session/transcript-parser-actions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AnExarchosCall_RecordsItsActionAndFeatureId",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AnExarchosCall_RecordsItsToolUseId",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_ACallWithNoResult_IsNotMarkedFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AnEventAppend_TakesTheWorkflowFromItsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_APrepareCall_TakesTheWorkflowFromItsStreamId",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AnErrorResult_MarksTheCallFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AStringEnvelopeWithSuccessFalse_MarksTheCallFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AListEnvelopeWithSuccessFalse_MarksTheCallFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_ANativeCall_CarriesNoneOfTheFourFields",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "BuildSessionSummary_TheToolCounts_KeepTheirShape",
           "dynamic": false
         }
       ]
