@@ -1,8 +1,9 @@
 // These tests check the phase machine that derives from each built-in definition. The golden
 // recorded each hand-written machine and the result of each stored transition input before the
 // definition files existed. So each derived machine must equal the machine of its registry factory
-// and its golden machine as JSON. It must also bind the same guard objects. A composite edge must
-// give the stored results, and the second-guard case is one of them.
+// and its golden machine as JSON. Each plain guard that it binds must be the object with the same id
+// in the guards module. A composite edge must give the stored results, and the second-guard case is
+// one of them.
 //
 // @oracle-sources: ../__fixtures__/built-in.golden.json, ../../../../src/workflow/hsm-definitions.ts
 
@@ -18,7 +19,7 @@ import {
   builtInDefinition,
   type BuiltInWorkflowType,
 } from '../../../../src/workflow/definitions/built-in.js';
-import { guards } from '../../../../src/workflow/guards.js';
+import { guards, type Guard } from '../../../../src/workflow/guards.js';
 import {
   GUARD_BINDINGS,
   buildGuardBindings,
@@ -64,6 +65,12 @@ const COMPOSITE_IDS: readonly string[] = [
 
 /** The number of guards in the binding table beside the plain guards: four composites and two merge-pending guards. */
 const NON_PLAIN_BINDINGS = 6;
+
+/** The plain guards of the guards module. The binding table holds each of them by reference. */
+const PLAIN_GUARDS: readonly Guard[] = Object.values(guards);
+
+/** The guard ids of the binding table that are not plain guards: the four composites and the two merge-pending guards. */
+const NON_PLAIN_IDS: readonly string[] = [...COMPOSITE_IDS, 'merge-pending-entry', 'merge-pending-exit'];
 
 /** One stored transition input of the golden, with the result that the literal machine gave at the capture. */
 interface StoredCase {
@@ -166,28 +173,32 @@ describe('the phase machine that derives from each built-in definition', () => {
     expect(derived).toBe(workflowOf(type).machine);
   });
 
-  /** Each plain and merge-pending guard of a derived machine is the guard object of the factory machine. A composite has the id and the description of the factory composite. */
+  /**
+   * Each plain guard of a derived machine is the object with the same id in the guards module. The id comes from the authored edge, so a wrong guard fails.
+   * Each composite and merge-pending guard is the table entry of the id that its authored edge names.
+   */
   it.each(BUILT_IN_WORKFLOW_TYPES)('DeriveMachine_%s_BindsEachPlainGuardByReference', (type) => {
+    const definition = builtInDefinition(type);
     const derived = derivedMachine(type).transitions;
-    const literal = FACTORIES[type]().transitions;
-    expect(derived).toHaveLength(literal.length);
+    expect(derived).toHaveLength(definition.transitions.length);
     let byReference = 0;
     derived.forEach((transition, index) => {
-      const label = `${type} ${transition.from}->${transition.to}`;
-      const expected = literal[index]?.guard;
-      const guard = transition.guard;
-      expect(guard, label).toBeDefined();
-      expect(expected, label).toBeDefined();
-      if (guard === undefined || expected === undefined) return;
-      expect(guard, label).toBe(GUARD_BINDINGS.get(guard.id));
-      if (COMPOSITE_IDS.includes(expected.id)) {
-        expect({ id: guard.id, description: guard.description }, label).toEqual({
-          id: expected.id,
-          description: expected.description,
-        });
+      const kernel = definition.transitions[index];
+      const label = `${type} ${kernel?.transitionId ?? String(index)}`;
+      expect(kernel, label).toBeDefined();
+      if (kernel === undefined) return;
+      expect([transition.from, transition.to], label).toEqual([kernel.fromStepId, kernel.toStepId]);
+      const guardId = definition.exarchos.edges[kernel.transitionId]?.guardId;
+      expect(guardId, label).toBeDefined();
+      if (guardId === undefined) return;
+      expect(transition.guard?.id, label).toBe(guardId);
+      const plain = PLAIN_GUARDS.find((guard) => guard.id === guardId);
+      if (plain === undefined) {
+        expect(NON_PLAIN_IDS, label).toContain(guardId);
+        expect(transition.guard, label).toBe(GUARD_BINDINGS.get(guardId));
         return;
       }
-      expect(guard, label).toBe(expected);
+      expect(transition.guard, label).toBe(plain);
       byReference += 1;
     });
     expect(byReference).toBeGreaterThan(0);

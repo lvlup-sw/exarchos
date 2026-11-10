@@ -104,6 +104,25 @@ function findingLines(message: string | undefined): readonly string[] {
   return (message ?? '').split('\n').slice(1);
 }
 
+/** The result of one load: the finding lines of the error, or the types of the map that the load returned. */
+interface LoadOutcome {
+  readonly findings: readonly string[];
+  readonly loadedTypes: readonly BuiltInWorkflowType[];
+}
+
+/**
+ * Loads fresh clones of the five files, with the given document in place of the feature file.
+ * A load that throws gives its finding lines. A load that returns gives the types of its map, also when the map is partial.
+ */
+function loadWithFeature(document: Record<string, unknown>): LoadOutcome {
+  try {
+    const loaded = loadBuiltInDefinitions({ ...cloneAll(), feature: document });
+    return { findings: [], loadedTypes: [...loaded.keys()] };
+  } catch (error) {
+    return { findings: findingLines(error instanceof Error ? error.message : String(error)), loadedTypes: [] };
+  }
+}
+
 /** Collects every object and list inside a value, the value included. */
 function nestedObjects(value: unknown, into: object[] = []): object[] {
   if (typeof value !== 'object' || value === null) return into;
@@ -303,5 +322,110 @@ describe('the built-in workflow definitions', () => {
       expect(definition, type).toStrictEqual(builtInDefinition(type));
       expect(Object.isFrozen(definition), type).toBe(true);
     }
+  });
+
+  /** The kernel schema accepts a terminal step id. A built-in definition holds none, so the load refuses the key and returns no map. */
+  it('BuiltInDefinitions_ATerminalStepId_IsABuiltInEntryFinding', () => {
+    const document = rawClone('feature');
+    expect(Object.hasOwn(document, 'terminalStepId')).toBe(false);
+    document.terminalStepId = 'completed';
+    expect(WorkflowDefinitionV1Schema.safeParse(document).success).toBe(true);
+
+    expect(loadWithFeature(document)).toEqual({
+      findings: ['feature built-in-entry terminalStepId'],
+      loadedTypes: [],
+    });
+  });
+
+  /** The kernel schema accepts any step type. The load refuses a step type that is not a phase kind or `final`, at the path of that step. */
+  it('BuiltInDefinitions_AnUnknownStepType_IsAStepTypeFinding', () => {
+    const document = rawClone('feature');
+    const step = recordAt(listAt(document.steps, 'steps')[1], 'steps.1');
+    expect(step.stepType).toBe('PLAN');
+    step.stepType = 'bogus-kind';
+    expect(WorkflowDefinitionV1Schema.safeParse(document).success).toBe(true);
+
+    expect(loadWithFeature(document)).toEqual({
+      findings: ['feature built-in-step-type steps.1.stepType'],
+      loadedTypes: [],
+    });
+  });
+
+  /**
+   * A fix-cycle edge leaves a member of a group. The extension schema accepts the flag on `plan->plan-review`.
+   * The step `plan` is in no group, so the load refuses the flag.
+   */
+  it('BuiltInDefinitions_AFixCycleFlagOutsideTheFixLoop_IsAnEdgeFinding', () => {
+    const document = rawClone('feature');
+    const edge = recordAt(recordAt(extensionOf(document).edges, 'edges')['plan->plan-review'], 'edge');
+    expect(edge.isFixCycle).toBeUndefined();
+    edge.isFixCycle = true;
+    expect(parseExtension(document).ok).toBe(true);
+
+    expect(loadWithFeature(document)).toEqual({
+      findings: ['feature built-in-edge exarchos.edges.plan->plan-review.isFixCycle'],
+      loadedTypes: [],
+    });
+  });
+
+  /** A built-in edge omits the route that is always legal. The extension schema accepts that route when it is explicit, so the load refuses it. */
+  it('BuiltInDefinitions_AnExplicitAlwaysLegalRoute_IsAnEdgeFinding', () => {
+    const document = rawClone('feature');
+    const edge = recordAt(recordAt(extensionOf(document).edges, 'edges')['plan->plan-review'], 'edge');
+    expect(edge.route).toBeUndefined();
+    edge.route = { kind: 'all', operands: [] };
+    expect(parseExtension(document).ok).toBe(true);
+
+    expect(loadWithFeature(document)).toEqual({
+      findings: ['feature built-in-edge exarchos.edges.plan->plan-review.route'],
+      loadedTypes: [],
+    });
+  });
+
+  /**
+   * A document that fails the kernel parse gives a kernel-schema finding at the path of the schema issue.
+   * The failed parse ends the checks of that document, so no finding of the built-in rules follows it.
+   */
+  it('BuiltInDefinitions_AKernelSchemaFinding_IsThrownAtLoad', () => {
+    const document = rawClone('feature');
+    delete document.steps;
+    expect(WorkflowDefinitionV1Schema.safeParse(document).success).toBe(false);
+    expect(validateBuiltInDefinition('feature', document)).toEqual([
+      { rule: 'built-in-step-keys', path: ['steps'] },
+      { rule: 'built-in-entry', path: ['entryStepId'] },
+    ]);
+
+    expect(loadWithFeature(document)).toEqual({
+      findings: ['feature kernel-schema steps'],
+      loadedTypes: [],
+    });
+  });
+
+  /** A key outside the strict extension schema gives an extension-schema finding at its path. The built-in rules alone give no finding for that key. */
+  it('BuiltInDefinitions_AnExtensionSchemaFinding_IsThrownAtLoad', () => {
+    const document = rawClone('feature');
+    extensionOf(document).bogus = 1;
+    expect(WorkflowDefinitionV1Schema.safeParse(document).success).toBe(true);
+    expect(validateBuiltInDefinition('feature', document)).toEqual([]);
+
+    expect(loadWithFeature(document)).toEqual({
+      findings: ['feature extension-schema exarchos.bogus'],
+      loadedTypes: [],
+    });
+  });
+
+  /**
+   * One document with two faults gives one finding line for each fault. The finding of the reference rule comes first.
+   * The feature file loses the edge of `plan->plan-review`, and one of its steps gets a stray key.
+   */
+  it('BuiltInDefinitions_TwoFindingsInOneDocument_AreBothNamed', () => {
+    const document = rawClone('feature');
+    delete recordAt(extensionOf(document).edges, 'edges')['plan->plan-review'];
+    recordAt(listAt(document.steps, 'steps')[2], 'steps.2').note = 'free text';
+
+    expect(loadWithFeature(document)).toEqual({
+      findings: ['feature edge-keys exarchos.edges.plan->plan-review', 'feature built-in-step-keys steps.2.note'],
+      loadedTypes: [],
+    });
   });
 });

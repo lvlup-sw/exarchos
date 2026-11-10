@@ -18,7 +18,7 @@ packet:
   id: exarchos-semantic-plane
   version: 2
   as_of: 2026-11-09
-  main_at: d408538be
+  main_at: a4f6728a5
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -820,7 +820,7 @@ drift:
 
 measured:
   as_of: 2026-11-09
-  main_at: d408538be       # each check below was run again at the tip of feat/definitions-are-the-source-t08, whose fork point has the tree of this commit of main
+  main_at: a4f6728a5       # each check below was run again on feat/definitions-are-the-source after the merge of this commit of main
   facts:
     - fact: prepare refuses non-feature workflows and non-delegate phases
       check: "grep -n -E 'WORKFLOW_TYPE_UNSUPPORTED|PHASE_NOT_PREPARABLE' src/verbs/prepare/handler.ts"

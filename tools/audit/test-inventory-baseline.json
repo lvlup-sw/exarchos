@@ -7,7 +7,7 @@
     "testFiles": 1402,
     "parsedFiles": 1357,
     "shellFiles": 45,
-    "cases": 15461,
+    "cases": 15468,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -76075,6 +76075,41 @@
         {
           "suite": "the built-in workflow definitions",
           "name": "BuiltInDefinitions_TheFiveImports_LoadWithNoFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_ATerminalStepId_IsABuiltInEntryFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnUnknownStepType_IsAStepTypeFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AFixCycleFlagOutsideTheFixLoop_IsAnEdgeFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnExplicitAlwaysLegalRoute_IsAnEdgeFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AKernelSchemaFinding_IsThrownAtLoad",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnExtensionSchemaFinding_IsThrownAtLoad",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_TwoFindingsInOneDocument_AreBothNamed",
           "dynamic": false
         }
       ]

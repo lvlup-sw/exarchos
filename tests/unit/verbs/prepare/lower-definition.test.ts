@@ -1,9 +1,9 @@
-// These tests lower the built-in state machines into the published kernel
-// definition. The expected steps and transitions come from the live machine. A
-// list of steps typed into this file does not change when the machine gains a
-// phase, so it cannot detect the new phase. The live machine and the lowering
-// read the same definition files. So the golden that pins each machine is the
-// second authority.
+// These tests check the lowered kernel of each built-in definition against the
+// live machine and the published kernel definition schema. The expected steps
+// and transitions come from the live machine. A list of steps typed into this
+// file does not change when the machine gains a phase, so it cannot detect the
+// new phase. The live machine and the lowering read the same definition files.
+// So the golden that pins each machine is the second authority.
 //
 // @oracle-sources: ../../../../src/verbs/prepare/lower-definition.ts, ../../workflow/__fixtures__/built-in.golden.json, the published kernel definition schema
 
