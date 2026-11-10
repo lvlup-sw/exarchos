@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1399,
-    "parsedFiles": 1354,
+    "testFiles": 1400,
+    "parsedFiles": 1355,
     "shellFiles": 45,
-    "cases": 15440,
-    "dynamicTitles": 183,
+    "cases": 15451,
+    "dynamicTitles": 185,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -76101,6 +76101,67 @@
         {
           "suite": "the golden of the built-in workflows",
           "name": "BuiltInGolden_EachSecondGuardCase_FailsOnTheSecondInnerGuard",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/derive-machine.test.ts": {
+      "file": "tests/unit/workflow/definitions/derive-machine.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_%s_EqualsTheLiteralMachineAsJson",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_%s_BindsEachPlainGuardByReference",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_EachBoundComposite_GivesTheStoredResults",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_ASwappedGuardId_BindsTheOtherGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_ADuplicateBindingId_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_AnUnknownGuardId_ThrowsAndNamesTheEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_AReorderedTransition_ChangesTheValidTargetOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_ADroppedMaxFixCycles_LetsTheTransitionAtTheCapSucceed",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_EachCall_ReturnsAMachineThatSharesNoArrayWithTheDefinition",
           "dynamic": false
         }
       ]
