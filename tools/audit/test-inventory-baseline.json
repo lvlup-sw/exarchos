@@ -7,7 +7,7 @@
     "testFiles": 1399,
     "parsedFiles": 1354,
     "shellFiles": 45,
-    "cases": 15476,
+    "cases": 15484,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -14878,6 +14878,36 @@
         {
           "suite": "observed call count",
           "name": "ObservedCallCount_EachRole_IsTheRoleThatTheCallShapeCensusGives",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ASymbolicLinkToADirectory_IsRead",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ALinkLoop_IsReadOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallWithNoWorkflow_TakesTheLatestWorkflowOfItsOwnFile",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ASettleCallInAWorkflowSubagentFile_CountsForTheCoordinator",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachFile_GivesTheSixCountsOfEachWorkflow",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_TwoMissesThatCancel_FailTheConservationCheck",
           "dynamic": false
         }
       ]
@@ -39350,6 +39380,11 @@
         {
           "suite": "TranscriptParserActions",
           "name": "ExtractToolCalls_APrepareCall_TakesTheWorkflowFromItsStreamId",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_TwoWorkflowFields_TakeTheFirstInTheFixedOrder",
           "dynamic": false
         },
         {
@@ -90126,6 +90161,11 @@
         {
           "suite": "copyWorkflowStream",
           "name": "CopyWorkflowStream_ATargetThatHoldsTheStream_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_AKeyedRunWithNoSourceClaim_GetsNoClaimInTheTarget",
           "dynamic": false
         }
       ]

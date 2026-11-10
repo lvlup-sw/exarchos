@@ -266,4 +266,35 @@ describe('copyWorkflowStream', () => {
 
     expect((await target.query(STREAM)).map((row) => row.data)).toEqual([{ featureId: STREAM }]);
   }, CASE_TIMEOUT_MS);
+
+  /**
+   * A cleanup trail commits under an operation id, and each trail row keeps its own key. The source holds no claim under those keys.
+   * The copy keeps each row and its key, and it writes no claim for them. A keyed run with a source claim still gets its claim.
+   */
+  it('CopyWorkflowStream_AKeyedRunWithNoSourceClaim_GetsNoClaimInTheTarget', async () => {
+    await appendKeyed([{ type: 'workflow.started', data: { featureId: STREAM, workflowType: 'feature' } }], 'start');
+    await source.appendTrailAtomically(
+      STREAM,
+      [
+        { type: 'state.patched', data: { featureId: STREAM, fields: ['synthesis'], patch: {} }, idempotencyKey: 'trail-patch' },
+        {
+          type: 'workflow.cleanup',
+          data: { featureId: STREAM, from: 'synthesize', to: 'completed', trigger: 'cleanup' },
+          idempotencyKey: 'trail-complete',
+        },
+      ],
+      `cleanup:${STREAM}:attempt-1`,
+    );
+    const keys = ['start', 'trail-patch', 'trail-complete'];
+    const claimsIn = (store: EventStore): unknown[] =>
+      keys.map((key) => store.getAppender().ensureSqliteBackendSync().lookupIdempotencyClaim(STREAM, key)?.sequences);
+    expect(claimsIn(source)).toEqual([[1], undefined, undefined]);
+
+    await copyWorkflowStream(source, target, STREAM);
+
+    const copy = await target.query(STREAM);
+    expect(copy.map((row) => row.idempotencyKey)).toEqual(keys);
+    expect(copy.map(withoutEventId)).toEqual((await source.query(STREAM)).map(withoutEventId));
+    expect(claimsIn(target)).toEqual([[1], undefined, undefined]);
+  }, CASE_TIMEOUT_MS);
 });

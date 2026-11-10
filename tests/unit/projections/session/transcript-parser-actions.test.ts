@@ -119,6 +119,27 @@ describe('TranscriptParserActions', () => {
     expect(event.featureId).toBe('feat-c');
   });
 
+  /**
+   * Each input holds more than one workflow field. The workflow is the first string in the order featureId, streamId, stream, workflowId.
+   * A field that holds no string does not count.
+   */
+  it('ExtractToolCalls_TwoWorkflowFields_TakeTheFirstInTheFixedOrder', () => {
+    const inputs: readonly Record<string, unknown>[] = [
+      { action: 'get', workflowId: 'by-workflow-id', stream: 'by-stream', streamId: 'by-stream-id', featureId: 'by-feature-id' },
+      { action: 'get', workflowId: 'by-workflow-id', stream: 'by-stream', streamId: 'by-stream-id' },
+      { action: 'get', workflowId: 'by-workflow-id', stream: 'by-stream' },
+      { action: 'get', workflowId: 'by-workflow-id', featureId: 7 },
+    ];
+    const lines = inputs.flatMap((input, index) => [
+      toolUseLine(`toolu_order0${index}`, WORKFLOW_TOOL, input),
+      toolResultLine(`toolu_order0${index}`, { content: '{"success":true}' }),
+    ]);
+
+    const events = extractToolCalls(lines, SESSION);
+
+    expect(events.map((event) => event.featureId)).toEqual(['by-feature-id', 'by-stream-id', 'by-stream', 'by-workflow-id']);
+  });
+
   /** The content of a client refusal is not an envelope. The `is_error` flag alone marks the call failed. */
   it('ExtractToolCalls_AnErrorResult_MarksTheCallFailed', () => {
     const event = onlyEvent([

@@ -267,7 +267,7 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The workflow `describe` data keys each action entry by the action name. It holds `topology`, `playbook` or `config` only on request, and an empty object fails the parse.
   - The vacuity allowlist now holds no waiver that expires on 2026-12-06.
 
-- **The session line of each Exarchos call now records its action, its workflow, a failure mark and its `tool_use` id.** The session-end hook writes one line for each tool call to `<sessionId>.events.jsonl`. A line of the category `mcp_exarchos` gains four optional fields: `action`, `featureId`, `failed` and `toolUseId`.
+- **The session line of each Exarchos call now records its action, its workflow, a failure mark and its `tool_use` id.** The `exarchos session-end` command writes one line for each tool call to `<sessionId>.events.jsonl`. The Claude Code plugin binds no SessionEnd hook, so these lines appear only where a harness wires that command. A line of the category `mcp_exarchos` gains four optional fields: `action`, `featureId`, `failed` and `toolUseId`.
   - `featureId` is the first string among the input fields `featureId`, `streamId`, `stream` and `workflowId`.
   - `failed` is `true` when the tool result has `is_error: true`, or when its content is an envelope with `success: false`. A call with no result is not failed.
   - A native call and a call to another MCP server carry none of the four fields, and the summary line keeps its shape. No event row changes.

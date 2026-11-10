@@ -6,7 +6,7 @@
  * Each `tool_use` block keeps the key order `type`, `id`, `name`, `input`, which the conservation regex reads.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -114,6 +114,17 @@ function writeTree(files: Readonly<Record<string, string>>, directories: readonl
   }
   for (const rel of directories) mkdirSync(path.join(root, ...rel.split('/')), { recursive: true });
   return path.join(root, 'session.jsonl');
+}
+
+/**
+ * Makes `link` a symbolic link to the directory `target`. Both are POSIX paths relative to the directory of the session file.
+ * On Windows the link is a junction, which needs no privilege.
+ */
+function linkDirectory(session: string, target: string, link: string): void {
+  const root = path.dirname(session);
+  const linkPath = path.join(root, ...link.split('/'));
+  mkdirSync(path.dirname(linkPath), { recursive: true });
+  symlinkSync(path.join(root, ...target.split('/')), linkPath, process.platform === 'win32' ? 'junction' : 'dir');
 }
 
 /** The counts of one workflow. It fails the case when the output holds no such workflow. */
@@ -635,5 +646,160 @@ describe('observed call count', () => {
       noAction: 0,
       unregistered: 0,
     });
+  });
+
+  /** The `workflows` directory under `subagents/` is a link to a directory outside the session tree. Each path keeps the names of the listing. */
+  it('ObservedCallCount_ASymbolicLinkToADirectory_IsRead', () => {
+    const session = writeTree({
+      'session.jsonl': jsonl(exchange('toolu_init01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-a' }, 1)),
+      'elsewhere/wf_x/agent-prepare.jsonl': jsonl(
+        exchange('toolu_prepare01', ORCHESTRATE_TOOL, { action: 'prepare', featureId: 'feat-a' }, 2),
+      ),
+      'elsewhere/wf_x/agent-prepare.meta.json': meta({ agentType: 'workflow-subagent', workflowPhase: 'E prepare' }),
+    });
+    linkDirectory(session, 'elsewhere', 'session/subagents/workflows');
+
+    const count = countObservedCalls(session);
+
+    expect(count.files.map((file) => file.path)).toEqual(['session.jsonl', 'subagents/workflows/wf_x/agent-prepare.jsonl']);
+    expect(fileOf(count, 'subagents/workflows/wf_x/agent-prepare.jsonl')).toMatchObject({ caller: 'coordinator', rule: 3, calls: 1 });
+    expect(workflowOf(count, 'feat-a').total).toBe(2);
+    expect(count.distinctIds).toBe(2);
+  });
+
+  /** A link under the linked directory names `subagents/` again. The walk lists each real directory once, so it ends and reads each file once. */
+  it('ObservedCallCount_ALinkLoop_IsReadOnce', () => {
+    const session = writeTree({
+      'session.jsonl': jsonl(exchange('toolu_init01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-a' }, 1)),
+      'session/subagents/agent-one.jsonl': jsonl(exchange('toolu_get01', WORKFLOW_TOOL, { action: 'get', featureId: 'feat-a' }, 2)),
+      'session/subagents/agent-one.meta.json': meta({ agentType: 'general-purpose' }),
+      'elsewhere/wf_x/agent-prepare.jsonl': jsonl(
+        exchange('toolu_prepare01', ORCHESTRATE_TOOL, { action: 'prepare', featureId: 'feat-a' }, 3),
+      ),
+      'elsewhere/wf_x/agent-prepare.meta.json': meta({ agentType: 'workflow-subagent', workflowPhase: 'E prepare' }),
+    });
+    linkDirectory(session, 'elsewhere', 'session/subagents/workflows');
+    linkDirectory(session, 'session/subagents', 'elsewhere/wf_x/up');
+
+    const count = countObservedCalls(session);
+
+    expect(count.files.map((file) => file.path)).toEqual([
+      'session.jsonl',
+      'subagents/agent-one.jsonl',
+      'subagents/workflows/wf_x/agent-prepare.jsonl',
+    ]);
+    expect(count.repeatedEvents).toBe(0);
+    expect(count.distinctIds).toBe(3);
+    expect(workflowOf(count, 'feat-a').total).toBe(3);
+  });
+
+  /**
+   * The first call of `agent-b.jsonl` names no workflow, and its own file names none before it. It takes the latest workflow of the session file before its time.
+   * The workflow that `agent-a.jsonl` names does not pass to the next file. The last call of `agent-b.jsonl` takes the workflow that its own file names.
+   */
+  it('ObservedCallCount_ACallWithNoWorkflow_TakesTheLatestWorkflowOfItsOwnFile', () => {
+    const session = writeTree({
+      'session.jsonl': jsonl([
+        ...exchange('toolu_a01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-a' }, 1),
+        ...exchange('toolu_b01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-b' }, 2),
+        ...exchange('toolu_e01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-e' }, 9),
+      ]),
+      'session/subagents/agent-a.jsonl': jsonl(exchange('toolu_z01', WORKFLOW_TOOL, { action: 'get', featureId: 'feat-z' }, 3)),
+      'session/subagents/agent-a.meta.json': meta({ agentType: 'general-purpose' }),
+      'session/subagents/agent-b.jsonl': jsonl([
+        ...exchange('toolu_none01', ORCHESTRATE_TOOL, { action: 'describe' }, 4),
+        ...exchange('toolu_c01', WORKFLOW_TOOL, { action: 'get', featureId: 'feat-c' }, 5),
+        ...exchange('toolu_none02', ORCHESTRATE_TOOL, { action: 'describe' }, 6),
+      ]),
+      'session/subagents/agent-b.meta.json': meta({ agentType: 'general-purpose' }),
+    });
+
+    const count = countObservedCalls(session);
+
+    expect(count.workflows.map((entry) => [entry.workflow, entry.total])).toEqual([
+      ['feat-a', 1],
+      ['feat-b', 2],
+      ['feat-c', 2],
+      ['feat-e', 1],
+      ['feat-z', 1],
+    ]);
+    expect(count.unattributed.total).toBe(0);
+  });
+
+  /** An "E settle" workflow subagent calls settle and no prepare. Rule 3 makes it a coordinator file. */
+  it('ObservedCallCount_ASettleCallInAWorkflowSubagentFile_CountsForTheCoordinator', () => {
+    const session = writeTree({
+      'session.jsonl': jsonl(exchange('toolu_init01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-a' }, 1)),
+      'session/subagents/workflows/wf_x/agent-settle.jsonl': jsonl(
+        exchange('toolu_settle01', ORCHESTRATE_TOOL, { action: 'settle', streamId: 'feat-a' }, 2),
+      ),
+      'session/subagents/workflows/wf_x/agent-settle.meta.json': meta({ agentType: 'workflow-subagent', workflowPhase: 'E settle' }),
+    });
+
+    const count = countObservedCalls(session);
+
+    expect(fileOf(count, 'subagents/workflows/wf_x/agent-settle.jsonl')).toMatchObject({ caller: 'coordinator', rule: 3, calls: 1 });
+    expect(count.ruleThreeFiles).toEqual([{ path: 'subagents/workflows/wf_x/agent-settle.jsonl', workflowPhase: 'E settle' }]);
+    expect(count.ruleThreeByPhase).toEqual([{ workflowPhase: 'E settle', files: 1 }]);
+    expect(workflowOf(count, 'feat-a').byCaller.coordinator).toMatchObject({ calls: 2, filesWithCalls: 2 });
+    expect(count.findings).toEqual([]);
+  });
+
+  /**
+   * The split of each fixture file comes from the hand count. The implementer file holds no call, so its split is empty.
+   * A file with two workflows and a call that no workflow takes gives one entry for each, with the unattributed entry last.
+   */
+  it('ObservedCallCount_EachFile_GivesTheSixCountsOfEachWorkflow', () => {
+    const none = { work: 0, describe: 0, runbookFetch: 0, failed: 0, noAction: 0, unregistered: 0 };
+    expect(recorded().files.map((file) => [file.path, file.byWorkflow])).toEqual([
+      ['recorded-session.jsonl', [{ workflow: FIXTURE_WORKFLOW, calls: 55, counts: { ...none, work: 48, failed: 6, unregistered: 1 } }]],
+      ['subagents/agent-fixture.jsonl', [{ workflow: FIXTURE_WORKFLOW, calls: 7, counts: { ...none, work: 5, describe: 1, failed: 1 } }]],
+      ['subagents/agent-implementer.jsonl', []],
+      ['subagents/workflows/wf_fixture/agent-coordinator.jsonl', [{ workflow: FIXTURE_WORKFLOW, calls: 1, counts: { ...none, work: 1 } }]],
+    ]);
+    const session = writeTree({
+      'session.jsonl': jsonl([
+        ...exchange('toolu_describe01', ORCHESTRATE_TOOL, { action: 'describe' }, 1),
+        ...exchange('toolu_b01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-b' }, 2),
+        ...exchange('toolu_a01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-a' }, 3),
+        ...exchange('toolu_a02', WORKFLOW_TOOL, { action: 'get', featureId: 'feat-a' }, 4, 'is-error'),
+        ...exchange('toolu_b02', ORCHESTRATE_TOOL, { action: 'runbook', featureId: 'feat-b' }, 5),
+      ]),
+    });
+
+    expect(fileOf(countObservedCalls(session), 'session.jsonl').byWorkflow).toEqual([
+      { workflow: 'feat-a', calls: 2, counts: { ...none, work: 1, failed: 1 } },
+      { workflow: 'feat-b', calls: 2, counts: { ...none, work: 1, runbookFetch: 1 } },
+      { workflow: null, calls: 1, counts: { ...none, describe: 1 } },
+    ]);
+  });
+
+  /**
+   * One call has a block key order that the regex does not read. One call sits on a line that the parser skips.
+   * The two counts agree, and the two sets of ids do not. The refusal names the id on each side.
+   */
+  it('ObservedCallCount_TwoMissesThatCancel_FailTheConservationCheck', () => {
+    const reordered = JSON.stringify({
+      type: 'assistant',
+      uuid: 'a-toolu_reordered01',
+      timestamp: at(2),
+      message: {
+        content: [{ id: 'toolu_reordered01', type: 'tool_use', name: WORKFLOW_TOOL, input: { action: 'get', featureId: 'feat-a' } }],
+      },
+    });
+    const blob = JSON.stringify({
+      type: 'api-request-blob',
+      timestamp: at(3),
+      message: {
+        content: [{ type: 'tool_use', id: 'toolu_blob01', name: WORKFLOW_TOOL, input: { action: 'get', featureId: 'feat-a' } }],
+      },
+    });
+    const session = writeTree({
+      'session.jsonl': jsonl([...exchange('toolu_init01', WORKFLOW_TOOL, { action: 'init', featureId: 'feat-a' }, 1), reordered, blob]),
+    });
+
+    expect(refusalOf(session)).toBe('COUNT_NOT_CONSERVED');
+    expect(() => countObservedCalls(session)).toThrow('Ids in the text that no parsed call holds: toolu_blob01.');
+    expect(() => countObservedCalls(session)).toThrow('Parsed ids that the regex does not find: toolu_reordered01.');
   });
 });

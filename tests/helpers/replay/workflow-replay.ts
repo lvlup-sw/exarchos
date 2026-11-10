@@ -5,6 +5,8 @@
  * It makes one append for each run of rows that share an idempotency key, and one append for each row with no key.
  * It copies each bundle that a copied row names, and each bundle that a copied settlement bundle names, by digest.
  * It copies no operation claim, so a retry in the target compiles or settles again.
+ * A keyed run whose key holds no idempotency claim in the source goes through the unkeyed append, and each row keeps its key.
+ * Cleanup and cancel write such trails, so the target holds no claim for them either.
  *
  * No module under `src/` or `tools/` imports this module. An architecture test holds that rule.
  */
@@ -175,12 +177,19 @@ function appenderInput(row: WorkflowEvent): EventInput {
   return input;
 }
 
+/** The key of the claim that the copy of a run writes. A run whose key holds no claim in the source gets no claim. */
+function claimKeyOf(source: EventStore, streamId: string, run: Run): string | undefined {
+  if (run.key === undefined) return undefined;
+  const claim = source.getAppender().ensureSqliteBackendSync().lookupIdempotencyClaim(streamId, run.key);
+  return claim === undefined ? undefined : run.key;
+}
+
 /** Appends one run to the target and checks that each copied row gets the sequence of its source row. */
-async function appendRun(target: EventStore, streamId: string, run: Run): Promise<void> {
+async function appendRun(source: EventStore, target: EventStore, streamId: string, run: Run): Promise<void> {
   const appender = target.getAppender();
   const inputs = run.rows.map(appenderInput);
-  const result =
-    run.key === undefined ? await appender.appendUnkeyed(streamId, inputs) : await appender.append(streamId, inputs, run.key);
+  const key = claimKeyOf(source, streamId, run);
+  const result = key === undefined ? await appender.appendUnkeyed(streamId, inputs) : await appender.append(streamId, inputs, key);
   if (!result.ok) {
     throw new Error(`the target store refused the run at sequence ${run.first}: ${result.reason}`, { cause: result.cause });
   }
@@ -212,6 +221,6 @@ export async function copyWorkflowStream(
   const copied = options.throughSequence === undefined ? runs : runsThrough(runs, options.throughSequence);
   const rows = copied.flatMap((run) => run.rows);
   const digests = await copyBundles(source, target, rows);
-  for (const run of copied) await appendRun(target, streamId, run);
+  for (const run of copied) await appendRun(source, target, streamId, run);
   return { rows, digests };
 }
