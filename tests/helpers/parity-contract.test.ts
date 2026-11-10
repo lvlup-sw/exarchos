@@ -40,6 +40,24 @@ describe('PARITY_CONTRACT', () => {
     );
   });
 
+  /** A retry of `prepare` or `settle` returns the recorded receipt, so the whole receipt and its hints must match. */
+  it('paritySpec_orchestratePrepareAndSettle_listRequiredFields', () => {
+    for (const action of ['orchestrate.prepare', 'orchestrate.settle']) {
+      const spec = PARITY_CONTRACT.find((s) => s.action === action);
+      expect(spec, action).toBeDefined();
+      expect(spec!.fieldsRequiringEquality).toEqual(
+        expect.arrayContaining(['success', 'data', 'next_actions', '_eventHints']),
+      );
+    }
+  });
+
+  /** A refusal has no `data`, so the entry compares the error block. */
+  it('paritySpec_orchestrateRefusal_listsRequiredFields', () => {
+    const spec = PARITY_CONTRACT.find((s) => s.action === 'orchestrate.refusal');
+    expect(spec).toBeDefined();
+    expect(spec!.fieldsRequiringEquality).toEqual(expect.arrayContaining(['success', 'error']));
+  });
+
   it('paritySpec_actionUniqueness_eachActionHasOneEntry', () => {
     const seen = new Set<string>();
     for (const spec of PARITY_CONTRACT) {
