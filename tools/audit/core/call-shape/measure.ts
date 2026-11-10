@@ -39,7 +39,7 @@ function field(value: unknown, key: string): unknown {
   return inner;
 }
 
-function readRegistry(text: string): RegistrySnapshot {
+export function readRegistry(text: string): RegistrySnapshot {
   const parsed: unknown = JSON.parse(text);
   const counts = field(parsed, 'counts');
   const count = (key: string): number => {

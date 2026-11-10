@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1398,
-    "parsedFiles": 1353,
+    "testFiles": 1399,
+    "parsedFiles": 1354,
     "shellFiles": 45,
-    "cases": 15445,
+    "cases": 15476,
     "dynamicTitles": 178,
     "unparseableFiles": 0
   },
@@ -14717,6 +14717,167 @@
         {
           "suite": "npm publish target",
           "name": "NpmPublish_WithTheRepositoryNpmrc_TargetsNpmjs",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/observed-call-count.test.ts": {
+      "file": "tests/scripts/observed-call-count.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_WorkDescribeAndRunbookCalls_AreCountedApart",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ARawRunbookFetch_IsARunbookFetchAsInTheCallShapeCensus",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnUnknownExarchosTool_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ASubagentFile_IsReadAndMarked",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ANestedSubagentFile_IsRead",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ARepeatedToolUseId_IsCountedOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_TwoWorkflowsInOneSession_AreCountedApart",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallWithNoWorkflow_GoesToTheLatestWorkflowOfItsFile",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallBeforeAnyWorkflow_IsUnattributed",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AFailedCall_IsCountedApartAndInNoRoleTotal",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnExarchosCallWithNoAction_IsCountedApart",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnUnregisteredCallThatFailed_IsCountedOnceAsUnregistered",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallWithNoActionThatFailed_IsCountedOnceAsNoAction",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachWorkflow_SplitsItsCountsByCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachCaller_CountsItsFilesOverTheWholeTree",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AFileWithNoTranscriptLine_HasNoCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachFilePath_IsPosixAndInCodeUnitOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachRuleThreeFile_IsListedWithItsWorkflowPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachWorkflow_GivesTheSumOfItsCountsOverEveryCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_APrepareCallInAWorkflowSubagentFile_CountsForTheCoordinator",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnExarchosAgentSpecType_GivesItsCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AWorkerThatCallsSettle_StaysAWorker",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AWorkflowSubagentWithNoPrepareOrSettle_IsOther",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachFile_NamesTheRuleThatGaveItsCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ASubagentFileWithNoMetaFile_HasTheCallerUnknown",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ALineThatIsNotJson_IsCountedAsSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallOnALineThatTheParserSkips_FailsTheConservationCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnUnreadableSubagentFile_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ATranscriptWithNoExarchosCall_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_TheRecordedSession_GivesItsHandCountedCounts",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachRole_IsTheRoleThatTheCallShapeCensusGives",
           "dynamic": false
         }
       ]
