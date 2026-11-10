@@ -7,6 +7,8 @@
  *
  * The suite exits 1, so the task is not accepted. With the source of the slice reverted, the segment has no integration leaf, and the task is accepted.
  *
+ * The capsule holds the digest of the lowered feature kernel as its definition version. So the binary of the branch pins the digest of main.
+ *
  * The case tests the `exarchos` binary on PATH. `npm run test:files` builds the binary of the tree and puts it first on PATH.
  * Under another binary a red run of this case says nothing.
  *
@@ -31,6 +33,8 @@ const PLAN_PATH = 'docs/specs/plan.md';
 const OK = 'node -e ""';
 /** The chain runs the probe twice, the suite once, and each git step of the fixture. */
 const CASE_TIMEOUT_MS = 120_000;
+/** The digest of the lowered feature kernel. It equals the feature literal of the golden test, and both change together. */
+const FEATURE_DEFINITION_VERSION = 'fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9';
 
 /** The body of a module that returns `value`. */
 function moduleOf(value: number): string {
@@ -151,6 +155,7 @@ describe('the packaged chain of prepare and settle', () => {
             verificationProfile: { integration: { command: { state: 'resolved', argv: ['npm', 'run', 'test:run'] } } },
           },
         });
+        expect(prepared.capsule).toMatchObject({ identity: { definitionVersion: FEATURE_DEFINITION_VERSION } });
 
         const settled = await dataOf(
           mcp,

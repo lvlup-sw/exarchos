@@ -445,7 +445,7 @@ For the full transition table for oneshot, consult
 `@skills/checkpoint/references/phase-transitions.md`.
 
 > **Note:** The engine's `exarchos_workflow describe playbook="oneshot"`
-> output and the HSM definitions in `hsm-definitions.ts` are the
+> output and the HSM definitions in `src/workflow/definitions/oneshot.workflow.json` are the
 > canonical sources for transition behavior. `phase-transitions.md` is
 > a prose reference that can drift — when discrepancies arise, prefer
 > engine `describe` output.

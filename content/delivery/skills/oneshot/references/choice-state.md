@@ -42,7 +42,7 @@ Keeping the fork at the HSM level (two transitions, two mutually-exclusive
 guards) means:
 
 - The state machine graph visibly encodes both paths — operators reading
-  `hsm-definitions.ts` see `implementing → completed` and `implementing →
+  `src/workflow/definitions/oneshot.workflow.json` see `implementing → completed` and `implementing →
   synthesize` as sibling transitions, not a hidden conditional.
 - The HSM re-evaluates guards at the transition boundary, so any race
   between `finalize_oneshot` reading state and `handleSet` performing the
@@ -55,7 +55,7 @@ guards) means:
 
 - `servers/exarchos-mcp/src/workflow/guards.ts` — `synthesisOptedIn`,
   `synthesisOptedOut`, `oneshotPlanSet` guard implementations.
-- `servers/exarchos-mcp/src/workflow/hsm-definitions.ts` — the oneshot HSM
+- `src/workflow/definitions/oneshot.workflow.json` — the oneshot HSM
   with the two sibling transitions from `implementing`.
 - `servers/exarchos-mcp/src/verbs/tasks/finalize-oneshot.ts` — the handler
   that resolves the choice state and calls `handleSet`.
