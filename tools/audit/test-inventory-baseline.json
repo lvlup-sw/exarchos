@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1400,
-    "parsedFiles": 1355,
+    "testFiles": 1401,
+    "parsedFiles": 1356,
     "shellFiles": 45,
-    "cases": 15451,
+    "cases": 15455,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -76264,6 +76264,32 @@
         {
           "suite": "the exarchos extension of a definition",
           "name": "Extension_TheMachineModule_ImportsTheEffectType",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/registry-source.test.ts": {
+      "file": "tests/unit/workflow/definitions/registry-source.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the live registry reads the built-in definitions",
+          "name": "RegistrySource_EachGuardOfTheRegistry_IsTheBoundGuardObject",
+          "dynamic": false
+        },
+        {
+          "suite": "the live registry reads the built-in definitions",
+          "name": "RegistrySource_TheMachineModule_HoldsNoTransitionLiteral",
+          "dynamic": false
+        },
+        {
+          "suite": "the live registry reads the built-in definitions",
+          "name": "RegistrySource_TheRoster_IsTheDefinitionRoster",
+          "dynamic": false
+        },
+        {
+          "suite": "the live registry reads the built-in definitions",
+          "name": "RegistrySource_EachInitialPhase_IsTheEntryStep",
           "dynamic": false
         }
       ]
