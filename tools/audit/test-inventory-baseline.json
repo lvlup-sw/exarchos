@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1413,
-    "parsedFiles": 1368,
+    "testFiles": 1414,
+    "parsedFiles": 1369,
     "shellFiles": 45,
-    "cases": 15630,
+    "cases": 15636,
     "dynamicTitles": 193,
     "unparseableFiles": 0
   },
@@ -91128,6 +91128,42 @@
         {
           "suite": "the step locator",
           "name": "StepLocator_TheUserFixture_LocatesBuild",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/compile-steps.test.ts": {
+      "file": "tests/unit/verbs/prepare/compile-steps.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_ARefactorBatch_NamesTheStepsAfterOverhaulDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_TwoStepsInOneBatch_NameTheStepsAfterEach",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_TheAuthority_IsTheAuthorityOfTheDefinition",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_AnAuthorityThatTheCapsuleRefuses_IsCapsuleUnsound",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "PartitionSteps_TheBatch_StampsTheGivenStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "LowerDefinition_AUserDefinition_IsItsKernelWithItsDigest",
           "dynamic": false
         }
       ]

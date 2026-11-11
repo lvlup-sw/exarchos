@@ -59,7 +59,7 @@ import {
 } from './compile-capsule.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
 import { lowerBuiltInDefinition } from './lower-definition.js';
-import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
+import { partitionDelegationBatch } from './partition-tasks.js';
 import {
   configDigestAt,
   designRecordDigestAt,
@@ -79,6 +79,9 @@ import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from '
 
 /** The workflow type whose delegation batch this compiler knows how to compile. */
 const PREPARABLE_WORKFLOW_TYPE = 'feature';
+
+/** The step of that workflow type whose task batch this compiler compiles. The partition stamps it on each task. */
+const PREPARABLE_STEP_ID = 'delegate';
 
 /** The runbook that settlement composes for each accepted task. Its leaf needs are the batch needs. */
 const SETTLEMENT_SEGMENT_INTENT = 'task-completion';
@@ -494,17 +497,17 @@ export async function handlePrepare(
   }
 
   const phase = typeof state.phase === 'string' ? state.phase : undefined;
-  if (phase !== DELEGATION_STEP_ID) {
+  if (phase !== PREPARABLE_STEP_ID) {
     return refused({
       code: 'PHASE_NOT_PREPARABLE',
       message:
         `'${streamId}' is in phase '${phase ?? 'unknown'}'; its work is batched for delegation ` +
-        `only in '${DELEGATION_STEP_ID}'`,
+        `only in '${PREPARABLE_STEP_ID}'`,
     });
   }
 
   const plan: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
-  const partition = partitionDelegationBatch(plan);
+  const partition = partitionDelegationBatch(plan, PREPARABLE_STEP_ID);
   if (!partition.ok) return refused(partition.refusal);
   const { batch, completedBlockers } = partition;
 
