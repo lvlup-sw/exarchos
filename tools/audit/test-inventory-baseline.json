@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1408,
-    "parsedFiles": 1363,
+    "testFiles": 1409,
+    "parsedFiles": 1364,
     "shellFiles": 45,
-    "cases": 15553,
+    "cases": 15556,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -37858,6 +37858,27 @@
         {
           "suite": "durable projection-degraded state (DR-4)",
           "name": "ProjectionDegraded_EventTypes_RegisteredWithSourceAndSchema",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/handle-set-guard-state.test.ts": {
+      "file": "tests/unit/projections/guard-input/handle-set-guard-state.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard state of handleSet",
+          "name": "HandleSetGuardState_SevenTransitions_EqualTheGolden",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard state of handleSet",
+          "name": "HandleSetGuardState_TheGolden_HoldsSevenTransitionsAndTheInjectedKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard state of handleSet",
+          "name": "HandleSetGuardState_TheWrapper_RestoresTheMethodAfterAThrow",
           "dynamic": false
         }
       ]
