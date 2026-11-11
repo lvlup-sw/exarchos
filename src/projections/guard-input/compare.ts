@@ -1,11 +1,6 @@
 /**
  * The comparator of the two guard inputs of one transition: the state document and the ledger fold.
  *
- * RESERVED(issue: #1927, owner: exarchos, expires: 2026-12-31)
- *
- * No production code imports this module yet. The transition shadow becomes its first importer.
- * The module-intent gate requires its deletion at expiry if no caller adopts it.
- *
  * The comparator compares the phase, the edge-condition facts, the guard config keys and two keys of each task.
  * It also runs each guard that the machine can run from the document phase on both inputs.
  * Each difference gets a class. The comparator does no I/O, and a throw of a guard or of the facts step becomes a value.

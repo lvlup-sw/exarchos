@@ -7,14 +7,19 @@
  *
  * This is a row-fidelity check of the fold, not a re-judgement. The record holds no observed tree and no gate run.
  * Two cases make a comparison fail on purpose, so neither comparison passes on equal empty inputs.
+ * The guard-input shadow compares each transition of the walk, and the case reads its counts around the walk.
  *
  * @oracle-sources: ../helpers/replay/settled-feature-walk.ts, the settlement facts that the test builds from the receipts of the walk alone
  */
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { checkRunBundleIntegrity } from '../../src/events/bundle/integrity.js';
 import { ExecutionSettledData, WorkflowPreparedData, type WorkflowEvent } from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
+import { guardInputShadowCounts, type GuardInputShadowCounts } from '../../src/projections/guard-input/shadow.js';
 import { canonicalPath, normalizedPath } from '../../src/utils/git-tree.js';
 import { resolveWorkflowState, type ResolveResult } from '../../src/verbs/resolve-state.js';
 import { SETTLEMENT_OUTCOME_RULES } from '../../src/verbs/settle/adjudicate.js';
@@ -55,16 +60,26 @@ let target: EventStore;
 let copied: CopiedStream;
 let sourceRows: WorkflowEvent[];
 let targetRows: WorkflowEvent[];
+let walkStateDir: string;
+let shadowCountsOfTheWalk: GuardInputShadowCounts;
 
 beforeAll(async () => {
   const stateDir = makeTempDir('workflow-replay-source-');
+  walkStateDir = stateDir;
   cleanup.push(() => rmrfAsync(stateDir));
   const targetDir = makeTempDir('workflow-replay-target-');
   cleanup.push(() => rmrfAsync(targetDir));
   const repository = await walkRepository();
   cleanup.push(() => rmrfAsync(repository.root));
 
+  const shadowBefore = guardInputShadowCounts();
   walk = await walkSettledFeature(stateDir, repository);
+  const shadowAfter = guardInputShadowCounts();
+  shadowCountsOfTheWalk = {
+    compared: shadowAfter.compared - shadowBefore.compared,
+    disagreeing: shadowAfter.disagreeing - shadowBefore.disagreeing,
+    failed: shadowAfter.failed - shadowBefore.failed,
+  };
   source = walk.context.eventStore;
   cleanup.push(() => {
     source.close();
@@ -228,6 +243,13 @@ describe('WorkflowReplay', () => {
       .map((row) => ExecutionSettledData.parse(row.data).outcome);
     expect(outcomes).toHaveLength(3);
     expect(outcomes[0]).toBe('deviation-pending');
+  });
+
+  /** The guard-input shadow compares each of the three transitions of the walk, and the fold and the document agree on each one. */
+  it('WorkflowReplay_TheWalk_ComparesEachTransitionAndRecordsNoDisagreement', () => {
+    expect(walk.transitions).toHaveLength(3);
+    expect(shadowCountsOfTheWalk).toEqual({ compared: 3, disagreeing: 0, failed: 0 });
+    expect(existsSync(path.join(walkStateDir, 'guard-input-diagnostics'))).toBe(false);
   });
 
   /** The composition root keeps the state document in the `workflow_state` row, and the walk leaves no file form of it. */

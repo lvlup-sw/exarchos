@@ -1,14 +1,17 @@
 import { buildValidatedEvent } from '../../events/event-factory.js';
+import type { WorkflowEvent } from '../../events/schemas.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { workflowLogger } from '../../logger.js';
 import { injectGuardConfig } from '../../projections/guard-input/config.js';
+import { toGuardEvents } from '../../projections/guard-input/guard-events.js';
+import { recordGuardInputShadow, runGuardInputShadow, type GuardInputShadowRun } from '../../projections/guard-input/shadow.js';
 import { recordLiveTransition } from '../admission/live-shadow-observer.js';
 import { buildCheckpointMeta, type CheckpointEnforcementConfig, incrementOperations, resetCounter, shouldEnforceCheckpoint } from '../checkpoint.js';
 import { hsmTransitionGuard } from '../hsm-transition-guard.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from '../phase-attempt-id.js';
 import { ErrorCode } from '../schemas.js';
-import { applyDotPath, hydrateEventsFromStore, readStateFile, StateStoreError, validateStateForWrite, VersionConflictError, writeStateFile } from '../state-store.js';
+import { applyDotPath, readStateFile, StateStoreError, validateStateForWrite, VersionConflictError, writeStateFile } from '../state-store.js';
 import type { SetInput, WorkflowState } from '../types.js';
 import * as path from 'node:path';
 import { CURRENT_ES_VERSION, isEventSourced } from './shared.js';
@@ -21,6 +24,20 @@ import { CURRENT_ES_VERSION, isEventSourced } from './shared.js';
 const MAX_CAS_RETRIES = 3;
 
 /**
+ * Records the guard-input shadow run of a pass after the decision, and adds its warnings to the result.
+ * A pass with no run returns the result unchanged.
+ */
+async function withShadowRecord(
+  result: ToolResult,
+  run: GuardInputShadowRun | undefined,
+  stateDir: string,
+): Promise<ToolResult> {
+  const warnings = await recordGuardInputShadow(run, { stateDir });
+  if (warnings.length === 0) return result;
+  return { ...result, warnings: [...(result.warnings ?? []), ...warnings] };
+}
+
+/**
  * Updates fields, transitions the phase, or both, on a workflow state file.
  * It applies field updates to a copy first, so the phase guards see the new state. The guard also gets the prior state, so an update to the risk tier cannot weaken its own transition.
  * A no-op self-transition without updates returns `idempotent: true` and writes nothing. A CAS retry reuses the phase attempt id of the first pass.
@@ -31,6 +48,7 @@ const MAX_CAS_RETRIES = 3;
  * The server derives `expectedVersion`, so a client resend after a lost response gets a new key and adds a second event.
  *
  * The handler does not rebuild the state file from the fold, because the fold can give a state that fails the schema.
+ * The guard-input shadow compares the document with the fold before the guard. Each exit of a pass records its run, and the document decides.
  * The result carries `workflowType`, because `envelopeWrap` needs it and `phase` to compute `next_actions`.
  */
 export async function handleSet(
@@ -167,12 +185,13 @@ export async function handleSet(
       injectGuardConfig(mutableState, options);
     }
 
+    let rows: readonly WorkflowEvent[] | undefined;
     if (input.phase && eventStore) {
       try {
-        mutableState._events = await hydrateEventsFromStore(
-          input.featureId, eventStore,
-        );
+        rows = await eventStore.query(input.featureId);
+        mutableState._events = toGuardEvents(rows);
       } catch {
+        rows = undefined;
         mutableState._events = mutableState._events ?? [];
       }
     } else if (input.phase && !eventStore) {
@@ -184,6 +203,7 @@ export async function handleSet(
 
     let pendingTransitionEventsCount = 0;
     let transitionTopSequence: number | undefined;
+    let shadowRun: GuardInputShadowRun | undefined;
 
     if (input.phase) {
       const fromPhase = state.phase;
@@ -199,6 +219,17 @@ export async function handleSet(
       if (transitionPhaseAttemptId !== undefined) {
         mutableState._pendingPhaseAttemptId = transitionPhaseAttemptId;
       }
+      shadowRun = runGuardInputShadow({
+        call: 'transition',
+        featureId: input.featureId,
+        target: input.phase,
+        hasUpdates: input.updates !== undefined,
+        document: mutableState,
+        rows,
+        pass: attempt,
+        fold: { config: options ?? {} },
+        ...(options?.skipPhases !== undefined ? { skipPhases: options.skipPhases } : {}),
+      });
       let attemptResult;
       try {
         attemptResult = await hsmTransitionGuard.attempt(
@@ -217,18 +248,18 @@ export async function handleSet(
           },
         );
       } catch (err) {
-        return {
+        return withShadowRecord({
           success: false,
           error: {
             code: ErrorCode.EVENT_APPEND_FAILED,
             message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
           },
-        };
+        }, shadowRun, stateDir);
       }
 
       if (!attemptResult.ok) {
         if (attemptResult.reason === 'no-transition-defined') {
-          return {
+          return withShadowRecord({
             success: false,
             error: {
               code: ErrorCode.INVALID_TRANSITION,
@@ -237,7 +268,7 @@ export async function handleSet(
                 ? { validTargets: attemptResult.validTargets }
                 : {}),
             },
-          };
+          }, shadowRun, stateDir);
         }
         const guardFailure = attemptResult.failures[0];
         const errorPayload: Record<string, unknown> = {
@@ -255,14 +286,14 @@ export async function handleSet(
         if (guardFailure?.suggestedFix) {
           errorPayload.suggestedFix = guardFailure.suggestedFix;
         }
-        return {
+        return withShadowRecord({
           success: false,
           error: errorPayload as NonNullable<ToolResult['error']>,
-        };
+        }, shadowRun, stateDir);
       }
 
       if (attemptResult.idempotent && !input.updates) {
-        return {
+        return withShadowRecord({
           success: true,
           data: {
             phase: state.phase,
@@ -271,7 +302,7 @@ export async function handleSet(
             phaseAttemptId: readPhaseAttemptId(state),
           },
           _meta: buildCheckpointMeta(state._checkpoint),
-        };
+        }, shadowRun, stateDir);
       }
 
       if (!attemptResult.idempotent) {
@@ -319,7 +350,7 @@ export async function handleSet(
     ) {
       const invalid = validateStateForWrite(mutableState as WorkflowState);
       if (invalid !== undefined) {
-        return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: invalid } };
+        return withShadowRecord({ success: false, error: { code: ErrorCode.INVALID_INPUT, message: invalid } }, shadowRun, stateDir);
       }
 
       try {
@@ -339,13 +370,13 @@ export async function handleSet(
 
         highestEventSequence = Math.max(highestEventSequence ?? 0, event.sequence);
       } catch (err) {
-        return {
+        return withShadowRecord({
           success: false,
           error: {
             code: ErrorCode.EVENT_APPEND_FAILED,
             message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
           },
-        };
+        }, shadowRun, stateDir);
       }
     }
 
@@ -367,13 +398,13 @@ export async function handleSet(
       (mutableState as Record<string, unknown>)._version = expectedVersion + 1;
     } catch (err) {
       if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) {
-        return {
+        return withShadowRecord({
           success: false,
           error: {
             code: ErrorCode.INVALID_INPUT,
             message: err.message,
           },
-        };
+        }, shadowRun, stateDir);
       }
       if (err instanceof VersionConflictError && attempt < MAX_CAS_RETRIES) {
         continue;
@@ -396,11 +427,11 @@ export async function handleSet(
         }
       }
 
+      await recordGuardInputShadow(shadowRun, { stateDir });
       throw err;
     }
 
-
-    return {
+    return withShadowRecord({
       success: true,
       data: {
         phase: mutableState.phase as string,
@@ -409,7 +440,7 @@ export async function handleSet(
         phaseAttemptId: mutableState.phaseAttemptId as string,
       },
       _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
-    };
+    }, shadowRun, stateDir);
   }
 
   throw new StateStoreError(

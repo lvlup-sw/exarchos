@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1416,
-    "parsedFiles": 1371,
+    "testFiles": 1417,
+    "parsedFiles": 1372,
     "shellFiles": 45,
-    "cases": 15604,
+    "cases": 15625,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -10428,6 +10428,112 @@
         {
           "suite": "emission verifier over the safe corpus",
           "name": "EmissionVerifier_SafeCorpus_HasNonZeroDeterminateCoverage",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/guard-input-shadow.test.ts": {
+      "file": "tests/integration/guard-input-shadow.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndTransitions",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ARowOnlyPlanArtifact_FailsTheGuardWithTheWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AnHonestWorkflow_GivesNoWarningAndNoDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ADisagreeingCall_AddsTheRowsOfItsAgreeingTwin",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ALedgerPhaseAheadOfTheDocument_RecordsThePhaseClass",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ASkippedPhase_ListsTheGuardsOfTheSkippedMachine",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_OneCasRetry_RecordsOnlyTheLastPass",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_TheCasRethrow_RecordsTheRunBeforeTheThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_%s_GetsNoComparison",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ACustomType_GetsNoComparison",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_%s_CarriesTheWarningOnItsExit",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AFoldThatThrows_KeepsTheDecisionAndWritesAShadowFailedLine",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AFailedFileWrite_KeepsTheTransitionAndTheWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AtTheFileCap_WritesOneCappedLineAndThenNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_EachLine_HoldsItsReadPointsAndItsPass",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AWarning_HoldsAtMost300Characters",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_MoreThan32Differences_KeepsEachListAt32",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ALineOver8KiB_EmptiesItsLists",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleTransition_AGuardFailure_KeepsTheWarningInTheEnrichedError",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "FinalizeOneshot_ADisagreeingTransition_KeepsTheWarningOnItsResult",
           "dynamic": false
         }
       ]
@@ -90480,6 +90586,11 @@
         {
           "suite": "WorkflowReplay",
           "name": "WorkflowReplay_TheSettledStream_HoldsEachLedgerKind",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheWalk_ComparesEachTransitionAndRecordsNoDisagreement",
           "dynamic": false
         },
         {
