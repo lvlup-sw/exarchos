@@ -1,7 +1,4 @@
 /**
- * RESERVED(issue: #1927, owner: exarchos, expires: 2026-12-31)
- * No production module imports this module yet. The handler of prepare becomes its first importer.
- *
  * The registry of workflow definitions. It resolves the workflow type of a stream to one registered
  * definition, or to a refusal of prepare.
  *

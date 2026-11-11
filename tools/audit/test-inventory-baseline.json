@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1414,
-    "parsedFiles": 1369,
+    "testFiles": 1417,
+    "parsedFiles": 1372,
     "shellFiles": 45,
-    "cases": 15636,
-    "dynamicTitles": 193,
+    "cases": 15660,
+    "dynamicTitles": 195,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -91164,6 +91164,144 @@
         {
           "suite": "the step-generic compile path",
           "name": "LowerDefinition_AUserDefinition_IsItsKernelWithItsDigest",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-steps.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-steps.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "PrepareSteps_ARefactorInOverhaulDelegate_CompilesThatStep",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "PrepareSteps_%s_RefusesWithItsFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "PrepareSteps_AFeatureInPlan_NamesDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "PrepareSteps_ARefactorInExplore_NamesOverhaulDelegate",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-user-definitions.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-user-definitions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AUserDefinitionInItsTaskBatchStep_Compiles",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AnUnregisteredType_NamesTheDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AConfigWorkflowsType_NamesTheRetirement",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ABrokenFile_NamesTheFileRuleAndPath",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ABrokenFileOfTheCheckout_RefusesAUserTypeAndNoBuiltInType",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AUserTypeOutsideAWorkTree_IsScopeUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AnUnobservableRepoRoot_IsScopeUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_%s_RefusesWithItsStepFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AStepRefusalBesideABrokenSibling_IsTheFileRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AConfigTypeWithAFile_IsRefusedAsAConfigWorkflow",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AConfigOfAnotherType_MovesNoCapsuleByte",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ARepoRootBelowTheCheckout_ReadsTheDirectoryOfTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ARetryWithTheSameFile_ReplaysTheReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AnEditOfTheKernel_CompilesTheNextVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AnEditOfTheExtensionOnly_ReplaysTheReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ARefusedUserType_WritesNoRowAndNoBundle",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/compile-path-literals.test.ts": {
+      "file": "tests/unit/verbs/prepare/compile-path-literals.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the compile path of prepare holds no built-in type or step literal",
+          "name": "CompilePath_NoPrepareModule_HoldsAFeatureOrDelegateLiteral",
+          "dynamic": false
+        },
+        {
+          "suite": "the compile path of prepare holds no built-in type or step literal",
+          "name": "CompilePath_NoPrepareModule_NamesTheRetiredSwitchConstants",
           "dynamic": false
         }
       ]

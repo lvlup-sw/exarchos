@@ -1,5 +1,9 @@
 /**
- * `prepare` reads the repository that `repoRoot` names, and never the directory or the config of the server.
+ * `prepare` reads the repository that `repoRoot` names, and never the directory or the project config of the server.
+ *
+ * The one read of server state is the in-memory read of `ctx.config.workflows`. It reads no file.
+ * It can only refuse a type of the `workflows:` key of the server config, and no compile input comes from it.
+ * So the guard has no pattern for `ctx.config`.
  *
  * The guard walks each source module under `src/verbs/prepare`, and it names each read of `ctx.cwd`, `process.cwd()` or `ctx.projectConfig`.
  * It reads the code with comments, strings and templates blanked, so a sentence about a read is not a read.

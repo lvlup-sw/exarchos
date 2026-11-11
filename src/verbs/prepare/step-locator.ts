@@ -1,7 +1,4 @@
 /**
- * RESERVED(issue: #1927, owner: exarchos, expires: 2026-12-31)
- * No production module imports this module yet. The handler of prepare becomes its first importer.
- *
  * The step locator. It classifies the step of a phase from the data of a registered definition only.
  *
  * A task-batch step is a `skill` step of the step type `IMPLEMENT`. An exit of the step has a gate or an
