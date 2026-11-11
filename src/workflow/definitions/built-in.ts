@@ -2,25 +2,26 @@
  * The five built-in workflow definitions, loaded from their checked-in files.
  *
  * Each file is one kernel definition with one more top-level key, `exarchos`. At module load, the
- * loader parses each file with the loose kernel schema and with the strict extension schema. Then it
- * runs the reference rules and the built-in rules. A finding stops the load with one error that
- * names the type, the rule and the path of each finding. So a build with a bad file does not start.
+ * loader runs the one check path of `extension.ts` on each file, with the built-in rules as its own
+ * rules. A finding stops the load with one error that names the type, the rule and the path of each
+ * finding. So a build with a bad file does not start.
  *
  * The built-in rules hold for these five definitions only. The kernel schema keeps a stray key in a
- * step or a transition, so the built-in rules require the exact key set of each.
+ * step or a transition, so the built-in rules require the exact key set of each. The shape rules of
+ * the steps, the transitions, the entry and the edges take a rule prefix. So another source of
+ * definitions runs the same shape rules under its own rule ids.
  *
- * Each file maps to its type by one explicit import, and no other path builds a definition.
+ * Each file maps to its type by one explicit import, and no other path builds a built-in definition.
  */
 
-import { WorkflowDefinitionV1Schema, type WorkflowDefinitionV1 } from '@lvlup-sw/strategos-contracts';
+import type { WorkflowDefinitionV1 } from '@lvlup-sw/strategos-contracts';
 
 import { builtInWorkflowAuthority } from '../../verbs/prepare/built-in-authority.js';
 import { KIND_OBLIGATIONS, type PhaseKind } from '../phase-kind.js';
 import {
-  parseExtension,
-  validateExtension,
+  checkDefinitionDocument,
   type DefinitionFinding,
-  type ExarchosExtension,
+  type ExarchosDefinition,
 } from './extension.js';
 import debug from './debug.workflow.json' with { type: 'json' };
 import discovery from './discovery.workflow.json' with { type: 'json' };
@@ -41,7 +42,7 @@ export const BUILT_IN_WORKFLOW_TYPES: readonly BuiltInWorkflowType[] = Object.fr
 ]);
 
 /** A loaded built-in definition: the parsed kernel with its parsed extension. The loader deep-freezes it. */
-export type BuiltInDefinition = WorkflowDefinitionV1 & { readonly exarchos: ExarchosExtension };
+export type BuiltInDefinition = ExarchosDefinition;
 
 /** The key of the extension in a definition document. */
 const EXTENSION_KEY = 'exarchos';
@@ -108,11 +109,6 @@ function sameJson(left: unknown, right: unknown): boolean {
   return Object.is(left, right);
 }
 
-/** Converts one key of a zod issue path into a key of a finding path. */
-function pathKey(key: PropertyKey): string | number {
-  return typeof key === 'symbol' ? String(key) : key;
-}
-
 /**
  * Returns one finding for each key of an object that is not in the key set. It also returns one
  * finding for each key of the set that the object does not hold. A value that is not an object gives
@@ -131,77 +127,100 @@ function exactKeyFindings(
 }
 
 /**
- * The `built-in-step-keys` and `built-in-step-type` rules. Each step has the exact key set, is a
+ * The `<prefix>-step-keys` and `<prefix>-step-type` rules. Each step has the exact key set, is a
  * `skill` step of the `exarchos` runtime, and has its id as its name. Its `stepType` is a phase kind
  * or `final`, and only a `final` step is terminal. A value check runs only when the step holds the key,
  * so an absent key gives one finding.
  */
-function stepFindings(steps: readonly unknown[]): DefinitionFinding[] {
+function stepFindings(steps: readonly unknown[], prefix: string): DefinitionFinding[] {
+  const keyRule = `${prefix}-step-keys`;
+  const typeRule = `${prefix}-step-type`;
   const keyFindings: DefinitionFinding[] = [];
   const typeFindings: DefinitionFinding[] = [];
   steps.forEach((step, index) => {
     const at = ['steps', index];
-    keyFindings.push(...exactKeyFindings('built-in-step-keys', step, STEP_KEYS, at));
+    keyFindings.push(...exactKeyFindings(keyRule, step, STEP_KEYS, at));
     if (!isRecord(step)) return;
     const has = (key: string): boolean => Object.hasOwn(step, key);
-    if (has('kind') && step.kind !== 'skill') keyFindings.push({ rule: 'built-in-step-keys', path: [...at, 'kind'] });
+    if (has('kind') && step.kind !== 'skill') keyFindings.push({ rule: keyRule, path: [...at, 'kind'] });
     if (has('runtime') && step.runtime !== 'exarchos') {
-      keyFindings.push({ rule: 'built-in-step-keys', path: [...at, 'runtime'] });
+      keyFindings.push({ rule: keyRule, path: [...at, 'runtime'] });
     }
     if (has('stepName') && has('stepId') && step.stepName !== step.stepId) {
-      keyFindings.push({ rule: 'built-in-step-keys', path: [...at, 'stepName'] });
+      keyFindings.push({ rule: keyRule, path: [...at, 'stepName'] });
     }
     const isFinal = step.stepType === 'final';
     if (has('stepType') && !isFinal && !isPhaseKind(step.stepType)) {
-      typeFindings.push({ rule: 'built-in-step-type', path: [...at, 'stepType'] });
+      typeFindings.push({ rule: typeRule, path: [...at, 'stepType'] });
     }
     if (has('isTerminal') && step.isTerminal !== isFinal) {
-      typeFindings.push({ rule: 'built-in-step-type', path: [...at, 'isTerminal'] });
+      typeFindings.push({ rule: typeRule, path: [...at, 'isTerminal'] });
     }
   });
   return [...keyFindings, ...typeFindings];
 }
 
 /**
- * The `built-in-transition` rule. Each transition has the exact key set, its id is
+ * The `<prefix>-transition` rule. Each transition has the exact key set, its id is
  * `<fromStepId>-><toStepId>`, and it is not a default transition. A value check runs only when the
  * transition holds its keys, so an absent key gives one finding.
  */
-function transitionFindings(transitions: readonly unknown[]): DefinitionFinding[] {
+function transitionFindings(transitions: readonly unknown[], prefix: string): DefinitionFinding[] {
+  const rule = `${prefix}-transition`;
   return transitions.flatMap((transition, index) => {
     const at = ['transitions', index];
-    const findings = exactKeyFindings('built-in-transition', transition, TRANSITION_KEYS, at);
+    const findings = exactKeyFindings(rule, transition, TRANSITION_KEYS, at);
     if (!isRecord(transition)) return findings;
     const has = (key: string): boolean => Object.hasOwn(transition, key);
     const { transitionId, fromStepId, toStepId, isDefault } = transition;
     const endpointsHeld = has('transitionId') && has('fromStepId') && has('toStepId');
     if (endpointsHeld && transitionId !== `${String(fromStepId)}->${String(toStepId)}`) {
-      findings.push({ rule: 'built-in-transition', path: [...at, 'transitionId'] });
+      findings.push({ rule, path: [...at, 'transitionId'] });
     }
     if (has('isDefault') && isDefault !== false) {
-      findings.push({ rule: 'built-in-transition', path: [...at, 'isDefault'] });
+      findings.push({ rule, path: [...at, 'isDefault'] });
     }
     return findings;
   });
 }
 
 /**
- * The `built-in-entry` rule. The entry step is a non-terminal step. The definition holds no terminal
+ * The `<prefix>-entry` rule. The entry step is a non-terminal step. The definition holds no terminal
  * step id, no gates, no diagnostic forks and no content hash, and its five list keys are empty.
  */
-function entryFindings(raw: Record<string, unknown>, steps: readonly unknown[]): DefinitionFinding[] {
+function entryFindings(raw: Record<string, unknown>, steps: readonly unknown[], prefix: string): DefinitionFinding[] {
+  const rule = `${prefix}-entry`;
   const findings: DefinitionFinding[] = [];
   const entry = steps.find((step) => isRecord(step) && step.stepId === raw.entryStepId);
   if (typeof raw.entryStepId !== 'string' || !isRecord(entry) || entry.isTerminal !== false) {
-    findings.push({ rule: 'built-in-entry', path: ['entryStepId'] });
+    findings.push({ rule, path: ['entryStepId'] });
   }
   for (const key of ABSENT_KERNEL_KEYS) {
-    if (Object.hasOwn(raw, key)) findings.push({ rule: 'built-in-entry', path: [key] });
+    if (Object.hasOwn(raw, key)) findings.push({ rule, path: [key] });
   }
   for (const key of EMPTY_KERNEL_LISTS) {
-    if (listOf(raw[key])?.length !== 0) findings.push({ rule: 'built-in-entry', path: [key] });
+    if (listOf(raw[key])?.length !== 0) findings.push({ rule, path: [key] });
   }
   return findings;
+}
+
+/**
+ * The shape rules of the steps, the transitions and the entry, in that order. Each rule id starts
+ * with the prefix of the source. So the rules are `<prefix>-step-keys`, `<prefix>-step-type`,
+ * `<prefix>-transition` and `<prefix>-entry`. A part of the document that is absent or of the wrong
+ * shape gives a finding at its path.
+ */
+export function shapeFindings(raw: unknown, prefix: string): readonly DefinitionFinding[] {
+  const document = isRecord(raw) ? raw : {};
+  const steps = listOf(document.steps);
+  const transitions = listOf(document.transitions);
+  return [
+    ...(steps === undefined ? [{ rule: `${prefix}-step-keys`, path: ['steps'] }] : stepFindings(steps, prefix)),
+    ...(transitions === undefined
+      ? [{ rule: `${prefix}-transition`, path: ['transitions'] }]
+      : transitionFindings(transitions, prefix)),
+    ...entryFindings(document, steps ?? [], prefix),
+  ];
 }
 
 /** Returns the source step id of the kernel transition with the given id, or `undefined`. */
@@ -211,12 +230,22 @@ function sourceOf(transitions: readonly unknown[], transitionId: string): unknow
 }
 
 /**
- * The `built-in-edge` rule. Every edge has a guard id. A fix-cycle edge leaves a member of a group.
- * An edge with the route that is always legal omits the route.
+ * The `<prefix>-edge` rule. The guard id policy decides the guard id check. With `required`, each
+ * edge has a guard id. With `refused`, no edge holds the `guardId` key. A fix-cycle edge leaves a
+ * member of a group. An edge with the route that is always legal omits the route.
  */
-function edgeFindings(extension: Record<string, unknown>, transitions: readonly unknown[]): DefinitionFinding[] {
+export function edgeShapeFindings(
+  raw: unknown,
+  prefix: string,
+  guardIds: 'required' | 'refused',
+): readonly DefinitionFinding[] {
+  const rule = `${prefix}-edge`;
+  const document = isRecord(raw) ? raw : {};
+  const extensionValue = document[EXTENSION_KEY];
+  const extension = isRecord(extensionValue) ? extensionValue : {};
+  const transitions = listOf(document.transitions) ?? [];
   const edges = extension.edges;
-  if (!isRecord(edges)) return [{ rule: 'built-in-edge', path: [EXTENSION_KEY, 'edges'] }];
+  if (!isRecord(edges)) return [{ rule, path: [EXTENSION_KEY, 'edges'] }];
   const members = new Set(
     (listOf(extension.groups) ?? []).flatMap((group) => (isRecord(group) ? listOf(group.members) ?? [] : [])),
   );
@@ -224,71 +253,45 @@ function edgeFindings(extension: Record<string, unknown>, transitions: readonly 
   for (const [transitionId, edge] of Object.entries(edges)) {
     const at = [EXTENSION_KEY, 'edges', transitionId];
     if (!isRecord(edge)) {
-      findings.push({ rule: 'built-in-edge', path: at });
+      findings.push({ rule, path: at });
       continue;
     }
-    if (typeof edge.guardId !== 'string') findings.push({ rule: 'built-in-edge', path: [...at, 'guardId'] });
+    const guardIdFault = guardIds === 'required' ? typeof edge.guardId !== 'string' : Object.hasOwn(edge, 'guardId');
+    if (guardIdFault) findings.push({ rule, path: [...at, 'guardId'] });
     if (edge.isFixCycle === true && !members.has(sourceOf(transitions, transitionId))) {
-      findings.push({ rule: 'built-in-edge', path: [...at, 'isFixCycle'] });
+      findings.push({ rule, path: [...at, 'isFixCycle'] });
     }
     if (edge.route !== undefined && sameJson(edge.route, ALWAYS_LEGAL_ROUTE)) {
-      findings.push({ rule: 'built-in-edge', path: [...at, 'route'] });
+      findings.push({ rule, path: [...at, 'route'] });
     }
   }
   return findings;
 }
 
+/** The rule prefix of the built-in rules. */
+const BUILT_IN_PREFIX = 'built-in';
+
 /**
  * Runs the built-in rules over one raw definition document and returns every finding, in rule order.
- * The rules read the raw document, so a stray key in a step or a transition is visible. A part of the
- * document that is absent or of the wrong shape gives a finding at its path.
+ * The order is the name, the steps, the transitions, the entry, the authority, the edges and the
+ * universal edges. The rules read the raw document, so a stray key in a step or a transition is
+ * visible. A part of the document that is absent or of the wrong shape gives a finding at its path.
  */
 export function validateBuiltInDefinition(type: BuiltInWorkflowType, raw: unknown): readonly DefinitionFinding[] {
   const document = isRecord(raw) ? raw : {};
   const extensionValue = document[EXTENSION_KEY];
   const extension = isRecord(extensionValue) ? extensionValue : {};
-  const steps = listOf(document.steps);
-  const transitions = listOf(document.transitions);
   return [
     ...(document.name === `exarchos.${type}` ? [] : [{ rule: 'built-in-name', path: ['name'] }]),
-    ...(steps === undefined ? [{ rule: 'built-in-step-keys', path: ['steps'] }] : stepFindings(steps)),
-    ...(transitions === undefined
-      ? [{ rule: 'built-in-transition', path: ['transitions'] }]
-      : transitionFindings(transitions)),
-    ...entryFindings(document, steps ?? []),
+    ...shapeFindings(raw, BUILT_IN_PREFIX),
     ...(sameJson(document.authority, builtInWorkflowAuthority())
       ? []
       : [{ rule: 'built-in-authority', path: ['authority'] }]),
-    ...edgeFindings(extension, transitions ?? []),
+    ...edgeShapeFindings(raw, BUILT_IN_PREFIX, 'required'),
     ...(sameJson(extension.universal, EXECUTOR_UNIVERSAL_EDGES)
       ? []
       : [{ rule: 'built-in-universal', path: [EXTENSION_KEY, 'universal'] }]),
   ];
-}
-
-/** The result of the checks of one raw document: the definition, or the findings. */
-type DocumentCheck =
-  | { readonly ok: true; readonly definition: BuiltInDefinition }
-  | { readonly ok: false; readonly findings: readonly DefinitionFinding[] };
-
-/**
- * Checks one raw document: the kernel parse, the strict extension parse, the reference rules and the
- * built-in rules. A failed parse ends the checks of the document. The reference rules run after the
- * extension parse, because one function runs all four of them.
- */
-function checkDocument(type: BuiltInWorkflowType, raw: unknown): DocumentCheck {
-  const kernel = WorkflowDefinitionV1Schema.safeParse(raw);
-  if (!kernel.success) {
-    return {
-      ok: false,
-      findings: kernel.error.issues.map((issue) => ({ rule: 'kernel-schema', path: issue.path.map(pathKey) })),
-    };
-  }
-  const parsed = parseExtension(raw);
-  if (!parsed.ok) return { ok: false, findings: parsed.findings };
-  const findings = [...validateExtension(raw, kernel.data, parsed.extension), ...validateBuiltInDefinition(type, raw)];
-  if (findings.length > 0) return { ok: false, findings };
-  return { ok: true, definition: { ...kernel.data, exarchos: parsed.extension } };
 }
 
 /** Freezes a value and every object and list inside it. */
@@ -312,7 +315,7 @@ export function loadBuiltInDefinitions(
   const lines: string[] = [];
   const definitions = new Map<BuiltInWorkflowType, BuiltInDefinition>();
   for (const type of BUILT_IN_WORKFLOW_TYPES) {
-    const checked = checkDocument(type, raws[type]);
+    const checked = checkDefinitionDocument(raws[type], (raw) => validateBuiltInDefinition(type, raw));
     if (checked.ok) {
       definitions.set(type, checked.definition);
       continue;
@@ -345,7 +348,7 @@ export function builtInDefinition(type: BuiltInWorkflowType): BuiltInDefinition 
 }
 
 /** Returns a deep copy of a definition without its `exarchos` key: the kernel part only. */
-export function kernelOf(definition: BuiltInDefinition): WorkflowDefinitionV1 {
+export function kernelOf(definition: ExarchosDefinition): WorkflowDefinitionV1 {
   const { exarchos: _extension, ...kernel } = definition;
   return structuredClone(kernel);
 }

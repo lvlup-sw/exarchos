@@ -2,6 +2,9 @@
  * The `exarchos` extension of a kernel workflow definition, and the reference rules that hold
  * for any definition.
  *
+ * This module also holds the one check path of a definition document. Each source of definitions
+ * calls it with its own rules, so each source runs the same parses and the same reference rules.
+ *
  * The kernel schema is a loose object, so it keeps any `exarchos` value. The strict parse of
  * this module is the only check of the extension. Every object is strict, and no field has a
  * default. So an absent optional field stays absent. The extension restates no kernel field.
@@ -117,6 +120,9 @@ export const ExarchosExtensionSchema = z
   .strict();
 
 export type ExarchosExtension = z.infer<typeof ExarchosExtensionSchema>;
+
+/** A checked definition: the parsed kernel with its parsed extension. */
+export type ExarchosDefinition = WorkflowDefinitionV1 & { readonly exarchos: ExarchosExtension };
 
 /** One refusal of a definition: the id of the rule, and the keys and indices from the root of the document. */
 export interface DefinitionFinding {
@@ -279,4 +285,32 @@ export function validateExtension(
     ...groupFindings(kernel, extension),
     ...universalFindings(kernel, extension),
   ];
+}
+
+/** The result of the checks of one raw document: the definition, or the findings. */
+type DefinitionCheck =
+  | { readonly ok: true; readonly definition: ExarchosDefinition }
+  | { readonly ok: false; readonly findings: readonly DefinitionFinding[] };
+
+/**
+ * Checks one raw definition document. The checks are the kernel parse, the strict extension parse,
+ * the four reference rules and the own rules of the source, in that order. A failed parse ends the
+ * checks of the document. So the reference rules and the own rules run only on a document that parses.
+ */
+export function checkDefinitionDocument(
+  raw: unknown,
+  ownRules: (raw: unknown) => readonly DefinitionFinding[],
+): DefinitionCheck {
+  const kernel = WorkflowDefinitionV1Schema.safeParse(raw);
+  if (!kernel.success) {
+    return {
+      ok: false,
+      findings: kernel.error.issues.map((issue) => ({ rule: 'kernel-schema', path: issue.path.map(pathKey) })),
+    };
+  }
+  const parsed = parseExtension(raw);
+  if (!parsed.ok) return { ok: false, findings: parsed.findings };
+  const findings = [...validateExtension(raw, kernel.data, parsed.extension), ...ownRules(raw)];
+  if (findings.length > 0) return { ok: false, findings };
+  return { ok: true, definition: { ...kernel.data, exarchos: parsed.extension } };
 }

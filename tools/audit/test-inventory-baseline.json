@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1409,
-    "parsedFiles": 1364,
+    "testFiles": 1410,
+    "parsedFiles": 1365,
     "shellFiles": 45,
-    "cases": 15558,
+    "cases": 15565,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -90744,6 +90744,47 @@
         {
           "suite": "the golden of one feature wave of prepare",
           "name": "PrepareGolden_TheGolden_HoldsNoTemporaryPath",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/check-path.test.ts": {
+      "file": "tests/unit/workflow/definitions/check-path.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_AValidDocument_GivesTheKernelWithItsExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_AKernelFault_EndsTheChecksOfTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_AnExtensionFault_EndsTheChecksOfTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_TheOwnRules_RunAfterTheReferenceRules",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_TheUserPrefix_NamesEachShapeRule",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_ARefusedGuardIdPolicy_NamesEachEdgeGuardId",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_TheBuiltInLoader_GivesTheFindingsOfTheSharedCheckInOrder",
           "dynamic": false
         }
       ]
