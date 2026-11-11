@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1412,
-    "parsedFiles": 1367,
+    "testFiles": 1413,
+    "parsedFiles": 1368,
     "shellFiles": 45,
-    "cases": 15615,
-    "dynamicTitles": 192,
+    "cases": 15630,
+    "dynamicTitles": 193,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -91047,6 +91047,87 @@
         {
           "suite": "the registry of workflow definitions",
           "name": "DefinitionRegistry_AnUntypedStream_HasTheUntypedFinding",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/step-locator.test.ts": {
+      "file": "tests/unit/verbs/prepare/step-locator.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_FeatureDelegate_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_RefactorOverhaulDelegate_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_%s_IsASingleAgentStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_EachDiscoveryStep_IsNotAnImplementStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AFinalStep_IsATerminalStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_APhaseOutsideTheDefinition_IsNotAStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_TheClassesOfTheBuiltIns_AreTheTable",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatNeedsTasksUnderAny_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatNeedsTasksUnderNot_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatNeedsTasksInANestedAll_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnApprovalThatNeedsTasks_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_ARouteThatReadsTasks_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_TheCompilableSteps_AreInKernelOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_TheUserFixture_LocatesBuild",
           "dynamic": false
         }
       ]
