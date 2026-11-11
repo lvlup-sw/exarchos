@@ -21,7 +21,7 @@ const REPO_ROOT = path.resolve(import.meta.dirname, '../..');
 const PREPARE_ROOT = path.join(REPO_ROOT, 'src', 'verbs', 'prepare');
 
 /** The source modules under the directory today. A new module changes this pin in the same change. */
-const SCANNED_MODULE_COUNT = 13;
+const SCANNED_MODULE_COUNT = 14;
 
 /** One read of the server directory or its config, by name, with the pattern that finds it in code. */
 interface ServerDirectoryRead {

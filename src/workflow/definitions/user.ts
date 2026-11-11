@@ -1,7 +1,4 @@
 /**
- * RESERVED(issue: #1927, owner: exarchos, expires: 2026-12-31)
- * No production module imports this module yet. The definition registry becomes its first importer.
- *
  * The rules of a user workflow definition, a file that a repository holds beside its code.
  *
  * A user file passes the shape rules of the built-in files under the prefix `user`, and eight user

@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1411,
-    "parsedFiles": 1366,
+    "testFiles": 1412,
+    "parsedFiles": 1367,
     "shellFiles": 45,
-    "cases": 15589,
-    "dynamicTitles": 189,
+    "cases": 15615,
+    "dynamicTitles": 192,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -90911,6 +90911,142 @@
         {
           "suite": "the rules of a user workflow definition",
           "name": "UserDefinition_EachFinding_NamesItsRuleAndPath",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/definition-registry.test.ts": {
+      "file": "tests/unit/verbs/prepare/definition-registry.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ABuiltInType_ResolvesWithNoRead",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheBuiltInEntries_GoThroughTheAddPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AUserFile_ResolvesByItsName",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheSameNameAndDigestTwice_IsOneEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheSameNameWithAnotherDigest_NamesBothFiles",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheFilesOfADirectory_AreReadInNameOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_SixFindings_ListFiveLinesAndTheCountOfTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ABuiltInNamedFile_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AFileThatIsNotJson_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ABrokenSibling_RefusesEveryUserType",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_%s_NoDirectory_GivesNoEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AFileAboveTheBound_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ALinkedFile_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_%s_InPlaceOfADirectory_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_%s_AReadFailure_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ANonJsonName_IsIgnored",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheDigest_CoversTheExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheCheckoutOfTheLocate_IsTheDirectoryRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ALocateRefusal_PassesThroughUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AConfigWorkflowsType_HasTheConfigFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AConfigTypeWithAFile_IsRefusedBeforeTheLocateAndTheRead",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AnUnregisteredType_HasTheNoDefinitionFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AnUntypedStream_HasTheUntypedFinding",
           "dynamic": false
         }
       ]
