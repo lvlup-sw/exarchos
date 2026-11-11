@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1413,
-    "parsedFiles": 1368,
+    "testFiles": 1416,
+    "parsedFiles": 1371,
     "shellFiles": 45,
-    "cases": 15596,
+    "cases": 15604,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -37979,6 +37979,53 @@
         }
       ]
     },
+    "tests/unit/projections/guard-input/corpus-agreement.test.ts": {
+      "file": "tests/unit/projections/guard-input/corpus-agreement.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_%s_AgreesOnThePhaseTheFactsAndEachVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_TheCases_Are131In102_6_23",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_%s_EachSideGivesTheRecordedVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_APassFixtureWithNoCompletionRows_DisagreesOnTaskStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_DisagreesOnMergeOrchestrator",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_AMergeAtDelegateWithTheWriterRule_Agrees",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/document-side.test.ts": {
+      "file": "tests/unit/projections/guard-input/document-side.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the document side of the guard input",
+          "name": "DocumentSide_EachGoldenTransition_EqualsTheStateThatTheGuardGets",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/projections/guard-input/fold-base.test.ts": {
       "file": "tests/unit/projections/guard-input/fold-base.test.ts",
       "runner": "vitest:root",
@@ -38016,6 +38063,17 @@
         {
           "suite": "the base fold and the map of the guard events",
           "name": "ToGuardEvents_AnEntry_HoldsNoDataKey",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/fold.bench.ts": {
+      "file": "tests/unit/projections/guard-input/fold.bench.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard fold of one stream",
+          "name": "foldGuardInput-700-rows",
           "dynamic": false
         }
       ]
