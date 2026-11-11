@@ -46,7 +46,7 @@ const EdgeCategorySchema = z.enum([
 export type EdgeCategory = z.infer<typeof EdgeCategorySchema>;
 
 /** A step id or a group id. */
-const StepIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/);
+export const StepIdSchema = z.string().regex(/^[a-z][a-z0-9-]*$/);
 
 /** A guard id. A composite id joins the ids of its inner guards with `+`. */
 const GuardIdSchema = z.string().regex(/^[a-z][a-z0-9-]*(\+[a-z][a-z0-9-]*)*$/);

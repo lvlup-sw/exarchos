@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1410,
-    "parsedFiles": 1365,
+    "testFiles": 1411,
+    "parsedFiles": 1366,
     "shellFiles": 45,
-    "cases": 15565,
-    "dynamicTitles": 185,
+    "cases": 15589,
+    "dynamicTitles": 189,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -90785,6 +90785,132 @@
         {
           "suite": "the one check path of a definition document",
           "name": "CheckPath_TheBuiltInLoader_GivesTheFindingsOfTheSharedCheckInOrder",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/user-definition.test.ts": {
+      "file": "tests/unit/workflow/definitions/user-definition.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_TheFixture_PassesEveryRule",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ABuiltInName_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ANameOutsideKebabCase_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_APrototypeKeyName_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AConditionWithACommandKey_IsAnExtensionFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AnUndeclaredFact_IsAConditionFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AGuardId_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ACleanupUniversal_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AnEmptyAuthorityCategory_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AStrategosRuntime_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ACompletionOnAStep_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_%s_AForbiddenKernelKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_%s_ANonEmptyKernelList_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ATerminalEntry_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ATerminalFlagOnANonFinalStep_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ANonEmptyGroupList_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_%s_OnAnEdge_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_%s_AStepIdOutsideTheIdClass_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_EachBuiltInFile_FailsNoKernelShapeRule",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_EachFinding_NamesItsRuleAndPath",
           "dynamic": false
         }
       ]
