@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1418,
-    "parsedFiles": 1373,
+    "testFiles": 1419,
+    "parsedFiles": 1374,
     "shellFiles": 45,
-    "cases": 15664,
+    "cases": 15665,
     "dynamicTitles": 195,
     "unparseableFiles": 0
   },
@@ -91328,6 +91328,17 @@
         {
           "suite": "a registered definition goes from prepare to settle",
           "name": "RegisteredDefinitions_ACommandCondition_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/prepare-steps-profile.test.ts": {
+      "file": "tests/process/prepare-steps-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the packaged chain of the step locator",
+          "name": "PackagedChain_ARefactorInOverhaulDelegate_PreparesThatStep",
           "dynamic": false
         }
       ]
