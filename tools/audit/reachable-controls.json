@@ -108,6 +108,10 @@
       "tests/acceptance",
       "tests/unit/verbs/settle"
     ],
+    "scannedHelperRoots": [
+      "tests/helpers/replay"
+    ],
+    "helperRootsWhy": "A helper builds the composition that the tests which call it run. So the scan reads each tracked `.ts` file under a helper root, and not only the `.test.ts` files of a scanned root.",
     "defaults": [
       {
         "id": "telemetry",
@@ -463,10 +467,16 @@
           "test": "SettleScope_AnInScopeWorktreeAndAnOutOfScopeWorktree_VerifyOnlyTheFirst",
           "keeps": "withShippedTreeObserver("
         }
+      },
+      {
+        "file": "tests/helpers/replay/settled-feature-walk.ts",
+        "default": "state-document-file",
+        "owner": "@rsalus",
+        "reason": "The walk holds the `.state.json` suffix only to list the state directory, and so to prove that no file form of the state document exists. The walk keeps the SQLite backend of the composition root, so the state document stays in the `workflow_state` row."
       }
     ],
     "contextSchema": {
-      "file": "repo-relative path of the test file that turns the default off",
+      "file": "repo-relative path of the test file or the helper file that turns the default off",
       "default": "the id of the shipped default",
       "twin": "a case that keeps the default: its file, its name, and a literal that its body holds",
       "reason": "why the file needs no twin, or the gap that stays open, when there is no twin",
@@ -483,9 +493,13 @@
         {
           "file": "tests/unit/verbs/settle/handler.test.ts",
           "default": "telemetry"
+        },
+        {
+          "file": "tests/helpers/replay/settled-feature-walk.ts",
+          "default": "state-document-file"
         }
       ],
-      "why": "The first record names a twin and the second records a reason. A policy without either record must leave its context unaccounted for. A checker that passes it has gone blind to the defect this rule exists for."
+      "why": "The first record names a twin and the second records a reason. The third is the record of a helper file, so the self-test proves that the scan reaches a helper root. A policy without either record must leave its context unaccounted for. A checker that passes it has gone blind to the defect this rule exists for."
     }
   }
 }
