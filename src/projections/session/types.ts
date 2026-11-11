@@ -30,6 +30,20 @@ export interface SessionToolEvent {
   readonly dur?: number;
   readonly sid: string;
   readonly wid?: string;
+  /** The string `action` of the call input. Only the event of an Exarchos call carries it. */
+  readonly action?: string;
+  /**
+   * The workflow of the call. It is the first string among the input fields `featureId`, `streamId`, `stream` and `workflowId`.
+   * Only the event of an Exarchos call carries it.
+   */
+  readonly featureId?: string;
+  /**
+   * Set when the result has `is_error: true`, or when its content parses as an envelope with `success: false`.
+   * A call with no result is not failed. Only the event of an Exarchos call carries it.
+   */
+  readonly failed?: true;
+  /** The `id` of the `tool_use` block. Only the event of an Exarchos call carries it. */
+  readonly toolUseId?: string;
 }
 
 /** Compact event: one per model turn */

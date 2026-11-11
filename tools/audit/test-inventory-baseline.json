@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1402,
-    "parsedFiles": 1357,
+    "testFiles": 1408,
+    "parsedFiles": 1363,
     "shellFiles": 45,
-    "cases": 15468,
+    "cases": 15553,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -8588,17 +8588,6 @@
         }
       ]
     },
-    "tests/core/process/binary-inputs.test.ts": {
-      "file": "tests/core/process/binary-inputs.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the input scan of the compiled binary",
-          "name": "EnsureBinaryBuilt_AJsonInputNewerThanTheBinary_RebuildsTheBinary",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/core/process/compiled-binary-mcp.test.ts": {
       "file": "tests/core/process/compiled-binary-mcp.test.ts",
       "runner": "vitest:root",
@@ -14728,6 +14717,197 @@
         {
           "suite": "npm publish target",
           "name": "NpmPublish_WithTheRepositoryNpmrc_TargetsNpmjs",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/observed-call-count.test.ts": {
+      "file": "tests/scripts/observed-call-count.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_WorkDescribeAndRunbookCalls_AreCountedApart",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ARawRunbookFetch_IsARunbookFetchAsInTheCallShapeCensus",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnUnknownExarchosTool_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ASubagentFile_IsReadAndMarked",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ANestedSubagentFile_IsRead",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ARepeatedToolUseId_IsCountedOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_TwoWorkflowsInOneSession_AreCountedApart",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallWithNoWorkflow_GoesToTheLatestWorkflowOfItsFile",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallBeforeAnyWorkflow_IsUnattributed",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AFailedCall_IsCountedApartAndInNoRoleTotal",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnExarchosCallWithNoAction_IsCountedApart",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnUnregisteredCallThatFailed_IsCountedOnceAsUnregistered",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallWithNoActionThatFailed_IsCountedOnceAsNoAction",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachWorkflow_SplitsItsCountsByCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachCaller_CountsItsFilesOverTheWholeTree",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AFileWithNoTranscriptLine_HasNoCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachFilePath_IsPosixAndInCodeUnitOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachRuleThreeFile_IsListedWithItsWorkflowPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachWorkflow_GivesTheSumOfItsCountsOverEveryCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_APrepareCallInAWorkflowSubagentFile_CountsForTheCoordinator",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnExarchosAgentSpecType_GivesItsCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AWorkerThatCallsSettle_StaysAWorker",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AWorkflowSubagentWithNoPrepareOrSettle_IsOther",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachFile_NamesTheRuleThatGaveItsCaller",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ASubagentFileWithNoMetaFile_HasTheCallerUnknown",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ALineThatIsNotJson_IsCountedAsSkipped",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallOnALineThatTheParserSkips_FailsTheConservationCheck",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_AnUnreadableSubagentFile_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ATranscriptWithNoExarchosCall_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_TheRecordedSession_GivesItsHandCountedCounts",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachRole_IsTheRoleThatTheCallShapeCensusGives",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ASymbolicLinkToADirectory_IsRead",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ALinkLoop_IsReadOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ACallWithNoWorkflow_TakesTheLatestWorkflowOfItsOwnFile",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_ASettleCallInAWorkflowSubagentFile_CountsForTheCoordinator",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_EachFile_GivesTheSixCountsOfEachWorkflow",
+          "dynamic": false
+        },
+        {
+          "suite": "observed call count",
+          "name": "ObservedCallCount_TwoMissesThatCancel_FailTheConservationCheck",
           "dynamic": false
         }
       ]
@@ -39173,6 +39353,67 @@
         }
       ]
     },
+    "tests/unit/projections/session/transcript-parser-actions.test.ts": {
+      "file": "tests/unit/projections/session/transcript-parser-actions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AnExarchosCall_RecordsItsActionAndFeatureId",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AnExarchosCall_RecordsItsToolUseId",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_ACallWithNoResult_IsNotMarkedFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AnEventAppend_TakesTheWorkflowFromItsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_APrepareCall_TakesTheWorkflowFromItsStreamId",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_TwoWorkflowFields_TakeTheFirstInTheFixedOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AnErrorResult_MarksTheCallFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AStringEnvelopeWithSuccessFalse_MarksTheCallFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_AListEnvelopeWithSuccessFalse_MarksTheCallFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "ExtractToolCalls_ANativeCall_CarriesNoneOfTheFourFields",
+          "dynamic": false
+        },
+        {
+          "suite": "TranscriptParserActions",
+          "name": "BuildSessionSummary_TheToolCounts_KeepTheirShape",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/projections/session/transcript-parser.test.ts": {
       "file": "tests/unit/projections/session/transcript-parser.test.ts",
       "runner": "vitest:root",
@@ -62233,37 +62474,6 @@
         }
       ]
     },
-    "tests/unit/verbs/prepare/lower-definition-source.test.ts": {
-      "file": "tests/unit/verbs/prepare/lower-definition-source.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the source of the lowered kernel",
-          "name": "LowerDefinition_TheModule_ReadsTheDefinitionsAndNotTheMachine",
-          "dynamic": false
-        },
-        {
-          "suite": "the source of the lowered kernel",
-          "name": "LowerDefinition_%s_IsTheDefinitionWithoutItsExtension",
-          "dynamic": false
-        },
-        {
-          "suite": "the source of the lowered kernel",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "the source of the lowered kernel",
-          "name": "LowerDefinition_%s_EqualsTheMachineLowering",
-          "dynamic": false
-        },
-        {
-          "suite": "the source of the lowered kernel",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        }
-      ]
-    },
     "tests/unit/verbs/prepare/lower-definition.test.ts": {
       "file": "tests/unit/verbs/prepare/lower-definition.test.ts",
       "runner": "vitest:root",
@@ -75978,363 +76188,6 @@
         {
           "suite": "HandleWorkflow_InitDispatch_EmitsWorkflowStartedWithRepoRoot (DR-5)",
           "name": "composite init dispatch stamps the caller repo key on workflow.started",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/definitions/authored-equals-golden.test.ts": {
-      "file": "tests/unit/workflow/definitions/authored-equals-golden.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the authored built-in definitions against the golden",
-          "name": "AuthoredDefinition_%s_EqualsTheGoldenProjection",
-          "dynamic": false
-        },
-        {
-          "suite": "the authored built-in definitions against the golden",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "the authored built-in definitions against the golden",
-          "name": "AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd51Edges",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/definitions/built-in-definitions.test.ts": {
-      "file": "tests/unit/workflow/definitions/built-in-definitions.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_%s_ParsesWithTheKernelAndTheExtension",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_%s_PassesTheBuiltInRules",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AStrayStepKey_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AStrayTransitionKey_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AnAuthorityOtherThanTheBuiltIn_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AnEdgeWithNoGuardId_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_TheUniversalEdges_AreTheExecutorUniversals",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_EachDefinition_IsDeepFrozen",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_TheKernelCopy_HoldsNoExtensionKey",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_ANameOutsideTheRoster_IsNotABuiltInType",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_ABrokenRawSet_ThrowsAndNamesEachRuleAndPath",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_TheFiveImports_LoadWithNoFinding",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_ATerminalStepId_IsABuiltInEntryFinding",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AnUnknownStepType_IsAStepTypeFinding",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AFixCycleFlagOutsideTheFixLoop_IsAnEdgeFinding",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AnExplicitAlwaysLegalRoute_IsAnEdgeFinding",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AKernelSchemaFinding_IsThrownAtLoad",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_AnExtensionSchemaFinding_IsThrownAtLoad",
-          "dynamic": false
-        },
-        {
-          "suite": "the built-in workflow definitions",
-          "name": "BuiltInDefinitions_TwoFindingsInOneDocument_AreBothNamed",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/definitions/built-in-golden.test.ts": {
-      "file": "tests/unit/workflow/definitions/built-in-golden.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the golden of the built-in workflows",
-          "name": "BuiltInGolden_LiveProjection_IsByteIdenticalToTheGolden",
-          "dynamic": false
-        },
-        {
-          "suite": "the golden of the built-in workflows",
-          "name": "BuiltInGolden_TheDigests_AreTheFiveHexLiterals",
-          "dynamic": false
-        },
-        {
-          "suite": "the golden of the built-in workflows",
-          "name": "BuiltInGolden_TheGolden_HoldsTheDenominators",
-          "dynamic": false
-        },
-        {
-          "suite": "the golden of the built-in workflows",
-          "name": "BuiltInGolden_EveryContractPhase_IsAStateOfTheGolden",
-          "dynamic": false
-        },
-        {
-          "suite": "the golden of the built-in workflows",
-          "name": "BuiltInGolden_TheCaptureOfTheLiveCorpus_CoversEachCaseKind",
-          "dynamic": false
-        },
-        {
-          "suite": "the golden of the built-in workflows",
-          "name": "BuiltInGolden_EachSecondGuardCase_FailsOnTheSecondInnerGuard",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/definitions/derive-machine.test.ts": {
-      "file": "tests/unit/workflow/definitions/derive-machine.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_%s_EqualsTheLiteralMachineAsJson",
-          "dynamic": false
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_%s_BindsEachPlainGuardByReference",
-          "dynamic": false
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_EachBoundComposite_GivesTheStoredResults",
-          "dynamic": false
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_ASwappedGuardId_BindsTheOtherGuard",
-          "dynamic": false
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_ADuplicateBindingId_Throws",
-          "dynamic": false
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_AnUnknownGuardId_ThrowsAndNamesTheEdge",
-          "dynamic": false
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_AReorderedTransition_ChangesTheValidTargetOrder",
-          "dynamic": false
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_ADroppedMaxFixCycles_LetsTheTransitionAtTheCapSucceed",
-          "dynamic": false
-        },
-        {
-          "suite": "the phase machine that derives from each built-in definition",
-          "name": "DeriveMachine_EachCall_ReturnsAMachineThatSharesNoArrayWithTheDefinition",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/definitions/derived-ir.test.ts": {
-      "file": "tests/unit/workflow/definitions/derived-ir.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the admission IR that derives from the built-in definitions",
-          "name": "DerivedIR_TheEdges_Are51In12_16_17_4_2",
-          "dynamic": false
-        },
-        {
-          "suite": "the admission IR that derives from the built-in definitions",
-          "name": "DerivedIR_TasksCompleteCondition_IsTheOverhaulDelegateGatePresence",
-          "dynamic": false
-        },
-        {
-          "suite": "the admission IR that derives from the built-in definitions",
-          "name": "DerivedIR_ASwappedGuardId_ChangesOnlyThatEdge",
-          "dynamic": false
-        },
-        {
-          "suite": "the admission IR that derives from the built-in definitions",
-          "name": "DerivedIR_AnUndeclaredFactInARoute_ThrowsAndNamesTheEdge",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/definitions/extension.test.ts": {
-      "file": "tests/unit/workflow/definitions/extension.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_AValidDocument_Parses",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_TheKernelSchema_AcceptsABrokenExtension",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_AnUnknownKey_IsRefusedAtEveryLevel",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_AConditionWithACommandKey_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_AnEdgeWithNoTransition_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_ATransitionWithNoEdge_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_AStepInTwoGroups_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_ANonContiguousGroup_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_AHistoryOtherThanShallow_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_AUniversalEdgeToANonTerminalStep_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_ATopLevelKeyOutsideTheKernel_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_ACompositeGuardId_IsAccepted",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_EachFinding_NamesItsRuleAndPath",
-          "dynamic": false
-        },
-        {
-          "suite": "the exarchos extension of a definition",
-          "name": "Extension_TheMachineModule_ImportsTheEffectType",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/workflow/definitions/registry-source.test.ts": {
-      "file": "tests/unit/workflow/definitions/registry-source.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the live registry reads the built-in definitions",
-          "name": "RegistrySource_EachGuardOfTheRegistry_IsTheBoundGuardObject",
-          "dynamic": false
-        },
-        {
-          "suite": "the live registry reads the built-in definitions",
-          "name": "RegistrySource_TheMachineModule_HoldsNoTransitionLiteral",
-          "dynamic": false
-        },
-        {
-          "suite": "the live registry reads the built-in definitions",
-          "name": "RegistrySource_TheRoster_IsTheDefinitionRoster",
-          "dynamic": false
-        },
-        {
-          "suite": "the live registry reads the built-in definitions",
-          "name": "RegistrySource_EachInitialPhase_IsTheEntryStep",
           "dynamic": false
         }
       ]
@@ -90252,6 +90105,614 @@
         {
           "suite": "parity: exarchos orchestrate prepare and settle — CLI ↔ MCP",
           "name": "prepareAndSettle_refusedOnEachTransport_envelopesMatchAfterNormalize",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/workflow-replay-helper.test.ts": {
+      "file": "tests/unit/events/workflow-replay-helper.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_AStreamWithReservedRows_CopiesEachRowThroughTheAppender",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ACopiedRow_KeepsEachFieldButItsEventId",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_AKeyedBatchOfTwoRows_IsCopiedInOneAppend",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_AKeyThatTwoRunsShare_IsRefusedBeforeAnyWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ABound_CopiesTheRowsThroughItsSequenceOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ABoundInsideAKeyedRun_IsRefusedBeforeAnyWrite",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_EachNamedBundle_ResolvesInTheTargetByTheSameDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ADigestThatASettlementBundleNames_IsCopied",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ABundleMissingInTheSource_IsRefusedWithItsDigest",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_ATargetThatHoldsTheStream_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "copyWorkflowStream",
+          "name": "CopyWorkflowStream_AKeyedRunWithNoSourceClaim_GetsNoClaimInTheTarget",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/workflow-replay.test.ts": {
+      "file": "tests/acceptance/workflow-replay.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheSettledStream_HoldsEachLedgerKind",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheWalk_KeepsTheStateDocumentInTheWorkflowStateRow",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheWalk_CallsAsAnMcpSessionWithTheDefaultGrant",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheCopy_HoldsTheSameRowsInTheSameSequences",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_EachKeyOfTheWalk_HasTheSameIdempotencyClaimInBothStores",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheWalk_ReturnsAfterTheEmissionRowOfEachCall",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_BothFolds_ReturnAState",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheCopy_FoldsToTheSameProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheCopy_FoldsToThePhaseAndTasksThatTheWalkSaw",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheFactsOfTheWalk_HoldElevenEntriesOverThreeReceipts",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheSettlementFactsOfTheCopy_EqualTheFactsOfTheWalk",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_ASeededFactDivergence_IsFoundWhileTheRowsStayEqual",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_NoClaimOfTheWalk_CitesEvidence",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheCopiedBundles_PassTheCustodySweepWithTheSameCount",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_EachSettlementBundle_DecodesFromTheFreshStore",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_APrefixWithoutTheLastTransition_FoldsToAnotherPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "WorkflowReplay",
+          "name": "WorkflowReplay_TheFreshStore_HoldsNoOperationClaim",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/replay-helper-is-test-only.test.ts": {
+      "file": "tests/architecture/replay-helper-is-test-only.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the replay helper is test-only",
+          "name": "ReplayHelper_NoModuleUnderSrcOrTools_ImportsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "the replay helper is test-only",
+          "name": "ReplayHelper_APlantedImport_IsFound",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/mixed-history-golden.test.ts": {
+      "file": "tests/unit/projections/mixed-history-golden.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_EachRow_ParsesWithTheSchemaOfItsType",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_TheTypesWithNoDataSchema_AreOnlyStatePatched",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_TheFixture_HoldsEachSettlementKindAndThreeTransitions",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_TheFold_GivesThePinnedPhaseAfterEachRow",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_NoSettlementRow_MovesThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_EachTransitionRow_HasAPhaseEnteredRowForItsTarget",
+          "dynamic": false
+        },
+        {
+          "suite": "MixedHistoryGolden",
+          "name": "MixedHistoryGolden_TheLastRow_EndsInReviewWithTheObligationOfReview",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/process/binary-inputs.test.ts": {
+      "file": "tests/core/process/binary-inputs.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the input scan of the compiled binary",
+          "name": "EnsureBinaryBuilt_AJsonInputNewerThanTheBinary_RebuildsTheBinary",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/lower-definition-source.test.ts": {
+      "file": "tests/unit/verbs/prepare/lower-definition-source.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "LowerDefinition_TheModule_ReadsTheDefinitionsAndNotTheMachine",
+          "dynamic": false
+        },
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "LowerDefinition_%s_IsTheDefinitionWithoutItsExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "LowerDefinition_%s_EqualsTheMachineLowering",
+          "dynamic": false
+        },
+        {
+          "suite": "the source of the lowered kernel",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/authored-equals-golden.test.ts": {
+      "file": "tests/unit/workflow/definitions/authored-equals-golden.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the authored built-in definitions against the golden",
+          "name": "AuthoredDefinition_%s_EqualsTheGoldenProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "the authored built-in definitions against the golden",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the authored built-in definitions against the golden",
+          "name": "AuthoredDefinition_TheProjection_HoldsFiveDefinitionsAnd51Edges",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/built-in-definitions.test.ts": {
+      "file": "tests/unit/workflow/definitions/built-in-definitions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_%s_ParsesWithTheKernelAndTheExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_%s_PassesTheBuiltInRules",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AStrayStepKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AStrayTransitionKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnAuthorityOtherThanTheBuiltIn_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnEdgeWithNoGuardId_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_TheUniversalEdges_AreTheExecutorUniversals",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_EachDefinition_IsDeepFrozen",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_TheKernelCopy_HoldsNoExtensionKey",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_ANameOutsideTheRoster_IsNotABuiltInType",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_ABrokenRawSet_ThrowsAndNamesEachRuleAndPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_TheFiveImports_LoadWithNoFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_ATerminalStepId_IsABuiltInEntryFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnUnknownStepType_IsAStepTypeFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AFixCycleFlagOutsideTheFixLoop_IsAnEdgeFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnExplicitAlwaysLegalRoute_IsAnEdgeFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AKernelSchemaFinding_IsThrownAtLoad",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_AnExtensionSchemaFinding_IsThrownAtLoad",
+          "dynamic": false
+        },
+        {
+          "suite": "the built-in workflow definitions",
+          "name": "BuiltInDefinitions_TwoFindingsInOneDocument_AreBothNamed",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/built-in-golden.test.ts": {
+      "file": "tests/unit/workflow/definitions/built-in-golden.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the golden of the built-in workflows",
+          "name": "BuiltInGolden_LiveProjection_IsByteIdenticalToTheGolden",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of the built-in workflows",
+          "name": "BuiltInGolden_TheDigests_AreTheFiveHexLiterals",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of the built-in workflows",
+          "name": "BuiltInGolden_TheGolden_HoldsTheDenominators",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of the built-in workflows",
+          "name": "BuiltInGolden_EveryContractPhase_IsAStateOfTheGolden",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of the built-in workflows",
+          "name": "BuiltInGolden_TheCaptureOfTheLiveCorpus_CoversEachCaseKind",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of the built-in workflows",
+          "name": "BuiltInGolden_EachSecondGuardCase_FailsOnTheSecondInnerGuard",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/derive-machine.test.ts": {
+      "file": "tests/unit/workflow/definitions/derive-machine.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_%s_EqualsTheLiteralMachineAsJson",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_%s_BindsEachPlainGuardByReference",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_EachBoundComposite_GivesTheStoredResults",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_ASwappedGuardId_BindsTheOtherGuard",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_ADuplicateBindingId_Throws",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_AnUnknownGuardId_ThrowsAndNamesTheEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_AReorderedTransition_ChangesTheValidTargetOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_ADroppedMaxFixCycles_LetsTheTransitionAtTheCapSucceed",
+          "dynamic": false
+        },
+        {
+          "suite": "the phase machine that derives from each built-in definition",
+          "name": "DeriveMachine_EachCall_ReturnsAMachineThatSharesNoArrayWithTheDefinition",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/derived-ir.test.ts": {
+      "file": "tests/unit/workflow/definitions/derived-ir.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the admission IR that derives from the built-in definitions",
+          "name": "DerivedIR_TheEdges_Are51In12_16_17_4_2",
+          "dynamic": false
+        },
+        {
+          "suite": "the admission IR that derives from the built-in definitions",
+          "name": "DerivedIR_TasksCompleteCondition_IsTheOverhaulDelegateGatePresence",
+          "dynamic": false
+        },
+        {
+          "suite": "the admission IR that derives from the built-in definitions",
+          "name": "DerivedIR_ASwappedGuardId_ChangesOnlyThatEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the admission IR that derives from the built-in definitions",
+          "name": "DerivedIR_AnUndeclaredFactInARoute_ThrowsAndNamesTheEdge",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/extension.test.ts": {
+      "file": "tests/unit/workflow/definitions/extension.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AValidDocument_Parses",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_TheKernelSchema_AcceptsABrokenExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AnUnknownKey_IsRefusedAtEveryLevel",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AConditionWithACommandKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AnEdgeWithNoTransition_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_ATransitionWithNoEdge_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AStepInTwoGroups_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_ANonContiguousGroup_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AHistoryOtherThanShallow_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_AUniversalEdgeToANonTerminalStep_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_ATopLevelKeyOutsideTheKernel_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_ACompositeGuardId_IsAccepted",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_EachFinding_NamesItsRuleAndPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the exarchos extension of a definition",
+          "name": "Extension_TheMachineModule_ImportsTheEffectType",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/registry-source.test.ts": {
+      "file": "tests/unit/workflow/definitions/registry-source.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the live registry reads the built-in definitions",
+          "name": "RegistrySource_EachGuardOfTheRegistry_IsTheBoundGuardObject",
+          "dynamic": false
+        },
+        {
+          "suite": "the live registry reads the built-in definitions",
+          "name": "RegistrySource_TheMachineModule_HoldsNoTransitionLiteral",
+          "dynamic": false
+        },
+        {
+          "suite": "the live registry reads the built-in definitions",
+          "name": "RegistrySource_TheRoster_IsTheDefinitionRoster",
+          "dynamic": false
+        },
+        {
+          "suite": "the live registry reads the built-in definitions",
+          "name": "RegistrySource_EachInitialPhase_IsTheEntryStep",
           "dynamic": false
         }
       ]

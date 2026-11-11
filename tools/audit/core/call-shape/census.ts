@@ -303,7 +303,7 @@ function sha256(text: string): string {
   return createHash('sha256').update(text).digest('hex');
 }
 
-function roleOf(call: string): CallRole {
+export function roleOf(call: string): CallRole {
   if (call.startsWith('native:')) return 'native';
   if (call.endsWith('.describe')) return 'describe';
   if (call === 'exarchos_orchestrate.runbook') return 'runbook-fetch';

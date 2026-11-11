@@ -56,6 +56,66 @@ interface ToolUseBlock {
 interface ToolResultBlock {
   toolUseId: string;
   content: string;
+  /** The `is_error` flag of the `tool_result` block. */
+  isError: boolean;
+  /** The text that can hold the result envelope, from `envelopeTextOf`. */
+  envelopeText: string | undefined;
+}
+
+/** The four fields that only the event of an Exarchos call carries. */
+type ExarchosCallFields = Pick<SessionToolEvent, 'action' | 'featureId' | 'failed' | 'toolUseId'>;
+
+/** The input fields that name the workflow of an Exarchos call, in their order of precedence. */
+const WORKFLOW_INPUT_FIELDS: readonly string[] = ['featureId', 'streamId', 'stream', 'workflowId'];
+
+/**
+ * Returns the text of the result envelope. A string content is the envelope text as it is.
+ * For a list, the envelope text is the text of its first text block.
+ */
+function envelopeTextOf(content: unknown): string | undefined {
+  if (typeof content === 'string') return content;
+  if (!Array.isArray(content)) return undefined;
+  const parts: readonly unknown[] = content;
+  for (const part of parts) {
+    if (isRecord(part) && part.type === 'text') {
+      return typeof part.text === 'string' ? part.text : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** Returns true when the result has `is_error: true`, or when its envelope text parses as an envelope with `success: false`. */
+function isFailedResult(result: ToolResultBlock): boolean {
+  if (result.isError) return true;
+  if (result.envelopeText === undefined) return false;
+  try {
+    const envelope: unknown = JSON.parse(result.envelopeText);
+    return isRecord(envelope) && envelope.success === false;
+  } catch {
+    return false;
+  }
+}
+
+/** Returns the first string among the workflow fields of the input, or `undefined` when no such field holds a string. */
+function workflowOf(input: Record<string, unknown>): string | undefined {
+  for (const field of WORKFLOW_INPUT_FIELDS) {
+    const value = input[field];
+    if (typeof value === 'string') return value;
+  }
+  return undefined;
+}
+
+/** Builds the four fields of the event of an Exarchos call. A call with no result is not failed. */
+function exarchosCallFields(toolUse: ToolUseBlock, result: ToolResultBlock | undefined): ExarchosCallFields {
+  const action = toolUse.input.action;
+  const featureId = workflowOf(toolUse.input);
+  const failed = result !== undefined && isFailedResult(result);
+  return {
+    ...(typeof action === 'string' ? { action } : {}),
+    ...(featureId !== undefined ? { featureId } : {}),
+    ...(failed ? { failed: true } : {}),
+    toolUseId: toolUse.id,
+  };
 }
 
 export function extractToolCalls(lines: unknown[], metadata: SessionMetadata): SessionToolEvent[] {
@@ -94,6 +154,8 @@ export function extractToolCalls(lines: unknown[], metadata: SessionMetadata): S
           toolResults.set(block.tool_use_id, {
             toolUseId: block.tool_use_id,
             content: resultContent,
+            isError: block.is_error === true,
+            envelopeText: envelopeTextOf(block.content),
           });
         }
       }
@@ -106,17 +168,19 @@ export function extractToolCalls(lines: unknown[], metadata: SessionMetadata): S
     const inputBytes = JSON.stringify(tu.input).length;
     const outputBytes = result ? result.content.length : 0;
     const filePaths = extractFilePaths(tu.name, tu.input);
+    const category = categorizeTool(tu.name);
 
     const event: SessionToolEvent = {
       t: 'tool',
       ts: tu.timestamp,
       tool: tu.name,
-      cat: categorizeTool(tu.name),
+      cat: category,
       inB: inputBytes,
       outB: outputBytes,
       sid: metadata.sessionId,
       ...(metadata.workflowId ? { wid: metadata.workflowId } : {}),
       ...(filePaths.length > 0 ? { files: filePaths } : {}),
+      ...(category === 'mcp_exarchos' ? exarchosCallFields(tu, result) : {}),
     };
     events.push(event);
   }

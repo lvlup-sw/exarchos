@@ -1,6 +1,6 @@
 {
-  "capturedAt": "2026-11-07",
-  "trackedFiles": 3319,
+  "capturedAt": "2026-11-11",
+  "trackedFiles": 3341,
   "surfaces": {
     "depcruise:no-domain-core-to-io-adapters:from": {
       "kind": "module-set",
@@ -18,7 +18,7 @@
     },
     "codeowners:*": {
       "kind": "ownership",
-      "matched": 3319
+      "matched": 3341
     },
     "codeowners:src/": {
       "kind": "ownership",
@@ -26,7 +26,7 @@
     },
     "codeowners:tools/": {
       "kind": "ownership",
-      "matched": 358
+      "matched": 359
     },
     "codeowners:content/": {
       "kind": "ownership",
@@ -38,7 +38,7 @@
     },
     "codeowners:tests/": {
       "kind": "ownership",
-      "matched": 1656
+      "matched": 1677
     },
     "codeowners:.exarchos/": {
       "kind": "ownership",
@@ -111,7 +111,7 @@
     },
     "lint:eslint-cli-glob": {
       "kind": "lint-scope",
-      "matched": 2504,
+      "matched": 2518,
       "detail": {
         "glob": "{src,tools,tests}/**/*.{ts,mts,cts,js,mjs,cjs} *.{ts,mts,cts,js,mjs,cjs}"
       }
@@ -132,7 +132,7 @@
     },
     "knip:workspace:.": {
       "kind": "dead-code",
-      "matched": 2810,
+      "matched": 2832,
       "detail": {
         "glob": "src/**/*.ts tests/**/*.ts !tests/evals/**/runs/** tools/audit/**/*.ts tools/conformance/src/**/*.ts tools/evals/**/*.ts tools/evals-pkg/**/*.ts tools/git-hooks/**/*.ts tools/release/**/*.ts tools/test-helpers/**/*.ts docs/.vitepress/**/*.ts src/install/runtimes/load.js"
       }
