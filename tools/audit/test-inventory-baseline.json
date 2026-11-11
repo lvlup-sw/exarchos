@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1417,
-    "parsedFiles": 1372,
+    "testFiles": 1418,
+    "parsedFiles": 1373,
     "shellFiles": 45,
-    "cases": 15660,
+    "cases": 15664,
     "dynamicTitles": 195,
     "unparseableFiles": 0
   },
@@ -91302,6 +91302,32 @@
         {
           "suite": "the compile path of prepare holds no built-in type or step literal",
           "name": "CompilePath_NoPrepareModule_NamesTheRetiredSwitchConstants",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/registered-definitions.test.ts": {
+      "file": "tests/acceptance/registered-definitions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a registered definition goes from prepare to settle",
+          "name": "RegisteredDefinitions_AUserDefinition_PreparesAndSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "a registered definition goes from prepare to settle",
+          "name": "RegisteredDefinitions_ThePreparedRecord_PinsTheKernelOfTheFile",
+          "dynamic": false
+        },
+        {
+          "suite": "a registered definition goes from prepare to settle",
+          "name": "RegisteredDefinitions_ARefactorOverhaulWave_PreparesAndSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "a registered definition goes from prepare to settle",
+          "name": "RegisteredDefinitions_ACommandCondition_IsRefusedBeforeAnyEffect",
           "dynamic": false
         }
       ]
