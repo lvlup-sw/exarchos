@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1418,
-    "parsedFiles": 1373,
+    "testFiles": 1419,
+    "parsedFiles": 1374,
     "shellFiles": 45,
-    "cases": 15633,
-    "dynamicTitles": 185,
+    "cases": 15654,
+    "dynamicTitles": 188,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -8979,6 +8979,117 @@
         {
           "suite": "generate-docs > phase derivation",
           "name": "should show \"all\" when an action covers every derived phase",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/scripts/guard-input-audit.test.ts": {
+      "file": "tests/core/scripts/guard-input-audit.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_ASeededStore_GivesTheExactCountOfEachClass",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AStreamWhoseReadThrows_IsAFoldErrorOfItsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AListingThatThrows_IsRefusedAsUnreadable",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_ADocumentOffTheLedger_CountsAsNotOnLedger",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_OnlyInfraStreams_IsNotClean",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AnActiveDisagreement_IsNotClean_AndATerminalOne_ReportsOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_%s_AnActiveDocumentIsNotClean_AndItsTerminalTwinIs",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AFeatureDocumentAtIdeate_IsUnknownPhaseAndNotClean",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_OneForgedTaskWithEqualSummaries_IsTaskStatusAndNotClean",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_TheCopy_KeepsItsEventAndStateRows",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AFoldError_MarksOnlyItsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_ASidecarAndAnInfraStream_CountAsNonWorkflowStreams",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AStreamWithAStartRowAndNoDocument_IsAStreamWithoutDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_%s_IsRefusedAndMakesNoDatabase",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_ALiveStore_%s_IsRefusedAndKeepsItsBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_AnEmptyStore_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_AnUnreadableStore_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_ASeededCopy_ExitsZeroAndWritesTheReport",
           "dynamic": false
         }
       ]
