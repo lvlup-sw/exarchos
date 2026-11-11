@@ -17,8 +17,8 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-11-09
-  main_at: a4f6728a5
+  as_of: 2026-11-10
+  main_at: e3995630f
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -230,6 +230,7 @@ machines:
     lands_at: "kernel-first three-representation IR"
     class: "reshaped"
     status_2026_09_30: "kernel consumed (#1903, #1905); definitions not authored; prepare derives a kernel FROM the HSM (lower-definition.ts)"
+    status_2026_11_09: "definitions authored in S2 of #1927 (#1253 wave 1). The five built-ins are kernel definitions with an exarchos extension, in src/workflow/definitions/<type>.workflow.json. prepare lowers the kernel part of the authored definition, and the admission IR and the phase machine derive from the same files. No output moved. The Builder is a v3.1 item (D7)."
   - machine: "DKG #1745"
     lands_at: "the C2 knowledge binder"
     class: "reshaped"
@@ -653,7 +654,12 @@ decisions:
   - date: "2026-11-09"
     source: "the lead, the spec of S1 'the baseline' of #1927 (revision 8, approved by plan review). Each rule follows the plan, a packet rule, the lead decision of 2026-11-06 or a fact of the tree."
     decision: "Five rules of the S1 oracles. First, adjudication cannot run again from the stored rows and bundles alone. Four inputs are in no row and no bundle: the observed claimed trees, the plan standing, the admission-evidence blobs and the segment runs. So the replay is a row-fidelity check of the fold, and re-judgement belongs to S5, which needs the observed trees in the record and the plan standing from the ledger fold of S4. Second, the replay compares the settlement facts of the copy with facts that it builds from the walk alone. A comparison with the facts of the source store is a twin of the row comparison, because equal rows give equal facts. The expected facts hold 11 entries over three receipts, completed reads only the receipts whose outcome verifies, and a seeded divergence fails the comparison while the rows stay equal. Third, the observed counter puts a failed call in no role total. Each Exarchos call goes into one of six counts, and the first rule that matches decides: noAction, unregistered, failed, then the role that roleOf gives. Fourth, a call with no workflow field takes the latest workflow of its own file, then the latest workflow that the session file names before its timestamp, else it is unattributed. Fifth, the counter reads the session tree (the session file and each *.jsonl file under <session>/subagents/, at any depth), counts each tool_use id once and gives each transcript file a caller: coordinator, reviewer, worker, other or unknown. A file that calls prepare or settle is a coordinator file. The 2-call measure of S10 reads the total of each workflow over every caller, because the budget is per workflow, and the split by caller is a diagnostic."
-    status: "built on feat/workflow-capsule-baseline in six tasks: the replay helper, the walk and the replay test (5717d9571), the mixed-history golden (f7c2adcd0), the four session fields (614863874), the observed counter (59abe5789), these records (a10034ae3) and the fixes of review round 1 (d70cb703c: the counter follows a linked directory, splits each file by workflow and compares the two id sets, and the replay helper writes no claim for a keyed run whose source holds none). The pull request number follows at synthesis. No event kind, stored shape, capsule field or registration changes, and the compiler stays exarchos-prepare-5."
+    status: "built on feat/workflow-capsule-baseline in six tasks: the replay helper, the walk and the replay test (5717d9571), the mixed-history golden (f7c2adcd0), the four session fields (614863874), the observed counter (59abe5789), these records (a10034ae3) and the fixes of review round 1 (d70cb703c: the counter follows a linked directory, splits each file by workflow and compares the two id sets, and the replay helper writes no claim for a keyed run whose source holds none). Pull request #2185, merge commit e3995630f. No event kind, stored shape, capsule field or registration changes, and the compiler stays exarchos-prepare-5."
+  - date: "2026-11-09"
+    source: "the lead, the spec 'the definitions are the source' (docs/specs/2026-11-05-definitions-are-the-source.md, revision 6), slice S2 of #1927"
+    decision: "The definitions are the source of the five built-in workflows (#1253 wave 1). Format and place: each built-in is one checked-in JSON file, src/workflow/definitions/<type>.workflow.json. The file is one WorkflowDefinitionV1 document with one more top-level key, exarchos (D1). The extension holds the groups, one entry for each kernel transitionId (guard id, category, route, obligation, flags, effects) and the universal edges. It restates no kernel field. src/workflow/definitions/built-in.ts loads the five files at module load. It parses each file with the loose kernel schema and the strict extension schema, runs the reference rules and the built-in rules, and throws on any finding. The lowered kernel is the definition without its extension, so the five definitionVersion digests did not move. The admission IR derives its 51 edges from the extension. hsm-definitions.ts derives each phase machine with deriveMachine, and its binding table GUARD_BINDINGS binds each guard id to the Guard object of today. An unknown or duplicate id throws at load. The legacy guards still decide, and the six known admission disagreements stay allows. Precedence of the universal edges: each entry has edgeKind cancel or cleanup, and the executor stays hard-coded. cancel has no guard and runs before the explicit edges, so it shadows an explicit edge to the same target. cleanup has the guard merge-verified and runs before the explicit edges. When its guard fails, the explicit edge to the same target decides. getValidTransitions lists a universal target only when no explicit edge reaches it. The golden: tests/unit/workflow/__fixtures__/built-in.golden.json was captured before any source change, and it stays frozen. A recapture runs on the code of main in a detached worktree, never on the branch. Owners of the later readers: S5 gives the universal edges, history and the revise exception a reader, and captures the emission delta again. S7 and S9 capture the definition deltas again. S12 deletes deriveMachine, hsm-definitions.ts, guards.ts, lower-definition.ts, the golden and both test helpers."
+    known: "The build ran on an MCP server binary of main, so each settlement of the build judged the code of main. Stage B runs the binary of the branch, and the pull request records its results."
+    status: "built on feat/definitions-are-the-source (T-01 34ebeecd7 to T-08 86600ec47, the merge of main 6d6257f74, and T-09 c8c6c382b, the test fixes of review round 1). Pull request #2186. The records change after the merge writes its merge commit."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -688,7 +694,7 @@ build_order:
       status: "decided"
       refs: "#1928 (every Git/PR write; related #1884, #1835)"
     - leg: "conformance: workflow-scoped capsule (definitions first; whole workflow per capsule; settlement carries phase; next_actions, playbooks, state document retire)"
-      status: "in progress, in twelve slices (decisions of 2026-11-05). The four minor pull requests landed first: #2182, #2183, #2180 and #2181, with #2184. S1 'the baseline' is done on feat/workflow-capsule-baseline, and synthesize adds its pull request number. S2 is in progress on feat/definitions-are-the-source."
+      status: "in progress in twelve slices (decisions of 2026-11-05). The four minor pull requests landed first: #2182, #2183 (with #2184), #2180 and #2181. S1 'the baseline' is done (pull request #2185, merge commit e3995630f). S2 is done (pull request #2186; the records change after the merge writes its merge commit). S3 to S12 are not started."
       slices: "S1 the baseline (#1687): the replay of a settled feature stream, the mixed-history golden and the observed counter; S2 the definitions are the source (#1253 wave 1); S3 any registered definition compiles (#1251, #1252); S4 one guard input, in shadow; S5 settlement moves the phase; S6 the plan is a compile input (#1657, #1999); S7 every task in one capsule; S8 the critic and the synthesis boundary (#1976, #1928); S9 every built-in compiles; S10 the skills speak prepare and settle (#1687, #2034, #1829), with the static call census for each workflow and the protocol-term census, which moved from S1 on 2026-11-06; S11 the forgeable routes close; S12 the phase machine is deleted (#1253, #1251, #1258)"
       refs: "#1927 (vehicle #1253; #1258, #1248, #1250, #1251, #1254)"
     - leg: "conformance: knowledge binding C2 (interim repo-local binder; DKG hot path)"
@@ -751,8 +757,8 @@ drift:
     resolution: "agent-teams mode is off-plane until re-designed (#1918). An observed worker population in a tree of a workflow of the plane waits for the count after the skill rewrite (S10 of #1927)."
   - id: "ir-direction"
     design: "definitions are the source; HSM deleted"
-    built: "lower-definition.ts derives a kernel FROM the HSM; guards dropped; custom workflows (exarchos.config.ts workflows:) not compilable"
-    resolution: "workflow-scoped capsule leg (#1927, #1253 wave 1)"
+    built: "since S2 of #1927 the phase machine, the admission IR and the lowered kernel derive from the authored definitions in src/workflow/definitions/. The legacy guards still decide, and the derived machine is still the authority of each transition. Config workflows (exarchos.config.ts workflows:) do not compile (S3, D6)."
+    resolution: "workflow-scoped capsule leg (#1927). S2 landed #1253 wave 1. S3 registers user definitions in the same format, S5 makes the edge conditions the authority, and S12 deletes the machine."
   - id: "verification-scope"
     design: "settle validates evidence against pinned intent"
     built: "prepare takes an absolute repoRoot from its caller and reads nothing from the directory of the server. A capsule of exarchos-prepare-4 pins settlementContract.scope (repository, checkout, configDigest) and a baseCommit for each task. Before any gate, settle observes with git the worktree of each completed claim that names a worktreePath and judges nine scope rules: a failure is the finding worktree-out-of-scope (unresolved), and that task runs no gate. The segments run under the config of the checkout after a digest check. The three diff gates of the segment (kill probe, contract drift, mock boundary) take baseRef from the capsule. Static analysis scans the whole tree and keeps 'main' as a subject label, and the six gates outside the segment keep 'main'."
@@ -825,8 +831,8 @@ drift:
 # ─── measured facts (re-check before relying on them) ────────────────────────
 
 measured:
-  as_of: 2026-11-09
-  main_at: a4f6728a5       # each check below was run again at this commit of main
+  as_of: 2026-11-10
+  main_at: e3995630f       # each check below was run again on feat/definitions-are-the-source after the merge of this commit of main
   facts:
     - fact: prepare refuses non-feature workflows and non-delegate phases
       check: "grep -n -E 'WORKFLOW_TYPE_UNSUPPORTED|PHASE_NOT_PREPARABLE' src/verbs/prepare/handler.ts"
@@ -870,8 +876,8 @@ measured:
       check: "grep -n -E 'pendingRevisionOf|recompiledSliceOf' src/verbs/prepare/handler.ts; grep -n 'const events = ' src/verbs/prepare/prepared-record.ts; npx vitest run --project acceptance tests/acceptance/prepare-settle.test.ts -t AMaterialRevision"
     - fact: "prepare refuses REVISION_UNREADABLE when the settlement bundle of a revision that the capsule binds cannot be read, or lacks a deviation or an accepted decision that the revision names. Nothing is compiled or recorded. A call that compiles has no bypass; the remedy is to restore the bundle in the run-bundle store."
       check: "grep -n REVISION_UNREADABLE src/verbs/prepare/handler.ts src/verbs/prepare/types.ts"
-    - fact: prepare lowers the HSM into a kernel definition at compile time
-      check: "sed -n 1,30p src/verbs/prepare/lower-definition.ts"
+    - fact: prepare lowers the kernel part of the authored definition at compile time
+      check: "grep -n \"kernelOf\\|builtInDefinition\" src/verbs/prepare/lower-definition.ts"
     - fact: next_actions is live
       check: "ls src/next-actions-computer.ts"
     - fact: "the kernel package is a build-only devDependency pinned at 0.14.0; the published package does not list it (#1941)"
@@ -1018,7 +1024,7 @@ issue_map:
   stranded_bundle_ports: 1931
   measurement: "1687 (a line of #1927 since 2026-10-21; it stays the spec of the call-budget measure)"
   settlement_continuation: "1824 (a line of #1604 since 2026-10-21)"
-  ir_kernel_and_definitions: "1249 (open; the #1249 laws). 1258, 1248, 1250, 1251, 1253 and 1254 are lines of #1927 since 2026-10-21; 1247 is closed."
+  ir_kernel_and_definitions: "1249 (open; the #1249 laws). 1258, 1248, 1250, 1251, 1253 and 1254 are lines of #1927 since 2026-10-21; 1247 is closed. #1253 wave 1 landed in S2 of #1927 (pull request #2186), and the #1253 line stays open until S12."
   knowledge: "1745 (open; the v3.2.0 part: 1748, 1749, 1750 and 1816 are its lines). 1746 and 1747 are lines of #1930."
   distribution: "1877 (open; 1601 and 1690 are its lines). 1737 is closed."
   transport: "1604 (open; 1283, 1780 and 1824 are its lines)."
@@ -1054,7 +1060,7 @@ issue_map:
 traps:
   - The call budget is per WORKFLOW. A per-intent or per-phase count is not the acceptance metric.
   - '"Second adapter" means a second runtime. Covering more phases comes from the workflow-scoped capsule, not from adapters.'
-  - lower-definition.ts runs the intended direction backwards. It derives the kernel from the HSM; the HSM is supposed to be derived from definitions, then deleted.
+  - "lower-definition.ts ran the intended direction backwards until S2 of #1927: it derived the kernel from the HSM. Since S2 it lowers the kernel part of the authored definition, and the machine derives from the same files until S12 deletes it."
   - '"Exarchos never runs the body" does not forbid settle from running verification gates. Those are settle internals, carried from the executor engine. It does forbid Exarchos merging branches or opening PRs.'
   - Retired is not deleted. A retired machine stays until its replacement passes the acceptance gate; retirement is recorded first, deleted second.
   - 'A closing keyword in prose closes the whole issue: "closes #1898 item 4" closed the tracker #1898. Write "lands #N item 4".'

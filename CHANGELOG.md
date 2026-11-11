@@ -272,6 +272,8 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - `failed` is `true` when the tool result has `is_error: true`, or when its content is an envelope with `success: false`. A call with no result is not failed.
   - A native call and a call to another MCP server carry none of the four fields, and the summary line keeps its shape. No event row changes.
 
+- **The five built-in workflows are kernel definitions under `src/workflow/definitions/`, with an `exarchos` extension.** Each file is one `WorkflowDefinitionV1` document, and its `exarchos` key holds the groups, the guard id, the route and the obligation of each edge, and the universal edges. The phase machine, the admission IR and the kernel that `prepare` pins derive from these files. No output changes: each `definitionVersion`, the `describe` topology and each transition result stay the same.
+
 ### Fixed
 
 - `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file.

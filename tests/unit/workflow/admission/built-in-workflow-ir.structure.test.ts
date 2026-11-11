@@ -74,6 +74,7 @@ describe('shared-IR structural independence (exit-proof b)', () => {
   const roots = [
     resolve(HERE, '../../../../src/workflow/admission/built-in-workflow-ir.ts'),
     resolve(HERE, '../../../../src/workflow/admission/legacy-state-translation.ts'),
+    resolve(HERE, '../../../../src/workflow/definitions/built-in.ts'),
   ];
   const reachable = reachableModules(roots);
 
@@ -96,11 +97,16 @@ describe('shared-IR structural independence (exit-proof b)', () => {
     }
   });
 
-  it('the IR module imports only the edge-condition AST and the phase-kind type', () => {
+  it('the IR module imports only the edge-condition AST, the phase kinds and the built-in definitions', () => {
     const source = readFileSync(resolve(HERE, '../../../../src/workflow/admission/built-in-workflow-ir.ts'), 'utf8');
     const relative = importSpecifiers(source).filter((s) => s.startsWith('.'));
     expect(new Set(relative)).toEqual(
-      new Set(['./edge-condition.js', '../phase-kind.js']),
+      new Set([
+        './edge-condition.js',
+        '../phase-kind.js',
+        '../definitions/built-in.js',
+        '../definitions/extension.js',
+      ]),
     );
   });
 });

@@ -30,10 +30,10 @@ import {
   createOneshotHSM,
   createDiscoveryHSM,
 } from './hsm-definitions.js';
+import { BUILT_IN_WORKFLOW_TYPES, builtInDefinition, type BuiltInWorkflowType } from './definitions/built-in.js';
+import type { Effect } from './definitions/extension.js';
 
 export type { Guard, GuardResult };
-
-export type Effect = 'checkpoint' | 'log' | 'increment-fix-cycle';
 
 /**
  * The fields that every state variant shares, so a read of `.initial`, `.maxFixCycles` or `.parent` needs no narrowing.
@@ -154,33 +154,48 @@ export interface WorkflowTypeSummary {
   }>;
 }
 
-const BUILT_IN_TYPES = new Set(['feature', 'debug', 'refactor', 'oneshot', 'discovery']);
+/** The names of the built-in workflow types: the roster of the built-in definitions. A custom type cannot use one. */
+const BUILT_IN_TYPES: ReadonlySet<string> = new Set<string>(BUILT_IN_WORKFLOW_TYPES);
+
+/** The machine factory of each built-in type. The record type requires one factory for each type of the roster. */
+const BUILT_IN_FACTORIES: Readonly<Record<BuiltInWorkflowType, () => HSMDefinition>> = {
+  feature: createFeatureHSM,
+  debug: createDebugHSM,
+  refactor: createRefactorHSM,
+  oneshot: createOneshotHSM,
+  discovery: createDiscoveryHSM,
+};
+
+/** Returns a record with one value for each built-in type, in roster order. */
+function builtInRecord<T>(valueOf: (type: BuiltInWorkflowType) => T): Record<string, T> {
+  const record: Record<string, T> = {};
+  for (const type of BUILT_IN_WORKFLOW_TYPES) record[type] = valueOf(type);
+  return record;
+}
 
 /**
- * The HSM registry: the built-in types, and the custom types that `registerWorkflowType` adds.
+ * Returns the initial phase of a built-in type: the entry step of its definition.
+ * @throws When the definition has no entry step. The load rules of the definitions require one.
+ */
+function initialPhaseOf(type: BuiltInWorkflowType): string {
+  const entryStepId = builtInDefinition(type).entryStepId;
+  if (entryStepId === undefined) throw new Error(`the built-in workflow type '${type}' has no entry step`);
+  return entryStepId;
+}
+
+/**
+ * The HSM registry: the built-in types in roster order, and the custom types that `registerWorkflowType` adds.
  * At load, each phase in the phase event contract must be a state of a built-in HSM.
  */
-const hsmRegistry: Record<string, HSMDefinition> = {
-  feature: createFeatureHSM(),
-  debug: createDebugHSM(),
-  refactor: createRefactorHSM(),
-  oneshot: createOneshotHSM(),
-  discovery: createDiscoveryHSM(),
-};
+const hsmRegistry: Record<string, HSMDefinition> = builtInRecord((type) => BUILT_IN_FACTORIES[type]());
 
 assertContractPhasesAreRegistered(
   PHASE_EVENT_CONTRACTS,
   new Set(Object.values(hsmRegistry).flatMap((hsm) => Object.keys(hsm.states))),
 );
 
-const initialPhaseRegistry: Record<string, string> = {
-  /** Feature workflows start in `plan`, the unified design and plan phase. */
-  feature: 'plan',
-  debug: 'triage',
-  refactor: 'explore',
-  oneshot: 'plan',
-  discovery: 'gathering',
-};
+/** The initial phase of each workflow type. Each built-in type starts in the entry step of its definition. */
+const initialPhaseRegistry: Record<string, string> = builtInRecord(initialPhaseOf);
 
 export function isBuiltInWorkflowType(workflowType: string): boolean {
   return BUILT_IN_TYPES.has(workflowType);

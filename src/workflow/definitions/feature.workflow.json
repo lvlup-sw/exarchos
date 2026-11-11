@@ -1,0 +1,453 @@
+{
+  "schemaVersion": "1.0",
+  "name": "exarchos.feature",
+  "steps": [
+    {
+      "kind": "skill",
+      "stepId": "plan",
+      "stepName": "plan",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "PLAN"
+    },
+    {
+      "kind": "skill",
+      "stepId": "plan-review",
+      "stepName": "plan-review",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "PLAN"
+    },
+    {
+      "kind": "skill",
+      "stepId": "delegate",
+      "stepName": "delegate",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "IMPLEMENT"
+    },
+    {
+      "kind": "skill",
+      "stepId": "review",
+      "stepName": "review",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "REVIEW"
+    },
+    {
+      "kind": "skill",
+      "stepId": "merge-pending",
+      "stepName": "merge-pending",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "MERGE"
+    },
+    {
+      "kind": "skill",
+      "stepId": "synthesize",
+      "stepName": "synthesize",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "SYNTHESIZE"
+    },
+    {
+      "kind": "skill",
+      "stepId": "completed",
+      "stepName": "completed",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    },
+    {
+      "kind": "skill",
+      "stepId": "cancelled",
+      "stepName": "cancelled",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    },
+    {
+      "kind": "skill",
+      "stepId": "blocked",
+      "stepName": "blocked",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    }
+  ],
+  "transitions": [
+    {
+      "transitionId": "plan->plan-review",
+      "fromStepId": "plan",
+      "toStepId": "plan-review",
+      "isDefault": false
+    },
+    {
+      "transitionId": "plan-review->delegate",
+      "fromStepId": "plan-review",
+      "toStepId": "delegate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "plan-review->blocked",
+      "fromStepId": "plan-review",
+      "toStepId": "blocked",
+      "isDefault": false
+    },
+    {
+      "transitionId": "plan-review->plan",
+      "fromStepId": "plan-review",
+      "toStepId": "plan",
+      "isDefault": false
+    },
+    {
+      "transitionId": "delegate->review",
+      "fromStepId": "delegate",
+      "toStepId": "review",
+      "isDefault": false
+    },
+    {
+      "transitionId": "delegate->merge-pending",
+      "fromStepId": "delegate",
+      "toStepId": "merge-pending",
+      "isDefault": false
+    },
+    {
+      "transitionId": "merge-pending->delegate",
+      "fromStepId": "merge-pending",
+      "toStepId": "delegate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "review->synthesize",
+      "fromStepId": "review",
+      "toStepId": "synthesize",
+      "isDefault": false
+    },
+    {
+      "transitionId": "review->delegate",
+      "fromStepId": "review",
+      "toStepId": "delegate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesize->delegate",
+      "fromStepId": "synthesize",
+      "toStepId": "delegate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesize->completed",
+      "fromStepId": "synthesize",
+      "toStepId": "completed",
+      "isDefault": false
+    },
+    {
+      "transitionId": "blocked->delegate",
+      "fromStepId": "blocked",
+      "toStepId": "delegate",
+      "isDefault": false
+    }
+  ],
+  "branchPoints": [],
+  "loops": [],
+  "forkPoints": [],
+  "failureHandlers": [],
+  "approvalPoints": [],
+  "authority": {
+    "invariants": [
+      {
+        "id": "append-only-history",
+        "statement": "Workflow history is append-only: a recorded event is never rewritten or removed."
+      },
+      {
+        "id": "pinned-terms",
+        "statement": "Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation."
+      },
+      {
+        "id": "evidenced-completion",
+        "statement": "A task is complete only when its result is returned with evidence of a kind the capsule admits."
+      }
+    ],
+    "assumptions": [
+      {
+        "id": "plan-is-current",
+        "statement": "The plan's tasks and their dependencies are current as of this compilation."
+      },
+      {
+        "id": "tasks-are-separable",
+        "statement": "Each task can be completed without changing the declared result shape of another task."
+      }
+    ],
+    "delegatedDecisions": [
+      {
+        "id": "implementation-approach",
+        "statement": "How a task is implemented, within its declared result shape."
+      },
+      {
+        "id": "execution-order",
+        "statement": "The order and concurrency of tasks whose dependencies are satisfied."
+      }
+    ],
+    "escalationBoundaries": [
+      {
+        "id": "published-contract-change",
+        "statement": "Any change to a published schema, event type or action contract."
+      },
+      {
+        "id": "work-outside-the-plan",
+        "statement": "Completing a task requires work the plan's task list does not contain."
+      },
+      {
+        "id": "assumption-invalidated",
+        "statement": "Evidence that an assumption of this capsule does not hold."
+      }
+    ]
+  },
+  "entryStepId": "plan",
+  "exarchos": {
+    "extensionVersion": "1",
+    "groups": [
+      {
+        "groupId": "implementation",
+        "members": [
+          "delegate",
+          "review",
+          "merge-pending"
+        ],
+        "initial": "delegate",
+        "maxFixCycles": 3,
+        "history": "shallow",
+        "onEntry": [
+          "log"
+        ],
+        "onExit": [
+          "log"
+        ]
+      }
+    ],
+    "edges": {
+      "plan->plan-review": {
+        "guardId": "plan-artifact-exists",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "plan-artifact",
+          "presence": {
+            "kind": "any",
+            "operands": [
+              {
+                "kind": "factPresent",
+                "field": "artifacts.plan"
+              },
+              {
+                "kind": "factPresent",
+                "field": "plan"
+              }
+            ]
+          }
+        }
+      },
+      "plan-review->delegate": {
+        "guardId": "plan-review-complete",
+        "category": "approval",
+        "obligation": {
+          "kind": "approval",
+          "approvalClass": "plan-review",
+          "minimumApprovals": 1,
+          "presence": {
+            "kind": "factEquals",
+            "field": "planReview.approved",
+            "value": true
+          }
+        }
+      },
+      "plan-review->blocked": {
+        "guardId": "revisions-exhausted",
+        "category": "bounded-loop-rule",
+        "route": {
+          "kind": "factEquals",
+          "field": "planReview.revisionsExhausted",
+          "value": true
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "plan-review->plan": {
+        "guardId": "plan-review-gaps-found",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "planReview.gapsFound",
+          "value": true
+        },
+        "obligation": {
+          "kind": "none"
+        },
+        "isRevision": true,
+        "effects": [
+          "log"
+        ]
+      },
+      "delegate->review": {
+        "guardId": "all-tasks-complete+team-disbanded",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "tasks-and-team",
+          "presence": {
+            "kind": "all",
+            "operands": [
+              {
+                "kind": "all",
+                "operands": [
+                  {
+                    "kind": "counterCompare",
+                    "field": "tasks.count",
+                    "op": "gte",
+                    "value": 1
+                  },
+                  {
+                    "kind": "factEquals",
+                    "field": "tasks.allComplete",
+                    "value": true
+                  }
+                ]
+              },
+              {
+                "kind": "factEquals",
+                "field": "team.disbandedOk",
+                "value": true
+              }
+            ]
+          }
+        }
+      },
+      "delegate->merge-pending": {
+        "guardId": "merge-pending-entry",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "merge-pending-entry",
+          "presence": {
+            "kind": "factEquals",
+            "field": "mergePending.entryReady",
+            "value": true
+          }
+        }
+      },
+      "merge-pending->delegate": {
+        "guardId": "merge-pending-exit",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "merge-pending-exit",
+          "presence": {
+            "kind": "factEquals",
+            "field": "mergePending.exitReady",
+            "value": true
+          }
+        }
+      },
+      "review->synthesize": {
+        "guardId": "all-reviews-passed",
+        "category": "approval",
+        "obligation": {
+          "kind": "approval",
+          "approvalClass": "reviews",
+          "minimumApprovals": 1,
+          "presence": {
+            "kind": "factEquals",
+            "field": "reviews.requiredSatisfied",
+            "value": true
+          }
+        }
+      },
+      "review->delegate": {
+        "guardId": "any-review-failed",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "reviews.anyFailed",
+          "value": true
+        },
+        "obligation": {
+          "kind": "none"
+        },
+        "isFixCycle": true,
+        "effects": [
+          "increment-fix-cycle"
+        ]
+      },
+      "synthesize->delegate": {
+        "guardId": "synthesize-retryable",
+        "category": "bounded-loop-rule",
+        "route": {
+          "kind": "all",
+          "operands": [
+            {
+              "kind": "factPresent",
+              "field": "synthesis.lastError"
+            },
+            {
+              "kind": "counterCompare",
+              "field": "synthesis.retryCount",
+              "op": "lt",
+              "value": 3
+            }
+          ]
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "synthesize->completed": {
+        "guardId": "pr-url-exists",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "pr-url",
+          "presence": {
+            "kind": "any",
+            "operands": [
+              {
+                "kind": "factPresent",
+                "field": "synthesis.prUrl"
+              },
+              {
+                "kind": "factPresent",
+                "field": "artifacts.pr"
+              }
+            ]
+          }
+        }
+      },
+      "blocked->delegate": {
+        "guardId": "human-unblocked",
+        "category": "approval",
+        "obligation": {
+          "kind": "approval",
+          "approvalClass": "unblock",
+          "minimumApprovals": 1,
+          "presence": {
+            "kind": "factEquals",
+            "field": "unblocked",
+            "value": true
+          }
+        }
+      }
+    },
+    "universal": [
+      {
+        "edgeKind": "cancel",
+        "to": "cancelled"
+      },
+      {
+        "edgeKind": "cleanup",
+        "to": "completed",
+        "guardId": "merge-verified"
+      }
+    ]
+  }
+}

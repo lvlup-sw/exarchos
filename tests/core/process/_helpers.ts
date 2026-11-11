@@ -101,10 +101,12 @@ export interface BinaryBuildResult {
 }
 
 /**
- * Returns the newest mtime of the inputs of the compiled binary. The scan covers the `.ts` files
- * under `src`, `tools/audit` and `tools/release`, because an edit to the build script also makes
- * the binary stale. It also covers the manifest, the npm and bun lockfiles and `tsconfig.json`,
- * because a dependency change alters the bundle when no `.ts` file changes.
+ * Returns the newest mtime of the inputs of the compiled binary. The scan covers the `.ts` and
+ * `.json` files under `src`, `tools/audit` and `tools/release`, because an edit to the build script
+ * also makes the binary stale. The built-in workflow definitions are the `.json` files under
+ * `src/workflow/definitions`, and the bundle holds them. The scan also covers the manifest, the npm
+ * and bun lockfiles and `tsconfig.json`, because a dependency change alters the bundle when no
+ * source file changes.
  */
 function computeSrcNewest(repoRoot: string): number {
   const dirInputs = [
@@ -130,7 +132,7 @@ function computeSrcNewest(repoRoot: string): number {
   let srcNewest = 0;
   for (const dir of dirInputs) {
     if (!fs.existsSync(dir)) continue;
-    const newest = newestMtimeUnder(dir, (p) => p.endsWith('.ts'));
+    const newest = newestMtimeUnder(dir, (p) => p.endsWith('.ts') || p.endsWith('.json'));
     if (newest > srcNewest) srcNewest = newest;
   }
   for (const file of fileInputs) {

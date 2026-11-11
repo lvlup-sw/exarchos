@@ -1,0 +1,593 @@
+{
+  "schemaVersion": "1.0",
+  "name": "exarchos.refactor",
+  "steps": [
+    {
+      "kind": "skill",
+      "stepId": "explore",
+      "stepName": "explore",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    },
+    {
+      "kind": "skill",
+      "stepId": "brief",
+      "stepName": "brief",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "PLAN"
+    },
+    {
+      "kind": "skill",
+      "stepId": "polish-implement",
+      "stepName": "polish-implement",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "IMPLEMENT"
+    },
+    {
+      "kind": "skill",
+      "stepId": "polish-validate",
+      "stepName": "polish-validate",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "REVIEW"
+    },
+    {
+      "kind": "skill",
+      "stepId": "polish-update-docs",
+      "stepName": "polish-update-docs",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    },
+    {
+      "kind": "skill",
+      "stepId": "overhaul-plan",
+      "stepName": "overhaul-plan",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "PLAN"
+    },
+    {
+      "kind": "skill",
+      "stepId": "overhaul-plan-review",
+      "stepName": "overhaul-plan-review",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "PLAN"
+    },
+    {
+      "kind": "skill",
+      "stepId": "overhaul-delegate",
+      "stepName": "overhaul-delegate",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "IMPLEMENT"
+    },
+    {
+      "kind": "skill",
+      "stepId": "overhaul-review",
+      "stepName": "overhaul-review",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "REVIEW"
+    },
+    {
+      "kind": "skill",
+      "stepId": "overhaul-update-docs",
+      "stepName": "overhaul-update-docs",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    },
+    {
+      "kind": "skill",
+      "stepId": "synthesize",
+      "stepName": "synthesize",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "SYNTHESIZE"
+    },
+    {
+      "kind": "skill",
+      "stepId": "completed",
+      "stepName": "completed",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    },
+    {
+      "kind": "skill",
+      "stepId": "cancelled",
+      "stepName": "cancelled",
+      "isTerminal": true,
+      "runtime": "exarchos",
+      "stepType": "final"
+    },
+    {
+      "kind": "skill",
+      "stepId": "blocked",
+      "stepName": "blocked",
+      "isTerminal": false,
+      "runtime": "exarchos",
+      "stepType": "GATHER"
+    }
+  ],
+  "transitions": [
+    {
+      "transitionId": "explore->brief",
+      "fromStepId": "explore",
+      "toStepId": "brief",
+      "isDefault": false
+    },
+    {
+      "transitionId": "brief->polish-implement",
+      "fromStepId": "brief",
+      "toStepId": "polish-implement",
+      "isDefault": false
+    },
+    {
+      "transitionId": "brief->overhaul-plan",
+      "fromStepId": "brief",
+      "toStepId": "overhaul-plan",
+      "isDefault": false
+    },
+    {
+      "transitionId": "polish-implement->polish-validate",
+      "fromStepId": "polish-implement",
+      "toStepId": "polish-validate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "polish-validate->polish-update-docs",
+      "fromStepId": "polish-validate",
+      "toStepId": "polish-update-docs",
+      "isDefault": false
+    },
+    {
+      "transitionId": "polish-update-docs->completed",
+      "fromStepId": "polish-update-docs",
+      "toStepId": "completed",
+      "isDefault": false
+    },
+    {
+      "transitionId": "overhaul-plan->overhaul-plan-review",
+      "fromStepId": "overhaul-plan",
+      "toStepId": "overhaul-plan-review",
+      "isDefault": false
+    },
+    {
+      "transitionId": "overhaul-plan-review->overhaul-delegate",
+      "fromStepId": "overhaul-plan-review",
+      "toStepId": "overhaul-delegate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "overhaul-plan-review->blocked",
+      "fromStepId": "overhaul-plan-review",
+      "toStepId": "blocked",
+      "isDefault": false
+    },
+    {
+      "transitionId": "overhaul-plan-review->overhaul-plan",
+      "fromStepId": "overhaul-plan-review",
+      "toStepId": "overhaul-plan",
+      "isDefault": false
+    },
+    {
+      "transitionId": "blocked->overhaul-delegate",
+      "fromStepId": "blocked",
+      "toStepId": "overhaul-delegate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "overhaul-delegate->overhaul-review",
+      "fromStepId": "overhaul-delegate",
+      "toStepId": "overhaul-review",
+      "isDefault": false
+    },
+    {
+      "transitionId": "overhaul-review->overhaul-update-docs",
+      "fromStepId": "overhaul-review",
+      "toStepId": "overhaul-update-docs",
+      "isDefault": false
+    },
+    {
+      "transitionId": "overhaul-review->overhaul-delegate",
+      "fromStepId": "overhaul-review",
+      "toStepId": "overhaul-delegate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "overhaul-update-docs->synthesize",
+      "fromStepId": "overhaul-update-docs",
+      "toStepId": "synthesize",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesize->overhaul-delegate",
+      "fromStepId": "synthesize",
+      "toStepId": "overhaul-delegate",
+      "isDefault": false
+    },
+    {
+      "transitionId": "synthesize->completed",
+      "fromStepId": "synthesize",
+      "toStepId": "completed",
+      "isDefault": false
+    }
+  ],
+  "branchPoints": [],
+  "loops": [],
+  "forkPoints": [],
+  "failureHandlers": [],
+  "approvalPoints": [],
+  "authority": {
+    "invariants": [
+      {
+        "id": "append-only-history",
+        "statement": "Workflow history is append-only: a recorded event is never rewritten or removed."
+      },
+      {
+        "id": "pinned-terms",
+        "statement": "Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation."
+      },
+      {
+        "id": "evidenced-completion",
+        "statement": "A task is complete only when its result is returned with evidence of a kind the capsule admits."
+      }
+    ],
+    "assumptions": [
+      {
+        "id": "plan-is-current",
+        "statement": "The plan's tasks and their dependencies are current as of this compilation."
+      },
+      {
+        "id": "tasks-are-separable",
+        "statement": "Each task can be completed without changing the declared result shape of another task."
+      }
+    ],
+    "delegatedDecisions": [
+      {
+        "id": "implementation-approach",
+        "statement": "How a task is implemented, within its declared result shape."
+      },
+      {
+        "id": "execution-order",
+        "statement": "The order and concurrency of tasks whose dependencies are satisfied."
+      }
+    ],
+    "escalationBoundaries": [
+      {
+        "id": "published-contract-change",
+        "statement": "Any change to a published schema, event type or action contract."
+      },
+      {
+        "id": "work-outside-the-plan",
+        "statement": "Completing a task requires work the plan's task list does not contain."
+      },
+      {
+        "id": "assumption-invalidated",
+        "statement": "Evidence that an assumption of this capsule does not hold."
+      }
+    ]
+  },
+  "entryStepId": "explore",
+  "exarchos": {
+    "extensionVersion": "1",
+    "groups": [
+      {
+        "groupId": "polish-track",
+        "members": [
+          "polish-implement",
+          "polish-validate",
+          "polish-update-docs"
+        ],
+        "initial": "polish-implement",
+        "history": "shallow",
+        "onEntry": [
+          "log"
+        ],
+        "onExit": [
+          "log"
+        ]
+      },
+      {
+        "groupId": "overhaul-track",
+        "members": [
+          "overhaul-plan",
+          "overhaul-plan-review",
+          "overhaul-delegate",
+          "overhaul-review",
+          "overhaul-update-docs"
+        ],
+        "initial": "overhaul-plan",
+        "maxFixCycles": 3,
+        "history": "shallow",
+        "onEntry": [
+          "log"
+        ],
+        "onExit": [
+          "log"
+        ]
+      }
+    ],
+    "edges": {
+      "explore->brief": {
+        "guardId": "scope-assessment-complete",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "scope-assessment",
+          "presence": {
+            "kind": "factPresent",
+            "field": "explore.scopeAssessment"
+          }
+        }
+      },
+      "brief->polish-implement": {
+        "guardId": "polish-track-selected",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "track",
+          "value": "polish"
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "brief->overhaul-plan": {
+        "guardId": "overhaul-track-selected",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "track",
+          "value": "overhaul"
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "polish-implement->polish-validate": {
+        "guardId": "implementation-complete",
+        "category": "obsolete-predicate",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "implementation",
+          "presence": {
+            "kind": "factEquals",
+            "field": "implementation.complete",
+            "value": true
+          }
+        }
+      },
+      "polish-validate->polish-update-docs": {
+        "guardId": "goals-verified",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "goals-verified",
+          "presence": {
+            "kind": "factEquals",
+            "field": "validation.testsPass",
+            "value": true
+          }
+        }
+      },
+      "polish-update-docs->completed": {
+        "guardId": "docs-updated",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "docs-updated",
+          "presence": {
+            "kind": "factEquals",
+            "field": "validation.docsUpdated",
+            "value": true
+          }
+        }
+      },
+      "overhaul-plan->overhaul-plan-review": {
+        "guardId": "plan-artifact-exists",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "plan-artifact",
+          "presence": {
+            "kind": "any",
+            "operands": [
+              {
+                "kind": "factPresent",
+                "field": "artifacts.plan"
+              },
+              {
+                "kind": "factPresent",
+                "field": "plan"
+              }
+            ]
+          }
+        }
+      },
+      "overhaul-plan-review->overhaul-delegate": {
+        "guardId": "plan-review-complete",
+        "category": "approval",
+        "obligation": {
+          "kind": "approval",
+          "approvalClass": "plan-review",
+          "minimumApprovals": 1,
+          "presence": {
+            "kind": "factEquals",
+            "field": "planReview.approved",
+            "value": true
+          }
+        }
+      },
+      "overhaul-plan-review->blocked": {
+        "guardId": "revisions-exhausted",
+        "category": "bounded-loop-rule",
+        "route": {
+          "kind": "factEquals",
+          "field": "planReview.revisionsExhausted",
+          "value": true
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "overhaul-plan-review->overhaul-plan": {
+        "guardId": "plan-review-gaps-found",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "planReview.gapsFound",
+          "value": true
+        },
+        "obligation": {
+          "kind": "none"
+        },
+        "isRevision": true,
+        "effects": [
+          "log"
+        ]
+      },
+      "blocked->overhaul-delegate": {
+        "guardId": "human-unblocked",
+        "category": "approval",
+        "obligation": {
+          "kind": "approval",
+          "approvalClass": "unblock",
+          "minimumApprovals": 1,
+          "presence": {
+            "kind": "factEquals",
+            "field": "unblocked",
+            "value": true
+          }
+        }
+      },
+      "overhaul-delegate->overhaul-review": {
+        "guardId": "all-tasks-complete",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "all-tasks-complete",
+          "presence": {
+            "kind": "all",
+            "operands": [
+              {
+                "kind": "counterCompare",
+                "field": "tasks.count",
+                "op": "gte",
+                "value": 1
+              },
+              {
+                "kind": "factEquals",
+                "field": "tasks.allComplete",
+                "value": true
+              }
+            ]
+          }
+        }
+      },
+      "overhaul-review->overhaul-update-docs": {
+        "guardId": "all-reviews-passed",
+        "category": "approval",
+        "obligation": {
+          "kind": "approval",
+          "approvalClass": "reviews",
+          "minimumApprovals": 1,
+          "presence": {
+            "kind": "factEquals",
+            "field": "reviews.requiredSatisfied",
+            "value": true
+          }
+        }
+      },
+      "overhaul-review->overhaul-delegate": {
+        "guardId": "any-review-failed",
+        "category": "route-condition",
+        "route": {
+          "kind": "factEquals",
+          "field": "reviews.anyFailed",
+          "value": true
+        },
+        "obligation": {
+          "kind": "none"
+        },
+        "isFixCycle": true,
+        "effects": [
+          "increment-fix-cycle"
+        ]
+      },
+      "overhaul-update-docs->synthesize": {
+        "guardId": "docs-updated",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "docs-updated",
+          "presence": {
+            "kind": "factEquals",
+            "field": "validation.docsUpdated",
+            "value": true
+          }
+        }
+      },
+      "synthesize->overhaul-delegate": {
+        "guardId": "synthesize-retryable",
+        "category": "bounded-loop-rule",
+        "route": {
+          "kind": "all",
+          "operands": [
+            {
+              "kind": "factPresent",
+              "field": "synthesis.lastError"
+            },
+            {
+              "kind": "counterCompare",
+              "field": "synthesis.retryCount",
+              "op": "lt",
+              "value": 3
+            }
+          ]
+        },
+        "obligation": {
+          "kind": "none"
+        }
+      },
+      "synthesize->completed": {
+        "guardId": "pr-url-exists",
+        "category": "admission-requirement",
+        "obligation": {
+          "kind": "gate",
+          "gateId": "pr-url",
+          "presence": {
+            "kind": "any",
+            "operands": [
+              {
+                "kind": "factPresent",
+                "field": "synthesis.prUrl"
+              },
+              {
+                "kind": "factPresent",
+                "field": "artifacts.pr"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "universal": [
+      {
+        "edgeKind": "cancel",
+        "to": "cancelled"
+      },
+      {
+        "edgeKind": "cleanup",
+        "to": "completed",
+        "guardId": "merge-verified"
+      }
+    ]
+  }
+}
