@@ -1,0 +1,2519 @@
+[
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:11.945Z",
+    "type": "workflow.started",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "featureId": "feat-workflow-replay-walk",
+      "workflowType": "feature",
+      "repoRoot": "/tmp/mh-capture-afdT32",
+      "phaseAttemptId": "02ae838d-abb4-4aee-830f-1597cbc9ac4d"
+    },
+    "operationId": "ea76c3f9-b5b2-4d31-84ae-de0fad3a2353",
+    "idempotencyKey": "feat-workflow-replay-walk:workflow.started",
+    "sequence": 1
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.110Z",
+    "type": "state.patched",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "featureId": "feat-workflow-replay-walk",
+      "fields": [
+        "artifacts.plan"
+      ],
+      "patch": {
+        "artifacts.plan": "design/replay-walk.md"
+      }
+    },
+    "operationId": "54599885-138f-4388-a368-d6875887c4cd",
+    "idempotencyKey": "feat-workflow-replay-walk:patch:1:artifacts.plan",
+    "sequence": 2
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.285Z",
+    "type": "workflow.transition",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "from": "plan",
+      "to": "plan-review",
+      "trigger": "execute-transition",
+      "featureId": "feat-workflow-replay-walk",
+      "phaseAttemptId": "phase-attempt:89aa2356ffc85643ed9802df05ec50b0f0df2d80e7d9564cc7d816285f788845"
+    },
+    "operationId": "3caa3af4-4656-4410-a721-6c9ea48be370",
+    "idempotencyKey": "feat-workflow-replay-walk:transition:plan:plan-review:2",
+    "sequence": 3
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.287Z",
+    "type": "phase.exited",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "phase": "plan",
+      "allRequiredGatesPassed": true
+    },
+    "operationId": "3caa3af4-4656-4410-a721-6c9ea48be370",
+    "idempotencyKey": "feat-workflow-replay-walk:phase.exited:plan:plan-review:2",
+    "sequence": 4
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.287Z",
+    "type": "phase.entered",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "phase": "plan-review",
+      "kind": "PLAN",
+      "resolver": "plan-structure",
+      "resolvedGates": [
+        {
+          "family": "plan",
+          "gate": "check_task_decomposition"
+        },
+        {
+          "family": "plan",
+          "gate": "check_plan_coverage"
+        },
+        {
+          "family": "plan",
+          "gate": "spec_coverage_check"
+        },
+        {
+          "family": "plan",
+          "gate": "check_provenance_chain"
+        },
+        {
+          "family": "plan",
+          "gate": "generate_traceability"
+        }
+      ],
+      "policySource": "builtin",
+      "mode": "enforce",
+      "posture": "read-only",
+      "riskTier": "unknown",
+      "boundaryTouching": true
+    },
+    "operationId": "3caa3af4-4656-4410-a721-6c9ea48be370",
+    "idempotencyKey": "feat-workflow-replay-walk:phase.entered:plan:plan-review:2",
+    "sequence": 5
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.439Z",
+    "type": "state.patched",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "featureId": "feat-workflow-replay-walk",
+      "fields": [
+        "planReview"
+      ],
+      "patch": {
+        "planReview": {
+          "approved": true
+        }
+      }
+    },
+    "operationId": "a21b57c9-f0a3-4e7c-9120-70e1f79240e9",
+    "idempotencyKey": "feat-workflow-replay-walk:patch:3:planReview",
+    "sequence": 6
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.597Z",
+    "type": "workflow.transition",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "from": "plan-review",
+      "to": "delegate",
+      "trigger": "execute-transition",
+      "featureId": "feat-workflow-replay-walk",
+      "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066"
+    },
+    "operationId": "1e1ad58e-e84b-495f-8e17-11dc322b256b",
+    "idempotencyKey": "feat-workflow-replay-walk:transition:plan-review:delegate:4",
+    "sequence": 7
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.597Z",
+    "type": "workflow.compound-entry",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "compoundStateId": "implementation",
+      "featureId": "feat-workflow-replay-walk"
+    },
+    "operationId": "1e1ad58e-e84b-495f-8e17-11dc322b256b",
+    "idempotencyKey": "feat-workflow-replay-walk:compound-entry:plan-review:implementation:4",
+    "sequence": 8
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.598Z",
+    "type": "phase.exited",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "phase": "plan-review",
+      "allRequiredGatesPassed": true
+    },
+    "operationId": "1e1ad58e-e84b-495f-8e17-11dc322b256b",
+    "idempotencyKey": "feat-workflow-replay-walk:phase.exited:plan-review:delegate:4",
+    "sequence": 9
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.599Z",
+    "type": "phase.entered",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "phase": "delegate",
+      "kind": "IMPLEMENT",
+      "resolver": "verification-ladder",
+      "resolvedGates": [],
+      "policySource": "builtin",
+      "mode": "enforce",
+      "posture": "task-isolated",
+      "riskTier": "unknown",
+      "boundaryTouching": true
+    },
+    "operationId": "1e1ad58e-e84b-495f-8e17-11dc322b256b",
+    "idempotencyKey": "feat-workflow-replay-walk:phase.entered:plan-review:delegate:4",
+    "sequence": 10
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.601Z",
+    "type": "gate.executed",
+    "correlationId": "1e1ad58e-e84b-495f-8e17-11dc322b256b",
+    "operationId": "1e1ad58e-e84b-495f-8e17-11dc322b256b",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "delegate",
+        "checked": 5,
+        "missing": 5,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded",
+          "task.progressed"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:1e1ad58e-e84b-495f-8e17-11dc322b256b",
+    "sequence": 11
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.755Z",
+    "type": "state.patched",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "featureId": "feat-workflow-replay-walk",
+      "fields": [
+        "synthesis.integrationBranch",
+        "tasks"
+      ],
+      "patch": {
+        "synthesis.integrationBranch": "feature/workflow-replay",
+        "tasks": [
+          {
+            "id": "task-a",
+            "title": "first",
+            "status": "pending",
+            "blockedBy": [],
+            "riskTier": "low",
+            "boundaryTouching": false
+          },
+          {
+            "id": "task-b",
+            "title": "second",
+            "status": "pending",
+            "blockedBy": [],
+            "riskTier": "low",
+            "boundaryTouching": false
+          }
+        ]
+      }
+    },
+    "operationId": "432e78e5-7e9b-4e88-bf4e-3849b0ba4bac",
+    "idempotencyKey": "feat-workflow-replay-walk:patch:5:synthesis.integrationBranch,tasks",
+    "sequence": 12
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.756Z",
+    "type": "gate.executed",
+    "correlationId": "432e78e5-7e9b-4e88-bf4e-3849b0ba4bac",
+    "operationId": "432e78e5-7e9b-4e88-bf4e-3849b0ba4bac",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "delegate",
+        "checked": 5,
+        "missing": 5,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded",
+          "task.progressed"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:432e78e5-7e9b-4e88-bf4e-3849b0ba4bac",
+    "sequence": 13
+  },
+  {
+    "type": "task.assigned",
+    "data": {
+      "taskId": "task-a",
+      "title": "first"
+    },
+    "timestamp": "2026-11-09T22:38:12.984Z",
+    "operationId": "88770f2e-185d-4835-926b-8282cef56757",
+    "correlationId": "88770f2e-185d-4835-926b-8282cef56757",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 14
+  },
+  {
+    "type": "task.assigned",
+    "data": {
+      "taskId": "task-b",
+      "title": "second"
+    },
+    "timestamp": "2026-11-09T22:38:12.984Z",
+    "operationId": "88770f2e-185d-4835-926b-8282cef56757",
+    "correlationId": "88770f2e-185d-4835-926b-8282cef56757",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 15
+  },
+  {
+    "type": "workflow.prepared",
+    "data": {
+      "operationId": "prepare:74e5a17a5c0191a888cc92b7a438c7f3c37dd1db30dd1c35f9b11d2c7f4a27e4",
+      "workflowId": "feat-workflow-replay-walk",
+      "workflowType": "feature",
+      "capsuleVersion": 1,
+      "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+      "designVersion": "design-v1",
+      "capsuleDigest": "e5469749e4c7f91baac0494de61195f79991333abe265807e94487fab253ccd6",
+      "compilerVersion": "exarchos-prepare-5",
+      "taskCount": 2,
+      "requestDigest": "sha256:74e5a17a5c0191a888cc92b7a438c7f3c37dd1db30dd1c35f9b11d2c7f4a27e4",
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:prepared-capsule:feat-workflow-replay-walk:1",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "9e2a1fc4778604517613334b6096c51fbc153639785cde5695b8dc2778e26f15"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:12.984Z",
+    "schemaVersion": "1.0",
+    "operationId": "88770f2e-185d-4835-926b-8282cef56757",
+    "correlationId": "88770f2e-185d-4835-926b-8282cef56757",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 16
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:12.995Z",
+    "type": "gate.executed",
+    "correlationId": "88770f2e-185d-4835-926b-8282cef56757",
+    "operationId": "88770f2e-185d-4835-926b-8282cef56757",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "delegate",
+        "checked": 5,
+        "missing": 5,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded",
+          "task.progressed"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:88770f2e-185d-4835-926b-8282cef56757",
+    "sequence": 17
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.150Z",
+    "type": "state.patched",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "featureId": "feat-workflow-replay-walk",
+      "fields": [
+        "tasks"
+      ],
+      "patch": {
+        "tasks": [
+          {
+            "id": "task-a",
+            "title": "first",
+            "status": "pending",
+            "blockedBy": [],
+            "riskTier": "low",
+            "boundaryTouching": false
+          },
+          {
+            "id": "task-b",
+            "title": "second",
+            "status": "pending",
+            "blockedBy": [],
+            "riskTier": "low",
+            "boundaryTouching": false
+          },
+          {
+            "id": "task-c",
+            "title": "third",
+            "status": "pending",
+            "blockedBy": [
+              "task-a"
+            ],
+            "riskTier": "low",
+            "boundaryTouching": false
+          }
+        ]
+      }
+    },
+    "operationId": "f1e0b7dd-6b4f-45dc-9b9a-31214b5c979a",
+    "idempotencyKey": "feat-workflow-replay-walk:patch:6:tasks",
+    "sequence": 18
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.153Z",
+    "type": "gate.executed",
+    "correlationId": "f1e0b7dd-6b4f-45dc-9b9a-31214b5c979a",
+    "operationId": "f1e0b7dd-6b4f-45dc-9b9a-31214b5c979a",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "delegate",
+        "checked": 5,
+        "missing": 5,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded",
+          "task.progressed"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:f1e0b7dd-6b4f-45dc-9b9a-31214b5c979a",
+    "sequence": 19
+  },
+  {
+    "type": "deviation.proposed",
+    "data": {
+      "operationId": "settle:c441bd508e09a9ebf70ec089066166eec715e3da157f67f6b645b8946ff4feb7",
+      "workflowId": "feat-workflow-replay-walk",
+      "capsuleVersion": 1,
+      "batchId": "batch-1",
+      "deviationId": "dev:bbd0d250f92f709b8fc80b2f",
+      "deviationKind": "invalidated-assumption",
+      "statement": "the endpoint reads a cache that the design did not name",
+      "affectedTasks": [
+        "task-c"
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:13.373Z",
+    "operationId": "e78dc60e-1af4-41cc-87b8-f01b50865158",
+    "correlationId": "e78dc60e-1af4-41cc-87b8-f01b50865158",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 20
+  },
+  {
+    "type": "execution.settled",
+    "data": {
+      "operationId": "settle:c441bd508e09a9ebf70ec089066166eec715e3da157f67f6b645b8946ff4feb7",
+      "workflowId": "feat-workflow-replay-walk",
+      "capsuleVersion": 1,
+      "batchId": "batch-1",
+      "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+      "outcome": "deviation-pending",
+      "acceptedTasks": [
+        "task-a",
+        "task-b"
+      ],
+      "findingCounts": [
+        {
+          "kind": "deviation-awaiting-approval",
+          "count": 1
+        }
+      ],
+      "adjudicated": {
+        "claims": 2,
+        "requiredResults": 2,
+        "fields": 16,
+        "evidence": 0,
+        "deviations": 1,
+        "verification": 0,
+        "decisions": 0
+      },
+      "requestDigest": "sha256:087dc74410affef8bab980ab03eb26eb1128946256854943a0baae8ef577ed9c",
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:settlement-adjudication:batch-1:1",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "1fb9a4efc2e89c7de9752966e27d87a0f2c051c5ec441f47f8f63cf1a00a0f60"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:13.373Z",
+    "schemaVersion": "1.0",
+    "operationId": "e78dc60e-1af4-41cc-87b8-f01b50865158",
+    "correlationId": "e78dc60e-1af4-41cc-87b8-f01b50865158",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 21
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.390Z",
+    "type": "gate.executed",
+    "correlationId": "e78dc60e-1af4-41cc-87b8-f01b50865158",
+    "operationId": "e78dc60e-1af4-41cc-87b8-f01b50865158",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "delegate",
+        "checked": 5,
+        "missing": 5,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded",
+          "task.progressed"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:e78dc60e-1af4-41cc-87b8-f01b50865158",
+    "sequence": 22
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.605Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-0:check_test_adequacy",
+    "source": "gate-runner/v1/test-adequacy",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:efe75ae7ef6b89482f76609dea55c5d64075bfc7da11de635a67d545e96aee8f",
+        "requirementId": "verification-ladder:test-adequacy",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-a",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "c82df318d8f9bdea2843df9d8bc1f1882a44f9a475406f7c6bc6860e148eb161"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_test_adequacy",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-0:check_test_adequacy"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "023c3e4b7900078c06463290705967fbeebd8a4231ee263bf32e68077651ff88"
+        },
+        "createdAt": "2026-11-09T22:38:13.605Z",
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:efe75ae7ef6b89482f76609dea55c5d64075bfc7da11de635a67d545e96aee8f",
+    "sequence": 23
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.605Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-0:check_test_adequacy",
+    "source": "gate-runner/v1/test-adequacy",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "test-adequacy",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-a",
+        "gateClass": "test-adequacy",
+        "providerRef": "check_test_adequacy",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:efe75ae7ef6b89482f76609dea55c5d64075bfc7da11de635a67d545e96aee8f",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:test-adequacy",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-a",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy",
+        "reason": "skipped by verification policy — check_test_adequacy is not in the resolved sequence for riskTier='low', boundaryTouching=false (sequence: check_static_analysis; policy: builtin)",
+        "completeness": "complete"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:efe75ae7ef6b89482f76609dea55c5d64075bfc7da11de635a67d545e96aee8f",
+    "sequence": 24
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.625Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-1:check_contract_drift",
+    "source": "gate-runner/v1/contract-drift",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:0d16280f8917d7d6d69f53e81242e50fc096d73b47ff8d0f3b10d10cbf2b81fa",
+        "requirementId": "verification-ladder:contract-drift",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-a",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "aebdeba3b9fcabd28372f861689c7ce916c0a8794fa114d4191e97f0ec5f1fd1"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_contract_drift",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-1:check_contract_drift"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "7861ac4ae7b51fac4393e7cca36e7f8bb47c183618c898bfd95c9f933d17772c"
+        },
+        "createdAt": "2026-11-09T22:38:13.625Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:89f083663b3b594997daf3eea77591ca717751aa9d91cc74d6c63756b0499d71",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "2630d8c00e2466fe6c4c55d07f346dae78e1d953da2131d6d760f53dfc029b77"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 329
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:0d16280f8917d7d6d69f53e81242e50fc096d73b47ff8d0f3b10d10cbf2b81fa",
+    "sequence": 25
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.625Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-1:check_contract_drift",
+    "source": "gate-runner/v1/contract-drift",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "contract-drift",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-a",
+        "gateClass": "contract-drift",
+        "providerRef": "check_contract_drift",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:0d16280f8917d7d6d69f53e81242e50fc096d73b47ff8d0f3b10d10cbf2b81fa",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:contract-drift",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-a",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:0d16280f8917d7d6d69f53e81242e50fc096d73b47ff8d0f3b10d10cbf2b81fa",
+    "sequence": 26
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.639Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-2:check_mock_boundary",
+    "source": "gate-runner/v1/mock-boundary",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:0867389a5c14d0f9a103e0314f0b82602bd712c149122323847c7b61084650b1",
+        "requirementId": "verification-ladder:mock-boundary",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-a",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "bb784532188838337578081d07c728f8989177ff40f10cb02fb7ced48ebd1f22"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_mock_boundary",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-2:check_mock_boundary"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "aaa8e2ab3af0acfeb90e1f5d90d99a2d5bb60ea276e747133cc8174804b147dc"
+        },
+        "createdAt": "2026-11-09T22:38:13.639Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:e87a3210ccc6515fad55e7600c6f1a6f2ef8024f70963fa3c9aa5b4b51347c2f",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "f099e880594a9c6e8eb77f46f0d9d4594ebf245a72ad2269ecd31ed688fd8c4d"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 328
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:0867389a5c14d0f9a103e0314f0b82602bd712c149122323847c7b61084650b1",
+    "sequence": 27
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.639Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-2:check_mock_boundary",
+    "source": "gate-runner/v1/mock-boundary",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "mock-boundary",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-a",
+        "gateClass": "mock-boundary",
+        "providerRef": "check_mock_boundary",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:0867389a5c14d0f9a103e0314f0b82602bd712c149122323847c7b61084650b1",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:mock-boundary",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-a",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:0867389a5c14d0f9a103e0314f0b82602bd712c149122323847c7b61084650b1",
+    "sequence": 28
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.649Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-3:check_integration_suite",
+    "source": "gate-runner/v1/integration-suite",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:326377587b06acffa89bf3dde8025d70516a01ba4aa75e2dbf5d8a5513d04aca",
+        "requirementId": "verification-ladder:integration-suite",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-a",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "180eb410b19c175c6005c9d15c4dc9c4b27824b1b3605bf9902c43c0647dcda3"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_integration_suite",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-3:check_integration_suite"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "1286952bbeab6f4867d89a332b1ed88e85c22815443b716a00957111f7f4c8b5"
+        },
+        "createdAt": "2026-11-09T22:38:13.649Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:6df64d33afe620b503bf35899d9d0ec8285fadd5d028b13c318aeb84f54ff41c",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "795dc0e315928dc95022172169ac593d0f6f48c13d1d1c5593033b8f3ec08ea8"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 332
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:326377587b06acffa89bf3dde8025d70516a01ba4aa75e2dbf5d8a5513d04aca",
+    "sequence": 29
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.649Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-3:check_integration_suite",
+    "source": "gate-runner/v1/integration-suite",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "integration-suite",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-a",
+        "gateClass": "integration-suite",
+        "providerRef": "check_integration_suite",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:326377587b06acffa89bf3dde8025d70516a01ba4aa75e2dbf5d8a5513d04aca",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:integration-suite",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-a",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:326377587b06acffa89bf3dde8025d70516a01ba4aa75e2dbf5d8a5513d04aca",
+    "sequence": 30
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.831Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-4:check_static_analysis",
+    "source": "gate-runner/v1/static-analysis",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:39e8c9869471660e3078b91f2af794f21b682613ddf0e7270aa2c02066b22285",
+        "requirementId": "verification-ladder:static-analysis",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-a",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "ad4ce517c89a873437a752d37fb24e36598d050c372ef611d7e77d7a8d131d4d"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_static_analysis",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-4:check_static_analysis"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "bd1bb9136b7b320646428a0d012d2d93cc16e2a89995c868dac0ac09dbf70cdb"
+        },
+        "createdAt": "2026-11-09T22:38:13.831Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:2492b9c2407025e8724ad80924e96bcb0623d9cccdd960f4012f8ff6a2723706",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "fc5a862cb3255272b20aaf44baa42a92dc71c108c77365e72a776a28e4f45bba"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 392
+          }
+        ],
+        "kind": "gate",
+        "verdict": "pass"
+      }
+    },
+    "idempotencyKey": "evidence:39e8c9869471660e3078b91f2af794f21b682613ddf0e7270aa2c02066b22285",
+    "sequence": 31
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.831Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-4:check_static_analysis",
+    "source": "gate-runner/v1/static-analysis",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "static-analysis",
+      "layer": "verification-ladder",
+      "passed": true,
+      "details": {
+        "taskId": "task-a",
+        "gateClass": "static-analysis",
+        "providerRef": "check_static_analysis",
+        "verdict": "pass",
+        "evidenceId": "evidence:39e8c9869471660e3078b91f2af794f21b682613ddf0e7270aa2c02066b22285",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:static-analysis",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-a",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "completeness": "complete"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:39e8c9869471660e3078b91f2af794f21b682613ddf0e7270aa2c02066b22285",
+    "sequence": 32
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.840Z",
+    "type": "task.completed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b:leaf-5:task_complete",
+    "schemaVersion": "1.0",
+    "data": {
+      "taskId": "task-a",
+      "files": [
+        "src/task-a.ts"
+      ],
+      "worktreePath": "/tmp/scoped-repository-tU5WZT/worktree-task-a",
+      "commit": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+      "verified": false
+    },
+    "idempotencyKey": "feat-workflow-replay-walk:task.completed:task-a",
+    "sequence": 33
+  },
+  {
+    "type": "orchestrate.intent_executed",
+    "data": {
+      "operationId": "settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b",
+      "intent": "task-completion",
+      "outcome": "committed",
+      "leaves": [
+        {
+          "action": "check_test_adequacy",
+          "status": "passed",
+          "sequences": [
+            23,
+            24
+          ]
+        },
+        {
+          "action": "check_contract_drift",
+          "status": "passed",
+          "sequences": [
+            25,
+            26
+          ]
+        },
+        {
+          "action": "check_mock_boundary",
+          "status": "passed",
+          "sequences": [
+            27,
+            28
+          ]
+        },
+        {
+          "action": "check_integration_suite",
+          "status": "passed",
+          "sequences": [
+            29,
+            30
+          ]
+        },
+        {
+          "action": "check_static_analysis",
+          "status": "passed",
+          "sequences": [
+            31,
+            32
+          ]
+        },
+        {
+          "action": "task_complete",
+          "status": "passed",
+          "sequences": [
+            33
+          ]
+        }
+      ],
+      "requestDigest": "sha256:1ef6c75b519f27e8dde9050f96b1cd41bfd60935066fdde6e427dedba858e758",
+      "steering": {
+        "riskTier": "low",
+        "boundaryTouching": false,
+        "source": "capsule"
+      },
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:execute-intent-run:settle-task:51f41f9e1b512ea14802438911a54bc68eecfe86cae4738c9c19309d47c5628b",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "1c328a8c1c367bf033291027c03fa31e4c0301c5c3a1594f5008054ef6634631"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:13.843Z",
+    "schemaVersion": "1.1",
+    "operationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 34
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.851Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-0:check_test_adequacy",
+    "source": "gate-runner/v1/test-adequacy",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:a791ffff723e0264b3b4a80ab7fe7b07b566c61c03ef375a266c3083172574b0",
+        "requirementId": "verification-ladder:test-adequacy",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-b",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "6bb40d300a04ae0919283a88f7556d8d332a90d22f0b4d6e8becf3f8f901d544"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_test_adequacy",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-0:check_test_adequacy"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "e20cc5cf62d254233d085022bcd773b39157f3922aaeb2227f69f30122b89647"
+        },
+        "createdAt": "2026-11-09T22:38:13.851Z",
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:a791ffff723e0264b3b4a80ab7fe7b07b566c61c03ef375a266c3083172574b0",
+    "sequence": 35
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.851Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-0:check_test_adequacy",
+    "source": "gate-runner/v1/test-adequacy",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "test-adequacy",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-b",
+        "gateClass": "test-adequacy",
+        "providerRef": "check_test_adequacy",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:a791ffff723e0264b3b4a80ab7fe7b07b566c61c03ef375a266c3083172574b0",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:test-adequacy",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-b",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy",
+        "reason": "skipped by verification policy — check_test_adequacy is not in the resolved sequence for riskTier='low', boundaryTouching=false (sequence: check_static_analysis; policy: builtin)",
+        "completeness": "complete"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:a791ffff723e0264b3b4a80ab7fe7b07b566c61c03ef375a266c3083172574b0",
+    "sequence": 36
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.857Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-1:check_contract_drift",
+    "source": "gate-runner/v1/contract-drift",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:d719d091d7fa2bc7c74f014603d9120e36ce123e228db7c4017dbb80279d412c",
+        "requirementId": "verification-ladder:contract-drift",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-b",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "fe11fb1ec7b45423c3128d0b34ddd22e7cfd624d7f4a914974ccbdc837cc564a"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_contract_drift",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-1:check_contract_drift"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "a84469acec3246414ce6c624f812d12792c7606febdda5c0dfc8644ec4fe5f92"
+        },
+        "createdAt": "2026-11-09T22:38:13.857Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:81cb0d168914b06eb5323f6af3c10c2ffddfddbf2b92ad16b0481d74646a7884",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "ac3863daea0f34e60995fd3616a81f3c101a826dfadfc52a1dce4b0ed9f5506b"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 329
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:d719d091d7fa2bc7c74f014603d9120e36ce123e228db7c4017dbb80279d412c",
+    "sequence": 37
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.857Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-1:check_contract_drift",
+    "source": "gate-runner/v1/contract-drift",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "contract-drift",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-b",
+        "gateClass": "contract-drift",
+        "providerRef": "check_contract_drift",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:d719d091d7fa2bc7c74f014603d9120e36ce123e228db7c4017dbb80279d412c",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:contract-drift",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-b",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:d719d091d7fa2bc7c74f014603d9120e36ce123e228db7c4017dbb80279d412c",
+    "sequence": 38
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.866Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-2:check_mock_boundary",
+    "source": "gate-runner/v1/mock-boundary",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:fdf417f44244b13e8867befa40f45d6bfedf77277c31feb84f95c77fe6eef70a",
+        "requirementId": "verification-ladder:mock-boundary",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-b",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "3ac9f8cd5d94d73c9d29a1792cd1db62607bfed7c2b24f00a77c31267f7e90b7"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_mock_boundary",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-2:check_mock_boundary"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "6a2a9bd74641c42495c4183223077b4696757656caea5273bff29a91134b5a61"
+        },
+        "createdAt": "2026-11-09T22:38:13.866Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:5f2f1478541963c9dbea3adee0232d00e5067406ab902ed58a029aefc3898460",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "fa7bf76ae55d37c1924527460703399e5a59f7b9827ae2d388d0a6422b6441d4"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 328
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:fdf417f44244b13e8867befa40f45d6bfedf77277c31feb84f95c77fe6eef70a",
+    "sequence": 39
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.866Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-2:check_mock_boundary",
+    "source": "gate-runner/v1/mock-boundary",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "mock-boundary",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-b",
+        "gateClass": "mock-boundary",
+        "providerRef": "check_mock_boundary",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:fdf417f44244b13e8867befa40f45d6bfedf77277c31feb84f95c77fe6eef70a",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:mock-boundary",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-b",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:fdf417f44244b13e8867befa40f45d6bfedf77277c31feb84f95c77fe6eef70a",
+    "sequence": 40
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.872Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-3:check_integration_suite",
+    "source": "gate-runner/v1/integration-suite",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:bf66020b41e330add74796e38e9cfb8aa3e14f0dd09b07268dd49c077738ef10",
+        "requirementId": "verification-ladder:integration-suite",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-b",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "b51a8445f31fc021e3a0527696f000b59c4f9f0857605f17249a161b0370dc3b"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_integration_suite",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-3:check_integration_suite"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "a98e9e0af681dab2996629ed6020efa3144c2d3ceeb9ec68c4cabd7f3656eaca"
+        },
+        "createdAt": "2026-11-09T22:38:13.872Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:70b4c1063408d458e6f0abc2d3413a0ca56c8bbd95ab09b087dd3455d2800e76",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "82610b9304c14e64169054cfa56c805d027b2d9588ff88a7b676f0477a90f3ea"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 332
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:bf66020b41e330add74796e38e9cfb8aa3e14f0dd09b07268dd49c077738ef10",
+    "sequence": 41
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:13.872Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-3:check_integration_suite",
+    "source": "gate-runner/v1/integration-suite",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "integration-suite",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-b",
+        "gateClass": "integration-suite",
+        "providerRef": "check_integration_suite",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:bf66020b41e330add74796e38e9cfb8aa3e14f0dd09b07268dd49c077738ef10",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:integration-suite",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-b",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:bf66020b41e330add74796e38e9cfb8aa3e14f0dd09b07268dd49c077738ef10",
+    "sequence": 42
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.009Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-4:check_static_analysis",
+    "source": "gate-runner/v1/static-analysis",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:7db11e9a860d557d8eebe82cdba116b95df8bc7b946fcaffb0f21f6322b828bc",
+        "requirementId": "verification-ladder:static-analysis",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-b",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "dfa5edb96299f96f07f5238896edb0d42a51b0ae9b1b8ae1ff1ae64c53015e4d"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_static_analysis",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-4:check_static_analysis"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "11d115c69e89221aec1396a722ad9eae2a0a1d10dcd167f3dfb26d5466a214e3"
+        },
+        "createdAt": "2026-11-09T22:38:14.009Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:726cded5e55a1f677ca755bdd6a3c8cd0730bad782e992471580ea5273bb687a",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "698939cc182db1f5039044c590d69abb107425d69d4574fadf04f993e8ff82c2"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 392
+          }
+        ],
+        "kind": "gate",
+        "verdict": "pass"
+      }
+    },
+    "idempotencyKey": "evidence:7db11e9a860d557d8eebe82cdba116b95df8bc7b946fcaffb0f21f6322b828bc",
+    "sequence": 43
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.009Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-4:check_static_analysis",
+    "source": "gate-runner/v1/static-analysis",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "static-analysis",
+      "layer": "verification-ladder",
+      "passed": true,
+      "details": {
+        "taskId": "task-b",
+        "gateClass": "static-analysis",
+        "providerRef": "check_static_analysis",
+        "verdict": "pass",
+        "evidenceId": "evidence:7db11e9a860d557d8eebe82cdba116b95df8bc7b946fcaffb0f21f6322b828bc",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:static-analysis",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-b",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "completeness": "complete"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:7db11e9a860d557d8eebe82cdba116b95df8bc7b946fcaffb0f21f6322b828bc",
+    "sequence": 44
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.015Z",
+    "type": "task.completed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2:leaf-5:task_complete",
+    "schemaVersion": "1.0",
+    "data": {
+      "taskId": "task-b",
+      "files": [
+        "src/task-b.ts"
+      ],
+      "worktreePath": "/tmp/scoped-repository-tU5WZT/worktree-task-b",
+      "commit": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+      "verified": false
+    },
+    "idempotencyKey": "feat-workflow-replay-walk:task.completed:task-b",
+    "sequence": 45
+  },
+  {
+    "type": "orchestrate.intent_executed",
+    "data": {
+      "operationId": "settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2",
+      "intent": "task-completion",
+      "outcome": "committed",
+      "leaves": [
+        {
+          "action": "check_test_adequacy",
+          "status": "passed",
+          "sequences": [
+            35,
+            36
+          ]
+        },
+        {
+          "action": "check_contract_drift",
+          "status": "passed",
+          "sequences": [
+            37,
+            38
+          ]
+        },
+        {
+          "action": "check_mock_boundary",
+          "status": "passed",
+          "sequences": [
+            39,
+            40
+          ]
+        },
+        {
+          "action": "check_integration_suite",
+          "status": "passed",
+          "sequences": [
+            41,
+            42
+          ]
+        },
+        {
+          "action": "check_static_analysis",
+          "status": "passed",
+          "sequences": [
+            43,
+            44
+          ]
+        },
+        {
+          "action": "task_complete",
+          "status": "passed",
+          "sequences": [
+            45
+          ]
+        }
+      ],
+      "requestDigest": "sha256:8c50718a87bb646456f50d4b2bb8121c81862756665f06fea613da5f9f8a4b6f",
+      "steering": {
+        "riskTier": "low",
+        "boundaryTouching": false,
+        "source": "capsule"
+      },
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:execute-intent-run:settle-task:72d076420749e9d1806d741419757580abf8faaa2aab90dfd96c15ad91295af2",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "a0ecde750fd3cfd9cf83a3025a72b940cc48f7f0dc5aa3b351332828634c2fbd"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:14.016Z",
+    "schemaVersion": "1.1",
+    "operationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 46
+  },
+  {
+    "type": "deviation.decided",
+    "data": {
+      "operationId": "settle:94bf164d6866f80609cbf94fd19861afe546d7b0f705f0a3c49dce8328b7c073",
+      "workflowId": "feat-workflow-replay-walk",
+      "capsuleVersion": 1,
+      "batchId": "batch-1",
+      "deviationId": "dev:bbd0d250f92f709b8fc80b2f",
+      "decision": "accepted",
+      "actor": "human:reviewer",
+      "rationale": "the design did not name the cache, and the change is sound"
+    },
+    "timestamp": "2026-11-09T22:38:14.017Z",
+    "operationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 47
+  },
+  {
+    "type": "design.revised",
+    "timestamp": "2026-11-09T22:38:14.017Z",
+    "operationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "data": {
+      "operationId": "settle:94bf164d6866f80609cbf94fd19861afe546d7b0f705f0a3c49dce8328b7c073",
+      "workflowId": "feat-workflow-replay-walk",
+      "capsuleVersion": 1,
+      "batchId": "batch-1",
+      "priorDesignVersion": 1,
+      "nextDesignVersion": 2,
+      "deviationIds": [
+        "dev:bbd0d250f92f709b8fc80b2f"
+      ],
+      "affectedTasks": [
+        "task-c"
+      ],
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:settlement-adjudication:batch-1:1",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "1fde332aec77a3f6384fdd58dca7be06f0e5bfb53459e9ea83f06c30b22a8b07"
+          }
+        }
+      ]
+    },
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 48
+  },
+  {
+    "type": "execution.settled",
+    "data": {
+      "operationId": "settle:94bf164d6866f80609cbf94fd19861afe546d7b0f705f0a3c49dce8328b7c073",
+      "workflowId": "feat-workflow-replay-walk",
+      "capsuleVersion": 1,
+      "batchId": "batch-1",
+      "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+      "outcome": "settled",
+      "round": 1,
+      "acceptedTasks": [
+        "task-a",
+        "task-b"
+      ],
+      "findingCounts": [],
+      "adjudicated": {
+        "claims": 2,
+        "requiredResults": 2,
+        "fields": 16,
+        "evidence": 0,
+        "deviations": 1,
+        "verification": 2,
+        "decisions": 1
+      },
+      "requestDigest": "sha256:8adc57df8e30941a5f3ee638fefc30237eeabfd747e7e074c2b37c85f1afa1b2",
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:settlement-adjudication:batch-1:1",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "1fde332aec77a3f6384fdd58dca7be06f0e5bfb53459e9ea83f06c30b22a8b07"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:14.017Z",
+    "schemaVersion": "1.0",
+    "operationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 49
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.021Z",
+    "type": "gate.executed",
+    "correlationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "operationId": "3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "delegate",
+        "checked": 5,
+        "missing": 5,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded",
+          "task.progressed"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:3515e838-da7e-4767-8ee3-e37ffd6e18ff",
+    "sequence": 50
+  },
+  {
+    "type": "task.assigned",
+    "data": {
+      "taskId": "task-c",
+      "title": "third"
+    },
+    "timestamp": "2026-11-09T22:38:14.203Z",
+    "operationId": "59910d87-13cb-44eb-925e-f3f955868355",
+    "correlationId": "59910d87-13cb-44eb-925e-f3f955868355",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 51
+  },
+  {
+    "type": "capsule.recompiled",
+    "data": {
+      "operationId": "prepare:48798aef09003f47e47ade532d3e21a155758f4554abce1d44e58353963f96d6",
+      "workflowId": "feat-workflow-replay-walk",
+      "capsuleVersion": 2,
+      "capsuleDigest": "afed59f0df582d7743c3e8d4b840eb8e07f83ec4660fc8311ccce5319cdbc621",
+      "priorCapsuleVersion": 1,
+      "priorDesignVersion": 1,
+      "nextDesignVersion": 2,
+      "declaredTasks": [
+        "task-c"
+      ],
+      "invalidatedTasks": [
+        "task-c"
+      ],
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:prepared-capsule:feat-workflow-replay-walk:2",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "4f626dc9191a74b438fce5402f2e30a7f8eb1ba329f151c499ed708922e4ef56"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:14.203Z",
+    "operationId": "59910d87-13cb-44eb-925e-f3f955868355",
+    "correlationId": "59910d87-13cb-44eb-925e-f3f955868355",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 52
+  },
+  {
+    "type": "workflow.prepared",
+    "data": {
+      "operationId": "prepare:48798aef09003f47e47ade532d3e21a155758f4554abce1d44e58353963f96d6",
+      "workflowId": "feat-workflow-replay-walk",
+      "workflowType": "feature",
+      "capsuleVersion": 2,
+      "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+      "designVersion": "design-v2",
+      "capsuleDigest": "afed59f0df582d7743c3e8d4b840eb8e07f83ec4660fc8311ccce5319cdbc621",
+      "compilerVersion": "exarchos-prepare-5",
+      "taskCount": 1,
+      "requestDigest": "sha256:48798aef09003f47e47ade532d3e21a155758f4554abce1d44e58353963f96d6",
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:prepared-capsule:feat-workflow-replay-walk:2",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "4f626dc9191a74b438fce5402f2e30a7f8eb1ba329f151c499ed708922e4ef56"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:14.203Z",
+    "schemaVersion": "1.0",
+    "operationId": "59910d87-13cb-44eb-925e-f3f955868355",
+    "correlationId": "59910d87-13cb-44eb-925e-f3f955868355",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 53
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.209Z",
+    "type": "gate.executed",
+    "correlationId": "59910d87-13cb-44eb-925e-f3f955868355",
+    "operationId": "59910d87-13cb-44eb-925e-f3f955868355",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "delegate",
+        "checked": 5,
+        "missing": 5,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded",
+          "task.progressed"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:59910d87-13cb-44eb-925e-f3f955868355",
+    "sequence": 54
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.419Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-0:check_test_adequacy",
+    "source": "gate-runner/v1/test-adequacy",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:288653c42e320e69deba3cc454990e1e62313eae64f9f70b515c8e7e7068d86d",
+        "requirementId": "verification-ladder:test-adequacy",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-c",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "816ee43579c85c441639aa383ca95821fff4723973dc2df1737f22dc46f65a5d"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_test_adequacy",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-0:check_test_adequacy"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "e1d9409f78de989724bc695ac2006d86ab03e73eca08800dfc78625c0d85ab9e"
+        },
+        "createdAt": "2026-11-09T22:38:14.419Z",
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:288653c42e320e69deba3cc454990e1e62313eae64f9f70b515c8e7e7068d86d",
+    "sequence": 55
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.419Z",
+    "type": "gate.executed",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-0:check_test_adequacy",
+    "source": "gate-runner/v1/test-adequacy",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "test-adequacy",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-c",
+        "gateClass": "test-adequacy",
+        "providerRef": "check_test_adequacy",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:288653c42e320e69deba3cc454990e1e62313eae64f9f70b515c8e7e7068d86d",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:test-adequacy",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-c",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy",
+        "reason": "skipped by verification policy — check_test_adequacy is not in the resolved sequence for riskTier='low', boundaryTouching=false (sequence: check_static_analysis; policy: builtin)",
+        "completeness": "complete"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:288653c42e320e69deba3cc454990e1e62313eae64f9f70b515c8e7e7068d86d",
+    "sequence": 56
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.432Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-1:check_contract_drift",
+    "source": "gate-runner/v1/contract-drift",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:fa2c790d860bad89c64ab377624fb5d45b35d36331e773e279e7fe2a7e56a9e2",
+        "requirementId": "verification-ladder:contract-drift",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-c",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "018a0b1ddd6195a5640c3ab54c44351053b8e0479e214a1cbd5b884d69560f2c"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_contract_drift",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-1:check_contract_drift"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "2605f4c22cfd2b794fb9fb2b20cf5f02e1e99312bed4eae6ef036f73d017115b"
+        },
+        "createdAt": "2026-11-09T22:38:14.432Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:c72a851679d7211fe3febadad9064a1147207e4022f199d3bd0a1000fd9a68b7",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "e8f3a8ae762ef92bbe133157d675a8aa07a0405afedc1da58e850e5b2076d112"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 329
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:fa2c790d860bad89c64ab377624fb5d45b35d36331e773e279e7fe2a7e56a9e2",
+    "sequence": 57
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.432Z",
+    "type": "gate.executed",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-1:check_contract_drift",
+    "source": "gate-runner/v1/contract-drift",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "contract-drift",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-c",
+        "gateClass": "contract-drift",
+        "providerRef": "check_contract_drift",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:fa2c790d860bad89c64ab377624fb5d45b35d36331e773e279e7fe2a7e56a9e2",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:contract-drift",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-c",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:fa2c790d860bad89c64ab377624fb5d45b35d36331e773e279e7fe2a7e56a9e2",
+    "sequence": 58
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.439Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-2:check_mock_boundary",
+    "source": "gate-runner/v1/mock-boundary",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:43cdbe71ca4a50b60935292b1982df4b6ffcded9a1221b9668385faaa11e729b",
+        "requirementId": "verification-ladder:mock-boundary",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-c",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "d601b579360704e015e381378fb3e815a2bc6b0ee4603546318151a4a5ad8b07"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_mock_boundary",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-2:check_mock_boundary"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "ff96d17c8a7c4229ea2f29173a535ed9dc1d206e8f4494d4c15657dfcc32b4b0"
+        },
+        "createdAt": "2026-11-09T22:38:14.439Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:a927b4181ac0589d1a212fc7e119f27d1aa7f898767994dbbe4a996ee737d3b7",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "f16c5698da09d44d97598e7cf4840a7e9b2432938827c8b43ea6e89303df6651"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 328
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:43cdbe71ca4a50b60935292b1982df4b6ffcded9a1221b9668385faaa11e729b",
+    "sequence": 59
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.439Z",
+    "type": "gate.executed",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-2:check_mock_boundary",
+    "source": "gate-runner/v1/mock-boundary",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "mock-boundary",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-c",
+        "gateClass": "mock-boundary",
+        "providerRef": "check_mock_boundary",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:43cdbe71ca4a50b60935292b1982df4b6ffcded9a1221b9668385faaa11e729b",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:mock-boundary",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-c",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:43cdbe71ca4a50b60935292b1982df4b6ffcded9a1221b9668385faaa11e729b",
+    "sequence": 60
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.451Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-3:check_integration_suite",
+    "source": "gate-runner/v1/integration-suite",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:5d1759765f48dc8dea760fcf1dbcf327d8dac17ce297232299d3ce13e3021c3f",
+        "requirementId": "verification-ladder:integration-suite",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-c",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "a4426c14c68f6b7fa9013f7ecb029312882687c34ec99bea50963457e9bf8770"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_integration_suite",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-3:check_integration_suite"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "eb24b9ffb31c63840762e99f3e177a824f7df6a823ffbf2a8bf5e4d801f1da60"
+        },
+        "createdAt": "2026-11-09T22:38:14.451Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:7512117f4c8657f2e573f8b3e0c77a4721b041b0d4f1439da5c489054c288479",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "fea4e6486fbdb2a4404cbaf6f4c756ad984a588c718a9a2c47a494be94233c38"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 332
+          }
+        ],
+        "kind": "gate",
+        "verdict": "indeterminate"
+      }
+    },
+    "idempotencyKey": "evidence:5d1759765f48dc8dea760fcf1dbcf327d8dac17ce297232299d3ce13e3021c3f",
+    "sequence": 61
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.451Z",
+    "type": "gate.executed",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-3:check_integration_suite",
+    "source": "gate-runner/v1/integration-suite",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "integration-suite",
+      "layer": "verification-ladder",
+      "passed": false,
+      "details": {
+        "taskId": "task-c",
+        "gateClass": "integration-suite",
+        "providerRef": "check_integration_suite",
+        "verdict": "indeterminate",
+        "evidenceId": "evidence:5d1759765f48dc8dea760fcf1dbcf327d8dac17ce297232299d3ce13e3021c3f",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:integration-suite",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-c",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "skipped": true,
+        "discriminant": "skipped-by-policy"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:5d1759765f48dc8dea760fcf1dbcf327d8dac17ce297232299d3ce13e3021c3f",
+    "sequence": 62
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.625Z",
+    "type": "admission.evidence-recorded",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-4:check_static_analysis",
+    "source": "gate-runner/v1/static-analysis",
+    "schemaVersion": "1.0",
+    "data": {
+      "eventVersion": "1.0",
+      "evidence": {
+        "contractVersion": "1.0",
+        "evidenceId": "evidence:541de483ced201cdf6bf80a2fec3be85352861578a87add2fa3cdadde960fd33",
+        "requirementId": "verification-ladder:static-analysis",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "subject": {
+          "kind": "task",
+          "taskId": "task-c",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "d39e093c6d271c31fb9b372ccccc777bd1f70205bff885a695c139a1ea5c6e6b"
+          }
+        },
+        "producer": {
+          "producerId": "mcp:d985b48d5b757d2742c5e78bf8d4697f",
+          "providerRef": "check_static_analysis",
+          "providerVersion": "2.12.0",
+          "invocationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-4:check_static_analysis"
+        },
+        "policyId": "audit-shadow",
+        "policyDigest": {
+          "algorithm": "sha256",
+          "value": "4a5503f95042abe2532fa551ba5eaf4566f7f8586e5bdba3276a300b569497e0"
+        },
+        "contentDigest": {
+          "algorithm": "sha256",
+          "value": "52498bc952a4be33b4f1bbd665453c01c7414ce6966b6f0f389c20bf48e9321a"
+        },
+        "createdAt": "2026-11-09T22:38:14.625Z",
+        "artifactRefs": [
+          {
+            "contractVersion": "1.0",
+            "subject": {
+              "kind": "artifact",
+              "artifactId": "gate-report:224395d467dcfb4dfe277bd33bbb3ab1b088c373097e0134c2ea95de51d230a8",
+              "digest": {
+                "algorithm": "sha256",
+                "value": "dbc52dbe5723fb5373ba99b858499a9483a8087edc8045cbb4b05a2a4c9fee31"
+              }
+            },
+            "mediaType": "application/json",
+            "byteLength": 392
+          }
+        ],
+        "kind": "gate",
+        "verdict": "pass"
+      }
+    },
+    "idempotencyKey": "evidence:541de483ced201cdf6bf80a2fec3be85352861578a87add2fa3cdadde960fd33",
+    "sequence": 63
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.625Z",
+    "type": "gate.executed",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-4:check_static_analysis",
+    "source": "gate-runner/v1/static-analysis",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "static-analysis",
+      "layer": "verification-ladder",
+      "passed": true,
+      "details": {
+        "taskId": "task-c",
+        "gateClass": "static-analysis",
+        "providerRef": "check_static_analysis",
+        "verdict": "pass",
+        "evidenceId": "evidence:541de483ced201cdf6bf80a2fec3be85352861578a87add2fa3cdadde960fd33",
+        "phaseAttemptId": "phase-attempt:381dbd20be2331fec96de8f3056fb40439b01eb235ce4474e3388020eae0e066",
+        "requirementId": "verification-ladder:static-analysis",
+        "worktree": "/tmp/scoped-repository-tU5WZT/worktree-task-c",
+        "head": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+        "completeness": "complete"
+      }
+    },
+    "idempotencyKey": "gate.executed:evidence:541de483ced201cdf6bf80a2fec3be85352861578a87add2fa3cdadde960fd33",
+    "sequence": 64
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.635Z",
+    "type": "task.completed",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957:leaf-5:task_complete",
+    "schemaVersion": "1.0",
+    "data": {
+      "taskId": "task-c",
+      "files": [
+        "src/task-c.ts"
+      ],
+      "worktreePath": "/tmp/scoped-repository-tU5WZT/worktree-task-c",
+      "commit": "47847b4a68a4d04f3a543f23b4d4ea98c2552f02",
+      "verified": false
+    },
+    "idempotencyKey": "feat-workflow-replay-walk:task.completed:task-c",
+    "sequence": 65
+  },
+  {
+    "type": "orchestrate.intent_executed",
+    "data": {
+      "operationId": "settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957",
+      "intent": "task-completion",
+      "outcome": "committed",
+      "leaves": [
+        {
+          "action": "check_test_adequacy",
+          "status": "passed",
+          "sequences": [
+            55,
+            56
+          ]
+        },
+        {
+          "action": "check_contract_drift",
+          "status": "passed",
+          "sequences": [
+            57,
+            58
+          ]
+        },
+        {
+          "action": "check_mock_boundary",
+          "status": "passed",
+          "sequences": [
+            59,
+            60
+          ]
+        },
+        {
+          "action": "check_integration_suite",
+          "status": "passed",
+          "sequences": [
+            61,
+            62
+          ]
+        },
+        {
+          "action": "check_static_analysis",
+          "status": "passed",
+          "sequences": [
+            63,
+            64
+          ]
+        },
+        {
+          "action": "task_complete",
+          "status": "passed",
+          "sequences": [
+            65
+          ]
+        }
+      ],
+      "requestDigest": "sha256:301916f7d56dfdd2782e1690f1806a404ab79ea110e9b2af1b1e8a2e11fa7ac2",
+      "steering": {
+        "riskTier": "low",
+        "boundaryTouching": false,
+        "source": "capsule"
+      },
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:execute-intent-run:settle-task:514b2bf319e94f20d9aae7de2c82c92127417842291d12986802d386bc302957",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "b326590505115944bfbbfcd8f82406dc48d713aeb7bea358e50ad4f0e87e58ab"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:14.637Z",
+    "schemaVersion": "1.1",
+    "operationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 66
+  },
+  {
+    "type": "execution.settled",
+    "data": {
+      "operationId": "settle:263cb96770a2ebf93d32767b84568eb65863c6668c2af0fb75c7eab794201404",
+      "workflowId": "feat-workflow-replay-walk",
+      "capsuleVersion": 2,
+      "batchId": "batch-2",
+      "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+      "outcome": "settled",
+      "acceptedTasks": [
+        "task-c"
+      ],
+      "findingCounts": [],
+      "adjudicated": {
+        "claims": 1,
+        "requiredResults": 1,
+        "fields": 8,
+        "evidence": 0,
+        "deviations": 0,
+        "verification": 1,
+        "decisions": 0
+      },
+      "requestDigest": "sha256:8ccb1687d635301b8565b964768bfb99d79c3d3833c310c2ffb012c48b54aa34",
+      "bundleRefs": [
+        {
+          "artifactId": "run-bundle:settlement-adjudication:batch-2:2",
+          "digest": {
+            "algorithm": "sha256",
+            "value": "9f42b0ab9d825ef56cfea65810f135caa34a964a21388b0f74c5e45e4856169f"
+          }
+        }
+      ]
+    },
+    "timestamp": "2026-11-09T22:38:14.639Z",
+    "schemaVersion": "1.0",
+    "operationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "streamId": "feat-workflow-replay-walk",
+    "sequence": 67
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.646Z",
+    "type": "gate.executed",
+    "correlationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "operationId": "cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "delegate",
+        "checked": 5,
+        "missing": 5,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded",
+          "task.progressed"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:cb9339ed-93a8-4588-bfc9-fe7f9fb4a25a",
+    "sequence": 68
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.807Z",
+    "type": "workflow.transition",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "from": "delegate",
+      "to": "review",
+      "trigger": "execute-transition",
+      "featureId": "feat-workflow-replay-walk",
+      "phaseAttemptId": "phase-attempt:d82dec5724a88010f55c61a2b46dc4b0a9b8676df9455d97bc353609af3bc851"
+    },
+    "operationId": "e521daa9-5016-415c-ac90-015a1c75de36",
+    "idempotencyKey": "feat-workflow-replay-walk:transition:delegate:review:10",
+    "sequence": 69
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.808Z",
+    "type": "phase.exited",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "phase": "delegate",
+      "allRequiredGatesPassed": true
+    },
+    "operationId": "e521daa9-5016-415c-ac90-015a1c75de36",
+    "idempotencyKey": "feat-workflow-replay-walk:phase.exited:delegate:review:10",
+    "sequence": 70
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.808Z",
+    "type": "phase.entered",
+    "correlationId": "feat-workflow-replay-walk",
+    "source": "workflow",
+    "schemaVersion": "1.0",
+    "data": {
+      "phase": "review",
+      "kind": "REVIEW",
+      "resolver": "review-contract",
+      "resolvedGates": [
+        {
+          "family": "review",
+          "gate": "review"
+        }
+      ],
+      "policySource": "builtin",
+      "mode": "enforce",
+      "posture": "read-only",
+      "riskTier": "unknown",
+      "boundaryTouching": true
+    },
+    "operationId": "e521daa9-5016-415c-ac90-015a1c75de36",
+    "idempotencyKey": "feat-workflow-replay-walk:phase.entered:delegate:review:10",
+    "sequence": 71
+  },
+  {
+    "streamId": "feat-workflow-replay-walk",
+    "timestamp": "2026-11-09T22:38:14.810Z",
+    "type": "gate.executed",
+    "correlationId": "e521daa9-5016-415c-ac90-015a1c75de36",
+    "operationId": "e521daa9-5016-415c-ac90-015a1c75de36",
+    "schemaVersion": "1.0",
+    "data": {
+      "gateName": "event-emissions",
+      "layer": "observability",
+      "passed": false,
+      "details": {
+        "phase": "review",
+        "checked": 4,
+        "missing": 4,
+        "missingTypes": [
+          "team.spawned",
+          "team.task.planned",
+          "team.teammate.dispatched",
+          "team.disbanded"
+        ]
+      }
+    },
+    "idempotencyKey": "gate.executed:event-emissions:e521daa9-5016-415c-ac90-015a1c75de36",
+    "sequence": 72
+  }
+]
