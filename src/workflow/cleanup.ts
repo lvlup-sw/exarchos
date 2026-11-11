@@ -14,7 +14,13 @@ import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
 import type { EventStore } from '../events/store.js';
-import type { EventType } from '../events/schemas.js';
+import type { EventType, WorkflowEvent } from '../events/schemas.js';
+import {
+  recordGuardInputShadow,
+  runGuardInputShadow,
+  type GuardInputShadowRun,
+  type GuardInputShadowSink,
+} from '../projections/guard-input/shadow.js';
 import type { SnapshotStore } from '../projections/views/snapshot-store.js';
 import type { ToolResult } from '../format.js';
 import * as path from 'node:path';
@@ -279,6 +285,38 @@ export function collectCleanupEvidence(
 }
 
 /**
+ * Query the rows of the stream for the guard-input shadow.
+ * With no event store or after a failed query, the function gives no rows, so the shadow skips the run and cleanup goes on.
+ */
+async function queryShadowRows(
+  eventStore: EventStore | null,
+  featureId: string,
+): Promise<readonly WorkflowEvent[] | undefined> {
+  if (!eventStore) return undefined;
+  try {
+    return await eventStore.query(featureId);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Record the guard-input shadow run of the cleanup after the decision, and add its warnings to the result.
+ * Each exit after the guard calls it. The success calls it before the state write, so a throw of that write follows the record.
+ * The document side of the run keeps the stored `_events`, because the cleanup guard reads that list.
+ * A cleanup with no run returns the result unchanged.
+ */
+async function withShadowRecord(
+  result: ToolResult,
+  run: GuardInputShadowRun | undefined,
+  sink: GuardInputShadowSink,
+): Promise<ToolResult> {
+  const warnings = await recordGuardInputShadow(run, sink);
+  if (warnings.length === 0) return result;
+  return { ...result, warnings: [...(result.warnings ?? []), ...warnings] };
+}
+
+/**
  * Clean up a workflow by moving it to `completed`.
  * The merge guard reads the evidence in the state before cleanup backfills the `prUrl` and `mergedBranches` inputs.
  * Cleanup does not rewrite reviews, and it sets the `_cleanup.mergeVerified` guard input from the evidence verdict.
@@ -364,6 +402,18 @@ export async function handleCleanup(
     mutableState._pendingPhaseAttemptId = phaseAttemptId;
   }
 
+  const shadowRun = runGuardInputShadow({
+    call: 'cleanup',
+    featureId: input.featureId,
+    target: 'completed',
+    hasUpdates: false,
+    document: mutableState,
+    rows: await queryShadowRows(eventStore, input.featureId),
+    pass: 0,
+    fold: { cleanupEvidence: (folded) => collectCleanupEvidence(folded).verified },
+  });
+  const shadowSink: GuardInputShadowSink = { stateDir };
+
   const attempt = await hsmTransitionGuard.attempt(
     input.featureId,
     currentPhase,
@@ -380,25 +430,25 @@ export async function handleCleanup(
 
   if (!attempt.ok) {
     if (!evidence.verified) {
-      return {
+      return withShadowRecord({
         success: false,
         error: {
           code: ErrorCode.GUARD_FAILED,
           message: `Cleanup guard 'merge-verified' failed — cleanup evidence insufficient: ${evidence.reasons.join('; ')}`,
         },
-      };
+      }, shadowRun, shadowSink);
     }
-    return {
+    return withShadowRecord({
       success: false,
       error: {
         code: mapAttemptErrorCode(attempt.errorCode),
         message: attempt.errorMessage,
       },
-    };
+    }, shadowRun, shadowSink);
   }
 
   if (dryRun) {
-    return {
+    return withShadowRecord({
       success: true,
       data: {
         dryRun: true,
@@ -410,7 +460,7 @@ export async function handleCleanup(
         },
       },
       _meta: buildCheckpointMeta(state._checkpoint),
-    };
+    }, shadowRun, { stateDir, writeLine: false });
   }
 
   const synthesis = (mutableState.synthesis ?? {}) as Record<string, unknown>;
@@ -473,15 +523,25 @@ export async function handleCleanup(
         phaseAttemptId,
       });
     } catch (err) {
-      return {
+      return withShadowRecord({
         success: false,
         error: {
           code: ErrorCode.EVENT_APPEND_FAILED,
           message: `Event append failed during cleanup: ${err instanceof Error ? err.message : String(err)}`,
         },
-      };
+      }, shadowRun, shadowSink);
     }
   }
+
+  const completed = await withShadowRecord({
+    success: true,
+    data: {
+      phase: 'completed',
+      previousPhase: currentPhase,
+      phaseAttemptId,
+    },
+    _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
+  }, shadowRun, shadowSink);
 
   await writeStateFile(stateFile, mutableState as WorkflowState);
 
@@ -501,13 +561,5 @@ export async function handleCleanup(
     }
   }
 
-  return {
-    success: true,
-    data: {
-      phase: 'completed',
-      previousPhase: currentPhase,
-      phaseAttemptId,
-    },
-    _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
-  };
+  return completed;
 }

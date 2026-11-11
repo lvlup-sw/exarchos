@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1417,
-    "parsedFiles": 1372,
+    "testFiles": 1418,
+    "parsedFiles": 1373,
     "shellFiles": 45,
-    "cases": 15625,
+    "cases": 15633,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -10428,6 +10428,52 @@
         {
           "suite": "emission verifier over the safe corpus",
           "name": "EmissionVerifier_SafeCorpus_HasNonZeroDeterminateCoverage",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/guard-input-shadow-cleanup.test.ts": {
+      "file": "tests/integration/guard-input-shadow-cleanup.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndCompletes",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_ADryRun_WarnsAndWritesNoFile",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AnAgreeingCleanup_GivesNoWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AStaleStoredEventList_WarnsOnSynthesisOptedOut",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_NoEventStore_GetsNoComparison",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AFoldThatThrows_KeepsTheCleanupAndWarns",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AWriteThatThrows_RecordsTheRunBeforeTheThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_%s_CarriesTheWarningOnItsExit",
           "dynamic": false
         }
       ]
