@@ -18,7 +18,7 @@ packet:
   id: exarchos-semantic-plane
   version: 2
   as_of: 2026-11-10
-  main_at: a4f6728a5
+  main_at: e3995630f
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
