@@ -405,7 +405,7 @@ export const RETIRED_AUTHORITIES: readonly RetiredAuthority[] = Object.freeze([
       '(reviews that were actually approved, a recorded merge artifact reference) and fails ' +
       'the guard when the evidence is absent.',
     retiredBy: 'DR-8',
-    scopes: ['workflow/'],
+    scopes: ['workflow/', 'projections/guard-input/'],
     forbiddenPatterns: [
       {
         id: 'force-approve-review-status',
