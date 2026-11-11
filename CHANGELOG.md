@@ -274,6 +274,10 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 - **The five built-in workflows are kernel definitions under `src/workflow/definitions/`, with an `exarchos` extension.** Each file is one `WorkflowDefinitionV1` document, and its `exarchos` key holds the groups, the guard id, the route and the obligation of each edge, and the universal edges. The phase machine, the admission IR and the kernel that `prepare` pins derive from these files. No output changes: each `definitionVersion`, the `describe` topology and each transition result stay the same.
 
+- **A workflow transition and `cleanup` now compare the ledger fold with the state document before the guard runs.** The fold takes each task status only from the `task.completed` and `task.failed` rows. A disagreement adds one `GUARD_INPUT_DISAGREEMENT` warning to the result and one line to `guard-input-diagnostics/<featureId>.jsonl` in the state directory. The state document still decides each call, so no decision changes. No reader uses the directory, and it is safe to delete.
+  - A comparison that throws adds a `GUARD_INPUT_SHADOW_FAILED` warning. The call and its decision do not change.
+  - The audit `bun tools/audit/core/guard-input-audit.ts --store <dir>` folds each stream of a copy of a store and counts the documents that disagree. It refuses a live state directory.
+
 ### Fixed
 
 - `exarchos onboard` and `exarchos doctor --fix` register the Claude Code MCP server in `~/.claude.json` as `exarchos mcp`, the command of the plugin manifest. Before this change, they wrote an entry that started `node ~/.claude/mcp-servers/exarchos-mcp.js`, and no install step creates that file.
