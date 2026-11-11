@@ -15,7 +15,7 @@ Dispatch implementation tasks to subagents with proper context, worktree isolati
 
 `prepare` compiles the workflow's outstanding tasks into one immutable **capsule** — the task graph, each task's result contract and verification terms, the authority the work is judged by — and pins it. The subagents run the batch with **no governance calls in between**. `settle` submits their results as one batch: it adjudicates every claim against the pinned capsule, runs each accepted task's verification itself, and leaves the tasks complete. The orchestrator then lands the worktrees and transitions.
 
-The capsule is compiled for **feature** workflows. A workflow type `prepare` refuses (`WORKFLOW_TYPE_UNSUPPORTED`) takes the primitive path in the appendix at the end of this skill.
+The capsule is compiled for the **task-batch step** of a registered workflow definition, such as feature `delegate` or refactor `overhaul-delegate`. A workflow type or a single-agent step that `prepare` refuses takes the primitive path in the appendix at the end of this skill.
 
 ## Triggers
 
@@ -95,8 +95,8 @@ exarchos_orchestrate({ action: "prepare", featureId: "<featureId>", repoRoot: "<
 
 | Code | Meaning | Do |
 |------|---------|----|
-| `WORKFLOW_TYPE_UNSUPPORTED` | Not a feature workflow | Take the primitive path (appendix) |
-| `PHASE_NOT_PREPARABLE` | Not in `delegate` | Transition first |
+| `WORKFLOW_TYPE_UNSUPPORTED` | No registered definition for the workflow type (the message names the finding) | Take the primitive path (appendix) |
+| `PHASE_NOT_PREPARABLE` | The phase is not a task-batch step (the message names the finding and the compilable steps) | Transition to a compilable step that the message names. A single-agent step (`single-agent-step`) takes the primitive path (appendix) |
 | `NOTHING_TO_PREPARE` | Every planned task is complete | Transition to review |
 | `NO_READY_TASKS` | Tasks are pending, but each waits on a task that is not complete (the message names them) | Settle or fix the blocking tasks first; tasks that wait on each other are a cycle to break in the plan |
 | `BASE_UNRESOLVED` | The workflow records no integration branch (or not a safe ref name), so no task has a base | `exarchos_workflow({ action: "update", featureId: "<featureId>", updates: { "synthesis.integrationBranch": "<branch the tasks fork from>" } })`, then `prepare` again |
@@ -751,9 +751,9 @@ This is NOT a human checkpoint — the workflow continues autonomously.
 
 ---
 
-## Appendix: the primitive path (non-feature workflow types)
+## Appendix: the primitive path (types and steps that `prepare` does not compile)
 
-`prepare` compiles feature workflows. When it refuses `WORKFLOW_TYPE_UNSUPPORTED` — a debug or overhaul delegation — the per-task governance calls are made by hand, in this order:
+`prepare` compiles the task-batch step of a registered definition. When it refuses the workflow type (`WORKFLOW_TYPE_UNSUPPORTED`) or a single-agent step (`PHASE_NOT_PREPARABLE`, finding `single-agent-step`) — a debug delegation, for example — the per-task governance calls are made by hand, in this order:
 
 1. **Readiness** — `exarchos_orchestrate({ action: "prepare_delegation", featureId: "<featureId>", planPath: "docs/specs/<the-decomposition-spec>.md", repoRoot: "<absolute path of the integration worktree>", tasks: [...] })`. It announces the plan's tasks (`task.assigned`) itself before reading readiness, so no append precedes it. Pass `planPath` so it lifts each task's `**Risk Tier:**` / `**Boundary Touching:**` stamp; `ready: false` stops the wave. Pass `repoRoot` as an absolute path: the branch read, the protected-branch check, the ancestry preflight, the stash probe and a relative `planPath` then read that tree. Without `repoRoot`, it reads the directory of the server and returns a warning. It returns `implementerPromptTemplate`, a `verificationNotes` map keyed by `"<riskTier>|<boundaryTouching>"`, and `taskClassifications[i].verificationNoteKey` — splice the task's note into the template before dispatching. It also returns `baseBranch`, the integration branch the tasks fork from: **record it** for step 3.
 2. **Dispatch and collect** as in Steps 2 and 3, with the note in place of the capsule's terms.
