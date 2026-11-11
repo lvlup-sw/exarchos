@@ -17,8 +17,8 @@
 packet:
   id: exarchos-semantic-plane
   version: 2
-  as_of: 2026-11-10
-  main_at: e3995630f
+  as_of: 2026-11-11
+  main_at: f275601e4
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -659,7 +659,7 @@ decisions:
     source: "the lead, the spec 'the definitions are the source' (docs/specs/2026-11-05-definitions-are-the-source.md, revision 6), slice S2 of #1927"
     decision: "The definitions are the source of the five built-in workflows (#1253 wave 1). Format and place: each built-in is one checked-in JSON file, src/workflow/definitions/<type>.workflow.json. The file is one WorkflowDefinitionV1 document with one more top-level key, exarchos (D1). The extension holds the groups, one entry for each kernel transitionId (guard id, category, route, obligation, flags, effects) and the universal edges. It restates no kernel field. src/workflow/definitions/built-in.ts loads the five files at module load. It parses each file with the loose kernel schema and the strict extension schema, runs the reference rules and the built-in rules, and throws on any finding. The lowered kernel is the definition without its extension, so the five definitionVersion digests did not move. The admission IR derives its 51 edges from the extension. hsm-definitions.ts derives each phase machine with deriveMachine, and its binding table GUARD_BINDINGS binds each guard id to the Guard object of today. An unknown or duplicate id throws at load. The legacy guards still decide, and the six known admission disagreements stay allows. Precedence of the universal edges: each entry has edgeKind cancel or cleanup, and the executor stays hard-coded. cancel has no guard and runs before the explicit edges, so it shadows an explicit edge to the same target. cleanup has the guard merge-verified and runs before the explicit edges. When its guard fails, the explicit edge to the same target decides. getValidTransitions lists a universal target only when no explicit edge reaches it. The golden: tests/unit/workflow/__fixtures__/built-in.golden.json was captured before any source change, and it stays frozen. A recapture runs on the code of main in a detached worktree, never on the branch. Owners of the later readers: S5 gives the universal edges, history and the revise exception a reader, and captures the emission delta again. S7 and S9 capture the definition deltas again. S12 deletes deriveMachine, hsm-definitions.ts, guards.ts, lower-definition.ts, the golden and both test helpers."
     known: "The build ran on an MCP server binary of main, so each settlement of the build judged the code of main. Stage B runs the binary of the branch, and the pull request records its results."
-    status: "built on feat/definitions-are-the-source (T-01 34ebeecd7 to T-08 86600ec47, the merge of main 6d6257f74, and T-09 c8c6c382b, the test fixes of review round 1). Pull request #2186. The records change after the merge writes its merge commit."
+    status: "built on feat/definitions-are-the-source (T-01 34ebeecd7 to T-08 86600ec47, the merge of main 6d6257f74, and T-09 c8c6c382b, the test fixes of review round 1). Pull request #2186, merge commit f275601e4."
 # ─── build order (reconciled 2026-09-30) ─────────────────────────────────────
 
 build_order:
@@ -694,7 +694,7 @@ build_order:
       status: "decided"
       refs: "#1928 (every Git/PR write; related #1884, #1835)"
     - leg: "conformance: workflow-scoped capsule (definitions first; whole workflow per capsule; settlement carries phase; next_actions, playbooks, state document retire)"
-      status: "in progress in twelve slices (decisions of 2026-11-05). The four minor pull requests landed first: #2182, #2183 (with #2184), #2180 and #2181. S1 'the baseline' is done (pull request #2185, merge commit e3995630f). S2 is done (pull request #2186; the records change after the merge writes its merge commit). S3 to S12 are not started."
+      status: "in progress in twelve slices (decisions of 2026-11-05). The four minor pull requests landed first: #2182, #2183 (with #2184), #2180 and #2181. S1 'the baseline' is done (pull request #2185, merge commit e3995630f). S2 is done (pull request #2186, merge commit f275601e4). The specs of S3 and S4 are approved, and their builds start next. S5 to S12 are not started."
       slices: "S1 the baseline (#1687): the replay of a settled feature stream, the mixed-history golden and the observed counter; S2 the definitions are the source (#1253 wave 1); S3 any registered definition compiles (#1251, #1252); S4 one guard input, in shadow; S5 settlement moves the phase; S6 the plan is a compile input (#1657, #1999); S7 every task in one capsule; S8 the critic and the synthesis boundary (#1976, #1928); S9 every built-in compiles; S10 the skills speak prepare and settle (#1687, #2034, #1829), with the static call census for each workflow and the protocol-term census, which moved from S1 on 2026-11-06; S11 the forgeable routes close; S12 the phase machine is deleted (#1253, #1251, #1258)"
       refs: "#1927 (vehicle #1253; #1258, #1248, #1250, #1251, #1254)"
     - leg: "conformance: knowledge binding C2 (interim repo-local binder; DKG hot path)"
