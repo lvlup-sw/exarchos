@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1409,
-    "parsedFiles": 1364,
+    "testFiles": 1410,
+    "parsedFiles": 1365,
     "shellFiles": 45,
-    "cases": 15556,
+    "cases": 15563,
     "dynamicTitles": 185,
     "unparseableFiles": 0
   },
@@ -37858,6 +37858,47 @@
         {
           "suite": "durable projection-degraded state (DR-4)",
           "name": "ProjectionDegraded_EventTypes_RegisteredWithSourceAndSchema",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/fold-base.test.ts": {
+      "file": "tests/unit/projections/guard-input/fold-base.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "FoldWorkflowState_TheRowsOfAStream_EqualTheProjectionFoldedRowByRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "FoldWorkflowState_TheSameRows_GiveEqualStatesAndLeaveTheRowsUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ResolveWorkflowState_TheModule_FoldsThroughFoldWorkflowState",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ResolveWorkflowState_AStream_EqualsFoldWorkflowState",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ToGuardEvents_EachRow_MapsToTheInternalTypeTheDataAndTheMetadata",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ToGuardEvents_TheRowsOfAStream_EqualHydrateEventsFromStore",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ToGuardEvents_AnEntry_HoldsNoDataKey",
           "dynamic": false
         }
       ]
