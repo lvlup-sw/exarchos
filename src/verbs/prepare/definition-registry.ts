@@ -27,13 +27,13 @@ import { checkUserDefinition } from '../../workflow/definitions/user.js';
 import type { PrepareRefusal } from './types.js';
 
 /** The directory of the checkout that holds the Exarchos files. */
-const EXARCHOS_DIRECTORY = '.exarchos';
+const DOT_DIRECTORY = '.exarchos';
 
-/** The directory under {@link EXARCHOS_DIRECTORY} that holds the user definition files. */
+/** The directory under {@link DOT_DIRECTORY} that holds the user definition files. */
 const WORKFLOWS_DIRECTORY = 'workflows';
 
 /** The path of the definition directory from the checkout, with `/` separators. */
-const DEFINITIONS_FILE = `${EXARCHOS_DIRECTORY}/${WORKFLOWS_DIRECTORY}`;
+const DEFINITIONS_FILE = `${DOT_DIRECTORY}/${WORKFLOWS_DIRECTORY}`;
 
 /** The name suffix of a definition file. The read ignores each other entry. */
 const DEFINITION_SUFFIX = '.json';
@@ -215,7 +215,7 @@ async function readDefinitionFile(
   reads: DefinitionReads,
 ): Promise<{ readonly ok: true; readonly definition: ExarchosDefinition } | { readonly ok: false; readonly findings: readonly RegistryFinding[] }> {
   const file = `${DEFINITIONS_FILE}/${name}`;
-  const full = path.join(checkout, EXARCHOS_DIRECTORY, WORKFLOWS_DIRECTORY, name);
+  const full = path.join(checkout, DOT_DIRECTORY, WORKFLOWS_DIRECTORY, name);
   let bytes: Buffer;
   try {
     const stats = await reads.lstat(full);
@@ -245,14 +245,14 @@ export async function readCheckoutDefinitions(
   checkout: string,
   reads: DefinitionReads = FILE_READS,
 ): Promise<CheckoutDefinitions> {
-  for (const keys of [[EXARCHOS_DIRECTORY], [EXARCHOS_DIRECTORY, WORKFLOWS_DIRECTORY]]) {
+  for (const keys of [[DOT_DIRECTORY], [DOT_DIRECTORY, WORKFLOWS_DIRECTORY]]) {
     const directory = await directoryFinding(checkout, keys, reads);
     if (directory === 'absent') return { entries: new Map(), findings: [] };
     if (directory !== 'directory') return { entries: new Map(), findings: [directory] };
   }
   let names: string[];
   try {
-    names = await reads.readdir(path.join(checkout, EXARCHOS_DIRECTORY, WORKFLOWS_DIRECTORY));
+    names = await reads.readdir(path.join(checkout, DOT_DIRECTORY, WORKFLOWS_DIRECTORY));
   } catch (error) {
     return { entries: new Map(), findings: [fileFinding(DEFINITIONS_FILE, errorCodeOf(error))] };
   }
@@ -315,7 +315,7 @@ export async function resolveDefinition(input: ResolveDefinitionInput): Promise<
   const location = await input.locateCheckout();
   if (!location.ok) return { ok: false, refusal: location.refusal };
   const { located } = location;
-  const directory = path.join(located.toplevel, EXARCHOS_DIRECTORY, WORKFLOWS_DIRECTORY);
+  const directory = path.join(located.toplevel, DOT_DIRECTORY, WORKFLOWS_DIRECTORY);
   const read = await readCheckoutDefinitions(located.toplevel, input.reads);
   if (read.findings.length > 0) {
     return unsupported(
