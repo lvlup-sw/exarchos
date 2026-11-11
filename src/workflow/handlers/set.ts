@@ -2,15 +2,14 @@ import { buildValidatedEvent } from '../../events/event-factory.js';
 import type { EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { workflowLogger } from '../../logger.js';
+import { injectGuardConfig } from '../../projections/guard-input/config.js';
 import { recordLiveTransition } from '../admission/live-shadow-observer.js';
 import { buildCheckpointMeta, type CheckpointEnforcementConfig, incrementOperations, resetCounter, shouldEnforceCheckpoint } from '../checkpoint.js';
 import { hsmTransitionGuard } from '../hsm-transition-guard.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from '../phase-attempt-id.js';
-import { resolveGateSet } from '../phase-kind.js';
 import { ErrorCode } from '../schemas.js';
 import { applyDotPath, hydrateEventsFromStore, readStateFile, StateStoreError, validateStateForWrite, VersionConflictError, writeStateFile } from '../state-store.js';
 import type { SetInput, WorkflowState } from '../types.js';
-import { resolveBoundaryTouching, resolveRiskTier } from '../verification-policy-resolver.js';
 import * as path from 'node:path';
 import { CURRENT_ES_VERSION, isEventSourced } from './shared.js';
 
@@ -165,47 +164,7 @@ export async function handleSet(
     }
 
     if (input.phase) {
-      if (options?.requiredReviews !== undefined) {
-        mutableState._requiredReviews = options.requiredReviews;
-      } else {
-        const workflowType = state.workflowType as string;
-        const resolvedTier = resolveRiskTier(mutableState.riskTier);
-        const boundaryTouching = resolveBoundaryTouching(mutableState.boundaryTouching);
-        const typeDefaults = resolveGateSet('REVIEW', {
-          riskTier: resolvedTier,
-          boundaryTouching,
-          workflowType,
-        }).flatMap((g) => (g.family === 'review' ? [g.gate] : []));
-        if (typeDefaults.length) {
-          mutableState._requiredReviews = typeDefaults;
-        }
-      }
-
-      if (
-        typeof options?.maxPlanRevisions === 'number' &&
-        Number.isFinite(options.maxPlanRevisions)
-      ) {
-        mutableState._maxPlanRevisions = options.maxPlanRevisions;
-      }
-
-      if (resolveRiskTier(mutableState.riskTier) === 'high') {
-        if (options?.mutationEnforcement !== undefined) {
-          mutableState._mutationEnforcement = options.mutationEnforcement;
-        }
-        if (
-          typeof options?.mutationThreshold === 'number' &&
-          Number.isFinite(options.mutationThreshold)
-        ) {
-          mutableState._mutationThreshold = options.mutationThreshold;
-        }
-        if (
-          typeof options?.maxNoCoverage === 'number' &&
-          Number.isInteger(options.maxNoCoverage) &&
-          options.maxNoCoverage >= 0
-        ) {
-          mutableState._maxNoCoverage = options.maxNoCoverage;
-        }
-      }
+      injectGuardConfig(mutableState, options);
     }
 
     if (input.phase && eventStore) {
