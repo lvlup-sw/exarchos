@@ -1,0 +1,696 @@
+{
+  "inputs": {
+    "streamId": "feat-prepare-golden",
+    "workflowType": "feature",
+    "repoRoot": "/exarchos-prepare-golden",
+    "repository": "/exarchos-prepare-golden/.git",
+    "fromPhase": "plan-review",
+    "phase": "delegate",
+    "integrationBranch": "feature/prepare-golden",
+    "baseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "compiledAt": "2026-11-10T00:00:00.000Z",
+    "sessionId": "prepare-golden",
+    "artifacts": {
+      "design": "docs/specs/prepare-golden.md"
+    },
+    "plan": [
+      {
+        "id": "T-1",
+        "title": "title of T-1",
+        "status": "complete",
+        "blockedBy": []
+      },
+      {
+        "id": "T-2",
+        "title": "title of T-2",
+        "status": "pending",
+        "blockedBy": [
+          "T-1"
+        ]
+      },
+      {
+        "id": "T-3",
+        "title": "title of T-3",
+        "status": "pending",
+        "blockedBy": [],
+        "riskTier": "medium",
+        "boundaryTouching": true
+      },
+      {
+        "id": "T-4",
+        "title": "title of T-4",
+        "status": "pending",
+        "blockedBy": [
+          "T-3"
+        ]
+      }
+    ],
+    "catalog": [
+      {
+        "id": "INV-golden",
+        "summary": "The golden catalog binds one fixed invariant."
+      }
+    ],
+    "capabilities": [
+      "fs:read",
+      "fs:write",
+      "shell:exec",
+      "mcp:exarchos",
+      "subagent:spawn"
+    ]
+  },
+  "operationId": "prepare:b6a9b7d2da969a54fa2774fc4fef0bc13b3bc47bbbfac80edc4f8192cf5dc36b",
+  "requestDigest": "sha256:b6a9b7d2da969a54fa2774fc4fef0bc13b3bc47bbbfac80edc4f8192cf5dc36b",
+  "capsuleDigest": "2140338630e0276526685d82afb15a7824b23fbfa6ebe4d215a04fd17aa4d2b0",
+  "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+  "capsule": {
+    "authority": {
+      "assumptions": [
+        {
+          "id": "plan-is-current",
+          "statement": "The plan's tasks and their dependencies are current as of this compilation."
+        },
+        {
+          "id": "tasks-are-separable",
+          "statement": "Each task can be completed without changing the declared result shape of another task."
+        }
+      ],
+      "delegatedDecisions": [
+        {
+          "id": "implementation-approach",
+          "statement": "How a task is implemented, within its declared result shape."
+        },
+        {
+          "id": "execution-order",
+          "statement": "The order and concurrency of tasks whose dependencies are satisfied."
+        }
+      ],
+      "escalationBoundaries": [
+        {
+          "id": "published-contract-change",
+          "statement": "Any change to a published schema, event type or action contract."
+        },
+        {
+          "id": "work-outside-the-plan",
+          "statement": "Completing a task requires work the plan's task list does not contain."
+        },
+        {
+          "id": "assumption-invalidated",
+          "statement": "Evidence that an assumption of this capsule does not hold."
+        }
+      ],
+      "invariants": [
+        {
+          "id": "append-only-history",
+          "statement": "Workflow history is append-only: a recorded event is never rewritten or removed."
+        },
+        {
+          "id": "pinned-terms",
+          "statement": "Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation."
+        },
+        {
+          "id": "evidenced-completion",
+          "statement": "A task is complete only when its result is returned with evidence of a kind the capsule admits."
+        },
+        {
+          "id": "INV-golden",
+          "statement": "The golden catalog binds one fixed invariant."
+        }
+      ]
+    },
+    "capsuleSchemaVersion": "1",
+    "contracts": {
+      "deviationEnvelope": {
+        "allowedDeviationKinds": [
+          "invalidated-assumption",
+          "missing-context"
+        ],
+        "materialDeviationKinds": [
+          "invalidated-assumption"
+        ],
+        "requiresApproval": true
+      },
+      "evidenceKinds": [
+        "static-analysis",
+        "test-adequacy",
+        "integration-suite",
+        "contract-drift",
+        "mock-boundary"
+      ],
+      "taskInputs": {},
+      "taskResults": {
+        "T-2": [
+          {
+            "name": "worktreePath",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "branch",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "acceptanceTestRef",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "artifacts",
+            "required": false,
+            "type": "array"
+          },
+          {
+            "name": "duration",
+            "required": false,
+            "type": "number"
+          },
+          {
+            "name": "implements",
+            "required": false,
+            "type": "array"
+          },
+          {
+            "name": "tests",
+            "required": false,
+            "type": "array"
+          },
+          {
+            "name": "files",
+            "required": false,
+            "type": "array"
+          }
+        ],
+        "T-3": [
+          {
+            "name": "worktreePath",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "branch",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "acceptanceTestRef",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "artifacts",
+            "required": false,
+            "type": "array"
+          },
+          {
+            "name": "duration",
+            "required": false,
+            "type": "number"
+          },
+          {
+            "name": "implements",
+            "required": false,
+            "type": "array"
+          },
+          {
+            "name": "tests",
+            "required": false,
+            "type": "array"
+          },
+          {
+            "name": "files",
+            "required": false,
+            "type": "array"
+          }
+        ]
+      }
+    },
+    "executionProfile": {
+      "capabilities": [
+        "fs:read",
+        "fs:write",
+        "mcp:exarchos",
+        "shell:exec"
+      ]
+    },
+    "graph": {
+      "completionPredicate": {
+        "condition": {
+          "kind": "all",
+          "operands": [
+            {
+              "field": "tasks.count",
+              "kind": "counterCompare",
+              "op": "gte",
+              "value": 1
+            },
+            {
+              "field": "tasks.allComplete",
+              "kind": "factEquals",
+              "value": true
+            }
+          ]
+        },
+        "declares": {
+          "events": [],
+          "fields": {
+            "tasks.allComplete": "boolean",
+            "tasks.count": "number"
+          }
+        }
+      },
+      "dependencies": [],
+      "joins": [
+        {
+          "joinId": "batch-complete",
+          "mode": "all",
+          "waitsFor": [
+            "T-2",
+            "T-3"
+          ]
+        }
+      ],
+      "tasks": [
+        {
+          "stepId": "delegate",
+          "taskId": "T-2",
+          "title": "title of T-2"
+        },
+        {
+          "stepId": "delegate",
+          "taskId": "T-3",
+          "title": "title of T-3"
+        }
+      ]
+    },
+    "identity": {
+      "capsuleVersion": 1,
+      "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+      "designVersion": "design-v1",
+      "workflowId": "feat-prepare-golden"
+    },
+    "intent": {
+      "goals": [
+        {
+          "statement": "Complete the 2 outstanding task(s) of workflow 'feat-prepare-golden'."
+        }
+      ],
+      "nonGoals": [
+        {
+          "statement": "The work of the 'review' step, which follows this batch."
+        },
+        {
+          "statement": "The work of the 'merge-pending' step, which follows this batch."
+        }
+      ],
+      "successCriteria": [
+        {
+          "statement": "Task 'T-2' returns a result this capsule's settlement contract accepts."
+        },
+        {
+          "statement": "Task 'T-3' returns a result this capsule's settlement contract accepts."
+        }
+      ]
+    },
+    "knowledge": {
+      "glossary": [],
+      "mode": "eager",
+      "patterns": [
+        {
+          "statement": "A task at riskTier=medium, boundaryTouching=false is verified at settlement by: check_static_analysis, check_test_adequacy."
+        },
+        {
+          "statement": "A task at riskTier=medium, boundaryTouching=true is verified at settlement by: check_static_analysis, check_test_adequacy, check_contract_drift, check_mock_boundary."
+        },
+        {
+          "statement": "Each task forks from feature/prepare-golden at bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb. Settlement refuses a worktree that does not hold bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb."
+        }
+      ],
+      "rationale": [
+        {
+          "statement": "The design of record is docs/specs/prepare-golden.md."
+        }
+      ]
+    },
+    "provenance": {
+      "compiledAt": "2026-11-10T00:00:00.000Z",
+      "compilerVersion": "exarchos-prepare-5",
+      "sources": [
+        {
+          "digest": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+          "sourceId": "workflow-definition"
+        },
+        {
+          "digest": "8a83252de6eee71d0a93a02b90318e2c354ee52a2f8398ae35411ba4080b11d0",
+          "sourceId": "plan-tasks"
+        },
+        {
+          "digest": "5f9048f3b6a5e7bab8c026b7d0c2abc3812e6af9584100262e86747ebe7101cf",
+          "sourceId": "authority"
+        },
+        {
+          "digest": "d3eb1f4a95ad43c17948eb013beb39853bf29600976eb5da11b22dd029bd6868",
+          "sourceId": "design-reference"
+        }
+      ]
+    },
+    "settlementContract": {
+      "requiredResults": [
+        "T-2",
+        "T-3"
+      ],
+      "scope": {
+        "checkout": "/exarchos-prepare-golden",
+        "configDigest": "7dd4ae1d1abfa5418123350045a21c80f9fb83d8ae1d97db443145724bfbc7a6",
+        "repository": "/exarchos-prepare-golden/.git"
+      },
+      "taskVerification": {
+        "T-2": {
+          "baseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "baseRef": "feature/prepare-golden",
+          "boundaryTouching": false,
+          "riskTier": "medium"
+        },
+        "T-3": {
+          "baseCommit": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "baseRef": "feature/prepare-golden",
+          "boundaryTouching": true,
+          "riskTier": "medium"
+        }
+      },
+      "verificationProfile": {
+        "boundaryChecks": [],
+        "contract": {
+          "codegen": {
+            "reason": "contract.codegen: no contract command resolves. Set contract.codegen in .exarchos.yml.",
+            "state": "unresolved"
+          },
+          "diff": {
+            "reason": "contract.diff: no contract command resolves. Set contract.diff in .exarchos.yml.",
+            "state": "unresolved"
+          },
+          "typecheck": {
+            "reason": "contract.typecheck: no typecheck command resolves. Set typecheck: in .exarchos.yml.",
+            "state": "unresolved"
+          }
+        },
+        "firstParty": {
+          "globs": [
+            "src/**",
+            "servers/*/src/**"
+          ],
+          "source": "detection",
+          "state": "resolved"
+        },
+        "integration": {
+          "command": {
+            "reason": "integration.command: no test command resolves at the checkout. Set verification.integration.command or test:. No project markers detected. Add a .exarchos.yml at the repo root, for example: `test: pytest`, `typecheck: pyright`, `install: pip install -e .`. See content/continuity/skills/checkpoint/SKILL.md for the fu...",
+            "state": "unresolved"
+          },
+          "failureExitCodes": {
+            "codes": [
+              1
+            ],
+            "source": "detection"
+          },
+          "report": "exit-code"
+        },
+        "staticAnalysis": {
+          "reason": "staticAnalysis: no layer sets a lint or typecheck check. Set verification.staticAnalysis, or the top-level lint: or typecheck: key.",
+          "state": "unresolved"
+        },
+        "tests": {
+          "globs": {
+            "globs": [
+              "**/*.test.*",
+              "**/*.spec.*",
+              "**/__tests__/**"
+            ],
+            "source": "detection",
+            "state": "resolved"
+          },
+          "probe": {
+            "command": {
+              "reason": "tests.probe.command: no test command resolves at the checkout. Set verification.tests.probe.command or test:. No project markers detected. Add a .exarchos.yml at the repo root, for example: `test: pytest`, `typecheck: pyright`, `install: pip install -e .`. See content/continuity/skills/checkpoint/SKILL.md for the fu...",
+              "state": "unresolved"
+            },
+            "failureExitCodes": {
+              "codes": [
+                1
+              ],
+              "source": "detection"
+            },
+            "files": "after-separator",
+            "globs": [
+              "**/*.test.*",
+              "**/*.spec.*",
+              "**/__tests__/**"
+            ]
+          },
+          "support": {
+            "segments": [
+              "tests",
+              "test",
+              "__tests__",
+              "__mocks__",
+              "__fixtures__",
+              "fixtures",
+              "test-helpers"
+            ],
+            "source": "detection"
+          }
+        },
+        "toolchains": []
+      }
+    }
+  },
+  "definition": {
+    "approvalPoints": [],
+    "authority": {
+      "assumptions": [
+        {
+          "id": "plan-is-current",
+          "statement": "The plan's tasks and their dependencies are current as of this compilation."
+        },
+        {
+          "id": "tasks-are-separable",
+          "statement": "Each task can be completed without changing the declared result shape of another task."
+        }
+      ],
+      "delegatedDecisions": [
+        {
+          "id": "implementation-approach",
+          "statement": "How a task is implemented, within its declared result shape."
+        },
+        {
+          "id": "execution-order",
+          "statement": "The order and concurrency of tasks whose dependencies are satisfied."
+        }
+      ],
+      "escalationBoundaries": [
+        {
+          "id": "published-contract-change",
+          "statement": "Any change to a published schema, event type or action contract."
+        },
+        {
+          "id": "work-outside-the-plan",
+          "statement": "Completing a task requires work the plan's task list does not contain."
+        },
+        {
+          "id": "assumption-invalidated",
+          "statement": "Evidence that an assumption of this capsule does not hold."
+        }
+      ],
+      "invariants": [
+        {
+          "id": "append-only-history",
+          "statement": "Workflow history is append-only: a recorded event is never rewritten or removed."
+        },
+        {
+          "id": "pinned-terms",
+          "statement": "Work is judged against the capsule it was compiled under. Terms that change while it runs apply only to a later compilation."
+        },
+        {
+          "id": "evidenced-completion",
+          "statement": "A task is complete only when its result is returned with evidence of a kind the capsule admits."
+        }
+      ]
+    },
+    "branchPoints": [],
+    "entryStepId": "plan",
+    "failureHandlers": [],
+    "forkPoints": [],
+    "loops": [],
+    "name": "exarchos.feature",
+    "schemaVersion": "1.0",
+    "steps": [
+      {
+        "isTerminal": false,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "plan",
+        "stepName": "plan",
+        "stepType": "PLAN"
+      },
+      {
+        "isTerminal": false,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "plan-review",
+        "stepName": "plan-review",
+        "stepType": "PLAN"
+      },
+      {
+        "isTerminal": false,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "delegate",
+        "stepName": "delegate",
+        "stepType": "IMPLEMENT"
+      },
+      {
+        "isTerminal": false,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "review",
+        "stepName": "review",
+        "stepType": "REVIEW"
+      },
+      {
+        "isTerminal": false,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "merge-pending",
+        "stepName": "merge-pending",
+        "stepType": "MERGE"
+      },
+      {
+        "isTerminal": false,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "synthesize",
+        "stepName": "synthesize",
+        "stepType": "SYNTHESIZE"
+      },
+      {
+        "isTerminal": true,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "completed",
+        "stepName": "completed",
+        "stepType": "final"
+      },
+      {
+        "isTerminal": true,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "cancelled",
+        "stepName": "cancelled",
+        "stepType": "final"
+      },
+      {
+        "isTerminal": false,
+        "kind": "skill",
+        "runtime": "exarchos",
+        "stepId": "blocked",
+        "stepName": "blocked",
+        "stepType": "GATHER"
+      }
+    ],
+    "transitions": [
+      {
+        "fromStepId": "plan",
+        "isDefault": false,
+        "toStepId": "plan-review",
+        "transitionId": "plan->plan-review"
+      },
+      {
+        "fromStepId": "plan-review",
+        "isDefault": false,
+        "toStepId": "delegate",
+        "transitionId": "plan-review->delegate"
+      },
+      {
+        "fromStepId": "plan-review",
+        "isDefault": false,
+        "toStepId": "blocked",
+        "transitionId": "plan-review->blocked"
+      },
+      {
+        "fromStepId": "plan-review",
+        "isDefault": false,
+        "toStepId": "plan",
+        "transitionId": "plan-review->plan"
+      },
+      {
+        "fromStepId": "delegate",
+        "isDefault": false,
+        "toStepId": "review",
+        "transitionId": "delegate->review"
+      },
+      {
+        "fromStepId": "delegate",
+        "isDefault": false,
+        "toStepId": "merge-pending",
+        "transitionId": "delegate->merge-pending"
+      },
+      {
+        "fromStepId": "merge-pending",
+        "isDefault": false,
+        "toStepId": "delegate",
+        "transitionId": "merge-pending->delegate"
+      },
+      {
+        "fromStepId": "review",
+        "isDefault": false,
+        "toStepId": "synthesize",
+        "transitionId": "review->synthesize"
+      },
+      {
+        "fromStepId": "review",
+        "isDefault": false,
+        "toStepId": "delegate",
+        "transitionId": "review->delegate"
+      },
+      {
+        "fromStepId": "synthesize",
+        "isDefault": false,
+        "toStepId": "delegate",
+        "transitionId": "synthesize->delegate"
+      },
+      {
+        "fromStepId": "synthesize",
+        "isDefault": false,
+        "toStepId": "completed",
+        "transitionId": "synthesize->completed"
+      },
+      {
+        "fromStepId": "blocked",
+        "isDefault": false,
+        "toStepId": "delegate",
+        "transitionId": "blocked->delegate"
+      }
+    ]
+  },
+  "prepared": {
+    "bundleRefs": [
+      {
+        "artifactId": "run-bundle:prepared-capsule:feat-prepare-golden:1",
+        "digest": {
+          "algorithm": "sha256",
+          "value": "a8a440817999eecd4900c663ce26cd97e37280173209ab8545cb72750ccca380"
+        }
+      }
+    ],
+    "capsuleDigest": "2140338630e0276526685d82afb15a7824b23fbfa6ebe4d215a04fd17aa4d2b0",
+    "capsuleVersion": 1,
+    "compilerVersion": "exarchos-prepare-5",
+    "definitionVersion": "fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9",
+    "designVersion": "design-v1",
+    "operationId": "prepare:b6a9b7d2da969a54fa2774fc4fef0bc13b3bc47bbbfac80edc4f8192cf5dc36b",
+    "requestDigest": "sha256:b6a9b7d2da969a54fa2774fc4fef0bc13b3bc47bbbfac80edc4f8192cf5dc36b",
+    "taskCount": 2,
+    "workflowId": "feat-prepare-golden",
+    "workflowType": "feature"
+  }
+}
