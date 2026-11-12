@@ -88,6 +88,10 @@ describe('v2.12 cancellation process manager (DR-7)', () => {
   });
 
   async function setDelegateState(): Promise<void> {
+    await store.append(featureId, {
+      type: 'workflow.transition',
+      data: { from: 'plan', to: 'delegate', trigger: 'test', featureId },
+    });
     const file = join(stateDir, `${featureId}.state.json`);
     const state = JSON.parse(await readFile(file, 'utf8')) as Record<string, unknown>;
     state.phase = 'delegate';

@@ -5,6 +5,7 @@
  * config. So the emission check and the ensures check both run, and each blocks on a miss. The
  * handler replies `idempotent: true` and appends no row. That reply owes no `always` emission and no
  * `success` ensure. A real move still owes its row, and it passes both checks because the row lands.
+ * A cancel whose ledger fold is already at `cancelled` replies `idempotent: true` too, and the same rule covers it.
  *
  * @oracle-sources: ../../src/dispatch/core/interceptors/emission-verifier.ts, the stream rows of the dispatched call
  */
@@ -61,6 +62,12 @@ async function workflow(action: string, fields: Readonly<Record<string, unknown>
   return dispatch('exarchos_workflow', { action, featureId: FEATURE_ID, ...fields }, context);
 }
 
+/** Throws when a seed call through dispatch does not succeed. */
+function requireSuccess(step: string, result: ToolResult): void {
+  if (result.success) return;
+  throw new Error(`the seed step '${step}' failed with ${result.error?.code ?? 'no code'}: ${result.error?.message ?? 'no message'}`);
+}
+
 /** The rows of one type on the stream of the feature. */
 async function rowsOf(type: string): Promise<readonly { readonly type: string; readonly data?: unknown }[]> {
   return context.eventStore.query(FEATURE_ID, { type });
@@ -112,6 +119,30 @@ describe('A transition to the current phase through dispatch', () => {
     const transitions = await rowsOf('workflow.transition');
     expect(transitions).toHaveLength(1);
     expect(Reflect.get(Object(transitions[0]?.data), 'to')).toBe('plan-review');
+    expect(await rowsOf('emission.violated')).toHaveLength(0);
+  });
+
+  /**
+   * The rows end with a `workflow.cancel` row, and the document lags at `investigate`. The cancel appends no row and
+   * replies `idempotent: true`. So the `always` emission of `workflow.cancel` and its `success` ensure are not owed.
+   */
+  it('Dispatch_CancelWithTheFoldAtCancelled_SucceedsIdempotently', async () => {
+    requireSuccess('init', await workflow('init', { workflowType: 'debug' }));
+    requireSuccess('update triage', await workflow('update', { updates: { triage: { symptom: 'the build fails' } } }));
+    requireSuccess('transition investigate', await workflow('transition', { target: 'investigate' }));
+    await context.eventStore.append(FEATURE_ID, {
+      type: 'workflow.cancel',
+      data: { from: 'investigate', to: 'cancelled', trigger: 'test', featureId: FEATURE_ID },
+    });
+    const before = await context.eventStore.query(FEATURE_ID);
+
+    const result = await workflow('cancel');
+
+    expect(result.error?.code).toBeUndefined();
+    expect(result.success).toBe(true);
+    expect(dataField(result, 'idempotent')).toBe(true);
+    expect(dataField(result, 'phase')).toBe('cancelled');
+    expect(await context.eventStore.query(FEATURE_ID)).toHaveLength(before.length);
     expect(await rowsOf('emission.violated')).toHaveLength(0);
   });
 });

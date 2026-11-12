@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1441,
-    "parsedFiles": 1396,
+    "testFiles": 1443,
+    "parsedFiles": 1398,
     "shellFiles": 45,
-    "cases": 15855,
-    "dynamicTitles": 206,
+    "cases": 15876,
+    "dynamicTitles": 207,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -10460,6 +10460,11 @@
         {
           "suite": "A transition to the current phase through dispatch",
           "name": "Dispatch_AMoveThatAppendsItsRow_StillPassesBothChecks",
+          "dynamic": false
+        },
+        {
+          "suite": "A transition to the current phase through dispatch",
+          "name": "Dispatch_CancelWithTheFoldAtCancelled_SucceedsIdempotently",
           "dynamic": false
         }
       ]
@@ -74733,6 +74738,62 @@
         }
       ]
     },
+    "tests/unit/workflow/cancel-decide.test.ts": {
+      "file": "tests/unit/workflow/cancel-decide.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_ADebugWorkflowAtInvestigate_ReachesCancelled",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_TheFoldPhase_IsTheSourceOfTheCancelRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_ALaggingDocument_TakesThePhaseAttemptIdFromTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_AFoldError_TakesTheDocumentPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_APhaseThatIsNoStep_ReachesCancelled",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_AFallbackCase_WarnsAndKeepsThePathOfMain %s",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_AStubAttemptWithNoEvents_StillWritesTheMoveRows",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_AFoldAtCancelledAndALaggingDocument_RepliesIdempotentAndLevels",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_BothAtCancelled_RefusesAlreadyCancelled",
+          "dynamic": false
+        }
+      ]
+    },
     "tests/unit/workflow/cancel-process-manager.integration.test.ts": {
       "file": "tests/unit/workflow/cancel-process-manager.integration.test.ts",
       "runner": "vitest:root",
@@ -75635,6 +75696,52 @@
         {
           "suite": "Circuit Breaker > getCircuitBreakerState",
           "name": "should derive lastTrippedAt from the last fix-cycle event timestamp",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/cleanup-decide.test.ts": {
+      "file": "tests/unit/workflow/cleanup-decide.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_ReadsTheRowEvents_NotTheStoredEventsList",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_AStubAttemptWithNoEvents_StillWritesTheMoveRows",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_AFoldAtCompletedAndALaggingDocument_RefusesAlreadyCompleted",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_TheFoldPhase_IsTheSourceOfTheCleanupRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_ALaggingDocument_TakesThePhaseAttemptIdFromTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_FalseMergeVerified_FallsToTheExplicitEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_EachCapturedScenario_EqualsTheGolden",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_AMergeArtifactOnlyInTheDocument_GivesNoCleanupMove",
           "dynamic": false
         }
       ]
@@ -78596,6 +78703,16 @@
         {
           "suite": "EXIT PROOF — single phase-mutation authority (DR-7)",
           "name": "every declared owner is a real shipped module in the scan root",
+          "dynamic": false
+        },
+        {
+          "suite": "the census of the decide primitive",
+          "name": "PhaseMutationOwnership_TheDecidePrimitive_HasOnlyItsDeclaredOwners",
+          "dynamic": false
+        },
+        {
+          "suite": "the census of the decide primitive",
+          "name": "PhaseMutationOwnership_TheDecidePrimitive_AReferenceOutsideTheOwners_IsUnauthorized",
           "dynamic": false
         }
       ]
@@ -91745,7 +91862,7 @@
       "cases": [
         {
           "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndCompletes",
+          "name": "HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndRefuses",
           "dynamic": false
         },
         {
@@ -91775,7 +91892,7 @@
         },
         {
           "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AFoldThatThrows_KeepsTheCleanupAndWarns",
+          "name": "HandleCleanup_AFoldThatThrows_RefusesAndWarns",
           "dynamic": false
         },
         {
