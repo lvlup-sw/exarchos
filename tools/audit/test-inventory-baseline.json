@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1430,
-    "parsedFiles": 1385,
+    "testFiles": 1431,
+    "parsedFiles": 1386,
     "shellFiles": 45,
-    "cases": 15783,
+    "cases": 15786,
     "dynamicTitles": 202,
     "unparseableFiles": 0
   },
@@ -91995,6 +91995,27 @@
         {
           "suite": "the guard state of handleSet",
           "name": "HandleSetGuardState_TheWrapper_RestoresTheMethodAfterAThrow",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/transition-rows.test.ts": {
+      "file": "tests/unit/workflow/decide/transition-rows.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the rows and results of the guarded handlers",
+          "name": "TransitionRows_EachScenario_EqualsTheGolden",
+          "dynamic": false
+        },
+        {
+          "suite": "the rows and results of the guarded handlers",
+          "name": "TransitionRows_TheGolden_HoldsElevenScenariosAndEachRowKind",
+          "dynamic": false
+        },
+        {
+          "suite": "the rows and results of the guarded handlers",
+          "name": "TransitionRows_TheMask_ReplacesEachVolatileField",
           "dynamic": false
         }
       ]
