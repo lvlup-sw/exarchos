@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1445,
-    "parsedFiles": 1400,
+    "testFiles": 1446,
+    "parsedFiles": 1401,
     "shellFiles": 45,
-    "cases": 15906,
+    "cases": 15913,
     "dynamicTitles": 210,
     "unparseableFiles": 0
   },
@@ -92015,6 +92015,21 @@
           "suite": "the read-only audit of the guard input",
           "name": "RunGuardInputAudit_ASeededCopy_ExitsZeroAndWritesTheReport",
           "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "GuardInputAudit_Preview_ClassesEachActiveDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "GuardInputAudit_Preview_ANewlyAdmittedEdgeNamesItsKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "GuardInputAudit_Preview_ANewlyDeniedEdgeNamesItsKeys",
+          "dynamic": false
         }
       ]
     },
@@ -92343,12 +92358,38 @@
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_DisagreesOnMergeOrchestrator",
+          "name": "CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_AgreesOnEachDecideVerdict",
           "dynamic": false
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
           "name": "CorpusAgreement_AMergeAtDelegateWithTheWriterRule_Agrees",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/decide-verdicts.test.ts": {
+      "file": "tests/unit/projections/guard-input/decide-verdicts.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the shadow compares decide verdicts",
+          "name": "CompareGuardInputs_ComparesDecideVerdicts",
+          "dynamic": false
+        },
+        {
+          "suite": "the shadow compares decide verdicts",
+          "name": "CompareGuardInputs_ImportsNoLegacyGuardModule",
+          "dynamic": false
+        },
+        {
+          "suite": "the shadow compares decide verdicts",
+          "name": "Shadow_TheWarning_SaysTheFoldDecided",
+          "dynamic": false
+        },
+        {
+          "suite": "the shadow compares decide verdicts",
+          "name": "Shadow_TheDiagnosticsLine_HoldsTheEdgeVerdicts",
           "dynamic": false
         }
       ]

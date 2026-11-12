@@ -145,7 +145,7 @@ function openLeavesOf(edge: DecideEdge, facts: EdgeConditionFacts): OpenLeaves {
 }
 
 /** Returns the verdict of one explicit edge: the conjunction of its route and its presence probe. */
-function verdictOf(edge: DecideEdge, facts: EdgeConditionFacts): EdgeVerdict {
+export function verdictOf(edge: DecideEdge, facts: EdgeConditionFacts): EdgeVerdict {
   const outcome = conditionsOf(edge)
     .map((condition) => evaluateEdgeCondition(condition, facts))
     .reduce<EdgeConditionOutcome>(conjoin, 'true');

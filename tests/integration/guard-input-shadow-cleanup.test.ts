@@ -201,7 +201,7 @@ function replaceMethod<T extends object, K extends keyof T>(target: T, key: K, r
 }
 
 describe('the guard-input shadow on the cleanup path', () => {
-  /** A review forged `approved` in the document passes `merge-verified` on the document side only. The fold refuses the cleanup with the warning. */
+  /** A review forged `approved` in the document admits the cleanup move on the document side only. The fold refuses the cleanup with the warning. */
   it('HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndRefuses', async () => {
     const store = await openStore();
     await seedForgedApprovedReview(store);
@@ -216,7 +216,7 @@ describe('the guard-input shadow on the cleanup path', () => {
     expect(countsSince(before)).toEqual({ compared: 1, disagreeing: 1, failed: 0 });
     const line = await oneLineOf(store);
     expect(line).toMatchObject({ v: 1, featureId: FEATURE_ID, workflowType: 'feature', call: 'cleanup', from: 'plan', to: 'completed', pass: 0 });
-    expect(line.guards).toContainEqual({ guardId: 'merge-verified', to: 'completed', document: 'pass', fold: 'fail' });
+    expect(line.edges).toContainEqual({ transitionId: 'cleanup', to: 'completed', document: 'allow', fold: 'deny' });
   });
 
   /** A dry run returns the warning and moves the counts, and it writes no diagnostics file. */
@@ -266,7 +266,7 @@ describe('the guard-input shadow on the cleanup path', () => {
 
   /**
    * A `synthesize.requested` row after the last transition of a oneshot is not in the stored `_events` of the document.
-   * The cleanup guard reads the stored list, so `synthesis-opted-out` passes on the document side only. Cleanup completes.
+   * The document side reads the stored list, so the edge `implementing -> completed` allows on the document side only. Cleanup completes.
    */
   it('HandleCleanup_AStaleStoredEventList_WarnsOnSynthesisOptedOut', async () => {
     const store = await openStore();
@@ -285,8 +285,8 @@ describe('the guard-input shadow on the cleanup path', () => {
     expect(oneWarningOf(result).startsWith(DISAGREEMENT)).toBe(true);
     const line = await oneLineOf(store);
     expect(differenceKeysOf(line)).toContain('events[synthesize.requested]');
-    expect(line.guards).toContainEqual({ guardId: 'synthesis-opted-out', to: 'completed', document: 'pass', fold: 'fail' });
-    expect(line.guards).toContainEqual({ guardId: 'merge-verified', to: 'completed', document: 'pass', fold: 'pass' });
+    expect(line.edges).toContainEqual({ transitionId: 'implementing->completed', to: 'completed', document: 'allow', fold: 'deny' });
+    expect(line.edges).toContainEqual({ transitionId: 'cleanup', to: 'completed', document: 'allow', fold: 'allow' });
   });
 
   /**
@@ -339,7 +339,7 @@ describe('the guard-input shadow on the cleanup path', () => {
 
     expect(existsSync(path.join(diagnosticsDirOf(store), `${FEATURE_ID}.jsonl`))).toBe(true);
     const line = await oneLineOf(store);
-    expect(line.guards).toContainEqual({ guardId: 'merge-verified', to: 'completed', document: 'fail', fold: 'pass' });
+    expect(line.edges).toContainEqual({ transitionId: 'cleanup', to: 'completed', document: 'deny', fold: 'allow' });
     expect(countsSince(before)).toEqual({ compared: 1, disagreeing: 1, failed: 0 });
   });
 

@@ -2,18 +2,19 @@
  * The comparator of the two guard inputs of one transition: the state document and the ledger fold.
  *
  * The comparator compares the phase, the edge-condition facts, the guard config keys and two keys of each task.
- * It also runs each guard that the machine can run from the document phase on both inputs.
- * Each difference gets a class. The comparator does no I/O, and a throw of a guard or of the facts step becomes a value.
+ * It also gives the decide verdict of each edge out of the document phase on both inputs, over the built-in definition.
+ * The ledger fold decides each call, and the state document is the compared side.
+ * Each difference gets a class. The comparator does no I/O, and a throw of the facts step becomes a value.
  * It reads each input in place and never spreads or clones an input, because a spread reads each getter of the input.
  */
 import { isDeepStrictEqual } from 'node:util';
 
 import { FACT_DECLARATION } from '../../workflow/admission/built-in-workflow-ir.js';
-import type { EdgeConditionFacts } from '../../workflow/admission/edge-condition-evaluate.js';
+import { evaluateEdgeCondition, type EdgeConditionFacts } from '../../workflow/admission/edge-condition-evaluate.js';
 import { projectStateToFacts } from '../../workflow/admission/legacy-state-translation.js';
-import { guards, type Guard } from '../../workflow/guards.js';
-import { applyPhaseSkips } from '../../workflow/phase-skip.js';
-import { getHSMDefinition, isBuiltInWorkflowType, type HSMDefinition } from '../../workflow/state-machine.js';
+import { verdictOf as edgeVerdictOf, type EdgeVerdict } from '../../workflow/decide/decide.js';
+import { compileDecideDefinition, type DecideDefinition } from '../../workflow/decide/edges.js';
+import { builtInDefinition, isBuiltInDefinitionType, type BuiltInWorkflowType } from '../../workflow/definitions/built-in.js';
 import { isPlainObject } from '../../workflow/state-mutation.js';
 import type { GuardInput } from './fold.js';
 
@@ -26,8 +27,8 @@ export type DisagreementClass =
   | 'merge-orchestrator'
   | 'unexplained';
 
-/** The verdict of one guard on one input. The comparator ignores the failure text, because the projection seeds default fields. */
-type Verdict = 'pass' | 'fail' | 'throw';
+/** The decide verdict of one edge on one input. A throw of the facts step gives `throw` for each edge of that input. */
+type Verdict = EdgeVerdict['verdict'] | 'throw';
 
 /** One key whose value differs between the two inputs. A key that is absent on one side holds `undefined` there. */
 interface GuardInputDifference {
@@ -36,9 +37,9 @@ interface GuardInputDifference {
   readonly fold: unknown;
 }
 
-/** The verdict of one guard on each input, with the target of the transition that runs the guard. */
-interface GuardVerdicts {
-  readonly guardId: string;
+/** The decide verdict of one edge on each input. The universal cleanup move has the transition id `cleanup`. */
+interface EdgeVerdicts {
+  readonly transitionId: string;
   readonly to: string;
   readonly document: Verdict;
   readonly fold: Verdict;
@@ -52,11 +53,11 @@ export interface GuardInputComparison {
   readonly phase: { readonly document: string; readonly fold: string };
   /** The keys that differ, in the order of the phase keys, the facts, the config keys and the task keys. */
   readonly differences: readonly GuardInputDifference[];
-  /** Each guard that ran, so a caller can count the denominator. */
-  readonly guards: readonly GuardVerdicts[];
+  /** Each edge that the decide evaluated, so a caller can count the denominator. */
+  readonly edges: readonly EdgeVerdicts[];
   /** The classes of the differences, in the order of `CLASS_ORDER`, each one time. */
   readonly classes: readonly DisagreementClass[];
-  /** True when no key differs and each guard gives the same verdict on both inputs. */
+  /** True when no key differs and each edge gives the same verdict on both inputs. */
   readonly agrees: boolean;
 }
 
@@ -80,10 +81,11 @@ interface TaskStanding {
   readonly failed: boolean;
 }
 
-/** A guard that the machine can run from a phase, and the target of the transition that runs it. */
-interface RunnableGuard {
-  readonly guard: Guard;
+/** One edge that the comparator evaluates: its transition id, its target and its verdict on the facts of one input. */
+interface ComparedEdge {
+  readonly transitionId: string;
   readonly to: string;
+  readonly verdictOn: (facts: EdgeConditionFacts) => EdgeVerdict['verdict'];
 }
 
 /** The order of the classes in a comparison. */
@@ -113,8 +115,11 @@ const TASK_FACTS: ReadonlySet<string> = new Set(['tasks.allComplete', 'tasks.cou
 /** The facts that read the merge state. Their class comes from the two merge orchestrator phases. */
 const MERGE_FACTS: ReadonlySet<string> = new Set(['mergePending.entryReady', 'mergePending.exitReady']);
 
-/** The guards that read the merge state. Their class comes from the two merge orchestrator phases. */
-const MERGE_GUARDS: ReadonlySet<string> = new Set(['merge-pending-entry', 'merge-pending-exit']);
+/** The transition id of the universal cleanup move in a comparison. */
+const CLEANUP_TRANSITION_ID = 'cleanup';
+
+/** The compiled built-in definitions with no skip, by workflow type. A compile is pure, so each type compiles one time. */
+const unskippedDefinitions = new Map<string, DecideDefinition>();
 
 /** Returns the value when it is a string, and otherwise an empty string. */
 function textOf(value: unknown): string {
@@ -226,43 +231,56 @@ function mergePhaseOf(input: GuardInput): unknown {
   return isPlainObject(merge) ? merge.phase : undefined;
 }
 
-/**
- * Returns each guard that `executeTransition` can run from `phase`, in the order of the transitions, and then `merge-verified`.
- * A final phase runs no guard. The first transition to a target decides, as `findTransition` does.
- * A transition to the phase itself and a transition to a final `cancelled` state run no guard.
- * The list holds a guard and a target one time.
- */
-function guardsOutOf(machine: HSMDefinition, phase: string): readonly RunnableGuard[] {
-  if (machine.states[phase]?.type === 'final') return [];
-  const runnable: RunnableGuard[] = [];
-  const targets = new Set<string>();
-  for (const transition of machine.transitions) {
-    if (transition.from !== phase || transition.to === phase || targets.has(transition.to)) continue;
-    targets.add(transition.to);
-    const cancels = transition.to === 'cancelled' && machine.states['cancelled']?.type === 'final';
-    if (transition.guard !== undefined && !cancels) runnable.push({ guard: transition.guard, to: transition.to });
-  }
-  const mergeVerified = guards.mergeVerified;
-  if (!runnable.some((entry) => entry.guard.id === mergeVerified.id && entry.to === 'completed')) {
-    runnable.push({ guard: mergeVerified, to: 'completed' });
-  }
-  return runnable;
+/** Returns the decide form of a built-in definition with the skipped phases, as the transition handler compiles it. */
+function decideDefinitionOf(
+  workflowType: BuiltInWorkflowType,
+  skipPhases: readonly string[] | undefined,
+): DecideDefinition {
+  if (skipPhases !== undefined) return compileDecideDefinition(workflowType, builtInDefinition(workflowType), skipPhases);
+  const cached = unskippedDefinitions.get(workflowType);
+  if (cached !== undefined) return cached;
+  const compiled = compileDecideDefinition(workflowType, builtInDefinition(workflowType));
+  unskippedDefinitions.set(workflowType, compiled);
+  return compiled;
 }
 
-/** Runs one guard on one input. A guard that throws gives `throw`. */
-function verdictOf(guard: Guard, input: GuardInput): Verdict {
-  try {
-    return guard.evaluate(input) === true ? 'pass' : 'fail';
-  } catch {
-    return 'throw';
-  }
+/**
+ * Returns each edge that the decide can evaluate from `phase`. These are the explicit edges out of the step in edge order, then the universal cleanup move.
+ * A final step gives no edge. A phase that is no step gives only the cleanup move, because a cleanup request admits from it.
+ */
+function edgesOutOf(def: DecideDefinition, phase: string): readonly ComparedEdge[] {
+  const step = def.steps.find((candidate) => candidate.stepId === phase);
+  if (step?.isFinal === true) return [];
+  const explicit = def.edges
+    .filter((edge) => edge.from === phase)
+    .map((edge): ComparedEdge => ({
+      transitionId: edge.transitionId,
+      to: edge.to,
+      verdictOn: (facts) => edgeVerdictOf(edge, facts).verdict,
+    }));
+  const cleanup = def.cleanup;
+  if (cleanup?.edgeKind !== 'cleanup') return explicit;
+  const cleanupEdge: ComparedEdge = {
+    transitionId: CLEANUP_TRANSITION_ID,
+    to: cleanup.to,
+    verdictOn: (facts) => {
+      const outcome = evaluateEdgeCondition(cleanup.condition, facts);
+      return outcome === 'true' ? 'allow' : outcome === 'false' ? 'deny' : 'indeterminate';
+    },
+  };
+  return [...explicit, cleanupEdge];
+}
+
+/** Gives the verdict of one edge on the facts outcome of one input. A throw of the facts step gives `throw`. */
+function verdictOn(edge: ComparedEdge, facts: FactsOutcome): Verdict {
+  return facts.ok ? edge.verdictOn(facts.facts) : 'throw';
 }
 
 /**
  * Compares the guard input of the state document with the guard input of the ledger fold.
- * The type of the document selects the machine, with `applyPhaseSkips` for `options.skipPhases`, as the transition guard builds it.
- * The guards come from the document phase. A type that is not built in gives no comparison and runs no guard.
- * @throws when `options.skipPhases` names a phase that the machine cannot skip, as the transition guard does.
+ * The type of the document selects the built-in definition, compiled with `options.skipPhases` as the transition handler compiles it.
+ * The edges come from the document phase. A type that is not built in gives no comparison.
+ * @throws when `options.skipPhases` names a phase that the definition cannot skip, as the transition handler does.
  */
 export function compareGuardInputs(
   document: GuardInput,
@@ -270,9 +288,8 @@ export function compareGuardInputs(
   options: { readonly skipPhases?: readonly string[] } = {},
 ): GuardInputComparison | undefined {
   const workflowType = document.workflowType;
-  if (typeof workflowType !== 'string' || !isBuiltInWorkflowType(workflowType)) return undefined;
-  const base = getHSMDefinition(workflowType);
-  const machine = options.skipPhases === undefined ? base : applyPhaseSkips(base, options.skipPhases);
+  if (!isBuiltInDefinitionType(workflowType)) return undefined;
+  const def = decideDefinitionOf(workflowType, options.skipPhases);
 
   const documentPhase = document.phase;
   const foldPhase = fold.phase;
@@ -285,27 +302,25 @@ export function compareGuardInputs(
     ? 'unexplained'
     : 'merge-orchestrator';
 
+  const documentFacts = factsOf(document);
+  const foldFacts = factsOf(fold);
   const classed: readonly ClassedDifference[] = [
     ...differenceOf('phase', documentPhase, foldPhase, 'phase'),
     ...differenceOf('workflowType', workflowType, fold.workflowType, 'unexplained'),
-    ...factDifferences(factsOf(document), factsOf(fold), taskClass, mergeClass),
+    ...factDifferences(documentFacts, foldFacts, taskClass, mergeClass),
     ...CONFIG_KEYS.flatMap((key) => differenceOf(key, document[key], fold[key], 'risk-tier')),
     ...taskDifferences(documentTasks, foldTasks, taskClass),
   ];
 
-  const verdicts: readonly GuardVerdicts[] = guardsOutOf(machine, textOf(documentPhase)).map(({ guard, to }) => ({
-    guardId: guard.id,
-    to,
-    document: verdictOf(guard, document),
-    fold: verdictOf(guard, fold),
+  const verdicts: readonly EdgeVerdicts[] = edgesOutOf(def, textOf(documentPhase)).map((edge) => ({
+    transitionId: edge.transitionId,
+    to: edge.to,
+    document: verdictOn(edge, documentFacts),
+    fold: verdictOn(edge, foldFacts),
   }));
 
   const found = new Set<DisagreementClass>(classed.map((difference) => difference.disagreementClass));
-  for (const verdict of verdicts) {
-    if (verdict.document === verdict.fold) continue;
-    if (MERGE_GUARDS.has(verdict.guardId)) found.add(mergeClass);
-    else if (classed.length === 0) found.add('unexplained');
-  }
+  if (classed.length === 0 && verdicts.some((verdict) => verdict.document !== verdict.fold)) found.add('unexplained');
 
   return {
     workflowType,
@@ -315,7 +330,7 @@ export function compareGuardInputs(
       document: documentValue,
       fold: foldValue,
     })),
-    guards: verdicts,
+    edges: verdicts,
     classes: CLASS_ORDER.filter((disagreementClass) => found.has(disagreementClass)),
     agrees: classed.length === 0 && verdicts.every((verdict) => verdict.document === verdict.fold),
   };

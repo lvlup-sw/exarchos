@@ -218,13 +218,13 @@ async function oneLineOf(store: ShadowStore, featureId = FEATURE_ID): Promise<Di
   return line;
 }
 
-/** Returns the guard ids and targets of a line. */
-function guardsOf(line: DiagnosticsLine): readonly { readonly guardId: unknown; readonly to: unknown }[] {
-  const guards: unknown = line.guards;
-  if (!Array.isArray(guards)) return [];
-  const list: readonly unknown[] = guards;
-  return list.map((guard) =>
-    typeof guard === 'object' && guard !== null && 'guardId' in guard && 'to' in guard ? { guardId: guard.guardId, to: guard.to } : { guardId: undefined, to: undefined },
+/** Returns the transition ids and targets of the edges of a line. */
+function edgesOf(line: DiagnosticsLine): readonly { readonly transitionId: unknown; readonly to: unknown }[] {
+  const edges: unknown = line.edges;
+  if (!Array.isArray(edges)) return [];
+  const list: readonly unknown[] = edges;
+  return list.map((edge) =>
+    typeof edge === 'object' && edge !== null && 'transitionId' in edge && 'to' in edge ? { transitionId: edge.transitionId, to: edge.to } : { transitionId: undefined, to: undefined },
   );
 }
 
@@ -319,7 +319,7 @@ describe('the guard-input shadow on the transition path', () => {
     const line = await oneLineOf(store);
     expect(line).toMatchObject({ v: 1, featureId: FEATURE_ID, workflowType: 'feature', call: 'transition', from: 'plan', to: 'plan-review' });
     expect(differenceKeysOf(line)).toContain('artifacts.plan');
-    expect(line.guards).toContainEqual({ guardId: 'plan-artifact-exists', to: 'plan-review', document: 'pass', fold: 'fail' });
+    expect(line.edges).toContainEqual({ transitionId: 'plan->plan-review', to: 'plan-review', document: 'allow', fold: 'deny' });
   });
 
   /** A plan artifact in the rows only passes the guard on the fold, so the call transitions, and the result carries the warning. */
@@ -333,7 +333,7 @@ describe('the guard-input shadow on the transition path', () => {
     expect(phaseOf(result)).toBe('plan-review');
     expect(oneWarningOf(result).startsWith(DISAGREEMENT)).toBe(true);
     const line = await oneLineOf(store);
-    expect(line.guards).toContainEqual({ guardId: 'plan-artifact-exists', to: 'plan-review', document: 'fail', fold: 'pass' });
+    expect(line.edges).toContainEqual({ transitionId: 'plan->plan-review', to: 'plan-review', document: 'deny', fold: 'allow' });
   });
 
   /** An honest workflow compares and agrees, so it gives no warning and no diagnostics directory. */
@@ -406,7 +406,7 @@ describe('the guard-input shadow on the transition path', () => {
     expect(line.phase).toEqual({ document: 'plan', fold: 'plan-review' });
   });
 
-  /** A call that skips `plan-review` lists the guards of the skipped machine: `plan` gets the guards of `plan-review`. */
+  /** A call that skips `plan-review` lists the edges of the skipped definition: `plan` gets the rerouted edges of `plan-review`. */
   it('HandleSet_ASkippedPhase_ListsTheGuardsOfTheSkippedMachine', async () => {
     const store = await openStore();
     await init(store, FEATURE_ID);
@@ -422,9 +422,9 @@ describe('the guard-input shadow on the transition path', () => {
 
     expect(result.success).toBe(true);
     expect(phaseOf(result)).toBe('delegate');
-    const guards = guardsOf(await oneLineOf(store));
-    expect(guards).toContainEqual({ guardId: 'plan-review-complete', to: 'delegate' });
-    expect(guards.map((guard) => guard.guardId)).not.toContain('plan-artifact-exists');
+    const edges = edgesOf(await oneLineOf(store));
+    expect(edges).toContainEqual({ transitionId: 'plan->delegate', to: 'delegate' });
+    expect(edges.map((edge) => edge.transitionId)).not.toContain('plan->plan-review');
   });
 
   /** One CAS retry records only the last pass. The first pass appended the transition rows, so the fold leads the document. */
@@ -621,7 +621,7 @@ describe('the guard-input shadow on the transition path', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('PROJECTION_REPLAY_FAILED');
     expect((await readStateFile(stateFileOf(store, FEATURE_ID))).phase).toBe('plan');
-    expect(oneWarningOf(result)).toBe(`${SHADOW_FAILED}${expectedMessage.slice(0, 120)}. The state document decided.`);
+    expect(oneWarningOf(result)).toBe(`${SHADOW_FAILED}${expectedMessage.slice(0, 120)}. The shadow compared nothing.`);
     expect(countsSince(before)).toEqual({ compared: 0, disagreeing: 0, failed: 1 });
     const line = await oneLineOf(store);
     expect(line.error).toBe(expectedMessage.slice(0, 120));
@@ -702,15 +702,15 @@ describe('the guard-input shadow on the transition path', () => {
 
   /** A warning over 300 characters keeps its first 297 characters and `...`, so it keeps the whole details path. */
   it('HandleSet_AWarning_HoldsAtMost300Characters', async () => {
-    const featureId = `guard-shadow-${'w'.repeat(70)}`;
-    expect(featureId).toHaveLength(83);
+    const featureId = `guard-shadow-${'w'.repeat(87)}`;
+    expect(featureId).toHaveLength(100);
     const store = await openStore();
     await seedDocumentOnlyPlan(store, featureId);
     const raw =
-      'GUARD_INPUT_DISAGREEMENT: the ledger fold and the state document disagree on 2 guard inputs at plan -> plan-review. ' +
-      `The state document decided. Details: guard-input-diagnostics/${featureId}.jsonl. Keys: artifacts.plan, artifacts.planNonEmpty.`;
+      'GUARD_INPUT_DISAGREEMENT: the ledger fold decided, and the state document disagrees on 2 guard inputs at plan -> plan-review. ' +
+      `Details: guard-input-diagnostics/${featureId}.jsonl. Keys: artifacts.plan, artifacts.planNonEmpty.`;
     expect(raw.length).toBeGreaterThan(300);
-    expect(raw).toHaveLength(313);
+    expect(raw).toHaveLength(312);
 
     const result = await handleSet({ featureId, phase: 'plan-review' }, store.stateDir, store.eventStore);
 
@@ -736,7 +736,7 @@ describe('the guard-input shadow on the transition path', () => {
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
 
     expect(phaseOf(result)).toBe('review');
-    expect(oneWarningOf(result)).toContain('disagree on 41 guard inputs');
+    expect(oneWarningOf(result)).toContain('disagrees on 41 guard inputs');
     const line = await oneLineOf(store);
     expect(differenceKeysOf(line)).toHaveLength(32);
     expect(differenceKeysOf(line)[0]).toBe('tasks.allComplete');
@@ -755,7 +755,7 @@ describe('the guard-input shadow on the transition path', () => {
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(8192);
     const line = await oneLineOf(store);
     expect(line.differences).toEqual([]);
-    expect(line.guards).toEqual([]);
+    expect(line.edges).toEqual([]);
     expect(line.classes).toEqual(['unexplained']);
     expect(line.truncated).toBe(true);
   });

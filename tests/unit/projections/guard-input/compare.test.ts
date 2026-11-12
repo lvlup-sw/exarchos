@@ -1,11 +1,11 @@
 /**
  * These tests check the comparator of the two guard inputs of one transition.
  * `compareGuardInputs` compares the phase, the facts, the config keys and two keys of each task.
- * It also runs each guard out of the document phase on both inputs, and it gives each difference a class.
+ * It also gives the decide verdict of each edge out of the document phase on both inputs, and it gives each difference a class.
  * Each case writes its two inputs and its expected differences, verdicts and classes as literals.
- * The first case counts the guarded transitions out of the phase in the machine of the type.
+ * The first case counts the transitions out of the phase in the built-in definition of the type.
  *
- * @oracle-sources: ../../../../src/workflow/state-machine.ts, the inputs and expected classes written in this file
+ * @oracle-sources: ../../../../src/workflow/definitions/feature.workflow.json, the inputs and expected classes written in this file
  */
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -16,6 +16,7 @@ import {
   type GuardInputComparison,
 } from '../../../../src/projections/guard-input/compare.js';
 import { projectStateToFacts } from '../../../../src/workflow/admission/legacy-state-translation.js';
+import { builtInDefinition } from '../../../../src/workflow/definitions/built-in.js';
 import {
   getHSMDefinition,
   isBuiltInWorkflowType,
@@ -73,9 +74,9 @@ function keysOf(comparison: GuardInputComparison): readonly string[] {
   return comparison.differences.map((difference) => difference.key);
 }
 
-/** Returns the guard id and the target of each guard of a comparison, in order. */
-function guardTargets(comparison: GuardInputComparison): readonly (readonly [string, string])[] {
-  return comparison.guards.map((guard) => [guard.guardId, guard.to]);
+/** Returns the transition id and the target of each edge of a comparison, in order. */
+function edgeTargets(comparison: GuardInputComparison): readonly (readonly [string, string])[] {
+  return comparison.edges.map((edge) => [edge.transitionId, edge.to]);
 }
 
 describe('the comparator of the two guard inputs', () => {
@@ -83,22 +84,20 @@ describe('the comparator of the two guard inputs', () => {
     unregisterWorkflowType(CUSTOM_TYPE);
   });
 
-  /** Equal inputs agree. At feature `delegate`, the list holds each guarded transition out of the phase and `merge-verified`. */
+  /** Equal inputs agree. At feature `delegate`, the list holds each transition out of the phase and the universal cleanup move. */
   it('CompareGuardInputs_EqualInputs_AgreeAndListEachGuardOutOfThePhase', () => {
     const build = (): Record<string, unknown> =>
       featureInput('delegate', { tasks: [task('t1', 'complete')], riskTier: 'medium', _requiredReviews: ['review'] });
-    const guardedOutEdges = getHSMDefinition('feature').transitions.filter(
-      (transition) => transition.from === 'delegate' && transition.guard !== undefined,
-    );
+    const outEdges = builtInDefinition('feature').transitions.filter((transition) => transition.fromStepId === 'delegate');
 
     const comparison = compared(build(), build());
 
-    expect(guardedOutEdges).toHaveLength(2);
-    expect(comparison.guards).toHaveLength(guardedOutEdges.length + 1);
-    expect(comparison.guards).toEqual([
-      { guardId: 'all-tasks-complete+team-disbanded', to: 'review', document: 'pass', fold: 'pass' },
-      { guardId: 'merge-pending-entry', to: 'merge-pending', document: 'fail', fold: 'fail' },
-      { guardId: 'merge-verified', to: 'completed', document: 'fail', fold: 'fail' },
+    expect(outEdges).toHaveLength(2);
+    expect(comparison.edges).toHaveLength(outEdges.length + 1);
+    expect(comparison.edges).toEqual([
+      { transitionId: 'delegate->review', to: 'review', document: 'allow', fold: 'allow' },
+      { transitionId: 'delegate->merge-pending', to: 'merge-pending', document: 'deny', fold: 'deny' },
+      { transitionId: 'cleanup', to: 'completed', document: 'deny', fold: 'deny' },
     ]);
     expect(comparison.workflowType).toBe('feature');
     expect(comparison.phase).toEqual({ document: 'delegate', fold: 'delegate' });
@@ -118,11 +117,11 @@ describe('the comparator of the two guard inputs', () => {
       { key: 'tasks.allComplete', document: true, fold: false },
       { key: 'tasks[t1].complete', document: true, fold: false },
     ]);
-    expect(comparison.guards[0]).toEqual({
-      guardId: 'all-tasks-complete+team-disbanded',
+    expect(comparison.edges[0]).toEqual({
+      transitionId: 'delegate->review',
       to: 'review',
-      document: 'pass',
-      fold: 'fail',
+      document: 'allow',
+      fold: 'deny',
     });
     expect(comparison.classes).toEqual(['task-status']);
     expect(comparison.agrees).toBe(false);
@@ -166,7 +165,7 @@ describe('the comparator of the two guard inputs', () => {
     expect(withACountDifference.classes).toEqual(['task-list']);
   });
 
-  /** A ledger phase ahead of the document gives `phase`. The guards come from the document phase. */
+  /** A ledger phase ahead of the document gives `phase`. The edges come from the document phase. */
   it('CompareGuardInputs_ALedgerPhaseAheadOfTheDocument_IsPhase', () => {
     const document = featureInput('plan-review');
     const fold = featureInput('delegate');
@@ -175,11 +174,11 @@ describe('the comparator of the two guard inputs', () => {
 
     expect(comparison.phase).toEqual({ document: 'plan-review', fold: 'delegate' });
     expect(comparison.differences).toEqual([{ key: 'phase', document: 'plan-review', fold: 'delegate' }]);
-    expect(guardTargets(comparison)).toEqual([
-      ['plan-review-complete', 'delegate'],
-      ['revisions-exhausted', 'blocked'],
-      ['plan-review-gaps-found', 'plan'],
-      ['merge-verified', 'completed'],
+    expect(edgeTargets(comparison)).toEqual([
+      ['plan-review->delegate', 'delegate'],
+      ['plan-review->blocked', 'blocked'],
+      ['plan-review->plan', 'plan'],
+      ['cleanup', 'completed'],
     ]);
     expect(comparison.classes).toEqual(['phase']);
     expect(comparison.agrees).toBe(false);
@@ -208,9 +207,9 @@ describe('the comparator of the two guard inputs', () => {
     const comparison = compared(document, fold);
 
     expect(comparison.differences).toEqual([{ key: 'mergePending.exitReady', document: false, fold: true }]);
-    expect(comparison.guards).toEqual([
-      { guardId: 'merge-pending-exit', to: 'delegate', document: 'fail', fold: 'pass' },
-      { guardId: 'merge-verified', to: 'completed', document: 'fail', fold: 'fail' },
+    expect(comparison.edges).toEqual([
+      { transitionId: 'merge-pending->delegate', to: 'delegate', document: 'deny', fold: 'allow' },
+      { transitionId: 'cleanup', to: 'completed', document: 'deny', fold: 'deny' },
     ]);
     expect(comparison.classes).toEqual(['merge-orchestrator']);
     expect(comparison.agrees).toBe(false);
@@ -228,7 +227,7 @@ describe('the comparator of the two guard inputs', () => {
       { key: 'artifacts.plan', document: 'plans/plan.md', fold: undefined },
       { key: 'artifacts.planNonEmpty', document: true, fold: false },
     ]);
-    expect(comparison.guards[0]).toEqual({ guardId: 'plan-artifact-exists', to: 'plan-review', document: 'pass', fold: 'fail' });
+    expect(comparison.edges[0]).toEqual({ transitionId: 'plan->plan-review', to: 'plan-review', document: 'allow', fold: 'deny' });
     expect(comparison.classes).toEqual(['unexplained']);
     expect(comparison.agrees).toBe(false);
     expect(typeDrift.workflowType).toBe('feature');
@@ -237,31 +236,31 @@ describe('the comparator of the two guard inputs', () => {
   });
 
   /**
-   * The document side has no plan artifact, and its `featureId` getter throws.
-   * Only the failure path of `plan-artifact-exists` reads `featureId`, so the guard throws and the facts step does not.
+   * The `featureId` getter of the document side throws, and the `artifacts` getter of the fold side throws.
+   * The decide reads only the facts, so `featureId` gives no throw. Each edge on the fold side gives `throw`.
    */
   it('CompareGuardInputs_AGuardThatThrows_GivesTheVerdictThrow', () => {
     const document = featureInput('plan');
     throwOnRead(document, 'featureId');
     const fold = featureInput('plan');
+    throwOnRead(fold, 'artifacts');
 
     expect(() => projectStateToFacts(document)).not.toThrow();
     expect(() => compareGuardInputs(document, fold)).not.toThrow();
     const comparison = compared(document, fold);
 
-    expect(comparison.guards).toEqual([
-      { guardId: 'plan-artifact-exists', to: 'plan-review', document: 'throw', fold: 'fail' },
-      { guardId: 'merge-verified', to: 'completed', document: 'fail', fold: 'fail' },
+    expect(comparison.edges).toEqual([
+      { transitionId: 'plan->plan-review', to: 'plan-review', document: 'deny', fold: 'throw' },
+      { transitionId: 'cleanup', to: 'completed', document: 'deny', fold: 'throw' },
     ]);
-    expect(comparison.differences).toEqual([]);
-    expect(keysOf(comparison)).not.toContain('facts');
+    expect(comparison.differences).toEqual([{ key: 'facts', document: 'ok', fold: 'throw' }]);
     expect(comparison.classes).toEqual(['unexplained']);
     expect(comparison.agrees).toBe(false);
   });
 
   /**
-   * The `reviews` getter of the document side throws. The facts step reads `reviews`, and no guard out of `plan` reads it.
-   * So the key `facts` differs, and each guard still gives a verdict on each side.
+   * The `reviews` getter of the document side throws. The facts step reads `reviews`, and the decide reads only the facts.
+   * So the key `facts` differs, and each edge gives `throw` on the document side and a verdict on the fold side.
    */
   it('CompareGuardInputs_AFactsStepThatThrows_GivesTheKeyFactsAsUnexplained', () => {
     const document = featureInput('plan');
@@ -273,9 +272,9 @@ describe('the comparator of the two guard inputs', () => {
 
     expect(() => projectStateToFacts(document)).toThrow('the reviews getter throws');
     expect(comparison.differences).toEqual([{ key: 'facts', document: 'throw', fold: 'ok' }]);
-    expect(comparison.guards).toEqual([
-      { guardId: 'plan-artifact-exists', to: 'plan-review', document: 'fail', fold: 'fail' },
-      { guardId: 'merge-verified', to: 'completed', document: 'fail', fold: 'fail' },
+    expect(comparison.edges).toEqual([
+      { transitionId: 'plan->plan-review', to: 'plan-review', document: 'throw', fold: 'deny' },
+      { transitionId: 'cleanup', to: 'completed', document: 'throw', fold: 'deny' },
     ]);
     expect(comparison.classes).toEqual(['unexplained']);
     expect(comparison.agrees).toBe(false);
@@ -311,7 +310,7 @@ describe('the comparator of the two guard inputs', () => {
     expect(compareGuardInputs({ featureId: FEATURE_ID, phase: 'plan' }, featureInput('plan'))).toBeUndefined();
   });
 
-  /** A `_cleanup` in the document only differs on `cleanup.mergeVerified` and on the verdict of `merge-verified`. A final phase runs no guard. */
+  /** A `_cleanup` in the document only differs on `cleanup.mergeVerified` and on the verdict of the cleanup move. A final phase gives no edge. */
   it('CompareGuardInputs_ACleanupInputOnOneSide_DiffersOnMergeVerified', () => {
     const document = featureInput('synthesize', { _cleanup: { mergeVerified: true } });
     const fold = featureInput('synthesize');
@@ -320,19 +319,19 @@ describe('the comparator of the two guard inputs', () => {
     const atAFinalPhase = compared(featureInput('completed'), featureInput('completed'));
 
     expect(comparison.differences).toEqual([{ key: 'cleanup.mergeVerified', document: true, fold: false }]);
-    expect(guardTargets(comparison)).toEqual([
-      ['synthesize-retryable', 'delegate'],
-      ['pr-url-exists', 'completed'],
-      ['merge-verified', 'completed'],
+    expect(edgeTargets(comparison)).toEqual([
+      ['synthesize->delegate', 'delegate'],
+      ['synthesize->completed', 'completed'],
+      ['cleanup', 'completed'],
     ]);
-    expect(comparison.guards[2]).toEqual({ guardId: 'merge-verified', to: 'completed', document: 'pass', fold: 'fail' });
+    expect(comparison.edges[2]).toEqual({ transitionId: 'cleanup', to: 'completed', document: 'allow', fold: 'deny' });
     expect(comparison.classes).toEqual(['unexplained']);
     expect(comparison.agrees).toBe(false);
-    expect(atAFinalPhase.guards).toEqual([]);
+    expect(atAFinalPhase.edges).toEqual([]);
     expect(atAFinalPhase.agrees).toBe(true);
   });
 
-  /** With `skipPhases`, the guards come from the machine with the skipped phase, as the transition guard builds it. */
+  /** With `skipPhases`, the edges come from the definition with the skipped phase, as the transition handler compiles it. */
   it('CompareGuardInputs_SkipPhases_TakeTheGuardsOfTheSkippedMachine', () => {
     const document = featureInput('plan');
     const fold = featureInput('plan');
@@ -340,14 +339,15 @@ describe('the comparator of the two guard inputs', () => {
     const unskipped = compared(document, fold);
     const skipped = compared(document, fold, { skipPhases: ['plan-review'] });
 
-    expect(guardTargets(unskipped)).toEqual([
-      ['plan-artifact-exists', 'plan-review'],
-      ['merge-verified', 'completed'],
+    expect(edgeTargets(unskipped)).toEqual([
+      ['plan->plan-review', 'plan-review'],
+      ['cleanup', 'completed'],
     ]);
-    expect(guardTargets(skipped)).toEqual([
-      ['plan-review-complete', 'delegate'],
-      ['revisions-exhausted', 'blocked'],
-      ['merge-verified', 'completed'],
+    expect(edgeTargets(skipped)).toEqual([
+      ['plan->delegate', 'delegate'],
+      ['plan->blocked', 'blocked'],
+      ['plan->plan', 'plan'],
+      ['cleanup', 'completed'],
     ]);
     expect(skipped.agrees).toBe(true);
   });
