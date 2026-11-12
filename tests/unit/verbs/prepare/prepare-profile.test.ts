@@ -186,7 +186,7 @@ async function preparedRowCount(stream: string = STREAM): Promise<number> {
 function compileInput(profile?: VerificationProfile): CompileCapsuleInput {
   const lowered = lowerBuiltInDefinition('feature');
   if (lowered === undefined) throw new Error('the feature workflow did not lower');
-  const partition = partitionDelegationBatch([{ id: 'T-1', title: 'first', status: 'pending', blockedBy: [] }]);
+  const partition = partitionDelegationBatch([{ id: 'T-1', title: 'first', status: 'pending', blockedBy: [] }], 'delegate');
   if (!partition.ok) throw new Error(partition.refusal.message);
   return {
     workflowId: STREAM,

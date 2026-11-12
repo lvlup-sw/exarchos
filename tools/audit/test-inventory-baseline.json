@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1419,
-    "parsedFiles": 1374,
+    "testFiles": 1430,
+    "parsedFiles": 1385,
     "shellFiles": 45,
-    "cases": 15659,
-    "dynamicTitles": 190,
+    "cases": 15778,
+    "dynamicTitles": 200,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -8988,122 +8988,6 @@
         }
       ]
     },
-    "tests/core/scripts/guard-input-audit.test.ts": {
-      "file": "tests/core/scripts/guard-input-audit.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_ASeededStore_GivesTheExactCountOfEachClass",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_AStreamWhoseReadThrows_IsAFoldErrorOfItsStream",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_AListingThatThrows_IsRefusedAsUnreadable",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_AStreamListingThatThrows_IsRefusedAsUnreadable",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_ADocumentOffTheLedger_CountsAsNotOnLedger",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_OnlyInfraStreams_IsNotClean",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_AnActiveDisagreement_IsNotClean_AndATerminalOne_ReportsOnly",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_%s_AnActiveDocumentIsNotClean_AndItsTerminalTwinIs",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_AFeatureDocumentAtIdeate_IsUnknownPhaseAndNotClean",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_OneForgedTaskWithEqualSummaries_IsTaskStatusAndNotClean",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_TheCopy_KeepsItsEventAndStateRows",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_AFoldError_MarksOnlyItsStream",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_ASidecarAndAnInfraStream_CountAsNonWorkflowStreams",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "AuditGuardInputs_AStreamWithAStartRowAndNoDocument_IsAStreamWithoutDocument",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "RunGuardInputAudit_%s_IsRefusedAndMakesNoDatabase",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "RunGuardInputAudit_ALiveStore_%s_IsRefusedAndKeepsItsBytes",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "<dynamic-case-3>",
-          "dynamic": true
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "RunGuardInputAudit_AnEmptyStore_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "RunGuardInputAudit_AnUnreadableStore_IsRefused",
-          "dynamic": false
-        },
-        {
-          "suite": "the read-only audit of the guard input",
-          "name": "RunGuardInputAudit_ASeededCopy_ExitsZeroAndWritesTheReport",
-          "dynamic": false
-        }
-      ]
-    },
     "tests/core/scripts/output-schema-ratchet-guard.test.ts": {
       "file": "tests/core/scripts/output-schema-ratchet-guard.test.ts",
       "runner": "vitest:root",
@@ -10549,173 +10433,6 @@
         {
           "suite": "emission verifier over the safe corpus",
           "name": "EmissionVerifier_SafeCorpus_HasNonZeroDeterminateCoverage",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/guard-input-shadow-cleanup.test.ts": {
-      "file": "tests/integration/guard-input-shadow-cleanup.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndCompletes",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_ADryRun_WarnsAndWritesNoFile",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AnAgreeingCleanup_GivesNoWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AStaleStoredEventList_WarnsOnSynthesisOptedOut",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_NoEventStore_GetsNoComparison",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AFoldThatThrows_KeepsTheCleanupAndWarns",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AWriteThatThrows_RecordsTheRunBeforeTheThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_%s_CarriesTheWarningOnItsExit",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/integration/guard-input-shadow.test.ts": {
-      "file": "tests/integration/guard-input-shadow.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndTransitions",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ARowOnlyPlanArtifact_FailsTheGuardWithTheWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_AnHonestWorkflow_GivesNoWarningAndNoDirectory",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_AnHonestTransitionWithHandlerOptions_GivesNoWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ADisagreeingCall_AddsTheRowsOfItsAgreeingTwin",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ALedgerPhaseAheadOfTheDocument_RecordsThePhaseClass",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ASkippedPhase_ListsTheGuardsOfTheSkippedMachine",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_OneCasRetry_RecordsOnlyTheLastPass",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_TheCasRethrow_RecordsTheRunBeforeTheThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_%s_GetsNoComparison",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "<dynamic-case-1>",
-          "dynamic": true
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ACustomType_GetsNoComparison",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_%s_CarriesTheWarningOnItsExit",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "<dynamic-case-2>",
-          "dynamic": true
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_AFoldThatThrows_KeepsTheDecisionAndWritesAShadowFailedLine",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_AFailedFileWrite_KeepsTheTransitionAndTheWarning",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_AtTheFileCap_WritesOneCappedLineAndThenNothing",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_EachLine_HoldsItsReadPointsAndItsPass",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_AWarning_HoldsAtMost300Characters",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_MoreThan32Differences_KeepsEachListAt32",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ALineOver8KiB_EmptiesItsLists",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "HandleTransition_AGuardFailure_KeepsTheWarningInTheEnrichedError",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard-input shadow on the transition path",
-          "name": "FinalizeOneshot_ADisagreeingTransition_KeepsTheWarningOnItsResult",
           "dynamic": false
         }
       ]
@@ -38146,309 +37863,6 @@
         {
           "suite": "durable projection-degraded state (DR-4)",
           "name": "ProjectionDegraded_EventTypes_RegisteredWithSourceAndSchema",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/guard-input/compare.test.ts": {
-      "file": "tests/unit/projections/guard-input/compare.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_EqualInputs_AgreeAndListEachGuardOutOfThePhase",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_AForgedTaskStatus_IsTaskStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_OneForgedTaskWithEqualSummaries_IsTaskStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_DifferentTaskIds_IsTaskList",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_ALedgerPhaseAheadOfTheDocument_IsPhase",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_ARiskTierOnlyInTheDocument_IsRiskTier",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_ATerminalMergePhaseOnOneSide_IsMergeOrchestrator",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_AnotherFieldDrift_IsUnexplained",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_AGuardThatThrows_GivesTheVerdictThrow",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_AFactsStepThatThrows_GivesTheKeyFactsAsUnexplained",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_ASynthesizeRequestOnOneSide_DiffersOnItsEventKey",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_ACustomType_GivesNoComparison",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_ACleanupInputOnOneSide_DiffersOnMergeVerified",
-          "dynamic": false
-        },
-        {
-          "suite": "the comparator of the two guard inputs",
-          "name": "CompareGuardInputs_SkipPhases_TakeTheGuardsOfTheSkippedMachine",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/guard-input/config.test.ts": {
-      "file": "tests/unit/projections/guard-input/config.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the guard config of a phase transition",
-          "name": "InjectGuardConfig_ExplicitRequiredReviews_WinOverTheGateSet",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard config of a phase transition",
-          "name": "InjectGuardConfig_NoRequiredReviews_TakesTheReviewGatesOfTheTierAndTheType",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard config of a phase transition",
-          "name": "InjectGuardConfig_AHighTier_AddsTheMutationFields",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard config of a phase transition",
-          "name": "InjectGuardConfig_AMediumTier_AddsNoMutationField",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard config of a phase transition",
-          "name": "InjectGuardConfig_ANegativeOrFractionalNoCoverage_IsNotInjected",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard config of a phase transition",
-          "name": "InjectGuardConfig_AFiniteMaxPlanRevisions_IsInjected",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard config of a phase transition",
-          "name": "HandleSet_TheModule_InjectsTheConfigThroughInjectGuardConfig",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/guard-input/corpus-agreement.test.ts": {
-      "file": "tests/unit/projections/guard-input/corpus-agreement.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_%s_AgreesOnThePhaseTheFactsAndEachVerdict",
-          "dynamic": false
-        },
-        {
-          "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_TheCases_Are131In102_6_23",
-          "dynamic": false
-        },
-        {
-          "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_%s_EachSideGivesTheRecordedVerdict",
-          "dynamic": false
-        },
-        {
-          "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_APassFixtureWithNoCompletionRows_DisagreesOnTaskStatus",
-          "dynamic": false
-        },
-        {
-          "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_DisagreesOnMergeOrchestrator",
-          "dynamic": false
-        },
-        {
-          "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_AMergeAtDelegateWithTheWriterRule_Agrees",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/guard-input/document-side.test.ts": {
-      "file": "tests/unit/projections/guard-input/document-side.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the document side of the guard input",
-          "name": "DocumentSide_EachGoldenTransition_EqualsTheStateThatTheGuardGets",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/guard-input/fold-base.test.ts": {
-      "file": "tests/unit/projections/guard-input/fold-base.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the base fold and the map of the guard events",
-          "name": "FoldWorkflowState_TheRowsOfAStream_EqualTheProjectionFoldedRowByRow",
-          "dynamic": false
-        },
-        {
-          "suite": "the base fold and the map of the guard events",
-          "name": "FoldWorkflowState_TheSameRows_GiveEqualStatesAndLeaveTheRowsUnchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "the base fold and the map of the guard events",
-          "name": "ResolveWorkflowState_TheModule_FoldsThroughFoldWorkflowState",
-          "dynamic": false
-        },
-        {
-          "suite": "the base fold and the map of the guard events",
-          "name": "ResolveWorkflowState_AStream_EqualsFoldWorkflowState",
-          "dynamic": false
-        },
-        {
-          "suite": "the base fold and the map of the guard events",
-          "name": "ToGuardEvents_EachRow_MapsToTheInternalTypeTheDataAndTheMetadata",
-          "dynamic": false
-        },
-        {
-          "suite": "the base fold and the map of the guard events",
-          "name": "ToGuardEvents_TheRowsOfAStream_EqualHydrateEventsFromStore",
-          "dynamic": false
-        },
-        {
-          "suite": "the base fold and the map of the guard events",
-          "name": "ToGuardEvents_AnEntry_HoldsNoDataKey",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/guard-input/fold.bench.ts": {
-      "file": "tests/unit/projections/guard-input/fold.bench.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the guard fold of one stream",
-          "name": "foldGuardInput-700-rows",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/guard-input/fold.test.ts": {
-      "file": "tests/unit/projections/guard-input/fold.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_APatchedCompleteStatusWithNoCompletionRow_IsPending",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_ACompletionRow_StaysCompleteAfterALaterPatchOfTasks",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_AFailedRowAfterACompletion_IsFailed_AndALaterCompletion_IsComplete",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_ACompletionRowForAnUnknownTask_AddsNoTask",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_CleanupEvidence_SetsTheCleanupInputFromTheFoldedState",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_TheRevisionCount_IsTheTallyOfTheRows",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_TheFourMergeRows_GiveTheOrchestratorPhase",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_Config_ReadsTheTierOfTheFold",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_TheSameRows_GiveEqualInputsAndLeaveTheRowsUnchanged",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "DocumentGuardInput_KeepsEachDocumentFieldAndTakesTheEventsFromTheRows",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "FoldGuardInput_OnTheStorePath_MergePendingEntryDeniesACompletionWithAWorktree",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard fold and the document side",
-          "name": "RetiredAuthorityScan_APassLiteralInTheGuardInputModules_IsAViolation",
-          "dynamic": false
-        }
-      ]
-    },
-    "tests/unit/projections/guard-input/handle-set-guard-state.test.ts": {
-      "file": "tests/unit/projections/guard-input/handle-set-guard-state.test.ts",
-      "runner": "vitest:root",
-      "cases": [
-        {
-          "suite": "the guard state of handleSet",
-          "name": "HandleSetGuardState_SevenTransitions_EqualTheGolden",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard state of handleSet",
-          "name": "HandleSetGuardState_TheGolden_HoldsSevenTransitionsAndTheInjectedKeys",
-          "dynamic": false
-        },
-        {
-          "suite": "the guard state of handleSet",
-          "name": "HandleSetGuardState_TheWrapper_RestoresTheMethodAfterAThrow",
           "dynamic": false
         }
       ]
@@ -91309,6 +90723,1253 @@
         {
           "suite": "the live registry reads the built-in definitions",
           "name": "RegistrySource_EachInitialPhase_IsTheEntryStep",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-golden.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-golden.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the golden of one feature wave of prepare",
+          "name": "PrepareGolden_AFeatureWave_CompilesTheGoldenCapsule",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of one feature wave of prepare",
+          "name": "PrepareGolden_AFeatureWave_RecordsTheGoldenClaimKey",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of one feature wave of prepare",
+          "name": "PrepareGolden_AFeatureWave_PinsTheGoldenDefinition",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of one feature wave of prepare",
+          "name": "PrepareGolden_AClaimThatTheBaseRecorded_AnswersARetry",
+          "dynamic": false
+        },
+        {
+          "suite": "the golden of one feature wave of prepare",
+          "name": "PrepareGolden_TheGolden_HoldsNoTemporaryPath",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/check-path.test.ts": {
+      "file": "tests/unit/workflow/definitions/check-path.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_AValidDocument_GivesTheKernelWithItsExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_AKernelFault_EndsTheChecksOfTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_AnExtensionFault_EndsTheChecksOfTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_TheOwnRules_RunAfterTheReferenceRules",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_TheUserPrefix_NamesEachShapeRule",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_ARefusedGuardIdPolicy_NamesEachEdgeGuardId",
+          "dynamic": false
+        },
+        {
+          "suite": "the one check path of a definition document",
+          "name": "CheckPath_TheBuiltInLoader_GivesTheFindingsOfTheSharedCheckInOrder",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/definitions/user-definition.test.ts": {
+      "file": "tests/unit/workflow/definitions/user-definition.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_TheFixture_PassesEveryRule",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ABuiltInName_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ANameOutsideKebabCase_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_APrototypeKeyName_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AConditionWithACommandKey_IsAnExtensionFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AnUndeclaredFact_IsAConditionFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AGuardId_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ACleanupUniversal_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AnEmptyAuthorityCategory_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_AStrategosRuntime_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ACompletionOnAStep_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_%s_AForbiddenKernelKey_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_%s_ANonEmptyKernelList_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ATerminalEntry_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ATerminalFlagOnANonFinalStep_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_ANonEmptyGroupList_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_%s_OnAnEdge_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_%s_AStepIdOutsideTheIdClass_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_EachBuiltInFile_FailsNoKernelShapeRule",
+          "dynamic": false
+        },
+        {
+          "suite": "the rules of a user workflow definition",
+          "name": "UserDefinition_EachFinding_NamesItsRuleAndPath",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/definition-registry.test.ts": {
+      "file": "tests/unit/verbs/prepare/definition-registry.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ABuiltInType_ResolvesWithNoRead",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheBuiltInEntries_GoThroughTheAddPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AUserFile_ResolvesByItsName",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheSameNameAndDigestTwice_IsOneEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheSameNameWithAnotherDigest_NamesBothFiles",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheFilesOfADirectory_AreReadInNameOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_SixFindings_ListFiveLinesAndTheCountOfTheRest",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ABuiltInNamedFile_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AFileThatIsNotJson_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ABrokenSibling_RefusesEveryUserType",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_%s_NoDirectory_GivesNoEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AFileAboveTheBound_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "ReadDefinitions_AFileDeeperThanTheBound_IsRefusedWithDepth",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "ReadDefinitions_AFileAtTheBound_IsRead",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ALinkedFile_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_%s_InPlaceOfADirectory_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_%s_AReadFailure_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ANonJsonName_IsIgnored",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheDigest_CoversTheExtension",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_TheCheckoutOfTheLocate_IsTheDirectoryRoot",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_ALocateRefusal_PassesThroughUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AConfigWorkflowsType_HasTheConfigFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AConfigTypeWithAFile_IsRefusedBeforeTheLocateAndTheRead",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AnUnregisteredType_HasTheNoDefinitionFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "DefinitionRegistry_AnUntypedStream_HasTheUntypedFinding",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/step-locator.test.ts": {
+      "file": "tests/unit/verbs/prepare/step-locator.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_FeatureDelegate_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_RefactorOverhaulDelegate_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_%s_IsASingleAgentStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_EachDiscoveryStep_IsNotAnImplementStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AFinalStep_IsATerminalStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_APhaseOutsideTheDefinition_IsNotAStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_TheClassesOfTheBuiltIns_AreTheTable",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatNeedsTasksUnderAny_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatNeedsTasksUnderNot_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatNeedsTasksInANestedAll_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatNeedsTasksInAFlatConjunction_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatSplitsTheTaskClausesAcrossNestedAll_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AFlatConjunctionWithOneTaskClauseUnderAny_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AFlatConjunctionWithOneTaskClause_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnApprovalThatNeedsTasks_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_ARouteThatReadsTasks_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_TheCompilableSteps_AreInKernelOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_TheUserFixture_LocatesBuild",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/compile-steps.test.ts": {
+      "file": "tests/unit/verbs/prepare/compile-steps.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_ARefactorBatch_NamesTheStepsAfterOverhaulDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_TwoStepsInOneBatch_NameTheStepsAfterEach",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_ASelfLoopOnTheBatchStep_IsNoNonGoal",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_TheAuthority_IsTheAuthorityOfTheDefinition",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_AnAuthorityThatTheCapsuleRefuses_IsCapsuleUnsound",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "PartitionSteps_TheBatch_StampsTheGivenStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "LowerDefinition_AUserDefinition_IsItsKernelWithItsDigest",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-steps.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-steps.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "PrepareSteps_ARefactorInOverhaulDelegate_CompilesThatStep",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "PrepareSteps_%s_RefusesWithItsFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "PrepareSteps_AFeatureInPlan_NamesDelegate",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles the task-batch step of each built-in definition",
+          "name": "PrepareSteps_ARefactorInExplore_NamesOverhaulDelegate",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/prepare-user-definitions.test.ts": {
+      "file": "tests/unit/verbs/prepare/prepare-user-definitions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AUserDefinitionInItsTaskBatchStep_Compiles",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AnUnregisteredType_NamesTheDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AConfigWorkflowsType_NamesTheRetirement",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ABrokenFile_NamesTheFileRuleAndPath",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ABrokenFileOfTheCheckout_RefusesAUserTypeAndNoBuiltInType",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AUserTypeOutsideAWorkTree_IsScopeUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AnUnobservableRepoRoot_IsScopeUnresolved",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_%s_RefusesWithItsStepFinding",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AStepRefusalBesideABrokenSibling_IsTheFileRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AConfigTypeWithAFile_IsRefusedAsAConfigWorkflow",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AConfigOfAnotherType_MovesNoCapsuleByte",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ARepoRootBelowTheCheckout_ReadsTheDirectoryOfTheCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ARetryWithTheSameFile_ReplaysTheReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AnEditOfTheKernel_CompilesTheNextVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_AnEditOfTheExtensionOnly_ReplaysTheReceipt",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare compiles a user definition of the checkout",
+          "name": "PrepareUser_ARefusedUserType_WritesNoRowAndNoBundle",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/compile-path-literals.test.ts": {
+      "file": "tests/unit/verbs/prepare/compile-path-literals.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the compile path of prepare holds no built-in type or step literal",
+          "name": "CompilePath_NoPrepareModule_HoldsAFeatureOrDelegateLiteral",
+          "dynamic": false
+        },
+        {
+          "suite": "the compile path of prepare holds no built-in type or step literal",
+          "name": "CompilePath_NoPrepareModule_NamesTheRetiredSwitchConstants",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/registered-definitions.test.ts": {
+      "file": "tests/acceptance/registered-definitions.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a registered definition goes from prepare to settle",
+          "name": "RegisteredDefinitions_AUserDefinition_PreparesAndSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "a registered definition goes from prepare to settle",
+          "name": "RegisteredDefinitions_ThePreparedRecord_PinsTheKernelOfTheFile",
+          "dynamic": false
+        },
+        {
+          "suite": "a registered definition goes from prepare to settle",
+          "name": "RegisteredDefinitions_ARefactorOverhaulWave_PreparesAndSettles",
+          "dynamic": false
+        },
+        {
+          "suite": "a registered definition goes from prepare to settle",
+          "name": "RegisteredDefinitions_ACommandCondition_IsRefusedBeforeAnyEffect",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/process/prepare-steps-profile.test.ts": {
+      "file": "tests/process/prepare-steps-profile.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the packaged chain of the step locator",
+          "name": "PackagedChain_ARefactorInOverhaulDelegate_PreparesThatStep",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/scripts/guard-input-audit.test.ts": {
+      "file": "tests/core/scripts/guard-input-audit.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_ASeededStore_GivesTheExactCountOfEachClass",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AStreamWhoseReadThrows_IsAFoldErrorOfItsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AListingThatThrows_IsRefusedAsUnreadable",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AStreamListingThatThrows_IsRefusedAsUnreadable",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_ADocumentOffTheLedger_CountsAsNotOnLedger",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_OnlyInfraStreams_IsNotClean",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AnActiveDisagreement_IsNotClean_AndATerminalOne_ReportsOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_%s_AnActiveDocumentIsNotClean_AndItsTerminalTwinIs",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AFeatureDocumentAtIdeate_IsUnknownPhaseAndNotClean",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_OneForgedTaskWithEqualSummaries_IsTaskStatusAndNotClean",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_TheCopy_KeepsItsEventAndStateRows",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AFoldError_MarksOnlyItsStream",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_ASidecarAndAnInfraStream_CountAsNonWorkflowStreams",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AStreamWithAStartRowAndNoDocument_IsAStreamWithoutDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_%s_IsRefusedAndMakesNoDatabase",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_ALiveStore_%s_IsRefusedAndKeepsItsBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_AnEmptyStore_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_AnUnreadableStore_IsRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_ASeededCopy_ExitsZeroAndWritesTheReport",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/guard-input-shadow-cleanup.test.ts": {
+      "file": "tests/integration/guard-input-shadow-cleanup.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndCompletes",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_ADryRun_WarnsAndWritesNoFile",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AnAgreeingCleanup_GivesNoWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AStaleStoredEventList_WarnsOnSynthesisOptedOut",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_NoEventStore_GetsNoComparison",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AFoldThatThrows_KeepsTheCleanupAndWarns",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_AWriteThatThrows_RecordsTheRunBeforeTheThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_%s_CarriesTheWarningOnItsExit",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/guard-input-shadow.test.ts": {
+      "file": "tests/integration/guard-input-shadow.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndTransitions",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ARowOnlyPlanArtifact_FailsTheGuardWithTheWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AnHonestWorkflow_GivesNoWarningAndNoDirectory",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AnHonestTransitionWithHandlerOptions_GivesNoWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ADisagreeingCall_AddsTheRowsOfItsAgreeingTwin",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ALedgerPhaseAheadOfTheDocument_RecordsThePhaseClass",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ASkippedPhase_ListsTheGuardsOfTheSkippedMachine",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_OneCasRetry_RecordsOnlyTheLastPass",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_TheCasRethrow_RecordsTheRunBeforeTheThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_%s_GetsNoComparison",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ACustomType_GetsNoComparison",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_%s_CarriesTheWarningOnItsExit",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AFoldThatThrows_KeepsTheDecisionAndWritesAShadowFailedLine",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AFailedFileWrite_KeepsTheTransitionAndTheWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AtTheFileCap_WritesOneCappedLineAndThenNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_EachLine_HoldsItsReadPointsAndItsPass",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AWarning_HoldsAtMost300Characters",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_MoreThan32Differences_KeepsEachListAt32",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_ALineOver8KiB_EmptiesItsLists",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleTransition_AGuardFailure_KeepsTheWarningInTheEnrichedError",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "FinalizeOneshot_ADisagreeingTransition_KeepsTheWarningOnItsResult",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/compare.test.ts": {
+      "file": "tests/unit/projections/guard-input/compare.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_EqualInputs_AgreeAndListEachGuardOutOfThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_AForgedTaskStatus_IsTaskStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_OneForgedTaskWithEqualSummaries_IsTaskStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_DifferentTaskIds_IsTaskList",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_ALedgerPhaseAheadOfTheDocument_IsPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_ARiskTierOnlyInTheDocument_IsRiskTier",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_ATerminalMergePhaseOnOneSide_IsMergeOrchestrator",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_AnotherFieldDrift_IsUnexplained",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_AGuardThatThrows_GivesTheVerdictThrow",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_AFactsStepThatThrows_GivesTheKeyFactsAsUnexplained",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_ASynthesizeRequestOnOneSide_DiffersOnItsEventKey",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_ACustomType_GivesNoComparison",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_ACleanupInputOnOneSide_DiffersOnMergeVerified",
+          "dynamic": false
+        },
+        {
+          "suite": "the comparator of the two guard inputs",
+          "name": "CompareGuardInputs_SkipPhases_TakeTheGuardsOfTheSkippedMachine",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/config.test.ts": {
+      "file": "tests/unit/projections/guard-input/config.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard config of a phase transition",
+          "name": "InjectGuardConfig_ExplicitRequiredReviews_WinOverTheGateSet",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard config of a phase transition",
+          "name": "InjectGuardConfig_NoRequiredReviews_TakesTheReviewGatesOfTheTierAndTheType",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard config of a phase transition",
+          "name": "InjectGuardConfig_AHighTier_AddsTheMutationFields",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard config of a phase transition",
+          "name": "InjectGuardConfig_AMediumTier_AddsNoMutationField",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard config of a phase transition",
+          "name": "InjectGuardConfig_ANegativeOrFractionalNoCoverage_IsNotInjected",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard config of a phase transition",
+          "name": "InjectGuardConfig_AFiniteMaxPlanRevisions_IsInjected",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard config of a phase transition",
+          "name": "HandleSet_TheModule_InjectsTheConfigThroughInjectGuardConfig",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/corpus-agreement.test.ts": {
+      "file": "tests/unit/projections/guard-input/corpus-agreement.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_%s_AgreesOnThePhaseTheFactsAndEachVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_TheCases_Are131In102_6_23",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_%s_EachSideGivesTheRecordedVerdict",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_APassFixtureWithNoCompletionRows_DisagreesOnTaskStatus",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_DisagreesOnMergeOrchestrator",
+          "dynamic": false
+        },
+        {
+          "suite": "the corpus agreement of the ledger fold and the state document",
+          "name": "CorpusAgreement_AMergeAtDelegateWithTheWriterRule_Agrees",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/document-side.test.ts": {
+      "file": "tests/unit/projections/guard-input/document-side.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the document side of the guard input",
+          "name": "DocumentSide_EachGoldenTransition_EqualsTheStateThatTheGuardGets",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/fold-base.test.ts": {
+      "file": "tests/unit/projections/guard-input/fold-base.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "FoldWorkflowState_TheRowsOfAStream_EqualTheProjectionFoldedRowByRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "FoldWorkflowState_TheSameRows_GiveEqualStatesAndLeaveTheRowsUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ResolveWorkflowState_TheModule_FoldsThroughFoldWorkflowState",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ResolveWorkflowState_AStream_EqualsFoldWorkflowState",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ToGuardEvents_EachRow_MapsToTheInternalTypeTheDataAndTheMetadata",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ToGuardEvents_TheRowsOfAStream_EqualHydrateEventsFromStore",
+          "dynamic": false
+        },
+        {
+          "suite": "the base fold and the map of the guard events",
+          "name": "ToGuardEvents_AnEntry_HoldsNoDataKey",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/fold.bench.ts": {
+      "file": "tests/unit/projections/guard-input/fold.bench.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard fold of one stream",
+          "name": "foldGuardInput-700-rows",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/fold.test.ts": {
+      "file": "tests/unit/projections/guard-input/fold.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_APatchedCompleteStatusWithNoCompletionRow_IsPending",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_ACompletionRow_StaysCompleteAfterALaterPatchOfTasks",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_AFailedRowAfterACompletion_IsFailed_AndALaterCompletion_IsComplete",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_ACompletionRowForAnUnknownTask_AddsNoTask",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_CleanupEvidence_SetsTheCleanupInputFromTheFoldedState",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_TheRevisionCount_IsTheTallyOfTheRows",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_TheFourMergeRows_GiveTheOrchestratorPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_Config_ReadsTheTierOfTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_TheSameRows_GiveEqualInputsAndLeaveTheRowsUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "DocumentGuardInput_KeepsEachDocumentFieldAndTakesTheEventsFromTheRows",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "FoldGuardInput_OnTheStorePath_MergePendingEntryDeniesACompletionWithAWorktree",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard fold and the document side",
+          "name": "RetiredAuthorityScan_APassLiteralInTheGuardInputModules_IsAViolation",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/handle-set-guard-state.test.ts": {
+      "file": "tests/unit/projections/guard-input/handle-set-guard-state.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the guard state of handleSet",
+          "name": "HandleSetGuardState_SevenTransitions_EqualTheGolden",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard state of handleSet",
+          "name": "HandleSetGuardState_TheGolden_HoldsSevenTransitionsAndTheInjectedKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard state of handleSet",
+          "name": "HandleSetGuardState_TheWrapper_RestoresTheMethodAfterAThrow",
           "dynamic": false
         }
       ]

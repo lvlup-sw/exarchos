@@ -72,6 +72,7 @@ function receiptOf(recompile?: PreparedRecompile): PreparedCapsuleReceipt {
       status: 'pending',
       blockedBy: [],
     })),
+    'delegate',
   );
   if (!partition.ok) throw new Error(partition.refusal.message);
   const capsuleVersion = recompile === undefined ? 1 : recompile.priorCapsuleVersion + 1;

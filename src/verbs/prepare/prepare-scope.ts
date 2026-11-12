@@ -3,6 +3,8 @@
  *
  * The caller names the repository with an absolute `repoRoot`, so prepare reads nothing from the server directory.
  * Git gives the root of the work tree as the checkout, and the common dir as the repository.
+ * For a user workflow type, the locate step observes the repository before the base resolves, because the definition loads from the checkout.
+ * Then the scope takes that observation, so git observes the repository once.
  * The base commit must hold the landed commit of each completed blocker of the batch.
  * A capsule that custody cannot return is not compared with the repository of the call.
  *
@@ -35,6 +37,7 @@ import {
   type RepositoryObservation,
 } from '../../utils/git-tree.js';
 import type { CatalogInvariant } from './bind-authority.js';
+import type { CheckoutLocation, LocatedCheckout } from './definition-registry.js';
 import { capsuleOfRecord, latestPreparedRecordOf } from './prepared-record.js';
 import type { PrepareRefusal } from './types.js';
 
@@ -302,6 +305,8 @@ export interface ScopeInput {
   /** The stream read of the call. The landed commits come from its rows. */
   readonly rows: StreamRows;
   readonly git: ScopeGit;
+  /** The observation of the locate step. When it is present, git does not observe the repository again. */
+  readonly located?: LocatedCheckout;
 }
 
 type ScopeOutcome =
@@ -354,7 +359,8 @@ function blockerNotOnBase(
 
 /**
  * Observes the scope of a call before any effect, in three steps.
- * First git finds the repository of `repoRoot`. A directory outside a git work tree refuses `SCOPE_UNRESOLVED`.
+ * First git finds the repository of `repoRoot`, or the scope takes the observation of the locate step.
+ * A directory outside a git work tree refuses `SCOPE_UNRESOLVED`.
  * Then the base resolves to a commit in the checkout. A tag with the name of the base refuses `BASE_UNRESOLVED` before that read.
  * A base with no commit refuses `BASE_UNRESOLVED` too.
  *
@@ -362,7 +368,7 @@ function blockerNotOnBase(
  */
 export async function observeScope(input: ScopeInput): Promise<ScopeOutcome> {
   const { streamId, repoRoot, baseRef, git } = input;
-  const located = await git.observe(repoRoot);
+  const located = input.located ?? (await git.observe(repoRoot));
   if (located.kind === 'no-work-tree') {
     return scopeUnresolved(
       `repoRoot '${repoRoot}' is not inside a git work tree, so prepare cannot pin the repository of the batch, and ` +
@@ -408,6 +414,43 @@ export async function observeScope(input: ScopeInput): Promise<ScopeOutcome> {
     return blockerNotOnBase(blocker, waiting, landed, baseRef, baseCommit, cause);
   }
   return { ok: true, observed: { checkout, repository, baseCommit } };
+}
+
+/** A `SCOPE_UNRESOLVED` refusal of the locate step. The message names its finding after its first sentence. */
+function locateUnresolved(finding: string, cause: string, recovery: string): CheckoutLocation {
+  return {
+    ok: false,
+    refusal: {
+      code: 'SCOPE_UNRESOLVED',
+      message:
+        `${cause}, so prepare cannot read the workflow definitions of the checkout, and nothing was compiled or recorded ` +
+        `(finding: ${finding}). ${recovery}`,
+    },
+  };
+}
+
+/**
+ * The locate step of a user workflow type. Git finds the root of the work tree of `repoRoot` before the base resolves,
+ * because the definition of the type loads from that checkout. So each text names `repoRoot` and holds no base.
+ * A directory outside a git work tree and a directory that git cannot observe each refuse `SCOPE_UNRESOLVED`.
+ */
+export async function locateCheckout(repoRoot: string, git: ScopeGit): Promise<CheckoutLocation> {
+  const located = await git.observe(repoRoot);
+  if (located.kind === 'no-work-tree') {
+    return locateUnresolved(
+      'no-work-tree',
+      `repoRoot '${repoRoot}' is not inside a git work tree`,
+      'Pass as repoRoot a worktree of the repository whose .exarchos/workflows/ declares the workflow type, then prepare again.',
+    );
+  }
+  if (located.kind === 'unobservable') {
+    return locateUnresolved(
+      'unobservable',
+      `git could not observe repoRoot '${repoRoot}' (${located.cause})`,
+      'Check that git runs in that directory, then prepare again.',
+    );
+  }
+  return { ok: true, located };
 }
 
 /** The input of {@link otherRepositoryRefusal}. */

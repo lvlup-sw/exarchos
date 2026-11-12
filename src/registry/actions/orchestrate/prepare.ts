@@ -56,9 +56,9 @@ export const prepareActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'prepare',
     description:
-      "Compile a feature workflow's ready tasks (pending, blockers complete) into ONE immutable " +
-      'capsule and commit one workflow.prepared record pinning its digest. Call it in the ' +
-      'delegate phase before each wave. The capsule holds the task graph, result contracts, ' +
+      'Compile the ready tasks (pending, blockers complete) of a registered task-batch step into ' +
+      'ONE immutable capsule and commit one workflow.prepared record pinning its digest. Call it ' +
+      'in that step before each wave. The capsule holds the task graph, result contracts, ' +
       'evidence kinds, the deviation envelope, the settlement authority, task verification terms ' +
       '(tier, boundary, base, scope) and the execution ' +
       'profile: capabilities the plane needs; a runtime lacking one is refused. It announces ' +
@@ -119,8 +119,10 @@ export const prepareActions: readonly BuiltinToolAction[] = [
     ),
     /**
      * `fs:read` reads the repository config, the invariants catalog, and the settlement bundles of
-     * the design revisions that the capsule binds. `fs:write` puts the capsule into content-addressed
-     * custody before the record commits. `shell:exec` runs git to pin the repository and the base commit.
+     * the design revisions that the capsule binds. For a type that is not built in, it also
+     * reads the definition files in `.exarchos/workflows/` of the checkout. `fs:write` puts the
+     * capsule into content-addressed custody before the record commits. `shell:exec` runs git to
+     * pin the repository and the base commit.
      */
     needs: declared('fs:read', 'fs:write', 'shell:exec'),
     resources: declared({ kind: 'stream', selector: 'featureId' }),

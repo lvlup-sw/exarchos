@@ -33,7 +33,7 @@ function featureDefinition(): NonNullable<ReturnType<typeof lowerBuiltInDefiniti
 }
 
 function batchOf(tasks: readonly unknown[]): DelegationBatch {
-  const outcome = partitionDelegationBatch(tasks);
+  const outcome = partitionDelegationBatch(tasks, 'delegate');
   if (!outcome.ok) throw new Error(outcome.refusal.message);
   return outcome.batch;
 }

@@ -20,9 +20,6 @@ import {
 } from '../team/prepare-delegation.js';
 import type { PrepareRefusal } from './types.js';
 
-/** The kernel step every delegated task compiles from. */
-export const DELEGATION_STEP_ID = 'delegate';
-
 /** The join the batch's sinks rejoin at, when there is more than one. */
 export const BATCH_JOIN_ID = 'batch-complete';
 
@@ -172,8 +169,11 @@ function firstDuplicateId(planned: readonly PlannedTask[]): string | undefined {
   return undefined;
 }
 
-/** Partition the projected task list into the ready frontier still to be delegated. */
-export function partitionDelegationBatch(tasks: readonly unknown[]): PartitionOutcome {
+/**
+ * Partition the projected task list into the ready frontier still to be delegated.
+ * Each task of the batch names `stepId`, the kernel step that the caller located for the batch.
+ */
+export function partitionDelegationBatch(tasks: readonly unknown[], stepId: string): PartitionOutcome {
   const planned: PlannedTask[] = [];
   for (const [index, entry] of tasks.entries()) {
     const read = readPlannedTask(entry, index);
@@ -242,7 +242,7 @@ export function partitionDelegationBatch(tasks: readonly unknown[]): PartitionOu
       tasks: ready.map((task) => ({
         taskId: task.id,
         title: task.title,
-        stepId: DELEGATION_STEP_ID,
+        stepId,
         verification: task.verification,
       })),
       dependencies: [],

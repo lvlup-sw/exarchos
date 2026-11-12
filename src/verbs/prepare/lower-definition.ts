@@ -1,5 +1,5 @@
 /**
- * Lowers a built-in workflow into a published kernel definition at compile time.
+ * Lowers a workflow definition into a published kernel definition at compile time.
  *
  * A capsule names its definition by digest, so settlement knows the definition
  * that the work ran under. The kernel comes from the authored definition of the
@@ -13,7 +13,7 @@
  *   different meaning is worse than none. Obligations reach a capsule through
  *   its completion predicate.
  *
- * A custom workflow type has no authored built-in definition, so it is not lowered.
+ * A registered definition lowers the same way. Its digest covers its kernel only, as the digest of a built-in does.
  */
 
 import {
@@ -27,8 +27,9 @@ import {
   isBuiltInDefinitionType,
   kernelOf,
 } from '../../workflow/definitions/built-in.js';
+import type { ExarchosDefinition } from '../../workflow/definitions/extension.js';
 
-export interface LoweredBuiltInDefinition {
+export interface LoweredDefinition {
   readonly workflowType: string;
   readonly definition: WorkflowDefinitionV1;
   /** Bare hex over the definition's canonical JSON — the digest a capsule pins. */
@@ -36,14 +37,12 @@ export interface LoweredBuiltInDefinition {
 }
 
 /**
- * Lower one built-in workflow into a kernel definition, or return `undefined`
- * for a type with no authored built-in definition.
+ * Lower one checked definition of a workflow type into a kernel definition.
  *
- * @throws When the kernel part of the authored definition fails the kernel contract.
+ * @throws When the kernel part of the definition fails the kernel contract.
  */
-export function lowerBuiltInDefinition(workflowType: string): LoweredBuiltInDefinition | undefined {
-  if (!isBuiltInDefinitionType(workflowType)) return undefined;
-  const parsed = WorkflowDefinitionV1Schema.safeParse(kernelOf(builtInDefinition(workflowType)));
+export function lowerDefinition(workflowType: string, definition: ExarchosDefinition): LoweredDefinition {
+  const parsed = WorkflowDefinitionV1Schema.safeParse(kernelOf(definition));
   if (!parsed.success) {
     throw new Error(
       `the lowered '${workflowType}' definition fails the published kernel contract: ${parsed.error.issues
@@ -56,4 +55,15 @@ export function lowerBuiltInDefinition(workflowType: string): LoweredBuiltInDefi
     definition: parsed.data,
     definitionVersion: contentDigest(parsed.data),
   };
+}
+
+/**
+ * Lower one built-in workflow into a kernel definition, or return `undefined`
+ * for a type with no authored built-in definition.
+ *
+ * @throws When the kernel part of the authored definition fails the kernel contract.
+ */
+export function lowerBuiltInDefinition(workflowType: string): LoweredDefinition | undefined {
+  if (!isBuiltInDefinitionType(workflowType)) return undefined;
+  return lowerDefinition(workflowType, builtInDefinition(workflowType));
 }
