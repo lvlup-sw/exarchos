@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1435,
-    "parsedFiles": 1390,
+    "testFiles": 1436,
+    "parsedFiles": 1391,
     "shellFiles": 45,
-    "cases": 15812,
+    "cases": 15816,
     "dynamicTitles": 202,
     "unparseableFiles": 0
   },
@@ -89671,7 +89671,7 @@
       "cases": [
         {
           "suite": "the packaged chain of prepare and settle",
-          "name": "PackagedChain_PrepareFiveThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
+          "name": "PackagedChain_PrepareSixThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
           "dynamic": false
         }
       ]
@@ -90748,7 +90748,7 @@
         },
         {
           "suite": "the golden of one feature wave of prepare",
-          "name": "PrepareGolden_AClaimThatTheBaseRecorded_AnswersARetry",
+          "name": "PrepareGolden_AFiveClaim_DoesNotAnswerASixRetry",
           "dynamic": false
         },
         {
@@ -91325,7 +91325,7 @@
         },
         {
           "suite": "prepare compiles a user definition of the checkout",
-          "name": "PrepareUser_AnEditOfTheExtensionOnly_ReplaysTheReceipt",
+          "name": "PrepareUser_AnEditOfTheExtensionOnly_CompilesANewVersion",
           "dynamic": false
         },
         {
@@ -91362,7 +91362,7 @@
         },
         {
           "suite": "a registered definition goes from prepare to settle",
-          "name": "RegisteredDefinitions_ThePreparedRecord_PinsTheKernelOfTheFile",
+          "name": "RegisteredDefinitions_ThePreparedRecord_PinsTheFullFile",
           "dynamic": false
         },
         {
@@ -92170,6 +92170,32 @@
         {
           "suite": "the ordinals and the frozen floor of the rows",
           "name": "PlanRevisionOrdinalOf_Rows_EqualsTheStoreCount",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/pin-definition.test.ts": {
+      "file": "tests/unit/verbs/prepare/pin-definition.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the pin of a full definition",
+          "name": "PinDefinition_TheFiveBuiltIns_GiveThePinnedDigests",
+          "dynamic": false
+        },
+        {
+          "suite": "the pin of a full definition",
+          "name": "PinDefinition_AUserExtensionEdit_MovesTheDefinitionVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "the pin of a full definition",
+          "name": "PinDefinition_ReturnsALoweredDefinition",
+          "dynamic": false
+        },
+        {
+          "suite": "the pin of a full definition",
+          "name": "PreparedBundle_ASixBundle_DecodesWithItsExtension",
           "dynamic": false
         }
       ]

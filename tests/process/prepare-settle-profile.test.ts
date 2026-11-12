@@ -33,8 +33,8 @@ const PLAN_PATH = 'docs/specs/plan.md';
 const OK = 'node -e ""';
 /** The chain runs the probe twice, the suite once, and each git step of the fixture. */
 const CASE_TIMEOUT_MS = 120_000;
-/** The digest of the lowered feature kernel. It equals the feature literal of the golden test, and both change together. */
-const FEATURE_DEFINITION_VERSION = 'fb23880b4958b39590a7a3008c22bdbb819d944d8c2fee99fab512202eb46fc9';
+/** The pinned digest of the full feature definition. It equals the feature literal of `pin-definition.test.ts`, and both change together. */
+const FEATURE_DEFINITION_VERSION = '2da84c593518cde93da6282a08f504e343215b008289389e8f97661bf1a7f6eb';
 
 /** The body of a module that returns `value`. */
 function moduleOf(value: number): string {
@@ -141,7 +141,7 @@ async function seedDelegation(mcp: SagaToolClient): Promise<void> {
 }
 
 describe('the packaged chain of prepare and settle', () => {
-  it('PackagedChain_PrepareFiveThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest', async () => {
+  it('PackagedChain_PrepareSixThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest', async () => {
     await withHermeticEnv(async (env) => {
       const worktree = await taskFixture(env.gitDir);
       const mcp = await spawnMcpClient({ stateDir: env.stateDir });
@@ -150,7 +150,7 @@ describe('the packaged chain of prepare and settle', () => {
 
         const prepared = await dataOf(mcp, orchestrate('prepare', { repoRoot: env.gitDir }));
         expect(prepared.capsule).toMatchObject({
-          provenance: { compilerVersion: 'exarchos-prepare-5' },
+          provenance: { compilerVersion: 'exarchos-prepare-6' },
           settlementContract: {
             verificationProfile: { integration: { command: { state: 'resolved', argv: ['npm', 'run', 'test:run'] } } },
           },

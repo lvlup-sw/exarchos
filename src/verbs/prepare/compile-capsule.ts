@@ -2,7 +2,7 @@
  * Compiles one delegation batch into a capsule. The module is pure: the handler reads state, resolves the catalog, and passes in the versions and the timestamp.
  *
  * The stages run in this order:
- * - normalize: the caller lowers the registered definition into a kernel definition. Its digest is the `definitionVersion` of the capsule.
+ * - normalize: the caller pins the registered definition with its `exarchos` extension. Its digest is the `definitionVersion` of the capsule.
  * - bind: the authority of the definition, with the catalog invariants on top.
  * - partition: the outstanding tasks of the plan, already cut into a batch.
  * - lower: the execution profile, which holds the capabilities that the calls of the plane need.
@@ -42,7 +42,7 @@ import type { PrepareRefusal } from './types.js';
  * The handler also keys its replay claim on this name, so a capsule of an earlier compiler is not replayed.
  * Raise the number when the compiler changes what it writes into a capsule.
  */
-export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-5';
+export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-6';
 
 /** The deviation kinds that a worker can propose when an assumption of the capsule does not hold. */
 export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption', 'missing-context'];

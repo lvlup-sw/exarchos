@@ -59,8 +59,8 @@ import {
 } from './compile-capsule.js';
 import { resolveDefinition } from './definition-registry.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
-import { lowerDefinition } from './lower-definition.js';
 import { partitionDelegationBatch } from './partition-tasks.js';
+import { pinDefinition } from './pin-definition.js';
 import {
   configDigestAt,
   designRecordDigestAt,
@@ -534,7 +534,7 @@ export async function handlePrepare(
     const compilable = location?.compilable ?? compilableSteps(registered.definition);
     return refused(stepRefusal(streamId, workflowType, phase, rule, compilable));
   }
-  const lowered = lowerDefinition(workflowType, registered.definition);
+  const lowered = pinDefinition(workflowType, registered.definition);
 
   const plan: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
   const partition = partitionDelegationBatch(plan, location.step.stepId);

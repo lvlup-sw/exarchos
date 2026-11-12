@@ -34,12 +34,13 @@ import {
 } from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
 import { PREPARE_ECONOMY_BUDGET_TOKENS } from '../../src/verbs/prepare/economy.js';
-import { lowerBuiltInDefinition } from '../../src/verbs/prepare/lower-definition.js';
+import { pinDefinition } from '../../src/verbs/prepare/pin-definition.js';
 import { commitPreparedCapsule, decodePreparedBundle } from '../../src/verbs/prepare/prepared-record.js';
 import { SETTLEMENT_OUTCOME_RULES } from '../../src/verbs/settle/adjudicate.js';
 import { MAX_DELEGATED_DECISION_ID_LENGTH } from '../../src/verbs/settle/claim-codec.js';
 import { decodeSettlementBundle } from '../../src/verbs/settle/settlement-bundle.js';
 import { createInMemoryResolver } from '../../src/workflow/capabilities/resolver.js';
+import { builtInDefinition } from '../../src/workflow/definitions/built-in.js';
 import { CURRENT_ES_VERSION } from '../../src/workflow/handlers/shared.js';
 import { initStateFile } from '../../src/workflow/state-store.js';
 import { execFileAsync } from '../../tools/test-helpers/spawn.js';
@@ -1382,15 +1383,14 @@ describe('prepare then settle, through the dispatcher', () => {
       identity: { ...current.identity, designVersion: EARLIER_DESIGN_VERSION_ID, capsuleVersion: earlierVersion },
       provenance: { ...current.provenance, compilerVersion: EARLIER_COMPILER_VERSION },
     });
-    const lowered = lowerBuiltInDefinition('feature');
-    if (lowered === undefined) throw new Error('the feature workflow did not lower');
+    const pinned = pinDefinition('feature', builtInDefinition('feature'));
     await commitPreparedCapsule(callerContext(), {
       streamId: STREAM,
       operationId: 'prepare:recorded-by-the-earlier-compiler',
       requestDigest: 'sha256:recorded-by-the-earlier-compiler',
       workflowType: 'feature',
       capsule: earlier,
-      definition: lowered.definition,
+      definition: pinned.definition,
     });
     const records = (await rowsOf('workflow.prepared')).map((row) =>
       WorkflowPreparedData.parse((row as { data: unknown }).data),

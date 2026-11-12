@@ -16,6 +16,7 @@ import { mkdir, mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
+import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 import { z } from 'zod';
 
 import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
@@ -181,12 +182,6 @@ function recordAt(value: unknown, at: string): Record<string, unknown> {
   return value;
 }
 
-/** The fixture with the `exarchos` extension removed, which is the kernel part of the file. */
-function kernelOfFixture(): Record<string, unknown> {
-  const { exarchos: _extension, ...kernel } = releaseCheckDefinition();
-  return kernel;
-}
-
 /** The rows of one type on the stream, in commit order. */
 async function rowsOf(type: string): Promise<unknown[]> {
   return (await eventStore.query(STREAM)).filter((event) => event.type === type).map((event) => event.data);
@@ -253,10 +248,10 @@ describe('a registered definition goes from prepare to settle', () => {
   }, CASE_TIMEOUT_MS);
 
   /**
-   * The prepared record pins the user type and the digest of the kernel part of the file. The bundle in custody holds that kernel.
-   * The test builds the kernel from the fixture itself, so the digest does not come from the lowering of `prepare`.
+   * The prepared record pins the user type and the digest of the full file, with its extension. The bundle in custody holds that file.
+   * The test parses the fixture itself with the kernel schema, so the digest does not come from the pin of `prepare`.
    */
-  it('RegisteredDefinitions_ThePreparedRecord_PinsTheKernelOfTheFile', async () => {
+  it('RegisteredDefinitions_ThePreparedRecord_PinsTheFullFile', async () => {
     await commitDefinition(releaseCheckDefinition());
     await seed(USER_TYPE, 'scope', 'build');
 
@@ -265,15 +260,16 @@ describe('a registered definition goes from prepare to settle', () => {
     expect(records.map((record) => record.workflowType)).toStrictEqual([USER_TYPE]);
     const [record] = records;
     if (record === undefined) throw new Error('the stream holds no prepared record');
-    const kernelDigest = contentDigest(kernelOfFixture());
-    expect(record.definitionVersion).toBe(kernelDigest);
-    expect(receipt.capsule.identity.definitionVersion).toBe(kernelDigest);
+    const fileDigest = contentDigest(WorkflowDefinitionV1Schema.parse(releaseCheckDefinition()));
+    expect(record.definitionVersion).toBe(fileDigest);
+    expect(receipt.capsule.identity.definitionVersion).toBe(fileDigest);
 
     const pinned = record.bundleRefs[0];
     if (pinned === undefined) throw new Error('the prepared record names no bundle');
     const inCustody = decodePreparedBundle(await eventStore.bundleStore.resolve(pinned.digest));
-    expect(contentDigest(inCustody.definition)).toBe(kernelDigest);
+    expect(contentDigest(inCustody.definition)).toBe(fileDigest);
     expect(inCustody.definition.name).toBe(USER_TYPE);
+    expect(inCustody.definition.exarchos).toStrictEqual(releaseCheckDefinition().exarchos);
   }, CASE_TIMEOUT_MS);
 
   /**
