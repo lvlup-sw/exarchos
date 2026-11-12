@@ -285,14 +285,31 @@ describe('danger-coordinate join is a monotone floor (DR-10 / T-15)', () => {
 
 const REVIEW_FEATURE_ID = 'dr10-t15';
 
+/**
+ * Walks a feature to `delegate` through the handlers, so the rows and the document agree.
+ * The ledger fold decides each transition, so the one task gets a `task.completed` row.
+ */
 async function initFeatureAtDelegate(dir: string, store: EventStore): Promise<string> {
   await handleInit({ featureId: REVIEW_FEATURE_ID, workflowType: 'feature' }, dir, store);
-  const stateFile = path.join(dir, `${REVIEW_FEATURE_ID}.state.json`);
-  const raw = JSON.parse(await fs.readFile(stateFile, 'utf-8')) as Record<string, unknown>;
-  raw.phase = 'delegate';
-  raw.tasks = [];
-  await fs.writeFile(stateFile, JSON.stringify(raw, null, 2), 'utf-8');
-  return stateFile;
+  const steps: Parameters<typeof handleSet>[0][] = [
+    { featureId: REVIEW_FEATURE_ID, updates: { 'artifacts.plan': 'plans/plan.md' } },
+    { featureId: REVIEW_FEATURE_ID, phase: 'plan-review' },
+    { featureId: REVIEW_FEATURE_ID, updates: { planReview: { approved: true } } },
+    { featureId: REVIEW_FEATURE_ID, phase: 'delegate' },
+    { featureId: REVIEW_FEATURE_ID, updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
+  ];
+  for (const step of steps) {
+    const result = await handleSet(step, dir, store);
+    if (!result.success) throw new Error(`the walk step failed: ${result.error?.code ?? 'no code'}`);
+  }
+  await store.append(REVIEW_FEATURE_ID, { type: 'task.completed', data: { taskId: 't1' } });
+  return path.join(dir, `${REVIEW_FEATURE_ID}.state.json`);
+}
+
+/** Stamps fields through `update`, so the rows and the document both hold them. The ledger fold reads the rows. */
+async function stampLedger(dir: string, store: EventStore, fields: Record<string, unknown>): Promise<void> {
+  const result = await handleSet({ featureId: REVIEW_FEATURE_ID, updates: fields }, dir, store);
+  if (!result.success) throw new Error(`the stamp failed: ${result.error?.code ?? 'no code'}`);
 }
 
 /** Stamp fields onto the state file WITHOUT going through a transition. */
@@ -343,7 +360,7 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
    */
   it('FrozenRequirements_TierSetInSameCall_DoesNotWeakenTransition', async () => {
     const stateFile = await initFeatureAtDelegate(dir, store);
-    await stampState(stateFile, { riskTier: 'high', boundaryTouching: true });
+    await stampLedger(dir, store, { riskTier: 'high', boundaryTouching: true });
 
     const result = await handleSet(
       { featureId: REVIEW_FEATURE_ID, phase: 'review', updates: { riskTier: 'low', boundaryTouching: false } },
@@ -368,8 +385,8 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
    * This shows that the floor test depends on the floor, not on REVIEW always emitting `mutation-adequacy`.
    */
   it('CONTROL: with no stronger prior claim the same call freezes the weak set', async () => {
-    const stateFile = await initFeatureAtDelegate(dir, store);
-    await stampState(stateFile, { riskTier: 'low', boundaryTouching: false });
+    await initFeatureAtDelegate(dir, store);
+    await stampLedger(dir, store, { riskTier: 'low', boundaryTouching: false });
 
     const result = await handleSet(
       { featureId: REVIEW_FEATURE_ID, phase: 'review', updates: { riskTier: 'low', boundaryTouching: false } },
@@ -395,7 +412,7 @@ describe('DR-10 frozen requirement set is the authority (T-15)', () => {
    */
   it('FrozenRequirements_Replay_ReconstructsSameRequirementSet', async () => {
     const stateFile = await initFeatureAtDelegate(dir, store);
-    await stampState(stateFile, { riskTier: 'high', boundaryTouching: true });
+    await stampLedger(dir, store, { riskTier: 'high', boundaryTouching: true });
 
     expect((await handleSet({ featureId: REVIEW_FEATURE_ID, phase: 'review' }, dir, store)).success).toBe(true);
 

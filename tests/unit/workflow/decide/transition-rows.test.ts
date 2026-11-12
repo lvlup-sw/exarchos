@@ -4,6 +4,11 @@
  * Each scenario runs on its own temporary SQLite store, so the state document is the `workflow_state` row.
  * The mask replaces each value that changes on each run, so the golden holds no value of one run.
  *
+ * The transition handler decides on the ledger fold and commits each move through one operation claim.
+ * So the capture differs from the golden by a named delta. A phase row of a transition move holds no idempotency key.
+ * Each move has one operation claim. The one denial gains the valid targets of the fold phase.
+ * The six corpus defects are no scenario here.
+ *
  * @oracle-sources: ./__fixtures__/transition-rows.golden.json, ../../../../src/workflow/handlers/set.ts
  */
 import fs from 'node:fs';
@@ -18,6 +23,7 @@ import {
   maskRows,
   renderTransitionRowsGolden,
   TRANSITION_ROW_SCENARIOS,
+  transitionClaimsOf,
 } from '../../../helpers/decide/transition-rows.js';
 
 /** The golden file that the scratch capture wrote once. */
@@ -73,6 +79,41 @@ function readGolden(): unknown {
   return JSON.parse(fs.readFileSync(GOLDEN_PATH, 'utf8'));
 }
 
+/** The key form of a phase row that the legacy transition guard appended: the feature, the event, the edge and the document version. */
+const LEGACY_TRANSITION_KEY = /^[^:]+:(transition|phase\.exited|phase\.entered|compound-entry|compound-exit|fix-cycle|plan-revision|cancel|cleanup):[^:]+:[^:]+:\d+$/;
+
+/** The valid targets of the fold phase `delegate` of a feature, which the one denial gains. */
+const DELEGATE_VALID_TARGETS: readonly string[] = ['review', 'merge-pending', 'cancelled', 'completed'];
+
+/** The name of the one denied scenario. */
+const DENIED_SCENARIO = 'feature delegate -> review denied with a pending task';
+
+/** A golden row with its idempotency key, as the delta reads it. */
+const GoldenRowSchema = z.looseObject({ idempotencyKey: z.string().nullable() });
+
+/** A golden entry, as the delta reads it. */
+const DeltaEntrySchema = z.looseObject({
+  name: z.string(),
+  result: z.looseObject({ error: z.looseObject({}).optional() }),
+  rows: z.array(GoldenRowSchema),
+});
+
+/**
+ * Applies the named delta of the decide on the fold to the golden. A phase row of a transition move holds no idempotency key,
+ * and the one denial gains the valid targets of the fold phase. No other value changes.
+ */
+function goldenWithTheDelta(golden: unknown): unknown {
+  return z.array(DeltaEntrySchema).parse(golden).map((entry) => ({
+    ...entry,
+    rows: entry.rows.map((row) =>
+      row.idempotencyKey !== null && LEGACY_TRANSITION_KEY.test(row.idempotencyKey) ? { ...row, idempotencyKey: null } : row,
+    ),
+    ...(entry.name === DENIED_SCENARIO && entry.result.error !== undefined
+      ? { result: { ...entry.result, error: { ...entry.result.error, validTargets: DELEGATE_VALID_TARGETS } } }
+      : {}),
+  }));
+}
+
 describe('the rows and results of the guarded handlers', () => {
   /**
    * Each scenario runs on the live handlers, and the masked capture equals the golden.
@@ -84,7 +125,14 @@ describe('the rows and results of the guarded handlers', () => {
       entries.push(maskRows(await captureTransitionRows(scenario)));
     }
 
-    expect(JSON.parse(renderTransitionRowsGolden(entries))).toStrictEqual(readGolden());
+    expect(JSON.parse(renderTransitionRowsGolden(entries))).toStrictEqual(
+      JSON.parse(renderTransitionRowsGolden(z.array(z.unknown()).parse(goldenWithTheDelta(readGolden())))),
+    );
+    for (const scenario of TRANSITION_ROW_SCENARIOS) {
+      const claims = transitionClaimsOf(scenario.name);
+      expect(claims?.moveAttemptIds.length, scenario.name).toBeGreaterThan(0);
+      expect(claims?.claimedAttemptIds, scenario.name).toEqual(claims?.moveAttemptIds);
+    }
   });
 
   /** The golden holds the eleven scenarios in order, the one denial, and each row kind of a move, a denial, a cancel and a cleanup. */

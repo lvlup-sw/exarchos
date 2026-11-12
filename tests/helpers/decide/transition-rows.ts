@@ -72,6 +72,25 @@ export interface TransitionRowsEntry {
   readonly rows: readonly CapturedRow[];
 }
 
+/** The operation claims of the transition moves of one scenario. The golden holds no claim, so a test reads them apart. */
+export interface TransitionClaims {
+  /** The phase attempt id of each phase row that holds one and no idempotency key, in row order. */
+  readonly moveAttemptIds: readonly string[];
+  /** The phase attempt ids of those rows that a `transition:<featureId>:<phaseAttemptId>` operation claim names. */
+  readonly claimedAttemptIds: readonly string[];
+}
+
+/** The phase rows that a transition move commits with a phase attempt id. */
+const MOVE_ROW_TYPES: ReadonlySet<string> = new Set(['workflow.transition', 'workflow.cancel', 'workflow.cleanup']);
+
+/** The last claims that `captureTransitionRows` read, by scenario name. */
+const claimsByScenario = new Map<string, TransitionClaims>();
+
+/** Returns the operation claims that the last capture of a scenario read, or `undefined` before its capture. */
+export function transitionClaimsOf(name: string): TransitionClaims | undefined {
+  return claimsByScenario.get(name);
+}
+
 /** The token that replaces each phase attempt id of the digest form. */
 const PHASE_ATTEMPT_TOKEN = '<phase-attempt-id>';
 
@@ -388,6 +407,17 @@ export async function captureTransitionRows(scenario: TransitionRowScenario): Pr
       idempotencyKey: event.idempotencyKey ?? null,
       operationId: event.operationId ?? null,
     }));
+    const claimBackend = eventStore.getAppender().ensureSqliteBackendSync();
+    const moveAttemptIds = rows.flatMap((row) => {
+      const attemptId = row.data?.phaseAttemptId;
+      return MOVE_ROW_TYPES.has(row.type) && row.idempotencyKey === null && typeof attemptId === 'string' ? [attemptId] : [];
+    });
+    claimsByScenario.set(scenario.name, {
+      moveAttemptIds,
+      claimedAttemptIds: moveAttemptIds.filter(
+        (attemptId) => claimBackend.lookupOperationClaim(`transition:${featureId}:${attemptId}`) !== undefined,
+      ),
+    });
     return {
       name: scenario.name,
       workflowType: scenario.workflowType,

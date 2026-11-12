@@ -1,6 +1,4 @@
 /**
- * RESERVED(issue: #1927, owner: exarchos, expires: 2027-01-31)
- *
  * The pure decide over one compiled definition. It gives the verdict of each edge from the facts of a
  * guard input, and it picks the move of a request.
  *

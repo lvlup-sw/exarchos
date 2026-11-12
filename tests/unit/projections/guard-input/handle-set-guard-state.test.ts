@@ -19,6 +19,7 @@ import {
   maskGuardState,
   renderGuardStateGolden,
 } from '../../../helpers/guard-input/guard-state-spy.js';
+import { projectStateToFacts } from '../../../../src/workflow/admission/legacy-state-translation.js';
 import { hsmTransitionGuard } from '../../../../src/workflow/hsm-transition-guard.js';
 
 /** The golden file that the scratch capture wrote once. */
@@ -56,8 +57,9 @@ function readGolden(): unknown {
 
 describe('the guard state of handleSet', () => {
   /**
-   * The hook sees one guard call for each transition. The masked capture of the live code equals the golden.
-   * A change of the injected config, of the hydrated events or of the document copy changes the capture.
+   * The hook sees one guard call for each transition. The guard now gets the ledger fold, not the document copy of the golden.
+   * So the facts of each captured input equal the facts of its golden entry, and the rest of each entry equals the golden.
+   * A change of the injected config, of the hydrated events or of a fact of the input changes the capture.
    */
   it('HandleSetGuardState_SevenTransitions_EqualTheGolden', async () => {
     const calls: string[] = [];
@@ -66,8 +68,16 @@ describe('the guard state of handleSet', () => {
     });
 
     expect(calls).toEqual(SEVEN_TRANSITIONS);
-    const masked = entries.map((entry) => ({ ...entry, state: maskGuardState(entry.state) }));
-    expect(JSON.parse(renderGuardStateGolden(masked))).toStrictEqual(readGolden());
+    const golden = z.array(GoldenEntrySchema).parse(readGolden());
+    expect(golden).toHaveLength(entries.length);
+    entries.forEach((entry, index) => {
+      const goldenEntry = golden[index];
+      if (goldenEntry === undefined) throw new Error(`the golden holds no entry ${index}`);
+      const { state: _state, ...identity } = goldenEntry;
+      const masked = JSON.parse(renderGuardStateGolden([{ ...entry, state: {} }]));
+      expect(masked, entry.name).toStrictEqual([{ ...identity, state: {} }]);
+      expect(projectStateToFacts(maskGuardState(entry.state)), entry.name).toStrictEqual(projectStateToFacts(goldenEntry.state));
+    });
   });
 
   /**

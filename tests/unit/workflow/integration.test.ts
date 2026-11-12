@@ -157,6 +157,13 @@ describe('Integration', () => {
       expect(toDelegate.success).toBe(true);
       expect((toDelegate.data as Record<string, unknown>).phase).toBe('delegate');
 
+      await handleSet(
+        { featureId: 'full-saga', updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
+        stateDir,
+        eventStore,
+      );
+      await eventStore.append('full-saga', { type: 'task.completed', data: { taskId: 't1' } });
+
       const rawState = await readRawState('full-saga');
       const evts = (rawState._events as unknown[]) ?? [];
       evts.push({ type: 'team.disbanded', timestamp: new Date().toISOString() });
@@ -230,19 +237,25 @@ describe('Integration', () => {
         stateDir,
         eventStore,
       );
-      await transitionFeature('fix-cycle', 'plan');
+      await transitionFeature('fix-cycle', 'plan', eventStore);
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'artifacts.plan': 'plan.md' } },
         stateDir,
         eventStore,
       );
-      await transitionFeature('fix-cycle', 'plan-review');
+      await transitionFeature('fix-cycle', 'plan-review', eventStore);
       await handleSet(
         { featureId: 'fix-cycle', updates: { planReview: { approved: true } } },
         stateDir,
         eventStore,
       );
-      await transitionFeature('fix-cycle', 'delegate');
+      await transitionFeature('fix-cycle', 'delegate', eventStore);
+      await handleSet(
+        { featureId: 'fix-cycle', updates: { tasks: [{ id: 't1', title: 'the one task', status: 'complete' }] } },
+        stateDir,
+        eventStore,
+      );
+      await eventStore.append('fix-cycle', { type: 'task.completed', data: { taskId: 't1' } });
 
       for (let i = 0; i < 3; i++) {
         await eventStore.append('fix-cycle', {
@@ -257,7 +270,7 @@ describe('Integration', () => {
           source: 'orchestrator',
           data: { featureId: 'fix-cycle', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
         });
-        await transitionFeature('fix-cycle', 'review');
+        await transitionFeature('fix-cycle', 'review', eventStore);
 
         await handleSet(
           { featureId: 'fix-cycle', updates: { 'reviews.spec': { status: 'fail' } } },
@@ -285,7 +298,7 @@ describe('Integration', () => {
         source: 'orchestrator',
         data: { featureId: 'fix-cycle', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
       });
-      await transitionFeature('fix-cycle', 'review');
+      await transitionFeature('fix-cycle', 'review', eventStore);
 
       await handleSet(
         { featureId: 'fix-cycle', updates: { 'reviews.spec': { status: 'fail' } } },
@@ -846,8 +859,15 @@ describe('Integration', () => {
       const transitions = events.filter((e) => e.type === 'workflow.transition');
 
       expect(transitions.length).toBe(1);
-      expect(transitions[0].idempotencyKey).toBeDefined();
-      expect(transitions[0].idempotencyKey).toContain('idem-verify');
+      expect(transitions[0].idempotencyKey).toBeUndefined();
+      const phaseAttemptId = (transitions[0].data as Record<string, unknown>).phaseAttemptId;
+      expect(phaseAttemptId).toEqual(expect.any(String));
+      const claim = eventStore
+        .getAppender()
+        .ensureSqliteBackendSync()
+        .lookupOperationClaim(`transition:idem-verify:${String(phaseAttemptId)}`);
+      expect(claim?.streamId).toBe('idem-verify');
+      expect(claim?.sequences).toContain(transitions[0].sequence);
     });
   });
 });

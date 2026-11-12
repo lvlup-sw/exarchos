@@ -11,6 +11,7 @@ import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
 import { handleSet } from '../../workflow/tools.js';
 import { guards } from '../../workflow/guards.js';
+import { foldGuardInput } from '../../projections/guard-input/fold.js';
 import { hydrateEventsFromStore } from '../../workflow/state-store.js';
 import { resolveOneshotState } from './oneshot-state.js';
 
@@ -22,8 +23,9 @@ export interface FinalizeOneshotArgs {
 
 /**
  * Finalizes a oneshot workflow. `resolveOneshotState` resolves the state from the state file or the event store and checks the workflow type.
- * The handler loads `_events` from the event store, so the guard sees opt-in events that the state file does not hold yet.
- * When that load fails, it keeps the events on the state, because `handleSet` loads them again before the transition.
+ * The handler evaluates the opt-in on the ledger fold of the rows, the input that the transition guard reads.
+ * A stream with no start row keeps the state, with `_events` loaded from the event store.
+ *
  * `handleSet` evaluates the transition guard again, so a change between the read and the transition cannot drive the wrong target.
  * The success result keeps the warnings of the transition, so a guard-input warning reaches the caller.
  */
@@ -74,13 +76,19 @@ export async function handleFinalizeOneshot(
     };
   }
 
+  let guardInput: Record<string, unknown> = state;
   try {
-    state._events = await hydrateEventsFromStore(featureId, eventStore);
+    const rows = await eventStore.query(featureId);
+    if (rows.some((row) => row.type === 'workflow.started')) {
+      guardInput = { ...foldGuardInput(rows) };
+    } else {
+      state._events = await hydrateEventsFromStore(featureId, eventStore);
+    }
   } catch {
     state._events = state._events ?? [];
   }
 
-  const optedInResult = guards.synthesisOptedIn.evaluate(state);
+  const optedInResult = guards.synthesisOptedIn.evaluate(guardInput);
   const targetPhase: 'synthesize' | 'completed' =
     optedInResult === true ? 'synthesize' : 'completed';
 

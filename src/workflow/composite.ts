@@ -22,6 +22,7 @@ import { envelopeWrap } from '../envelope-wrap.js';
 import { deriveRepoKey } from '../utils/paths.js';
 import { workflowLogger } from '../logger.js';
 import { toViewFailure } from '../projections/degraded-result.js';
+import { transitionOptionsOf } from './decide/pinned.js';
 
 const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!.actions;
 
@@ -30,9 +31,8 @@ const workflowActions = TOOL_REGISTRY.find(t => t.name === 'exarchos_workflow')!
  *
  * `init` gets the memoized repo key of the serving directory, so
  * `workflow.started` records `repoRoot`. `transition` gets the project-config
- * options that the pure guards read. A NoCoverage budget that is negative or
- * not an integer becomes the strict default of 0. The budget goes to the guard
- * only when a review config resolves. `checkpoint` loads `.exarchos.yml` from
+ * options that `transitionOptionsOf` reads, and settle reads the same options.
+ * `checkpoint` loads `.exarchos.yml` from
  * `process.cwd()`, because `stateDir` is the global state directory. A config
  * load failure logs a warning, and the checkpoint continues as soft-fail.
  */
@@ -64,37 +64,12 @@ export async function handleWorkflow(
         throw err;
       }
     case 'transition': {
-      const skipPhases = ctx.projectConfig?.workflow.skipPhases;
-      const requiredReviews = ctx.projectConfig?.workflow.requiredReviews;
-      const checkpoint = ctx.projectConfig?.checkpoint;
-      const maxPlanRevisions = ctx.projectConfig?.workflow.maxPlanRevisions;
-      const mutationEnforcement = ctx.projectConfig?.review.mutationEnforcement;
-      const mutationThreshold = ctx.projectConfig?.review.gates['mutation-adequacy']?.params
-        ?.threshold as number | undefined;
-      const maxNoCoverageRaw = ctx.projectConfig?.review.gates['mutation-adequacy']?.params
-        ?.maxNoCoverage;
-      const maxNoCoverage =
-        typeof maxNoCoverageRaw === 'number' &&
-        Number.isInteger(maxNoCoverageRaw) &&
-        maxNoCoverageRaw >= 0
-          ? maxNoCoverageRaw
-          : 0;
-      const transitionOptions: Record<string, unknown> = {};
-      if (skipPhases?.length) transitionOptions.skipPhases = skipPhases;
-      if (requiredReviews?.length) transitionOptions.requiredReviews = requiredReviews;
-      if (checkpoint) transitionOptions.checkpoint = checkpoint;
-      if (typeof maxPlanRevisions === 'number') transitionOptions.maxPlanRevisions = maxPlanRevisions;
-      if (mutationEnforcement !== undefined) transitionOptions.mutationEnforcement = mutationEnforcement;
-      if (typeof mutationThreshold === 'number') transitionOptions.mutationThreshold = mutationThreshold;
-      if (mutationEnforcement !== undefined) transitionOptions.maxNoCoverage = maxNoCoverage;
       return envelopeWrap(
         await handleTransition(
           rest as unknown as Parameters<typeof handleTransition>[0],
           stateDir,
           eventStore,
-          Object.keys(transitionOptions).length > 0
-            ? transitionOptions as Parameters<typeof handleTransition>[3]
-            : undefined,
+          transitionOptionsOf(ctx.projectConfig),
         ),
         startedAt,
       );

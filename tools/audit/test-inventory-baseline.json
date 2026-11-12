@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1439,
-    "parsedFiles": 1394,
+    "testFiles": 1441,
+    "parsedFiles": 1396,
     "shellFiles": 45,
-    "cases": 15826,
-    "dynamicTitles": 203,
+    "cases": 15855,
+    "dynamicTitles": 206,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -10638,6 +10638,22 @@
         {
           "suite": "F.1 — tools/list shape (Wave 0 §7)",
           "name": "ToolsList_AnnotationsAggregation_MatchesRegistryFormula",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/transition-commit-race.test.ts": {
+      "file": "tests/integration/transition-commit-race.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the commit of a transition move",
+          "name": "HandleSet_ACommitBetweenReadAndCommit_GivesOneTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "the commit of a transition move",
+          "name": "HandleSet_ReadsThatKeepChanging_ThrowTheConflictAndLeaveNoPartialTrail",
           "dynamic": false
         }
       ]
@@ -76453,7 +76469,7 @@
         },
         {
           "suite": "handleSet_UnifiedHydration",
-          "name": "HandleSet_EventStoreQueryFails_FallsBackToEmptyEvents",
+          "name": "HandleSet_EventStoreQueryFails_RefusesProjectionReplayFailed",
           "dynamic": false
         },
         {
@@ -80614,6 +80630,147 @@
           "suite": "GetInputSchema asOf (T6, #1555)",
           "name": "GetInputSchema_asOfBothBounds_rejects",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/set-decide.test.ts": {
+      "file": "tests/unit/workflow/set-decide.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AForgedTaskStatus_DoesNotAdmitDelegateToReview",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AStatusInsideTheSameUpdate_IsIgnored",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_TheSixCorpusDefects_DenyOnTheLivePath %s",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AnHonestDelegateToReview_Admits",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ATargetEqualToTheFoldPhase_IsIdempotent_AndLevelsTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ALaggingDocument_TakesTheSourcePhaseFromTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ALaggingDocument_TakesThePhaseAttemptIdFromTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ARiskTierThatOnlyTheDocumentHolds_GatesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AFallbackCase_UsesTheLegacyPathWithAWarning %s",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AFoldError_RefusesProjectionReplayFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ADenialOfTheSix_GivesTheDecideShape",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ADenialThatTheLegacyGuardShares_KeepsTheLegacyShape",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AMoveUnderALowerDocumentTier_EntersWithTheGatesOfTheFoldTier",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleTransition_ALaggingDocument_GivesTheValidTargetsOfTheFoldPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_OneshotSynthesizeToCompleted_DeniesOnTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ADocumentConflictAfterAnOwnCommit_RepliesWithTheMove",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AnAdmittedMove_StillFeedsTheAdmissionLiveShadow",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AnIdempotentCall_RecordsNoLiveShadowAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ACustomConfigType_KeepsTheLegacyPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "FinalizeOneshot_ReadsTheFold_NotTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "Playbooks_EachImplementationCompleteStep_NamesTheField",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AReEntryAfterAFixCycle_KeepsTheFrozenGates",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AnUpdateThatDropsAPendingTask_AdmitsDelegateToReview",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AGenericPhaseRowAppend_SetsTheFoldPhase %s",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
         }
       ]
     },
@@ -91644,12 +91801,12 @@
       "cases": [
         {
           "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndTransitions",
+          "name": "HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndFailsTheGuard",
           "dynamic": false
         },
         {
           "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ARowOnlyPlanArtifact_FailsTheGuardWithTheWarning",
+          "name": "HandleSet_ARowOnlyPlanArtifact_TransitionsWithTheWarning",
           "dynamic": false
         },
         {
@@ -91714,7 +91871,7 @@
         },
         {
           "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_AFoldThatThrows_KeepsTheDecisionAndWritesAShadowFailedLine",
+          "name": "HandleSet_AFoldThatThrows_RefusesTheCallAndWritesAShadowFailedLine",
           "dynamic": false
         },
         {
