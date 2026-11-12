@@ -9,20 +9,20 @@ const root = fileURLToPath(new URL('../../', import.meta.url));
 const scratch = mkdtempSync(join(tmpdir(), 'testgen install '));
 const npmCli = process.env.npm_execpath;
 
-function run(executable, args, cwd = scratch, expectedStatus = 0) {
-  const result = spawnSync(executable, args, { cwd, encoding: 'utf8', timeout: 180_000 });
+function options(cwd = scratch) {
+  return { cwd, encoding: 'utf8', timeout: 180_000 };
+}
+
+function checkedOutput(result, command, expectedStatus = 0) {
   if (result.error) throw result.error;
-  assert.equal(result.status, expectedStatus, [
-    `${executable} ${args.join(' ')}`,
-    result.stdout,
-    result.stderr,
-  ].join('\n'));
+  assert.equal(result.status, expectedStatus, [command, result.stdout, result.stderr].join('\n'));
   return result.stdout;
 }
 
 function npm(args, cwd, expectedStatus) {
   assert.ok(npmCli, 'Run the smoke check with npm run testgen:smoke.');
-  return run(process.execPath, [npmCli, ...args], cwd, expectedStatus);
+  const result = spawnSync(process.execPath, [npmCli, ...args], options(cwd));
+  return checkedOutput(result, `npm ${args.join(' ')}`, expectedStatus);
 }
 
 function testgen(args, expectedStatus) {
@@ -94,7 +94,7 @@ internal static class Binding
     assert.deepEqual(result.fixture.cases, request.cases);
     const patch = join(scratch, `${className}.patch`);
     writeFileSync(patch, result.patch);
-    run('git', ['apply', patch]);
+    checkedOutput(spawnSync('git', ['apply', patch], options()), `git apply ${patch}`);
 
     writeFileSync(requestPath, JSON.stringify({ ...input, framework: 'TUnit' }));
     assert.equal(testgen([operation, '--input', requestPath], 3).error.code, 'UNSUPPORTED_FRAMEWORK');
@@ -102,7 +102,8 @@ internal static class Binding
     assert.equal(testgen([operation, '--input', requestPath], 2).error.code, 'INVALID_INPUT');
   }
 
-  const output = run('dotnet', ['run', '--project', project, '-c', 'Release', '--', '--minimum-expected-tests', '4']);
+  const nativeRun = spawnSync('dotnet', ['run', '--project', project, '-c', 'Release', '--', '--minimum-expected-tests', '4'], options());
+  const output = checkedOutput(nativeRun, `dotnet run --project ${project}`);
   assert.match(output, /total:\s*4\b/i);
   process.stdout.write('Installed testgen emitted four passing native tests.\n');
 } finally {
