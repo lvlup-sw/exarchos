@@ -224,7 +224,9 @@ export function runLayerBoundaryCensus(
   for (const edge of edges) {
     const allow = byLayer.get(edge.sourceLayer);
     if (allow === undefined) continue;
-    if (allow.has(edge.targetLayer)) continue;
+    const outsideTestgenSdkSeam = edge.sourceLayer === 'testgen' &&
+      edge.targetModule !== 'contract/sdk/seam.ts';
+    if (allow.has(edge.targetLayer) && !outsideTestgenSdkSeam) continue;
     diagnostics.push({
       code: 'FORBIDDEN_IMPORT',
       module: edge.module,
@@ -234,7 +236,9 @@ export function runLayerBoundaryCensus(
       message:
         `Forbidden import: "${edge.module}" (layer "${edge.sourceLayer}") imports ` +
         `"${edge.targetModule}" (layer "${edge.targetLayer}"). The "${edge.sourceLayer}" ` +
-        `layer may only import [${[...(allow ?? [])].sort().join(', ') || '<none>'}]. ` +
+        (edge.sourceLayer === 'testgen'
+          ? 'layer may only import contract/sdk/seam.ts. '
+          : `layer may only import [${[...allow].sort().join(', ') || '<none>'}]. `) +
         `Break the dependency or widen LAYER_ALLOWED_IMPORTS for "${edge.sourceLayer}".`,
     });
   }
@@ -293,6 +297,7 @@ const allowance = (layer: string, allow: readonly string[], note: string): Layer
  */
 export const LAYER_ALLOWED_IMPORTS: readonly LayerAllowance[] = Object.freeze([
   allowance('utils', [], 'Foundation leaf — cross-OS/process/format primitives; imports no first-party directory.'),
+  allowance('testgen', ['contract'], 'Independent generation tool. The only first-party dependency is the MCP SDK seam.'),
   allowance('ndjson', [], 'Foundation leaf — NDJSON framing primitives; imports no first-party directory.'),
 
   /**

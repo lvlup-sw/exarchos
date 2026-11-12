@@ -4,7 +4,7 @@
 // The suite reads the scope from disk and never from the map. A map that omits
 // a directory is consistent with itself and still wrong.
 //
-// The suite asserts the relation of 11 targets to 9 published layers as a
+// The suite asserts the relation of 12 targets to 9 published layers as a
 // relation and not as set equality. Two directories (`contract` and `dispatch`)
 // serve L5, and `install` is a declared non-layer peer and not a tenth layer.
 //
@@ -51,7 +51,7 @@ const liveDirs = readdirSync(SRC)
   .filter((d) => statSync(path.join(SRC, d)).isDirectory())
   .sort();
 
-/** The 11 targets that a directory can map to. */
+/** The 12 targets that a directory can map to. */
 const TARGETS = [
   'storage',
   'events',
@@ -64,6 +64,7 @@ const TARGETS = [
   'adapters',
   'runtime',
   'install',
+  'testgen',
 ] as const;
 
 describe('LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException', () => {
@@ -80,7 +81,7 @@ describe('LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException', () => {
     expect(
       unmapped,
       'These exist under src/ but the layer map does not mention them. ' +
-        'Every directory must map to one of the 11 targets or carry a stated exception — a ' +
+        'Every directory must map to one of the 12 targets or carry a stated exception — a ' +
         'directory the map cannot see is one no move task knows what to do with.',
     ).toEqual([]);
   });
@@ -132,7 +133,7 @@ describe('LayerMap_EveryCoreDirectory_MapsToALayerOrAStatedException', () => {
   });
 });
 
-describe('the 11 targets → 9 published layers relation (what task 044 asserts)', () => {
+describe('the 12 targets → 9 published layers relation (what task 044 asserts)', () => {
   it('publishes exactly nine layers, L1 through L9', () => {
     expect(Object.keys(map.publishedLayers).sort()).toEqual([
       'L1', 'L2', 'L3', 'L4', 'L5', 'L6', 'L7', 'L8', 'L9',
@@ -140,7 +141,7 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
     expect(map.counts.publishedLayers).toBe(9);
   });
 
-  it('declares exactly eleven targets', () => {
+  it('declares exactly twelve targets', () => {
     expect(map.counts.targets).toBe(TARGETS.length);
   });
 
@@ -155,11 +156,13 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
     expect(map.nonLayerPeers.install?.length ?? 0).toBeGreaterThan(20);
     const layerTargets = Object.values(map.publishedLayers).flatMap((v) => v.targets);
     expect(layerTargets).not.toContain('install');
+    expect(Object.keys(map.nonLayerPeers)).toContain('testgen');
+    expect(layerTargets).not.toContain('testgen');
   });
 
-  it('every target except install belongs to exactly one published layer', () => {
+  it('every layered target belongs to exactly one published layer', () => {
     const layerTargets = Object.values(map.publishedLayers).flatMap((v) => v.targets);
-    expect([...layerTargets].sort()).toEqual(TARGETS.filter((t) => t !== 'install').slice().sort());
+    expect([...layerTargets].sort()).toEqual(TARGETS.filter((t) => !Object.hasOwn(map.nonLayerPeers, t)).slice().sort());
     expect(new Set(layerTargets).size).toBe(layerTargets.length);
   });
 
@@ -176,7 +179,7 @@ describe('the 11 targets → 9 published layers relation (what task 044 asserts)
 
   /** The directory entries and the layer table must name the same targets. */
   it('every target a directory maps to is a target the layer table knows', () => {
-    const known = new Set([...Object.values(map.publishedLayers).flatMap((v) => v.targets), 'install']);
+    const known = new Set([...Object.values(map.publishedLayers).flatMap((v) => v.targets), ...Object.keys(map.nonLayerPeers)]);
     for (const dir of liveDirs) {
       const entry = map.directories[dir] as Entry;
       if (entry.disposition !== 'mapped') continue;
