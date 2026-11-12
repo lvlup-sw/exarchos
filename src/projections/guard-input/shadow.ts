@@ -3,10 +3,11 @@
  *
  * Before a guarded call, the handler compares the state document with the ledger fold of the same stream.
  * A disagreement gives one warning on the result and one line in a diagnostics file under the state directory.
+ * The warning names that file only when this run wrote a line to it.
  * The shadow holds no event store, so it cannot append a row. The state document still decides each call.
  *
  * `runGuardInputShadow` is pure and synchronous, and it turns each throw into a failure value.
- * Only `recordGuardInputShadow` moves the counts and writes the file. A failed file write changes no result.
+ * Only `recordGuardInputShadow` moves the counts and writes the file. A failed file write changes no decision and no count.
  * No reader decides on the file or on the counts.
  */
 import { appendFile, mkdir, open, stat } from 'node:fs/promises';
@@ -85,7 +86,7 @@ export interface GuardInputShadowCounts {
 /** Where `recordGuardInputShadow` writes, and whether it writes. */
 export interface GuardInputShadowSink {
   readonly stateDir: string;
-  /** False when the call writes no line, as a dry run does. The counts and the warning stay. */
+  /** False when the call writes no line, as a dry run does. The counts and the warning stay, and the warning names no file. */
   readonly writeLine?: boolean;
 }
 
@@ -202,18 +203,19 @@ function capWarning(text: string): string {
 
 /**
  * Returns the warning of a run. The count of keys is the count before the list cut of the line.
+ * The details path appears only when `written` is true, so the warning never names a line that is not there.
  * The keys come last, so the cut of a long warning removes them first.
  */
-function warningOf(run: GuardInputShadowRun): string {
+function warningOf(run: GuardInputShadowRun, written: boolean): string {
   if (run.kind === 'failed') {
     return capWarning(`GUARD_INPUT_SHADOW_FAILED: ${run.error.slice(0, ERROR_MAX_CHARS)}. The state document decided.`);
   }
   const { differences } = run.comparison;
   const keys = differences.slice(0, WARNING_KEY_COUNT).map((difference) => difference.key).join(', ');
+  const details = written ? `Details: ${GUARD_INPUT_DIAGNOSTICS_DIRNAME}/${run.featureId}.jsonl. ` : '';
   return capWarning(
     `GUARD_INPUT_DISAGREEMENT: the ledger fold and the state document disagree on ${differences.length} guard inputs ` +
-      `at ${run.from} -> ${run.to}. The state document decided. ` +
-      `Details: ${GUARD_INPUT_DIAGNOSTICS_DIRNAME}/${run.featureId}.jsonl. Keys: ${keys}.`,
+      `at ${run.from} -> ${run.to}. The state document decided. ${details}Keys: ${keys}.`,
   );
 }
 
@@ -295,27 +297,29 @@ async function endsCapped(file: string, size: number): Promise<boolean> {
  * Appends one line to the diagnostics file of the feature.
  * When the line takes the file past 1 MiB, the writer appends one capped line in its place.
  * A file that ends with a capped line gets no more lines. A cap occurs only near the limit, so the writer reads the file end only there.
+ * Returns true when it appends a line, the capped line included, and false when the file already ends with a capped line.
  */
-async function appendDiagnosticsLine(stateDir: string, run: GuardInputShadowRun): Promise<void> {
+async function appendDiagnosticsLine(stateDir: string, run: GuardInputShadowRun): Promise<boolean> {
   const { featureId } = run;
   const line = lineOf(run);
   const directory = path.join(stateDir, GUARD_INPUT_DIAGNOSTICS_DIRNAME);
   await mkdir(directory, { recursive: true });
   const file = path.join(directory, `${featureId}.jsonl`);
   const size = await sizeOf(file);
-  if (size > FILE_MAX_BYTES - LINE_MAX_BYTES && (await endsCapped(file, size))) return;
+  if (size > FILE_MAX_BYTES - LINE_MAX_BYTES && (await endsCapped(file, size))) return false;
   if (size + Buffer.byteLength(line) <= FILE_MAX_BYTES) {
     await appendFile(file, line, 'utf8');
-    return;
+    return true;
   }
   await appendFile(file, cappedLineOf(featureId), 'utf8');
+  return true;
 }
 
 /**
  * Records one run after the decision of the call, and returns the warnings for the result.
  * No run gives no warning and moves no count. A run with a comparison moves `compared`, and a disagreement also moves `disagreeing`.
  * A failed run moves `failed`. A disagreement or a failure writes one line, unless `sink.writeLine` is false.
- * A failed file write keeps the warning, and the function does not throw.
+ * A failed or skipped file write keeps the warning without its details path, and the function does not throw.
  */
 export async function recordGuardInputShadow(
   run: GuardInputShadowRun | undefined,
@@ -329,8 +333,6 @@ export async function recordGuardInputShadow(
   } else {
     counts.failed += 1;
   }
-  if (sink.writeLine !== false) {
-    await appendDiagnosticsLine(sink.stateDir, run).catch(() => undefined);
-  }
-  return [warningOf(run)];
+  const written = sink.writeLine !== false && (await appendDiagnosticsLine(sink.stateDir, run).catch(() => false));
+  return [warningOf(run, written)];
 }

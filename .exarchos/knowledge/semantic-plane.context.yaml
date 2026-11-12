@@ -973,7 +973,7 @@ measured:
     - fact: "the observed counter reads one session tree: the session file and each *.jsonl file under <session>/subagents/, at any depth. It keeps the first event of each tool_use id, and it puts each Exarchos call in one of six counts by the order noAction, unregistered, failed, then the role. It gives each workflow a total over every caller, a split by caller with filesWithCalls, and the population of each caller and each rule over the tree. It exits 2 on UNREADABLE_FILE, UNKNOWN_EXARCHOS_TOOL, NO_EXARCHOS_CALL and COUNT_NOT_CONSERVED. On the fixture it gives no-per-language-code a total of 63 (coordinator 56 in 2 files, other 7 in 1 file), with 63 distinct ids, 6 repeated events and the worker population files 1, filesWithCalls 0, calls 0."
       check: "npx tsx tools/audit/core/call-shape/observed.ts tests/scripts/__fixtures__/observed-call-count/recorded-session.jsonl   (the cases of the counter: npx vitest run --project unit tests/scripts/observed-call-count.test.ts)"
     # The fact below came with 'one guard input, in shadow', slice S4 of #1927. Its check passed on 2026-11-11
-    # at the tip of feat/one-guard-input-in-shadow, which holds main f275601e4. It is a fact of main only
+    # at the tip of feat/one-guard-input-in-shadow, which holds main f4b3484fa. It is a fact of main only
     # after that branch merges.
     - fact: "transition and cleanup compare the ledger fold with the state document, and the document decides"
       check: "npx vitest run --project core tests/integration/guard-input-shadow.test.ts tests/integration/guard-input-shadow-cleanup.test.ts"

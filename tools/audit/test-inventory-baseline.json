@@ -7,8 +7,8 @@
     "testFiles": 1430,
     "parsedFiles": 1385,
     "shellFiles": 45,
-    "cases": 15778,
-    "dynamicTitles": 200,
+    "cases": 15783,
+    "dynamicTitles": 202,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -91489,6 +91489,16 @@
         },
         {
           "suite": "the read-only audit of the guard input",
+          "name": "RunGuardInputAudit_AnOutThatNamesAStoreFile_%s_IsRefusedAndKeepsItsBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "the read-only audit of the guard input",
           "name": "RunGuardInputAudit_AnEmptyStore_IsRefused",
           "dynamic": false
         },
@@ -91520,6 +91530,11 @@
         },
         {
           "suite": "the guard-input shadow on the cleanup path",
+          "name": "HandleCleanup_ADryRun_WarnsWithNoDiagnosticsPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
           "name": "HandleCleanup_AnAgreeingCleanup_GivesNoWarning",
           "dynamic": false
         },
@@ -91547,6 +91562,11 @@
           "suite": "the guard-input shadow on the cleanup path",
           "name": "HandleCleanup_%s_CarriesTheWarningOnItsExit",
           "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the cleanup path",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
         }
       ]
     },
@@ -91632,6 +91652,11 @@
         {
           "suite": "the guard-input shadow on the transition path",
           "name": "HandleSet_AFailedFileWrite_KeepsTheTransitionAndTheWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AFailedFileWrite_WarnsWithNoDiagnosticsPath",
           "dynamic": false
         },
         {

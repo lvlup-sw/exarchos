@@ -8,6 +8,7 @@
  *
  * Usage: `bun tools/audit/core/guard-input-audit.ts --store <dir> [--out <file>]`.
  * Exit 0 means that the audit ran, not that the store is clean. Exit 2 is a refusal, and stderr names its code.
+ * An `--out` that names a store file of the copy or of a live state directory is a usage refusal. So the report never overwrites a store.
  */
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
@@ -425,18 +426,18 @@ function isSameFile(left: FileIdentity | undefined, right: FileIdentity | undefi
   return left !== undefined && right !== undefined && left.dev === right.dev && left.ino === right.ino;
 }
 
+/** Returns the live state directories: the state directory of the inputs, `<home>/.claude/workflow-state` and `<home>/.exarchos/state`. */
+function liveStateDirs(inputs: StorePathResolutionInputs): string[] {
+  const home = inputs.homedir ?? os.homedir();
+  return [resolveStateDir(inputs), path.join(home, '.claude', 'workflow-state'), path.join(home, '.exarchos', 'state')];
+}
+
 /**
  * Refuses a store directory that is a live state directory, or whose store file is the store file of a live state directory.
- * The live directories are the state directory of the inputs, `<home>/.claude/workflow-state` and `<home>/.exarchos/state`.
  * The directory rule compares real paths. The file rule compares the device and the inode, so it refuses a symlinked or a hard-linked store file.
  */
 function refuseLiveStore(store: string, inputs: StorePathResolutionInputs): void {
-  const home = inputs.homedir ?? os.homedir();
-  const liveDirs = [
-    resolveStateDir(inputs),
-    path.join(home, '.claude', 'workflow-state'),
-    path.join(home, '.exarchos', 'state'),
-  ];
+  const liveDirs = liveStateDirs(inputs);
   const target = realPathOf(store);
   const live = target === undefined ? undefined : liveDirs.find((dir) => realPathOf(dir) === target);
   if (live !== undefined) {
@@ -450,6 +451,26 @@ function refuseLiveStore(store: string, inputs: StorePathResolutionInputs): void
       'GUARD_AUDIT_LIVE_STORE',
       `${storeFile} is the store file of the live state directory ${linked}, through a link. Audit a copy.`,
     );
+  }
+}
+
+/**
+ * Refuses an `--out` that names a store file of the audited copy or of a live state directory.
+ * A store file is the database, its WAL or its shared-memory file.
+ * The rule compares the device and the inode, so it also refuses a symlink or a hard link to a store file. A new report file matches no store file.
+ */
+function refuseStoreFileOut(out: string | undefined, store: string, inputs: StorePathResolutionInputs): void {
+  if (out === undefined) return;
+  const outIdentity = fileIdentityOf(out);
+  if (outIdentity === undefined) return;
+  const names = [STORE_DB_FILENAME, `${STORE_DB_FILENAME}-wal`, `${STORE_DB_FILENAME}-shm`];
+  for (const dir of [store, ...liveStateDirs(inputs)]) {
+    for (const name of names) {
+      const file = path.join(dir, name);
+      if (isSameFile(outIdentity, fileIdentityOf(file))) {
+        throw new GuardAuditError('GUARD_AUDIT_USAGE', `--out ${out} names the store file ${file}. Write the report to another file.`);
+      }
+    }
   }
 }
 
@@ -469,7 +490,7 @@ async function auditStoreFile(dbPath: string): Promise<GuardAuditReport> {
 }
 
 /**
- * Runs the audit of the command line. Three refusals run before any open: the usage, the live store and the missing store.
+ * Runs the audit of the command line. Four refusals run before any open: the usage, the live store, an `--out` that names a store file and the missing store.
  * The `inputs` give the paths of the live state directory, so a test can pass a temporary home.
  * With `--out`, the report also goes to that file.
  */
@@ -480,6 +501,7 @@ export async function runGuardInputAudit(
   try {
     const args = parseAuditArgs(argv);
     refuseLiveStore(args.store, inputs);
+    refuseStoreFileOut(args.out, args.store, inputs);
     const dbPath = path.join(args.store, STORE_DB_FILENAME);
     if (!existsSync(dbPath)) {
       throw new GuardAuditError('GUARD_AUDIT_NO_STORE', `${args.store} holds no ${STORE_DB_FILENAME}`);

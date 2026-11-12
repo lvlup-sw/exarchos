@@ -623,6 +623,21 @@ describe('the guard-input shadow on the transition path', () => {
     expect(await readFile(diagnosticsDirOf(store), 'utf8')).toBe(blocker);
   });
 
+  /** A failed file write leaves no line, so the warning of the call names no diagnostics file. */
+  it('HandleSet_AFailedFileWrite_WarnsWithNoDiagnosticsPath', async () => {
+    const store = await openStore();
+    await seedDocumentOnlyPlan(store);
+    await writeFile(diagnosticsDirOf(store), 'a regular file where the directory goes\n', 'utf8');
+
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
+
+    expect(result.success).toBe(true);
+    expect(phaseOf(result)).toBe('plan-review');
+    const warning = oneWarningOf(result);
+    expect(warning.startsWith(DISAGREEMENT)).toBe(true);
+    expect(warning).not.toContain(`${DIAGNOSTICS_DIRNAME}/`);
+  });
+
   /** A line that takes the file past 1 MiB becomes one capped line. A file that ends with a capped line gets no more lines. */
   it('HandleSet_AtTheFileCap_WritesOneCappedLineAndThenNothing', async () => {
     const store = await openStore();

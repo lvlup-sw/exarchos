@@ -225,6 +225,21 @@ describe('the guard-input shadow on the cleanup path', () => {
     expect(existsSync(diagnosticsDirOf(store))).toBe(false);
   });
 
+  /** A dry run writes no line, so its warning names no diagnostics file and keeps its transition and its keys. */
+  it('HandleCleanup_ADryRun_WarnsWithNoDiagnosticsPath', async () => {
+    const store = await openStore();
+    await seedForgedApprovedReview(store);
+
+    const result = await cleanup(store, true);
+
+    const warning = oneWarningOf(result);
+    expect(warning.startsWith(DISAGREEMENT)).toBe(true);
+    expect(warning).not.toContain(`${DIAGNOSTICS_DIRNAME}/`);
+    expect(warning).toContain('at plan -> completed');
+    expect(warning).toContain('Keys: ');
+    expect(existsSync(diagnosticsDirOf(store))).toBe(false);
+  });
+
   /** A review `approved` on both sides compares and agrees, so cleanup gives no warning and no diagnostics directory. */
   it('HandleCleanup_AnAgreeingCleanup_GivesNoWarning', async () => {
     const store = await openStore();

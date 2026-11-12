@@ -329,6 +329,14 @@ function hardLinkedDatabaseFile(dirs: LiveDirs, liveDir: string): string {
   return dir;
 }
 
+/** The seeded store file, the audited copy, the temporary home and the temporary directory of an out-path case. */
+interface OutDirs {
+  readonly storeFile: string;
+  readonly copy: string;
+  readonly home: string;
+  readonly tmp: string;
+}
+
 describe('the read-only audit of the guard input', () => {
   /** The seeded store holds each standing of an agreeing and a disagreeing document, an off-ledger document and a custom type. */
   it('AuditGuardInputs_ASeededStore_GivesTheExactCountOfEachClass', async () => {
@@ -637,6 +645,44 @@ describe('the read-only audit of the guard input', () => {
       expect(existsSync(path.join(dir, `${STORE_FILE}-wal`))).toBe(false);
       expect(existsSync(path.join(dir, `${STORE_FILE}-shm`))).toBe(false);
     }
+  });
+
+  /**
+   * An `--out` that names a store file refuses before the open, so the report never overwrites that file.
+   * A row gives the out path of the call and the real store file that the path names.
+   */
+  it.each<[string, (dirs: OutDirs) => { readonly out: string; readonly target: string }]>([
+    ['TheDatabaseOfTheAuditedCopy', (dirs) => ({ out: path.join(dirs.copy, STORE_FILE), target: path.join(dirs.copy, STORE_FILE) })],
+    [
+      'TheDatabaseOfALiveStateDir',
+      (dirs) => {
+        const liveFile = path.join(copyStoreInto(dirs.storeFile, path.join(dirs.home, '.claude', 'workflow-state')), STORE_FILE);
+        return { out: liveFile, target: liveFile };
+      },
+    ],
+    [
+      'ASymlinkToTheLiveDatabase',
+      (dirs) => {
+        const liveFile = path.join(copyStoreInto(dirs.storeFile, path.join(dirs.home, '.exarchos', 'state')), STORE_FILE);
+        const link = path.join(dirs.tmp, 'report.json');
+        symlinkSync(liveFile, link, 'file');
+        return { out: link, target: liveFile };
+      },
+    ],
+  ])('RunGuardInputAudit_AnOutThatNamesAStoreFile_%s_IsRefusedAndKeepsItsBytes', async (_name, outOf) => {
+    const storeFile = await seededStoreFile();
+    const copy = copyStoreInto(storeFile, path.join(tempDir('guard-audit-copy-'), 'store'));
+    const home = tempDir('guard-audit-home-');
+    const tmp = tempDir('guard-audit-out-');
+    const { out, target } = outOf({ storeFile, copy, home, tmp });
+    const bytesBefore = sha256Of(target);
+
+    const outcome = await runGuardInputAudit(['--store', copy, '--out', out], { homedir: home, env: {} });
+
+    expect(outcome.exitCode).toBe(2);
+    expect(codeOf(outcome)).toBe('GUARD_AUDIT_USAGE');
+    expect(messageOfRefusal(outcome)).toContain('--out');
+    expect(sha256Of(target)).toBe(bytesBefore);
   });
 
   /** A store with no document and no stream gives no verdict, so the audit refuses it. */
