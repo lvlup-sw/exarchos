@@ -1,3 +1,4 @@
+// @oracle-sources: ../../support/testgen/property.json, the signed integer bounds and requested axes in this file
 import { readFileSync } from 'node:fs';
 import fc from 'fast-check';
 import { describe, expect, it } from 'vitest';

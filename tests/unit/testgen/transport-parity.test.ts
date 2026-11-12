@@ -1,7 +1,8 @@
-import { readFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+// @oracle-sources: ../../../src/testgen/contract/operations.ts, ../../support/testgen/property.json, ../../support/testgen/advance.json
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
+import { makeTempDir, rmrfAsync } from '../../../tools/test-helpers/temp-dir.js';
 import { connectV2Client, connectV2Server, createV2Client, createV2LinkedTransportPair } from '../../../src/contract/sdk/seam.js';
 import { runCli } from '../../../src/testgen/adapters/cli.js';
 import { commandMetadata } from '../../../src/testgen/adapters/cli-metadata.js';
@@ -18,7 +19,7 @@ it('derives CLI commands and errors from all operation definitions', () => {
 });
 
 it('carries the same result through the CLI and a connected MCP client', async () => {
-  const dir = await mkdtemp(join(tmpdir(), 'testgen space '));
+  const dir = makeTempDir('testgen space ');
   const file = join(dir, 'input file.json');
   const [serverTransport, clientTransport] = createV2LinkedTransportPair();
   const emit: Emitter = (input) => input.propertyRef === 'broken-emitter'
@@ -31,6 +32,12 @@ it('carries the same result through the CLI and a connected MCP client', async (
     await connectV2Client(client, clientTransport);
     const { tools } = await client.listTools();
     expect(tools.map(({ name }) => name)).toEqual(commandMetadata.operations.map(({ name }) => name));
+    for (const { inputSchema } of tools) {
+      expect(inputSchema.properties).toMatchObject({
+        framework: { const: 'tunit' },
+        frameworkVersion: { const: '1.2.11' },
+      });
+    }
     for (const [fixture, name] of [
       ['property', 'generate_property_tests'],
       ['advance', 'generate_metamorphic_tests'],
@@ -39,7 +46,8 @@ it('carries the same result through the CLI and a connected MCP client', async (
       for (const [patch, expectedExit] of [
         [{}, 0],
         [{ cases: [] }, 2],
-        [{ framework: 'other' }, 3],
+        [{ framework: 'TUnit' }, 3],
+        [{ frameworkVersion: '1.2.12' }, 3],
         [{ propertyRef: 'broken-emitter' }, 1],
       ] as const) {
         const payload = { ...input, ...patch };
@@ -58,6 +66,6 @@ it('carries the same result through the CLI and a connected MCP client', async (
   } finally {
     await client.close();
     await server.close();
-    await rm(dir, { recursive: true, force: true });
+    await rmrfAsync(dir);
   }
 });

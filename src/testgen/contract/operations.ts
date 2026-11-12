@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { expandCases } from '../generators/cases.js';
 import { emitTUnit } from '../emitters/tunit/emit.js';
-import { errors, metamorphicInput, propertyInput, resultSchema } from './schemas.js';
+import { errors, frameworkSelection, metamorphicInput, propertyInput, resultSchema, supportedFramework } from './schemas.js';
 import type { ErrorCode, GenerationResult, TestInput } from './schemas.js';
 
 export const operations = {
@@ -15,7 +15,6 @@ export const operations = {
   },
 } as const;
 
-export type OperationName = keyof typeof operations;
 export type Emitter = (input: TestInput) => unknown;
 
 export function describeOperations() {
@@ -35,17 +34,20 @@ export function failure(code: ErrorCode, message: string): GenerationResult {
 }
 
 export function dispatch(name: string, input: unknown, emit: Emitter = emitTUnit): GenerationResult {
-  if (!Object.hasOwn(operations, name)) return failure('INVALID_INPUT', 'Unknown operation.');
-  const parsed = operations[name as OperationName].input.safeParse(input);
+  const operation = Object.entries(operations).find(([key]) => key === name)?.[1];
+  if (!operation) return failure('INVALID_INPUT', 'Unknown operation.');
+  const parsed = operation.input.safeParse(input);
   if (!parsed.success) {
+    if (parsed.error.issues.every(({ path }) => path[0] === 'framework' || path[0] === 'frameworkVersion')
+      && frameworkSelection.safeParse(input).success) {
+      return failure('UNSUPPORTED_FRAMEWORK',
+        `Use framework "${supportedFramework.framework}" and frameworkVersion "${supportedFramework.frameworkVersion}".`);
+    }
     const details = parsed.error.issues.map(({ path, message }) => `${path.join('.') || 'request'}: ${message}`);
     return failure('INVALID_INPUT', details.join('; '));
   }
 
   const request = parsed.data;
-  if (request.framework !== 'tunit' || request.frameworkVersion !== '1.2.11') {
-    return failure('UNSUPPORTED_FRAMEWORK', 'This prototype supports TUnit 1.2.11 only.');
-  }
   const parent = request.target.project.slice(0, request.target.project.lastIndexOf('/') + 1);
   if (!request.target.path.startsWith(parent)) {
     return failure('INVALID_INPUT', 'The test file must be under the test project directory.');

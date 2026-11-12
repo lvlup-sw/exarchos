@@ -12,6 +12,8 @@
     ".": {
       "entry": [
         "src/index.ts",
+        "src/testgen/entry-cli.ts",
+        "src/testgen/entry-mcp.ts",
         "src/install/build-skills.ts",
         "src/install/install-skills.ts",
         "src/install/skills-guard.ts",

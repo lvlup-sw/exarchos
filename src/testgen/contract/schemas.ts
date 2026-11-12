@@ -11,9 +11,14 @@ const ticks = z.string().max(20).regex(/^(?:0|-?[1-9][0-9]{0,18})(?![\s\S])/).re
   'Expected a signed 64-bit decimal integer.',
 );
 const vector = z.array(ticks).min(1).max(8);
-const common = {
+export const supportedFramework = { framework: 'tunit', frameworkVersion: '1.2.11' } as const;
+export const frameworkSelection = z.object({
   framework: z.string().min(1).max(50),
   frameworkVersion: z.string().min(1).max(50),
+});
+const common = {
+  framework: z.literal(supportedFramework.framework),
+  frameworkVersion: z.literal(supportedFramework.frameworkVersion),
   target: z.strictObject({
     project: z.string().max(240).regex(/^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.csproj(?![\s\S])/)
       .refine((path) => path.split('/').every((part) => !part.endsWith('.')), 'Use portable path segments.'),
@@ -34,6 +39,8 @@ export const propertyInput = z.strictObject({ ...common, predicate: binding });
 export const metamorphicInput = z.strictObject({ ...common, transform: binding, relation: binding });
 export type TestInput = z.infer<typeof propertyInput> | z.infer<typeof metamorphicInput>;
 
+const errorCode = z.enum(['INVALID_INPUT', 'UNSUPPORTED_FRAMEWORK', 'INTERNAL_ERROR']);
+export type ErrorCode = z.infer<typeof errorCode>;
 export const errors = {
   INVALID_INPUT: 2,
   UNSUPPORTED_FRAMEWORK: 3,
@@ -60,10 +67,9 @@ export const resultSchema = z.discriminatedUnion('ok', [
   }),
   z.strictObject({
     ok: z.literal(false),
-    error: z.strictObject({ code: z.enum(Object.keys(errors) as ErrorCode[]), message: z.string() }),
+    error: z.strictObject({ code: errorCode, message: z.string() }),
   }),
 ]);
 
 export type GenerationResult = z.infer<typeof resultSchema>;
 export type Success = Extract<GenerationResult, { ok: true }>;
-export type ErrorCode = keyof typeof errors;

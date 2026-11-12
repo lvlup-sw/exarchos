@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1419,
-    "parsedFiles": 1374,
+    "testFiles": 1422,
+    "parsedFiles": 1377,
     "shellFiles": 45,
-    "cases": 15672,
-    "dynamicTitles": 195,
+    "cases": 15680,
+    "dynamicTitles": 196,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -91374,6 +91374,64 @@
         {
           "suite": "the packaged chain of the step locator",
           "name": "PackagedChain_ARefactorInOverhaulDelegate_PreparesThatStep",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/testgen-boundary.test.ts": {
+      "file": "tests/architecture/testgen-boundary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "rejects generation imports outside the owned SDK seam",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/testgen/generation.test.ts": {
+      "file": "tests/unit/testgen/generation.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "testgen cases",
+          "name": "retains exact fixture values and produces a deterministic applicable patch",
+          "dynamic": false
+        },
+        {
+          "suite": "testgen cases",
+          "name": "expands each selected axis around its declared boundaries using exact signed ticks",
+          "dynamic": false
+        },
+        {
+          "suite": "testgen cases",
+          "name": "rejects malformed domains or targets before calling the emitter (%j)",
+          "dynamic": false
+        },
+        {
+          "suite": "testgen cases",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "testgen cases",
+          "name": "fails closed when an emitter breaks its output contract",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/testgen/transport-parity.test.ts": {
+      "file": "tests/unit/testgen/transport-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "derives CLI commands and errors from all operation definitions",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "carries the same result through the CLI and a connected MCP client",
           "dynamic": false
         }
       ]

@@ -1,6 +1,6 @@
 # Generate TUnit candidates
 
-Use the native framework directly unless a matching prototype command is available. The prototype accepts TUnit 1.2.11.
+Use `generate_property_tests` for reviewed signed-integer properties in TUnit 1.2.11. Set `"framework": "tunit"` and `"frameworkVersion": "1.2.11"` in the request. Use `generate_metamorphic_tests` as an experimental operation. Keep the reviewed bindings and emitted C# in the target repository so its native runner can execute the tests.
 
 ```sh
 testgen describe generate_property_tests --json

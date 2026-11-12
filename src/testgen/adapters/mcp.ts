@@ -6,8 +6,8 @@ export function createTestgenServer(emit?: Emitter) {
   const server = createV2Server({ name: 'testgen', version: '0.1.0' }, { capabilities: { tools: {} } });
   const tools = describeOperations().operations.map((tool) => parseV2ToolDefinition({
     ...tool,
-    inputSchema: { ...tool.inputSchema, type: 'object' as const },
-    outputSchema: { ...tool.outputSchema, type: 'object' as const },
+    inputSchema: { ...tool.inputSchema, type: 'object' },
+    outputSchema: { ...tool.outputSchema, type: 'object' },
   }));
 
   server.setRequestHandler('tools/list', () => ({ tools }));
