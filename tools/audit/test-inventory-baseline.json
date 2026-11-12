@@ -7,8 +7,8 @@
     "testFiles": 1419,
     "parsedFiles": 1374,
     "shellFiles": 45,
-    "cases": 15655,
-    "dynamicTitles": 188,
+    "cases": 15659,
+    "dynamicTitles": 190,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -9009,6 +9009,11 @@
         },
         {
           "suite": "the read-only audit of the guard input",
+          "name": "AuditGuardInputs_AStreamListingThatThrows_IsRefusedAsUnreadable",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
           "name": "AuditGuardInputs_ADocumentOffTheLedger_CountsAsNotOnLedger",
           "dynamic": false
         },
@@ -10615,6 +10620,11 @@
         },
         {
           "suite": "the guard-input shadow on the transition path",
+          "name": "HandleSet_AnHonestTransitionWithHandlerOptions_GivesNoWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
           "name": "HandleSet_ADisagreeingCall_AddsTheRowsOfItsAgreeingTwin",
           "dynamic": false
         },
@@ -10645,6 +10655,11 @@
         },
         {
           "suite": "the guard-input shadow on the transition path",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
           "name": "HandleSet_ACustomType_GetsNoComparison",
           "dynamic": false
         },
@@ -10652,6 +10667,11 @@
           "suite": "the guard-input shadow on the transition path",
           "name": "HandleSet_%s_CarriesTheWarningOnItsExit",
           "dynamic": false
+        },
+        {
+          "suite": "the guard-input shadow on the transition path",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
         },
         {
           "suite": "the guard-input shadow on the transition path",

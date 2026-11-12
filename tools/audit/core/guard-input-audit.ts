@@ -3,13 +3,13 @@
  *
  * The audit folds each stream of the copy and compares each state document with the ledger fold of its stream.
  * It reports the count of each kind of document and of each class of disagreement, and a strict `clean` verdict.
- * The audit appends no event row and writes no state row. The open of a store writes its schema rows, so the audit refuses a live state directory.
+ * The audit appends no event row and writes no state row. The open of a store writes its schema rows, so the audit refuses a live state directory and a link to its store file.
  * It runs under Bun, because the SQLite backend imports `bun:sqlite`.
  *
  * Usage: `bun tools/audit/core/guard-input-audit.ts --store <dir> [--out <file>]`.
  * Exit 0 means that the audit ran, not that the store is clean. Exit 2 is a refusal, and stderr names its code.
  */
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync, statSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -401,22 +401,55 @@ function realPathOf(target: string): string | undefined {
   }
 }
 
+/** The device and the inode of a file. Two paths with an equal identity name one file. */
+interface FileIdentity {
+  readonly dev: bigint;
+  readonly ino: bigint;
+}
+
 /**
- * Refuses a store directory that is a live state directory.
+ * Returns the device and the inode of a file, or `undefined` when the file does not exist.
+ * The stat follows each symlink, so a symlink and a hard link get the identity of their target. A missing file matches no other file.
+ */
+function fileIdentityOf(target: string): FileIdentity | undefined {
+  try {
+    const stats = statSync(target, { bigint: true });
+    return { dev: stats.dev, ino: stats.ino };
+  } catch {
+    return undefined;
+  }
+}
+
+/** Returns true when two identities name one file. A missing file on either side gives false. */
+function isSameFile(left: FileIdentity | undefined, right: FileIdentity | undefined): boolean {
+  return left !== undefined && right !== undefined && left.dev === right.dev && left.ino === right.ino;
+}
+
+/**
+ * Refuses a store directory that is a live state directory, or whose store file is the store file of a live state directory.
  * The live directories are the state directory of the inputs, `<home>/.claude/workflow-state` and `<home>/.exarchos/state`.
+ * The directory rule compares real paths. The file rule compares the device and the inode, so it refuses a symlinked or a hard-linked store file.
  */
 function refuseLiveStore(store: string, inputs: StorePathResolutionInputs): void {
-  const target = realPathOf(store);
-  if (target === undefined) return;
   const home = inputs.homedir ?? os.homedir();
   const liveDirs = [
     resolveStateDir(inputs),
     path.join(home, '.claude', 'workflow-state'),
     path.join(home, '.exarchos', 'state'),
   ];
-  const live = liveDirs.find((dir) => realPathOf(dir) === target);
+  const target = realPathOf(store);
+  const live = target === undefined ? undefined : liveDirs.find((dir) => realPathOf(dir) === target);
   if (live !== undefined) {
     throw new GuardAuditError('GUARD_AUDIT_LIVE_STORE', `${store} is the live state directory ${live}. Audit a copy.`);
+  }
+  const storeFile = path.join(store, STORE_DB_FILENAME);
+  const storeIdentity = fileIdentityOf(storeFile);
+  const linked = liveDirs.find((dir) => isSameFile(storeIdentity, fileIdentityOf(path.join(dir, STORE_DB_FILENAME))));
+  if (linked !== undefined) {
+    throw new GuardAuditError(
+      'GUARD_AUDIT_LIVE_STORE',
+      `${storeFile} is the store file of the live state directory ${linked}, through a link. Audit a copy.`,
+    );
   }
 }
 

@@ -63,6 +63,18 @@ const SHADOW_FAILED = 'GUARD_INPUT_SHADOW_FAILED: ';
 /** The most bytes of a diagnostics file. */
 const FILE_MAX_BYTES = 1024 * 1024;
 
+/**
+ * The handler options that the composite passes on a transition.
+ * The default project config gives the plan-revision cap and the three mutation options. A project config adds the required reviews.
+ */
+const COMPOSITE_OPTIONS: NonNullable<Parameters<typeof handleSet>[3]> = {
+  requiredReviews: ['review', 'mutation-adequacy'],
+  maxPlanRevisions: 1,
+  mutationEnforcement: 'advisory',
+  mutationThreshold: 0.4,
+  maxNoCoverage: 0,
+};
+
 /** Each release of the current case, in the order of creation. The teardown runs them in reverse order. */
 const releases: (() => Promise<void> | void)[] = [];
 
@@ -320,6 +332,21 @@ describe('the guard-input shadow on the transition path', () => {
     const before = guardInputShadowCounts();
 
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
+
+    expect(result.success).toBe(true);
+    expect(phaseOf(result)).toBe('plan-review');
+    expect(result.warnings).toBeUndefined();
+    expect(countsSince(before)).toEqual({ compared: 1, disagreeing: 0, failed: 0 });
+    expect(existsSync(diagnosticsDirOf(store))).toBe(false);
+  });
+
+  /** The fold side gets the handler options of the call, so an honest transition with the options of the composite agrees. */
+  it('HandleSet_AnHonestTransitionWithHandlerOptions_GivesNoWarning', async () => {
+    const store = await openStore();
+    await seedHonestPlan(store);
+    const before = guardInputShadowCounts();
+
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore, COMPOSITE_OPTIONS);
 
     expect(result.success).toBe(true);
     expect(phaseOf(result)).toBe('plan-review');

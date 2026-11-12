@@ -7,7 +7,7 @@
  * @oracle-sources: ../../../tools/audit/core/guard-input-audit.ts, the seeded stores and expected counts written in this file
  */
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, linkSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
@@ -269,6 +269,11 @@ function codeOf(outcome: GuardAuditOutcome): string | undefined {
   return outcome.exitCode === 2 ? outcome.code : undefined;
 }
 
+/** Returns the refusal message of a run, or `undefined` for a run that completed. */
+function messageOfRefusal(outcome: GuardAuditOutcome): string | undefined {
+  return outcome.exitCode === 2 ? outcome.message : undefined;
+}
+
 /** Returns the sha256 of a file. */
 function sha256Of(file: string): string {
   return createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -286,6 +291,41 @@ async function seededStoreFile(): Promise<string> {
 function copyStoreInto(storeFile: string, dir: string): string {
   mkdirSync(dir, { recursive: true });
   copyFileSync(storeFile, path.join(dir, STORE_FILE));
+  return dir;
+}
+
+/** The temporary directory and the temporary home of a live-store case. */
+interface LiveDirs {
+  readonly tmp: string;
+  readonly home: string;
+}
+
+/** The text of the refusal of a live state directory. */
+const DIRECTORY_RULE = 'is the live state directory';
+
+/** The text of the refusal of a store file that is a link to the store file of a live state directory. */
+const FILE_RULE = 'is the store file of the live state directory';
+
+/** Makes a symlink to the live directory under the temporary directory, and returns the symlink. */
+function symlinkedDirectory(dirs: LiveDirs, liveDir: string): string {
+  const link = path.join(dirs.tmp, 'linked-dir');
+  symlinkSync(liveDir, link, process.platform === 'win32' ? 'junction' : 'dir');
+  return link;
+}
+
+/** Makes a directory under the temporary directory whose store file is a symlink to the live store file, and returns the directory. */
+function symlinkedDatabaseFile(dirs: LiveDirs, liveDir: string): string {
+  const dir = path.join(dirs.tmp, 'linked-file');
+  mkdirSync(dir, { recursive: true });
+  symlinkSync(path.join(liveDir, STORE_FILE), path.join(dir, STORE_FILE), 'file');
+  return dir;
+}
+
+/** Makes a directory under the temporary directory whose store file is a hard link to the live store file, and returns the directory. */
+function hardLinkedDatabaseFile(dirs: LiveDirs, liveDir: string): string {
+  const dir = path.join(dirs.tmp, 'hard-linked-file');
+  mkdirSync(dir, { recursive: true });
+  linkSync(path.join(liveDir, STORE_FILE), path.join(dir, STORE_FILE));
   return dir;
 }
 
@@ -347,6 +387,21 @@ describe('the read-only audit of the guard input', () => {
         throw new Error('a state row does not parse');
       },
       listStreams: () => store.backend.listStreams(),
+      queryEvents: (id) => store.backend.queryEvents(id),
+    };
+
+    await expect(auditGuardInputs(reader)).rejects.toMatchObject({ code: 'GUARD_AUDIT_UNREADABLE' });
+  });
+
+  /** A stream listing that throws refuses the whole audit as unreadable, as a state listing does. */
+  it('AuditGuardInputs_AStreamListingThatThrows_IsRefusedAsUnreadable', async () => {
+    const store = await openStore();
+    await seedActive(store, 'agree-active');
+    const reader: GuardAuditReader = {
+      listStates: () => store.backend.listStates(),
+      listStreams: () => {
+        throw new Error('the stream listing fails');
+      },
       queryEvents: (id) => store.backend.queryEvents(id),
     };
 
@@ -547,29 +602,41 @@ describe('the read-only audit of the guard input', () => {
     expect(existsSync(path.join(dir, 'report.json'))).toBe(false);
   });
 
-  /** Each live state directory refuses before the open, so its store file keeps its bytes and gets no journal file. */
-  it.each<[string, (dirs: { readonly tmp: string; readonly home: string }) => string]>([
-    ['TheStateDirOfTheInputs', (dirs) => path.join(dirs.tmp, 'live-env')],
-    ['TheClaudeHomePath', (dirs) => path.join(dirs.home, '.claude', 'workflow-state')],
-    ['TheExarchosHomePath', (dirs) => path.join(dirs.home, '.exarchos', 'state')],
-  ])('RunGuardInputAudit_ALiveStore_%s_IsRefusedAndKeepsItsBytes', async (_name, live) => {
+  /**
+   * Each live state directory, and each link to its store file, refuses before the open.
+   * So the live store file keeps its bytes, and no journal file appears beside it or beside the link.
+   * A row gives the live directory, the store directory of the call, and the text of the rule that refuses it.
+   * Each link lives under the temporary directories of the case and points at the copy in the temporary home.
+   */
+  it.each<[string, (dirs: LiveDirs) => string, (dirs: LiveDirs, liveDir: string) => string, string]>([
+    ['TheStateDirOfTheInputs', (dirs) => path.join(dirs.tmp, 'live-env'), (_dirs, liveDir) => liveDir, DIRECTORY_RULE],
+    ['TheClaudeHomePath', (dirs) => path.join(dirs.home, '.claude', 'workflow-state'), (_dirs, liveDir) => liveDir, DIRECTORY_RULE],
+    ['TheExarchosHomePath', (dirs) => path.join(dirs.home, '.exarchos', 'state'), (_dirs, liveDir) => liveDir, DIRECTORY_RULE],
+    ['ASymlinkedDirectory', (dirs) => path.join(dirs.home, '.claude', 'workflow-state'), symlinkedDirectory, DIRECTORY_RULE],
+    ['ASymlinkedDatabaseFile', (dirs) => path.join(dirs.home, '.claude', 'workflow-state'), symlinkedDatabaseFile, FILE_RULE],
+    ['AHardLinkedDatabaseFile', (dirs) => path.join(dirs.home, '.exarchos', 'state'), hardLinkedDatabaseFile, FILE_RULE],
+  ])('RunGuardInputAudit_ALiveStore_%s_IsRefusedAndKeepsItsBytes', async (_name, live, storeOf, rule) => {
     const storeFile = await seededStoreFile();
     const tmp = tempDir('guard-audit-live-');
     const home = tempDir('guard-audit-home-');
     const liveDir = copyStoreInto(storeFile, live({ tmp, home }));
     const liveFile = path.join(liveDir, STORE_FILE);
     const bytesBefore = sha256Of(liveFile);
+    const storeDir = storeOf({ tmp, home }, liveDir);
 
-    const outcome = await runGuardInputAudit(['--store', liveDir], {
+    const outcome = await runGuardInputAudit(['--store', storeDir], {
       homedir: home,
       env: { WORKFLOW_STATE_DIR: path.join(tmp, 'live-env') },
     });
 
     expect(codeOf(outcome)).toBe('GUARD_AUDIT_LIVE_STORE');
     expect(outcome.exitCode).toBe(2);
+    expect(messageOfRefusal(outcome)).toContain(rule);
     expect(sha256Of(liveFile)).toBe(bytesBefore);
-    expect(existsSync(`${liveFile}-wal`)).toBe(false);
-    expect(existsSync(`${liveFile}-shm`)).toBe(false);
+    for (const dir of [liveDir, storeDir]) {
+      expect(existsSync(path.join(dir, `${STORE_FILE}-wal`))).toBe(false);
+      expect(existsSync(path.join(dir, `${STORE_FILE}-shm`))).toBe(false);
+    }
   });
 
   /** A store with no document and no stream gives no verdict, so the audit refuses it. */
