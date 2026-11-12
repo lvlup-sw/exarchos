@@ -5,15 +5,16 @@
  * approval whose presence requires every planned task to be complete. The capsule pins that condition as its
  * completion predicate. So a capsule never claims a completion that the exit of its step does not need.
  *
- * A presence requires the condition when it equals the condition. An `all` node with an operand that requires
- * the condition also requires it. An `any` node or a `not` node never requires it, and a route never makes a task batch.
+ * A presence requires the condition when its conjuncts hold every conjunct of the condition. The conjuncts of a node are
+ * the node itself, or for an `all` node the conjuncts of each operand. An `any` node or a `not` node adds only itself, so
+ * a clause under it never counts. A route never makes a task batch.
  */
 
 import {
   FACT_DECLARATION,
   TASKS_COMPLETE_CONDITION,
 } from '../../workflow/admission/built-in-workflow-ir.js';
-import { serializeEdgeCondition, tryCompileEdgeCondition } from '../../workflow/admission/edge-condition.js';
+import { type EdgeConditionNode, tryCompileEdgeCondition } from '../../workflow/admission/edge-condition.js';
 import type { ExarchosDefinition } from '../../workflow/definitions/extension.js';
 
 /** The kernel kind of a step that the locator can classify as a task batch. */
@@ -22,8 +23,8 @@ const SKILL_KIND = 'skill';
 /** The step type of a step that implements the tasks of a plan. */
 const IMPLEMENT_STEP_TYPE = 'IMPLEMENT';
 
-/** The canonical JSON of the condition that every planned task is complete. */
-const TASKS_COMPLETE_TEXT = serializeEdgeCondition(TASKS_COMPLETE_CONDITION);
+/** The canonical JSON of each conjunct of the condition that every planned task is complete. */
+const TASKS_COMPLETE_CONJUNCTS: readonly string[] = conjunctsOf(TASKS_COMPLETE_CONDITION.node);
 
 /** The kind of a step that prepare compiles. */
 export type StepKind = 'task-batch';
@@ -46,16 +47,23 @@ export type StepLocation =
   | { readonly ok: false; readonly rule: StepFindingRule; readonly compilable: readonly string[] };
 
 /**
+ * The canonical JSON of each conjunct of a compiled node. An `all` node gives the conjuncts of each operand. Every other
+ * node, `any` and `not` included, gives its own JSON. The JSON is the text that `serializeEdgeCondition` writes for a node.
+ */
+function conjunctsOf(node: EdgeConditionNode): string[] {
+  return node.kind === 'all' ? node.operands.flatMap(conjunctsOf) : [JSON.stringify(node)];
+}
+
+/**
  * True when the condition requires every planned task to be complete. The condition compiles against the shared fact
- * vocabulary, and it requires the task condition when it serializes as that condition. An `all` node also requires it
- * when an operand requires it. A condition that does not compile never requires it.
+ * vocabulary, and its conjuncts hold every conjunct of the task condition. The clauses can sit in one flat `all` node
+ * beside other clauses, or in nested `all` nodes. A condition that does not compile never requires it.
  */
 function requiresTasksComplete(node: unknown): boolean {
   const compiled = tryCompileEdgeCondition(node, FACT_DECLARATION);
   if (!compiled.ok) return false;
-  if (serializeEdgeCondition(compiled.condition) === TASKS_COMPLETE_TEXT) return true;
-  const condition = compiled.condition.node;
-  return condition.kind === 'all' && condition.operands.some(requiresTasksComplete);
+  const conjuncts = new Set(conjunctsOf(compiled.condition.node));
+  return TASKS_COMPLETE_CONJUNCTS.every((conjunct) => conjuncts.has(conjunct));
 }
 
 /** True when an exit of the step has a gate or an approval whose presence requires every planned task to be complete. */

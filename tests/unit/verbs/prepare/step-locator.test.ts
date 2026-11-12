@@ -208,6 +208,50 @@ describe('the step locator', () => {
     expect(compilableSteps(definition)).toStrictEqual(['build']);
   });
 
+  /** The two task clauses in one flat `all` node beside another fact require every task, so the step is a task batch. */
+  it('StepLocator_AnExitThatNeedsTasksInAFlatConjunction_IsATaskBatch', () => {
+    const [count, allComplete] = listAt(tasksComplete().operands, 'operands');
+    const definition = withBuildPresence({
+      kind: 'all',
+      operands: [count, { kind: 'factEquals', field: 'reviews.allPassed', value: true }, allComplete],
+    });
+
+    expect(locateStep(definition, 'build')).toStrictEqual({ ok: true, step: { stepId: 'build', kind: 'task-batch' } });
+  });
+
+  /** The two task clauses split across nested `all` nodes still require every task, so the step is a task batch. */
+  it('StepLocator_AnExitThatSplitsTheTaskClausesAcrossNestedAll_IsATaskBatch', () => {
+    const [count, allComplete] = listAt(tasksComplete().operands, 'operands');
+    const definition = withBuildPresence({
+      kind: 'all',
+      operands: [count, { kind: 'all', operands: [{ kind: 'factEquals', field: 'reviews.allPassed', value: true }, allComplete] }],
+    });
+
+    expect(locateStep(definition, 'build')).toStrictEqual({ ok: true, step: { stepId: 'build', kind: 'task-batch' } });
+  });
+
+  /** One task clause in a flat `all` node and the other under an `any` node do not require every task. */
+  it('StepLocator_AFlatConjunctionWithOneTaskClauseUnderAny_IsSingleAgent', () => {
+    const [count, allComplete] = listAt(tasksComplete().operands, 'operands');
+    const definition = withBuildPresence({
+      kind: 'all',
+      operands: [count, { kind: 'any', operands: [allComplete, { kind: 'factEquals', field: 'reviews.allPassed', value: true }] }],
+    });
+
+    expect(locateStep(definition, 'build')).toStrictEqual({ ok: false, rule: 'single-agent-step', compilable: [] });
+  });
+
+  /** A flat `all` node with only one of the two task clauses does not require every task. */
+  it('StepLocator_AFlatConjunctionWithOneTaskClause_IsSingleAgent', () => {
+    const [, allComplete] = listAt(tasksComplete().operands, 'operands');
+    const definition = withBuildPresence({
+      kind: 'all',
+      operands: [allComplete, { kind: 'factEquals', field: 'reviews.allPassed', value: true }],
+    });
+
+    expect(locateStep(definition, 'build')).toStrictEqual({ ok: false, rule: 'single-agent-step', compilable: [] });
+  });
+
   /** An approval whose presence requires every task makes a task batch, as a gate does. */
   it('StepLocator_AnApprovalThatNeedsTasks_IsATaskBatch', () => {
     const definition = withBuildObligation({

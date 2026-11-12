@@ -7,7 +7,7 @@
     "testFiles": 1419,
     "parsedFiles": 1374,
     "shellFiles": 45,
-    "cases": 15668,
+    "cases": 15672,
     "dynamicTitles": 195,
     "unparseableFiles": 0
   },
@@ -91118,6 +91118,26 @@
         {
           "suite": "the step locator",
           "name": "StepLocator_AnExitThatNeedsTasksInANestedAll_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatNeedsTasksInAFlatConjunction_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AnExitThatSplitsTheTaskClausesAcrossNestedAll_IsATaskBatch",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AFlatConjunctionWithOneTaskClauseUnderAny_IsSingleAgent",
+          "dynamic": false
+        },
+        {
+          "suite": "the step locator",
+          "name": "StepLocator_AFlatConjunctionWithOneTaskClause_IsSingleAgent",
           "dynamic": false
         },
         {

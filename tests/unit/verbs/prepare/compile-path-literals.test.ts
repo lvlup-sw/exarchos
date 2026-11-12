@@ -12,11 +12,12 @@
 import { describe, expect, it } from 'vitest';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import ts from 'typescript';
 
 /** The directory of the prepare verb. */
-const PREPARE_ROOT = path.resolve(import.meta.dirname, '../../../../src/verbs/prepare');
+const PREPARE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../../src/verbs/prepare');
 
 /** The fewest modules that the scan reads. A walk that finds fewer is broken. */
 const MIN_SCANNED_MODULES = 15;
