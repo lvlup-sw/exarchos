@@ -775,6 +775,13 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
     rule(
       'filesystem',
+      'projections/guard-input/',
+      'guard-input-diagnostics-fs',
+      'append-only diagnostics, best effort',
+      'none: no reader decides on the file',
+    ),
+    rule(
+      'filesystem',
       'projections/views/',
       'view-fs',
       'read-only derived views; idempotent',

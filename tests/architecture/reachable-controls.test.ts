@@ -79,6 +79,8 @@ interface DefaultContext {
 
 interface ShippedDefaultTwinsPolicy {
   readonly scannedRoots: readonly string[];
+  /** The roots of test helpers. The scan reads each tracked `.ts` file under them, not only the `.test.ts` files. */
+  readonly scannedHelperRoots: readonly string[];
   readonly defaults: readonly ShippedDefault[];
   readonly contexts: readonly DefaultContext[];
   readonly minimumScannedFiles: number;
@@ -321,13 +323,22 @@ function commentlessSource(relativePath: string): string | undefined {
   return lexModule(readFileSync(absolute, 'utf8'), path.basename(relativePath)).commentMaskedSource;
 }
 
-/** Each scanned test file, and the key of each context in it that turns a shipped default off. */
+/** True when a repo-relative path is under one of the roots. */
+function isUnderARoot(relative: string, roots: readonly string[]): boolean {
+  return roots.some((root) => relative.startsWith(`${root}/`));
+}
+
+/**
+ * Each scanned file, and the key of each context in it that turns a shipped default off. The scan
+ * reads the `.test.ts` files of the scanned roots and each `.ts` file of the helper roots.
+ */
 async function contextsThatTurnADefaultOff(): Promise<{ readonly scanned: number; readonly keys: readonly string[] }> {
-  const { scannedRoots, defaults } = POLICY.shippedDefaultTwins;
+  const { scannedRoots, scannedHelperRoots, defaults } = POLICY.shippedDefaultTwins;
   const files = await listTrackedFiles(REPO_ROOT, {
     extensions: ['.ts'],
     exclude: (relative) =>
-      !scannedRoots.some((root) => relative.startsWith(`${root}/`)) || !relative.endsWith('.test.ts'),
+      !(isUnderARoot(relative, scannedRoots) && relative.endsWith('.test.ts')) &&
+      !isUnderARoot(relative, scannedHelperRoots),
   });
   const keys: string[] = [];
   for (const file of files) {
@@ -401,11 +412,12 @@ function twinFaults(records: readonly DefaultContext[], found: readonly string[]
  */
 describe('shipped defaults kept by a twin', () => {
   /**
-   * The first assertions are denominators. An empty walk or a stale pattern finds no context, and
-   * then the last assertion is true for nothing.
+   * The first assertions are denominators. An empty walk, a stale pattern or no helper root finds
+   * too few contexts. Then the last assertion is true for nothing.
    */
   it('ShippedDefaultTwins_EachContextThatTurnsADefaultOff_HasATwinOrAReason', async () => {
     const policy = POLICY.shippedDefaultTwins;
+    expect(policy.scannedHelperRoots.length, 'the policy names no helper root').toBeGreaterThan(0);
     const { scanned, keys } = await contextsThatTurnADefaultOff();
     expect(scanned, 'the scan read too few test files, so the walk is broken').toBeGreaterThanOrEqual(
       policy.minimumScannedFiles,
@@ -426,11 +438,16 @@ describe('shipped defaults kept by a twin', () => {
   /**
    * The self-test. Without the record of a twin, or without the record of a reason, the checker
    * must report the context. A twin that names a case the file does not declare is a fault too.
+   * One drop is the record of a helper file, so the self-test proves that the scan reaches a helper root.
    */
   it('ShippedDefaultTwins_KillFixture_ARecordDroppedOrATwinMissing_IsReported', async () => {
     const policy = POLICY.shippedDefaultTwins;
     const { keys } = await contextsThatTurnADefaultOff();
     expect(policy.killFixture.drops.length).toBeGreaterThan(0);
+    expect(
+      policy.killFixture.drops.some((drop) => isUnderARoot(drop.file, policy.scannedHelperRoots)),
+      'no drop of the kill fixture is the record of a helper file',
+    ).toBe(true);
     for (const drop of policy.killFixture.drops) {
       const key = contextKey(drop.file, drop.default);
       expect(keys, `the scan does not find ${key}`).toContain(key);
@@ -442,5 +459,19 @@ describe('shipped defaults kept by a twin', () => {
       record.twin === undefined ? record : { ...record, twin: { ...record.twin, test: 'NoSuchCase_IsDeclared' } },
     );
     expect(twinFaults(missingTwin, keys).length).toBe(policy.contexts.filter((record) => record.twin !== undefined).length);
+  });
+
+  /**
+   * A helper builds the composition of each test that calls it. The scan reads each helper root and
+   * finds the suffix of the file form of the state document in the settled-feature walk.
+   */
+  it('ShippedDefaultTwins_TheHelperRoots_AreScanned', async () => {
+    const policy = POLICY.shippedDefaultTwins;
+    const { keys } = await contextsThatTurnADefaultOff();
+    expect(policy.scannedHelperRoots).toContain('tests/helpers/replay');
+    for (const root of policy.scannedHelperRoots) {
+      expect(keys.some((key) => key.startsWith(`${root}/`)), `the scan finds no context under ${root}`).toBe(true);
+    }
+    expect(keys).toContain(contextKey('tests/helpers/replay/settled-feature-walk.ts', 'state-document-file'));
   });
 });

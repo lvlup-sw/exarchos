@@ -275,6 +275,12 @@ export const STORE_DB_FILENAME = 'exarchos.db';
 export const RUN_BUNDLE_DIRNAME = 'run-bundles';
 
 /**
+ * Directory of the guard-input diagnostics files under the state directory. Each feature gets one append-only file.
+ * No reader decides on a file, and no state-directory listing reads the directory.
+ */
+export const GUARD_INPUT_DIAGNOSTICS_DIRNAME = 'guard-input-diagnostics';
+
+/**
  * Directory of evidence-artifact blobs under the state directory. A reference
  * carries no root. A blob read under the wrong root looks the same as a blob that
  * nobody wrote. The durable-evidence check must tell these cases apart, so one

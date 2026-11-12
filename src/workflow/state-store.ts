@@ -27,11 +27,11 @@ export {
   type ReservedFieldErrorData,
 };
 import { migrateState, CURRENT_VERSION, backupStateFile } from './migration.js';
-import { mapExternalToInternalType } from './events.js';
 import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
 import { workflowStateProjection, type WorkflowStateView } from '../projections/views/workflow-state-projection.js';
+import { toGuardEvents } from '../projections/guard-input/guard-events.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
 import { isPidAlive } from '../utils/process.js';
@@ -519,25 +519,15 @@ export async function listStateFiles(
 }
 
 /**
- * Query all events for a feature and map them to the internal format of the
- * guards and the `_events` view.
+ * Queries all events of a feature and maps them with `toGuardEvents` to the `_events` entries of the guards.
  *
- * `mapExternalToInternalType` maps each type, such as `workflow.transition` to
- * `transition`. The `e.data` fields go to the top level, and `metadata` keeps
- * `e.data` for backward compatibility. Callers handle a failure. `handleSet`
- * keeps its existing `_events`, and `reconcileFromEvents` logs a warning.
+ * Callers handle a failure. `handleSet` keeps its existing `_events`, and `reconcileFromEvents` logs a warning.
  */
 export async function hydrateEventsFromStore(
   featureId: string,
   eventStore: EventStore,
 ): Promise<readonly Record<string, unknown>[]> {
-  const storeEvents = await eventStore.query(featureId);
-  return storeEvents.map((e) => ({
-    type: mapExternalToInternalType(e.type),
-    timestamp: e.timestamp,
-    ...(e.data as Record<string, unknown> ?? {}),
-    metadata: e.data as Record<string, unknown> ?? {},
-  }));
+  return toGuardEvents(await eventStore.query(featureId));
 }
 
 /** How marking tasks complete on the state document came out. */
