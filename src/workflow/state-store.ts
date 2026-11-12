@@ -8,6 +8,7 @@
  */
 import { WorkflowStateSchema, ErrorCode } from './schemas.js';
 import { getInitialPhase } from './state-machine.js';
+import { resetCounter } from './checkpoint.js';
 import {
   StateStoreError,
   isPlainObject,
@@ -591,6 +592,62 @@ export async function markTasksCompleteInStateDocument(
     } catch (err) {
       if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
         return { kind: 'skipped', reason: 'no-document', missing: [...taskIds] };
+      }
+      lastError = err instanceof Error ? err.message : String(err);
+      if (err instanceof VersionConflictError && attempt < maxAttempts) continue;
+      return { kind: 'failed', attempts: attempt, error: lastError };
+    }
+  }
+  return { kind: 'failed', attempts: maxAttempts, error: lastError };
+}
+
+/** The phase that the stream reached, and the sequence of the last row that the level covers. */
+export interface PhaseLevel {
+  readonly phase: string;
+  readonly phaseAttemptId: string;
+  readonly eventSequence: number;
+}
+
+/** How a phase level of the state document came out. */
+export type PhaseLevelOutcome =
+  | { readonly kind: 'levelled' }
+  | { readonly kind: 'current' }
+  | { readonly kind: 'skipped'; readonly reason: 'no-document' }
+  | { readonly kind: 'failed'; readonly attempts: number; readonly error: string };
+
+/**
+ * Level the state document with a phase that the stream reached.
+ *
+ * The level writes four fields: the phase, the phase attempt id, the checkpoint reset and `_eventSequence`.
+ * A reconcile folds only the rows after `_eventSequence`, so the level sets it to the last row that the move covers.
+ * A document whose `_eventSequence` is at or past that row already holds the rows of the move, so the level writes nothing.
+ * The loop uses compare-and-swap on `_version` and retries a conflict. A missing document gives `skipped`,
+ * because a tracked workflow can have none. A corrupt document or a conflict past the retries gives `failed`.
+ */
+export async function levelPhaseInStateDocument(
+  stateFile: string,
+  level: PhaseLevel,
+  maxAttempts = 3,
+): Promise<PhaseLevelOutcome> {
+  let lastError = '';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const state = await readStateFile(stateFile);
+      const covered = state._eventSequence;
+      if (typeof covered === 'number' && covered >= level.eventSequence) return { kind: 'current' };
+      const levelled: WorkflowState = {
+        ...state,
+        phase: level.phase,
+        phaseAttemptId: level.phaseAttemptId,
+        _checkpoint: resetCounter(state._checkpoint, level.phase),
+        _eventSequence: level.eventSequence,
+        updatedAt: new Date().toISOString(),
+      };
+      await writeStateFile(stateFile, levelled, { expectedVersion: state._version ?? 1, skipValidation: true });
+      return { kind: 'levelled' };
+    } catch (err) {
+      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
+        return { kind: 'skipped', reason: 'no-document' };
       }
       lastError = err instanceof Error ? err.message : String(err);
       if (err instanceof VersionConflictError && attempt < maxAttempts) continue;

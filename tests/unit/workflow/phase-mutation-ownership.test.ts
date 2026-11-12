@@ -40,12 +40,14 @@ const DECIDE_PRIMITIVE = 'phaseMoveEvents';
 /**
  * The modules that can reference the decide primitive in shipped source.
  * `emit.ts` defines it. The transition, cancel and cleanup handlers each build the rows of their move with it.
+ * The settle commit builds the rows of its phase move with it too.
  */
 const DECIDE_PRIMITIVE_OWNERS: readonly string[] = Object.freeze([
   'workflow/decide/emit.ts',
   'workflow/handlers/set.ts',
   'workflow/cancel.ts',
   'workflow/cleanup.ts',
+  'verbs/settle/handler.ts',
 ]);
 
 /** Directories that are not shipped source (test/fixture/bench harnesses). */

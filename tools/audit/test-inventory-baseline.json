@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1443,
-    "parsedFiles": 1398,
+    "testFiles": 1445,
+    "parsedFiles": 1400,
     "shellFiles": 45,
-    "cases": 15876,
-    "dynamicTitles": 207,
+    "cases": 15906,
+    "dynamicTitles": 210,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -5337,6 +5337,32 @@
         {
           "suite": "settle runs the segments under the config of the checkout",
           "name": "SettleConfig_AGateThatTheCheckoutDisables_IsSkippedAndTheTraceNamesDisabledByConfig",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/settle-moves-the-phase.test.ts": {
+      "file": "tests/acceptance/settle-moves-the-phase.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a settle moves the phase of the stream",
+          "name": "SettleMovesThePhase_ThenTransition_IsIdempotentThroughDispatch",
+          "dynamic": false
+        },
+        {
+          "suite": "a settle moves the phase of the stream",
+          "name": "SettleMovesThePhase_ThenReconcile_KeepsThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "a settle moves the phase of the stream",
+          "name": "SettleMovesThePhase_TheFoldOfTheRows_EndsInReview",
+          "dynamic": false
+        },
+        {
+          "suite": "a settle moves the phase of the stream",
+          "name": "SettleMovesThePhase_AReplayWithNoPhaseMove_ThenTransition_Moves",
           "dynamic": false
         }
       ]
@@ -66089,6 +66115,142 @@
         {
           "suite": "settle — the custody of a discarded attempt",
           "name": "Settle_ARedoneAttempt_LeavesOnlyAnUnreferencedBlob",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-phase-move.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-phase-move.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_OneAdmittedEdge_AppendsThePhaseRowsBeforeTheRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_TheReceipt_NamesTheEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_TaskBatchSteps_EachGivesExactlyThreeRows ($workflowType $step)",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_AUserDefinition_MovesUnderItsPinnedDefinition",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_ASkipThatNamesNoStepOfThePin_StillMoves",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_TheDeclaredEmissions_CoverEachRowOfAMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_TwoAdmittedEdges_KeepsThePhase_AndListsTheEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_NoAdmittedEdge_KeepsThePhase_AndListsTheFalseFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_ANotPlainEdge_KeepsThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_ACompilerFiveCapsule_KeepsThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_CorrectiveOrHeldOutcome_MovesNoPhase ($name)",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_ADesignRevision_MovesNoPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_TheWorkflowLeftTheStep_MovesNoPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_AConfiguredSkipPhase_DoesNotDecide",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_AFoldThatThrows_CommitsTheVerdictWithNoPhaseMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle decides on the fold of its rows",
+          "name": "Settle_ALaggingDocument_DecidesOnTheFold ($name)",
+          "dynamic": false
+        },
+        {
+          "suite": "settle decides on the fold of its rows",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle decides on the fold of its rows",
+          "name": "Settle_AReEntryAfterAFixCycle_KeepsTheFrozenGates",
+          "dynamic": false
+        },
+        {
+          "suite": "settle replays the phase move of its claim",
+          "name": "Settle_AReplay_AppendsNoPhaseRow_AndReturnsThePersistedPhaseMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle replays the phase move of its claim",
+          "name": "Settle_AReplayOfAClaimWithNoPhaseMove_ReturnsNoPhaseMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_AMovedPhase_LevelsTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_ADocumentLevelFails_KeepsTheVerdictAndWarns",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_ACheckpointCounterAtTheThreshold_StillMoves",
+          "dynamic": false
+        },
+        {
+          "suite": "the summary of a settle receipt",
+          "name": "SettleSummary_KeepsThePhaseMoveWithoutItsEdges",
           "dynamic": false
         }
       ]

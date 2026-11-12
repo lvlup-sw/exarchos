@@ -72,6 +72,8 @@ interface SettlementSummaryCore {
     readonly nextDesignVersion: unknown;
     readonly deviationIds: unknown;
   };
+  /** What the commit did to the phase, without the list of edge verdicts. The caller decides the next call from it. */
+  readonly phaseMove?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -155,6 +157,13 @@ interface CappableReceipt {
     readonly nextDesignVersion?: unknown;
     readonly deviationIds?: unknown;
   };
+  readonly phaseMove?: unknown;
+}
+
+/** The phase move of a receipt without its list of edge verdicts, or undefined when the receipt holds no move. */
+function phaseMoveWithoutEdges(phaseMove: unknown): Readonly<Record<string, unknown>> | undefined {
+  if (typeof phaseMove !== 'object' || phaseMove === null || Array.isArray(phaseMove)) return undefined;
+  return Object.fromEntries(Object.entries(phaseMove).filter(([key]) => key !== 'edges'));
 }
 
 /** The list, or undefined for a value that is not an array. */
@@ -165,12 +174,13 @@ function listOrUndefined<T>(value: ReadonlyArray<T> | undefined): ReadonlyArray<
 /**
  * The core of a summary. A deviation keeps its id and its kind, and a decision keeps its id and
  * its decision. The statement, the affected tasks, the actor and the rationale stay in the
- * settlement bundle. A field that the receipt does not carry is absent.
+ * settlement bundle. A phase move keeps each field except its edge verdicts. A field that the receipt does not carry is absent.
  */
 function summaryCoreOf(receipt: CappableReceipt): SettlementSummaryCore {
   const pending = listOrUndefined(receipt.pendingDeviations);
   const decisions = listOrUndefined(receipt.decisions);
   const revision = receipt.designRevision;
+  const phaseMove = phaseMoveWithoutEdges(receipt.phaseMove);
   return {
     round: receipt.round,
     ...(pending !== undefined
@@ -198,6 +208,7 @@ function summaryCoreOf(receipt: CappableReceipt): SettlementSummaryCore {
           },
         }
       : {}),
+    ...(phaseMove !== undefined ? { phaseMove } : {}),
   };
 }
 

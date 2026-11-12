@@ -244,6 +244,11 @@ export interface SettlementOutcomeRule {
    * A receipt with a `designRevision` takes the call of `recompile-required` under each outcome.
    */
   readonly next: string;
+  /**
+   * Whether the commit of the batch can move the phase. Only an outcome that completes each required task can move it.
+   * Each other condition of the move still applies.
+   */
+  readonly movesPhase: boolean;
 }
 
 /**
@@ -252,16 +257,27 @@ export interface SettlementOutcomeRule {
  * Each finding class takes from here whether its batch still verifies.
  */
 export const SETTLEMENT_OUTCOME_RULES: Readonly<Record<SettlementOutcome, SettlementOutcomeRule>> = {
-  settled: { verifies: true, holds: false, next: 'none' },
-  rejected: { verifies: false, holds: false, next: 'settle the correction under a new batchId' },
-  'deviation-pending': { verifies: false, holds: true, next: 'settle the same batchId with `decisions` only' },
-  'recompile-required': { verifies: false, holds: false, next: 'prepare, then settle under the new capsule' },
+  settled: { verifies: true, holds: false, next: 'none', movesPhase: true },
+  rejected: { verifies: false, holds: false, next: 'settle the correction under a new batchId', movesPhase: false },
+  'deviation-pending': {
+    verifies: false,
+    holds: true,
+    next: 'settle the same batchId with `decisions` only',
+    movesPhase: false,
+  },
+  'recompile-required': {
+    verifies: false,
+    holds: false,
+    next: 'prepare, then settle under the new capsule',
+    movesPhase: false,
+  },
   'corrective-capsule': {
     verifies: true,
     holds: false,
     next: 'settle a new batchId on the same capsule with only the `unresolved` tasks',
+    movesPhase: false,
   },
-  'accepted-with-rationale': { verifies: true, holds: false, next: 'none' },
+  'accepted-with-rationale': { verifies: true, holds: false, next: 'none', movesPhase: true },
 };
 
 /** What a finding of one class does to its batch. */

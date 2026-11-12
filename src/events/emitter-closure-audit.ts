@@ -68,7 +68,8 @@ export interface UnverifiableActionEmission {
  * Most of these events use an append with a runtime `type:` value, so the site is in
  * `unresolved` without an event name. The settlement records `orchestrate.intent_executed`
  * and `execution.settled` commit through `decideOnce`, which is not an `.append(...)`
- * call. The scan does not see them.
+ * call. The phase rows of a settle move, `phase.entered` and `phase.exited`, commit the same way.
+ * The scan does not see them.
  *
  * SHRINK-ONLY. A row is stale when its append resolves, or when no edge declares the
  * event. Add a row only after you confirm that the parser cannot read the new append.
@@ -84,6 +85,8 @@ export const UNRESOLVED_ACTION_EVENT_ALLOWANCE: readonly string[] = Object.freez
   'onboard.executed',
   'onboard.requested',
   'orchestrate.intent_executed',
+  'phase.entered',
+  'phase.exited',
   'state.patched',
   'workflow.cancel',
   'workflow.checkpoint',

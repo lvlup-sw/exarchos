@@ -251,6 +251,8 @@ export const settleActions: readonly BuiltinToolAction[] = [
      *
      * The declaration names only the append of this action. The composed leaves append the gate
      * rows, the completion fact, and the segment operation records, and each leaf declares its own.
+     * A phase move gives at most the three rows of a plain edge, so the commit declares only those three.
+     * Their owner is `workflow`, because the transition action declares the same rows under that owner.
      */
     emissions: declared(
       {
@@ -289,6 +291,27 @@ export const settleActions: readonly BuiltinToolAction[] = [
           'one per decision round that accepts a deviation of a kind the capsule lists as ' +
           'material, in the same commit as the record that closes the batch, after the decisions ' +
           'and ahead of the record, whatever the outcome; none on any other round or on a replay',
+      },
+      {
+        event: 'workflow.transition',
+        condition: 'conditional',
+        owner: 'workflow',
+        role: 'primary',
+        description: 'one when exactly one plain edge out of the batch step admits, ahead of the record; none on a replay',
+      },
+      {
+        event: 'phase.exited',
+        condition: 'conditional',
+        owner: 'workflow',
+        role: 'primary',
+        description: 'one with each phase move of the commit, after its workflow.transition row',
+      },
+      {
+        event: 'phase.entered',
+        condition: 'conditional',
+        owner: 'workflow',
+        role: 'primary',
+        description: 'one with each phase move into a step with a kind; it freezes the gates of the target',
       },
     ),
   }),

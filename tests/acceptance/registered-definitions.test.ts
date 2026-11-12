@@ -115,7 +115,7 @@ const ReceiptView = z.object({ capsuleVersion: z.number().int(), capsule: Exarch
 type Receipt = z.infer<typeof ReceiptView>;
 
 /** The fields of a settle answer that the cases read. */
-const SettledView = z.object({ outcome: z.string(), acceptedTasks: z.array(z.string()) });
+const SettledView = z.object({ outcome: z.string(), acceptedTasks: z.array(z.string()), phaseMove: z.unknown().optional() });
 
 /** One `prepare` call for the stream at the checkout of the repository. */
 async function prepare(): Promise<CallResult> {
@@ -225,7 +225,7 @@ async function blobCount(): Promise<number> {
 describe('a registered definition goes from prepare to settle', () => {
   /**
    * The capsule names the task-batch step `build` of the file for each task. The batch settles, and each task gets one completion row.
-   * Settlement moves no phase, so the stream holds only its seeded transition row.
+   * The edge `build->verify` of the pinned file admits when each task is complete, so the commit moves the phase to `verify`.
    */
   it('RegisteredDefinitions_AUserDefinition_PreparesAndSettles', async () => {
     await commitDefinition(releaseCheckDefinition());
@@ -244,7 +244,11 @@ describe('a registered definition goes from prepare to settle', () => {
     expect(await completedTaskIds()).toStrictEqual([...TASK_IDS]);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
     expect(await rowsOf('workflow.prepared')).toHaveLength(1);
-    expect(await rowsOf('workflow.transition')).toStrictEqual([{ from: 'scope', to: 'build' }]);
+    expect(settled.phaseMove).toMatchObject({ kind: 'moved', from: 'build', to: 'verify', transitionId: 'build->verify' });
+    expect((await rowsOf('workflow.transition')).map((data) => [recordAt(data, 'row').from, recordAt(data, 'row').to])).toStrictEqual([
+      ['scope', 'build'],
+      ['build', 'verify'],
+    ]);
   }, CASE_TIMEOUT_MS);
 
   /**
@@ -274,7 +278,7 @@ describe('a registered definition goes from prepare to settle', () => {
 
   /**
    * A refactor workflow in `overhaul-delegate` compiles that step, and the capsule names `overhaul-review` as its non-goal.
-   * The batch settles, each task gets one completion row, and the phase stays.
+   * The batch settles, each task gets one completion row, and the commit moves the phase to `overhaul-review`.
    */
   it('RegisteredDefinitions_ARefactorOverhaulWave_PreparesAndSettles', async () => {
     await seed('refactor', 'overhaul-plan-review', 'overhaul-delegate');
@@ -293,7 +297,11 @@ describe('a registered definition goes from prepare to settle', () => {
     expect(settled.outcome).toBe('settled');
     expect(await completedTaskIds()).toStrictEqual([...TASK_IDS]);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
-    expect(await rowsOf('workflow.transition')).toStrictEqual([{ from: 'overhaul-plan-review', to: 'overhaul-delegate' }]);
+    expect(settled.phaseMove).toMatchObject({ kind: 'moved', from: 'overhaul-delegate', to: 'overhaul-review' });
+    expect((await rowsOf('workflow.transition')).map((data) => [recordAt(data, 'row').from, recordAt(data, 'row').to])).toStrictEqual([
+      ['overhaul-plan-review', 'overhaul-delegate'],
+      ['overhaul-delegate', 'overhaul-review'],
+    ]);
   }, CASE_TIMEOUT_MS);
 
   /**

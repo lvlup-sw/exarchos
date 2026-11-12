@@ -3639,6 +3639,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
      * The test names that set of events, so the property has a denominator.
      * An event with two routes to one meaning, such as `worktree.released`, has a declaration for each route.
      * `task.completed` is not in the set: `settle` runs `task_complete` as a leaf and does not declare the events of its leaves.
+     * `workflow.transition` has two declarers with the owner `workflow`: `transition`, and `settle` for its phase move.
      *
      * The declarers of one event must all name one owner, or each name a different owner with at most one `primary`.
      * `gate.executed` shows many declarers in one area. `state.patched` shows two areas, where `update` is the primary edge.
@@ -3659,6 +3660,7 @@ describe('Task 022 — registry schema batch (DR-1/DR-3/DR-8)', () => {
         'onboard.requested',
         'state.patched',
         'task.assigned',
+        'workflow.transition',
         'worktree.merge_executed',
         'worktree.released',
       ]);
