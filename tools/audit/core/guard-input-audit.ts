@@ -3,8 +3,11 @@
  *
  * The audit folds each stream of the copy and compares each state document with the ledger fold of its stream.
  * It reports the count of each kind of document and of each class of disagreement, and a strict `clean` verdict.
- * The audit appends no event row and writes no state row. The open of a store writes its schema rows, so the audit refuses a live state directory and a link to its store file.
  * It runs under Bun, because the SQLite backend imports `bun:sqlite`.
+ *
+ * The audit itself appends no event row and writes no state row. The open of a store writes its schema rows, so the audit refuses a live state directory and a link to its store file.
+ * The open also moves a copy from an older schema to the current one, and that step can add `migration.workflow_type_unknown` rows to the copy.
+ * The projection ignores those rows, and both sides of each comparison read them, so they change no count, class or verdict.
  *
  * Usage: `bun tools/audit/core/guard-input-audit.ts --store <dir> [--out <file>]`.
  * Exit 0 means that the audit ran, not that the store is clean. Exit 2 is a refusal, and stderr names its code.
