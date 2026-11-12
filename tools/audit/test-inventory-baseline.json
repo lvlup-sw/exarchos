@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1431,
-    "parsedFiles": 1386,
+    "testFiles": 1433,
+    "parsedFiles": 1388,
     "shellFiles": 45,
-    "cases": 15786,
+    "cases": 15803,
     "dynamicTitles": 202,
     "unparseableFiles": 0
   },
@@ -92016,6 +92016,103 @@
         {
           "suite": "the rows and results of the guarded handlers",
           "name": "TransitionRows_TheMask_ReplacesEachVolatileField",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/decide.structure.test.ts": {
+      "file": "tests/unit/workflow/decide/decide.structure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the imports of the decide modules",
+          "name": "DecideModules_ImportNoLegacyGuardModuleNoStateStoreAndNoDispatch",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/decide.test.ts": {
+      "file": "tests/unit/workflow/decide/decide.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_FrozenCorpus_DiffersFromLegacyOnlyOnTheSixAndOnlyToDeny",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_TheThreeEvidenceFixtures_Allow",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Settle_OneTwoAndZeroAdmittedEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Transition_CancelledFromInvestigate_DeniesWithoutEscalation",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Cancel_AdmitsFromEachNonFinalStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Cleanup_FalseMergeVerified_FallsToTheExplicitEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Transition_ToCompletedWithMergeVerified_AdmitsTheCleanupMove",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_AFinalSourceStep_GivesIdempotentOrNoEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_AnIndeterminateCondition_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_ADenial_NestsEachFalseFactInTheExpectedShape",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_AnUnknownSourcePhase_FollowsTheRuleOfEachRequestKind",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_ATargetEqualToTheSource_IsIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "ValidTargetsOf_EachStepOfEachBuiltIn_EqualsGetValidTransitions",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "CompileDecideDefinition_SkipPhases_EqualApplyPhaseSkipsOnEachBuiltIn",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "PinnedExtensionOf_AKernelOnlyDefinition_GivesNone",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "PinnedExtensionOf_ABuiltInDefinition_GivesItsExtension",
           "dynamic": false
         }
       ]
