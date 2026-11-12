@@ -186,6 +186,29 @@ describe('the step-generic compile path', () => {
   });
 
   /**
+   * A clone of the fixture has the self-loop `build->build`, and the batch is stamped `build`.
+   * The target of the self-loop is a step of the batch, so the one non-goal is the exit `verify`.
+   */
+  it('CompileSteps_ASelfLoopOnTheBatchStep_IsNoNonGoal', () => {
+    const document = structuredClone(releaseCheckDefinition());
+    listAt(document.transitions, 'transitions').push({
+      transitionId: 'build->build',
+      fromStepId: 'build',
+      toStepId: 'build',
+      isDefault: false,
+    });
+    const edges = recordAt(recordAt(document.exarchos, 'exarchos').edges, 'exarchos.edges');
+    edges['build->build'] = { category: 'route-condition', obligation: { kind: 'none' } };
+    const definition = checked(document);
+
+    const capsule = capsuleOf(compileDelegationCapsule(inputFor(lowerDefinition('release-check', definition), batchOf(PLAN, 'build'))));
+
+    expect(definition.transitions.map((transition) => transition.transitionId)).toContain('build->build');
+    expect(capsule.graph.tasks.map((task) => task.stepId)).toStrictEqual(['build', 'build']);
+    expect(capsule.intent.nonGoals).toStrictEqual([nonGoal('verify')]);
+  });
+
+  /**
    * The capsule of the fixture binds the authority of the fixture, with the catalog invariant appended.
    * So the capsule delegates the one decision of the fixture, `release-order`, and no built-in decision.
    */

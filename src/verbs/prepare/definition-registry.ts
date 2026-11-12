@@ -8,6 +8,7 @@
  * The registry reads that directory again on each call, so it holds no state across calls.
  *
  * The read follows no link. A link or a file in place of a directory refuses, and so does each read error.
+ * A file above the size bound or above the depth bound refuses.
  * Only an absent directory is absence. One finding refuses every user type of the checkout.
  * A built-in type reads no file and runs no git, so a bad file never blocks a built-in type.
  */
@@ -37,6 +38,9 @@ const DEFINITION_SUFFIX = '.json';
 
 /** The largest definition file that the read accepts, in bytes. */
 const MAX_DEFINITION_BYTES = 262144;
+
+/** The deepest nesting of arrays and objects that the read accepts in one parsed definition file. */
+const MAX_DEFINITION_DEPTH = 64;
 
 /** The number of finding lines that a refusal message lists. The message gives the count of the rest. */
 const MESSAGE_FINDING_LIMIT = 5;
@@ -144,6 +148,22 @@ function fileFinding(file: string, key: string): RegistryFinding {
 }
 
 /**
+ * True when the nesting of arrays and objects in a parsed JSON value is deeper than the bound.
+ * The value itself is level one when it is an array or an object. A scalar adds no level.
+ * The walk uses an explicit stack, not recursion, so a deep value cannot overflow the call stack.
+ */
+function deeperThan(value: unknown, bound: number): boolean {
+  const stack: { readonly value: unknown; readonly level: number }[] = [{ value, level: 1 }];
+  for (let next = stack.pop(); next !== undefined; next = stack.pop()) {
+    if (typeof next.value !== 'object' || next.value === null) continue;
+    if (next.level > bound) return true;
+    const children: readonly unknown[] = Object.values(next.value);
+    for (const child of children) stack.push({ value: child, level: next.level + 1 });
+  }
+  return false;
+}
+
+/**
  * The add path of every definition. A new type adds its entry. The same type with the same digest keeps the held entry.
  * The same type with another digest gives a `duplicate-name` finding. Its file is the new entry, and its path holds the held entry.
  */
@@ -204,7 +224,9 @@ async function directoryFinding(
 
 /**
  * Reads and checks one definition file. The entry must be a regular file of at most {@link MAX_DEFINITION_BYTES} bytes.
- * Its bytes must be JSON, and the document must pass the user rules on the one check path.
+ * Its bytes must be JSON, and the document must nest at most {@link MAX_DEFINITION_DEPTH} levels deep.
+ * The depth check runs before the user rules, because the schema parse of a deep document overflows the stack.
+ * Then the document must pass the user rules on the one check path.
  */
 async function readDefinitionFile(
   checkout: string,
@@ -228,6 +250,7 @@ async function readDefinitionFile(
   } catch {
     return { ok: false, findings: [{ file, rule: 'definition-json', path: [] }] };
   }
+  if (deeperThan(raw, MAX_DEFINITION_DEPTH)) return { ok: false, findings: [fileFinding(file, 'depth')] };
   const checked = checkUserDefinition(raw);
   if (checked.ok) return { ok: true, definition: checked.definition };
   return { ok: false, findings: checked.findings.map((finding) => ({ file, rule: finding.rule, path: finding.path })) };

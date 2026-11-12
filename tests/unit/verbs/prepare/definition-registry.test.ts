@@ -117,6 +117,28 @@ function editedFixture(): Record<string, unknown> {
   return document;
 }
 
+/**
+ * The fixture document with the presence of the approval of `verify->completed` inside a chain of `not` nodes.
+ * The document, `exarchos`, `edges`, the edge, the obligation and the outer presence node are six levels.
+ * Each `not` node below the outer node adds one level, so the document nests `6 + count` levels deep.
+ */
+function deepFixture(count: number): Record<string, unknown> {
+  const document = structuredClone(releaseCheckDefinition());
+  const edges = recordAt(recordAt(document.exarchos, 'exarchos').edges, 'exarchos.edges');
+  const obligation = recordAt(recordAt(edges['verify->completed'], 'verify->completed').obligation, 'obligation');
+  let presence: unknown = obligation.presence;
+  for (let index = 0; index < count; index += 1) presence = { kind: 'not', operand: presence };
+  obligation.presence = presence;
+  return document;
+}
+
+/** The levels of arrays and objects in a JSON value, counted by recursion. A scalar has no level. */
+function levelsOf(value: unknown): number {
+  if (typeof value !== 'object' || value === null) return 0;
+  const children: readonly unknown[] = Object.values(value);
+  return 1 + Math.max(0, ...children.map(levelsOf));
+}
+
 /** The checked definition of a raw document, or a throw when the user rules refuse it. */
 function checkedDefinition(document: unknown) {
   const checked = checkUserDefinition(document);
@@ -405,6 +427,44 @@ describe('the registry of workflow definitions', () => {
 
     expect(read.findings).toStrictEqual([{ file: '.exarchos/workflows/big.json', rule: 'definition-file', path: ['size'] }]);
     expect(read.entries.get(USER_TYPE)?.source).toStrictEqual({ kind: 'checkout', file: '.exarchos/workflows/fit.json' });
+  });
+
+  /**
+   * A file of 65 levels, far under the size bound, gives a `definition-file` finding with the one key `depth`.
+   * The refusal of the type names the file, the rule and the key.
+   */
+  it('ReadDefinitions_AFileDeeperThanTheBound_IsRefusedWithDepth', async () => {
+    const document = deepFixture(59);
+    const text = jsonOf(document);
+    expect(levelsOf(document)).toBe(65);
+    expect(text.length).toBeLessThan(BOUND);
+    const checkout = await checkoutWith({ 'deep.json': text });
+
+    const read = await readCheckoutDefinitions(checkout);
+
+    expect(read).toStrictEqual({
+      entries: new Map(),
+      findings: [{ file: '.exarchos/workflows/deep.json', rule: 'definition-file', path: ['depth'] }],
+    });
+    const refusal = refusalOf(
+      await resolveDefinition({ streamId: STREAM, workflowType: USER_TYPE, locateCheckout: locateAt(checkout), configWorkflowTypes: [] }),
+    );
+    expect(refusal.code).toBe('WORKFLOW_TYPE_UNSUPPORTED');
+    expect(refusal.message).toContain('(finding: definition-invalid)');
+    expect(refusal.message.split('\n').slice(1)).toStrictEqual(['.exarchos/workflows/deep.json definition-file depth']);
+  });
+
+  /** A file of exactly 64 levels, with a condition that the user rules accept at that depth, registers. */
+  it('ReadDefinitions_AFileAtTheBound_IsRead', async () => {
+    const document = deepFixture(58);
+    expect(levelsOf(document)).toBe(64);
+    const checkout = await checkoutWith({ 'deep.json': jsonOf(document) });
+
+    const read = await readCheckoutDefinitions(checkout);
+
+    expect(read.findings).toStrictEqual([]);
+    expect(read.entries.get(USER_TYPE)?.source).toStrictEqual({ kind: 'checkout', file: '.exarchos/workflows/deep.json' });
+    expect(read.entries.get(USER_TYPE)?.digest).toBe(contentDigest(checkedDefinition(document)));
   });
 
   /**

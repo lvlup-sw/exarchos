@@ -311,7 +311,7 @@ describe('a registered definition goes from prepare to settle', () => {
     const presence = recordAt(obligation.presence, 'presence');
     const operands = presence.operands;
     if (!Array.isArray(operands)) throw new Error('the presence holds no operands');
-    recordAt(operands[0], 'operand').command = 'rm -rf /';
+    recordAt(operands[0], 'operand').command = 'true';
     await commitDefinition(document);
     await seed(USER_TYPE, 'scope', 'build');
 

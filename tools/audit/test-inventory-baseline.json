@@ -7,7 +7,7 @@
     "testFiles": 1419,
     "parsedFiles": 1374,
     "shellFiles": 45,
-    "cases": 15665,
+    "cases": 15668,
     "dynamicTitles": 195,
     "unparseableFiles": 0
   },
@@ -90986,6 +90986,16 @@
         },
         {
           "suite": "the registry of workflow definitions",
+          "name": "ReadDefinitions_AFileDeeperThanTheBound_IsRefusedWithDepth",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
+          "name": "ReadDefinitions_AFileAtTheBound_IsRead",
+          "dynamic": false
+        },
+        {
+          "suite": "the registry of workflow definitions",
           "name": "DefinitionRegistry_ALinkedFile_IsRefused",
           "dynamic": false
         },
@@ -91144,6 +91154,11 @@
         {
           "suite": "the step-generic compile path",
           "name": "CompileSteps_TwoStepsInOneBatch_NameTheStepsAfterEach",
+          "dynamic": false
+        },
+        {
+          "suite": "the step-generic compile path",
+          "name": "CompileSteps_ASelfLoopOnTheBatchStep_IsNoNonGoal",
           "dynamic": false
         },
         {
