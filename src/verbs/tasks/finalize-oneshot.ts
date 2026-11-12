@@ -25,6 +25,7 @@ export interface FinalizeOneshotArgs {
  * The handler loads `_events` from the event store, so the guard sees opt-in events that the state file does not hold yet.
  * When that load fails, it keeps the events on the state, because `handleSet` loads them again before the transition.
  * `handleSet` evaluates the transition guard again, so a change between the read and the transition cannot drive the wrong target.
+ * The success result keeps the warnings of the transition, so a guard-input warning reaches the caller.
  */
 export async function handleFinalizeOneshot(
   args: FinalizeOneshotArgs,
@@ -100,5 +101,6 @@ export async function handleFinalizeOneshot(
       previousPhase: 'implementing',
       newPhase: targetPhase,
     },
+    ...(setResult.warnings !== undefined && setResult.warnings.length > 0 ? { warnings: setResult.warnings } : {}),
   };
 }

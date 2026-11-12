@@ -1,0 +1,1778 @@
+[
+  {
+    "featureId": "guard-state-feature-plan",
+    "from": "plan",
+    "name": "feature plan -> plan-review",
+    "state": {
+      "_checkpoint": {
+        "fixCycleCount": 0,
+        "lastActivityTimestamp": "<timestamp>",
+        "operationsSince": 1,
+        "phase": "plan",
+        "staleAfterMinutes": 120,
+        "summary": "Workflow initialized",
+        "timestamp": "<timestamp>"
+      },
+      "_esVersion": 2,
+      "_eventSequence": 2,
+      "_events": [
+        {
+          "featureId": "guard-state-feature-plan",
+          "metadata": {
+            "featureId": "guard-state-feature-plan",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "workflowType": "feature"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "type": "workflow.started",
+          "workflowType": "feature"
+        },
+        {
+          "featureId": "guard-state-feature-plan",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-plan",
+            "fields": [
+              "artifacts.plan"
+            ],
+            "patch": {
+              "artifacts.plan": "plans/plan.md"
+            }
+          },
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        }
+      ],
+      "_history": {},
+      "_pendingPhaseAttemptId": "<phase-attempt-id>",
+      "_requiredReviews": [
+        "review"
+      ],
+      "_version": 2,
+      "artifacts": {
+        "design": null,
+        "plan": "plans/plan.md",
+        "pr": null
+      },
+      "createdAt": "<timestamp>",
+      "explore": {},
+      "featureId": "guard-state-feature-plan",
+      "integration": null,
+      "phase": "plan",
+      "phaseAttemptId": "<phase-attempt-id>",
+      "reviews": {},
+      "synthesis": {
+        "integrationBranch": null,
+        "mergeOrder": [],
+        "mergedBranches": [],
+        "prFeedback": [],
+        "prUrl": null
+      },
+      "tasks": [],
+      "updatedAt": "<timestamp>",
+      "version": "1.1",
+      "workflowType": "feature",
+      "worktrees": {}
+    },
+    "to": "plan-review",
+    "workflowType": "feature"
+  },
+  {
+    "featureId": "guard-state-feature-plan-review",
+    "from": "plan-review",
+    "name": "feature plan-review -> delegate",
+    "state": {
+      "_checkpoint": {
+        "fixCycleCount": 0,
+        "lastActivityTimestamp": "<timestamp>",
+        "operationsSince": 2,
+        "phase": "plan-review",
+        "staleAfterMinutes": 120,
+        "summary": "Phase transition to plan-review",
+        "timestamp": "<timestamp>"
+      },
+      "_esVersion": 2,
+      "_eventSequence": 6,
+      "_events": [
+        {
+          "featureId": "guard-state-feature-plan-review",
+          "metadata": {
+            "featureId": "guard-state-feature-plan-review",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "workflowType": "feature"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "type": "workflow.started",
+          "workflowType": "feature"
+        },
+        {
+          "featureId": "guard-state-feature-plan-review",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-plan-review",
+            "fields": [
+              "artifacts.plan"
+            ],
+            "patch": {
+              "artifacts.plan": "plans/plan.md"
+            }
+          },
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-plan-review",
+          "from": "plan",
+          "metadata": {
+            "featureId": "guard-state-feature-plan-review",
+            "from": "plan",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "plan-review",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "plan-review",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "plan"
+          },
+          "phase": "plan",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "PLAN",
+            "mode": "enforce",
+            "phase": "plan-review",
+            "policySource": "builtin",
+            "posture": "read-only",
+            "resolvedGates": [
+              {
+                "family": "plan",
+                "gate": "check_task_decomposition"
+              },
+              {
+                "family": "plan",
+                "gate": "check_plan_coverage"
+              },
+              {
+                "family": "plan",
+                "gate": "spec_coverage_check"
+              },
+              {
+                "family": "plan",
+                "gate": "check_provenance_chain"
+              },
+              {
+                "family": "plan",
+                "gate": "generate_traceability"
+              }
+            ],
+            "resolver": "plan-structure",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-plan-review",
+          "fields": [
+            "planReview"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-plan-review",
+            "fields": [
+              "planReview"
+            ],
+            "patch": {
+              "planReview": {
+                "approved": true
+              }
+            }
+          },
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        }
+      ],
+      "_history": {},
+      "_pendingPhaseAttemptId": "<phase-attempt-id>",
+      "_requiredReviews": [
+        "review"
+      ],
+      "_version": 4,
+      "artifacts": {
+        "design": null,
+        "plan": "plans/plan.md",
+        "pr": null
+      },
+      "createdAt": "<timestamp>",
+      "explore": {},
+      "featureId": "guard-state-feature-plan-review",
+      "integration": null,
+      "phase": "plan-review",
+      "phaseAttemptId": "<phase-attempt-id>",
+      "planReview": {
+        "approved": true
+      },
+      "reviews": {},
+      "synthesis": {
+        "integrationBranch": null,
+        "mergeOrder": [],
+        "mergedBranches": [],
+        "prFeedback": [],
+        "prUrl": null
+      },
+      "tasks": [],
+      "updatedAt": "<timestamp>",
+      "version": "1.1",
+      "workflowType": "feature",
+      "worktrees": {}
+    },
+    "to": "delegate",
+    "workflowType": "feature"
+  },
+  {
+    "featureId": "guard-state-feature-delegate",
+    "from": "delegate",
+    "name": "feature delegate -> review",
+    "state": {
+      "_checkpoint": {
+        "fixCycleCount": 0,
+        "lastActivityTimestamp": "<timestamp>",
+        "operationsSince": 3,
+        "phase": "delegate",
+        "staleAfterMinutes": 120,
+        "summary": "Phase transition to delegate",
+        "timestamp": "<timestamp>"
+      },
+      "_esVersion": 2,
+      "_eventSequence": 13,
+      "_events": [
+        {
+          "featureId": "guard-state-feature-delegate",
+          "metadata": {
+            "featureId": "guard-state-feature-delegate",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "workflowType": "feature"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "type": "workflow.started",
+          "workflowType": "feature"
+        },
+        {
+          "featureId": "guard-state-feature-delegate",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-delegate",
+            "fields": [
+              "artifacts.plan"
+            ],
+            "patch": {
+              "artifacts.plan": "plans/plan.md"
+            }
+          },
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-delegate",
+          "from": "plan",
+          "metadata": {
+            "featureId": "guard-state-feature-delegate",
+            "from": "plan",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "plan-review",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "plan-review",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "plan"
+          },
+          "phase": "plan",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "PLAN",
+            "mode": "enforce",
+            "phase": "plan-review",
+            "policySource": "builtin",
+            "posture": "read-only",
+            "resolvedGates": [
+              {
+                "family": "plan",
+                "gate": "check_task_decomposition"
+              },
+              {
+                "family": "plan",
+                "gate": "check_plan_coverage"
+              },
+              {
+                "family": "plan",
+                "gate": "spec_coverage_check"
+              },
+              {
+                "family": "plan",
+                "gate": "check_provenance_chain"
+              },
+              {
+                "family": "plan",
+                "gate": "generate_traceability"
+              }
+            ],
+            "resolver": "plan-structure",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-delegate",
+          "fields": [
+            "planReview"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-delegate",
+            "fields": [
+              "planReview"
+            ],
+            "patch": {
+              "planReview": {
+                "approved": true
+              }
+            }
+          },
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-delegate",
+          "from": "plan-review",
+          "metadata": {
+            "featureId": "guard-state-feature-delegate",
+            "from": "plan-review",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "delegate",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "delegate",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "compoundStateId": "implementation",
+          "featureId": "guard-state-feature-delegate",
+          "metadata": {
+            "compoundStateId": "implementation",
+            "featureId": "guard-state-feature-delegate"
+          },
+          "timestamp": "<timestamp>",
+          "type": "compound-entry"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "plan-review"
+          },
+          "phase": "plan-review",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "IMPLEMENT",
+            "mode": "enforce",
+            "phase": "delegate",
+            "policySource": "builtin",
+            "posture": "task-isolated",
+            "resolvedGates": [],
+            "resolver": "verification-ladder",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-delegate",
+          "fields": [
+            "tasks"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-delegate",
+            "fields": [
+              "tasks"
+            ],
+            "patch": {
+              "tasks": [
+                {
+                  "id": "t1",
+                  "status": "pending",
+                  "title": "the one task"
+                }
+              ]
+            }
+          },
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "pending",
+                "title": "the one task"
+              }
+            ]
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "metadata": {
+            "taskId": "t1"
+          },
+          "taskId": "t1",
+          "timestamp": "<timestamp>",
+          "type": "task.completed"
+        },
+        {
+          "featureId": "guard-state-feature-delegate",
+          "fields": [
+            "tasks"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-delegate",
+            "fields": [
+              "tasks"
+            ],
+            "patch": {
+              "tasks": [
+                {
+                  "id": "t1",
+                  "status": "complete",
+                  "title": "the one task"
+                }
+              ]
+            }
+          },
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "complete",
+                "title": "the one task"
+              }
+            ]
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        }
+      ],
+      "_history": {},
+      "_pendingPhaseAttemptId": "<phase-attempt-id>",
+      "_requiredReviews": [
+        "review"
+      ],
+      "_version": 7,
+      "artifacts": {
+        "design": null,
+        "plan": "plans/plan.md",
+        "pr": null
+      },
+      "createdAt": "<timestamp>",
+      "explore": {},
+      "featureId": "guard-state-feature-delegate",
+      "integration": null,
+      "phase": "delegate",
+      "phaseAttemptId": "<phase-attempt-id>",
+      "planReview": {
+        "approved": true
+      },
+      "reviews": {},
+      "synthesis": {
+        "integrationBranch": null,
+        "mergeOrder": [],
+        "mergedBranches": [],
+        "prFeedback": [],
+        "prUrl": null
+      },
+      "tasks": [
+        {
+          "id": "t1",
+          "status": "complete",
+          "title": "the one task"
+        }
+      ],
+      "updatedAt": "<timestamp>",
+      "version": "1.1",
+      "workflowType": "feature",
+      "worktrees": {}
+    },
+    "to": "review",
+    "workflowType": "feature"
+  },
+  {
+    "featureId": "guard-state-feature-review-high",
+    "from": "review",
+    "name": "feature review -> synthesize at the high tier",
+    "options": {
+      "maxNoCoverage": 2,
+      "mutationEnforcement": "block",
+      "mutationThreshold": 80
+    },
+    "state": {
+      "_checkpoint": {
+        "fixCycleCount": 0,
+        "lastActivityTimestamp": "<timestamp>",
+        "operationsSince": 2,
+        "phase": "review",
+        "staleAfterMinutes": 120,
+        "summary": "Phase transition to review",
+        "timestamp": "<timestamp>"
+      },
+      "_esVersion": 2,
+      "_eventSequence": 17,
+      "_events": [
+        {
+          "featureId": "guard-state-feature-review-high",
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "workflowType": "feature"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "type": "workflow.started",
+          "workflowType": "feature"
+        },
+        {
+          "featureId": "guard-state-feature-review-high",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "fields": [
+              "artifacts.plan"
+            ],
+            "patch": {
+              "artifacts.plan": "plans/plan.md"
+            }
+          },
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-review-high",
+          "from": "plan",
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "from": "plan",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "plan-review",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "plan-review",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "plan"
+          },
+          "phase": "plan",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "PLAN",
+            "mode": "enforce",
+            "phase": "plan-review",
+            "policySource": "builtin",
+            "posture": "read-only",
+            "resolvedGates": [
+              {
+                "family": "plan",
+                "gate": "check_task_decomposition"
+              },
+              {
+                "family": "plan",
+                "gate": "check_plan_coverage"
+              },
+              {
+                "family": "plan",
+                "gate": "spec_coverage_check"
+              },
+              {
+                "family": "plan",
+                "gate": "check_provenance_chain"
+              },
+              {
+                "family": "plan",
+                "gate": "generate_traceability"
+              }
+            ],
+            "resolver": "plan-structure",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-review-high",
+          "fields": [
+            "planReview"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "fields": [
+              "planReview"
+            ],
+            "patch": {
+              "planReview": {
+                "approved": true
+              }
+            }
+          },
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-review-high",
+          "from": "plan-review",
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "from": "plan-review",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "delegate",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "delegate",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "compoundStateId": "implementation",
+          "featureId": "guard-state-feature-review-high",
+          "metadata": {
+            "compoundStateId": "implementation",
+            "featureId": "guard-state-feature-review-high"
+          },
+          "timestamp": "<timestamp>",
+          "type": "compound-entry"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "plan-review"
+          },
+          "phase": "plan-review",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "IMPLEMENT",
+            "mode": "enforce",
+            "phase": "delegate",
+            "policySource": "builtin",
+            "posture": "task-isolated",
+            "resolvedGates": [],
+            "resolver": "verification-ladder",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-review-high",
+          "fields": [
+            "tasks"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "fields": [
+              "tasks"
+            ],
+            "patch": {
+              "tasks": [
+                {
+                  "id": "t1",
+                  "status": "pending",
+                  "title": "the one task"
+                }
+              ]
+            }
+          },
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "pending",
+                "title": "the one task"
+              }
+            ]
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "metadata": {
+            "taskId": "t1"
+          },
+          "taskId": "t1",
+          "timestamp": "<timestamp>",
+          "type": "task.completed"
+        },
+        {
+          "featureId": "guard-state-feature-review-high",
+          "fields": [
+            "tasks"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "fields": [
+              "tasks"
+            ],
+            "patch": {
+              "tasks": [
+                {
+                  "id": "t1",
+                  "status": "complete",
+                  "title": "the one task"
+                }
+              ]
+            }
+          },
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "complete",
+                "title": "the one task"
+              }
+            ]
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-review-high",
+          "from": "delegate",
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "from": "delegate",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "review",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "review",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "delegate"
+          },
+          "phase": "delegate",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "REVIEW",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "REVIEW",
+            "mode": "enforce",
+            "phase": "review",
+            "policySource": "builtin",
+            "posture": "read-only",
+            "resolvedGates": [
+              {
+                "family": "review",
+                "gate": "review"
+              }
+            ],
+            "resolver": "review-contract",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "review",
+              "gate": "review"
+            }
+          ],
+          "resolver": "review-contract",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-review-high",
+          "fields": [
+            "riskTier",
+            "reviews"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-high",
+            "fields": [
+              "riskTier",
+              "reviews"
+            ],
+            "patch": {
+              "reviews": {
+                "mutation-adequacy": {
+                  "mutationScore": 90,
+                  "noCoverage": 1,
+                  "status": "pass"
+                },
+                "review": {
+                  "status": "pass"
+                }
+              },
+              "riskTier": "high"
+            }
+          },
+          "patch": {
+            "reviews": {
+              "mutation-adequacy": {
+                "mutationScore": 90,
+                "noCoverage": 1,
+                "status": "pass"
+              },
+              "review": {
+                "status": "pass"
+              }
+            },
+            "riskTier": "high"
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        }
+      ],
+      "_history": {},
+      "_maxNoCoverage": 2,
+      "_mutationEnforcement": "block",
+      "_mutationThreshold": 80,
+      "_pendingPhaseAttemptId": "<phase-attempt-id>",
+      "_requiredReviews": [
+        "review",
+        "mutation-adequacy"
+      ],
+      "_version": 9,
+      "artifacts": {
+        "design": null,
+        "plan": "plans/plan.md",
+        "pr": null
+      },
+      "createdAt": "<timestamp>",
+      "explore": {},
+      "featureId": "guard-state-feature-review-high",
+      "integration": null,
+      "phase": "review",
+      "phaseAttemptId": "<phase-attempt-id>",
+      "planReview": {
+        "approved": true
+      },
+      "reviews": {
+        "mutation-adequacy": {
+          "mutationScore": 90,
+          "noCoverage": 1,
+          "status": "pass"
+        },
+        "review": {
+          "status": "pass"
+        }
+      },
+      "riskTier": "high",
+      "synthesis": {
+        "integrationBranch": null,
+        "mergeOrder": [],
+        "mergedBranches": [],
+        "prFeedback": [],
+        "prUrl": null
+      },
+      "tasks": [
+        {
+          "id": "t1",
+          "status": "complete",
+          "title": "the one task"
+        }
+      ],
+      "updatedAt": "<timestamp>",
+      "version": "1.1",
+      "workflowType": "feature",
+      "worktrees": {}
+    },
+    "to": "synthesize",
+    "workflowType": "feature"
+  },
+  {
+    "featureId": "guard-state-feature-review-medium",
+    "from": "review",
+    "name": "feature review -> synthesize at the medium tier",
+    "options": {
+      "maxNoCoverage": 2,
+      "mutationEnforcement": "block",
+      "mutationThreshold": 80
+    },
+    "state": {
+      "_checkpoint": {
+        "fixCycleCount": 0,
+        "lastActivityTimestamp": "<timestamp>",
+        "operationsSince": 2,
+        "phase": "review",
+        "staleAfterMinutes": 120,
+        "summary": "Phase transition to review",
+        "timestamp": "<timestamp>"
+      },
+      "_esVersion": 2,
+      "_eventSequence": 17,
+      "_events": [
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "workflowType": "feature"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "type": "workflow.started",
+          "workflowType": "feature"
+        },
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "fields": [
+              "artifacts.plan"
+            ],
+            "patch": {
+              "artifacts.plan": "plans/plan.md"
+            }
+          },
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "from": "plan",
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "from": "plan",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "plan-review",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "plan-review",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "plan"
+          },
+          "phase": "plan",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "PLAN",
+            "mode": "enforce",
+            "phase": "plan-review",
+            "policySource": "builtin",
+            "posture": "read-only",
+            "resolvedGates": [
+              {
+                "family": "plan",
+                "gate": "check_task_decomposition"
+              },
+              {
+                "family": "plan",
+                "gate": "check_plan_coverage"
+              },
+              {
+                "family": "plan",
+                "gate": "spec_coverage_check"
+              },
+              {
+                "family": "plan",
+                "gate": "check_provenance_chain"
+              },
+              {
+                "family": "plan",
+                "gate": "generate_traceability"
+              }
+            ],
+            "resolver": "plan-structure",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "fields": [
+            "planReview"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "fields": [
+              "planReview"
+            ],
+            "patch": {
+              "planReview": {
+                "approved": true
+              }
+            }
+          },
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "from": "plan-review",
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "from": "plan-review",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "delegate",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "delegate",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "compoundStateId": "implementation",
+          "featureId": "guard-state-feature-review-medium",
+          "metadata": {
+            "compoundStateId": "implementation",
+            "featureId": "guard-state-feature-review-medium"
+          },
+          "timestamp": "<timestamp>",
+          "type": "compound-entry"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "plan-review"
+          },
+          "phase": "plan-review",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "IMPLEMENT",
+            "mode": "enforce",
+            "phase": "delegate",
+            "policySource": "builtin",
+            "posture": "task-isolated",
+            "resolvedGates": [],
+            "resolver": "verification-ladder",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "fields": [
+            "tasks"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "fields": [
+              "tasks"
+            ],
+            "patch": {
+              "tasks": [
+                {
+                  "id": "t1",
+                  "status": "pending",
+                  "title": "the one task"
+                }
+              ]
+            }
+          },
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "pending",
+                "title": "the one task"
+              }
+            ]
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "metadata": {
+            "taskId": "t1"
+          },
+          "taskId": "t1",
+          "timestamp": "<timestamp>",
+          "type": "task.completed"
+        },
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "fields": [
+            "tasks"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "fields": [
+              "tasks"
+            ],
+            "patch": {
+              "tasks": [
+                {
+                  "id": "t1",
+                  "status": "complete",
+                  "title": "the one task"
+                }
+              ]
+            }
+          },
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "complete",
+                "title": "the one task"
+              }
+            ]
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "from": "delegate",
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "from": "delegate",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "review",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "review",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "delegate"
+          },
+          "phase": "delegate",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "REVIEW",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "REVIEW",
+            "mode": "enforce",
+            "phase": "review",
+            "policySource": "builtin",
+            "posture": "read-only",
+            "resolvedGates": [
+              {
+                "family": "review",
+                "gate": "review"
+              }
+            ],
+            "resolver": "review-contract",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "review",
+              "gate": "review"
+            }
+          ],
+          "resolver": "review-contract",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-feature-review-medium",
+          "fields": [
+            "riskTier",
+            "reviews"
+          ],
+          "metadata": {
+            "featureId": "guard-state-feature-review-medium",
+            "fields": [
+              "riskTier",
+              "reviews"
+            ],
+            "patch": {
+              "reviews": {
+                "mutation-adequacy": {
+                  "mutationScore": 90,
+                  "noCoverage": 1,
+                  "status": "pass"
+                },
+                "review": {
+                  "status": "pass"
+                }
+              },
+              "riskTier": "medium"
+            }
+          },
+          "patch": {
+            "reviews": {
+              "mutation-adequacy": {
+                "mutationScore": 90,
+                "noCoverage": 1,
+                "status": "pass"
+              },
+              "review": {
+                "status": "pass"
+              }
+            },
+            "riskTier": "medium"
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        }
+      ],
+      "_history": {},
+      "_pendingPhaseAttemptId": "<phase-attempt-id>",
+      "_requiredReviews": [
+        "review"
+      ],
+      "_version": 9,
+      "artifacts": {
+        "design": null,
+        "plan": "plans/plan.md",
+        "pr": null
+      },
+      "createdAt": "<timestamp>",
+      "explore": {},
+      "featureId": "guard-state-feature-review-medium",
+      "integration": null,
+      "phase": "review",
+      "phaseAttemptId": "<phase-attempt-id>",
+      "planReview": {
+        "approved": true
+      },
+      "reviews": {
+        "mutation-adequacy": {
+          "mutationScore": 90,
+          "noCoverage": 1,
+          "status": "pass"
+        },
+        "review": {
+          "status": "pass"
+        }
+      },
+      "riskTier": "medium",
+      "synthesis": {
+        "integrationBranch": null,
+        "mergeOrder": [],
+        "mergedBranches": [],
+        "prFeedback": [],
+        "prUrl": null
+      },
+      "tasks": [
+        {
+          "id": "t1",
+          "status": "complete",
+          "title": "the one task"
+        }
+      ],
+      "updatedAt": "<timestamp>",
+      "version": "1.1",
+      "workflowType": "feature",
+      "worktrees": {}
+    },
+    "to": "synthesize",
+    "workflowType": "feature"
+  },
+  {
+    "featureId": "guard-state-oneshot-implementing",
+    "from": "implementing",
+    "name": "oneshot implementing -> synthesize",
+    "state": {
+      "_checkpoint": {
+        "fixCycleCount": 0,
+        "lastActivityTimestamp": "<timestamp>",
+        "operationsSince": 1,
+        "phase": "implementing",
+        "staleAfterMinutes": 120,
+        "summary": "Phase transition to implementing",
+        "timestamp": "<timestamp>"
+      },
+      "_esVersion": 2,
+      "_eventSequence": 5,
+      "_events": [
+        {
+          "featureId": "guard-state-oneshot-implementing",
+          "metadata": {
+            "featureId": "guard-state-oneshot-implementing",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "workflowType": "oneshot"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "type": "workflow.started",
+          "workflowType": "oneshot"
+        },
+        {
+          "featureId": "guard-state-oneshot-implementing",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "metadata": {
+            "featureId": "guard-state-oneshot-implementing",
+            "fields": [
+              "artifacts.plan"
+            ],
+            "patch": {
+              "artifacts.plan": "plans/plan.md"
+            }
+          },
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        },
+        {
+          "featureId": "guard-state-oneshot-implementing",
+          "from": "plan",
+          "metadata": {
+            "featureId": "guard-state-oneshot-implementing",
+            "from": "plan",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "to": "implementing",
+            "trigger": "execute-transition"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "to": "implementing",
+          "trigger": "execute-transition",
+          "type": "transition"
+        },
+        {
+          "allRequiredGatesPassed": true,
+          "metadata": {
+            "allRequiredGatesPassed": true,
+            "phase": "plan"
+          },
+          "phase": "plan",
+          "timestamp": "<timestamp>",
+          "type": "phase.exited"
+        },
+        {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "metadata": {
+            "boundaryTouching": true,
+            "kind": "IMPLEMENT",
+            "mode": "enforce",
+            "phase": "implementing",
+            "policySource": "builtin",
+            "posture": "task-isolated",
+            "resolvedGates": [],
+            "resolver": "verification-ladder",
+            "riskTier": "unknown"
+          },
+          "mode": "enforce",
+          "phase": "implementing",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown",
+          "timestamp": "<timestamp>",
+          "type": "phase.entered"
+        },
+        {
+          "featureId": "guard-state-oneshot-implementing",
+          "metadata": {
+            "featureId": "guard-state-oneshot-implementing",
+            "timestamp": "<timestamp>"
+          },
+          "timestamp": "<timestamp>",
+          "type": "synthesize.requested"
+        }
+      ],
+      "_history": {},
+      "_pendingPhaseAttemptId": "<phase-attempt-id>",
+      "_version": 3,
+      "artifacts": {
+        "design": null,
+        "plan": "plans/plan.md",
+        "pr": null
+      },
+      "createdAt": "<timestamp>",
+      "explore": {},
+      "featureId": "guard-state-oneshot-implementing",
+      "integration": null,
+      "phase": "implementing",
+      "phaseAttemptId": "<phase-attempt-id>",
+      "reviews": {},
+      "synthesis": {
+        "integrationBranch": null,
+        "mergeOrder": [],
+        "mergedBranches": [],
+        "prFeedback": [],
+        "prUrl": null
+      },
+      "tasks": [],
+      "updatedAt": "<timestamp>",
+      "version": "1.1",
+      "workflowType": "oneshot",
+      "worktrees": {}
+    },
+    "to": "synthesize",
+    "workflowType": "oneshot"
+  },
+  {
+    "featureId": "guard-state-debug-triage",
+    "from": "triage",
+    "name": "debug triage -> investigate",
+    "state": {
+      "_checkpoint": {
+        "fixCycleCount": 0,
+        "lastActivityTimestamp": "<timestamp>",
+        "operationsSince": 1,
+        "phase": "triage",
+        "staleAfterMinutes": 120,
+        "summary": "Workflow initialized",
+        "timestamp": "<timestamp>"
+      },
+      "_esVersion": 2,
+      "_eventSequence": 2,
+      "_events": [
+        {
+          "featureId": "guard-state-debug-triage",
+          "metadata": {
+            "featureId": "guard-state-debug-triage",
+            "phaseAttemptId": "<phase-attempt-id>",
+            "workflowType": "debug"
+          },
+          "phaseAttemptId": "<phase-attempt-id>",
+          "timestamp": "<timestamp>",
+          "type": "workflow.started",
+          "workflowType": "debug"
+        },
+        {
+          "featureId": "guard-state-debug-triage",
+          "fields": [
+            "triage"
+          ],
+          "metadata": {
+            "featureId": "guard-state-debug-triage",
+            "fields": [
+              "triage"
+            ],
+            "patch": {
+              "triage": {
+                "symptom": "the build fails on a clean checkout"
+              }
+            }
+          },
+          "patch": {
+            "triage": {
+              "symptom": "the build fails on a clean checkout"
+            }
+          },
+          "timestamp": "<timestamp>",
+          "type": "state.patched"
+        }
+      ],
+      "_history": {},
+      "_pendingPhaseAttemptId": "<phase-attempt-id>",
+      "_version": 2,
+      "artifacts": {
+        "design": null,
+        "plan": null,
+        "pr": null
+      },
+      "createdAt": "<timestamp>",
+      "explore": {},
+      "featureId": "guard-state-debug-triage",
+      "integration": null,
+      "phase": "triage",
+      "phaseAttemptId": "<phase-attempt-id>",
+      "reviews": {},
+      "synthesis": {
+        "integrationBranch": null,
+        "mergeOrder": [],
+        "mergedBranches": [],
+        "prFeedback": [],
+        "prUrl": null
+      },
+      "tasks": [],
+      "triage": {
+        "symptom": "the build fails on a clean checkout"
+      },
+      "updatedAt": "<timestamp>",
+      "version": "1.1",
+      "workflowType": "debug",
+      "worktrees": {}
+    },
+    "to": "investigate",
+    "workflowType": "debug"
+  }
+]

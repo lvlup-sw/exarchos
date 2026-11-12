@@ -7,7 +7,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import type { EventStore } from '../events/store.js';
 import type { ToolResult } from '../format.js';
-import { workflowStateProjection } from '../projections/views/workflow-state-projection.js';
+import { foldWorkflowState } from '../projections/guard-input/fold.js';
 
 export interface ResolveOpts {
   /** Path to a JSON state file on disk. */
@@ -51,7 +51,7 @@ export function classifyStateFile(stateFile: string | undefined): StateFileStatu
 
 /**
  * Resolves workflow state from the best available source, in this order:
- * 1. With `featureId` and `eventStore`, it folds the stream through `workflowStateProjection`. A store failure gives `EVENT_STORE_ERROR`.
+ * 1. With `featureId` and `eventStore`, it folds the stream with `foldWorkflowState`. A store failure gives `EVENT_STORE_ERROR`.
  * 2. Else it parses `stateFile` when the file exists.
  * 3. Else it returns a `NO_STATE_SOURCE` error. A file that does not parse gives the same error.
  *
@@ -62,14 +62,7 @@ export async function resolveWorkflowState(opts: ResolveOpts): Promise<ResolveRe
   if (opts.featureId && opts.eventStore) {
     try {
       const events = await opts.eventStore.query(opts.featureId);
-
-      const projection = workflowStateProjection;
-      let view = projection.init();
-
-      for (const event of events) {
-        view = projection.apply(view, event);
-      }
-
+      const view = foldWorkflowState(events);
       return { state: view as unknown as Record<string, unknown> };
     } catch (err) {
       return {
