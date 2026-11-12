@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1437,
-    "parsedFiles": 1392,
+    "testFiles": 1439,
+    "parsedFiles": 1394,
     "shellFiles": 45,
-    "cases": 15819,
-    "dynamicTitles": 202,
+    "cases": 15826,
+    "dynamicTitles": 203,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -10444,6 +10444,22 @@
         {
           "suite": "IdeateFlow_E2E (Wave 5 / Task 5.5, #1341)",
           "name": "IdeateFlow_UpdatesArtifactsPlanViaUpdateAction",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/idempotent-transition-dispatch.test.ts": {
+      "file": "tests/integration/idempotent-transition-dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "A transition to the current phase through dispatch",
+          "name": "Dispatch_TransitionToTheCurrentPhase_SucceedsIdempotently",
+          "dynamic": false
+        },
+        {
+          "suite": "A transition to the current phase through dispatch",
+          "name": "Dispatch_AMoveThatAppendsItsRow_StillPassesBothChecks",
           "dynamic": false
         }
       ]
@@ -25101,6 +25117,37 @@
           "suite": "EmissionVerifier declared-subject authority",
           "name": "reads nested emissions and ignores a sibling fallback argument",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/dispatch/core/handler-no-op.test.ts": {
+      "file": "tests/unit/dispatch/core/handler-no-op.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "EmissionVerifier_AnIdempotentNoOpReply_IsNotApplicable",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "EmissionVerifier_ASuccessfulReplyWithoutIdempotent_StaysViolated",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "EmissionVerifier_ARefusedReplyWithIdempotent_StaysHandlerRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "IsHandlerNoOpReply_OnlyTheBooleanTrue_IsANoOp ($row)",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
         }
       ]
     },
