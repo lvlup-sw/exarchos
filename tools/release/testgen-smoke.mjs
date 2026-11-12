@@ -81,8 +81,8 @@ internal static class Binding
 `);
 
   for (const [operation, className, bindings] of [
-    ['generate_property_tests', 'PropertyTests', { predicate: 'Smoke.Binding.Predicate' }],
-    ['generate_metamorphic_tests', 'RelationTests', { transform: 'Smoke.Binding.Advance', relation: 'Smoke.Binding.Advances' }],
+    ['generate_property_tests', 'Check', { predicate: 'Smoke.Binding.Predicate' }],
+    ['generate_metamorphic_tests', 'Case_1', { transform: 'Smoke.Binding.Advance', relation: 'Smoke.Binding.Advances' }],
   ]) {
     const [metadata] = testgen(['describe', operation]).operations;
     assert.equal(metadata.inputSchema.properties.framework.const, request.framework);

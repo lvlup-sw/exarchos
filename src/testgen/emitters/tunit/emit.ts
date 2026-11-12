@@ -31,10 +31,15 @@ function renderCheck(input: TestInput): string {
 
 export function emitTUnit(input: TestInput): Success {
   const { target, cases } = input;
-  const methods = cases.map((values, i) => `    /// <summary>Checks the property for fixture case ${i + 1}.</summary>
+  const check = target.className === 'Check' ? 'Check_' : 'Check';
+  const methods = cases.map((values, i) => {
+    const caseName = `Case_${i + 1}`;
+    const method = caseName === target.className ? `${caseName}_` : caseName;
+    return `    /// <summary>Checks the property for fixture case ${i + 1}.</summary>
     /// <returns>The assertion task.</returns>
     [Test]
-    public Task Case_${i + 1}() => Check(new long[] { ${values.map(literal).join(', ')} });`);
+    public Task ${method}() => ${check}(new long[] { ${values.map(literal).join(', ')} });`;
+  });
   const lines = `using System;
 using System.Threading.Tasks;
 using TUnit.Assertions;
@@ -48,7 +53,7 @@ public sealed class @${target.className}
 {
 ${methods.join('\n\n')}
 
-    private static async Task Check(long[] source)
+    private static async Task ${check}(long[] source)
     {
         if (!${reference(target.precondition)}(source))
         {
