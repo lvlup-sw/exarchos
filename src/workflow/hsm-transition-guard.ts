@@ -29,142 +29,19 @@ import { executeGuard } from '../config/guards.js';
 import { buildValidatedEvent } from '../events/event-factory.js';
 import type { EventType } from '../events/schemas.js';
 import type { LegacyTransitionObservation } from './admission/shadow-decision.js';
-import {
-  resolveDangerCoordinate,
-  type DangerCoordinate,
-} from './admission/requirement-context.js';
+import { resolveDangerCoordinate } from './admission/requirement-context.js';
 import { readFrozenGateSequence } from './admission/freeze-requirements.js';
+import { mergeFloors, statedCoordinate } from './decide/emit.js';
+import { buildHsmEventData } from './decide/rows.js';
 
-interface HsmInternalEvent {
-  readonly type: string;
-  readonly from: string;
-  readonly to: string;
-  readonly trigger: string;
-  readonly metadata?: Record<string, unknown>;
-}
-
-/**
- * Build the external `data` payload for an HSM event, so it validates against
- * `EVENT_DATA_SCHEMAS` in `buildValidatedEvent`. Each persisted type needs its own
- * fields. The ordinals give the 1-based `count`, and `guardId` goes into `guard-failed`.
- *
- * The function omits an absent `compoundStateId`, `riskTier`, or `boundaryTouching`, and
- * never writes `undefined` for them. A non-boolean `allRequiredGatesPassed` stays
- * `undefined`, so the schema rejects it and does not store `false`. The `phase.entered`
- * payload holds only the obligation, with no `featureId`. `phase.blocked` gets its
- * canonical shape here, so it validates as `phase.blocked`.
- */
-export function buildHsmEventData(
-  evt: HsmInternalEvent,
-  featureId: string,
-  opts: { guardId?: string; fixCycleOrdinal?: number; planRevisionOrdinal?: number },
-): Record<string, unknown> {
-  const metadata = evt.metadata ?? {};
-  const compoundStateId = metadata.compoundStateId;
-
-  switch (evt.type) {
-    case 'fix-cycle':
-      return {
-        ...(typeof compoundStateId === 'string'
-          ? { compoundStateId }
-          : {}),
-        count: opts.fixCycleOrdinal ?? 1,
-        featureId,
-      };
-    case 'plan-revision':
-      return {
-        ...(typeof compoundStateId === 'string'
-          ? { compoundStateId }
-          : {}),
-        count: opts.planRevisionOrdinal ?? 1,
-        featureId,
-      };
-    case 'compound-entry':
-      return {
-        compoundStateId,
-        featureId,
-      };
-    case 'compound-exit':
-      return {
-        compoundStateId: compoundStateId ?? evt.from,
-        featureId,
-        from: evt.from,
-        to: evt.to,
-        trigger: evt.trigger,
-      };
-    case 'circuit-open':
-      return {
-        featureId,
-        compoundId:
-          (typeof metadata.compoundId === 'string'
-            ? metadata.compoundId
-            : undefined) ??
-          (typeof compoundStateId === 'string' ? compoundStateId : evt.from),
-        ...(typeof metadata.fixCycleCount === 'number'
-          ? { fixCycleCount: metadata.fixCycleCount }
-          : {}),
-        ...(typeof metadata.maxFixCycles === 'number'
-          ? { maxFixCycles: metadata.maxFixCycles }
-          : {}),
-      };
-    case 'guard-failed':
-      return {
-        guard: opts.guardId ?? 'unknown',
-        from: evt.from,
-        to: evt.to,
-        featureId,
-      };
-    case 'phase.entered':
-      return {
-        phase: metadata.phase ?? evt.to,
-        kind: metadata.kind,
-        resolver: metadata.resolver ?? null,
-        resolvedGates: metadata.resolvedGates ?? [],
-        policySource: metadata.policySource ?? 'builtin',
-        mode: metadata.mode ?? 'enforce',
-        posture: metadata.posture,
-        ...(metadata.riskTier !== undefined ? { riskTier: metadata.riskTier } : {}),
-        ...(typeof metadata.boundaryTouching === 'boolean'
-          ? { boundaryTouching: metadata.boundaryTouching }
-          : {}),
-      };
-    case 'phase.blocked': {
-      const rawReason =
-        typeof metadata.reason === 'string' && metadata.reason.length > 0
-          ? metadata.reason
-          : 'gate-set resolution failed';
-      return {
-        phase: typeof metadata.phase === 'string' ? metadata.phase : evt.to,
-        kind: metadata.kind,
-        reason: `phase transition blocked: ${String(metadata.kind)} gate-set resolution failed — ${rawReason}`,
-        error: { code: 'PHASE_BLOCKED', message: rawReason },
-      };
-    }
-    case 'phase.exited':
-      return {
-        phase: metadata.phase ?? evt.from,
-        allRequiredGatesPassed:
-          typeof metadata.allRequiredGatesPassed === 'boolean'
-            ? metadata.allRequiredGatesPassed
-            : undefined,
-      };
-    default:
-      return {
-        from: evt.from,
-        to: evt.to,
-        trigger: evt.trigger,
-        featureId,
-        ...metadata,
-      };
-  }
-}
+export { buildHsmEventData };
 
 /**
  * Count prior `workflow.fix-cycle` events on the stream (matching
  * `compoundStateId` when present) so the next fix-cycle event can carry a
  * 1-based `count` that satisfies `WorkflowFixCycleData`.
  */
-async function nextFixCycleOrdinal(
+export async function nextFixCycleOrdinal(
   eventStore: EventStore,
   featureId: string,
   compoundStateId: unknown,
@@ -188,7 +65,7 @@ async function nextFixCycleOrdinal(
  * `count`. Unlike fix cycles, the count is not scoped by `compoundStateId`, because
  * one workflow-level count bounds the revise loop.
  */
-async function nextPlanRevisionOrdinal(
+export async function nextPlanRevisionOrdinal(
   eventStore: EventStore,
   featureId: string,
 ): Promise<number> {
@@ -371,24 +248,12 @@ function isUniversalFinalTarget(hsm: HSMDefinition, targetPhase: string): boolea
   );
 }
 
-/** The `(risk, boundary)` claim a state object carries, or `null` if it makes none. */
-function statedCoordinate(
-  state: Record<string, unknown> | undefined,
-): DangerCoordinate | null {
-  if (state === undefined) return null;
-  if (state.riskTier === undefined && state.boundaryTouching === undefined) return null;
-  return resolveDangerCoordinate({
-    risk: state.riskTier,
-    boundary: state.boundaryTouching,
-  });
-}
-
 /**
  * Read the obligation that the last `phase.entered` for the target phase froze. The
  * coordinate and the gates come from the durable log, not from current state. A record
  * without a coordinate gives only its gates. An unreadable gate list gives no gates.
  */
-async function readFrozenFloorForPhase(
+export async function readFrozenFloorForPhase(
   eventStore: EventStore,
   featureId: string,
   targetPhase: string,
@@ -418,35 +283,6 @@ async function readFrozenFloorForPhase(
   return {
     ...(coordinate !== null ? { coordinates: [coordinate] } : {}),
     ...(gates !== null && gates.length > 0 ? { gates } : {}),
-  };
-}
-
-/**
- * Merge floor parts as a union, because each part is a lower bound. The floor raises
- * the obligation of this transition only. It is not written to state and does not
- * carry across phases, because a feature-wide floor makes one untiered transition
- * escalate every later transition.
- */
-function mergeFloors(
-  parts: readonly (TransitionObligationFloor | null)[],
-): TransitionObligationFloor | undefined {
-  const coordinates: DangerCoordinate[] = [];
-  const gates: ResolvedGate[] = [];
-  const seen = new Set<string>();
-  for (const part of parts) {
-    if (part === null) continue;
-    coordinates.push(...(part.coordinates ?? []));
-    for (const gate of part.gates ?? []) {
-      const key = `${gate.family}\u0000${gate.gate}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      gates.push(gate);
-    }
-  }
-  if (coordinates.length === 0 && gates.length === 0) return undefined;
-  return {
-    ...(coordinates.length > 0 ? { coordinates } : {}),
-    ...(gates.length > 0 ? { gates } : {}),
   };
 }
 

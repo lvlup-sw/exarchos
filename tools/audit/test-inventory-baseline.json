@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1433,
-    "parsedFiles": 1388,
+    "testFiles": 1435,
+    "parsedFiles": 1390,
     "shellFiles": 45,
-    "cases": 15803,
+    "cases": 15812,
     "dynamicTitles": 202,
     "unparseableFiles": 0
   },
@@ -92113,6 +92113,63 @@
         {
           "suite": "the pure decide over a definition",
           "name": "PinnedExtensionOf_ABuiltInDefinition_GivesItsExtension",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/emission-parity.test.ts": {
+      "file": "tests/unit/workflow/decide/emission-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_EachGoldenCase_EqualsTheGolden_ExceptTheSix",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_TheComparedProjection_CoversEachGoldenKey",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_TheDelta_IsExactlyTheSixCorpusIds",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_AFixCycleAtTheLimit_GivesCircuitOpen",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseRowsOf_EachMoveOfTheGolden_ParsesWithItsDataSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_ANonEmptyFloor_GivesTheOrderedUnion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/ordinals.test.ts": {
+      "file": "tests/unit/workflow/decide/ordinals.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the ordinals and the frozen floor of the rows",
+          "name": "FrozenFloorOf_Rows_EqualsReadFrozenFloorForPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "the ordinals and the frozen floor of the rows",
+          "name": "FixCycleOrdinalOf_Rows_EqualsTheStoreCount",
+          "dynamic": false
+        },
+        {
+          "suite": "the ordinals and the frozen floor of the rows",
+          "name": "PlanRevisionOrdinalOf_Rows_EqualsTheStoreCount",
           "dynamic": false
         }
       ]
