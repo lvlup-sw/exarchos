@@ -51,56 +51,6 @@ exports[`F.7 — CLI table/tree pretty-print regression (Wave 0 §7) > CliRender
     owner: workflow
     role: primary
   economyBudgetTokens: 2000
-  outputSchema:
-    $schema: https://json-schema.org/draft/2020-12/schema
-    oneOf:
-      type: object
-      properties:
-        success:
-          [...]
-        data:
-          [...]
-        next_actions:
-          [...]
-        _meta:
-          [...]
-        _perf:
-          [...]
-        _eventHints:
-          [...]
-        _cacheHints:
-          [...]
-        warnings:
-          [...]
-        _corrections:
-          [...]
-      required:
-        - success
-        - data
-        - next_actions
-        - _meta
-        - _perf
-      additionalProperties: false
-      type: object
-      properties:
-        success:
-          [...]
-        error:
-          [...]
-        _meta:
-          [...]
-        _perf:
-          [...]
-        warnings:
-          [...]
-        _corrections:
-          [...]
-      required:
-        - success
-        - error
-        - _meta
-        - _perf
-      additionalProperties: false
   outputSchemaJson:
     $schema: https://json-schema.org/draft/2020-12/schema
     oneOf:

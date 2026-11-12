@@ -2978,8 +2978,8 @@ describe('registry economy budgets (DR-1)', () => {
    * workflow, orchestrate and view share. The dispatch seam returns such a response unchanged, and
    * it stamps a larger one as degraded.
    *
-   * `describe` returns the output schema of an action twice, so each description in an output
-   * schema counts twice here. The description budget of an action does not measure that text.
+   * `describe` returns the output schema of an action once, so each description in an output
+   * schema counts once here. The description budget of an action does not measure that text.
    * The last assertion shows that the measurement saw the full schemas of `settle`, the largest action.
    */
   it('describeAction_OfOneAction_FitsTheSharedDescribeBudget', async () => {

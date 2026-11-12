@@ -147,8 +147,8 @@ function describedActionContractFields(action: ToolAction): Record<string, unkno
  * Answers the `describe` action for composite tools. For each requested action it returns the
  * input schema, description, gate, phases, roles, and `economyBudgetTokens`. The budget comes from
  * `resolveEconomyBudget`, which the dispatch core also enforces. The optional slots appear only
- * when the action declares them. `outputSchemaJson` is the canonical output JSON Schema, and
- * `outputSchema` is the same schema for older clients.
+ * when the action declares them. `outputSchemaJson` is the output JSON Schema. The reply holds
+ * it once, because each copy counts against the response budget of `describe`.
  *
  * It also returns the HSM topology, the phase playbooks, and the project config on request.
  * The `update` action also carries `reservedFields`. `options.includeStateSchema` has no effect.
@@ -248,10 +248,7 @@ export async function handleDescribe(
         ...(action.dispatch ? { dispatch: action.dispatch } : {}),
         economyBudgetTokens: resolveEconomyBudget(action),
         ...(action.outputSchema
-          ? {
-              outputSchema: zodToJsonSchema(action.outputSchema),
-              outputSchemaJson: zodToJsonSchema(action.outputSchema),
-            }
+          ? { outputSchemaJson: zodToJsonSchema(action.outputSchema) }
           : {}),
         ...(actionName === 'update'
           ? { reservedFields: RESERVED_FIELDS_DESCRIPTOR }
