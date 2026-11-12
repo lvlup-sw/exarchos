@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1446,
-    "parsedFiles": 1401,
+    "testFiles": 1447,
+    "parsedFiles": 1402,
     "shellFiles": 45,
-    "cases": 15913,
+    "cases": 15919,
     "dynamicTitles": 210,
     "unparseableFiles": 0
   },
@@ -7103,6 +7103,42 @@
         {
           "suite": "repo-local skills",
           "name": "RepoLocalSkills_EveryRuleThatThePolicyCites_IsInTheVendoredSkill",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/settle-phase-move-skill-text.test.ts": {
+      "file": "tests/architecture/settle-phase-move-skill-text.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_ReadsPhaseMoveBeforeAnyTransition",
+          "dynamic": false
+        },
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_CallsTransitionWhenPhaseMoveIsAbsent",
+          "dynamic": false
+        },
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_CallsTransitionOnALevelWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_OnStayedFixesTheFalseFactsFirst",
+          "dynamic": false
+        },
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_LandsAfterTheMoveAndBeforeTheReview",
+          "dynamic": false
+        },
+        {
+          "suite": "each skill text of an implementation-complete edge names the field",
+          "name": "SkillText_EachImplementationCompleteEdge_NamesTheField",
           "dynamic": false
         }
       ]

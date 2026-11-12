@@ -379,9 +379,23 @@ After `settled` or `accepted-with-rationale`, go to Step 4. A receipt with a `de
 
 `settle` compiles no capsule under any outcome. Only `prepare` compiles. The design calls `settled` "accepted" and `deviation-pending` "decision-required". It calls the choice that `accepted-with-rationale` records a permitted deviation. The recorded names stay, because stored rows, bundles and replayed receipts carry them.
 
-**`settled`** — each required task is recorded complete (`task.completed`, from the leaf that the primitive path uses). A claimed task passed its gates in this batch, unless the stream already showed it complete. A required task without a claim was complete already. The state document that the transition guard reads is level. Go to Step 4.
+**`settled`** — each required task is recorded complete (`task.completed`, from the leaf that the primitive path uses). A claimed task passed its gates in this batch, unless the stream already showed it complete. A required task without a claim was complete already. Settlement also decides the phase in the same commit (`phaseMove`, below). Go to Step 4.
 
 **`accepted-with-rationale`** — the batch is settled, and an accepted claim records a delegated choice (Build the batch, above). Each required task is recorded complete, as under `settled`, and the same gates ran. The `execution.settled` row names each choice by its task and its decision id (`rationales`). The settlement bundle that `bundleRefs` names keeps each statement. The receipt has no field for the choices, because the outcome says that a claim records one. Go to Step 4.
+
+**`phaseMove`** — under `settled` and `accepted-with-rationale`, settlement decides the edge out of the batch step on the ledger fold, inside its commit. Read `phaseMove` of the receipt before any `transition` call. It has one of three kinds:
+
+| `phaseMove.kind` | What settlement did | Next step |
+|------------------|---------------------|-----------|
+| `moved` | Exactly one plain edge out of the step admitted. Settlement appended `workflow.transition`, `phase.exited` and `phase.entered` before its record. The workflow is at `phaseMove.to` | Land and run the backstop (Step 4). Do not call `transition` |
+| `stayed` | No edge admitted, two or more edges admitted, or the edge is not plain (`phaseMove.reason`). `phaseMove.edges` gives the verdict of each edge and its `falseFacts` | Fix the false facts, then call `transition` (Transition, below) |
+| `not-decided` | Settlement did not decide the phase. `phaseMove.reason` says why, for example `skip-phases-config` or `unpinned-definition` | Call `transition` (Transition, below) |
+
+Call `transition` when `phaseMove` is absent, `stayed` or `not-decided`. A receipt of an earlier build, and the replay of a claim that an earlier build recorded, hold no `phaseMove`. Do not call `transition` when `phaseMove` is `moved`.
+
+When `phaseMove` is `moved` and a warning of the receipt starts with `PHASE_LEVEL_FAILED`, call `transition` to `phaseMove.to` all the same. The stream holds the move, but the state document did not follow. The call is idempotent, and it levels the document, which a reconcile cannot repair.
+
+On `stayed`, first read the false facts of `phaseMove.edges`, and fix each fact that an agent writes. Then check that each task is complete, and only then call `transition`. Each denied `transition` call appends a `workflow.guard-failed` row, and the workflow then shows a blocker. A summary keeps `phaseMove` without `edges`. Then read the edge conditions from the playbook (Schema Discovery, below).
 
 A finding decides the outcome before a rationale does. Thus a batch with an unresolved task is `corrective-capsule`, and its row still names the choices of the tasks that passed. The correction of that batch is `settled`, unless one of its own claims records a choice.
 
@@ -566,7 +580,9 @@ After the fix completes, claim the fixed task in a new batch on the same capsule
 
 ## Step 4: Land and Transition
 
-1. **Land each worktree.** A settled task whose completion carries a worktree detours the workflow through `merge-pending`; land it through `serialize_merge` (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order.
+When `phaseMove` is `moved`, the workflow is at the review step already (`review` for a feature). Land each worktree and run the integration suite after the move, before the review starts. The review reads the integration tip, so each landing comes first.
+
+1. **Land each worktree.** Land the worktree of each settled task through `serialize_merge` (see "Worktree-Bearing Tasks" below), one worktree at a time, in dependency order.
 2. **Wave backstop** — once, after every merge of the wave has landed, run the cumulative suite against the integration tip:
 
 ```typescript
@@ -592,7 +608,7 @@ This is advisory — findings are recorded for the convergence view but do not b
 
 4. **Schema sync** — if any task modified API files (`*Endpoints.cs`, `Models/*.cs`), run `npm run sync:schemas`
 
-5. **Transition** — see the Transition section at the end: `exarchos_workflow transition` to `review`. The tasks are already complete; nothing is patched by hand.
+5. **Transition** — only when `phaseMove` asks for it (see the Transition section at the end): read `phaseMove` first, then on the fallback run `exarchos_workflow transition` to `review`. The tasks are already complete; nothing is patched by hand.
 
 ---
 
@@ -646,19 +662,17 @@ Either `taskId` or `tasks` (non-empty array) is required — at least one must b
 
 For the full transition table, consult `@skills/checkpoint/references/phase-transitions.md`.
 
-**Quick reference:** The `delegate` → `review` transition requires guard `all-tasks-complete` — all `tasks[].status` must be `"complete"` in workflow state.
+**Quick reference:** The `delegate` → `review` edge admits on the ledger fold when the stream holds at least one task (`tasks.count`), each task is complete (`tasks.allComplete`), and no spawned team is still active (`team.disbandedOk`). The guard reads the task rows of the stream, not the `tasks[].status` of the state document.
 
-> A settled batch leaves them so: settlement's completion leaf marks each accepted task complete on the stream and on the document the guard reads. If the transition is refused, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call `exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })` returns one row for each settlement round, with its `outcome` and, under `corrective-capsule`, its `unresolvedTasks`. Do not patch `tasks[].status` by hand to get past the guard.
+> A settled batch leaves them so: settlement's completion leaf records each accepted task complete on the stream, and the fold reads those rows. If the edge does not admit, a task is not complete: its batch has an unresolved task, or the batch was rejected, held or stale. Read the settlement record, not the task list. The call `exarchos_event({ action: "query", stream: "<featureId>", filter: { type: "execution.settled" } })` returns one row for each settlement round, with its `outcome` and, under `corrective-capsule`, its `unresolvedTasks`. Do not patch `tasks[].status` by hand: the fold does not read it.
 
-### Worktree-Bearing Tasks: Auto-Detour to `merge-pending`
+### Worktree-Bearing Tasks
 
-When a `task.completed` event carries a worktree association (`data.worktree` or `data.worktreePath`), the HSM auto-transitions through `feature/merge-pending` before reaching `review`. The `next_actions` projection surfaces the merge verb (idempotency-keyed by `${streamId}:merge_orchestrate:${taskId}`) so a runtime that consumes `next_actions` will dispatch the merge automatically.
+A completion row that names a worktree does not move the workflow through `merge-pending`. The `delegate` → `merge-pending` edge reads event data that the fold does not hold, so the edge does not admit on the fold. The settle move goes from `delegate` to `review` directly, and the coordinator lands each worktree after the move (Step 4).
 
 **Land it through `serialize_merge`.** The integration branch is shared — sibling worktree merges within the same wave (or a concurrent operator) can race for it. `serialize_merge` is THE integration-merge path: it holds an optimistic per-`integrationRef` single-writer lease, then composes `merge_orchestrate` unchanged to do the local `git merge` with a recorded recovery-point SHA — see `@skills/merge-orchestrator/SKILL.md`. Do **not** dispatch raw `merge_orchestrate` to land onto the integration branch — a live foreign lease makes it fail closed (`MERGE_LEASE_HELD`, naming `serialize_merge`). Raw `merge_orchestrate` is for a non-integration merge (a private / scratch branch no sibling will touch) or a crash-resumed caller re-presenting its original lease.
 
-The HSM exits `merge-pending` back to `delegate` once the merge terminates (`completed` / `rolled-back` / `aborted`), at which point `delegate` either re-enters `merge-pending` for the next worktree-bearing task or transitions on to `review` when all delegation is complete.
-
-This detour is invisible to the delegation skill itself — the all-tasks-complete guard still gates the `delegate → review` transition. The merge-pending substate just sits between task completion and the next dispatch decision.
+Each landing is a merge of the integration branch. It is not a phase of the workflow, so a landing after the move does not change the phase.
 
 ### Task Status Values
 
@@ -838,9 +852,11 @@ clever-but-fragile automation.
 
 After the batch settles and the worktrees land, **auto-continue immediately** (no user confirmation):
 
-1. Verify all `tasks[].status === "complete"` in workflow state — a settled batch left them so
-2. Transition: `exarchos_workflow({ action: "transition", featureId: "<featureId>", target: "review" })`
-3. Invoke: `Skill({ skill: "exarchos:review", args: "<plan-path>" })`
+1. Read `phaseMove` of the settle receipt. When it is `moved` and no warning starts with `PHASE_LEVEL_FAILED`, the workflow is at `review`: go to step 5
+2. On `stayed`, fix each false fact of `phaseMove.edges` that an agent writes
+3. Verify all `tasks[].status === "complete"` in workflow state — a settled batch left them so
+4. Fallback transition, when `phaseMove` is absent, `stayed` or `not-decided`, or on a `PHASE_LEVEL_FAILED` warning: `exarchos_workflow({ action: "transition", featureId: "<featureId>", target: "review" })`
+5. Invoke: `Skill({ skill: "exarchos:review", args: "<plan-path>" })`
 
 This is NOT a human checkpoint — the workflow continues autonomously.
 

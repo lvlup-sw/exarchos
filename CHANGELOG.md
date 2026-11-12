@@ -265,6 +265,12 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Changed
 
+- **`settle` moves the phase, and the guards read the ledger fold.** This is a change of behavior. When exactly one plain edge out of the batch step admits, the settle commit appends `workflow.transition`, `phase.exited` and `phase.entered` before its record. The receipt names the move in `phaseMove`. Else `phaseMove` is `stayed` or `not-decided` with a reason, and the delegate skill calls `transition` as before.
+  - `transition`, `cancel` and `cleanup` decide with the edge conditions of the workflow definition on the fold of the stream rows, not on the state document. A `tasks[].status` that `update` wrote admits no move.
+  - Six fail-shaped states that the earlier guards admitted now deny. One example: a debug `transition` to `cancelled` from `investigate` needs `investigation.escalate`, and `cancel` stays the path to `cancelled`. The `implementation-complete` edges of the debug and polish tracks need `implementation.complete: true`.
+  - A `transition` to the current phase succeeds with `idempotent: true` and appends no row, and it levels a state document that lags.
+- **The compiler is now `exarchos-prepare-6`, and the capsule pins the full workflow definition with its extension.** An edit of the extension alone moves `definitionVersion`. A capsule of `exarchos-prepare-5` still settles, and its settle moves no phase (`unpinned-definition`). Prepare again to get the move. No stored shape changes.
+
 - **The `query` mode of `exarchos_workflow get` now returns `{ <query>: <value> }`, not the bare value.** This is a change of behavior. A query of `phase` returns `{ "phase": "plan" }`. A path that resolves to nothing returns `{}`, because the query omits an absent key as a `fields` projection does. Thus `data` is an object in each read mode, and `exarchos wf status -q` returns the same object.
   - The `outputSchema` of `get` now declares its success data. A bare scalar, an array, `null` or a `phase` that is not a string fails the parse. The MCP adapter checks each reply against it.
   - Migration: read the value under the query key, for example `data.phase` for `query: "phase"`. A query of `tasks[0].status` returns the value under the key `"tasks[0].status"`.
