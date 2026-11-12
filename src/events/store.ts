@@ -477,6 +477,9 @@ export class EventStore {
    * make a retry look like a new request. `decideOnce` calls the decision only when it commits,
    * so observers hear only about a trail that this call wrote. Their sequences come from the
    * committed claim, not from the stream tail, which another writer can move.
+   *
+   * It returns false only when a stored claim of `operationId` answered the call. Then this call wrote no row.
+   * Otherwise it returns true. An empty trail writes nothing and returns true.
    */
   async appendTrailAtomically(
     streamId: string,
@@ -484,8 +487,8 @@ export class EventStore {
       Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string }
     >,
     operationId: string,
-  ): Promise<void> {
-    if (events.length === 0) return;
+  ): Promise<boolean> {
+    if (events.length === 0) return true;
     if (!operationId) {
       throw new Error('appendTrailAtomically requires an operationId');
     }
@@ -532,7 +535,7 @@ export class EventStore {
         return { streamId, events: inputs, result: inputs.length };
       },
     );
-    if (!landed) return;
+    if (!landed) return false;
 
     const claim = this.getAppender()
       .ensureSqliteBackendSync()
@@ -546,6 +549,7 @@ export class EventStore {
       }
       notifyAppendObserved({ type: event.type, streamId, sequence });
     });
+    return true;
   }
 
   /**

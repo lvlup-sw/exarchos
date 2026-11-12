@@ -156,6 +156,35 @@ async function featureAtSynthesizeOnTheRows(store: CleanupStore): Promise<void> 
   await appendRow(store, 'workflow.transition', { from: 'plan', to: 'synthesize', trigger: 'test', featureId: FEATURE_ID });
 }
 
+/** Replaces a method of an object for one case. The teardown restores the method. */
+function replaceMethod<T extends object, K extends keyof T>(target: T, key: K, replacement: T[K]): void {
+  const ownDescriptor = Object.getOwnPropertyDescriptor(target, key);
+  Object.defineProperty(target, key, { value: replacement, configurable: true, writable: true });
+  releases.push(() => {
+    if (ownDescriptor === undefined) Reflect.deleteProperty(target, key);
+    else Object.defineProperty(target, key, ownDescriptor);
+  });
+}
+
+/**
+ * Runs one cleanup inside the first full read of the stream, after the read returns its rows.
+ * So the outer cleanup decides on rows that do not hold the trail of the inner cleanup. The result gives the inner reply.
+ */
+function cleanupInsideTheFirstRead(store: CleanupStore): () => ToolResult | undefined {
+  const originalQuery = store.eventStore.query.bind(store.eventStore);
+  let inner: ToolResult | undefined;
+  let fired = false;
+  replaceMethod(store.eventStore, 'query', async (streamId: string, filters?: Parameters<EventStore['query']>[1]) => {
+    const rows = await originalQuery(streamId, filters);
+    if (!fired && streamId === FEATURE_ID && filters === undefined) {
+      fired = true;
+      inner = await handleCleanup({ featureId: FEATURE_ID, mergeVerified: true }, store.stateDir, store.eventStore);
+    }
+    return rows;
+  });
+  return () => inner;
+}
+
 /** Returns an admitted legacy result with no events. */
 function admittedWithNoEvents(from: string): LegacyAttempt {
   return {
@@ -230,6 +259,27 @@ describe('the cleanup handler decides on the ledger fold', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('ALREADY_COMPLETED');
     expect(await rowsOf(store)).toHaveLength(rows.length);
+  });
+
+  /**
+   * Two cleanups read the same rows, so they share one phase attempt id and one trail operation. The inner cleanup commits the trail.
+   * The outer cleanup gets the stored claim of the inner cleanup and wrote no row. It reads the rows again, finds the fold
+   * at `completed` and refuses with `ALREADY_COMPLETED`, as a later cleanup does.
+   */
+  it('HandleCleanup_TwoCallsThatReadTheSameRows_TheSecondRefusesAlreadyCompleted', async () => {
+    const store = await openStore();
+    await featureAtSynthesizeOnTheRows(store);
+    const inner = cleanupInsideTheFirstRead(store);
+
+    const outer = await handleCleanup({ featureId: FEATURE_ID, mergeVerified: true }, store.stateDir, store.eventStore);
+
+    expect(inner()?.success).toBe(true);
+    expect(recordOf(inner()?.data).phase).toBe('completed');
+    expect(outer.success).toBe(false);
+    expect(outer.error?.code).toBe('ALREADY_COMPLETED');
+    const rows = await rowsOf(store);
+    expect(rows.filter((row) => row.idempotencyKey === `${FEATURE_ID}:cleanup:complete`)).toHaveLength(1);
+    expect((await documentOf(store)).phase).toBe('completed');
   });
 
   /** The rows hold `synthesize` and the document lags at `review`. The cleanup row names the fold phase. */

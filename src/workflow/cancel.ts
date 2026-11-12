@@ -47,6 +47,12 @@ const CURRENT_ES_VERSION = 2;
 /** The type of the row that starts a workflow stream. */
 const START_ROW_TYPE = 'workflow.started';
 
+/**
+ * The row types that move the phase of the fold. The version of a cancel route is the highest sequence of these rows.
+ * The saga rows of a cancel do not move that version, so a retry of the cancel keeps its phase attempt id and its saga.
+ */
+const PHASE_ROW_TYPES: ReadonlySet<string> = new Set(['workflow.started', 'workflow.transition', 'workflow.cancel', 'workflow.cleanup']);
+
 /** The text that starts the warning of a cancel that the state document decided. */
 const DOCUMENT_FALLBACK_WARNING = 'GUARD_INPUT_DOCUMENT_FALLBACK';
 
@@ -66,8 +72,10 @@ type CancelRoute =
       readonly from: string;
       /** The phase attempt id of the fold, the predecessor of the move. */
       readonly foldAttemptId: string | undefined;
-      /** The highest sequence of the rows. */
+      /** The highest sequence of the phase rows. A committed move changes it, and a saga row does not. */
       readonly version: number;
+      /** The highest sequence of the rows. The level of a lagging document covers each row that the cancel read. */
+      readonly eventSequence: number;
     }
   | { readonly kind: 'document'; readonly warnings: readonly string[] };
 
@@ -79,6 +87,11 @@ function messageOf(err: unknown): string {
 /** Returns the highest sequence of the rows, or 0 when the rows are empty. */
 function highestSequence(rows: readonly WorkflowEvent[]): number {
   return rows.reduce((highest, row) => Math.max(highest, row.sequence), 0);
+}
+
+/** Returns the highest sequence of the phase rows, or 0 when the rows hold no phase row. */
+function highestPhaseRowSequence(rows: readonly WorkflowEvent[]): number {
+  return highestSequence(rows.filter((row) => PHASE_ROW_TYPES.has(row.type)));
 }
 
 /** Returns the document route with one fallback warning that names the reason. */
@@ -110,7 +123,8 @@ async function cancelRouteOf(state: WorkflowState, featureId: string, eventStore
       input,
       from: typeof input.phase === 'string' ? input.phase : '',
       foldAttemptId: readPhaseAttemptId(input),
-      version: highestSequence(rows),
+      version: highestPhaseRowSequence(rows),
+      eventSequence: highestSequence(rows),
     };
   } catch (err) {
     return documentFallback(`the ledger fold failed: ${messageOf(err)}`);
@@ -194,20 +208,61 @@ export async function handleCancel(
   }
 
   const route = await cancelRouteOf(state, input.featureId, eventStore);
-  return withRouteWarnings(await cancelOnRoute(input, stateDir, eventStore, stateFile, state, route), route);
+  const outcome = await cancelOnRoute(input, stateDir, eventStore, stateFile, state, route);
+  if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
+  return cancelAfterAClaimHit(input, stateDir, eventStore, stateFile, outcome.from);
+}
+
+/** The outcome of a cancel whose trail operation another call committed. This call wrote no row. */
+interface TrailClaimHit {
+  readonly claimHit: true;
+  /** The fold phase that this call cancelled from. */
+  readonly from: string;
+}
+
+/** True when the outcome of a cancel is a claim hit of its trail operation. */
+function isTrailClaimHit(outcome: ToolResult | TrailClaimHit): outcome is TrailClaimHit {
+  return 'claimHit' in outcome && outcome.claimHit === true;
+}
+
+/**
+ * Replies to a cancel whose trail operation another call committed. This call wrote no row, so it reads the document
+ * and the rows again. A fold at `cancelled` levels a lagging document and replies `idempotent: true` with no row.
+ * Another read runs the cancel once more on its route. A second claim hit refuses with `EVENT_APPEND_FAILED`.
+ */
+async function cancelAfterAClaimHit(
+  input: CancelInput,
+  stateDir: string,
+  eventStore: EventStore | null,
+  stateFile: string,
+  from: string,
+): Promise<ToolResult> {
+  const state = await readStateFile(stateFile);
+  const route = await cancelRouteOf(state, input.featureId, eventStore);
+  if (route.kind === 'fold' && route.from === 'cancelled') return levelCancelledDocument(stateFile, state, route, from);
+  const outcome = await cancelOnRoute(input, stateDir, eventStore, stateFile, state, route);
+  if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
+  return {
+    success: false,
+    error: {
+      code: ErrorCode.EVENT_APPEND_FAILED,
+      message: `Another call committed the cancel trail of '${input.featureId}', and a second read of the rows does not show the phase 'cancelled'`,
+    },
+  };
 }
 
 /**
  * Levels a document that lags behind a fold at `cancelled`, and replies `idempotent: true` with no row.
  * The level writes the phase and the attempt id of the fold, the checkpoint reset and the event sequence of
  * the rows. A version conflict reads the document again, and a document that reached `cancelled` needs no write.
+ * The previous phase of the reply is the document phase, or the phase that the caller names.
  */
 async function levelCancelledDocument(
   stateFile: string,
   state: WorkflowState,
   route: Extract<CancelRoute, { kind: 'fold' }>,
+  previousPhase: string = state.phase,
 ): Promise<ToolResult> {
-  const previousPhase = state.phase;
   let current = state;
   for (let write = 1; write <= MAX_LEVEL_WRITES; write++) {
     if (current.phase === 'cancelled') break;
@@ -216,7 +271,7 @@ async function levelCancelledDocument(
       ...current,
       phase: 'cancelled',
       _checkpoint: checkpoint,
-      _eventSequence: route.version,
+      _eventSequence: route.eventSequence,
       updatedAt: new Date().toISOString(),
     };
     if (route.foldAttemptId !== undefined) levelled.phaseAttemptId = route.foldAttemptId;
@@ -309,7 +364,10 @@ async function decideCancelOnTheFold(
   return { ok: true, move: { events: moved.events, historyUpdates: { ...(moved.historyUpdates ?? {}) } } };
 }
 
-/** Runs one cancel on its route. The caller adds the warnings of the route. */
+/**
+ * Runs one cancel on its route. The caller adds the warnings of the route.
+ * On the fold route, a stored claim of the trail operation gives a claim hit, and this call writes no document.
+ */
 async function cancelOnRoute(
   input: CancelInput,
   stateDir: string,
@@ -317,7 +375,7 @@ async function cancelOnRoute(
   stateFile: string,
   state: WorkflowState,
   route: CancelRoute,
-): Promise<ToolResult> {
+): Promise<ToolResult | TrailClaimHit> {
   const terminalPhase = route.kind === 'fold' ? route.from : state.phase;
   if (terminalPhase === 'cancelled') {
     if (route.kind === 'fold' && state.phase !== 'cancelled') {
@@ -642,11 +700,12 @@ async function cancelOnRoute(
     const cancelTrailOperationId = `cancel:${input.featureId}:${phaseAttemptId}`;
     if (useEventFirst) {
       try {
-        await eventStore.appendTrailAtomically(
+        const landed = await eventStore.appendTrailAtomically(
           input.featureId,
           cancelTrail,
           cancelTrailOperationId,
         );
+        if (route.kind === 'fold' && landed === false) return { claimHit: true, from: currentPhase };
       } catch (err) {
         return {
           success: false,

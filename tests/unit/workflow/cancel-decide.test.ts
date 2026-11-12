@@ -4,11 +4,20 @@
  * A seed writes the rows and the document through the handlers. A forge then changes the document only, or appends a row only.
  * The fold gives the source phase, the phase attempt id and the terminal check. `phaseMoveEvents` gives the trail of the move.
  *
+ * The `child_process` mock runs the real `execFile` unless a case gives it a fake. The fake makes a compensation command fail.
+ *
  * @oracle-sources: ../../../src/workflow/phase-attempt-id.ts, hand-seeded stream rows
  */
 import path from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return { ...actual, execFile: vi.fn((...args: Parameters<typeof actual.execFile>) => actual.execFile(...args)) };
+});
+
+import { ChildProcess, execFile } from 'child_process';
 
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { EventStore } from '../../../src/events/store.js';
@@ -41,6 +50,12 @@ const SEEDED_ATTEMPT_ID = `phase-attempt:${'c4'.repeat(32)}`;
 
 /** The result type of the legacy guard. */
 type LegacyAttempt = Awaited<ReturnType<typeof hsmTransitionGuard.attempt>>;
+
+/** The real `execFile`. The teardown gives it back to the mock after a case that uses a fake. */
+const actualExecFile = (await vi.importActual<typeof import('child_process')>('child_process')).execFile;
+
+/** The integration branch of the saga case. Its delete fails in the fake `execFile`. */
+const INTEGRATION_BRANCH = 'integrate/cancel-decide';
 
 /** Each release of the current case, in the order of creation. The teardown runs them in reverse order. */
 const releases: (() => Promise<void> | void)[] = [];
@@ -125,6 +140,82 @@ async function featureAtReviewWithALaggingDocument(store: CancelStore): Promise<
   await appendRow(store, 'workflow.transition', { from: 'plan', to: 'delegate', trigger: 'test', featureId: FEATURE_ID });
   await appendRow(store, 'workflow.transition', { from: 'delegate', to: 'review', trigger: 'test', featureId: FEATURE_ID });
   await forgeDocument(store, (document) => ({ ...document, phase: 'delegate', phaseAttemptId: 'an-older-attempt' }));
+}
+
+/** Replaces a method of an object for one case. The teardown restores the method. */
+function replaceMethod<T extends object, K extends keyof T>(target: T, key: K, replacement: T[K]): void {
+  const ownDescriptor = Object.getOwnPropertyDescriptor(target, key);
+  Object.defineProperty(target, key, { value: replacement, configurable: true, writable: true });
+  releases.push(() => {
+    if (ownDescriptor === undefined) Reflect.deleteProperty(target, key);
+    else Object.defineProperty(target, key, ownDescriptor);
+  });
+}
+
+/**
+ * Runs one cancel inside the first full read of the stream, after the read returns its rows.
+ * So the outer cancel decides on rows that do not hold the trail of the inner cancel. The result gives the inner reply.
+ */
+function cancelInsideTheFirstRead(store: CancelStore): () => ToolResult | undefined {
+  const originalQuery = store.eventStore.query.bind(store.eventStore);
+  let inner: ToolResult | undefined;
+  let fired = false;
+  replaceMethod(store.eventStore, 'query', async (streamId: string, filters?: Parameters<EventStore['query']>[1]) => {
+    const rows = await originalQuery(streamId, filters);
+    if (!fired && streamId === FEATURE_ID && filters === undefined) {
+      fired = true;
+      inner = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    }
+    return rows;
+  });
+  return () => inner;
+}
+
+/**
+ * Gives `execFile` a fake for one case. A branch lookup finds each branch, and each branch delete fails.
+ * Each other command succeeds with no output. The result gives the count of the branch deletes.
+ */
+function failEachBranchDelete(): () => number {
+  let branchDeletes = 0;
+  const fake = (_file: string, args?: unknown, options?: unknown, callback?: unknown): ChildProcess => {
+    const done = typeof options === 'function' ? options : callback;
+    const argv: readonly unknown[] = Array.isArray(args) ? args : [];
+    let error: Error | null = null;
+    let stdout = '';
+    if (argv.includes('rev-parse') && argv.includes('--verify')) stdout = 'abc123\n';
+    if (argv.includes('branch') && argv.includes('-D')) {
+      branchDeletes += 1;
+      error = new Error('branch delete failed');
+    }
+    if (typeof done === 'function') Reflect.apply(done, undefined, [error, stdout, '']);
+    return new ChildProcess();
+  };
+  vi.mocked(execFile).mockImplementation(fake);
+  releases.push(() => {
+    vi.mocked(execFile).mockImplementation((...args: Parameters<typeof actualExecFile>) => actualExecFile(...args));
+  });
+  return () => branchDeletes;
+}
+
+/**
+ * Seeds a feature at `delegate` whose rows and document hold no phase attempt id. The start row and the transition row
+ * carry none, and the document has none. The document names an integration branch, so the cancel saga deletes it.
+ */
+async function featureAtDelegateWithNoAttemptId(store: CancelStore): Promise<void> {
+  await init(store, 'feature', false);
+  await appendRow(store, 'workflow.started', { featureId: FEATURE_ID, workflowType: 'feature' });
+  await appendRow(store, 'workflow.transition', { from: 'plan', to: 'delegate', trigger: 'test', featureId: FEATURE_ID });
+  await forgeDocument(store, (document) => {
+    const { phaseAttemptId: _noAttemptId, ...rest } = document;
+    return {
+      ...rest,
+      _esVersion: 2,
+      phase: 'delegate',
+      synthesis: { integrationBranch: INTEGRATION_BRANCH, mergeOrder: [], mergedBranches: [], prUrl: null, prFeedback: [] },
+      worktrees: {},
+      tasks: [],
+    };
+  });
 }
 
 /** Returns an admitted legacy result with no events. */
@@ -284,6 +375,51 @@ describe('the cancel handler decides on the ledger fold', () => {
     expect(document.phase).toBe('cancelled');
     expect(document.phaseAttemptId).toBe(SEEDED_ATTEMPT_ID);
     expect(document._eventSequence).toBe(rows.at(-1)?.sequence);
+  });
+
+  /**
+   * The stream has no phase attempt id. The first cancel meets a failed branch delete, and the retry runs.
+   * The saga rows of the first cancel do not change the phase attempt id, so the retry continues the same saga.
+   * The stream holds one cancel id, three branch deletes and one manual-intervention row.
+   */
+  it('HandleCancel_ARetryOnAStreamWithNoAttemptId_KeepsOneCancelId', async () => {
+    const store = await openStore();
+    await featureAtDelegateWithNoAttemptId(store);
+    const branchDeletes = failEachBranchDelete();
+    expect((await rowsOf(store)).map((row) => recordOf(row.data).phaseAttemptId).filter((id) => id !== undefined)).toEqual([]);
+    expect((await documentOf(store)).phaseAttemptId).toBeUndefined();
+
+    const first = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+
+    expect(first.error?.code).toBe('COMPENSATION_PARTIAL');
+    const rows = await rowsOf(store);
+    const cancelIds = new Set(rows.filter((row) => row.type === 'cancel.requested').map((row) => recordOf(row.data).cancelId));
+    expect(cancelIds.size).toBe(1);
+    expect(branchDeletes()).toBe(3);
+    expect(rows.filter((row) => row.type === 'cancel.manual-intervention-required')).toHaveLength(1);
+  });
+
+  /**
+   * Two cancels read the same rows, so they share one phase attempt id and one trail operation. The inner cancel commits the trail.
+   * The outer cancel gets the stored claim of the inner cancel and wrote no row. It reads the rows again and replies `idempotent: true`.
+   */
+  it('HandleCancel_TwoCallsThatReadTheSameRows_TheSecondRepliesIdempotent', async () => {
+    const store = await openStore();
+    await debugAtInvestigate(store);
+    const inner = cancelInsideTheFirstRead(store);
+
+    const outer = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+
+    expect(inner()?.success).toBe(true);
+    expect(recordOf(inner()?.data).idempotent).toBeUndefined();
+    expect(outer.success).toBe(true);
+    expect(outer.data).toMatchObject({ phase: 'cancelled', previousPhase: 'investigate', idempotent: true });
+    expect(recordOf(outer.data).phaseAttemptId).toBe(recordOf(inner()?.data).phaseAttemptId);
+    expect(WorkflowCancelOutputSchema.safeParse(toEnvelope(outer)).success).toBe(true);
+    const rows = await rowsOf(store);
+    expect(rows.filter((row) => row.idempotencyKey === `${FEATURE_ID}:cancel:complete`)).toHaveLength(1);
+    expect((await documentOf(store)).phase).toBe('cancelled');
   });
 
   /** The rows and the document are both at `cancelled`, so a second cancel refuses. */

@@ -2,6 +2,7 @@
  * These tests check that a transition commits its move once, when the stream changes between the read and the commit.
  * The transition handler decides on its read of the rows, and the closure of its commit decides again on the snapshot rows.
  * A store wrapper changes the stream or the snapshot at a fixed point of the call.
+ * Two calls that read the same rows share one operation, so the second call gets the stored claim of the first call.
  *
  * @oracle-sources: ../../src/workflow/handlers/set.ts, the store wrapper that commits the foreign move
  */
@@ -9,12 +10,17 @@ import path from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { deriveMcpCallerIdentity } from '../../src/dispatch/caller-identity.js';
+import { initializeContext } from '../../src/dispatch/core/context.js';
+import { dispatch, type DispatchContext } from '../../src/dispatch/core/dispatch.js';
 import type { DecideOnceContext, DecideOnceDecision } from '../../src/events/atomic-appender.js';
 import type { WorkflowEvent } from '../../src/events/schemas.js';
 import { EventStore } from '../../src/events/store.js';
 import type { ToolResult } from '../../src/format.js';
 import { SqliteBackend } from '../../src/storage/sqlite-backend.js';
+import { configureCutoverAutoExport } from '../../src/workflow/admission/cutover-auto-export.js';
 import { flushLiveShadowEvidence } from '../../src/workflow/admission/live-shadow-observer.js';
+import { configureCleanupSnapshotStore } from '../../src/workflow/cleanup.js';
 import { configureStateStoreBackend, StateStoreError } from '../../src/workflow/state-store.js';
 import { handleInit, handleSet } from '../../src/workflow/tools.js';
 import { makeTempDir, rmrfAsync } from '../../tools/test-helpers/temp-dir.js';
@@ -38,6 +44,8 @@ afterEach(async () => {
   await flushLiveShadowEvidence();
   for (const release of releases.splice(0).reverse()) await release();
   configureStateStoreBackend(undefined);
+  configureCleanupSnapshotStore(null);
+  configureCutoverAutoExport(undefined);
 });
 
 /** Opens a store on a new temporary directory and makes it the backend of the state store. */
@@ -88,6 +96,44 @@ function transitionsTo(rows: readonly WorkflowEvent[], target: string): readonly
   return rows.filter((row) => row.type === 'workflow.transition' && row.data?.to === target);
 }
 
+/** The value of one field of the reply data, or undefined when the data is not an object. */
+function dataField(result: ToolResult | undefined, field: string): unknown {
+  const data: unknown = result?.data;
+  if (typeof data !== 'object' || data === null) return undefined;
+  return Reflect.get(data, field);
+}
+
+/**
+ * Runs one call inside the first full read of the stream of the feature, after the read returns its rows.
+ * So the outer call decides on rows that do not hold the rows of the inner call.
+ */
+function runInsideTheFirstRead(eventStore: EventStore, call: () => Promise<ToolResult>): { readonly result: () => ToolResult | undefined } {
+  const originalQuery = eventStore.query.bind(eventStore);
+  let inner: ToolResult | undefined;
+  let fired = false;
+  replaceMethod(eventStore, 'query', async (streamId: string, filters?: Parameters<EventStore['query']>[1]) => {
+    const rows = await originalQuery(streamId, filters);
+    if (!fired && streamId === FEATURE_ID && filters === undefined) {
+      fired = true;
+      inner = await call();
+    }
+    return rows;
+  });
+  return { result: () => inner };
+}
+
+/** Opens a dispatch context with the shipped defaults over a SQLite backend in a new temporary directory. */
+async function openDispatchContext(): Promise<DispatchContext> {
+  const stateDir = makeTempDir('transition-race-dispatch-');
+  releases.push(() => rmrfAsync(stateDir));
+  const backend = new SqliteBackend(path.join(stateDir, 'exarchos.db'));
+  backend.initialize();
+  releases.push(() => backend.close());
+  const base = await initializeContext(stateDir, { backend });
+  releases.push(() => base.eventStore.close());
+  return { ...base, enableTelemetry: true, callerIdentity: deriveMcpCallerIdentity({ sessionId: 'transition-race-dispatch' }) };
+}
+
 describe('the commit of a transition move', () => {
   /** A foreign commit of the same move after the first read of the handler leaves one trail, and the call replies `idempotent: true`. */
   it('HandleSet_ACommitBetweenReadAndCommit_GivesOneTrail', async () => {
@@ -118,6 +164,52 @@ describe('the commit of a transition move', () => {
     expect(result.success).toBe(true);
     expect(result.data).toMatchObject({ phase: 'delegate', idempotent: true });
     expect(transitionsTo(await originalQuery(FEATURE_ID), 'delegate')).toHaveLength(1);
+  });
+
+  /**
+   * Two calls read the same rows, so they share one phase attempt id and one operation. The inner call commits the move.
+   * The outer call gets the stored claim of the inner call, and its closure does not run. It wrote no row, so it replies `idempotent: true`.
+   */
+  it('HandleSet_TwoCallsThatReadTheSameRows_TheSecondRepliesIdempotent', async () => {
+    const store = await openStore();
+    await featureAtPlanReview(store);
+    const originalQuery = store.eventStore.query.bind(store.eventStore);
+    const inner = runInsideTheFirstRead(store.eventStore, () =>
+      handleSet({ featureId: FEATURE_ID, phase: 'delegate' }, store.stateDir, store.eventStore),
+    );
+
+    const outer = await handleSet({ featureId: FEATURE_ID, phase: 'delegate' }, store.stateDir, store.eventStore);
+
+    expect(inner.result()?.success).toBe(true);
+    expect(dataField(inner.result(), 'idempotent')).toBeUndefined();
+    expect(outer.success).toBe(true);
+    expect(outer.data).toMatchObject({ phase: 'delegate', idempotent: true });
+    expect(dataField(outer, 'phaseAttemptId')).toBe(dataField(inner.result(), 'phaseAttemptId'));
+    expect(transitionsTo(await originalQuery(FEATURE_ID), 'delegate')).toHaveLength(1);
+  });
+
+  /**
+   * The same race through the dispatcher with the shipped defaults. The outer call wrote no row and replies `idempotent: true`,
+   * so it owes no emission. Both calls succeed, the stream holds one transition row and no `emission.violated` row.
+   */
+  it('Dispatch_TwoCallsThatReadTheSameRows_BothSucceedWithOneRow', async () => {
+    const context = await openDispatchContext();
+    const workflow = (action: string, fields: Readonly<Record<string, unknown>> = {}): Promise<ToolResult> =>
+      dispatch('exarchos_workflow', { action, featureId: FEATURE_ID, ...fields }, context);
+    requireSuccess('init', await workflow('init', { workflowType: 'feature' }));
+    requireSuccess('plan', await workflow('update', { updates: { 'artifacts.plan': 'plans/plan.md' } }));
+    const originalQuery = context.eventStore.query.bind(context.eventStore);
+    const inner = runInsideTheFirstRead(context.eventStore, () => workflow('transition', { target: 'plan-review' }));
+
+    const outer = await workflow('transition', { target: 'plan-review' });
+
+    expect(inner.result()?.success).toBe(true);
+    expect(outer.error?.code).toBeUndefined();
+    expect(outer.success).toBe(true);
+    expect(dataField(outer, 'idempotent')).toBe(true);
+    const rows = await originalQuery(FEATURE_ID);
+    expect(transitionsTo(rows, 'plan-review')).toHaveLength(1);
+    expect(rows.filter((row) => row.type === 'emission.violated')).toEqual([]);
   });
 
   /** Reads that change before each commit throw the version conflict after the retry bound, and the store gains no trail row. */

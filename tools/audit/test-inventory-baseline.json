@@ -7,7 +7,7 @@
     "testFiles": 1447,
     "parsedFiles": 1402,
     "shellFiles": 45,
-    "cases": 15919,
+    "cases": 15927,
     "dynamicTitles": 210,
     "unparseableFiles": 0
   },
@@ -10716,6 +10716,16 @@
         {
           "suite": "the commit of a transition move",
           "name": "HandleSet_ACommitBetweenReadAndCommit_GivesOneTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "the commit of a transition move",
+          "name": "HandleSet_TwoCallsThatReadTheSameRows_TheSecondRepliesIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "the commit of a transition move",
+          "name": "Dispatch_TwoCallsThatReadTheSameRows_BothSucceedWithOneRow",
           "dynamic": false
         },
         {
@@ -66276,6 +66286,16 @@
         },
         {
           "suite": "settle levels the state document after a move",
+          "name": "Settle_AReplay_LevelsALaggingDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "LevelPhaseInStateDocument_ADocumentPastTheLevel_WritesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
           "name": "Settle_ADocumentLevelFails_KeepsTheVerdictAndWarns",
           "dynamic": false
         },
@@ -74987,6 +75007,16 @@
         },
         {
           "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_ARetryOnAStreamWithNoAttemptId_KeepsOneCancelId",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_TwoCallsThatReadTheSameRows_TheSecondRepliesIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
           "name": "HandleCancel_BothAtCancelled_RefusesAlreadyCancelled",
           "dynamic": false
         }
@@ -75915,6 +75945,11 @@
         {
           "suite": "the cleanup handler decides on the ledger fold",
           "name": "HandleCleanup_AFoldAtCompletedAndALaggingDocument_RefusesAlreadyCompleted",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_TwoCallsThatReadTheSameRows_TheSecondRefusesAlreadyCompleted",
           "dynamic": false
         },
         {
@@ -92684,6 +92719,11 @@
         {
           "suite": "the pure decide over a definition",
           "name": "CompileDecideDefinition_SkipPhases_EqualApplyPhaseSkipsOnEachBuiltIn",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "CompileDecideDefinition_SkipPhases_ARerouteTakesTheOutgoingRoute",
           "dynamic": false
         },
         {

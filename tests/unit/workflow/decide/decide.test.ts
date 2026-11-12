@@ -347,6 +347,53 @@ describe('the pure decide over a definition', () => {
     );
   });
 
+  /**
+   * A skip routes each incoming edge of the skipped step to each outgoing target. The new edge takes the route and the
+   * presence probe of the outgoing edge with no skip. It does not take those of the incoming edge.
+   * A feature at `plan` with a skip of `plan-review` and no exhausted revisions does not reach `blocked`.
+   */
+  it('CompileDecideDefinition_SkipPhases_ARerouteTakesTheOutgoingRoute', () => {
+    const rerouted = BUILT_IN_WORKFLOW_TYPES.flatMap((type) => {
+      const definition = builtInDefinition(type);
+      const unskipped = defOf(type);
+      return nonFinalSteps(type)
+        .filter((stepId) => stepId !== definition.entryStepId && !(type === 'debug' && stepId === 'blocked'))
+        .flatMap((stepId) =>
+          compileDecideDefinition(type, definition, [stepId])
+            .edges.filter((edge) => !unskipped.edges.some((kept) => kept.transitionId === edge.transitionId && kept.from === edge.from && kept.to === edge.to))
+            .map((edge) => {
+              const outgoing = unskipped.edges.filter((candidate) => candidate.from === stepId && candidate.to === edge.to);
+              const incoming = unskipped.edges.filter((candidate) => candidate.to === stepId && candidate.from === edge.from);
+              return {
+                reroute: `${type} skip ${stepId} ${edge.transitionId}`,
+                outgoingCount: outgoing.length,
+                incomingRouteDiffers: incoming.some((candidate) => JSON.stringify(candidate.route.node) !== JSON.stringify(edge.route.node)),
+                decide: { route: edge.route.node, presence: edge.presence?.node },
+                outgoing: { route: outgoing[0]?.route.node, presence: outgoing[0]?.presence?.node },
+              };
+            }),
+        );
+    });
+    const blocked = decide(
+      compileDecideDefinition('feature', builtInDefinition('feature'), ['plan-review']),
+      { phase: 'plan', artifacts: { plan: 'plans/plan.md' } },
+      { kind: 'transition', target: 'blocked' },
+    );
+
+    expect(rerouted).toHaveLength(58);
+    expect(rerouted.filter((row) => row.outgoingCount !== 1)).toEqual([]);
+    expect(rerouted.filter((row) => row.incomingRouteDiffers)).toHaveLength(31);
+    expect(rerouted.map((row) => ({ reroute: row.reroute, nodes: row.decide }))).toEqual(
+      rerouted.map((row) => ({ reroute: row.reroute, nodes: row.outgoing })),
+    );
+    expect(blocked).toMatchObject({
+      kind: 'deny',
+      from: 'plan',
+      edge: { transitionId: 'plan->blocked' },
+      verdict: { falseFacts: ['planReview.revisionsExhausted'] },
+    });
+  });
+
   it('PinnedExtensionOf_AKernelOnlyDefinition_GivesNone', () => {
     expect(pinnedExtensionOf(kernelOf(builtInDefinition('feature')))).toBeUndefined();
   });

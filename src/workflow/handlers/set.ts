@@ -390,6 +390,9 @@ function reply(error: NonNullable<ToolResult['error']> | Record<string, unknown>
  * Commits one admitted move. A refused move gives `CIRCUIT_OPEN` or `PHASE_BLOCKED` with its diagnostic rows, as the legacy guard does.
  * A changed read gives `reads-changed`. A fold that throws inside the commit gives `PROJECTION_REPLAY_FAILED`. Another store fault
  * gives `EVENT_APPEND_FAILED`. A digest mismatch of the operation keeps its own error.
+ *
+ * A stored claim of the same operation is the commit of another call, because the closure of this call did not run.
+ * This call wrote no row, so it gives `reads-changed`. The next pass reads the rows of the other call and replies `idempotent: true`.
  */
 async function commitMove(
   pass: FoldPassInput,
@@ -410,10 +413,12 @@ async function commitMove(
     return reply(withValidTargets({ code, message: outer.errorMessage ?? `Transition failed to '${target}'` }, def, read.from));
   }
   const key = moveKeyOf(move);
+  let closureRan = false;
   try {
     const committed = await eventStore
       .getAppender()
       .decideOnce<CommittedMove>(`transition:${featureId}:${attemptId}`, requestDigestOf(featureId, read.from, target), (tx) => {
+        closureRan = true;
         const snapshot = tx.readStream(featureId);
         const snapshotRows = migrateEvents(snapshot.events).map(workflowEventOf);
         let inner: FoldRead;
@@ -443,6 +448,7 @@ async function commitMove(
           },
         };
       });
+    if (!closureRan) return { kind: 'reads-changed' };
     return { kind: 'moved', move: committed };
   } catch (err) {
     if (err instanceof TransitionReadsChanged) return { kind: 'reads-changed' };

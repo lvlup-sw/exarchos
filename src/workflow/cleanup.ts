@@ -237,13 +237,14 @@ interface CleanupEventPayload {
  * The trail is the `state.patched` backfill when present, the HSM transition events, and the `workflow.cleanup` completion event.
  * The whole trail commits in one atomic transaction, so the stream gets the complete trail or nothing.
  * The operation id uses the retry-stable `phaseAttemptId`, so a retry of the same cleanup reuses it.
+ * It returns false when a stored claim of that operation answered the append, so this call wrote no row.
  *
  * @throws When the atomic append fails. The caller then does not write the state.
  */
 async function emitCleanupEvents(
   store: EventStore,
   payload: CleanupEventPayload,
-): Promise<void> {
+): Promise<boolean> {
   const { featureId, currentPhase } = payload;
   const trail: Array<
     Parameters<EventStore['appendTrailAtomically']>[1][number]
@@ -303,7 +304,7 @@ async function emitCleanupEvents(
     idempotencyKey: `${featureId}:cleanup:complete`,
   });
 
-  await store.appendTrailAtomically(
+  return store.appendTrailAtomically(
     featureId,
     trail,
     `cleanup:${featureId}:${payload.phaseAttemptId}`,
@@ -504,10 +505,50 @@ export async function handleCleanup(
 
   const read = await readStream(eventStore, input.featureId);
   const route = cleanupRouteOf(state, eventStore, read);
-  return withRouteWarnings(await cleanupOnRoute(input, stateDir, eventStore, stateFile, state, read, route), route);
+  const outcome = await cleanupOnRoute(input, stateDir, eventStore, stateFile, state, read, route);
+  if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
+  return cleanupAfterAClaimHit(input, stateDir, eventStore, stateFile);
 }
 
-/** Runs one cleanup on its route. The caller adds the warnings of the route. */
+/** The outcome of a cleanup whose trail operation another call committed. This call wrote no row. */
+interface TrailClaimHit {
+  readonly claimHit: true;
+}
+
+/** True when the outcome of a cleanup is a claim hit of its trail operation. */
+function isTrailClaimHit(outcome: ToolResult | TrailClaimHit): outcome is TrailClaimHit {
+  return 'claimHit' in outcome && outcome.claimHit === true;
+}
+
+/**
+ * Replies to a cleanup whose trail operation another call committed. This call wrote no row and no document.
+ * It reads the document and the rows again and runs the cleanup once more. A fold at `completed` then refuses
+ * with `ALREADY_COMPLETED`. A second claim hit refuses with `EVENT_APPEND_FAILED`.
+ */
+async function cleanupAfterAClaimHit(
+  input: CleanupInput,
+  stateDir: string,
+  eventStore: EventStore | null,
+  stateFile: string,
+): Promise<ToolResult> {
+  const state = await readStateFile(stateFile);
+  const read = await readStream(eventStore, input.featureId);
+  const route = cleanupRouteOf(state, eventStore, read);
+  const outcome = await cleanupOnRoute(input, stateDir, eventStore, stateFile, state, read, route);
+  if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
+  return {
+    success: false,
+    error: {
+      code: ErrorCode.EVENT_APPEND_FAILED,
+      message: `Another call committed the cleanup trail of '${input.featureId}', and a second read of the rows does not show the phase 'completed'`,
+    },
+  };
+}
+
+/**
+ * Runs one cleanup on its route. The caller adds the warnings of the route.
+ * On the fold route, a stored claim of the trail operation gives a claim hit, and this call writes no document.
+ */
 async function cleanupOnRoute(
   input: CleanupInput,
   stateDir: string,
@@ -516,7 +557,7 @@ async function cleanupOnRoute(
   state: WorkflowState,
   read: StreamRead,
   route: CleanupRoute,
-): Promise<ToolResult> {
+): Promise<ToolResult | TrailClaimHit> {
   const terminalPhase = route.kind === 'fold' ? route.from : state.phase;
   if (terminalPhase === 'completed') {
     return {
@@ -700,7 +741,7 @@ async function cleanupOnRoute(
 
   if (eventFirstStore !== undefined && phaseAttemptId !== undefined) {
     try {
-      await emitCleanupEvents(eventFirstStore, {
+      const landed = await emitCleanupEvents(eventFirstStore, {
         featureId: input.featureId,
         currentPhase,
         synthesis,
@@ -713,6 +754,7 @@ async function cleanupOnRoute(
         mergedBranches: input.mergedBranches,
         phaseAttemptId,
       });
+      if (route.kind === 'fold' && landed === false) return { claimHit: true };
     } catch (err) {
       return withShadowRecord({
         success: false,

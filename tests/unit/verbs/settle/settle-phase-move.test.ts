@@ -44,7 +44,7 @@ import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { builtInDefinition } from '../../../../src/workflow/definitions/built-in.js';
 import { readPhaseAttemptId } from '../../../../src/workflow/phase-attempt-id.js';
-import { configureStateStoreBackend } from '../../../../src/workflow/state-store.js';
+import { configureStateStoreBackend, levelPhaseInStateDocument } from '../../../../src/workflow/state-store.js';
 import { handleInit } from '../../../../src/workflow/tools.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { releaseCheckDefinition } from '../../../helpers/definitions/user-definition.js';
@@ -892,6 +892,55 @@ describe('settle levels the state document after a move', () => {
     expect(document.phase).toBe('review');
     expect(document.phaseAttemptId).toBe(receipt.phaseMove?.kind === 'moved' ? receipt.phaseMove.phaseAttemptId : undefined);
     expect(document._eventSequence).toBe(receipt.tailSequence);
+  });
+
+  /**
+   * The document goes back to `delegate` with the event sequence that it held before the move. A replay of the same settle
+   * levels it again: the phase is `review`, and `_eventSequence` is the tail of the receipt.
+   */
+  it('Settle_AReplay_LevelsALaggingDocument', async () => {
+    const store = await openStore();
+    const capsuleVersion = await featureBatchAtDelegate(store, { document: true });
+    const before = documentOf(store)._eventSequence;
+    expect(before).toEqual(expect.any(Number));
+    const args = { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] };
+    const first = receiptOf(await settle(store, args));
+    expect(documentOf(store).phase).toBe('review');
+    forgeDocument(store, () => ({ phase: 'delegate', _eventSequence: before }));
+    expect(documentOf(store)).toMatchObject({ phase: 'delegate', _eventSequence: before });
+
+    const replayed = receiptOf(await settle(store, args));
+
+    expect(replayed.tailSequence).toBe(first.tailSequence);
+    expect(replayed.phaseMove?.kind).toBe('moved');
+    const document = documentOf(store);
+    expect(document.phase).toBe('review');
+    expect(document._eventSequence).toBe(replayed.tailSequence);
+  });
+
+  /**
+   * A document whose `_eventSequence` is past the sequence of the level already holds the rows of the move.
+   * The level gives `current` and writes nothing: the phase, the attempt id and the version stay.
+   * The SQLite backend keys the document by the base name of the path, so the path is the stream id in the state directory.
+   */
+  it('LevelPhaseInStateDocument_ADocumentPastTheLevel_WritesNothing', async () => {
+    const store = await openStore();
+    await seedStream(store, { phase: 'delegate', tasks: [pending('task-a')], document: true });
+    forgeDocument(store, () => ({ phase: 'delegate', _eventSequence: 50 }));
+    const before = documentOf(store);
+
+    const outcome = await levelPhaseInStateDocument(path.join(store.stateDir, STREAM), {
+      phase: 'review',
+      phaseAttemptId: 'phase-attempt:a-level-that-is-behind',
+      eventSequence: 40,
+    });
+
+    expect(outcome).toEqual({ kind: 'current' });
+    const after = documentOf(store);
+    expect(after.phase).toBe('delegate');
+    expect(after.phaseAttemptId).toBe(before.phaseAttemptId);
+    expect(after._eventSequence).toBe(50);
+    expect(after._version).toBe(before._version);
   });
 
   /** A document write that fails keeps the verdict and the rows, and the call returns one `PHASE_LEVEL_FAILED` warning. */
