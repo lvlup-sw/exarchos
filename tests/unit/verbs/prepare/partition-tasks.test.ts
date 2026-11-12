@@ -6,7 +6,6 @@ import { describe, it, expect } from 'vitest';
 
 import {
   BATCH_JOIN_ID,
-  DELEGATION_STEP_ID,
   partitionDelegationBatch,
   type DelegationBatch,
 } from '../../../../src/verbs/prepare/partition-tasks.js';
@@ -16,7 +15,7 @@ function task(id: string, status: string, blockedBy: readonly string[] = []): Re
 }
 
 function batchOf(tasks: readonly unknown[]): DelegationBatch {
-  const outcome = partitionDelegationBatch(tasks);
+  const outcome = partitionDelegationBatch(tasks, 'delegate');
   expect(outcome.ok, JSON.stringify(outcome)).toBe(true);
   if (!outcome.ok) throw new Error('unreachable');
   return outcome.batch;
@@ -27,7 +26,7 @@ describe('delegation batch partition', () => {
     const batch = batchOf([task('T-1', 'complete'), task('T-2', 'pending'), task('T-3', 'in_progress')]);
     expect(batch.tasks.map((t) => t.taskId)).toEqual(['T-2', 'T-3']);
     expect(batch.requiredResults).toEqual(['T-2', 'T-3']);
-    expect(batch.tasks.every((t) => t.stepId === DELEGATION_STEP_ID)).toBe(true);
+    expect(batch.tasks.every((t) => t.stepId === 'delegate')).toBe(true);
   });
 
   it('Partition_ATaskWaitingOnPendingWork_IsLeftForALaterPreparation', () => {
@@ -47,7 +46,7 @@ describe('delegation batch partition', () => {
       task('T-1', 'pending', ['T-2']),
       task('T-2', 'pending', ['T-1']),
       task('T-3', 'complete'),
-    ]);
+    ], 'delegate');
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.refusal.code).toBe('NO_READY_TASKS');
@@ -63,7 +62,7 @@ describe('delegation batch partition', () => {
   });
 
   it('Partition_ABlockerThePlanDoesNotContain_IsRefused', () => {
-    const outcome = partitionDelegationBatch([task('T-2', 'pending', ['T-ghost'])]);
+    const outcome = partitionDelegationBatch([task('T-2', 'pending', ['T-ghost'])], 'delegate');
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.refusal.code).toBe('UNKNOWN_DEPENDENCY');
@@ -98,13 +97,13 @@ describe('delegation batch partition', () => {
    * A derived tier in its place can judge a high-risk task as medium.
    */
   it('Partition_APlannerStampOutsideItsVocabulary_IsRefused', () => {
-    const outcome = partitionDelegationBatch([{ ...task('T-1', 'pending'), riskTier: 'extreme' }]);
+    const outcome = partitionDelegationBatch([{ ...task('T-1', 'pending'), riskTier: 'extreme' }], 'delegate');
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.refusal.code).toBe('INVALID_TASK_STAMP');
       expect(outcome.refusal.message).toContain('extreme');
     }
-    const flag = partitionDelegationBatch([{ ...task('T-1', 'pending'), boundaryTouching: 'yes' }]);
+    const flag = partitionDelegationBatch([{ ...task('T-1', 'pending'), boundaryTouching: 'yes' }], 'delegate');
     expect(flag.ok).toBe(false);
     if (!flag.ok) expect(flag.refusal.code).toBe('INVALID_TASK_STAMP');
   });
@@ -116,14 +115,14 @@ describe('delegation batch partition', () => {
 
   it('Partition_NoPendingTasks_IsRefused', () => {
     for (const tasks of [[], [task('T-1', 'complete')]]) {
-      const outcome = partitionDelegationBatch(tasks);
+      const outcome = partitionDelegationBatch(tasks, 'delegate');
       expect(outcome.ok).toBe(false);
       if (!outcome.ok) expect(outcome.refusal.code).toBe('NOTHING_TO_PREPARE');
     }
   });
 
   it('Partition_ATaskIdACapsuleCannotName_IsRefused', () => {
-    const outcome = partitionDelegationBatch([task('has spaces', 'pending')]);
+    const outcome = partitionDelegationBatch([task('has spaces', 'pending')], 'delegate');
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) expect(outcome.refusal.code).toBe('INVALID_TASK_ID');
   });
@@ -133,7 +132,7 @@ describe('delegation batch partition', () => {
       task('A', 'pending'),
       task('A', 'pending', ['B']),
       task('B', 'pending', ['A']),
-    ]);
+    ], 'delegate');
     expect(outcome.ok).toBe(false);
     if (!outcome.ok) {
       expect(outcome.refusal.code).toBe('INVALID_TASK_ID');

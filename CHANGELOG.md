@@ -255,6 +255,14 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - The `describe` data must hold one of `actions`, `eventTypes` or `emissionGuide`, and no other key.
   - The economy budget of the event `describe` is now 16000 tokens, up from 12000. Thus a describe of the four actions with their larger schemas is not marked `economyDegraded`.
 
+### Added
+
+- **`prepare` compiles a user workflow definition from `.exarchos/workflows/*.json` at the checkout of `repoRoot`.** Each file is one kernel definition with an `exarchos` extension, in the format of the built-in definitions. The kernel `name` of the file is the workflow type. `prepare` reads the directory again on each call, and it reads no other directory.
+  - The format is closed. Each step is a `skill` step of the `exarchos` runtime, and each step id matches the step-id pattern of the extension, `^[a-z][a-z0-9-]*$`, with at most 256 characters. The five kernel lists are empty, and the file holds no guard id, no group and no edge effect or flag. Each condition uses only the declared facts. A `cancel` entry is the only universal entry. A later release opens a key only when a reader of that key exists.
+  - The name is kebab case, and it is not a built-in type. Two files of one type with the same content are one entry. Two files of one type with different content refuse.
+  - `prepare` refuses a type of the `workflows:` key of `exarchos.config.ts` with `WORKFLOW_TYPE_UNSUPPORTED` and the finding `config-workflow`, also when a file of the checkout declares that type. The message names `.exarchos/workflows/` as the replacement of that key, which retires in v3.0.
+  - Limit: `init` does not start a user type yet, so no workflow call starts a stream of a definition of `.exarchos/workflows/`.
+
 ### Changed
 
 - **The `query` mode of `exarchos_workflow get` now returns `{ <query>: <value> }`, not the bare value.** This is a change of behavior. A query of `phase` returns `{ "phase": "plan" }`. A path that resolves to nothing returns `{}`, because the query omits an absent key as a `fields` projection does. Thus `data` is an object in each read mode, and `exarchos wf status -q` returns the same object.
@@ -273,6 +281,8 @@ All notable changes to Exarchos are documented in this file. Organized by semver
   - A native call and a call to another MCP server carry none of the four fields, and the summary line keeps its shape. No event row changes.
 
 - **The five built-in workflows are kernel definitions under `src/workflow/definitions/`, with an `exarchos` extension.** Each file is one `WorkflowDefinitionV1` document, and its `exarchos` key holds the groups, the guard id, the route and the obligation of each edge, and the universal edges. The phase machine, the admission IR and the kernel that `prepare` pins derive from these files. No output changes: each `definitionVersion`, the `describe` topology and each transition result stay the same.
+
+- **A refactor workflow in `overhaul-delegate` now gets a capsule from `prepare`.** `prepare` compiles the task-batch step of a registered definition, which for the built-in workflows is feature `delegate` and refactor `overhaul-delegate`. This is a change of behavior. A debug, oneshot or discovery workflow, and a refactor workflow in another step, now get `PHASE_NOT_PREPARABLE`, not `WORKFLOW_TYPE_UNSUPPORTED`. The message names the finding and the compilable steps of the definition. A single-agent step, such as `debug-implement`, takes the primitive path of the delegate skill, as before. The feature capsule and its claim key do not change, so a retry returns the recorded receipt.
 
 ### Fixed
 

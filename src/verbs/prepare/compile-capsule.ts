@@ -2,8 +2,8 @@
  * Compiles one delegation batch into a capsule. The module is pure: the handler reads state, resolves the catalog, and passes in the versions and the timestamp.
  *
  * The stages run in this order:
- * - normalize: the caller lowers the built-in machine into a kernel definition. Its digest is the `definitionVersion` of the capsule.
- * - bind: the built-in authority, with the catalog invariants on top.
+ * - normalize: the caller lowers the registered definition into a kernel definition. Its digest is the `definitionVersion` of the capsule.
+ * - bind: the authority of the definition, with the catalog invariants on top.
  * - partition: the outstanding tasks of the plan, already cut into a batch.
  * - lower: the execution profile, which holds the capabilities that the calls of the plane need.
  * - validate: the published contract, then each reference against the pinned definition.
@@ -16,6 +16,7 @@ import { z } from 'zod';
 import { collectConditionRefs, resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
 import { contentDigest } from '../../contract/capsule/capsule-digest.js';
 import {
+  ExarchosCapsuleAuthorityV1Schema,
   ExarchosCapsuleV1Schema,
   type CapsuleScope,
   type ExarchosCapsuleV1,
@@ -31,10 +32,9 @@ import {
   TASKS_COMPLETE_CONDITION,
 } from '../../workflow/admission/built-in-workflow-ir.js';
 import { bindCatalogInvariants, type CatalogInvariant } from './bind-authority.js';
-import { builtInWorkflowAuthority } from './built-in-authority.js';
 import { designVersionId } from './design-version.js';
-import type { LoweredBuiltInDefinition } from './lower-definition.js';
-import { DELEGATION_STEP_ID, type BatchTaskVerification, type DelegationBatch } from './partition-tasks.js';
+import type { LoweredDefinition } from './lower-definition.js';
+import type { BatchTaskVerification, DelegationBatch } from './partition-tasks.js';
 import type { PrepareRefusal } from './types.js';
 
 /**
@@ -178,7 +178,7 @@ export interface ScopePin {
 export interface CompileCapsuleInput {
   readonly workflowId: string;
   readonly capsuleVersion: number;
-  readonly lowered: LoweredBuiltInDefinition;
+  readonly lowered: LoweredDefinition;
   readonly batch: DelegationBatch;
   readonly catalogInvariants: readonly CatalogInvariant[];
   /** The workflow's design artifact reference, when it records one. */
@@ -423,7 +423,8 @@ function designChangeStatements(
 /**
  * Compiles one delegation batch, or refuses it.
  * The completion predicate is the task-completion condition, parsed through the capsule condition schema, so the declares block matches the node the capsule carries.
- * The steps that follow the batch in the pinned definition become non-goals.
+ * The steps that follow the steps of the batch tasks in the pinned definition become non-goals, in kernel order.
+ * The capsule binds the authority of the pinned definition, and the compilation is refused when the capsule schema refuses that authority.
  * The identity carries the id of the design version, which is the revision counter of the stream.
  * The settlement contract freezes the terms of each task with its base commit, so settlement does not read them from the claim.
  *
@@ -435,7 +436,22 @@ function designChangeStatements(
 export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOutcome {
   const { workflowId, capsuleVersion, lowered, batch, designRef, pin } = input;
 
-  const authority = bindCatalogInvariants(builtInWorkflowAuthority(), input.catalogInvariants);
+  const definitionAuthority = ExarchosCapsuleAuthorityV1Schema.safeParse(lowered.definition.authority);
+  if (!definitionAuthority.success) {
+    return {
+      ok: false,
+      refusal: {
+        code: 'CAPSULE_UNSOUND',
+        message:
+          `the authority of the '${lowered.workflowType}' definition does not satisfy the published capsule contract ` +
+          '(finding: authority): ' +
+          definitionAuthority.error.issues
+            .map((issue) => `${['authority', ...issue.path.map(String)].join('.')}: ${issue.message}`)
+            .join('; '),
+      },
+    };
+  }
+  const authority = bindCatalogInvariants(definitionAuthority.data, input.catalogInvariants);
 
   const condition = EdgeConditionNodeSchema.parse(TASKS_COMPLETE_CONDITION.node);
   const facts: { ref: string; at: string }[] = [];
@@ -447,10 +463,11 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
     if (type !== undefined) declaredFields[fact.ref] = type;
   }
 
+  const batchSteps = new Set(batch.tasks.map((task) => task.stepId));
   const downstream = [
     ...new Set(
       lowered.definition.transitions
-        .filter((t) => t.fromStepId === DELEGATION_STEP_ID && t.toStepId !== DELEGATION_STEP_ID)
+        .filter((t) => batchSteps.has(t.fromStepId) && !batchSteps.has(t.toStepId))
         .map((t) => t.toStepId),
     ),
   ];

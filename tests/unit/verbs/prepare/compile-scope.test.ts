@@ -42,7 +42,7 @@ function unpinnedInput(): CompileCapsuleInput {
   const partition = partitionDelegationBatch([
     { id: 'T-1', title: 'first', status: 'pending', blockedBy: [], riskTier: 'high', boundaryTouching: true },
     { id: 'T-2', title: 'second', status: 'pending', blockedBy: [] },
-  ]);
+  ], 'delegate');
   if (!partition.ok) throw new Error(partition.refusal.message);
   return {
     workflowId: 'feat-compile-scope',

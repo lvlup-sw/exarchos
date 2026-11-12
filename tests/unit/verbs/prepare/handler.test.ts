@@ -1210,7 +1210,7 @@ describe('prepare — the compilation endpoint', () => {
 
     it('Prepare_AWorkflowTypeWithoutADelegationBatch_IsRefused', async () => {
       await store.append(STREAM, { type: 'workflow.started', data: { featureId: STREAM, workflowType: 'debug' } });
-      await expectRefused(await prepare({ featureId: STREAM }), 'WORKFLOW_TYPE_UNSUPPORTED');
+      await expectRefused(await prepare({ featureId: STREAM }), 'PHASE_NOT_PREPARABLE');
     });
 
     it('Prepare_AFeatureNotYetDelegating_IsRefused', async () => {

@@ -8,7 +8,7 @@
  *
  * Every refusal occurs before any effect. The workflow must name the branch that its tasks fork from.
  * The caller names the repository with an absolute `repoRoot`, and the capsule pins it with the commit of the base.
- * The config, the catalogs and the design record come from the checkout of that repository.
+ * The config, the catalogs, the design record and each user workflow definition come from the checkout of that repository.
  *
  * The claim key is the digest of the compilation inputs, so a retry returns the recorded capsule. The inputs include the base,
  * its commit, the scope, the verification profile, the design version, a readable design record and the compiler name.
@@ -57,14 +57,16 @@ import {
   type AcceptedDesignChange,
   type CompileCapsuleInput,
 } from './compile-capsule.js';
+import { resolveDefinition } from './definition-registry.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
-import { lowerBuiltInDefinition } from './lower-definition.js';
-import { DELEGATION_STEP_ID, partitionDelegationBatch } from './partition-tasks.js';
+import { lowerDefinition } from './lower-definition.js';
+import { partitionDelegationBatch } from './partition-tasks.js';
 import {
   configDigestAt,
   designRecordDigestAt,
   GIT_SCOPE,
   loadCheckoutConfig,
+  locateCheckout,
   observeScope,
   otherRepositoryRefusal,
   readRepoRoot,
@@ -75,10 +77,8 @@ import {
 } from './prepare-scope.js';
 import { commitPreparedCapsule } from './prepared-record.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
+import { compilableSteps, locateStep, type StepFindingRule } from './step-locator.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
-
-/** The workflow type whose delegation batch this compiler knows how to compile. */
-const PREPARABLE_WORKFLOW_TYPE = 'feature';
 
 /** The runbook that settlement composes for each accepted task. Its leaf needs are the batch needs. */
 const SETTLEMENT_SEGMENT_INTENT = 'task-completion';
@@ -445,6 +445,40 @@ function catalogOf(deps: PrepareDeps, input: CheckoutCatalogInput): CatalogOutco
 }
 
 /**
+ * The custom types of the `workflows:` key of the server config. The registry refuses each of them before it reads a file or runs git.
+ * This in-memory read is the one read of server state in prepare. It can only refuse, and no input of the claim key comes from it.
+ */
+function configWorkflowTypesOf(ctx: DispatchContext): readonly string[] {
+  return Object.keys(ctx.config?.workflows ?? {});
+}
+
+/**
+ * The refusal for a phase that is not a task-batch step of the definition. The message names the phase and the finding.
+ * It names the compilable steps, or it says that the definition has none. A single-agent step also names the primitive path.
+ */
+function stepRefusal(
+  streamId: string,
+  workflowType: string,
+  phase: string | undefined,
+  rule: StepFindingRule,
+  compilable: readonly string[],
+): PrepareRefusal {
+  const steps =
+    compilable.length > 0
+      ? `prepare compiles the steps ${compilable.map((stepId) => `'${stepId}'`).join(', ')} of that definition. ` +
+        'Transition to one of them, then prepare again.'
+      : `The '${workflowType}' definition has no task-batch step, so prepare compiles no step of it.`;
+  const primitive =
+    rule === 'single-agent-step' ? ' A single-agent step takes the primitive path of the delegate skill.' : '';
+  return {
+    code: 'PHASE_NOT_PREPARABLE',
+    message:
+      `'${streamId}' is in phase '${phase ?? 'unknown'}', which is not a task-batch step of the '${workflowType}' ` +
+      `definition (finding: ${rule}). ${steps}${primitive}`,
+  };
+}
+
+/**
  * Compiles the delegation batch of a workflow into a capsule and records it.
  *
  * The handler reads the stream before it folds the state. The stream tail is
@@ -482,29 +516,28 @@ export async function handlePrepare(
   if ('error' in resolved) return resolved.error;
   const { state } = resolved;
 
-  const workflowType = typeof state.workflowType === 'string' ? state.workflowType : undefined;
-  const lowered = workflowType === PREPARABLE_WORKFLOW_TYPE ? lowerBuiltInDefinition(workflowType) : undefined;
-  if (workflowType === undefined || lowered === undefined) {
-    return refused({
-      code: 'WORKFLOW_TYPE_UNSUPPORTED',
-      message:
-        `prepare compiles the delegation batch of a ${PREPARABLE_WORKFLOW_TYPE} workflow, and ` +
-        `'${streamId}' is ${workflowType === undefined ? 'untyped' : `a ${workflowType} workflow`}`,
-    });
-  }
+  const git = deps.scopeGit ?? GIT_SCOPE;
+  const resolution = await resolveDefinition({
+    streamId,
+    workflowType: typeof state.workflowType === 'string' ? state.workflowType : undefined,
+    locateCheckout: () => locateCheckout(repoRoot, git),
+    configWorkflowTypes: configWorkflowTypesOf(ctx),
+  });
+  if (!resolution.ok) return refused(resolution.refusal);
+  const { registered, located } = resolution;
+  const { workflowType } = registered;
 
   const phase = typeof state.phase === 'string' ? state.phase : undefined;
-  if (phase !== DELEGATION_STEP_ID) {
-    return refused({
-      code: 'PHASE_NOT_PREPARABLE',
-      message:
-        `'${streamId}' is in phase '${phase ?? 'unknown'}'; its work is batched for delegation ` +
-        `only in '${DELEGATION_STEP_ID}'`,
-    });
+  const location = phase === undefined ? undefined : locateStep(registered.definition, phase);
+  if (location === undefined || !location.ok) {
+    const rule = location?.rule ?? 'not-a-step';
+    const compilable = location?.compilable ?? compilableSteps(registered.definition);
+    return refused(stepRefusal(streamId, workflowType, phase, rule, compilable));
   }
+  const lowered = lowerDefinition(workflowType, registered.definition);
 
   const plan: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
-  const partition = partitionDelegationBatch(plan);
+  const partition = partitionDelegationBatch(plan, location.step.stepId);
   if (!partition.ok) return refused(partition.refusal);
   const { batch, completedBlockers } = partition;
 
@@ -536,7 +569,8 @@ export async function handlePrepare(
     baseRef,
     completedBlockers,
     rows: events,
-    git: deps.scopeGit ?? GIT_SCOPE,
+    git,
+    ...(located !== undefined ? { located } : {}),
   });
   if (!observed.ok) return refused(observed.refusal);
   const { checkout, repository, baseCommit } = observed.observed;
@@ -545,7 +579,7 @@ export async function handlePrepare(
   const { projectConfig, outcome } = loaded.config;
   const verificationProfile = resolveVerificationProfile(checkout, { loadConfig: () => outcome });
 
-  const catalog = catalogOf(deps, { checkout, config: loaded.config, phase, workflowType });
+  const catalog = catalogOf(deps, { checkout, config: loaded.config, phase: location.step.stepId, workflowType });
   if (!catalog.ok) return refused(catalog.refusal);
   const catalogInvariants = catalog.invariants;
 
