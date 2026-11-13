@@ -1,6 +1,6 @@
 /** Runs one real combined handler winner while its parent pauses at an actual claim miss. */
 import path from 'node:path';
-import { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, renameSync, writeFileSync } from 'node:fs';
 
 import { EventStore } from '../../../src/events/store.ts';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.ts';
@@ -28,7 +28,9 @@ async function queryCapturedSnapshot(...args) {
   if (!captured && args[0] === featureId) {
     captured = true;
     const state = foldWorkflowState(rows);
-    writeFileSync(path.join(stateDir, 'claim-ready.json'), JSON.stringify({ phase: state.phase, predecessor: state.phaseAttemptId }));
+    const readyTemp = path.join(stateDir, 'claim-ready.tmp');
+    writeFileSync(readyTemp, JSON.stringify({ phase: state.phase, predecessor: state.phaseAttemptId }));
+    renameSync(readyTemp, path.join(stateDir, 'claim-ready.json'));
     const deadline = Date.now() + 10000;
     while (!existsSync(path.join(stateDir, 'claim-go'))) {
       if (Date.now() >= deadline) throw new Error('Timed out waiting for parent claim miss');
