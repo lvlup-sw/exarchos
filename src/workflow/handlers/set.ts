@@ -372,6 +372,7 @@ interface FoldPassInput {
   readonly eventStore: EventStore;
   readonly state: WorkflowState;
   readonly authority?: PreparedAuthority;
+  readonly pendingPatchError?: StateStoreError;
 }
 
 /**
@@ -399,6 +400,11 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
     replayRead = read;
     const replay = await replayClaim(pass, read);
     if (replay !== undefined) return replay;
+    if (pass.pendingPatchError !== undefined) {
+      const winner = await replayClaim(pass, read);
+      if (winner !== undefined) return winner;
+      return reply({ code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${pass.pendingPatchError.message}` });
+    }
     const selection = selectPreparedAuthority(rows, featureId);
     if (selection !== undefined) authority = await loadPreparedCustody(selection, eventStore.bundleStore);
     const definition = authority?.pinnedDefinition;
@@ -409,6 +415,8 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
     if (authority !== undefined && definition === undefined
       && routeOf({ ...pass.state, workflowType: authority.selection.record.workflowType }, eventStore,
         rows.filter(row => row.type !== 'workflow.prepared')).kind === 'legacy') {
+      const winner = await replayClaim(pass, read);
+      if (winner !== undefined) return winner;
       return { kind: 'legacy', authority };
     }
     if (definition === undefined && !isBuiltInDefinitionType(workflowType)) {
@@ -477,7 +485,7 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
 }
 
 /** Replays an actual held operation claim without validating its patch as a new write. */
-async function replayClaim(pass: FoldPassInput, read: FoldRead): Promise<FoldPass | undefined> {
+async function replayClaim(pass: FoldPassInput, read: Pick<FoldRead, 'from' | 'attemptId'>): Promise<FoldPass | undefined> {
   if (read.attemptId === undefined) return undefined;
   const appender = pass.eventStore.getAppender();
   const operationId = `transition:${pass.featureId}:${read.attemptId}`;
@@ -544,7 +552,8 @@ async function commitMove(
         } catch (err) {
           throw new TransitionFoldFailed(messageOf(err));
         }
-        if (innerOutcome.kind !== 'admit' || inner.from !== read.from || moveKeyOf(innerOutcome.move) !== key) {
+        if (innerOutcome.kind !== 'admit' || inner.from !== read.from || inner.foldAttemptId !== read.foldAttemptId
+          || (read.foldAttemptId === undefined && inner.version !== read.version) || moveKeyOf(innerOutcome.move) !== key) {
           throw new TransitionReadsChanged(featureId, target);
         }
         const result = phaseMoveEvents(def, inner.input, innerOutcome.move, floorOf(inner, target));
@@ -711,8 +720,9 @@ export async function handleSet(
     const expectedVersion = state._version ?? 1;
 
     let mutableState: Record<string, unknown> = structuredClone(state);
+    let pendingPatchError: StateStoreError | undefined;
 
-    if (input.updates) {
+    if (input.updates && committed === undefined) {
       try {
         for (const [dotPath, value] of Object.entries(input.updates)) {
           applyDotPath(mutableState, dotPath, value);
@@ -728,7 +738,8 @@ export async function handleSet(
             },
           };
         }
-        throw err;
+        if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT && input.phase && eventStore) pendingPatchError = err;
+        else throw err;
       }
     }
 
@@ -767,6 +778,8 @@ export async function handleSet(
       if (rowsError !== undefined && committed === undefined) return { success: false,
         error: { code: ErrorCode.PROJECTION_REPLAY_FAILED, message: `The transition stream could not be read: ${messageOf(rowsError)}` } };
       const route = routeOf(state, eventStore, rows);
+      if (route.kind === 'legacy' && pendingPatchError !== undefined) return { success: false,
+        error: { code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${pendingPatchError.message}` } };
       ledgerBacked = route.kind === 'fold';
       routeWarnings = route.kind === 'legacy' ? route.warnings : [];
       const fromPhase = state.phase;
@@ -825,6 +838,7 @@ export async function handleSet(
           updates: patchSequence === undefined ? input.updates : undefined,
           state,
           workflowType: route.workflowType,
+          ...(pendingPatchError === undefined ? {} : { pendingPatchError }),
           rows,
           options,
           eventStore,
@@ -864,6 +878,16 @@ export async function handleSet(
       }
       if (committed === undefined && (route.kind === 'legacy' || legacyAuthority !== undefined)) {
         let attemptResult;
+        const replayLegacyWinner = async (): Promise<boolean> => {
+          if (legacyAuthority === undefined || eventStore === null || rows === undefined || committed !== undefined) return false;
+          const winner = await replayClaim({ featureId: input.featureId, target: input.phase!, updates: input.updates,
+            workflowType: legacyAuthority.selection.record.workflowType, rows, options, eventStore, state },
+          { from: fromPhase, attemptId: transitionPhaseAttemptId });
+          if (winner?.kind !== 'reads-changed') return false;
+          replayed = true;
+          patchSequence = winner.patchSequence ?? patchSequence;
+          return true;
+        };
         try {
           attemptResult = await hsmTransitionGuard.attempt(
             input.featureId,
@@ -901,6 +925,7 @@ export async function handleSet(
                           throw new TransitionReadsChanged(input.featureId, input.phase!);
                         }
                       }
+                      projectLegacyDocument(state, snapshotRows, input.featureId);
                       const patch = pendingPatchRow(input.featureId, input.updates, snapshotRows);
                       projectLegacyDocument(state, patch ? [...snapshotRows, patch] : snapshotRows, input.featureId);
                       const events = [...(patch ? [patch] : []), ...trail].map(row => stampFromAmbient({
@@ -919,6 +944,8 @@ export async function handleSet(
             },
           );
         } catch (err) {
+          if (err instanceof OperationDigestMismatchError) throw err;
+          if (await replayLegacyWinner()) continue;
           if (err instanceof TransitionReadsChanged) { transitionPhaseAttemptId = undefined; continue; }
           if (err instanceof OperationDigestMismatchError) throw err;
           return withShadowRecord({
@@ -930,7 +957,7 @@ export async function handleSet(
           }, shadowRun, stateDir, routeWarnings);
         }
 
-        if (replayed) continue;
+        if (replayed || await replayLegacyWinner()) continue;
         if (!attemptResult.ok) {
           if (attemptResult.reason === 'no-transition-defined') {
             return withShadowRecord({
@@ -1050,6 +1077,7 @@ export async function handleSet(
             if (ledgerBacked || legacyAuthority !== undefined) {
               try {
                 if (legacyNoStart) {
+                  projectLegacyDocument(state, rows, input.featureId);
                   const pending = pendingPatchRow(input.featureId, input.updates, rows);
                   projectLegacyDocument(state, pending ? [...rows, pending] : rows, input.featureId);
                 } else validatePatchCandidate(state, rows, input.featureId, input.updates);

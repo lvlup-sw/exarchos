@@ -7,8 +7,8 @@
     "testFiles": 1467,
     "parsedFiles": 1422,
     "shellFiles": 45,
-    "cases": 16189,
-    "dynamicTitles": 250,
+    "cases": 16200,
+    "dynamicTitles": 254,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -93414,6 +93414,61 @@
         {
           "suite": "legacy kernel replay boundaries",
           "name": "KernelNoStart_MalformedPresentStartNeverUsesLegacyRepair",
+          "dynamic": false
+        },
+        {
+          "suite": "scratch patch replay precedence",
+          "name": "Claim_IndexedContainerChangedBeforePreflight_DifferentPayload_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "scratch patch replay precedence",
+          "name": "<dynamic-case-16>",
+          "dynamic": true
+        },
+        {
+          "suite": "scratch patch replay precedence",
+          "name": "Claim_IndexedContainerErrorWithoutClaim_RefusesNoWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "KernelNoStart_OneAheadCursorCannotHidePendingPatch_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "<dynamic-case-17>",
+          "dynamic": true
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "PinnedAuthority_IndependentConnectionReplacement_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "<dynamic-case-18>",
+          "dynamic": true
+        },
+        {
+          "suite": "commit coordinate and cursor fences",
+          "name": "PinnedAuthority_SamePhaseAfterRealCycleUsesNewPredecessor",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy custody await replay",
+          "name": "KernelClaim_WinnerDuringSuccessfulCustody_DifferentPayload_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy custody await replay",
+          "name": "<dynamic-case-19>",
+          "dynamic": true
+        },
+        {
+          "suite": "legacy custody await replay",
+          "name": "KernelNoStart_LaterCountedRowKeepsSnapshotCursorAcrossRepair",
           "dynamic": false
         }
       ]
