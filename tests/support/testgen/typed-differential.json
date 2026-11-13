@@ -1,0 +1,26 @@
+{
+  "contractVersion": 2,
+  "framework": "vitest",
+  "frameworkVersion": "3.2.7",
+  "target": {
+    "path": "tests/unit/testgen/generated-text-differential.test.ts",
+    "bindingModule": "tests/support/testgen/text-binding.ts"
+  },
+  "propertyRef": "authority/text-canonicalization",
+  "assumptions": [
+    "CRLF and CR normalize to LF. Trailing LF characters are removed. Other characters retain their order."
+  ],
+  "domain": {
+    "kind": "string",
+    "alphabet": "aé😀\r\n",
+    "minLength": 0,
+    "maxLength": 24
+  },
+  "cases": [
+    "",
+    "a\r\na",
+    "a\ra",
+    "a\n\n",
+    "é😀\r"
+  ]
+}

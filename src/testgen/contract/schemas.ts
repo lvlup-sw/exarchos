@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { typedSuccess } from './typed.js';
+import { binding, tunit, tsPath, frameworkVersions } from './targets.js';
+export { frameworkSelection, frameworkVersions } from './targets.js';
 
-const identifier = z.string().max(100).regex(/^[A-Za-z_][A-Za-z0-9_]*(?![\s\S])/);
-const binding = z.string().max(200).regex(/^(?:[A-Za-z_][A-Za-z0-9_]*\.)+[A-Za-z_][A-Za-z0-9_]*(?![\s\S])/);
 const ticks = z.string().max(20).regex(/^(?:0|-?[1-9][0-9]{0,18})(?![\s\S])/).refine(
   (value) => {
     if (!/^(?:0|-?[1-9][0-9]{0,18})(?![\s\S])/.test(value)) return false;
@@ -11,25 +12,6 @@ const ticks = z.string().max(20).regex(/^(?:0|-?[1-9][0-9]{0,18})(?![\s\S])/).re
   'Expected a signed 64-bit decimal integer.',
 );
 const vector = z.array(ticks).min(1).max(8);
-export const frameworkVersions = { tunit: '1.2.11', vitest: '3.2.7' } as const;
-export const frameworkSelection = z.object({
-  framework: z.string().min(1).max(50),
-  frameworkVersion: z.string().min(1).max(50),
-});
-const tunit = {
-  framework: z.literal('tunit'),
-  frameworkVersion: z.literal(frameworkVersions.tunit),
-  target: z.strictObject({
-    project: z.string().max(240).regex(/^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.csproj(?![\s\S])/)
-      .refine((path) => path.split('/').every((part) => !part.endsWith('.')), 'Use portable path segments.'),
-    path: z.string().max(240).regex(/^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.cs(?![\s\S])/)
-      .refine((path) => path.split('/').every((part) => !part.endsWith('.')), 'Use portable path segments.'),
-    namespace: z.string().max(200).regex(/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*(?![\s\S])/),
-    className: identifier,
-    observe: binding,
-    precondition: binding,
-  }),
-};
 const common = {
   propertyRef: z.string().min(1).max(250),
   assumptions: z.array(z.string().min(1).max(400)).max(20),
@@ -38,9 +20,6 @@ const common = {
 };
 
 const tunitProperty = z.strictObject({ ...common, ...tunit, predicate: binding });
-const tsPath = z.string().max(240)
-  .regex(/^(?:[A-Za-z0-9_][A-Za-z0-9_.-]*\/)*[A-Za-z0-9_][A-Za-z0-9_.-]*\.ts(?![\s\S])/)
-  .refine((path) => path.split('/').every((part) => !part.endsWith('.')), 'Use portable path segments.');
 const vitestInput = z.strictObject({
   ...common,
   framework: z.literal('vitest'),
@@ -66,7 +45,7 @@ export const errors = {
   INTERNAL_ERROR: 1,
 } as const;
 
-export const resultSchema = z.discriminatedUnion('ok', [
+const legacyResultSchema = z.discriminatedUnion('ok', [
   z.strictObject({
     ok: z.literal(true),
     contractVersion: z.literal(1),
@@ -90,5 +69,7 @@ export const resultSchema = z.discriminatedUnion('ok', [
   }),
 ]);
 
+export const resultSchema = z.union([legacyResultSchema, typedSuccess]);
+
 export type GenerationResult = z.infer<typeof resultSchema>;
-export type Success = Extract<GenerationResult, { ok: true }>;
+export type Success = Extract<z.infer<typeof legacyResultSchema>, { ok: true }>;

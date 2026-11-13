@@ -85,7 +85,7 @@ internal static class Binding
     ['generate_metamorphic_tests', 'Case_1', { transform: 'Smoke.Binding.Advance', relation: 'Smoke.Binding.Advances' }],
   ]) {
     const [metadata] = testgen(['describe', operation]).operations;
-    const schemas = metadata.inputSchema.oneOf ?? [metadata.inputSchema];
+    const schemas = (metadata.inputSchema.anyOf ?? [metadata.inputSchema]).flatMap((schema) => schema.oneOf ?? [schema]);
     const supported = schemas.find(({ properties }) => properties.framework.const === request.framework);
     assert.ok(supported, `Describe must advertise ${request.framework} for ${operation}.`);
     assert.equal(supported.properties.frameworkVersion.const, request.frameworkVersion);
