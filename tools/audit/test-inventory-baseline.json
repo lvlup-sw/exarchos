@@ -28172,7 +28172,7 @@
         },
         {
           "suite": "WorkflowStartedData",
-          "name": "should reject unregistered workflow type",
+          "name": "StoredWorkflowType_ColdDecodeAcceptsButWriterAdmissionRefuses",
           "dynamic": false
         },
         {

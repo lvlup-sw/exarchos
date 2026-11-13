@@ -6,7 +6,8 @@ import { fc } from '@fast-check/vitest';
 import { mkdtemp, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { z } from 'zod';
 import { WorkflowEventBase, WorkflowStartedData, WorkflowStartedV11Data, EVENT_DATA_SCHEMAS } from '../../../src/events/schemas.js';
 import { recordedInitialPhaseOf, validateEventData, validateEventRowData } from '../../../src/events/event-validation.js';
@@ -44,14 +45,14 @@ beforeEach(async () => { dir = await mkdtemp(path.join(tmpdir(), 'versioned-star
 afterEach(async () => { unextendWorkflowTypeEnum('constructor'); unregisterWorkflowType('constructor'); await rmrfAsync(dir); });
 
 describe('versioned start contract', () => {
-  it('Decode_ColdUserType_AndLegacyConstructor_AcceptsWithoutRegistration', () => {
+  it('Decode_ColdUserType_AndLegacyConstructor_AcceptsWithoutRegistration', async () => {
     const code = `import { WorkflowStartedData } from './src/events/schemas.ts';
       import { WorkflowStateSchema } from './src/workflow/schemas.ts';
       for (const name of ['historical-user','constructor']) {
         WorkflowStartedData.parse({featureId:'cold-user',workflowType:name});
         WorkflowStateSchema.parse({featureId:'cold-user',workflowType:name,phase:'entry',createdAt:'2026-01-01T00:00:00.000Z',updatedAt:'2026-01-01T00:00:00.000Z',artifacts:{design:null,plan:null,pr:null},tasks:[],worktrees:{},reviews:{},synthesis:{integrationBranch:null,mergeOrder:[],mergedBranches:[],prUrl:null,prFeedback:[]}});
       }`;
-    expect(() => execFileSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', code], {cwd:process.cwd()})).not.toThrow();
+    await expect(promisify(execFile)(process.execPath, ['--import', 'tsx', '--input-type=module', '-e', code], {cwd:process.cwd()})).resolves.toBeDefined();
     expect(InitInputSchema.safeParse(startData).success).toBe(false);
   });
 
