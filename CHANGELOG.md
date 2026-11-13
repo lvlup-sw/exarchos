@@ -6,8 +6,9 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Operator notes
 
-- Ledger-backed transition, settlement, cancellation and cleanup paths synchronize complete current ledger effects into the state document. Retries preserve newer moves and operational fields. Combined updates validate before the phase transaction. File writers serialize version checks with publication.
+- Ledger-backed transition, settlement, cancellation and cleanup paths synchronize complete current ledger effects into the state document. Retries preserve newer moves and operational fields. Combined updates validate before the phase transaction. File writers serialize version checks with publication and allocate each successor from the committed readable object. A stale unconditional writer cannot reuse a saved reader token. Missing or corrupt targets retain the declared fallback. This file guarantee is within one process.
 - Ledger-backed built-in cancellation refuses unreadable or completed ledgers before compensation. Final cancellation and cleanup validate their source inside the append transaction. Cleanup preserves folded evidence and uses precise backfill paths. A completed cleanup still requires explicit transition recovery for a lagging document.
+- Built-in ledger cancellation selects worktrees, tasks and synthesis from the full workflow projection for both dry-run and actual compensation. Whole-container replacement excludes stale document resources and preserves operational fields. Legacy routes keep document resources. This initial snapshot does not lock resources during effects, rerun completed saga actions or repair earlier cancellations.
 
 - The guard-input preview now runs the pure move emitter after admission and applies frozen gate floors to both sides. Circuit-limit refusals stay denied.
 - A capped settlement reply preserves complete admitted targets in edge order, with an omitted count. If target-field overhead cannot fit, the summary states that detail is omitted. The bundle and settlement event do not recover omitted phase targets. Stored receipts and schemas do not change.
