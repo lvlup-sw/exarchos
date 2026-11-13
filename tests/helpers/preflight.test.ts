@@ -75,7 +75,7 @@ describe('assertExarchosVersion', () => {
     const stub = async () => '2.8.3';
     let caught: unknown;
     try {
-      await assertExarchosVersion({ resolveVersion: stub });
+      await assertExarchosVersion({ resolveVersion: stub, expectedMajorMinor: '2.12' });
     } catch (err) {
       caught = err;
     }
@@ -88,7 +88,7 @@ describe('assertExarchosVersion', () => {
   it('AssertExarchosVersion_MatchingMajorMinor_DoesNotThrow', async () => {
     const stub = async () => '2.12.7';
     await expect(
-      assertExarchosVersion({ resolveVersion: stub }),
+      assertExarchosVersion({ resolveVersion: stub, expectedMajorMinor: '2.12' }),
     ).resolves.toBeUndefined();
   });
 
@@ -96,7 +96,7 @@ describe('assertExarchosVersion', () => {
   it('AssertExarchosVersion_PrereleaseSuffix_DoesNotThrow', async () => {
     const stub = async () => '2.12.0-rc.3';
     await expect(
-      assertExarchosVersion({ resolveVersion: stub }),
+      assertExarchosVersion({ resolveVersion: stub, expectedMajorMinor: '2.12' }),
     ).resolves.toBeUndefined();
   });
 });

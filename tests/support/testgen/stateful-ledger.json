@@ -1,0 +1,100 @@
+{
+  "contractVersion": 2,
+  "framework": "vitest",
+  "frameworkVersion": "3.2.7",
+  "target": {
+    "path": "tests/unit/testgen/generated-replay-ledger.test.ts",
+    "bindingModule": "tests/support/testgen/replay-ledger-binding.ts"
+  },
+  "propertyRef": "contract/replay-ledger-claim-lifecycle",
+  "assumptions": [
+    "First claim executes once. Identical subject and digest replay the stored result. Subject and payload conflicts execute no work and expose no stored result."
+  ],
+  "operations": [
+    {
+      "name": "claim",
+      "domain": {
+        "kind": "record",
+        "fields": {
+          "key": {
+            "kind": "enum",
+            "values": [
+              "a",
+              "b"
+            ]
+          },
+          "subject": {
+            "kind": "enum",
+            "values": [
+              "s1",
+              "s2"
+            ]
+          },
+          "digest": {
+            "kind": "enum",
+            "values": [
+              "d1",
+              "d2"
+            ]
+          },
+          "value": {
+            "kind": "enum",
+            "values": [
+              "red",
+              "blue"
+            ]
+          }
+        }
+      }
+    }
+  ],
+  "histories": [
+    [
+      {
+        "operation": "claim",
+        "args": {
+          "key": "a",
+          "subject": "s1",
+          "digest": "d1",
+          "value": "red"
+        }
+      },
+      {
+        "operation": "claim",
+        "args": {
+          "key": "a",
+          "subject": "s1",
+          "digest": "d1",
+          "value": "blue"
+        }
+      },
+      {
+        "operation": "claim",
+        "args": {
+          "key": "a",
+          "subject": "s2",
+          "digest": "d1",
+          "value": "red"
+        }
+      },
+      {
+        "operation": "claim",
+        "args": {
+          "key": "a",
+          "subject": "s1",
+          "digest": "d2",
+          "value": "red"
+        }
+      }
+    ]
+  ],
+  "generation": {
+    "seed": 2192,
+    "count": 8,
+    "maxSteps": 16,
+    "maxAttempts": 16
+  },
+  "reduction": {
+    "maxAttempts": 64
+  }
+}

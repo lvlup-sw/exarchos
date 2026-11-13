@@ -22,7 +22,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
  * The version of the release tag for this tree. `sync-versions.sh` does not write this constant.
  * On each version bump, update it together with `package.json` and create the `v<version>` git tag.
  */
-const PREVIEW_VERSION = '2.12.1';
+const PREVIEW_VERSION = '2.14.0';
 
 const readJson = (rel: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(repoRoot, rel), 'utf-8')) as Record<string, unknown>;

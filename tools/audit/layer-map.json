@@ -4,10 +4,10 @@
   "source": "src",
   "authority": "This file maps first-level src/ directories onto the published L1-L9 targets. Nested layer ids (adapters/cli, adapters/mcp) are named by LAYER_ALLOWED_IMPORTS and resolved by longest declared prefix; they are not first-level map keys. docs/system-design.html is orientation prose, not the nameability of those nested ids.",
   "counts": {
-    "directories": 25,
-    "mapped": 23,
+    "directories": 26,
+    "mapped": 24,
     "exceptions": 2,
-    "targets": 11,
+    "targets": 12,
     "publishedLayers": 9
   },
   "publishedLayers": {
@@ -68,7 +68,8 @@
     }
   },
   "nonLayerPeers": {
-    "install": "Declared non-layer peer. It installs and packages the engine rather than sitting in its call graph, so it is a sibling of L1-L9, not a tenth layer."
+    "install": "Declared non-layer peer. It installs and packages the engine rather than sitting in its call graph, so it is a sibling of L1-L9, not a tenth layer.",
+    "testgen": "Independent generation product with a bounded SDK seam and its own entry points."
   },
   "splitNote": "L5 (Dispatch core) is the one layer served by two target directories: `contract` (what may be called, and its authority) and `dispatch` (the single function that calls it). They are split because the contract is asserted independently of the dispatcher that honours it.",
   "directories": {
@@ -196,6 +197,12 @@
       "target": "lifecycle",
       "layer": "L7",
       "reason": "Outbox and sync handler are lifecycle-shaped generic windows, not workflow primitives."
+    },
+    "testgen": {
+      "disposition": "mapped",
+      "target": "testgen",
+      "layer": null,
+      "reason": "Standalone test generation with an independent dispatch path and no workflow or store imports."
     },
     "utils": {
       "disposition": "exception",

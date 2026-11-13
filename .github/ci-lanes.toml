@@ -57,6 +57,28 @@ paths = [
   ".bun-version",
 ]
 
+[lanes.testgen]
+workflows = ["ci.yml"]
+description = "Installed testgen command and native TUnit and Vitest checks"
+paths = [
+  "src/testgen/**",
+  "src/architecture/**",
+  "src/contract/sdk/**",
+  "tests/unit/testgen/**",
+  "tests/architecture/**",
+  "tests/support/testgen/**",
+  "content/review/skills/test-campaign/**",
+  "tools/release/codegen-testgen.ts",
+  "tools/release/testgen-*.mjs",
+  "package.json",
+  "package-lock.json",
+  ".bun-version",
+  ".npmrc",
+  ".github/ci-lanes.toml",
+  ".github/workflows/ci.yml",
+  ".github/workflows/release.yml",
+]
+
 # Always-on jobs that CI Gate still aggregates. `**` keeps the lane true on
 # virtually every PR (including README.md / docs) so a skip cannot hide a
 # failure of grep-gates, outcome-tests or e2e-process.
@@ -67,9 +89,25 @@ paths = ["**"]
 
 [gates.ci-gate]
 workflow = "ci.yml"
-jobs = { test-root = "root", test-windows-root = "root", test-mcp = "mcp", grep-gates = "always", outcome-tests = "always", e2e-process = "always" }
+jobs = { test-root = "root", test-windows-root = "root", test-mcp = "mcp", grep-gates = "always", outcome-tests = "always", e2e-process = "always", testgen = "testgen" }
 
 [[fixtures]]
 name = "docs-only"
 files = ["README.md"]
-expect = { root = false, mcp = false, always = true }
+expect = { root = false, mcp = false, testgen = false, always = true }
+
+
+[[fixtures]]
+name = "testgen-source"
+files = ["src/testgen/contract/schemas.ts"]
+expect = { root = true, mcp = true, testgen = true, always = true }
+
+[[fixtures]]
+name = "testgen-native-smoke-helper"
+files = ["tools/release/testgen-native-smoke.mjs"]
+expect = { root = true, mcp = true, testgen = true, always = true }
+
+[[fixtures]]
+name = "testgen-mcp-smoke-helper"
+files = ["tools/release/testgen-mcp-smoke.mjs"]
+expect = { root = true, mcp = true, testgen = true, always = true }

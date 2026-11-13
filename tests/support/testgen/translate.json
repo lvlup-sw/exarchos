@@ -1,0 +1,76 @@
+{
+  "framework": "tunit",
+  "frameworkVersion": "1.2.11",
+  "target": {
+    "namespace": "Bifrost.Tests.Scheduling",
+    "observe": "Bifrost.Tests.Scheduling.CoalesceBinding.Observe",
+    "precondition": "Bifrost.Tests.Scheduling.CoalesceBinding.IsValid",
+    "className": "TestgenCoalesceTranslate",
+    "path": "src/Bifrost.Tests.Scheduling/TestgenCoalesceTranslate.cs",
+    "project": "src/Bifrost.Tests.Scheduling/Bifrost.Tests.Scheduling.csproj"
+  },
+  "assumptions": [
+    "Positive interval with zero jitter. Last fire and now are UTC ticks.",
+    "At least one occurrence is due. Now plus one interval is representable."
+  ],
+  "transform": "Bifrost.Tests.Scheduling.CoalesceBinding.Translate",
+  "relation": "Bifrost.Tests.Scheduling.CoalesceBinding.Translates",
+  "propertyRef": "coalesce/time-translation",
+  "cases": [
+    [
+      "639299087400000000",
+      "639299088000000000",
+      "600000000"
+    ],
+    [
+      "639299028600000000",
+      "639299088000000000",
+      "600000000"
+    ],
+    [
+      "639299028000000000",
+      "639299088000000000",
+      "600000000"
+    ],
+    [
+      "639299027400000000",
+      "639299088000000000",
+      "600000000"
+    ],
+    [
+      "639299026800000000",
+      "639299088000000000",
+      "600000000"
+    ],
+    [
+      "639298998000000000",
+      "639299088000000000",
+      "600000000"
+    ],
+    [
+      "639298788000000000",
+      "639299088000000000",
+      "600000000"
+    ],
+    [
+      "0",
+      "1",
+      "1"
+    ],
+    [
+      "0",
+      "304",
+      "3"
+    ],
+    [
+      "3155378975999999695",
+      "3155378975999999996",
+      "3"
+    ],
+    [
+      "639299027400000000",
+      "639299088599999999",
+      "600000000"
+    ]
+  ]
+}

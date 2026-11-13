@@ -1252,6 +1252,49 @@ jobs:
       - name: Run outcome-tier suite
         run: npm run test:outcome
 
+  testgen:
+    name: Testgen (${{ matrix.os }})
+    needs: plan
+    if: ${{ !cancelled() && (needs.plan.result != 'success' || fromJSON(needs.plan.outputs.lanes).testgen != 'false') }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-15-intel, macos-15, windows-2025]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '20'
+          cache: npm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: .bun-version
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
+      - run: npm ci --ignore-scripts
+      - run: bun tools/release/codegen-testgen.ts --check
+      - run: npm run build:testgen
+      - run: npm run testgen:smoke
+      - name: Run generated tests against Exarchos bindings
+        shell: bash
+        run: |
+          set -euo pipefail
+          for entry in property:vitest-property metamorphic:vitest-metamorphic property:typed-property metamorphic:typed-metamorphic differential:typed-differential stateful:stateful-ledger; do
+            kind=${entry%%:*}
+            request="tests/support/testgen/${entry#*:}.json"
+            target=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).target.path' "$request")
+            test ! -e "$target"
+            trap 'rm -f "$target"' EXIT
+            node dist/testgen-cli.js "generate_${kind}_tests" --input "$request" | git apply
+            npm exec --no -- vitest run "$target"
+            rm "$target"
+          done
+
   # Always-on jobs (grep-gates, outcome-tests, e2e-process) are targeted on lane
   # `always` (paths: ** ) so this required check still aggregates them. binary-matrix,
   # startup-budget and test-windows are untargeted and non-blocking. They run on non-PR
@@ -1261,7 +1304,7 @@ jobs:
     name: CI Gate
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    needs: [plan, test-root, test-mcp, test-windows-root, grep-gates, outcome-tests, e2e-process]
+    needs: [plan, test-root, test-mcp, test-windows-root, grep-gates, outcome-tests, e2e-process, testgen]
     if: ${{ !cancelled() }}
     steps:
       # The verdict reads `.github/ci-lanes.toml` from the checkout. Without this step the

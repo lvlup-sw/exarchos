@@ -12,6 +12,8 @@
     ".": {
       "entry": [
         "src/index.ts",
+        "src/testgen/entry-cli.ts",
+        "src/testgen/entry-mcp.ts",
         "src/install/build-skills.ts",
         "src/install/install-skills.ts",
         "src/install/skills-guard.ts",
@@ -34,7 +36,9 @@
         "src/contract/ir/admission-ir-schema-cli.ts",
         "src/contract/capsule/exarchos-capsule-schema-cli.ts",
         "tests/evals/native-baseline/emit-baseline-csv.ts",
-        "tests/core/integration/suite-invariants/regenerate-baseline.ts"
+        "tests/core/integration/suite-invariants/regenerate-baseline.ts",
+        "tests/support/testgen/*-binding.ts",
+        "tests/support/testgen/native/*.ts"
       ],
       "project": [
         "src/**/*.ts",

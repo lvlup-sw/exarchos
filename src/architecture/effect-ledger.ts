@@ -709,6 +709,7 @@ function registerLedger(): readonly EffectOwnershipRule[] {
     ),
 
     rule('filesystem', 'index.ts', 'server-entry-fs', 'startup read-only', 'none'),
+    rule('filesystem', 'testgen/adapters/cli.ts', 'testgen-request-fs', 'read-only request file', 'none'),
     rule(
       'filesystem',
       'storage/artifacts/',

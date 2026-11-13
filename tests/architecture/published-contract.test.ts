@@ -18,11 +18,11 @@ const REPO_ROOT = resolve(__dirname, '../../');
 /**
  * The `files[]` entries that `npm run build` writes and `prepare` (tsc) does
  * not. A checkout that ran only `prepare` lacks them. `dist/bin` comes from
- * `build:binary`, and `dist/release-verify.js` from `build:release-verifier`.
+ * `build:binary`. The release verifier and testgen have their own build steps.
  * `tests/scripts/installer-verify.test.ts` runs that script in a sandbox, so
  * it leaves no file in the checkout.
  */
-const BUILD_ONLY_ENTRIES: readonly string[] = ['dist/bin', 'dist/release-verify.js'];
+const BUILD_ONLY_ENTRIES: readonly string[] = ['dist/bin', 'dist/release-verify.js', 'dist/testgen-cli.js', 'dist/testgen-mcp.js'];
 
 const readJson = (rel: string): Record<string, unknown> =>
   JSON.parse(readFileSync(join(REPO_ROOT, rel), 'utf8')) as Record<string, unknown>;
