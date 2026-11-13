@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1465,
-    "parsedFiles": 1420,
+    "testFiles": 1467,
+    "parsedFiles": 1422,
     "shellFiles": 45,
-    "cases": 16126,
-    "dynamicTitles": 240,
+    "cases": 16155,
+    "dynamicTitles": 244,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -93921,6 +93921,163 @@
           "suite": "prepared bundle compatibility",
           "name": "<dynamic-case-1>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/workflow/capsule/prepared-custody.test.ts": {
+      "file": "tests/unit/workflow/capsule/prepared-custody.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepared custody",
+          "name": "Legacy_NamedAndLatestUtilities_KeepSkippedMalformedRows",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Legacy_MissingReference_IsUndefined_AndMissingBlobThrows",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_WholePlanExceedsFrontier_AndReferenceIsMetadata",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_MissingTypedRecord_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_DuplicateDesignSource_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Authority_LaterMissingMarker_RefusesDowngrade_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Authority_HighestSequenceWins_AndMalformedLatestRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Authority_RecheckIsPure_AndTracksPreparedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_RowIdentityMismatch_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_StreamAndEnvelopeMismatch_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_InvalidWholeTextOrGraph_Refuses_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_FullDefinitionAndSourceDigest_RefusesDamage",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_LegacyAbsentSkipsAndPinnedEmptySkipsRemainDistinct",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_OrderedRepeatedAndUnknownSkipsRemainExact",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_InvalidEntryOrFinalSkip_Refuses_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_KernelOnlyLegacyRemainsUnsupported_AndNewPinCannotDisappear",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_MarkerAndSourceCannotHideChangedRawText",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Custody_UserDefinitionUsesItsStoredType",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared custody",
+          "name": "Authority_NamedLegacyPrefix_RemainsSeparateFromLatestTypedAuthority",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepared-plan-authority.test.ts": {
+      "file": "tests/integration/prepared-plan-authority.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepared plan authority",
+          "name": "Membership_ProjectDeletesPendingTask_KeepsIt",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Membership_LastFailureRow_Wins",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Membership_GeneratedDocumentEdits_DoNotChangeMembershipOrCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Membership_ProseEditRetainsCompletionByExactId",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Custody_LoadOutsideCommit_ThenPureRecheckAndCurrentCompletion",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared plan authority",
+          "name": "Custody_MissingOrCorruptBytes_NeverFallback",
+          "dynamic": false
         }
       ]
     }

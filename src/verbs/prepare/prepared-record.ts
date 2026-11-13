@@ -12,7 +12,7 @@ import {
   type WorkflowDefinitionV1,
 } from '@lvlup-sw/strategos-contracts';
 
-import { capsuleDigest, contentDigest } from '../../contract/capsule/capsule-digest.js';
+import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import {
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
@@ -32,7 +32,10 @@ import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/type
 import type { PreparedCapsuleReceipt, PreparedRecompile } from './types.js';
 
 export { PREPARED_BUNDLE_KIND, PREPARED_BUNDLE_VERSION, PreparedBundleV1Schema, encodePreparedBundle, decodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
-import { PREPARED_BUNDLE_KIND, encodePreparedBundle, decodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
+import { PREPARED_BUNDLE_KIND, encodePreparedBundle } from '../../contract/capsule/prepared-bundle.js';
+
+export { capsuleOfRecord } from '../../workflow/capsule/prepared-custody.js';
+import { capsuleOfRecord } from '../../workflow/capsule/prepared-custody.js';
 
 /** The payload version `workflow.prepared` rows are stamped with. */
 export const WORKFLOW_PREPARED_SCHEMA_VERSION = '1.0';
@@ -221,37 +224,6 @@ export function latestPreparedRecordOf(
     if (parsed.success) return { record: parsed.data, sequence: row.sequence };
   }
   return undefined;
-}
-
-/**
- * Reads the capsule and the definition of one prepared record back from custody: the bundle read, the decode and the two digest checks.
- * It returns `undefined` for a record that names no bundle.
- * It throws when the blob is absent or the read fails, when the bytes do not decode, and when they do not match their record.
- * A capsule that names a definition digest other than the definition in its bundle also throws.
- * A caller that reads a record from its own stream read calls this function, and decides what a throw means.
- */
-export async function capsuleOfRecord(
-  record: WorkflowPrepared,
-  bundleStore: RunBundleStore,
-): Promise<PreparedBundleV1 | undefined> {
-  const ref = record.bundleRefs[0];
-  if (ref === undefined) return undefined;
-  const decoded = decodePreparedBundle(await bundleStore.resolve(ref.digest));
-  const actual = capsuleDigest(decoded.capsule);
-  if (actual !== record.capsuleDigest) {
-    throw new Error(
-      `the prepared capsule v${record.capsuleVersion} on '${record.workflowId}' is in custody under a digest its ` +
-        `record did not pin (record ${record.capsuleDigest}, bytes ${actual})`,
-    );
-  }
-  const definitionDigest = contentDigest(decoded.definition);
-  if (definitionDigest !== decoded.capsule.identity.definitionVersion) {
-    throw new Error(
-      `the prepared capsule v${record.capsuleVersion} on '${record.workflowId}' names definition ` +
-        `${decoded.capsule.identity.definitionVersion} and its bundle carries ${definitionDigest}`,
-    );
-  }
-  return decoded;
 }
 
 /**

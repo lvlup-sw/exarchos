@@ -22,6 +22,8 @@ export interface GuardInputOptions {
    * Without it, no config goes into the input. A caller with no handler options passes `{}`, because the handler injects the default review gates.
    */
   readonly config?: GuardConfigOptions;
+  /** Validated plan membership replaces projected tasks before status, config and cleanup folds. */
+  readonly authoritativeTasks?: readonly { readonly id: string }[];
   /** The cleanup evidence verdict of a state. With this option, the input gets `_cleanup.mergeVerified` from the verdict on that input. */
   readonly cleanupEvidence?: (state: GuardInput) => boolean;
   /** Underscore fields that the input gets as given, after each other step. They replace a field of the same name. */
@@ -53,7 +55,7 @@ export function foldWorkflowState(rows: readonly WorkflowEvent[]): WorkflowState
  * Returns the status that the rows give each task id. The rows apply in stream order, so the last completion or failure row of a task wins.
  * A row with no task id names no task, as in the projection.
  */
-function rowStatusByTask(rows: readonly WorkflowEvent[]): ReadonlyMap<string, string> {
+export function rowStatusByTask(rows: readonly WorkflowEvent[]): ReadonlyMap<string, string> {
   const statuses = new Map<string, string>();
   for (const row of rows) {
     const status = ROW_STATUS.get(row.type);
@@ -106,7 +108,7 @@ function applySharedSteps(state: Record<string, unknown>, options: GuardInputOpt
  */
 export function foldGuardInput(rows: readonly WorkflowEvent[], options: GuardInputOptions = {}): GuardInput {
   const state: Record<string, unknown> = { ...foldWorkflowState(rows) };
-  state.tasks = overlayTaskStatus(state.tasks, rowStatusByTask(rows));
+  state.tasks = overlayTaskStatus(options.authoritativeTasks ?? state.tasks, rowStatusByTask(rows));
   state._events = toGuardEvents(rows);
   applySharedSteps(state, options);
   return state;
