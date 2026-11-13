@@ -18,7 +18,7 @@ packet:
   id: exarchos-semantic-plane
   version: 2
   as_of: 2026-11-13
-  main_at: b4b680dbb
+  main_at: 4e6576158edeb290a71067185f6c2c051ed7608f
   owner_issue: 1875            # the decision record and build-order log
   roadmap_issue: 1599
   epic_issue: 1856
@@ -705,6 +705,13 @@ decisions:
     known: Three independent plan refuters survived and four plan gates passed. The existing race file passed all ten cases. Typecheck, comments and lint passed. The clean committed task suite passed 17764 tests with zero failures and 57 skips, including all 29 process tests under the shared lock and branch binary. Three post-build lenses accepted the delta using prior whole-slice evidence and current risk-path checks. No baseline-red or mutation experiment is claimed. Two prior LOW findings remain open.
     status: Prepared once as capsule 19, digest 47e818ec631e0daaa0b83cd52c72570e9836fa8ad83c175a016a09f7b50f0b4f. Batch s5-t19-final settled once, accepted-with-rationale, no findings, verified, tail 519 and no qualifiers. Task landed on codex/s5-shepherd. New exact-head final G and Stage B remain pending. PR2194 remains open. No live disposition, binary swap, docs push or tracker post.
 
+
+  - date: 2026-11-13
+    source: "S5 merge #2194, CodeRabbit approval 5892624027, final G and Stage B5 at a0a63ff4b0f7cf518a089237e63debf990817b5e"
+    decision: "S5 merged at 4e6576158edeb290a71067185f6c2c051ed7608f. The approved Codex coordinator completed T13 through T19 with one prepare and one executed settlement per task. T17 retained its pre-execution rejected schema request. All task and failure receipts remain preserved."
+    known: "Final G passed 17764 tests with zero failures and 57 skips, including all 29 process tests with the exact branch binary under the shared lock. All 62 executable grep gates and static, render, description, census and date checks passed. Stage B5 passed. The fresh post-merge read-only backup audit compared 64 active and 7 terminal workflows: 19 active disagreements, 3 unknown phases and 1 active fold error. Preview: 60 no-effect, 3 newly-denied and 1 newly-admitted. Source metadata and copy bytes stayed unchanged. The audit remains unclean and is not post-disposition proof. Two prior LOW findings remain open."
+    status: "PR #2194 merged. The isolated coordinator cleanup completed. This entry supersedes earlier pending reports without changing their historical evidence. No live-store disposition, live workflow cleanup, installed binary swap, docs push or tracker post occurred. Reed retains those live operations. S6 follows this records PR; #1928 still gates S8."
+
 build_order:
   original: "kernel -> capsule contract -> prepare/settle -> one runtime adapter -> divergence loop -> #1249 laws -> second adapter"
   legs:
@@ -737,7 +744,7 @@ build_order:
       status: "decided"
       refs: "#1928 (every Git/PR write; related #1884, #1835)"
     - leg: "conformance: workflow-scoped capsule (definitions first; whole workflow per capsule; settlement carries phase; next_actions, playbooks, state document retire)"
-      status: "in progress in twelve slices (decisions of 2026-11-05). The four minor pull requests landed first: #2182, #2183 (with #2184), #2180 and #2181. S1 'the baseline' is done (pull request #2185, merge commit e3995630f). S2 is done (pull request #2186, merge commit f275601e4). S3 'any registered definition compiles' is done (pull request #2188, merge commit f4b3484fa). S4 'one guard input, in shadow' is done (pull request #2189, merge commit b3c6085be). S5 'settlement moves the phase' is built on feat/settlement-moves-the-phase, and its pull request is open. S6 to S12 are not started. T-19 revision 14 is accepted and locally landed through 18a4e3ab3, with task suite 17764 passed, zero failed and 57 skipped. Three review lenses accept. New exact-head final G and Stage B remain pending."
+      status: "in progress in twelve slices (decisions of 2026-11-05). The four minor pull requests landed first: #2182, #2183 (with #2184), #2180 and #2181. S1 'the baseline' is done (pull request #2185, merge commit e3995630f). S2 is done (pull request #2186, merge commit f275601e4). S3 'any registered definition compiles' is done (pull request #2188, merge commit f4b3484fa). S4 'one guard input, in shadow' is done (pull request #2189, merge commit b3c6085be). S5 'settlement moves the phase' is done (pull request #2194, merge commit 4e6576158edeb290a71067185f6c2c051ed7608f). Revision 14 final G passed 17764 tests with zero failures and 57 skips, all 29 process tests and 62 executable grep gates. Three review lenses and Stage B5 passed. S6 to S12 are not started. Live dispositions and installed-binary swap remain Reed's pending operations."
       slices: "S1 the baseline (#1687): the replay of a settled feature stream, the mixed-history golden and the observed counter; S2 the definitions are the source (#1253 wave 1); S3 any registered definition compiles (#1251, #1252); S4 one guard input, in shadow; S5 settlement moves the phase; S6 the plan is a compile input (#1657, #1999); S7 every task in one capsule; S8 the critic and the synthesis boundary (#1976, #1928), with re-judgement and the primitive-sequence comparison, moved from S5; S9 every built-in compiles; S10 the skills speak prepare and settle (#1687, #2034, #1829), with the static call census for each workflow and the protocol-term census, which moved from S1 on 2026-11-06; S11 the forgeable routes close; S12 the phase machine is deleted (#1253, #1251, #1258)"
       refs: "#1927 (vehicle #1253; #1258, #1248, #1250, #1251, #1254)"
     - leg: "conformance: knowledge binding C2 (interim repo-local binder; DKG hot path)"
