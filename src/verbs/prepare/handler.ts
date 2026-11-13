@@ -23,7 +23,7 @@
 
 import { ZodError } from 'zod';
 
-import { contentDigest } from '../../contract/capsule/capsule-digest.js';
+import { capsuleDigest, contentDigest } from '../../contract/capsule/capsule-digest.js';
 import { CapsuleBaseRefSchema } from '../../contract/capsule/exarchos-capsule.js';
 import { requestDigest as canonicalRequestDigest } from '../../contract/request-context.js';
 import type { ResolvedProjectConfig } from '../../config/resolve.js';
@@ -36,12 +36,18 @@ import { OperationDigestMismatchError } from '../../events/atomic-appender.js';
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { ConcurrencyError } from '../../events/concurrency-error.js';
-import { DesignRevisedData, type DesignRevised } from '../../events/schemas.js';
+import { validateEventRowData } from '../../events/event-validation.js';
+import { DesignRevisedData, WorkflowStartedData, type DesignRevised, type WorkflowEvent } from '../../events/schemas.js';
+import { foldWorkflowState, rowStatusByTask } from '../../projections/guard-input/fold.js';
 import type { ToolResult } from '../../format.js';
 import { findActionInRegistry } from '../../registry.js';
 import { ALL_RUNBOOKS } from '../../runbooks/definitions.js';
 import { ContentAddressedStoreError } from '../../storage/artifacts/content-addressed-store.js';
 import { capabilityNeedSatisfied } from '../../workflow/capabilities/resolver.js';
+import { loadPreparedCustody, selectPreparedAuthority, type PreparedAuthoritySelection } from '../../workflow/capsule/prepared-custody.js';
+import { compileDecideDefinition } from '../../workflow/decide/edges.js';
+import type { DesignRecordSnapshot } from '../../workflow/design-record/schema.js';
+import { validateDesignRecord } from '../../workflow/design-record/validate.js';
 import { VERIFICATION_GATE_NAMES } from '../../workflow/verification-policy.js';
 import { resolveVerificationPolicy } from '../../workflow/verification-policy-resolver.js';
 import { resolveGateSeverity } from '../gates/gate-severity.js';
@@ -59,17 +65,19 @@ import {
 } from './compile-capsule.js';
 import { resolveDefinition } from './definition-registry.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from './design-version.js';
-import { partitionDelegationBatch } from './partition-tasks.js';
+import { PrepareIntentSchema, type CompileIntent } from './intent.js';
+import { partitionDelegationBatch, typedPlanTasks } from './partition-tasks.js';
 import { pinDefinition } from './pin-definition.js';
 import {
   configDigestAt,
-  designRecordDigestAt,
+  legacyDesignAt,
   GIT_SCOPE,
   loadCheckoutConfig,
   locateCheckout,
   observeScope,
   otherRepositoryRefusal,
   readRepoRoot,
+  readTypedDesignAt,
   resolveCheckoutCatalog,
   staticAnalysisRefusal,
   type CheckoutCatalogInput,
@@ -136,7 +144,7 @@ function invalid(message: string): ToolResult {
 }
 
 function refused(refusal: PrepareRefusal): ToolResult {
-  return { success: false, error: { code: refusal.code, message: refusal.message } };
+  return { success: false, error: { ...refusal } };
 }
 
 function receiptResult(receipt: PreparedCapsuleReceipt): ToolResult {
@@ -350,9 +358,8 @@ const SET_INTEGRATION_BRANCH =
  */
 function resolveBaseRef(
   streamId: string,
-  state: Record<string, unknown>,
+  branch: unknown,
 ): { readonly ok: true; readonly baseRef: string } | { readonly ok: false; readonly refusal: PrepareRefusal } {
-  const branch = isRecord(state.synthesis) ? state.synthesis.integrationBranch : undefined;
   if (typeof branch !== 'string' || branch.trim().length === 0) {
     return {
       ok: false,
@@ -377,6 +384,120 @@ function resolveBaseRef(
     };
   }
   return { ok: true, baseRef: branch };
+}
+
+/** Read the original start. Patches and projected defaults do not give a stream its type. */
+function startedTypeOf(rows: readonly WorkflowEvent[], streamId: string): string | undefined {
+  const start = rows.find((row) => row.type === 'workflow.started');
+  if (start === undefined) return undefined;
+  validateEventRowData(start);
+  const parsed = WorkflowStartedData.safeParse(start.data);
+  return parsed.success && parsed.data.featureId === streamId ? parsed.data.workflowType : undefined;
+}
+
+/** Return a common base only when the capsule gives each task the same ref. */
+function capsuleBaseOf(capsule: PreparedCapsuleReceipt['capsule']): string | undefined {
+  const refs = new Set(Object.values(capsule.settlementContract.taskVerification ?? {}).map((task) => task.baseRef));
+  return refs.size === 1 ? refs.values().next().value : undefined;
+}
+
+/** Validate claim and commit receipts before accepting them as a result or a replay hint. */
+function matchesReceipt(receipt: PreparedCapsuleReceipt, streamId: string, operationId: string): boolean {
+  const identity = receipt?.capsule?.identity;
+  return identity !== undefined && receipt.operationId === operationId
+    && receipt.streamId === streamId && receipt.workflowId === streamId && identity.workflowId === streamId
+    && receipt.capsuleVersion === identity.capsuleVersion && receipt.definitionVersion === identity.definitionVersion
+    && receipt.capsuleDigest === capsuleDigest(receipt.capsule);
+}
+
+function claimMismatch(): ToolResult {
+  return { success: false, error: { code: 'OPERATION_DIGEST_MISMATCH', message: 'The stored claim has different compile inputs.' } };
+}
+
+/** The latest accepted claim can supply the base for replay before the custody read. */
+function claimedBaseOf(ctx: DispatchContext, selection: PreparedAuthoritySelection): string | undefined {
+  const { record, streamId, sequence } = selection;
+  const claim = ctx.eventStore.getAppender().ensureSqliteBackendSync()
+    .lookupOperationClaim<PreparedCapsuleReceipt>(record.operationId);
+  const receipt = claim?.result;
+  if (claim === undefined || receipt === undefined || claim.streamId !== streamId
+    || claim.requestDigest !== record.requestDigest || !claim.sequences.includes(sequence)
+    || !matchesReceipt(receipt, streamId, record.operationId) || receipt.tailSequence !== sequence
+    || receipt.capsuleVersion !== record.capsuleVersion || receipt.definitionVersion !== record.definitionVersion
+    || receipt.capsuleDigest !== record.capsuleDigest || receipt.capsule.provenance.compilerVersion !== record.compilerVersion) {
+    return undefined;
+  }
+  return capsuleBaseOf(receipt.capsule);
+}
+
+/**
+ * Fold lifecycle rows and the recorded branch. Other state patches do not supply typed compile inputs.
+ */
+function compileStateOf(rows: readonly WorkflowEvent[]) {
+  const inputs = rows.flatMap((row): WorkflowEvent[] => {
+    if (row.type !== 'state.patched') return [row];
+    const patch = row.data?.patch;
+    if (!isRecord(patch)) return [];
+    const entries = Object.entries(patch).filter(([key]) => key === 'synthesis' || key === 'synthesis.integrationBranch');
+    if (entries.length === 0) return [];
+    return [{ ...row, data: { patch: Object.fromEntries(entries) } }];
+  });
+  return foldWorkflowState(inputs);
+}
+
+function branchOf(state: Record<string, unknown>): unknown {
+  return isRecord(state.synthesis) ? state.synthesis.integrationBranch : undefined;
+}
+
+function preparedAuthorityRefusal(error: unknown): ToolResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return refused({ code: 'PREPARED_AUTHORITY_INVALID', message: `Cannot read the latest prepared authority. ${message}` });
+}
+
+function unsoundRecord(message: string): PrepareRefusal {
+  return {
+    code: 'PLAN_UNSOUND',
+    message,
+    planFindings: [{
+      code: 'INVALID_DESIGN_RECORD',
+      taskIds: [],
+      requirementIds: [],
+      span: { start: 0, end: 0, startLine: 1, endLine: 1 },
+      message,
+    }],
+  };
+}
+
+type ApprovedDesign =
+  | { readonly ok: true; readonly snapshot: DesignRecordSnapshot }
+  | { readonly ok: false; readonly refusal: PrepareRefusal };
+
+/** Use the approved capture for soundness, frontier, provenance and custody. */
+async function approvedDesignAt(checkout: string, intent: CompileIntent): Promise<ApprovedDesign> {
+  const read = await readTypedDesignAt(checkout, intent.designRef);
+  if (read.kind !== 'typed') {
+    return { ok: false, refusal: unsoundRecord(read.kind === 'invalid' ? read.message : 'The design record needs a typed plan.') };
+  }
+  if (read.snapshot.digest !== intent.approval.designDigest) {
+    return { ok: false, refusal: { code: 'DESIGN_APPROVAL_MISMATCH', message: 'The design file differs from the approved bytes.' } };
+  }
+  try {
+    const validation = validateDesignRecord(read.snapshot);
+    if (!validation.passed) {
+      return {
+        ok: false,
+        refusal: {
+          code: 'PLAN_UNSOUND',
+          message: 'The typed plan has whole-plan findings.',
+          planFindings: validation.findings,
+        },
+      };
+    }
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, refusal: { code: 'INTERNAL_ERROR', message: `Cannot validate the typed plan. ${message}` } };
+  }
+  return { ok: true, snapshot: read.snapshot };
 }
 
 /** The artifact keys that can name the design of record, in the order that prepare reads them. */
@@ -504,6 +625,12 @@ export async function handlePrepare(
   const root = readRepoRoot(raw);
   if (!root.ok) return invalid(root.message);
   const { repoRoot } = root;
+  const parsedIntent = PrepareIntentSchema.optional().safeParse(raw.intent);
+  if (!parsedIntent.success) return invalid(parsedIntent.error.message);
+  const intent = parsedIntent.data;
+  if (intent?.mode === 'bootstrap') {
+    return refused({ code: 'BOOTSTRAP_UNSUPPORTED', message: 'Prepare bootstrap is unavailable in this build.' });
+  }
 
   const events = await ctx.eventStore.query(streamId);
   if (events.length === 0) {
@@ -512,14 +639,53 @@ export async function handlePrepare(
   const tail = events[events.length - 1]?.sequence ?? 0;
   const capsuleVersion = events.filter((event) => event.type === 'workflow.prepared').length + 1;
 
-  const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: ctx.eventStore });
-  if ('error' in resolved) return resolved.error;
-  const { state } = resolved;
+  let authority: PreparedAuthoritySelection | undefined;
+  if (intent !== undefined || events.some((row) => row.type === 'workflow.prepared' && Object.hasOwn(row.data ?? {}, 'planRecordDigest'))) {
+    try {
+      authority = selectPreparedAuthority(events, streamId);
+    } catch (error) {
+      return preparedAuthorityRefusal(error);
+    }
+    if (intent === undefined) {
+      return refused({ code: 'PREPARE_INTENT_REQUIRED', message: 'This stream requires an approved compile intent.' });
+    }
+  }
+
+  let state: Record<string, unknown>;
+  let recordedType: string | undefined;
+  if (intent !== undefined) {
+    try {
+      recordedType = startedTypeOf(events, streamId);
+      state = { ...compileStateOf(events) };
+    } catch (error) {
+      return preparedAuthorityRefusal(error);
+    }
+    if (recordedType === undefined) {
+      return refused({ code: 'WORKFLOW_NOT_FOUND', message: `No valid start is recorded for '${streamId}'.` });
+    }
+    if (intent.workflowType !== undefined && intent.workflowType !== recordedType) {
+      return invalid(`The compile intent names '${intent.workflowType}', but the workflow started as '${recordedType}'.`);
+    }
+    if (intent.refactor !== undefined && recordedType !== 'refactor') {
+      return invalid('Refactor terms require the refactor workflow type.');
+    }
+    if (recordedType === 'refactor' && intent.refactor === undefined) {
+      return invalid('Refactor compile requires overhaul terms.');
+    }
+    if (authority !== undefined && authority.record.workflowType !== recordedType) {
+      return preparedAuthorityRefusal(new Error('The latest prepared workflow type differs from the start.'));
+    }
+  } else {
+    const resolved = await resolveWorkflowState({ featureId: streamId, eventStore: ctx.eventStore });
+    if ('error' in resolved) return resolved.error;
+    state = resolved.state;
+    recordedType = typeof state.workflowType === 'string' ? state.workflowType : undefined;
+  }
 
   const git = deps.scopeGit ?? GIT_SCOPE;
   const resolution = await resolveDefinition({
     streamId,
-    workflowType: typeof state.workflowType === 'string' ? state.workflowType : undefined,
+    workflowType: recordedType,
     locateCheckout: () => locateCheckout(repoRoot, git),
     configWorkflowTypes: configWorkflowTypesOf(ctx),
   });
@@ -536,12 +702,51 @@ export async function handlePrepare(
   }
   const lowered = pinDefinition(workflowType, registered.definition);
 
-  const plan: readonly unknown[] = Array.isArray(state.tasks) ? state.tasks : [];
+  let checkoutLocation = located;
+  let snapshot: DesignRecordSnapshot | undefined;
+  if (intent !== undefined) {
+    if (checkoutLocation === undefined) {
+      const checkoutResult = await locateCheckout(repoRoot, git);
+      if (!checkoutResult.ok) return refused(checkoutResult.refusal);
+      checkoutLocation = checkoutResult.located;
+    }
+    const approved = await approvedDesignAt(checkoutLocation.toplevel, intent);
+    if (!approved.ok) return refused(approved.refusal);
+    snapshot = approved.snapshot;
+  }
+  const plan: readonly unknown[] = snapshot !== undefined
+    ? typedPlanTasks(snapshot, rowStatusByTask(events))
+    : Array.isArray(state.tasks) ? state.tasks : [];
   const partition = partitionDelegationBatch(plan, location.step.stepId);
   if (!partition.ok) return refused(partition.refusal);
   const { batch, completedBlockers } = partition;
 
-  const base = resolveBaseRef(streamId, state);
+  const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
+  let checkedPin: Awaited<ReturnType<typeof loadPreparedCustody>> | undefined;
+  let branch = branchOf(state);
+  if (intent !== undefined) {
+    if (authority !== undefined && (authority.kind === 'typed' || branch == null)) {
+      let pinnedBase: string | undefined;
+      try {
+        pinnedBase = claimedBaseOf(ctx, authority);
+        if (pinnedBase === undefined) {
+          checkedPin = await loadPreparedCustody(authority, bundles);
+          pinnedBase = capsuleBaseOf(checkedPin.capsule);
+        }
+      } catch (error) {
+        return preparedAuthorityRefusal(error);
+      }
+      if (pinnedBase === undefined && authority.kind === 'typed') {
+        return preparedAuthorityRefusal(new Error('The typed capsule needs one common base ref.'));
+      }
+      branch = pinnedBase ?? branch;
+    }
+    if (branch != null && intent.baseRef !== undefined && intent.baseRef !== branch) {
+      return refused({ code: 'BASE_UNRESOLVED', message: 'The compile intent base differs from the recorded base.' });
+    }
+    branch ??= intent.baseRef;
+  }
+  const base = resolveBaseRef(streamId, branch);
   if (!base.ok) return refused(base.refusal);
   const { baseRef } = base;
 
@@ -570,7 +775,7 @@ export async function handlePrepare(
     completedBlockers,
     rows: events,
     git,
-    ...(located !== undefined ? { located } : {}),
+    ...(checkoutLocation !== undefined ? { located: checkoutLocation } : {}),
   });
   if (!observed.ok) return refused(observed.refusal);
   const { checkout, repository, baseCommit } = observed.observed;
@@ -590,11 +795,25 @@ export async function handlePrepare(
   );
 
   const scope = { repository, checkout, configDigest: await configDigestAt(checkout) };
-  const designRef = resolveDesignRef(state);
-  const designRecordDigest = await designRecordDigestAt(checkout, designRef);
+  const designRef = snapshot === undefined ? resolveDesignRef(state) : snapshot.reference;
+  const legacyDesign = snapshot === undefined ? await legacyDesignAt(checkout, designRef) : undefined;
+  if (legacyDesign?.read.kind === 'typed') {
+    return refused({ code: 'PREPARE_INTENT_REQUIRED', message: 'The typed design record requires an approved compile intent.' });
+  }
+  if (legacyDesign?.read.kind === 'invalid') return refused(unsoundRecord(legacyDesign.read.message));
+  const designRecordDigest = snapshot?.digest ?? legacyDesign?.digest;
   const designVersion = designVersionOf(events);
   const recompile = recompileOf(events, plan);
   const compilerVersion = deps.compilerVersion ?? PREPARE_COMPILER_VERSION;
+  const skipPhases = compilerVersion === PREPARE_COMPILER_VERSION ? projectConfig.workflow.skipPhases : undefined;
+  if (skipPhases !== undefined) {
+    try {
+      compileDecideDefinition(workflowType, registered.definition, skipPhases);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return refused({ code: 'SCOPE_UNRESOLVED', message: `Cannot freeze the checkout skip policy. ${message}` });
+    }
+  }
 
   const sequenceOf: CompileCapsuleInput['verificationSequence'] = (riskTier, boundaryTouching) =>
     resolveVerificationPolicy(riskTier, boundaryTouching, projectConfig).sequence;
@@ -619,6 +838,10 @@ export async function handlePrepare(
     baseCommit,
     scope,
     verificationProfile,
+    ...(skipPhases !== undefined ? { skipPhases } : {}),
+    ...(intent !== undefined ? {
+      intent: { mode: intent.mode, designDepth: intent.designDepth ?? 'standard', refactor: intent.refactor ?? null },
+    } : {}),
     ...(designRecordDigest !== undefined ? { designSource: { sourceId: 'design-record', digest: designRecordDigest } } : {}),
   };
   const operationId = `prepare:${contentDigest(inputs)}`;
@@ -629,10 +852,25 @@ export async function handlePrepare(
       .getAppender()
       .ensureSqliteBackendSync()
       .lookupOperationClaim<PreparedCapsuleReceipt>(operationId);
-    if (claim !== undefined) return receiptResult(claim.result);
+    if (claim !== undefined) {
+      return claim.streamId === streamId && claim.requestDigest === requestDigest
+        && matchesReceipt(claim.result, streamId, operationId) ? receiptResult(claim.result) : claimMismatch();
+    }
 
-    const bundles = deps.bundleStore ?? ctx.eventStore.bundleStore;
-    const otherRepository = await otherRepositoryRefusal({ streamId, repoRoot, repository, rows: events, bundles });
+    if (authority !== undefined) {
+      try {
+        checkedPin ??= await loadPreparedCustody(authority, bundles);
+        if (checkedPin.kind === 'typed' && capsuleBaseOf(checkedPin.capsule) !== baseRef) {
+          return preparedAuthorityRefusal(new Error('The typed capsule pins a different base.'));
+        }
+      } catch (error) {
+        return preparedAuthorityRefusal(error);
+      }
+    }
+    const otherRepository = await otherRepositoryRefusal({
+      streamId, repoRoot, repository, rows: events, bundles,
+      ...(checkedPin !== undefined ? { pinnedCapsule: checkedPin.capsule } : {}),
+    });
     if (otherRepository !== undefined) return refused(otherRepository);
 
     const designRevisions = designRevisionsOf(events);
@@ -662,6 +900,7 @@ export async function handlePrepare(
       executionProfile: { capabilities },
       verificationSequence: sequenceOf,
       disabledGates,
+      ...(skipPhases !== undefined ? { skipPhases } : {}),
       compiledAt: (deps.now ?? (() => new Date().toISOString()))(),
     });
     if (!compiled.ok) return refused(compiled.refusal);
@@ -678,11 +917,17 @@ export async function handlePrepare(
           definition: lowered.definition,
           expectedSequence: tail,
           announce,
+          ...(snapshot !== undefined ? {
+            plan: {
+              digest: snapshot.digest,
+              designRecord: { reference: snapshot.reference, text: Buffer.from(snapshot.rawBytes).toString('utf8') },
+            },
+          } : {}),
           ...(recompile !== undefined ? { recompile } : {}),
         },
         deps.bundleStore,
       );
-      return receiptResult(receipt);
+      return matchesReceipt(receipt, streamId, operationId) ? receiptResult(receipt) : claimMismatch();
     } catch (error) {
       if (error instanceof ConcurrencyError) {
         return {

@@ -77,7 +77,7 @@ function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
       if (!opening) continue;
       const info = required(opening[2]).trim();
       if (!info.startsWith('exarchos-plan') && !node.lang?.startsWith('exarchos-plan')) continue;
-      const lastLine = required(/[^\r\n]*$/.exec(raw))[0];
+      const lastLine = raw.slice(Math.max(raw.lastIndexOf('\r'), raw.lastIndexOf('\n')) + 1);
       const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(lastLine);
       if (!closing || required(closing[1])[0] !== required(opening[1])[0] || required(closing[1]).length < required(opening[1]).length
         || opening[0].length === raw.length) throw new Error('Unterminated typed plan fence');
@@ -203,11 +203,7 @@ export function readValidatedDesignRecord(bytes: Uint8Array, reference: string):
   return { kind: 'invalid', reference, message, findings };
 }
 
-/**
- * Read at most the byte limit plus one from a lexically contained reference.
- * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
- * Prepare will use this bounded checkout read.
- */
+/** Read at most the byte limit plus one from a lexically contained reference. */
 export async function readDesignRecordAt(
   checkout: string, reference: string, limits: DesignRecordLimits = {},
 ): Promise<DesignRecordReadResult> {

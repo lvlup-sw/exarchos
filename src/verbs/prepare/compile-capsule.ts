@@ -42,7 +42,7 @@ import type { PrepareRefusal } from './types.js';
  * The handler also keys its replay claim on this name, so a capsule of an earlier compiler is not replayed.
  * Raise the number when the compiler changes what it writes into a capsule.
  */
-export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-6';
+export const PREPARE_COMPILER_VERSION = 'exarchos-prepare-7';
 
 /** The deviation kinds that a worker can propose when an assumption of the capsule does not hold. */
 export const DELEGATION_DEVIATION_KINDS: readonly string[] = ['invalidated-assumption', 'missing-context'];
@@ -236,6 +236,7 @@ export interface CompileCapsuleInput {
   readonly verificationSequence: (riskTier: RiskTier, boundaryTouching: boolean) => readonly string[];
   /** The gates that the checkout config disables. A pattern names none of them. */
   readonly disabledGates?: readonly string[];
+  readonly skipPhases?: readonly string[];
   readonly compiledAt: string;
 }
 
@@ -566,6 +567,9 @@ export function compileDelegationCapsule(input: CompileCapsuleInput): CompileOut
         ]),
       ),
       ...(pin !== undefined ? { scope: { ...pin.scope } } : {}),
+      ...(input.skipPhases !== undefined || input.compilerVersion === PREPARE_COMPILER_VERSION
+        ? { skipPhases: [...(input.skipPhases ?? [])] }
+        : {}),
       ...(input.verificationProfile !== undefined ? { verificationProfile: input.verificationProfile } : {}),
     },
   };

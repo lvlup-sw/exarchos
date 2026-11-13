@@ -1,8 +1,4 @@
-/**
- * Pure soundness checks cover every task before a caller selects a frontier.
- * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
- * Prepare and gate adapters will consume these checks after their typed inputs land.
- */
+/** Pure soundness checks cover every task before a caller selects a frontier. */
 import { DesignTaskSchema, DesignPlanSchema, type DesignRecordSnapshot, type SourceSpan } from './schema.js';
 
 export interface PlanFinding {

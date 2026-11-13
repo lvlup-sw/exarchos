@@ -32,7 +32,7 @@ import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/type
 import type { PreparedCapsuleReceipt, PreparedRecompile } from './types.js';
 
 export { PREPARED_BUNDLE_KIND, PREPARED_BUNDLE_VERSION, PreparedBundleV1Schema, encodePreparedBundle, decodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
-import { PREPARED_BUNDLE_KIND, encodePreparedBundle } from '../../contract/capsule/prepared-bundle.js';
+import { PREPARED_BUNDLE_KIND, encodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
 
 export { capsuleOfRecord } from '../../workflow/capsule/prepared-custody.js';
 import { capsuleOfRecord } from '../../workflow/capsule/prepared-custody.js';
@@ -60,6 +60,10 @@ export interface PreparedCommit {
   readonly workflowType: string;
   readonly capsule: ExarchosCapsuleV1;
   readonly definition: WorkflowDefinitionV1;
+  readonly plan?: {
+    readonly digest: string;
+    readonly designRecord: NonNullable<PreparedBundleV1['designRecord']>;
+  };
   /**
    * The stream tail the compilation read its capsule version from. The commit
    * is refused if the stream has moved since, so two compilations racing for
@@ -99,7 +103,11 @@ export async function commitPreparedCapsule(
 ): Promise<PreparedCapsuleReceipt> {
   const { streamId, operationId, requestDigest, capsule, definition } = commit;
   const digest = capsuleDigest(capsule);
-  const bytes = encodePreparedBundle({ capsule, definition });
+  const bytes = encodePreparedBundle({
+    capsule,
+    definition,
+    ...(commit.plan !== undefined ? { designRecord: commit.plan.designRecord } : {}),
+  });
   const bundles = bundleStore ?? ctx.eventStore.bundleStore;
   const artifactId = preparedBundleArtifactId(capsule.identity.workflowId, capsule.identity.capsuleVersion);
   const outer = outerCorrelation(ctx);
@@ -117,6 +125,7 @@ export async function commitPreparedCapsule(
       taskCount: capsule.graph.tasks.length,
       requestDigest,
       bundleRefs: [ref],
+      ...(commit.plan !== undefined ? { planRecordDigest: commit.plan.digest } : {}),
     });
 
     return runWithDispatchContext(outer, async () => {

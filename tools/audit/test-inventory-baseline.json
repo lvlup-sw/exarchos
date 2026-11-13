@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1470,
-    "parsedFiles": 1425,
+    "testFiles": 1471,
+    "parsedFiles": 1426,
     "shellFiles": 45,
-    "cases": 16259,
+    "cases": 16275,
     "dynamicTitles": 267,
     "unparseableFiles": 0
   },
@@ -89791,7 +89791,7 @@
       "cases": [
         {
           "suite": "the packaged chain of prepare and settle",
-          "name": "PackagedChain_PrepareSixThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
+          "name": "PackagedChain_PrepareSevenThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
           "dynamic": false
         }
       ]
@@ -90843,6 +90843,92 @@
         {
           "suite": "the live registry reads the built-in definitions",
           "name": "RegistrySource_EachInitialPhase_IsTheEntryStep",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepare-typed-plan.test.ts": {
+      "file": "tests/integration/prepare-typed-plan.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ApprovalAndParser_ShareBytes",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_MountedDocsPath_Works",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_LexicalEscape_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_TypedThenLegacy_RefusesDowngrade",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ChangedApprovedBytes_CompilesNext",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_UnchangedFullInputs_Replays",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_DurableRowsAndExactIds_DetermineReadyTasks",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_WholeGraphRefusesBeforeOverlay_AndFindingsReachEnvelope",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_UnsupportedBootstrapTypeBaseAndPolicy_LeaveNoWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_CorruptNewerMarker_RefusesEvenOnReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ConfigWorkflowCollision_RefusesBeforeCheckout",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_ChangedLedgerTail_LeavesOnlyWinnerRows",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_UnexpectedSoundnessFailure_RefusesBeforeEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_IntentSchemaAndFlags_ExposeBothClosedModes",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_GeneratedDocumentChangesAndRawBytes_PreserveOnlyApprovedIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "typed prepare",
+          "name": "Prepare_BoundedCompleteCompileBenchmark_ReportsFreshAndReplay",
           "dynamic": false
         }
       ]

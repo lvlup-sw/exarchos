@@ -16,6 +16,7 @@ import {
   PREPARE_ECONOMY_BUDGET_TOKENS,
   summarizePreparedCapsuleReceipt,
 } from '../../../verbs/prepare/economy.js';
+import { PrepareIntentSchema } from '../../../verbs/prepare/intent.js';
 import { ABSOLUTE_REPO_ROOT } from '../../../verbs/prepare/prepare-scope.js';
 import { PreparedCapsuleOutputSchema } from '../../../verbs/prepare/schemas.js';
 import { declared, none, withActionContract, type ActionContract } from '../../action-contract.js';
@@ -56,20 +57,15 @@ export const prepareActions: readonly BuiltinToolAction[] = [
   withContract({
     name: 'prepare',
     description:
-      'Compile the ready tasks (pending, blockers complete) of a registered task-batch step into ' +
-      'ONE immutable capsule and commit one workflow.prepared record pinning its digest. Call it ' +
-      'in that step before each wave. The capsule holds the task graph, result contracts, ' +
-      'evidence kinds, the deviation envelope, the settlement authority, task verification terms ' +
-      '(tier, boundary, base, scope) and the execution ' +
-      'profile: capabilities the plane needs; a runtime lacking one is refused. It announces ' +
-      'tasks new to the stream (`task.assigned`). The first prepare after a design revision ' +
-      'also records `capsule.recompiled` and returns `recompile`: the invalidated tasks. Run ' +
-      'the batch with no governance calls, then `settle` it (`capsuleVersion`, `batchId`). ' +
-      'Unchanged inputs replay the recorded capsule; changed inputs compile the next version. ' +
-      'Refused before any effect: WORKFLOW_NOT_FOUND, WORKFLOW_TYPE_UNSUPPORTED, ' +
-      'PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, NO_READY_TASKS, BASE_UNRESOLVED, SCOPE_UNRESOLVED, ' +
-      'INVALID_TASK_ID, INVALID_TASK_STAMP, UNKNOWN_DEPENDENCY, CAPSULE_UNSOUND, RUNTIME_UNFIT, ' +
-      'REVISION_UNREADABLE.',
+      'Compile ready tasks of a task-batch step into one capsule and record workflow.prepared. ' +
+      'Typed plans need compile intent, a relative designRef and its approved SHA-256. ' +
+      'Legacy plans allow no intent. Bootstrap is unavailable. Replay unchanged inputs. ' +
+      'Run without governance calls, then settle with capsuleVersion and batchId. ' +
+      'Refusals: WORKFLOW_NOT_FOUND, BOOTSTRAP_UNSUPPORTED, PREPARE_INTENT_REQUIRED, ' +
+      'DESIGN_APPROVAL_MISMATCH, PLAN_UNSOUND, PREPARED_AUTHORITY_INVALID, INTERNAL_ERROR, ' +
+      'WORKFLOW_TYPE_UNSUPPORTED, PHASE_NOT_PREPARABLE, NOTHING_TO_PREPARE, NO_READY_TASKS, ' +
+      'BASE_UNRESOLVED, SCOPE_UNRESOLVED, INVALID_TASK_ID, INVALID_TASK_STAMP, UNKNOWN_DEPENDENCY, ' +
+      'CAPSULE_UNSOUND, RUNTIME_UNFIT, REVISION_UNREADABLE.',
     schema: z
       .object({
         /**
@@ -78,6 +74,7 @@ export const prepareActions: readonly BuiltinToolAction[] = [
          */
         streamId: z.string().min(1).optional(),
         featureId: z.string().min(1).optional(),
+        intent: PrepareIntentSchema.optional(),
         /**
          * Required, with the absolute pattern, the base type string and no default. Dispatch and `describe` apply the pattern.
          * The MCP wire schema keeps the first declaration of the field, so the handler checks the rule again.

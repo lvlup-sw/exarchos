@@ -763,9 +763,7 @@ async function executePlanCoverage(
     const coverage = { covered: total - gapSections.length, gaps: gapSections.length, deferred: 0, total };
     const report = ['## Plan Coverage Report', ...checked.edges.map((edge) => `| ${edge.requirementId} | ${edge.taskId} |`),
       ...checked.findings.map((finding) => `${finding.code}: ${finding.message}`), `**Result: ${checked.passed ? 'PASS' : 'FAIL'}**`].join('\n');
-    await emitGateEvent(eventStore, args.featureId, 'plan-coverage', 'planning', checked.passed,
-      { dimension: 'D1', phase: 'plan', covered: coverage.covered, gaps: coverage.gaps, deferred: 0, totalSections: total },
-      sameOperationGateKey('plan-coverage'));
+    await emitCoverageResult(eventStore, args.featureId, checked.passed, coverage);
     return { success: true, data: { ...checked, coverage, gapSections, report } };
   }
   const designSections = parseDesignSections(designContent);
@@ -802,22 +800,31 @@ async function executePlanCoverage(
   const foldedResult =
     foldedAdvisories.length > 0 ? { ...result, advisories: foldedAdvisories } : result;
 
-  await emitGateEvent(
+  await emitCoverageResult(eventStore, args.featureId, result.passed, result.coverage);
+  return { success: true, data: { ...foldedResult } };
+}
+
+/** Record the same metrics for a typed or legacy coverage verdict. */
+function emitCoverageResult(
+  eventStore: EventStore,
+  featureId: string,
+  passed: boolean,
+  coverage: { readonly covered: number; readonly gaps: number; readonly deferred: number; readonly total: number },
+) {
+  return emitGateEvent(
     eventStore,
-    args.featureId,
+    featureId,
     'plan-coverage',
     'planning',
-    result.passed,
+    passed,
     {
       dimension: 'D1',
       phase: 'plan',
-      covered: result.coverage.covered,
-      gaps: result.coverage.gaps,
-      deferred: result.coverage.deferred,
-      totalSections: result.coverage.total,
+      covered: coverage.covered,
+      gaps: coverage.gaps,
+      deferred: coverage.deferred,
+      totalSections: coverage.total,
     },
     sameOperationGateKey('plan-coverage'),
   );
-
-  return { success: true, data: { ...foldedResult } };
 }
