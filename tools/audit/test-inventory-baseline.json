@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1467,
-    "parsedFiles": 1422,
+    "testFiles": 1468,
+    "parsedFiles": 1423,
     "shellFiles": 45,
-    "cases": 16202,
-    "dynamicTitles": 255,
+    "cases": 16235,
+    "dynamicTitles": 264,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -92426,6 +92426,11 @@
           "suite": "a settle moves the phase of the stream",
           "name": "SettleMovesThePhase_AReplayWithNoPhaseMove_ThenTransition_Moves",
           "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "SettleMovesThePhase_ActualReceiptSurvivesUnavailableCustody",
+          "dynamic": false
         }
       ]
     },
@@ -92740,6 +92745,11 @@
         },
         {
           "suite": "settle levels the state document after a move",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle levels the state document after a move",
           "name": "LevelDocument_AMissingDocument_Skips",
           "dynamic": false
         },
@@ -92761,6 +92771,31 @@
         {
           "suite": "the summary of a settle receipt",
           "name": "SettleSummary_KeepsThePhaseMoveWithoutItsEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "settle authority races preserve executed segments",
+          "name": "Settle_PreparedRace_PreservesSegmentClaimsAcrossCalls: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle authority races preserve executed segments",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle authority races preserve executed segments",
+          "name": "Settle_PersistentPublicationFailure_FreshRetryUsesReceiptWithoutCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Settle_LateMissingCustody_PreservesSegmentAndNoMove",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "Settle_BoundedExistingFixtureBenchmark_SeparatesGateRuntime",
           "dynamic": false
         }
       ]
@@ -94312,6 +94347,142 @@
         {
           "suite": "prepared plan authority",
           "name": "Custody_MissingOrCorruptBytes_NeverFallback",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/settle-plan-authority.test.ts": {
+      "file": "tests/integration/settle-plan-authority.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_DroppedPendingTask_DoesNotAdvance",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_NewerCompatibleFrontier_CanAdvance",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_StableDifferentPlanDefinitionOrSkips_PersistsMismatchOnce: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_UnchangedPreparedEnvelopeMetadata_CommitsFirstAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_NewPreparedEnvelopeAfterRead_ReloadsOutsideCommit: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_LateMissingCustody_PreservesCompletionAndNoMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_FrozenSkips_IgnoreCurrentConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_CorruptCustody_RefusesWithoutReceipt: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle whole-plan authority",
+          "name": "Settle_GeneratedPolicyAndCompletionTraces_NeverMixAuthorities",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_UnavailableCustody_ReplaysReceiptAndRejectsChangedPayload",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_SubmittedCapsuleDigest_IsStillCheckedOnReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_WinnerDuringCustody_ReplaysBeforeFreshValidation: fails=%s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_CopiedSettlementRow_IsNotAClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "settle actual receipt replay",
+          "name": "Settle_BoundedCustodySelectionBenchmark_ReportsSeparateCosts",
+          "dynamic": false
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "Settle_RequiredOnlyCompletion_RepairDependsOnVerifiedCustody: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "Settle_MandatoryRepairFailure_KeepsReceipt: custody=%s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle bounded legacy task repair",
+          "name": "Settle_OwnedCommitTaskPublicationFailure_RetriesFromActualClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "settle receipt integrity",
+          "name": "Settle_LateWinnerDifferentPayload_PreservesDigestRefusal: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "settle receipt integrity",
+          "name": "<dynamic-case-7>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle receipt integrity",
+          "name": "Settle_ReceiptDigestDisagreesWithClaim_RefusesReplay",
           "dynamic": false
         }
       ]

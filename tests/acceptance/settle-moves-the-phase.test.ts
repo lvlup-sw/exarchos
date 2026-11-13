@@ -297,3 +297,15 @@ describe('a settle moves the phase of the stream', () => {
     expect(documentOf().phase).toBe('review');
   }, CASE_TIMEOUT_MS);
 });
+
+
+it('SettleMovesThePhase_ActualReceiptSurvivesUnavailableCustody', async () => {
+  const context = shippedContext();
+  const capsuleVersion = await walkToAPreparedBatch(context);
+  const original = await settle(context, capsuleVersion);
+  const rows = await rowsOf('execution.settled');
+  vi.spyOn(eventStore.bundleStore, 'resolve').mockRejectedValue(new Error('custody unavailable'));
+  expect(await settle(context, capsuleVersion)).toEqual(original);
+  expect(await rowsOf('execution.settled')).toEqual(rows);
+  expect(documentOf().phase).toBe('review');
+}, CASE_TIMEOUT_MS);

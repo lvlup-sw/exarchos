@@ -74,7 +74,9 @@ import { readGateRowMarks, SKIPPED_BY_POLICY } from '../gates/gate-utils.js';
 import { DESIGN_REVISED_TYPE, designVersionOf } from '../prepare/design-version.js';
 import { readPlannedTask } from '../prepare/partition-tasks.js';
 import { checkoutProjectConfig, configDigestAt } from '../prepare/prepare-scope.js';
-import { findPreparedCapsule } from '../prepare/prepared-record.js';
+import { preparedRecordOf } from '../prepare/prepared-record.js';
+import { loadPreparedCustody, recheckPreparedAuthority, selectPreparedAuthority, type PreparedAuthority } from '../../workflow/capsule/prepared-custody.js';
+import { SettlementReceiptData } from './schemas.js';
 import { resolveWorkflowState } from '../resolve-state.js';
 import {
   outcomeVerifies,
@@ -1096,6 +1098,8 @@ interface SettlementCall {
   readonly workflowType: string;
   /** The definition that the capsule pins. The commit decides the phase move under it. */
   readonly pinnedDefinition: WorkflowDefinitionV1;
+  readonly namedAuthority: PreparedAuthority;
+  latestAuthority: PreparedAuthority;
   readonly operationId: string;
   readonly requestDigest: string;
   readonly batchLabel: string;
@@ -1402,12 +1406,12 @@ function stayed(phase: string, reason: StayedReason, edges: readonly EdgeVerdict
  * Compiles the definition that a capsule pins into its decide form. A kernel-only pin of an earlier compiler,
  * an extension that breaks a reference rule and a condition that does not compile each give `undefined`.
  */
-function pinnedDecideDefinition(workflowType: string, definition: WorkflowDefinitionV1): DecideDefinition | undefined {
+function pinnedDecideDefinition(workflowType: string, definition: WorkflowDefinitionV1, skips?: readonly string[]): DecideDefinition | undefined {
   const extension = pinnedExtensionOf(definition);
   if (extension === undefined) return undefined;
   if (validateExtension(definition, definition, extension).length > 0) return undefined;
   try {
-    return compileDecideDefinition(workflowType, { ...definition, exarchos: extension });
+    return compileDecideDefinition(workflowType, { ...definition, exarchos: extension }, skips);
   } catch {
     return undefined;
   }
@@ -1456,29 +1460,33 @@ interface PhaseDecisionInput {
 }
 
 /**
- * Decides the phase move of one settle commit. Seven conditions apply in this order. The outcome moves the phase, and
- * the commit writes no design revision. The capsule pins an extension, and the config skips no pinned step. The fold of
- * the rows does not throw, and the fold phase is the step of each batch task. Exactly one plain explicit edge admits.
- *
- * The input is the ledger fold of the rows of the write transaction, never the state document. The floor of the move
- * joins the coordinate of the fold and the gates that the last entry of the target froze. The rows carry the trigger
- * `settle`. A refused gate set keeps the phase.
+ * Named and latest authority must agree before a settlement moves the phase.
+ * The named definition freezes skip routing. The latest whole plan supplies membership, with completion from committing rows.
+ * Outcome and revision reasons take precedence over a valid policy mismatch.
+ * One plain explicit edge must admit. The move joins the current coordinate and the target's frozen gate floor.
  */
 function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
   const { call, outcome, revised, events, version } = input;
   if (!SETTLEMENT_OUTCOME_RULES[outcome].movesPhase) return notDecided('outcome-does-not-move');
   if (revised) return notDecided('design-revision');
-  const def = pinnedDecideDefinition(call.workflowType, call.pinnedDefinition);
+  const named = call.namedAuthority;
+  const latest = call.latestAuthority;
+  if (named.selection.record.planRecordDigest !== latest.selection.record.planRecordDigest
+    || named.capsule.identity.definitionVersion !== latest.capsule.identity.definitionVersion
+    || canonicalJson(named.skipPhases ?? null) !== canonicalJson(latest.skipPhases ?? null)) {
+    return notDecided('prepared-authority-mismatch');
+  }
+  const def = pinnedDecideDefinition(call.workflowType, call.pinnedDefinition, named.skipPhases);
   if (def === undefined) return notDecided('unpinned-definition');
   const options = transitionOptionsOf(call.ctx.projectConfig);
-  if (skipsAPinnedStep(def, options?.skipPhases)) return notDecided('skip-phases-config');
+  if (named.skipPhases === undefined && skipsAPinnedStep(def, options?.skipPhases)) return notDecided('skip-phases-config');
   let rows: readonly WorkflowEvent[];
   let prior: Readonly<Record<string, unknown>>;
   let guardInput: Record<string, unknown>;
   try {
     rows = migrateEvents(events).map(workflowEventOf);
     prior = { ...foldWorkflowState(rows) };
-    guardInput = { ...foldGuardInput(rows, { config: options ?? {} }) };
+    guardInput = { ...foldGuardInput(rows, { config: options ?? {}, ...(latest.kind === 'typed' ? { authoritativeTasks: latest.snapshot.tasks } : {}) }) };
   } catch {
     return notDecided('fold-failed');
   }
@@ -1657,6 +1665,9 @@ async function commitJudgement(
           .getAppender()
           .decideOnce<SettlementReceipt>(operationId, requestDigest, (tx) => {
             const snapshot = tx.readStream(streamId);
+            if (!recheckPreparedAuthority(call.latestAuthority.selection, migrateEvents(snapshot.events))) {
+              throw new SettlementReadsChanged(batchLabel);
+            }
             const committed = judgeSettlement(inputs, settlementFactsOf(migrateEvents(snapshot.events), reads), runs);
             if (
               judgementKey(committed) !== key ||
@@ -1709,7 +1720,8 @@ async function commitJudgement(
               },
             };
           });
-        return receiptResult(persisted, [...warnings, ...(await levelMovedPhase(call.stateDir, streamId, persisted, ctx.eventStore))]);
+        return repairSettlement({ ctx, deps, stateDir: call.stateDir, streamId, capsuleVersion: identity.capsuleVersion },
+          persisted, inputs.capsule, warnings);
       } catch (error) {
         if (error instanceof OperationDigestMismatchError) {
           return refused(
@@ -1736,6 +1748,98 @@ function readsKeptChanging(batchLabel: string): ToolResult {
       'segments that verified tasks stay recorded. Settle the same batchId again: the retry replays those ' +
       'segments and runs none of their gates again.',
   );
+}
+
+/** Normalized identity inputs permit receipt lookup without immutable custody. */
+interface ReplayRequest {
+  readonly ctx: DispatchContext;
+  readonly deps: SettleDeps;
+  readonly stateDir: string;
+  readonly streamId: string;
+  readonly capsuleVersion: number;
+  readonly batchId: string;
+  readonly round: number;
+  readonly decisions: readonly SettlementDecision[];
+  readonly claims: readonly SettlementClaim[];
+  readonly deviations: readonly ProposedDeviation[];
+  readonly submitted?: ExarchosCapsuleV1;
+}
+
+/** Actual claims decide replay. Ledger rows only supply candidate keys for historical workflow identities. */
+async function replaySettlement(request: ReplayRequest): Promise<ToolResult | undefined> {
+  const { ctx, streamId, capsuleVersion, batchId, round, submitted } = request;
+  const rows = await ctx.eventStore.query(streamId);
+  const workflowIds = new Set([streamId]);
+  for (const row of rows) {
+    if (row.type !== 'execution.settled' && row.type !== 'workflow.prepared') continue;
+    if (isRecord(row.data) && row.data.capsuleVersion === capsuleVersion && typeof row.data.workflowId === 'string') {
+      workflowIds.add(row.data.workflowId);
+    }
+  }
+  for (const workflowId of workflowIds) {
+    const candidate = { workflowId, capsuleVersion, batchId, definitionVersion: '', designVersion: '' };
+    const operationId = settlementClaimKey(streamId, candidate, round);
+    const claim = ctx.eventStore.getAppender().ensureSqliteBackendSync().lookupOperationClaim<SettlementReceipt>(operationId);
+    if (claim === undefined) continue;
+    const decoded = SettlementReceiptData.safeParse(claim.result);
+    if (!decoded.success) return refused('CAPSULE_UNRESOLVED', 'The persisted settlement receipt is invalid.');
+    const receipt = claim.result;
+    if (receipt.streamId !== streamId || receipt.operationId !== operationId || (receipt.round ?? 0) !== round
+      || receipt.capsule.capsuleVersion !== capsuleVersion || receipt.capsule.batchId !== batchId
+      || receipt.capsule.workflowId !== workflowId || settlementClaimKey(streamId, receipt.capsule, round) !== operationId
+      || receipt.requestDigest !== claim.requestDigest) {
+      return refused('CAPSULE_UNRESOLVED', 'The persisted settlement claim identity is inconsistent.');
+    }
+    if (submitted !== undefined) {
+      const recorded = preparedRecordOf(rows, capsuleVersion);
+      if (recorded === undefined || capsuleDigest(submitted) !== recorded.record.capsuleDigest) {
+        return refused('CAPSULE_DIGEST_MISMATCH', 'The submitted capsule differs from the recorded capsule.');
+      }
+    }
+    const digest = round === DECISION_ROUND ? decisionDigestOf(streamId, receipt.capsule, request.decisions)
+      : requestDigestOf(streamId, receipt.capsule, request.claims, request.deviations);
+    if (claim.requestDigest !== digest) return refused('OPERATION_DIGEST_MISMATCH',
+      `Batch '${batchId}' was already ${round === DECISION_ROUND ? 'decided' : 'settled'} under a different request.`);
+    return repairSettlement(request, receipt);
+  }
+  return undefined;
+}
+
+/** Missing custody limits supplemental repair. Accepted task writes retain their receipt-bearing failure contract. */
+async function repairSettlement(
+  request: Pick<ReplayRequest, 'ctx' | 'deps' | 'stateDir' | 'streamId' | 'capsuleVersion'>,
+  receipt: SettlementReceipt,
+  knownCapsule?: ExarchosCapsuleV1,
+  priorWarnings: readonly string[] = [],
+): Promise<ToolResult> {
+  const { ctx, deps, stateDir, streamId, capsuleVersion } = request;
+  const warnings = [...priorWarnings];
+  if (outcomeVerifies(receipt.outcome)) {
+    let capsule = knownCapsule;
+    try {
+      if (capsule === undefined) {
+        const rows = await ctx.eventStore.query(streamId);
+        const record = preparedRecordOf(rows, capsuleVersion);
+        const selected = record === undefined ? undefined
+          : selectPreparedAuthority(rows.filter(row => row.sequence <= record.sequence), streamId);
+        if (selected === undefined) throw new Error('Missing named authority');
+        capsule = (await loadPreparedCustody(selected, deps.bundleStore ?? ctx.eventStore.bundleStore)).capsule;
+      }
+    } catch {
+      warnings.push('SUPPLEMENTAL_REPAIR_UNAVAILABLE: named custody is unavailable. Only accepted task IDs can be repaired.');
+    }
+    const completed = completedTasksOf(await ctx.eventStore.query(streamId, { type: 'task.completed' })).ids;
+    const recorded = capsule === undefined ? [...new Set(receipt.acceptedTasks)].filter(id => completed.has(id)).sort()
+      : recordedCompleteTasks(capsule, receipt.acceptedTasks, completed);
+    if (recorded.length > 0) {
+      const sync = await bringDocumentLevel(stateDir, streamId, recorded);
+      if (sync.kind === 'failed') return documentNotLevel(sync, 'The batch verdict and complete tasks are recorded',
+        'The verdict is on `error.settlementReceipt`. Nothing is adjudicated twice. ' + DOCUMENT_REPAIR_STEPS, receipt);
+      warnings.push(...missingTaskWarnings(sync));
+    }
+  }
+  warnings.push(...await levelMovedPhase(stateDir, streamId, receipt, ctx.eventStore));
+  return receiptResult(receipt, [...new Set(warnings)]);
 }
 
 /**
@@ -1807,25 +1911,54 @@ export async function handleSettle(
     );
   }
 
-  const pinned = await findPreparedCapsule(ctx, streamId, capsuleVersion, deps.bundleStore);
-  if (!pinned.found) {
-    return refused(
-      'CAPSULE_NOT_PREPARED',
-      `no capsule v${capsuleVersion} was prepared for '${streamId}'. Settlement adjudicates only ` +
-        'a capsule a prepare call recorded, so the terms a batch is judged by are the ones it was ' +
-        'compiled under.',
+  const decisions = readDecisions(raw.decisions);
+  if (typeof decisions === 'string') return invalid(decisions);
+  const deciding = raw.decisions !== undefined;
+  if (deciding && decisions.length === 0) {
+    return invalid('decisions must name at least one pending deviation');
+  }
+  if (deciding && (raw.claims !== undefined || raw.deviations !== undefined)) {
+    return invalid(
+      'a decision round carries decisions only: the claims and deviations it decides are the ' +
+        'ones the batch was held with, read back from its record',
     );
   }
-  if (submitted !== undefined && capsuleDigest(submitted) !== pinned.record.capsuleDigest) {
-    return refused(
-      'CAPSULE_DIGEST_MISMATCH',
-      `the submitted capsule is not the one prepared as v${capsuleVersion}: its digest ` +
-        `${capsuleDigest(submitted)} differs from the recorded ${pinned.record.capsuleDigest}. ` +
-        'Settle against the recorded capsule by version, or prepare again.',
-    );
-  }
-  const capsule = pinned.capsule;
+  const submittedClaims = deciding ? [] : readClaims(raw.claims);
+  if (typeof submittedClaims === 'string') return invalid(submittedClaims);
+  const submittedDeviations = deciding ? [] : readDeviations(raw.deviations);
+  if (typeof submittedDeviations === 'string') return invalid(submittedDeviations);
 
+  const round = deciding ? DECISION_ROUND : 0;
+  const replay = (): Promise<ToolResult | undefined> => replaySettlement({
+    ctx, deps, stateDir, streamId, capsuleVersion, batchId: batch.data, round,
+    decisions, claims: submittedClaims, deviations: submittedDeviations, ...(submitted ? { submitted } : {}),
+  });
+  const existing = await replay();
+  if (existing !== undefined) return existing;
+  let namedAuthority: PreparedAuthority;
+  let latestAuthority: PreparedAuthority;
+  try {
+    const rows = await ctx.eventStore.query(streamId);
+    const record = preparedRecordOf(rows, capsuleVersion);
+    if (record === undefined) return refused('CAPSULE_NOT_PREPARED', `No capsule v${capsuleVersion} was prepared for '${streamId}'.`);
+    if (submitted !== undefined && capsuleDigest(submitted) !== record.record.capsuleDigest) {
+      return refused('CAPSULE_DIGEST_MISMATCH', 'The submitted capsule differs from the recorded capsule.');
+    }
+    const named = selectPreparedAuthority(rows.filter(row => row.sequence <= record.sequence), streamId);
+    const latest = selectPreparedAuthority(rows, streamId);
+    if (named === undefined || latest === undefined) throw new Error('Missing prepared authority');
+    namedAuthority = await loadPreparedCustody(named, deps.bundleStore ?? ctx.eventStore.bundleStore);
+    latestAuthority = latest.identity === named.identity ? namedAuthority
+      : await loadPreparedCustody(latest, deps.bundleStore ?? ctx.eventStore.bundleStore);
+  } catch (error) {
+    const winner = await replay();
+    if (winner !== undefined) return winner;
+    return refused('CAPSULE_UNRESOLVED', `Prepared custody is unavailable or invalid: ${String(error)}`);
+  }
+  const winner = await replay();
+  if (winner !== undefined) return winner;
+  const pinned = { ...namedAuthority, record: namedAuthority.selection.record, sequence: namedAuthority.selection.sequence };
+  const capsule = pinned.capsule;
   const references = resolveCapsuleReferences(capsule, { definition: pinned.definition });
   if (!references.ok) {
     return refused(
@@ -1848,23 +1981,6 @@ export async function handleSettle(
     );
   }
 
-  const decisions = readDecisions(raw.decisions);
-  if (typeof decisions === 'string') return invalid(decisions);
-  const deciding = raw.decisions !== undefined;
-  if (deciding && decisions.length === 0) {
-    return invalid('decisions must name at least one pending deviation');
-  }
-  if (deciding && (raw.claims !== undefined || raw.deviations !== undefined)) {
-    return invalid(
-      'a decision round carries decisions only: the claims and deviations it decides are the ' +
-        'ones the batch was held with, read back from its record',
-    );
-  }
-  const submittedClaims = deciding ? [] : readClaims(raw.claims);
-  if (typeof submittedClaims === 'string') return invalid(submittedClaims);
-  const submittedDeviations = deciding ? [] : readDeviations(raw.deviations);
-  if (typeof submittedDeviations === 'string') return invalid(submittedDeviations);
-
   const identity: SettledCapsuleIdentity = {
     workflowId: capsule.identity.workflowId,
     definitionVersion: capsule.identity.definitionVersion,
@@ -1872,7 +1988,6 @@ export async function handleSettle(
     capsuleVersion: capsule.identity.capsuleVersion,
     batchId: batch.data,
   };
-  const round = deciding ? DECISION_ROUND : 0;
   const operationId = settlementClaimKey(streamId, identity, round);
   const requestDigest = deciding
     ? decisionDigestOf(streamId, identity, decisions)
@@ -1880,53 +1995,8 @@ export async function handleSettle(
   const batchLabel = `batch '${identity.batchId}' of capsule v${identity.capsuleVersion}`;
 
   return runExclusivePerOperation(operationId, async (): Promise<ToolResult> => {
-    const claim = ctx.eventStore
-      .getAppender()
-      .ensureSqliteBackendSync()
-      .lookupOperationClaim<SettlementReceipt>(operationId);
-    if (claim !== undefined) {
-      if (claim.requestDigest !== requestDigest) {
-        return refused(
-          'OPERATION_DIGEST_MISMATCH',
-          deciding
-            ? `${batchLabel} was already decided, under a different decision. Nothing was ` +
-                'adjudicated; the decision that stands is returned by resubmitting it.'
-            : `${batchLabel} is already settled under a different request. Nothing was ` +
-                'adjudicated. Resubmitting the same batch returns its verdict; a correction goes ' +
-                'back under a new batchId.',
-        );
-      }
-      const replayWarnings: string[] = [];
-      if (outcomeVerifies(claim.result.outcome)) {
-        const recorded = recordedCompleteTasks(
-          capsule,
-          claim.result.acceptedTasks,
-          completedTasksOf(await ctx.eventStore.query(streamId, { type: 'task.completed' })).ids,
-        );
-        if (recorded.length > 0) {
-          const sync = await bringDocumentLevel(stateDir, streamId, recorded);
-          switch (sync.kind) {
-            case 'failed':
-              return documentNotLevel(
-                sync,
-                `${batchLabel} has its verdict and its complete tasks are recorded`,
-                'The verdict is on `error.settlementReceipt`. Nothing is adjudicated twice. ' +
-                  DOCUMENT_REPAIR_STEPS,
-                claim.result,
-              );
-            case 'synced':
-            case 'unchanged':
-            case 'skipped':
-              replayWarnings.push(...missingTaskWarnings(sync));
-              break;
-            default:
-              return assertNever(sync, 'state document sync outcome');
-          }
-        }
-      }
-      replayWarnings.push(...(await levelMovedPhase(stateDir, streamId, claim.result, ctx.eventStore)));
-      return receiptResult(claim.result, replayWarnings);
-    }
+    const cached = await replay();
+    if (cached !== undefined) return cached;
     if (!deciding && submittedClaims.length === 0) return claimlessBatch(batchLabel);
 
     let claims: SettlementClaim[] = submittedClaims;
@@ -1991,6 +2061,8 @@ export async function handleSettle(
       identity,
       workflowType: pinned.record.workflowType,
       pinnedDefinition: pinned.definition,
+      namedAuthority,
+      latestAuthority,
       operationId,
       requestDigest,
       batchLabel,
@@ -2007,6 +2079,20 @@ export async function handleSettle(
         return await settleAttempt(call);
       } catch (error) {
         if (!(error instanceof SettlementReadsChanged)) throw error;
+        const cached = await replay();
+        if (cached !== undefined) return cached;
+        if (attempt === MAX_SETTLE_ATTEMPTS) break;
+        try {
+          const latest = selectPreparedAuthority(await ctx.eventStore.query(streamId), streamId);
+          if (latest === undefined) throw new Error('Missing latest prepared authority');
+          call.latestAuthority = await loadPreparedCustody(latest, deps.bundleStore ?? ctx.eventStore.bundleStore);
+        } catch (custodyError) {
+          const winner = await replay();
+          if (winner !== undefined) return winner;
+          return refused('CAPSULE_UNRESOLVED', `Prepared custody is unavailable or invalid: ${String(custodyError)}`);
+        }
+        const winner = await replay();
+        if (winner !== undefined) return winner;
       }
     }
     return readsKeptChanging(batchLabel);

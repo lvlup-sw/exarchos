@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
 import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
-import { baseValidCapsule, baseValidDefinition } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
+import { baseValidCapsule as corpusCapsule, baseValidDefinition } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
 import { deriveMcpCallerIdentity, snapshotCallerAuthorization } from '../../../../src/dispatch/caller-identity.js';
 import type { DispatchContext } from '../../../../src/dispatch/core/dispatch.js';
 import { mintDispatchContext, runWithDispatchContext } from '../../../../src/dispatch/dispatch-context.js';
@@ -41,6 +41,12 @@ import {
 } from '../../../helpers/verification-profile.js';
 
 const STREAM = 'feat-settle-integration-leaf';
+
+/** Bind the corpus fixture to the stream that records its custody. */
+function baseValidCapsule() {
+  const capsule = corpusCapsule();
+  return { ...capsule, identity: { ...capsule.identity, workflowId: STREAM } };
+}
 const TASK = 'task-verify';
 const CAPSULE_VERSION = 9;
 const CAPABILITIES = ['fs:read', 'fs:write', 'shell:exec', 'mcp:exarchos', 'admission:issue-gate-evidence'];
@@ -141,7 +147,7 @@ async function seedPrepared(capsule: ExarchosCapsuleV1): Promise<void> {
       streamId: STREAM,
       operationId: `seed:${capsule.identity.capsuleVersion}`,
       requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
-      workflowType: 'feature',
+      workflowType: WorkflowDefinitionV1Schema.parse(baseValidDefinition()).name,
       capsule: withScope(capsule, scope),
       definition: WorkflowDefinitionV1Schema.parse(baseValidDefinition()),
     }),

@@ -23,7 +23,7 @@ import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 
 import type { CapsuleScope, ExarchosCapsuleV1 } from '../../../../src/contract/capsule/exarchos-capsule.js';
 import {
-  baseValidCapsule,
+  baseValidCapsule as corpusCapsule,
   baseValidDefinition,
   minimalValidCapsule,
 } from '../../../../src/contract/capsule/exarchos-capsule-fixtures.js';
@@ -114,6 +114,12 @@ import { seedStaticAnalysisVerdict } from '../../../helpers/static-analysis-verd
 import { isolatedSync } from '../../../../tools/test-helpers/spawn.js';
 
 const STREAM = 'feat-settle-unit';
+
+/** Bind the corpus fixture to the stream that records its custody. */
+function baseValidCapsule() {
+  const capsule = corpusCapsule();
+  return { ...capsule, identity: { ...capsule.identity, workflowId: STREAM } };
+}
 /** Where the claims say the work is. Bare, so the one gate that runs passes advisory. */
 const WORKTREE = '/nonexistent-settle-worktree';
 
@@ -229,8 +235,8 @@ async function seedPrepared(
       streamId: STREAM,
       operationId: `seed:${capsule.identity.capsuleVersion}`,
       requestDigest: `sha256:seed-${capsule.identity.capsuleVersion}`,
-      workflowType: 'feature',
-      capsule: withScope(capsule, scope),
+      workflowType: WorkflowDefinitionV1Schema.parse(definition).name,
+      capsule: withScope({ ...capsule, identity: { ...capsule.identity, workflowId: STREAM } }, scope),
       definition: WorkflowDefinitionV1Schema.parse(definition),
     }),
   );
@@ -2047,8 +2053,8 @@ describe('settle — the decision round', () => {
    */
   describe('the tasks a deviation affects and the change it proposes', () => {
     const PINNED_BATCH = 'batch-pinned-identity';
-    const PINNED_DEVIATION_ID = 'dev:e53c4455c38f7a7c8d2aafa5';
-    const PINNED_REQUEST_DIGEST = 'sha256:9bcbc97bf77bd221a8e19c9d1cc0d2376dc86c9c793af40958b5752be2b355e4';
+    const PINNED_DEVIATION_ID = 'dev:f4aef546177109c40c61815f';
+    const PINNED_REQUEST_DIGEST = 'sha256:589a9740a8316d6667c7265281e95ca4cd771fbff1e6891e329268dcef93f7b2';
     const CHANGE = 'read the store through the adapter';
 
     async function submit(batchId: string, deviations: readonly unknown[]): Promise<ToolResult> {
@@ -2068,8 +2074,8 @@ describe('settle — the decision round', () => {
     }
 
     /**
-     * The two literals come from the build before a deviation named tasks or a change. A batch that
-     * the earlier build held is decided by this id, and its retry is compared by this digest.
+     * The literals use the earlier wire shape with this fixture's corrected workflow identity.
+     * Independent canonical JSON hashing fixes the deviation ID and request digest.
      */
     it('Settle_ADeviationCarryingNoNewField_KeepsItsIdAndItsRequestDigest', async () => {
       const held = await hold(PINNED_BATCH);
@@ -3964,7 +3970,7 @@ describe('settle — a required result that the stream shows complete', () => {
     const EARLIER_BATCH = 'batch-claimless-earlier';
     const EARLIER_OPERATION = 'settle:8d4411f9b2f00542b3371426080ab61de21da668c7d3865aa59843f2d5902de0';
     const EARLIER_DIGEST = 'sha256:4bc6ffc4323bbed62ae3dbfa4526ea3756a01d500f10c9de649f80b242849ea0';
-    const compiled = baseValidCapsule().identity;
+    const compiled = corpusCapsule().identity;
     const capsule = {
       workflowId: compiled.workflowId,
       definitionVersion: compiled.definitionVersion,
@@ -4015,7 +4021,6 @@ describe('settle — a required result that the stream shows complete', () => {
         streamId: STREAM,
         capsule,
         outcome: 'rejected',
-        round: 0,
         acceptedTasks: [],
         findings: [{ kind: 'missing-claim', subject: 'task-verify', at: 'claims', message }],
         adjudicated,
@@ -4028,6 +4033,7 @@ describe('settle — a required result that the stream shows complete', () => {
     const tail = (await store.query(STREAM)).length;
     const blobs = await bundleBlobCount();
 
+    const unavailable = vi.spyOn(store.bundleStore, 'resolve').mockRejectedValue(new Error('historical custody unavailable'));
     const retries: Record<string, unknown>[] = [{}, { claims: [] }];
     for (const body of retries) {
       const replayed = receiptOf(await settle({ featureId: STREAM, capsuleVersion: 7, batchId: EARLIER_BATCH, ...body }));
@@ -4038,6 +4044,8 @@ describe('settle — a required result that the stream shows complete', () => {
     expect(await store.query(STREAM)).toHaveLength(tail);
     expect(await bundleBlobCount()).toBe(blobs);
 
+    expect(unavailable).not.toHaveBeenCalled();
+    unavailable.mockRestore();
     const fresh = await settle({ featureId: STREAM, capsuleVersion: 7, batchId: 'batch-claimless-now' });
     expect(fresh.success).toBe(false);
     expect(fresh.error?.code).toBe('INVALID_INPUT');
@@ -4673,8 +4681,8 @@ describe('settle — a claim that reports the status of its task', () => {
   });
 
   /**
-   * The two digests and the two stored texts come from the build before a claim had a status.
-   * That build settled these two batches on the base capsule. A batch that an earlier build
+   * The digests use independent canonical JSON hashing with the corrected fixture identity.
+   * The stored texts retain the earlier claim shape without status. A batch that an earlier build
    * recorded is found by its digest on a retry, so the digest of a completed claim must not move.
    *
    * The first batch carries no status, and its retry spells out the default status. A second
@@ -4683,10 +4691,10 @@ describe('settle — a claim that reports the status of its task', () => {
    * claim holds a status or a rationale.
    */
   it('Settle_ACompletedClaim_KeepsTheRequestDigestAndTheStoredBytesOfTheEarlierBuild', async () => {
-    const PLAIN_DIGEST = 'sha256:b036ac603029ecd636aeae6583b95f95214a600aec2323ae410f686577bd50a5';
+    const PLAIN_DIGEST = 'sha256:f0a4924c865326ed7dae79b6a3e46359f4952898196ffd2da60725fe6fa0191e';
     const PLAIN_STORED =
       '"claims":[{"evidence":[],"fields":{"passed":true,"worktreePath":"/nonexistent-settle-worktree"},"taskId":"task-verify"}]';
-    const CITING_DIGEST = 'sha256:2d8b27aa10446c38fb630cb4843a240a6e76902521db244ab5f117982c2e04ef';
+    const CITING_DIGEST = 'sha256:517cb744eac8d75fa2fe1606821c69f5c659913d125cae76e2964ffb30688ebb';
     const CITING_STORED =
       '"claims":[{"evidence":[{"kind":"test","ref":"run-1"}],"fields":{"passed":true,"worktreePath":"/nonexistent-settle-worktree"},"taskId":"task-verify"}]';
     const onTheBaseCapsule = (batchId: string, claims: readonly unknown[]): Record<string, unknown> => ({
