@@ -6,6 +6,9 @@ All notable changes to Exarchos are documented in this file. Organized by semver
 
 ### Operator notes
 
+- Ledger-backed transition, settlement, cancellation and cleanup paths synchronize complete current ledger effects into the state document. Retries preserve newer moves and operational fields. Combined updates validate before the phase transaction. File writers serialize version checks with publication.
+- Ledger-backed built-in cancellation refuses unreadable or completed ledgers before compensation. Final cancellation and cleanup validate their source inside the append transaction. Cleanup preserves folded evidence and uses precise backfill paths. A completed cleanup still requires explicit transition recovery for a lagging document.
+
 - The guard-input preview now runs the pure move emitter after admission and applies frozen gate floors to both sides. Circuit-limit refusals stay denied.
 - A capped settlement reply preserves complete admitted targets in edge order, with an omitted count. If target-field overhead cannot fit, the summary states that detail is omitted. The bundle and settlement event do not recover omitted phase targets. Stored receipts and schemas do not change.
 - The settlement outcome determines the next call before phase fallback advice. Delegation fallback includes landing and both backstops: six calls at one task, or `5 + 1*tasks`. The normal count stays `4 + 1*tasks`.
