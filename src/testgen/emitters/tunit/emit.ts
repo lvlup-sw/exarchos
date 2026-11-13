@@ -1,3 +1,4 @@
+import { csharpFile } from './source.js';
 import type { Success, TestInput } from '../../contract/schemas.js';
 
 type TUnitInput = Extract<TestInput, { framework: 'tunit' }>;
@@ -37,23 +38,9 @@ export function emitTUnit(input: TUnitInput): Success {
   const methods = cases.map((values, i) => {
     const caseName = `Case_${i + 1}`;
     const method = caseName === target.className ? `${caseName}_` : caseName;
-    return `    /// <summary>Checks the property for fixture case ${i + 1}.</summary>
-    /// <returns>The assertion task.</returns>
-    [Test]
-    public Task ${method}() => ${check}(new long[] { ${values.map(literal).join(', ')} });`;
+    return { name: method, body: `        await ${check}(new long[] { ${values.map(literal).join(', ')} }).ConfigureAwait(false);` };
   });
-  const lines = `using System;
-using System.Threading.Tasks;
-using TUnit.Assertions;
-using TUnit.Assertions.Extensions;
-using TUnit.Core;
-
-namespace ${qualified(target.namespace)};
-
-/// <summary>Checks the reviewed property over the supplied case domain.</summary>
-public sealed class @${target.className}
-{
-${methods.join('\n\n')}
+  const lines = csharpFile(target.namespace, target.className, methods, `
 
     private static async Task ${check}(long[] source)
     {
@@ -64,7 +51,7 @@ ${methods.join('\n\n')}
 
 ${renderCheck(input)}
     }
-}`.split('\n');
+`).trimEnd().split('\n');
   const { path } = target;
   return {
     ok: true,
