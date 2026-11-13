@@ -1,3 +1,4 @@
+// @oracle-sources: ../../../src/testgen/contract/operations.ts, ../../support/testgen/typed-property.json, ../../support/testgen/stateful-ledger.json
 import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
