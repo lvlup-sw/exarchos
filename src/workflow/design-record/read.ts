@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { open } from 'node:fs/promises';
 import path from 'node:path';
 import { TextDecoder } from 'node:util';
+import { fromMarkdown } from 'mdast-util-from-markdown';
 import {
   DesignPlanSchema,
   type DesignRecordReadResult,
@@ -30,7 +31,10 @@ function freeze<T>(value: T): T {
 /** Build spans from line starts without rescanning the source for each task. */
 function spanFactory(text: string): (start: number, end: number) => SourceSpan {
   const starts = [0];
-  for (let i = 0; i < text.length; i++) if (text[i] === '\n') starts.push(i + 1);
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '\r' && text[i + 1] === '\n') i++;
+    if (text[i] === '\r' || text[i] === '\n') starts.push(i + 1);
+  }
   const lineAt = (offset: number): number => {
     let lo = 0;
     let hi = starts.length;
@@ -44,89 +48,41 @@ function spanFactory(text: string): (start: number, end: number) => SourceSpan {
   return (start, end) => ({ start, end, startLine: lineAt(start), endLine: lineAt(Math.max(start, end - 1)) });
 }
 
-/** CommonMark HTML block endings keep raw HTML outside the plan authority. */
-function htmlBlockEnd(line: string, inParagraph: boolean): RegExp | undefined {
-  if (/^ {0,3}<(pre|script|style|textarea)(?=[ \t>]|$)/i.test(line)) return /<\/(pre|script|style|textarea)>/i;
-  if (/^ {0,3}<!--/.test(line)) return /-->/;
-  if (/^ {0,3}<\?/.test(line)) return /\?>/;
-  if (/^ {0,3}<![A-Za-z]/.test(line)) return />/;
-  if (/^ {0,3}<!\[CDATA\[/.test(line)) return /\]\]>/;
-  const blockTags = 'address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul';
-  if (new RegExp('^ {0,3}</?(' + blockTags + ')(?=[ \\t>]|/>|$)', 'i').test(line)) return /^[ \t]*$/;
-  if (inParagraph) return undefined;
-  const attribute = '[ \\t]+[a-zA-Z_:][a-zA-Z0-9_.:-]*(?:[ \\t]*=[ \\t]*(?:[^ \\t"\'=<>`]+|"[^"\\n]*"|\'[^\'\\n]*\'))?';
-  const complete = new RegExp('^ {0,3}(?:<(?!(?:pre|script|style|textarea)(?=[ \\t/>]))[A-Za-z][A-Za-z0-9-]*(?:' + attribute + ')*[ \\t]*/?>|</[A-Za-z][A-Za-z0-9-]*[ \\t]*>)[ \\t]*$', 'i');
-  return complete.test(line) ? /^[ \t]*$/ : undefined;
-}
-
-/** Recognize fences before headings so examples cannot define a plan or a requirement. */
+/** Root nodes exclude examples in containers and raw HTML. Raw slices retain exact spelling and offsets. */
 function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
   const blocks: { info: string; start: number; end: number }[] = [];
   const definitions: RequirementDefinition[] = [];
-  let fence: { marker: string; length: number; info: string; start: number; indent: number; nested: boolean } | undefined;
-  let html: { end: RegExp; indent: number } | undefined;
+  const bom = text.startsWith('\uFEFF') ? 1 : 0;
+  const tree = fromMarkdown(text.slice(bom));
   let regionLevel: number | undefined;
-  let listIndent: number | undefined;
-  let previous: { title: string; offset: number } | undefined;
-  const lines = text.matchAll(/[^\n]*(?:\n|$)/g);
-  for (const match of lines) {
-    const raw = match[0];
-    if (raw === '') continue;
-    const line = raw.replace(/\r?\n$/, '').replace(match.index === 0 ? /^\uFEFF/ : /$^/, '');
-    const offset = match.index;
-    if (fence?.nested && line.trim() !== '' && !line.startsWith(' '.repeat(fence.indent))) fence = undefined;
-    if (html && html.indent > 0 && line.trim() !== '' && !line.startsWith(' '.repeat(html.indent))) html = undefined;
-    if (fence !== undefined) {
-      previous = undefined;
-      const closing = new RegExp('^ {0,' + (fence.indent + 3) + '}(`{3,}|~{3,})[ \t]*$').exec(line);
-      if (closing && closing[1]![0] === fence.marker && closing[1]!.length >= fence.length) {
-        if (!fence.nested && fence.info.startsWith('exarchos-plan')) blocks.push({ info: fence.info, start: fence.start, end: offset });
-        fence = undefined;
+  for (const node of tree.children) {
+    const from = node.position?.start.offset;
+    const to = node.position?.end.offset;
+    if (from === undefined || to === undefined) throw new Error('Markdown node has no source span');
+    const start = from + bom;
+    const end = to + bom;
+    const raw = text.slice(start, end);
+    if (node.type === 'code') {
+      const opening = /^(`{3,}|~{3,})([^\r\n]*)(?:\r\n|\r|\n|$)/.exec(raw);
+      if (!opening) continue;
+      const info = opening[2]!.trim();
+      if (!info.startsWith('exarchos-plan') && !node.lang?.startsWith('exarchos-plan')) continue;
+      const lastLine = /[^\r\n]*$/.exec(raw)![0];
+      const closing = /^ {0,3}(`{3,}|~{3,})[ \t]*$/.exec(lastLine);
+      if (!closing || closing[1]![0] !== opening[1]![0] || closing[1]!.length < opening[1]!.length
+        || opening[0].length === raw.length) throw new Error('Unterminated typed plan fence');
+      blocks.push({ info, start: start + opening[0].length, end: end - lastLine.length });
+    } else if (node.type === 'heading') {
+      const title = raw.replace(/^#{1,6}[ \t]+/, '').replace(/(?:\r\n|\r|\n)[ \t]*[=-]+[ \t]*$/, '')
+        .replace(/[ \t]+#+[ \t]*$/, '').trim();
+      if (regionLevel !== undefined && node.depth <= regionLevel) regionLevel = undefined;
+      if (title === 'Design & Rationale') regionLevel = node.depth;
+      else if (regionLevel !== undefined) {
+        const requirement = /^(DR-[1-9][0-9]*)(?=[: \t]|$)/.exec(title);
+        if (requirement) definitions.push({ id: requirement[1]!, title, span: span(start, end) });
       }
-      continue;
-    }
-    if (html) {
-      if (html.end.test(line)) html = undefined;
-      previous = undefined;
-      continue;
-    }
-    const item = /^( {0,3})(?:[-+*]|[0-9]{1,9}[.)])([ \t]+)(.*)$/.exec(line);
-    if (item) listIndent = line.length - item[3]!.length;
-    else if (line.trim() !== '' && listIndent !== undefined && !line.startsWith(' '.repeat(listIndent))) listIndent = undefined;
-    const nested = listIndent !== undefined;
-    const content = item ? item[3]! : nested ? line.slice(listIndent) : line;
-    const htmlEnd = htmlBlockEnd(content, previous !== undefined);
-    if (htmlEnd) {
-      if (!htmlEnd.test(content)) html = { end: htmlEnd, indent: listIndent ?? 0 };
-      previous = undefined;
-      continue;
-    }
-    const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(content);
-    if (opening && !(opening[1]![0] === '`' && opening[2]!.includes('`'))) {
-      previous = undefined;
-      fence = { marker: opening[1]![0]!, length: opening[1]!.length, info: opening[2]!.trim(), start: offset + raw.length, indent: listIndent ?? 0, nested };
-      continue;
-    }
-    if (nested) { previous = undefined; continue; }
-    const heading = /^ {0,3}(#{1,6})[ \t]+(.+?)[ \t]*$/.exec(line);
-    const underline = /^ {0,3}(=+|-+)[ \t]*$/.exec(line);
-    const setext = underline && previous;
-    if (!heading && !setext) {
-      previous = /^( {4}|\t| {0,3}>)/.test(line) || line.trim() === '' ? undefined : { title: line.trim(), offset };
-      continue;
-    }
-    const level = heading ? heading[1]!.length : underline![1]![0] === '=' ? 1 : 2;
-    const title = heading ? heading[2]!.replace(/[ \t]+#+[ \t]*$/, '') : previous!.title;
-    const headingStart = heading ? offset : previous!.offset;
-    previous = undefined;
-    if (regionLevel !== undefined && level <= regionLevel) regionLevel = undefined;
-    if (title === 'Design & Rationale') regionLevel = level;
-    else if (regionLevel !== undefined) {
-      const requirement = /^(DR-[1-9][0-9]*)(?=[: \t]|$)/.exec(title);
-      if (requirement) definitions.push({ id: requirement[1]!, title, span: span(headingStart, offset + line.length) });
     }
   }
-  if (fence && !fence.nested && fence.info.startsWith('exarchos-plan')) throw new Error('Unterminated typed plan fence');
   return { blocks, definitions };
 }
 

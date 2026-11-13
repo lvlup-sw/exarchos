@@ -86,20 +86,50 @@ describe('design record reader', () => {
 
   it('resumes Markdown at HTML block endings and container exits', () => {
     const fenced = '```exarchos-plan-v1\n' + JSON.stringify(plan) + '\n```\n';
-    for (const prefix of ['<!-- same line -->\n', '<div></div>\n\n', '<custom />\n\n', '<pre/>\n', '<SCRIPT/>\n', '<div/invalid\n',
+    for (const prefix of ['<!-- same line -->\n', '<div></div>\n\n', '<custom />\n\n', '<div/invalid\n',
       '- <!--\n  Hidden\n', '- <div>\n  Hidden\n', '> <!--\n> Hidden\n']) {
       expect(snapshot(Buffer.from(prefix + fenced)).tasks[0]!.id).toBe('T-01');
     }
     expect(snapshot(Buffer.from('Paragraph\n<custom>\n' + fenced)).tasks[0]!.id).toBe('T-01');
     expect(snapshot(Buffer.from('````text\n<!--\n````\n' + fenced)).tasks[0]!.id).toBe('T-01');
     expect(readDesignRecord(Buffer.from('<!--\n\n' + fenced), reference).kind).toBe('legacy');
-    expect(readDesignRecord(Buffer.from('<div>\n' + fenced), reference).kind).toBe('legacy');
+    for (const prefix of ['<div>\n', '<pre/>\n', '<SCRIPT/>\n']) {
+      expect(readDesignRecord(Buffer.from(prefix + fenced), reference).kind).toBe('legacy');
+    }
   });
 
   it('refuses a task without its required test layer', () => {
     const { testLayer, ...withoutLayer } = task;
     expect(testLayer).toBe('unit');
     expect(readDesignRecord(record(JSON.stringify({ ...plan, tasks: [withoutLayer] })), reference).kind).toBe('invalid');
+  });
+
+  it('keeps tab-indented list content inside its fence', () => {
+    const prefix = '- ```text\n\tExample\n  ```\n\n';
+    expect(readDesignRecord(Buffer.from(prefix + record('{').toString()), reference).kind).toBe('invalid');
+    expect(snapshot(Buffer.from(prefix + record(JSON.stringify(plan)).toString())).tasks[0]!.id).toBe('T-01');
+  });
+
+  it('keeps type-seven HTML after a thematic break outside authority', () => {
+    for (const body of ['{', JSON.stringify(plan)]) {
+      const source = '***\n<custom>\n```exarchos-plan-v1\n' + body + '\n```\n\n';
+      expect(readDesignRecord(Buffer.from(source), reference).kind).toBe('legacy');
+    }
+    const source = '## Design & Rationale\n### DR-1: Real\n***\n<custom>\n### DR-99: Hidden\n## Appendix\n\n### DR-2: Real\n\n'
+      + '```exarchos-plan-v1\n' + JSON.stringify(plan) + '\n```\n';
+    expect(snapshot(Buffer.from(source)).definitions.map(({ id }) => id)).toEqual(['DR-1', 'DR-2']);
+  });
+
+  it('uses raw fence info and requires a closing fence at EOF', () => {
+    for (const info of ['exarchos&#45;plan-v1', 'exarchos\\-plan-v1', '&#101;xarchos-plan-v1', 'exarchos-plan-v1 metadata']) {
+      expect(readDesignRecord(record(JSON.stringify(plan), '```', info), reference).kind).toBe('invalid');
+    }
+    for (const suffix of ['', '\n', '\r\n']) {
+      expect(readDesignRecord(Buffer.from('```exarchos-plan-v1\n' + JSON.stringify(plan) + suffix), reference).kind).toBe('invalid');
+    }
+    expect(snapshot(Buffer.from('\uFEFF  ~~~~exarchos-plan-v1\r\n' + JSON.stringify(plan) + '\r\n  ~~~~')).tasks[0]!.id).toBe('T-01');
+    const indented = record(JSON.stringify(plan)).toString().replace(/^/gm, '    ');
+    expect(readDesignRecord(Buffer.from(indented), reference).kind).toBe('legacy');
   });
 
   it('Read_InvalidUtf8_Refuses', () => {
@@ -171,9 +201,9 @@ describe('design record reader', () => {
     expect(readDesignRecord(record(JSON.stringify({ ...plan, tasks: [{ ...task, ...change }] })), reference).kind).toBe('invalid');
   });
 
-  it('requires all task keys except testLayer and closes the root keys', () => {
+  it('requires every task key and closes the root keys', () => {
     expect(snapshot(record(JSON.stringify({ ...plan, tasks: [{ ...task, implements: [], files: ['./docs/plan.md', 'docs//other.md'] }] }))).tasks[0]!.files).toEqual(['./docs/plan.md', 'docs//other.md']);
-    for (const key of Object.keys(task).filter((key) => key !== 'testLayer')) {
+    for (const key of Object.keys(task)) {
       const changed: Record<string, unknown> = { ...task };
       delete changed[key];
       expect(readDesignRecord(record(JSON.stringify({ ...plan, tasks: [changed] })), reference).kind).toBe('invalid');

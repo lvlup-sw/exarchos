@@ -7,7 +7,7 @@
     "testFiles": 1461,
     "parsedFiles": 1416,
     "shellFiles": 45,
-    "cases": 16082,
+    "cases": 16085,
     "dynamicTitles": 235,
     "unparseableFiles": 0
   },
@@ -93610,6 +93610,21 @@
         },
         {
           "suite": "design record reader",
+          "name": "keeps tab-indented list content inside its fence",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "keeps type-seven HTML after a thematic break outside authority",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "uses raw fence info and requires a closing fence at EOF",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
           "name": "Read_InvalidUtf8_Refuses",
           "dynamic": false
         },
@@ -93655,7 +93670,7 @@
         },
         {
           "suite": "design record reader",
-          "name": "requires all task keys except testLayer and closes the root keys",
+          "name": "requires every task key and closes the root keys",
           "dynamic": false
         },
         {
