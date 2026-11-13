@@ -1,5 +1,5 @@
 /** Syntax checks for declared test paths. */
-import { globToRegExp } from '../../architecture/glob-to-regexp.js';
+import { globToRegExp } from '../../glob-to-regexp.js';
 
 const WHITESPACE = /\s/;
 

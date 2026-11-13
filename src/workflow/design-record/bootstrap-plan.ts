@@ -281,7 +281,7 @@ function appendPlanned(
   seed: WorkflowEvent,
   guardId?: string,
 ): void {
-  const payloads = phaseRowsOf(events, seed.streamId, { rows, guardId });
+  const payloads = phaseRowsOf(events, seed.streamId, { rows, guardId, includeDesignDepth: true });
   for (const payload of payloads) {
     rows.push(buildValidatedEvent(seed.streamId, rows.length + 1, { ...payload, timestamp: seed.timestamp }));
   }

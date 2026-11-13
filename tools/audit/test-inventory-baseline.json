@@ -7,7 +7,7 @@
     "testFiles": 1473,
     "parsedFiles": 1428,
     "shellFiles": 45,
-    "cases": 16319,
+    "cases": 16320,
     "dynamicTitles": 274,
     "unparseableFiles": 0
   },
@@ -78794,6 +78794,11 @@
         {
           "suite": "the census of the decide primitive",
           "name": "PhaseMutationOwnership_TheDecidePrimitive_HasOnlyItsDeclaredOwners",
+          "dynamic": false
+        },
+        {
+          "suite": "the census of the decide primitive",
+          "name": "PhaseMutationOwnership_BootstrapPlannerHasNoAppendDependency",
           "dynamic": false
         },
         {

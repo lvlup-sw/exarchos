@@ -37,10 +37,42 @@ const PHASE_MUTATION_OWNERS: readonly string[] = Object.freeze([
 /** The decide primitive that gives the rows of an admitted move. */
 const DECIDE_PRIMITIVE = 'phaseMoveEvents';
 
+/** The bootstrap planner builds provisional rows for a later commit. */
+const BOOTSTRAP_ROW_PLANNER = 'workflow/design-record/bootstrap-plan.ts';
+
+/** The planner's runtime dependencies supply validation, folds, policy and row construction. */
+const BOOTSTRAP_PLANNER_IMPORTS: ReadonlySet<string> = new Set([
+  '../../events/event-factory.js',
+  '../../events/event-validation.js',
+  '../../events/schemas.js',
+  '../../projections/guard-input/fold.js',
+  '../admission/freeze-requirements.js',
+  '../admission/requirement-context.js',
+  '../admission/types.js',
+  '../decide/decide.js',
+  '../decide/edges.js',
+  '../decide/emit.js',
+  '../decide/rows.js',
+  '../definitions/built-in.js',
+  '../definitions/step-locator.js',
+  '../phase-attempt-id.js',
+  '../phase-kind.js',
+  '../plan-depth-policy.js',
+  './plan-checks.js',
+  './validate.js',
+]);
+
+/** Report runtime imports outside the bootstrap row construction boundary. */
+function bootstrapPlannerImportViolations(source: string): string[] {
+  return lexModule(source, BOOTSTRAP_ROW_PLANNER).imports
+    .filter(({ specifier, typeOnly }) => !typeOnly && !BOOTSTRAP_PLANNER_IMPORTS.has(specifier))
+    .map(({ specifier }) => specifier);
+}
+
 /**
  * The modules that can reference the decide primitive in shipped source.
  * `emit.ts` defines it. The transition, cancel and cleanup handlers each build the rows of their move with it.
- * The settle commit builds the rows of its phase move with it too.
+ * The settle commit uses it for its phase move. The bootstrap planner uses it for provisional rows.
  */
 const DECIDE_PRIMITIVE_OWNERS: readonly string[] = Object.freeze([
   'workflow/decide/emit.ts',
@@ -48,6 +80,7 @@ const DECIDE_PRIMITIVE_OWNERS: readonly string[] = Object.freeze([
   'workflow/cancel.ts',
   'workflow/cleanup.ts',
   'verbs/settle/handler.ts',
+  BOOTSTRAP_ROW_PLANNER,
 ]);
 
 /** Directories that are not shipped source (test/fixture/bench harnesses). */
@@ -370,6 +403,16 @@ describe('the census of the decide primitive', () => {
     expect(result.diagnostics).toEqual([]);
     expect(result.ok).toBe(true);
     expect([...new Set(refs.map((ref) => ref.module))].sort()).toEqual([...DECIDE_PRIMITIVE_OWNERS].sort());
+  });
+
+  /** The bootstrap planner can build rows, but it cannot import the event store or another writer. */
+  it('PhaseMutationOwnership_BootstrapPlannerHasNoAppendDependency', async () => {
+    const planner = await readFile(join(SRC_ROOT, BOOTSTRAP_ROW_PLANNER), 'utf8');
+    expect(lexModule(planner, BOOTSTRAP_ROW_PLANNER).imports.map(({ specifier }) => specifier))
+      .toContain('../decide/emit.js');
+    expect(bootstrapPlannerImportViolations(planner)).toEqual([]);
+    const planted = "import { EventStore } from '../../events/store.js';";
+    expect(bootstrapPlannerImportViolations(planner + '\n' + planted)).toEqual(['../../events/store.js']);
   });
 
   /** A reference to `phaseMoveEvents` outside the owners is an unauthorized phase mutation, and each owner still refers to it. */

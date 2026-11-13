@@ -9,7 +9,6 @@
  * Each move has one operation claim. The one denial gains the valid targets of the fold phase.
  *
  * Cleanup backfill patches only the supplied synthesis fields and the absent PR artifact.
- * PLAN entry rows now keep the design depth from the shared emitter.
  * The six corpus defects are no scenario here.
  *
  * @oracle-sources: ./__fixtures__/transition-rows.golden.json, ../../../../src/workflow/handlers/set.ts
@@ -92,11 +91,7 @@ const DELEGATE_VALID_TARGETS: readonly string[] = ['review', 'merge-pending', 'c
 const DENIED_SCENARIO = 'feature delegate -> review denied with a pending task';
 
 /** A golden row with its idempotency key, as the delta reads it. */
-const GoldenRowSchema = z.looseObject({
-  idempotencyKey: z.string().nullable(),
-  type: z.string(),
-  data: z.record(z.string(), z.unknown()).nullable().optional(),
-});
+const GoldenRowSchema = z.looseObject({ idempotencyKey: z.string().nullable() });
 
 /** A golden entry, as the delta reads it. */
 const DeltaEntrySchema = z.looseObject({
@@ -136,15 +131,7 @@ function goldenWithTheDelta(golden: unknown): unknown {
           },
         } };
       }
-      return {
-        ...row,
-        ...(row.type === 'phase.entered' && row.data?.phase === 'plan-review' && row.data.kind === 'PLAN'
-          ? { data: { ...row.data, designDepth: 'standard' } }
-          : {}),
-        ...(row.idempotencyKey !== null && LEGACY_TRANSITION_KEY.test(row.idempotencyKey)
-          ? { idempotencyKey: null }
-          : {}),
-      };
+      return row.idempotencyKey !== null && LEGACY_TRANSITION_KEY.test(row.idempotencyKey) ? { ...row, idempotencyKey: null } : row;
     }),
     ...(entry.name === DENIED_SCENARIO && entry.result.error !== undefined
       ? { result: { ...entry.result, error: { ...entry.result.error, validTargets: DELEGATE_VALID_TARGETS } } }

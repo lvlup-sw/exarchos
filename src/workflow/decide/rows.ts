@@ -29,6 +29,8 @@ export type PhaseRow = {
 export interface PhaseRowContext {
   readonly guardId?: string | undefined;
   readonly rows: readonly PhaseStreamRow[];
+  /** Preserve the design depth on PLAN entries for the bootstrap fold. */
+  readonly includeDesignDepth?: boolean;
 }
 
 /**
@@ -44,7 +46,7 @@ export interface PhaseRowContext {
 export function buildHsmEventData(
   evt: TransitionEvent,
   featureId: string,
-  opts: { guardId?: string; fixCycleOrdinal?: number; planRevisionOrdinal?: number },
+  opts: { guardId?: string; fixCycleOrdinal?: number; planRevisionOrdinal?: number; includeDesignDepth?: boolean },
 ): Record<string, unknown> {
   const metadata = evt.metadata ?? {};
   const compoundStateId = metadata.compoundStateId;
@@ -110,7 +112,9 @@ export function buildHsmEventData(
         policySource: metadata.policySource ?? 'builtin',
         mode: metadata.mode ?? 'enforce',
         posture: metadata.posture,
-        ...(metadata.designDepth !== undefined ? { designDepth: metadata.designDepth } : {}),
+        ...(opts.includeDesignDepth === true && metadata.designDepth !== undefined
+          ? { designDepth: metadata.designDepth }
+          : {}),
         ...(metadata.riskTier !== undefined ? { riskTier: metadata.riskTier } : {}),
         ...(typeof metadata.boundaryTouching === 'boolean'
           ? { boundaryTouching: metadata.boundaryTouching }
@@ -169,6 +173,7 @@ export function phaseRowsOf(
     }
     const data = buildHsmEventData(event, featureId, {
       ...(context.guardId === undefined ? {} : { guardId: context.guardId }),
+      ...(context.includeDesignDepth === true ? { includeDesignDepth: true } : {}),
       ...(event.type === 'fix-cycle'
         ? { fixCycleOrdinal: fixCycleOrdinalOf(context.rows, event.metadata?.compoundStateId) }
         : {}),
