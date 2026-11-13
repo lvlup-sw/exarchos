@@ -1280,6 +1280,19 @@ jobs:
       - run: bun tools/release/codegen-testgen.ts --check
       - run: npm run build:testgen
       - run: npm run testgen:smoke
+      - name: Run generated property and metamorphic tests in Exarchos Vitest
+        shell: bash
+        run: |
+          set -euo pipefail
+          for kind in property metamorphic; do
+            request="tests/support/testgen/vitest-$kind.json"
+            target=$(node -p 'JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).target.path' "$request")
+            test ! -e "$target"
+            trap 'rm -f "$target"' EXIT
+            node dist/testgen-cli.js "generate_${kind}_tests" --input "$request" | git apply
+            npm exec --no -- vitest run "$target"
+            rm "$target"
+          done
 
   # Always-on jobs (grep-gates, outcome-tests, e2e-process) are targeted on lane
   # `always` (paths: ** ) so this required check still aggregates them. binary-matrix,

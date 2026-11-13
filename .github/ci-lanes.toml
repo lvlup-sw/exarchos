@@ -59,7 +59,7 @@ paths = [
 
 [lanes.testgen]
 workflows = ["ci.yml"]
-description = "Installed testgen command and native TUnit smoke"
+description = "Installed testgen command and native TUnit and Vitest checks"
 paths = [
   "src/testgen/**",
   "src/architecture/**",

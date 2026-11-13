@@ -1,0 +1,26 @@
+{
+  "framework": "vitest",
+  "frameworkVersion": "3.2.7",
+  "target": {
+    "path": "tests/unit/verbs/worktree/testgen-burst-symmetry.test.ts",
+    "bindingModule": "tests/support/testgen/burst-stagger-binding.ts"
+  },
+  "propertyRef": "worktree/burst-stagger-symmetry",
+  "assumptions": [
+    "Opposite nonzero integer jitter values yield delays symmetric around the 300 ms center."
+  ],
+  "cases": [
+    [
+      "1"
+    ],
+    [
+      "-1"
+    ],
+    [
+      "5"
+    ],
+    [
+      "-5"
+    ]
+  ]
+}

@@ -85,8 +85,10 @@ internal static class Binding
     ['generate_metamorphic_tests', 'Case_1', { transform: 'Smoke.Binding.Advance', relation: 'Smoke.Binding.Advances' }],
   ]) {
     const [metadata] = testgen(['describe', operation]).operations;
-    assert.equal(metadata.inputSchema.properties.framework.const, request.framework);
-    assert.equal(metadata.inputSchema.properties.frameworkVersion.const, request.frameworkVersion);
+    const schemas = metadata.inputSchema.oneOf ?? [metadata.inputSchema];
+    const supported = schemas.find(({ properties }) => properties.framework.const === request.framework);
+    assert.ok(supported, `Describe must advertise ${request.framework} for ${operation}.`);
+    assert.equal(supported.properties.frameworkVersion.const, request.frameworkVersion);
     const input = { ...request, ...bindings, target: { ...request.target, className, path: `${className}.cs` } };
     writeFileSync(requestPath, JSON.stringify(input));
     const result = testgen([operation, '--input', requestPath]);

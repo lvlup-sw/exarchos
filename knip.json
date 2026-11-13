@@ -36,7 +36,8 @@
         "src/contract/ir/admission-ir-schema-cli.ts",
         "src/contract/capsule/exarchos-capsule-schema-cli.ts",
         "tests/evals/native-baseline/emit-baseline-csv.ts",
-        "tests/core/integration/suite-invariants/regenerate-baseline.ts"
+        "tests/core/integration/suite-invariants/regenerate-baseline.ts",
+        "tests/support/testgen/*-binding.ts"
       ],
       "project": [
         "src/**/*.ts",

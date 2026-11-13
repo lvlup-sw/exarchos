@@ -1,21 +1,24 @@
 import { z } from 'zod';
 import { expandCases } from '../generators/cases.js';
+import { emitVitest } from '../emitters/vitest/emit.js';
 import { emitTUnit } from '../emitters/tunit/emit.js';
-import { errors, frameworkSelection, metamorphicInput, propertyInput, resultSchema, supportedFramework } from './schemas.js';
-import type { ErrorCode, GenerationResult, TestInput } from './schemas.js';
+import { errors, frameworkSelection, metamorphicInput, propertyInput, resultSchema, frameworkVersions } from './schemas.js';
+import type { ErrorCode, GenerationResult, TestInput, TestKind } from './schemas.js';
 
 export const operations = {
   generate_property_tests: {
-    description: 'Emit TUnit tests for a supplied predicate and finite integer cases.',
+    description: 'Emit TUnit or Vitest tests for a supplied predicate and finite integer cases.',
+    kind: 'property',
     input: propertyInput,
   },
   generate_metamorphic_tests: {
-    description: 'Emit paired TUnit tests for a supplied transformation, precondition, and relation.',
+    description: 'Emit paired TUnit or Vitest tests for a supplied transformation, precondition, and relation.',
+    kind: 'metamorphic',
     input: metamorphicInput,
   },
 } as const;
 
-export type Emitter = (input: TestInput) => unknown;
+export type Emitter = (input: TestInput, kind: TestKind) => unknown;
 
 export function describeOperations() {
   return {
@@ -33,24 +36,34 @@ export function failure(code: ErrorCode, message: string): GenerationResult {
   return { ok: false, error: { code, message } };
 }
 
-export function dispatch(name: string, input: unknown, emit: Emitter = emitTUnit): GenerationResult {
+const emitForTarget: Emitter = (input, kind) => input.framework === 'vitest' ? emitVitest(input, kind) : emitTUnit(input);
+
+export function dispatch(name: string, input: unknown, emit: Emitter = emitForTarget): GenerationResult {
   const operation = Object.entries(operations).find(([key]) => key === name)?.[1];
   if (!operation) return failure('INVALID_INPUT', 'Unknown operation.');
   const parsed = operation.input.safeParse(input);
   if (!parsed.success) {
-    if (parsed.error.issues.every(({ path }) => path[0] === 'framework' || path[0] === 'frameworkVersion')
-      && frameworkSelection.safeParse(input).success) {
-      return failure('UNSUPPORTED_FRAMEWORK',
-        `Use framework "${supportedFramework.framework}" and frameworkVersion "${supportedFramework.frameworkVersion}".`);
+    const selection = frameworkSelection.safeParse(input);
+    if (selection.success) {
+      const { framework, frameworkVersion } = selection.data;
+      const supported = framework === 'tunit' && frameworkVersion === frameworkVersions.tunit
+        || framework === 'vitest' && frameworkVersion === frameworkVersions.vitest;
+      if (!supported) {
+        return failure('UNSUPPORTED_FRAMEWORK', 'Use a framework and version listed by describe for this operation.');
+      }
     }
     const details = parsed.error.issues.map(({ path, message }) => `${path.join('.') || 'request'}: ${message}`);
     return failure('INVALID_INPUT', details.join('; '));
   }
 
   const request = parsed.data;
-  const parent = request.target.project.slice(0, request.target.project.lastIndexOf('/') + 1);
-  if (!request.target.path.startsWith(parent)) {
-    return failure('INVALID_INPUT', 'The test file must be under the test project directory.');
+  if (request.framework === 'tunit') {
+    const parent = request.target.project.slice(0, request.target.project.lastIndexOf('/') + 1);
+    if (!request.target.path.startsWith(parent)) {
+      return failure('INVALID_INPUT', 'The test file must be under the test project directory.');
+    }
+  } else if (request.target.path === request.target.bindingModule) {
+    return failure('INVALID_INPUT', 'The test file and binding module must be different.');
   }
   const width = request.cases[0]?.length ?? 0;
   if (request.cases.some((row) => row.length !== width)) {
@@ -67,7 +80,7 @@ export function dispatch(name: string, input: unknown, emit: Emitter = emitTUnit
   if (cases.length > 256) return failure('INVALID_INPUT', 'The expanded case count exceeds 256.');
 
   try {
-    const result = resultSchema.safeParse(emit({ ...request, cases }));
+    const result = resultSchema.safeParse(emit({ ...request, cases }, operation.kind));
     if (result.success) return result.data;
     return failure('INTERNAL_ERROR', 'Emitter result violates the output schema.');
   } catch {

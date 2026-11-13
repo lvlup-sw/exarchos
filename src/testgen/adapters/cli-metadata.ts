@@ -8,11 +8,11 @@ export const commandMetadata = {
   "operations": [
     {
       "name": "generate_property_tests",
-      "description": "Emit TUnit tests for a supplied predicate and finite integer cases."
+      "description": "Emit TUnit or Vitest tests for a supplied predicate and finite integer cases."
     },
     {
       "name": "generate_metamorphic_tests",
-      "description": "Emit paired TUnit tests for a supplied transformation, precondition, and relation."
+      "description": "Emit paired TUnit or Vitest tests for a supplied transformation, precondition, and relation."
     }
   ]
 } as const;

@@ -1,0 +1,11 @@
+{
+  "framework": "vitest",
+  "frameworkVersion": "3.2.7",
+  "target": {
+    "path": "tests/unit/verbs/worktree/testgen-burst-stagger.test.ts",
+    "bindingModule": "tests/support/testgen/burst-stagger-binding.ts"
+  },
+  "propertyRef": "worktree/burst-stagger-bounds",
+  "assumptions": ["Jitter is an integer in [-5, 5]. The default delay band is 100 to 500 ms."],
+  "cases": [["0"], ["1"], ["-1"], ["5"], ["-5"]]
+}
