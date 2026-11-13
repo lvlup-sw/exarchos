@@ -33,6 +33,8 @@ function testgen(args, expectedStatus) {
 
 try {
   const [pack] = JSON.parse(npm(['pack', '--ignore-scripts', '--json', '--pack-destination', scratch], root));
+  assert.equal(typeof pack.integrity, 'string');
+  process.stdout.write(`${JSON.stringify({ packageIntegrity: pack.integrity, packageShasum: pack.shasum, node: process.version, platform: process.platform, arch: process.arch })}\n`);
   writeFileSync(join(scratch, 'package.json'), JSON.stringify({
     name: 'testgen-smoke',
     private: true,
