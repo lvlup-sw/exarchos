@@ -4,6 +4,7 @@ import {
   readStateFile,
   writeStateFile,
   StateStoreError,
+  levelPhaseInStateDocument,
 } from './state-store.js';
 import {
   buildCheckpointMeta,
@@ -14,6 +15,8 @@ import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
 import { decide } from './decide/decide.js';
+import { FinalizationChanged, FinalizationReplayFailed, highestPhaseRowSequence, validateFinalization } from './decide/finalization.js';
+import { isDeepStrictEqual } from 'node:util';
 import { compileDecideDefinition, type DecideDefinition } from './decide/edges.js';
 import { phaseMoveEvents, type TransitionEvent } from './decide/emit.js';
 import { builtInDefinition, isBuiltInDefinitionType } from './definitions/built-in.js';
@@ -60,6 +63,7 @@ type CleanupRoute =
       readonly foldAttemptId: string | undefined;
       /** The highest sequence of the rows. */
       readonly version: number;
+      readonly phaseSequence: number;
     }
   | { readonly kind: 'fold-failed'; readonly message: string }
   | { readonly kind: 'document'; readonly warnings: readonly string[] };
@@ -120,6 +124,7 @@ function cleanupRouteOf(state: WorkflowState, eventStore: EventStore | null, rea
       from: typeof input.phase === 'string' ? input.phase : '',
       foldAttemptId: readPhaseAttemptId(input),
       version: highestSequence(rows),
+      phaseSequence: highestPhaseRowSequence(rows),
     };
   } catch (err) {
     return { kind: 'fold-failed', message: messageOf(err) };
@@ -213,9 +218,7 @@ export function configureCleanupSnapshotStore(store: SnapshotStore | null): void
 interface CleanupEventPayload {
   featureId: string;
   currentPhase: string;
-  synthesis: Record<string, unknown>;
-  artifacts: Record<string, unknown>;
-  hasSynthesisBackfill: boolean;
+  backfillPatch: Record<string, unknown>;
   /** The evidence verdict that satisfied `guards.mergeVerified`. */
   mergeVerified: boolean;
   /** The typed artifact reference backing that verdict. */
@@ -244,17 +247,14 @@ interface CleanupEventPayload {
 async function emitCleanupEvents(
   store: EventStore,
   payload: CleanupEventPayload,
+  validate?: Parameters<EventStore['appendTrailAtomically']>[3],
 ): Promise<boolean> {
   const { featureId, currentPhase } = payload;
   const trail: Array<
     Parameters<EventStore['appendTrailAtomically']>[1][number]
   > = [];
 
-  const backfillPatch: Record<string, unknown> = {};
-  if (payload.hasSynthesisBackfill) {
-    backfillPatch.synthesis = payload.synthesis;
-    backfillPatch.artifacts = payload.artifacts;
-  }
+  const backfillPatch = payload.backfillPatch;
   if (Object.keys(backfillPatch).length > 0) {
     trail.push({
       type: 'state.patched' as EventType,
@@ -308,6 +308,7 @@ async function emitCleanupEvents(
     featureId,
     trail,
     `cleanup:${featureId}:${payload.phaseAttemptId}`,
+    validate,
   );
 }
 
@@ -380,6 +381,11 @@ export interface CleanupEvidence {
   readonly unapprovedReviews: readonly string[];
   /** The typed merge artifact reference backing the merge, or null. */
   readonly mergeArtifact: string | null;
+}
+
+/** Returns a copied record without accepting arrays or null. */
+function recordOf(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? { ...value } : {};
 }
 
 /** Read the first artifact reference from a state field: a non-empty trimmed string, or the first such string in a list. */
@@ -695,18 +701,24 @@ async function cleanupOnRoute(
     }, shadowRun, { stateDir, writeLine: false });
   }
 
-  const synthesis = (mutableState.synthesis ?? {}) as Record<string, unknown>;
+  const backfillSource = route.kind === 'fold' ? route.input : mutableState;
+  const backfillPatch: Record<string, unknown> = {};
+  const synthesis = recordOf(backfillSource.synthesis);
   if (input.prUrl !== undefined) {
     synthesis.prUrl = input.prUrl;
+    backfillPatch['synthesis.prUrl'] = input.prUrl;
   }
   if (input.mergedBranches !== undefined) {
     synthesis.mergedBranches = input.mergedBranches;
+    backfillPatch['synthesis.mergedBranches'] = input.mergedBranches;
   }
   mutableState.synthesis = synthesis;
 
-  const artifacts = (mutableState.artifacts ?? {}) as Record<string, unknown>;
+  const artifacts = recordOf(backfillSource.artifacts);
+  const priorArtifact = artifacts.pr;
   if (input.prUrl !== undefined && artifacts.pr == null) {
     artifacts.pr = input.prUrl;
+    backfillPatch['artifacts.pr'] = input.prUrl;
   }
   mutableState.artifacts = artifacts;
 
@@ -744,29 +756,43 @@ async function cleanupOnRoute(
       const landed = await emitCleanupEvents(eventFirstStore, {
         featureId: input.featureId,
         currentPhase,
-        synthesis,
-        artifacts,
-        hasSynthesisBackfill: input.prUrl !== undefined || input.mergedBranches !== undefined,
+        backfillPatch,
         mergeVerified: evidence.verified,
         mergeArtifact: evidence.mergeArtifact,
         transitionEvents: move.events,
         prUrl: input.prUrl,
         mergedBranches: input.mergedBranches,
         phaseAttemptId,
-      });
+      }, route.kind === 'fold' ? (snapshot) => {
+        const current = validateFinalization(snapshot, route);
+        const currentEvidence = collectCleanupEvidence(current);
+        if (!isDeepStrictEqual(currentEvidence, evidence)) {
+          throw new FinalizationChanged('The cleanup evidence changed before finalization');
+        }
+        if ('artifacts.pr' in backfillPatch && !isDeepStrictEqual(recordOf(current.artifacts).pr, priorArtifact)) {
+          throw new FinalizationChanged('The conditional artifact fill changed before finalization');
+        }
+        const currentInput = { ...current, _cleanup: { mergeVerified: currentEvidence.verified }, _pendingPhaseAttemptId: phaseAttemptId };
+        const admission = decide(route.def, currentInput, { kind: 'cleanup' });
+        if (admission.kind !== 'admit') throw new FinalizationChanged('The cleanup admission changed before finalization');
+        const emitted = phaseMoveEvents(route.def, currentInput, admission.move);
+        if (!emitted.success || !isDeepStrictEqual(emitted.events, move.events) || !isDeepStrictEqual(emitted.historyUpdates ?? {}, move.historyUpdates)) {
+          throw new FinalizationChanged('The cleanup move changed before finalization');
+        }
+      } : undefined);
       if (route.kind === 'fold' && landed === false) return { claimHit: true };
     } catch (err) {
       return withShadowRecord({
         success: false,
         error: {
-          code: ErrorCode.EVENT_APPEND_FAILED,
+          code: err instanceof FinalizationChanged ? ErrorCode.VERSION_CONFLICT : err instanceof FinalizationReplayFailed ? ErrorCode.PROJECTION_REPLAY_FAILED : ErrorCode.EVENT_APPEND_FAILED,
           message: `Event append failed during cleanup: ${err instanceof Error ? err.message : String(err)}`,
         },
       }, shadowRun, shadowSink);
     }
   }
 
-  const completed = await withShadowRecord({
+  let completed = await withShadowRecord({
     success: true,
     data: {
       phase: 'completed',
@@ -776,7 +802,15 @@ async function cleanupOnRoute(
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   }, shadowRun, shadowSink);
 
-  await writeStateFile(stateFile, mutableState as WorkflowState);
+  if (route.kind === 'fold' && eventFirstStore !== undefined) {
+    const level = await levelPhaseInStateDocument(stateFile, eventFirstStore, input.featureId, 4);
+    if (level.kind === 'failed' || level.kind === 'skipped') {
+      throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, level.kind === 'failed' ? level.error : 'The cleanup document is absent');
+    }
+    completed = { ...completed, _meta: buildCheckpointMeta(level.state._checkpoint) };
+  } else {
+    await writeStateFile(stateFile, mutableState as WorkflowState);
+  }
 
   if (!useEventFirst && eventStore) {
     await emitLegacyTransitionEvents(

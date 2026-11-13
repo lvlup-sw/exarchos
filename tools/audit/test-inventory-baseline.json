@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1456,
-    "parsedFiles": 1411,
+    "testFiles": 1457,
+    "parsedFiles": 1412,
     "shellFiles": 45,
-    "cases": 15996,
-    "dynamicTitles": 222,
+    "cases": 16014,
+    "dynamicTitles": 224,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -30723,6 +30723,21 @@
         {
           "suite": "EventStore append observation",
           "name": "EventStore_ConcurrentScopes_DoNotCrossTalk_Property",
+          "dynamic": false
+        },
+        {
+          "suite": "Atomic trail validation",
+          "name": "EventStore_AtomicTrailValidation_SeesTheTransactionalSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "Atomic trail validation",
+          "name": "EventStore_AtomicTrailValidationThrow_WritesNoRowsClaimOrNotifications",
+          "dynamic": false
+        },
+        {
+          "suite": "Atomic trail validation",
+          "name": "EventStore_AtomicTrailClaimHit_SkipsValidationAndReturnsFalse",
           "dynamic": false
         }
       ]
@@ -92686,7 +92701,7 @@
         },
         {
           "suite": "the cancel handler decides on the ledger fold",
-          "name": "HandleCancel_AFoldError_TakesTheDocumentPhase",
+          "name": "HandleCancel_ABrokenCompletedLedger_RefusesBeforeCompensation",
           "dynamic": false
         },
         {
@@ -92738,6 +92753,41 @@
           "suite": "the cancel handler decides on the ledger fold",
           "name": "HandleCancel_BothAtCancelled_RefusesAlreadyCancelled",
           "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_AQueryFailure_RefusesBeforeCompensation",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_ACompletedFold_RefusesBeforeCompensation",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_ACompetingMoveDuringCompensation_RejectsTheFinalTrail (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_ASamePhaseReturnWithNoAttemptIds_RejectsTheFinalTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_SagaOnlyRows_KeepTheFinalizationEligible",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_ADryRunOnALaggingCancelledDocument_WritesNothing",
+          "dynamic": false
         }
       ]
     },
@@ -92788,6 +92838,36 @@
         {
           "suite": "the cleanup handler decides on the ledger fold",
           "name": "HandleCleanup_AMergeArtifactOnlyInTheDocument_GivesNoCleanupMove",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_ACompetingMoveBeforeAppend_RejectsTheFinalTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_RevokedEvidenceBeforeAppend_RejectsTheFinalTrail (%j)",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_FoldEvidenceSurvivesDocumentSynchronization",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_PartialBackfill_PreservesNewerFoldFields",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_AConcurrentArtifactFill_IsNotOverwritten",
           "dynamic": false
         }
       ]
@@ -93216,6 +93296,22 @@
         {
           "suite": "the pin of a full definition",
           "name": "PreparedBundle_ASixBundle_DecodesWithItsExtension",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/finalization.test.ts": {
+      "file": "tests/unit/workflow/decide/finalization.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Final lifecycle transaction",
+          "name": "EventStore_FinalValidation_AChangeAtTransactionEntry_RefusesTheStaleTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "Final lifecycle transaction",
+          "name": "Finalization_ABrokenSnapshot_RejectsWithoutClaim",
           "dynamic": false
         }
       ]

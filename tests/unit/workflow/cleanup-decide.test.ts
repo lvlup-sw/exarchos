@@ -204,9 +204,23 @@ function goldenEntryWithTheDelta(name: string): unknown {
   if (entry === undefined) throw new Error(`the golden holds no scenario '${name}'`);
   return {
     ...entry,
-    rows: entry.rows.map((row) =>
-      row.idempotencyKey !== null && LEGACY_TRANSITION_KEY.test(row.idempotencyKey) ? { ...row, idempotencyKey: null } : row,
-    ),
+    rows: entry.rows.map((row) => {
+      if (row.idempotencyKey?.includes(':cleanup:patch:')) {
+        const data = recordOf(row.data);
+        const patch = recordOf(data.patch);
+        const synthesis = recordOf(patch.synthesis);
+        const artifacts = recordOf(patch.artifacts);
+        expect(synthesis.prUrl).toBe(PR_URL);
+        expect(synthesis.mergedBranches).toEqual(['feat/transition-rows-cleanup']);
+        expect(artifacts.pr).toBe(PR_URL);
+        return { ...row, data: { ...data, fields: ['synthesis.prUrl', 'synthesis.mergedBranches', 'artifacts.pr'], patch: {
+          'synthesis.prUrl': synthesis.prUrl,
+          'synthesis.mergedBranches': synthesis.mergedBranches,
+          'artifacts.pr': artifacts.pr,
+        } } };
+      }
+      return row.idempotencyKey !== null && LEGACY_TRANSITION_KEY.test(row.idempotencyKey) ? { ...row, idempotencyKey: null } : row;
+    }),
   };
 }
 
@@ -353,5 +367,95 @@ describe('the cleanup handler decides on the ledger fold', () => {
     expect(result.error?.code).toBe('GUARD_FAILED');
     expect((await rowsOf(store)).filter((row) => row.type === 'workflow.cleanup')).toEqual([]);
     expect((await documentOf(store)).phase).toBe('synthesize');
+  });
+});
+
+/** Inserts a competing append immediately before the prepared cleanup trail reaches its transaction. */
+function beforeCleanupTrail(store: CleanupStore, change: () => Promise<void>): void {
+  const append = store.eventStore.appendTrailAtomically.bind(store.eventStore);
+  replaceMethod(store.eventStore, 'appendTrailAtomically', async (...args) => {
+    await change();
+    return append(...args);
+  });
+}
+
+/** The complete cleanup trail and its operation claim must remain absent on a conflict. */
+async function expectCleanupConflict(store: CleanupStore, document: Record<string, unknown>, result: ToolResult, attempt: string): Promise<void> {
+  expect(result.error?.code).toBe('VERSION_CONFLICT');
+  expect((await rowsOf(store)).filter((row) => row.idempotencyKey?.startsWith(`${FEATURE_ID}:cleanup:`))).toEqual([]);
+  expect(store.backend.lookupOperationClaim(`cleanup:${FEATURE_ID}:${attempt}`)).toBeUndefined();
+  expect(await documentOf(store)).toEqual(document);
+}
+
+/** Returns the attempt that cleanup allocates from the complete stream version. */
+async function cleanupAttempt(store: CleanupStore): Promise<string> {
+  const rows = await rowsOf(store);
+  const start = rows.find((row) => row.type === 'workflow.started');
+  const predecessor = recordOf(start?.data).phaseAttemptId;
+  return allocatePhaseAttemptId(FEATURE_ID, 'synthesize', 'completed', typeof predecessor === 'string' ? predecessor : undefined, Math.max(...rows.map((row) => row.sequence)));
+}
+
+/** Final cleanup validates current evidence and preserves ledger-owned fields during document synchronization. */
+describe('Cleanup finalization', () => {
+  it('HandleCleanup_ACompetingMoveBeforeAppend_RejectsTheFinalTrail', async () => {
+    const store = await openStore();
+    await featureAtSynthesizeOnTheRows(store);
+    const document = await documentOf(store);
+    const attempt = await cleanupAttempt(store);
+    beforeCleanupTrail(store, () => appendRow(store, 'workflow.transition', { featureId: FEATURE_ID, from: 'synthesize', to: 'review' }));
+    const result = await handleCleanup({ featureId: FEATURE_ID, mergeVerified: true, prUrl: 'new-pr' }, store.stateDir, store.eventStore);
+    await expectCleanupConflict(store, document, result, attempt);
+  });
+
+  it.each([
+    { 'reviews.code.status': 'rejected' },
+    { 'synthesis.prUrl': 'different-merge-artifact' },
+  ])('HandleCleanup_RevokedEvidenceBeforeAppend_RejectsTheFinalTrail (%j)', async (patch) => {
+    const store = await openStore();
+    await featureAtSynthesizeOnTheRows(store);
+    const document = await documentOf(store);
+    const attempt = await cleanupAttempt(store);
+    beforeCleanupTrail(store, () => appendRow(store, 'state.patched', { featureId: FEATURE_ID, fields: Object.keys(patch), patch }));
+    const result = await handleCleanup({ featureId: FEATURE_ID, mergeVerified: true }, store.stateDir, store.eventStore);
+    await expectCleanupConflict(store, document, result, attempt);
+  });
+
+  it('HandleCleanup_FoldEvidenceSurvivesDocumentSynchronization', async () => {
+    const store = await openStore();
+    await featureAtSynthesizeOnTheRows(store);
+    await appendRow(store, 'state.patched', { featureId: FEATURE_ID, fields: ['reviews.code.status'], patch: { 'reviews.code.status': 'approved' } });
+    await forgeDocument(store, (document) => ({ ...document, synthesis: { ...recordOf(document.synthesis), prUrl: '' }, reviews: {} }));
+    const result = await handleCleanup({ featureId: FEATURE_ID, mergeVerified: true }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    const document = await documentOf(store);
+    expect(document.synthesis).toMatchObject({ prUrl: PR_URL });
+    expect(document.reviews).toMatchObject({ code: { status: 'approved' } });
+    expect(document.phase).toBe('completed');
+    expect(document._eventSequence).toBe((await rowsOf(store)).at(-1)?.sequence);
+  });
+
+  it('HandleCleanup_PartialBackfill_PreservesNewerFoldFields', async () => {
+    const store = await openStore();
+    await featureAtSynthesizeOnTheRows(store);
+    const patch = { 'synthesis.mergedBranches': ['retained-branch'], 'artifacts.pr': 'retained-pr', 'artifacts.design': 'retained-design' };
+    await appendRow(store, 'state.patched', { featureId: FEATURE_ID, fields: Object.keys(patch), patch });
+    const result = await handleCleanup({ featureId: FEATURE_ID, mergeVerified: true, prUrl: 'supplied-pr' }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    const rows = await rowsOf(store);
+    expect(rows.find((row) => row.idempotencyKey === `${FEATURE_ID}:cleanup:patch:synthesize`)?.data).toEqual({ featureId: FEATURE_ID, fields: ['synthesis.prUrl'], patch: { 'synthesis.prUrl': 'supplied-pr' } });
+    const document = await documentOf(store);
+    expect(document.synthesis).toMatchObject({ prUrl: 'supplied-pr', mergedBranches: ['retained-branch'] });
+    expect(document.artifacts).toMatchObject({ pr: 'retained-pr', design: 'retained-design' });
+  });
+
+  it('HandleCleanup_AConcurrentArtifactFill_IsNotOverwritten', async () => {
+    const store = await openStore();
+    await featureAtSynthesizeOnTheRows(store);
+    const document = await documentOf(store);
+    const attempt = await cleanupAttempt(store);
+    beforeCleanupTrail(store, () => appendRow(store, 'state.patched', { featureId: FEATURE_ID, fields: ['artifacts.pr'], patch: { 'artifacts.pr': 'concurrent-pr' } }));
+    const result = await handleCleanup({ featureId: FEATURE_ID, mergeVerified: true, prUrl: 'supplied-pr' }, store.stateDir, store.eventStore);
+    await expectCleanupConflict(store, document, result, attempt);
+    expect((await rowsOf(store)).at(-1)?.data?.patch).toEqual({ 'artifacts.pr': 'concurrent-pr' });
   });
 });

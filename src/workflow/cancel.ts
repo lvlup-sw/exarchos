@@ -19,6 +19,7 @@ import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
 import { executeCompensation, CANCEL_MAX_ATTEMPTS, type CompensationCheckpoint } from './compensation.js';
 import { decide } from './decide/decide.js';
+import { FinalizationChanged, FinalizationReplayFailed, highestPhaseRowSequence, validateFinalization } from './decide/finalization.js';
 import { compileDecideDefinition, type DecideDefinition } from './decide/edges.js';
 import { phaseMoveEvents, type TransitionEvent } from './decide/emit.js';
 import { builtInDefinition, isBuiltInDefinitionType } from './definitions/built-in.js';
@@ -47,12 +48,6 @@ const CURRENT_ES_VERSION = 2;
 /** The type of the row that starts a workflow stream. */
 const START_ROW_TYPE = 'workflow.started';
 
-/**
- * The row types that move the phase of the fold. The version of a cancel route is the highest sequence of these rows.
- * The saga rows of a cancel do not move that version, so a retry of the cancel keeps its phase attempt id and its saga.
- */
-const PHASE_ROW_TYPES: ReadonlySet<string> = new Set(['workflow.started', 'workflow.transition', 'workflow.cancel', 'workflow.cleanup']);
-
 /** The text that starts the warning of a cancel that the state document decided. */
 const DOCUMENT_FALLBACK_WARNING = 'GUARD_INPUT_DOCUMENT_FALLBACK';
 
@@ -77,6 +72,7 @@ type CancelRoute =
       /** The highest sequence of the rows. The level of a lagging document covers each row that the cancel read. */
       readonly eventSequence: number;
     }
+  | { readonly kind: 'fold-failed'; readonly message: string }
   | { readonly kind: 'document'; readonly warnings: readonly string[] };
 
 /** Returns the message of a thrown value. */
@@ -87,11 +83,6 @@ function messageOf(err: unknown): string {
 /** Returns the highest sequence of the rows, or 0 when the rows are empty. */
 function highestSequence(rows: readonly WorkflowEvent[]): number {
   return rows.reduce((highest, row) => Math.max(highest, row.sequence), 0);
-}
-
-/** Returns the highest sequence of the phase rows, or 0 when the rows hold no phase row. */
-function highestPhaseRowSequence(rows: readonly WorkflowEvent[]): number {
-  return highestSequence(rows.filter((row) => PHASE_ROW_TYPES.has(row.type)));
 }
 
 /** Returns the document route with one fallback warning that names the reason. */
@@ -105,8 +96,7 @@ function documentFallback(reason: string): CancelRoute {
 /**
  * Picks the route of a cancel. A type that is not a built-in type keeps the document route with no warning.
  * A built-in type decides on the fold when the store holds its rows: an event store, a document on the ledger and a start row.
- * Otherwise the document decides, and the route carries one fallback warning. A failed read or fold of the rows also gives
- * the document route, because a cancel reads no guard condition.
+ * Otherwise the document decides, and the route carries one fallback warning. A failed read or fold refuses before compensation.
  */
 async function cancelRouteOf(state: WorkflowState, featureId: string, eventStore: EventStore | null): Promise<CancelRoute> {
   const workflowType = state.workflowType;
@@ -127,13 +117,13 @@ async function cancelRouteOf(state: WorkflowState, featureId: string, eventStore
       eventSequence: highestSequence(rows),
     };
   } catch (err) {
-    return documentFallback(`the ledger fold failed: ${messageOf(err)}`);
+    return { kind: 'fold-failed', message: messageOf(err) };
   }
 }
 
 /** Puts the warnings of a route before the warnings of a result. A route with no warning returns the result unchanged. */
 function withRouteWarnings(result: ToolResult, route: CancelRoute): ToolResult {
-  if (route.kind === 'fold' || route.warnings.length === 0) return result;
+  if (route.kind !== 'document' || route.warnings.length === 0) return result;
   return { ...result, warnings: [...route.warnings, ...(result.warnings ?? [])] };
 }
 
@@ -181,7 +171,7 @@ function trustedCancellationProvenance(stateDir: string): Record<string, unknown
  *
  * A built-in type with a store, a ledger document and a start row decides on the ledger fold.
  * The fold gives the source phase, the phase attempt id and the terminal check, and `phaseMoveEvents` gives the trail.
- * The fallback cases and a failed fold keep the path of the state document with one warning.
+ * The fallback cases keep the path of the state document with one warning. A failed fold refuses before compensation.
  * A custom type keeps that path with no warning. The trail commits atomically before the state write.
  */
 export async function handleCancel(
@@ -359,7 +349,11 @@ async function cancelOnRoute(
   state: WorkflowState,
   route: CancelRoute,
 ): Promise<ToolResult | TrailClaimHit> {
+  if (route.kind === 'fold-failed') return { success: false, error: { code: ErrorCode.PROJECTION_REPLAY_FAILED, message: route.message } };
   const terminalPhase = route.kind === 'fold' ? route.from : state.phase;
+  if (route.kind === 'fold' && terminalPhase === 'completed') {
+    return { success: false, error: { code: ErrorCode.INVALID_TRANSITION, message: `Cannot cancel completed workflow '${input.featureId}'` } };
+  }
   if (terminalPhase === 'cancelled') {
     if (route.kind === 'fold' && state.phase !== 'cancelled') {
       if (input.dryRun) return { success: true, data: { dryRun: true, actions: [], currentPhase: 'cancelled', wouldTransitionTo: 'cancelled' } };
@@ -688,13 +682,20 @@ async function cancelOnRoute(
           input.featureId,
           cancelTrail,
           cancelTrailOperationId,
+          route.kind === 'fold' ? (snapshot) => {
+            const current = validateFinalization(snapshot, { ...route, phaseSequence: route.version });
+            const admission = decide(route.def, current, { kind: 'cancel' });
+            if (admission.kind !== 'admit' || admission.move.to !== 'cancelled') {
+              throw new FinalizationChanged('The cancellation admission changed before finalization');
+            }
+          } : undefined,
         );
         if (route.kind === 'fold' && landed === false) return { claimHit: true, from: currentPhase };
       } catch (err) {
         return {
           success: false,
           error: {
-            code: ErrorCode.EVENT_APPEND_FAILED,
+            code: err instanceof FinalizationChanged ? ErrorCode.VERSION_CONFLICT : err instanceof FinalizationReplayFailed ? ErrorCode.PROJECTION_REPLAY_FAILED : ErrorCode.EVENT_APPEND_FAILED,
             message: `Event append failed during cancel: ${err instanceof Error ? err.message : String(err)}`,
           },
         };
@@ -709,6 +710,20 @@ async function cancelOnRoute(
       } catch {
       }
     }
+  }
+
+  if (route.kind === 'fold' && eventStore !== null) {
+    const level = await levelPhaseInStateDocument(stateFile, eventStore, input.featureId, MAX_LEVEL_WRITES, (candidate) => {
+      delete candidate._compensationCheckpoint;
+    });
+    if (level.kind === 'failed' || level.kind === 'skipped') {
+      throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, level.kind === 'failed' ? level.error : 'The cancellation document is absent');
+    }
+    return {
+      success: true,
+      data: { phase: 'cancelled', actions: compensationResult.actions, previousPhase: currentPhase, phaseAttemptId },
+      _meta: buildCheckpointMeta(level.state._checkpoint),
+    };
   }
 
   mutableState.phase = 'cancelled';

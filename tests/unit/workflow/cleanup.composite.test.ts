@@ -479,16 +479,15 @@ describe('handleCleanup', () => {
       expect(patchData.featureId).toBe('v2-patch');
       expect(patchData.fields).toBeDefined();
       const fields = patchData.fields as string[];
-      expect(fields.includes('synthesis') || fields.includes('artifacts')).toBe(true);
+      expect(fields).toEqual(['synthesis.prUrl', 'synthesis.mergedBranches']);
       expect(fields).not.toContain('reviews');
-      const patch = patchData.patch as Record<string, unknown>;
-      expect(patch).toBeDefined();
-      expect(patch.reviews).toBeUndefined();
-      if (patch.synthesis) {
-        const synthPatch = patch.synthesis as Record<string, unknown>;
-        expect(synthPatch.prUrl).toBe('https://github.com/test/pr/99');
-        expect(synthPatch.mergedBranches).toEqual(['feature/branch-a', 'feature/branch-b']);
-      }
+      expect(patchData.patch).toEqual({
+        'synthesis.prUrl': 'https://github.com/test/pr/99',
+        'synthesis.mergedBranches': ['feature/branch-a', 'feature/branch-b'],
+      });
+      const finalState = await readRawState('v2-patch');
+      expect(finalState.artifacts).toMatchObject({ pr: 'https://github.com/test/pr/0' });
+      expect(finalState.reviews).toEqual({ 'task-1': { status: 'approved' } });
     });
 
     /** A state with no `_esVersion` field is a v1 legacy workflow. */

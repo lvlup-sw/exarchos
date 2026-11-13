@@ -25,6 +25,7 @@ import { toEnvelope, type ToolResult } from '../../../src/format.js';
 import { WorkflowCancelOutputSchema } from '../../../src/registry/output-schemas.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import { flushLiveShadowEvidence } from '../../../src/workflow/admission/live-shadow-observer.js';
+import * as compensation from '../../../src/workflow/compensation.js';
 import { handleCancel } from '../../../src/workflow/cancel.js';
 import { hsmTransitionGuard } from '../../../src/workflow/hsm-transition-guard.js';
 import { allocatePhaseAttemptId } from '../../../src/workflow/phase-attempt-id.js';
@@ -277,18 +278,20 @@ describe('the cancel handler decides on the ledger fold', () => {
     expect(claims.lookupOperationClaim(`cancel:${FEATURE_ID}:${expected}`)).toBeDefined();
   });
 
-  /** A row that the fold cannot apply leaves the document path, so the cancel row names the document phase. */
-  it('HandleCancel_AFoldError_TakesTheDocumentPhase', async () => {
+  /** Broken replay refuses before any ownership, compensation or final row. */
+  it('HandleCancel_ABrokenCompletedLedger_RefusesBeforeCompensation', async () => {
     const store = await openStore();
     await debugAtInvestigate(store);
+    await appendRow(store, 'workflow.cleanup', { featureId: FEATURE_ID, from: 'investigate', to: 'completed' });
     await appendRow(store, 'state.patched', { featureId: FEATURE_ID, fields: ['artifacts[0].x'], patch: { 'artifacts[0].x': 1 } });
-
+    const before = await rowsOf(store);
+    const document = await documentOf(store);
+    const effects = vi.spyOn(compensation, 'executeCompensation');
     const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
-
-    expect(result.success).toBe(true);
-    expect(recordOf(result.data).previousPhase).toBe('investigate');
-    expect((await documentOf(store)).phase).toBe('cancelled');
-    expect(closingCancelRowOf(await rowsOf(store))).toMatchObject({ from: 'investigate', to: 'cancelled' });
+    expect(result.error?.code).toBe('PROJECTION_REPLAY_FAILED');
+    expect(effects).not.toHaveBeenCalled();
+    expect(await rowsOf(store)).toEqual(before);
+    expect(await documentOf(store)).toEqual(document);
   });
 
   /** A feature stream at `ideate`, which is no step, reaches `cancelled`. */
@@ -296,7 +299,8 @@ describe('the cancel handler decides on the ledger fold', () => {
     const store = await openStore();
     await init(store, 'feature');
     await appendRow(store, 'workflow.transition', { from: 'plan', to: 'ideate', trigger: 'test', featureId: FEATURE_ID });
-    await store.backend.setState(FEATURE_ID, { ...(await documentOf(store)), phase: 'ideate' });
+    const unknownPhaseDocument = await documentOf(store);
+    await writeStateFile(stateFileOf(store), { ...unknownPhaseDocument, phase: 'ideate' }, { skipValidation: true, expectedVersion: Number(unknownPhaseDocument._version) });
 
     const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
 
@@ -418,8 +422,9 @@ describe('the cancel handler decides on the ledger fold', () => {
     expect((await documentOf(store)).phaseAttemptId).toBeUndefined();
 
     const first = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
-    await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    const second = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
 
+    expect(second.error?.code).toBe('COMPENSATION_PARTIAL');
     expect(first.error?.code).toBe('COMPENSATION_PARTIAL');
     const rows = await rowsOf(store);
     const cancelIds = new Set(rows.filter((row) => row.type === 'cancel.requested').map((row) => recordOf(row.data).cancelId));
@@ -462,5 +467,100 @@ describe('the cancel handler decides on the ledger fold', () => {
     expect(result.success).toBe(false);
     expect(result.error?.code).toBe('ALREADY_CANCELLED');
     expect(await rowsOf(store)).toHaveLength(rows.length);
+  });
+});
+
+/** Final cancellation checks preserve saga effects but reject stale final trails. */
+describe('Cancellation finalization', () => {
+  it('HandleCancel_AQueryFailure_RefusesBeforeCompensation', async () => {
+    const store = await openStore();
+    await debugAtInvestigate(store);
+    const before = await rowsOf(store);
+    const document = await documentOf(store);
+    const effects = vi.spyOn(compensation, 'executeCompensation');
+    vi.spyOn(store.eventStore, 'query').mockRejectedValueOnce(new Error('read failed'));
+    const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    expect(result.error?.code).toBe('PROJECTION_REPLAY_FAILED');
+    expect(effects).not.toHaveBeenCalled();
+    expect(await rowsOf(store)).toEqual(before);
+    expect(await documentOf(store)).toEqual(document);
+  });
+
+  it('HandleCancel_ACompletedFold_RefusesBeforeCompensation', async () => {
+    const store = await openStore();
+    await debugAtInvestigate(store);
+    await appendRow(store, 'workflow.cleanup', { featureId: FEATURE_ID, from: 'investigate', to: 'completed' });
+    const before = await rowsOf(store);
+    const document = await documentOf(store);
+    const effects = vi.spyOn(compensation, 'executeCompensation');
+    const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    expect(result.error?.code).toBe('INVALID_TRANSITION');
+    expect(effects).not.toHaveBeenCalled();
+    expect(await rowsOf(store)).toEqual(before);
+    expect(await documentOf(store)).toEqual(document);
+  });
+
+  it.each(['workflow.transition', 'workflow.cleanup'])('HandleCancel_ACompetingMoveDuringCompensation_RejectsTheFinalTrail (%s)', async (kind) => {
+    const store = await openStore();
+    await debugAtInvestigate(store);
+    const before = await rowsOf(store);
+    const document = await documentOf(store);
+    const original = compensation.executeCompensation;
+    vi.spyOn(compensation, 'executeCompensation').mockImplementationOnce(async (...args) => {
+      await appendRow(store, kind, { featureId: FEATURE_ID, from: 'investigate', to: kind === 'workflow.cleanup' ? 'completed' : 'fix' });
+      return original(...args);
+    });
+    const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    expect(result.error?.code).toBe('VERSION_CONFLICT');
+    const after = await rowsOf(store);
+    expect(after.filter((row) => row.idempotencyKey?.startsWith(`${FEATURE_ID}:cancel:`))).toEqual([]);
+    const attempt = allocatePhaseAttemptId(FEATURE_ID, 'investigate', 'cancelled', String(document.phaseAttemptId), Math.max(...before.filter((row) => ['workflow.started', 'workflow.transition'].includes(row.type)).map((row) => row.sequence)));
+    expect(store.backend.lookupOperationClaim(`cancel:${FEATURE_ID}:${attempt}`)).toBeUndefined();
+    expect(after.some((row) => row.type === 'cancel.requested')).toBe(true);
+    expect(await documentOf(store)).toEqual(document);
+  });
+
+  it('HandleCancel_ASamePhaseReturnWithNoAttemptIds_RejectsTheFinalTrail', async () => {
+    const store = await openStore();
+    await featureAtDelegateWithNoAttemptId(store);
+    const document = await documentOf(store);
+    const phaseSequence = Math.max(...(await rowsOf(store)).filter((row) => ['workflow.started', 'workflow.transition'].includes(row.type)).map((row) => row.sequence));
+    const attempt = allocatePhaseAttemptId(FEATURE_ID, 'delegate', 'cancelled', undefined, phaseSequence);
+    vi.spyOn(compensation, 'executeCompensation').mockImplementationOnce(async () => {
+      await appendRow(store, 'workflow.transition', { featureId: FEATURE_ID, from: 'delegate', to: 'review' });
+      await appendRow(store, 'workflow.transition', { featureId: FEATURE_ID, from: 'review', to: 'delegate' });
+      return { success: true, actions: [], events: [] };
+    });
+    const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    expect(result.error?.code).toBe('VERSION_CONFLICT');
+    expect((await rowsOf(store)).filter((row) => row.idempotencyKey?.startsWith(`${FEATURE_ID}:cancel:`))).toEqual([]);
+    expect(store.backend.lookupOperationClaim(`cancel:${FEATURE_ID}:${attempt}`)).toBeUndefined();
+    expect(await documentOf(store)).toEqual(document);
+  });
+
+  it('HandleCancel_SagaOnlyRows_KeepTheFinalizationEligible', async () => {
+    const store = await openStore();
+    await debugAtInvestigate(store);
+    const before = await rowsOf(store);
+    const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    const after = await rowsOf(store);
+    expect(after.slice(before.length).map((row) => row.type)).toContain('cancel.ready');
+    expect(after.filter((row) => row.idempotencyKey === `${FEATURE_ID}:cancel:complete`)).toHaveLength(1);
+    expect((await documentOf(store))._eventSequence).toBe(after.at(-1)?.sequence);
+  });
+
+  it('HandleCancel_ADryRunOnALaggingCancelledDocument_WritesNothing', async () => {
+    const store = await openStore();
+    await debugAtInvestigate(store);
+    await appendRow(store, 'workflow.cancel', { featureId: FEATURE_ID, from: 'investigate', to: 'cancelled' });
+    const before = await rowsOf(store);
+    const document = await documentOf(store);
+    const effects = vi.spyOn(compensation, 'executeCompensation');
+    const result = await handleCancel({ featureId: FEATURE_ID, dryRun: true }, store.stateDir, store.eventStore);
+    expect(result.data).toEqual({ dryRun: true, actions: [], currentPhase: 'cancelled', wouldTransitionTo: 'cancelled' });
+    expect(effects).not.toHaveBeenCalled();
+    expect(await rowsOf(store)).toEqual(before);
+    expect(await documentOf(store)).toEqual(document);
   });
 });

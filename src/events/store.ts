@@ -4,7 +4,7 @@ import { WorkflowEventBase } from './schemas.js';
 import type { WorkflowEvent } from './schemas.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { validateStreamId } from '../contract/shared/validation.js';
-import { AtomicAppender } from './atomic-appender.js';
+import { AtomicAppender, type DecideOnceStreamSnapshot } from './atomic-appender.js';
 import { migrateEvents } from './event-migration.js';
 import { getDispatchContext } from '../dispatch/dispatch-context.js';
 import { notifyAppendObserved } from './observation/append-observation.js';
@@ -487,6 +487,7 @@ export class EventStore {
       Partial<Omit<WorkflowEvent, 'sequence' | 'streamId'>> & { type: string }
     >,
     operationId: string,
+    validate?: (snapshot: DecideOnceStreamSnapshot) => void,
   ): Promise<boolean> {
     if (events.length === 0) return true;
     if (!operationId) {
@@ -530,7 +531,8 @@ export class EventStore {
     await this.getAppender().decideOnce<number>(
       operationId,
       requestDigest,
-      () => {
+      (tx) => {
+        validate?.(tx.readStream(streamId));
         landed = true;
         return { streamId, events: inputs, result: inputs.length };
       },
