@@ -1,12 +1,10 @@
 /**
- * The single authority for event-data validation.
- *
- * `exarchos_event.append` and `exarchos_event.batch_append` both call
- * `validateEventData`, so the two write paths accept the same payloads. The store
- * is authoritative and nothing downstream validates the data again.
+ * Event-data validation keeps historical type-only contracts separate from versioned row contracts.
+ * Generic writers also enforce caller admission before they discard raw envelope metadata.
  */
-import type { z } from 'zod';
-import { EVENT_DATA_SCHEMAS, type EventType } from './schemas.js';
+import { z } from 'zod';
+import { WorkflowTypeSchema } from '../workflow/schemas.js';
+import { EVENT_DATA_SCHEMAS, WorkflowStartedData, WorkflowStartedV11Data, WORKFLOW_STARTED_SCHEMA_VERSION, type EventType } from './schemas.js';
 
 /** The per-type data schemas keyed by event type. Mutable at runtime: `registerEventType` adds entries. */
 export type EventDataSchemaRegistry = Partial<Record<EventType, z.ZodSchema>>;
@@ -57,6 +55,40 @@ export function validateEventData(
   if (dataSchema === undefined) return;
 
   dataSchema.parse(data);
+}
+
+/** Row context selects the complete versioned start contract. */
+export interface EventRowData {
+  readonly type: string;
+  readonly schemaVersion?: unknown;
+  readonly data?: unknown;
+}
+
+/** Legacy extras have no phase authority and do not need parsing. */
+export function recordedInitialPhaseOf(row: EventRowData): string | undefined {
+  if (row.type !== 'workflow.started' || row.schemaVersion !== WORKFLOW_STARTED_SCHEMA_VERSION) return undefined;
+  return WorkflowStartedV11Data.parse(row.data).initialPhase;
+}
+
+/** Validate a row without changing the legacy data-only registry contract. */
+export function validateEventRowData(row: EventRowData, registry: EventDataSchemaRegistry = EVENT_DATA_SCHEMAS): void {
+  if (row.type === 'workflow.started' && row.schemaVersion === WORKFLOW_STARTED_SCHEMA_VERSION) {
+    WorkflowStartedV11Data.parse(row.data);
+    return;
+  }
+  validateEventData(row.type as EventType, row.data, registry);
+}
+
+const GenericStartedData = WorkflowStartedData.extend({ workflowType: WorkflowTypeSchema });
+
+/** Inspect raw generic input before handlers discard caller versions. Trusted writers use row validation directly. */
+export function validateGenericEventAdmission(row: EventRowData): void {
+  if (row.type !== 'workflow.started') return;
+  if (row.schemaVersion === WORKFLOW_STARTED_SCHEMA_VERSION ||
+      (row.data !== null && typeof row.data === 'object' && Object.hasOwn(row.data, 'initialPhase'))) {
+    throw new z.ZodError([{ code: 'custom', path: ['data', 'initialPhase'], message: 'Generic starts cannot supply a recorded initial phase or its epoch' }]);
+  }
+  if (row.data !== undefined) GenericStartedData.parse(row.data);
 }
 
 /** One event of a batch, paired with its position in the caller's array. */

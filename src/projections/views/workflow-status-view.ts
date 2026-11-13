@@ -1,3 +1,4 @@
+import { recordedInitialPhaseOf } from '../../events/event-validation.js';
 import type { ViewProjection } from './materializer.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
 import { taskStoreReducer } from '../taskstore/reducer.js';
@@ -133,7 +134,7 @@ export const workflowStatusProjection: ViewProjection<WorkflowStatusViewState> =
           ...view,
           featureId: data?.featureId ?? view.featureId,
           workflowType: data?.workflowType ?? view.workflowType,
-          phase: 'started',
+          phase: recordedInitialPhaseOf(event) ?? 'started',
           startedAt: event.timestamp,
         };
       }

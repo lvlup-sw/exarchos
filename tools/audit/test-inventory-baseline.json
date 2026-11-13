@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1463,
-    "parsedFiles": 1418,
+    "testFiles": 1465,
+    "parsedFiles": 1420,
     "shellFiles": 45,
-    "cases": 16105,
-    "dynamicTitles": 235,
+    "cases": 16126,
+    "dynamicTitles": 240,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -93804,6 +93804,123 @@
           "suite": "shared typed plan checks",
           "name": "keeps semantic plausibility challenges advisory on typed fields",
           "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/events/versioned-start.test.ts": {
+      "file": "tests/unit/events/versioned-start.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "versioned start contract",
+          "name": "Decode_ColdUserType_AndLegacyConstructor_AcceptsWithoutRegistration",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Start_LegacyUnknownPhaseAnyJson_Ignored",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Fold_RecordedUserEntry_PreservesPhase_ThroughTransitions",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Start_ExactV11_MalformedDataRefuses %j",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "LegacyRegistry_ThirdArgument_AndAbsentData_AreUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "GenericStart_OwnPhaseOrRawV11_OrColdTypeRefuses %j",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "GenericStart_RegisteredConstructorAdmitted_AndAbsentDataUnknownKeysPreserved",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "ColdRecovery_RecordedEntry_AndCheckpointAgree",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "ColdRecovery_MalformedEpochRefusesBeforeMissingDataReturn %j",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Recovery_LegacyExtraUsesOriginalBuiltinEntry %s",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Migration_OldStartsNeverUpcast_AndLegacyMissingDataKeepsFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "ExplicitEntry_RefusesConflictingDocumentOrCheckpoint",
+          "dynamic": false
+        },
+        {
+          "suite": "versioned start contract",
+          "name": "Init_UnregisteredCallerType_Refuses_AndRegisteredConstructorKeepsVersion10",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/prepared-bundle-compatibility.test.ts": {
+      "file": "tests/integration/prepared-bundle-compatibility.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Codec_OldBundle_RoundTrips",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Codec_GeneratedStructures_PreserveAbsenceAndEmptySkipList",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "Receipt_OldAbsentAndPreviousReasons_StillDecode %s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared bundle compatibility",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
         }
       ]
     }

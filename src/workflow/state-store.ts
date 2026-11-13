@@ -6,6 +6,8 @@
  * primitives live in the leaf module, so the workflow-state projection can use
  * them without an import cycle through this module.
  */
+import { recordedInitialPhaseOf } from '../events/event-validation.js';
+
 import { WorkflowStateSchema, ErrorCode } from './schemas.js';
 import { getInitialPhase } from './state-machine.js';
 import { resetCounter } from './checkpoint.js';
@@ -153,11 +155,21 @@ export async function initStateFile(
   featureId: string,
   workflowType: WorkflowType,
   extraFields?: Record<string, unknown>,
+  recordedInitialPhase?: string,
 ): Promise<{ stateFile: string; state: WorkflowState }> {
   const stateFile = path.join(stateDir, `${featureId}.state.json`);
 
   const now = new Date().toISOString();
-  const initialPhase = getInitialPhase(workflowType);
+  if (recordedInitialPhase !== undefined && (typeof recordedInitialPhase !== 'string' || recordedInitialPhase.length === 0)) {
+    throw new Error('The recorded initial phase must be a nonempty string');
+  }
+  const initialPhase = recordedInitialPhase ?? getInitialPhase(workflowType);
+  if (recordedInitialPhase !== undefined &&
+      ((extraFields?.phase !== undefined && extraFields.phase !== recordedInitialPhase) ||
+       (extraFields?._checkpoint !== undefined &&
+        (!isPlainObject(extraFields._checkpoint) || extraFields._checkpoint.phase !== recordedInitialPhase)))) {
+    throw new Error('Explicit initial phase must match the document and checkpoint');
+  }
 
   const rawState = {
     version: CURRENT_VERSION,
@@ -751,12 +763,13 @@ export async function reconcileFromEvents(
       return { reconciled: false, eventsApplied: 0 };
     }
     const startedEvent = allEvents.find((e) => e.type === 'workflow.started');
+    const recordedPhase = startedEvent === undefined ? undefined : recordedInitialPhaseOf(startedEvent);
     if (!startedEvent?.data) {
       return { reconciled: false, eventsApplied: 0 };
     }
     const data = startedEvent.data as Record<string, unknown>;
     const workflowType = data.workflowType as WorkflowType;
-    const result = await initStateFile(stateDir, featureId, workflowType);
+    const result = await initStateFile(stateDir, featureId, workflowType, undefined, recordedPhase);
     state = result.state;
     const startedAt = startedEvent.timestamp;
     const stateRecord = state as unknown as Record<string, unknown>;

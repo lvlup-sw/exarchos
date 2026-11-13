@@ -65,12 +65,12 @@ const UNCHANGED_SHAPES: Readonly<Record<string, z.ZodType>> = {
 
 describe('the stored-shape decision of the verification profile', () => {
   /**
-   * The profile decision is the latest entry, and it names the design of record.
-   * With the profile reverted, the live prepared-bundle digest equals the entry of 2026-10-25, so the last assertion fails.
+   * The profile decision names the design of record and retains its historical digest.
+   * The latest decision pins the live prepared bundle.
    */
   it('StoredShapes_TheProfileDecision_MovesOnlyThePreparedBundleDigest', () => {
     const scopeDecision = decisions.find((entry) => entry.date === '2026-10-25');
-    const profileDecision = decisions.at(-1);
+    const profileDecision = decisions.find((entry) => entry.date === '2026-10-29');
     expect(scopeDecision, 'the decision of 2026-10-25 is absent').toBeDefined();
     expect(profileDecision?.source).toContain('docs/specs/2026-10-28-no-per-language-code.md');
     expect(profileDecision?.decision).toContain('SCHEMA_VERSION stays 6');
@@ -83,7 +83,8 @@ describe('the stored-shape decision of the verification profile', () => {
       expect(profileDecision?.shapes[name], name).toBe(scopeDecision?.shapes[name]);
     }
     const prepared = shapeDigest(PreparedBundleV1Schema);
-    expect(profileDecision?.shapes.PreparedBundleV1Schema).toBe(prepared);
+    expect(profileDecision?.shapes.PreparedBundleV1Schema).toBe('sha256:dadcc0ec285892340b8c27470379d548f54c7728fd98f015d978b4a3607f4823');
+    expect(decisions.at(-1)?.shapes.PreparedBundleV1Schema).toBe(prepared);
     expect(prepared).not.toBe(scopeDecision?.shapes.PreparedBundleV1Schema);
   });
 });

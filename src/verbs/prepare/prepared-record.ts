@@ -5,22 +5,17 @@
  * preparation, so no record pins bytes that nobody can read back.
  *
  * `settle` judges the capsule that a record pins, read back from custody. A submitted capsule must
- * match the digest of that record. The writer and the reader live in one module, so they agree on
- * the document shape.
+ * match the digest of that record. The contract-layer codec owns the document shape.
  */
 
 import {
-  WorkflowDefinitionV1Schema,
   type WorkflowDefinitionV1,
 } from '@lvlup-sw/strategos-contracts';
-import { z } from 'zod';
 
 import { capsuleDigest, contentDigest } from '../../contract/capsule/capsule-digest.js';
 import {
-  ExarchosCapsuleV1Schema,
   type ExarchosCapsuleV1,
 } from '../../contract/capsule/exarchos-capsule.js';
-import { canonicalJson } from '../../contract/request-context.js';
 import type { DispatchContext } from '../../dispatch/core/dispatch.js';
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
@@ -36,11 +31,8 @@ import {
 import { ArtifactIdSchema, type ArtifactId } from '../../workflow/admission/types.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile } from './types.js';
 
-/** The `kind` discriminator every prepared bundle carries. */
-export const PREPARED_BUNDLE_KIND = 'prepared-capsule';
-
-/** The document version. A change that an old reader can misread needs a new version. */
-export const PREPARED_BUNDLE_VERSION = '1.0';
+export { PREPARED_BUNDLE_KIND, PREPARED_BUNDLE_VERSION, PreparedBundleV1Schema, encodePreparedBundle, decodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
+import { PREPARED_BUNDLE_KIND, encodePreparedBundle, decodePreparedBundle, type PreparedBundleV1 } from '../../contract/capsule/prepared-bundle.js';
 
 /** The payload version `workflow.prepared` rows are stamped with. */
 export const WORKFLOW_PREPARED_SCHEMA_VERSION = '1.0';
@@ -52,38 +44,6 @@ const TASK_ASSIGNED_TYPE = 'task.assigned';
 
 /** The event that records one recompile. This commit is its one writer. */
 const CAPSULE_RECOMPILED_TYPE = 'capsule.recompiled' satisfies EventType;
-
-export const PreparedBundleV1Schema = z
-  .object({
-    bundleVersion: z.literal(PREPARED_BUNDLE_VERSION),
-    kind: z.literal(PREPARED_BUNDLE_KIND),
-    capsule: ExarchosCapsuleV1Schema,
-    /** Validated against the published kernel on decode, not trusted as an opaque record. */
-    definition: z.record(z.string(), z.unknown()),
-  })
-  .strict();
-
-export interface PreparedBundleV1 {
-  readonly capsule: ExarchosCapsuleV1;
-  readonly definition: WorkflowDefinitionV1;
-}
-
-/** Encode through the schema first, so a document no reader recognises never reaches custody. */
-export function encodePreparedBundle(bundle: PreparedBundleV1): Uint8Array {
-  const validated = PreparedBundleV1Schema.parse({
-    bundleVersion: PREPARED_BUNDLE_VERSION,
-    kind: PREPARED_BUNDLE_KIND,
-    capsule: bundle.capsule,
-    definition: bundle.definition,
-  });
-  return Buffer.from(`${canonicalJson(validated)}\n`, 'utf8');
-}
-
-/** Decode bytes recovered from custody. Throws on anything either contract refuses. */
-export function decodePreparedBundle(bytes: Uint8Array): PreparedBundleV1 {
-  const parsed = PreparedBundleV1Schema.parse(JSON.parse(Buffer.from(bytes).toString('utf8')));
-  return { capsule: parsed.capsule, definition: WorkflowDefinitionV1Schema.parse(parsed.definition) };
-}
 
 /** Names the bundle beside its digest. The store keys bytes by digest, never by this id. */
 export function preparedBundleArtifactId(workflowId: string, capsuleVersion: number): ArtifactId {

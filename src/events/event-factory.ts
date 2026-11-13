@@ -1,5 +1,5 @@
 import { WorkflowEventBase, type WorkflowEvent, type EventType } from './schemas.js';
-import { validateEventData } from './event-validation.js';
+import { validateEventRowData } from './event-validation.js';
 
 export interface EventInput {
   type: EventType;
@@ -36,7 +36,7 @@ export function buildValidatedEvent(
     timestamp: input.timestamp ?? new Date().toISOString(),
   });
 
-  validateEventData(event.type as EventType, event.data);
+  validateEventRowData(event);
 
   return event;
 }

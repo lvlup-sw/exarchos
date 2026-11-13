@@ -121,6 +121,7 @@ const ReceiptPhaseMoveSchema = z
           'unpinned-definition',
           'skip-phases-config',
           'fold-failed',
+          'prepared-authority-mismatch',
           'off-batch-step',
         ]),
       })
@@ -162,7 +163,7 @@ const OUTCOME_GUIDE =
   UNVERIFIED_ENTRIES +
   'Any outcome with a `designRevision`: as `recompile-required`';
 
-const SettlementReceiptData = z
+export const SettlementReceiptData = z
   .object({
     operationId: z.string().min(1),
     streamId: z.string().min(1),

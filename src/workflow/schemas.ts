@@ -256,6 +256,9 @@ export const FeatureIdSchema = z.string().min(1).regex(/^[a-z0-9-]+$/);
 const BUILT_IN_WORKFLOW_TYPES = ['feature', 'debug', 'refactor', 'oneshot', 'discovery'] as const;
 const customWorkflowTypes = new Set<string>();
 
+/** Stored names decode without process registration, including historical prototype names. */
+export const DurableWorkflowTypeSchema = z.string().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/);
+
 export const WorkflowTypeSchema = z.string().refine(
   (val) => (BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(val) || customWorkflowTypes.has(val),
   { message: 'Invalid workflow type' },
@@ -351,9 +354,9 @@ export const DiscoveryWorkflowStateSchema = BaseWorkflowStateSchema.extend({
 });
 
 export const CustomWorkflowStateSchema = BaseWorkflowStateSchema.extend({
-  workflowType: z.string().refine(
-    (val) => !(BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(val) && customWorkflowTypes.has(val),
-    { message: 'Must be a registered custom workflow type' },
+  workflowType: DurableWorkflowTypeSchema.refine(
+    (val) => !(BUILT_IN_WORKFLOW_TYPES as readonly string[]).includes(val),
+    { message: 'Must be a custom workflow type' },
   ),
   /** A custom workflow defines its own phases in its configuration. */
   phase: z.string(),
