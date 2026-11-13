@@ -1,4 +1,7 @@
-/** Whole-plan witnesses use authored records and generated graphs as independent oracles. */
+/**
+ * Whole-plan witnesses use authored records and generated graphs as independent oracles.
+ * @oracle-sources: ../../../../src/workflow/design-record/validate.ts, authored graphs and literal expected findings in this file
+ */
 import { describe, expect, it } from 'vitest';
 import fc from 'fast-check';
 import { readDesignRecord } from '../../../../src/workflow/design-record/read.js';

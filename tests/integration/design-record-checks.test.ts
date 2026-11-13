@@ -1,4 +1,7 @@
-/** All pure checks share the reader snapshot, its exact edges and its source evidence. */
+/**
+ * All pure checks share the reader snapshot, its exact edges and its source evidence.
+ * @oracle-sources: ../../src/workflow/design-record/plan-checks.ts, authored records and literal expected edges and advisories in this file
+ */
 import { describe, expect, it } from 'vitest';
 import { readDesignRecord } from '../../src/workflow/design-record/read.js';
 import { evaluatePlanCoverage, evaluatePlanDecomposition, evaluatePlanProvenance, evaluatePlanTraceability } from '../../src/workflow/design-record/plan-checks.js';
