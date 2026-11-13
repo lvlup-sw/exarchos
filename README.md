@@ -114,6 +114,18 @@ Same binary underneath. The plugin adds Claude Code slash commands, hooks, and r
 
 For the two-step flow (download, inspect, then run), channel selection, validation, update, and uninstall, see the [full install guide](https://lvlup-sw.github.io/exarchos/guide/installation).
 
+### Test generation
+
+Use the standalone `testgen` command from the Exarchos npm package with Node.js 20 or later.
+
+```sh
+npm install --global @lvlup-sw/exarchos --registry=https://registry.npmjs.org
+testgen describe generate_property_tests --json
+testgen generate_property_tests --input request.json --json
+```
+
+The command emits a C# patch and replay cases for reviewed signed-integer properties in TUnit 1.2.11. Set `"framework": "tunit"` and `"frameworkVersion": "1.2.11"`. Commit reviewed C# and its bindings, then run the tests with the target project's .NET runner. The command runs locally without an MCP server.
+
 ## Launching a harness
 
 ```bash

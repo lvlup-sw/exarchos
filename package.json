@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/index.js",
   "bin": {
-    "exarchos-release-verify": "dist/release-verify.js"
+    "exarchos-release-verify": "dist/release-verify.js",
+    "testgen": "dist/testgen-cli.js"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
@@ -14,6 +15,7 @@
   "files": [
     "dist/bin",
     "dist/release-verify.js",
+    "dist/testgen-cli.js",
     "rendered",
     "hooks",
     "settings.json",
@@ -21,9 +23,12 @@
     "AGENTS.md"
   ],
   "scripts": {
-    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:release-verifier && npm run build:skills && npm run build:hooks",
+    "build": "npm run codegen:runtimes && tsc && npm run build:binary && npm run build:release-verifier && npm run build:testgen && npm run build:skills && npm run build:hooks",
     "build:binary": "bun run tools/release/build-binary.ts --all",
     "build:release-verifier": "bun build src/install/release/release-verify-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/release-verify.js",
+    "build:testgen": "bun build src/testgen/entry-cli.ts --target=node --format=esm --banner \"#!/usr/bin/env node\" --outfile dist/testgen-cli.js",
+    "testgen:mcp": "bun src/testgen/entry-mcp.ts",
+    "testgen:smoke": "node tools/release/testgen-smoke.mjs",
     "codegen:runtimes": "bun run tools/release/codegen-runtimes.ts",
     "runtimes:guard": "npm run codegen:runtimes && git diff --exit-code -- src/install/runtimes/embedded.ts || (echo 'src/install/runtimes/embedded.ts is out of sync with content/harness/runtimes/*.yaml — run npm run codegen:runtimes' && exit 1)",
     "generate:agents": "tsx src/runtime/agents/generate-agents.ts",

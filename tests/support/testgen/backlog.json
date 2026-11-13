@@ -1,0 +1,26 @@
+{
+  "framework": "tunit",
+  "frameworkVersion": "1.2.11",
+  "target": {
+    "namespace": "Bifrost.Tests.Scheduling",
+    "observe": "Bifrost.Tests.Scheduling.CoalesceBinding.Observe",
+    "precondition": "Bifrost.Tests.Scheduling.CoalesceBinding.IsValid",
+    "className": "TestgenCoalesceBacklog",
+    "path": "src/Bifrost.Tests.Scheduling/TestgenCoalesceBacklog.cs",
+    "project": "src/Bifrost.Tests.Scheduling/Bifrost.Tests.Scheduling.csproj"
+  },
+  "assumptions": [
+    "Positive interval with zero jitter. Last fire and now are UTC ticks.",
+    "At least one occurrence is due. Now plus one interval is representable."
+  ],
+  "transform": "Bifrost.Tests.Scheduling.CoalesceBinding.ExtendBacklog",
+  "relation": "Bifrost.Tests.Scheduling.CoalesceBinding.KeepsLatest",
+  "propertyRef": "coalesce/backlog-extension",
+  "cases": [
+    [
+      "639299087400000000",
+      "639299088000000000",
+      "600000000"
+    ]
+  ]
+}

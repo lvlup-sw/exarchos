@@ -544,9 +544,10 @@ describe('CI-gate execution policy (DR-10)', () => {
         'grep-gates',
         'outcome-tests',
         'e2e-process',
+        'testgen',
       ]),
     );
-    expect(needs).toHaveLength(7);
+    expect(needs).toHaveLength(8);
   });
 
   it('Planner_IsUnconditionalFullHistoryPlan', () => {

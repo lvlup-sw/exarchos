@@ -4,10 +4,10 @@
  * - Skill sources are under `content/`. No `content/<runtime>/` directory exists, because render
  *   output goes only to `rendered/skills`.
  * - A procedural skill renders one time, to `rendered/skills/standard/<name>/SKILL.md`. There are
- *   16 procedural skills.
+ *   17 procedural skills.
  * - An orchestration skill (`ideate`, `delegate`, `refactor`) renders for each of 6 runtimes, to
  *   `rendered/skills/<runtime>/<name>/SKILL.md`. That gives 18 files.
- * - The total is 34 rendered `SKILL.md` files.
+ * - The total is 35 rendered `SKILL.md` files.
  * - No skill directory is directly under `rendered/skills`.
  */
 
@@ -101,15 +101,15 @@ function findAllSkillMdFiles(root: string, excludeFragments: string[] = []): str
 
 describe('task 018 — post-migration structural invariants', () => {
   /**
-   * 16 procedural skills render one time, and 3 orchestration skills render for each of 6 runtimes:
-   * 16 + 18 = 34. The count leaves out each path under a `test-fixtures` directory.
+   * 17 procedural skills render one time, and 3 orchestration skills render for each of 6 runtimes:
+   * 17 + 18 = 35. The count leaves out each path under a `test-fixtures` directory.
    */
   it('PostMigration_SkillsTree_ContainsExpectedSkillMdFiles', () => {
     const files = findAllSkillMdFiles(SKILLS_DIR, ['/test-fixtures/']);
     expect(
       files.length,
-      `expected 34 SKILL.md files under skills/ (16 standard + 18 per-runtime), found ${files.length}`,
-    ).toBe(34);
+      `expected 35 SKILL.md files under skills/ (17 standard + 18 per-runtime), found ${files.length}`,
+    ).toBe(35);
   });
 
   /**

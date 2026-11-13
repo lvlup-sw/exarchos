@@ -18,7 +18,7 @@ import {
   InMemoryTransport as SdkV2InMemoryTransport,
   LATEST_PROTOCOL_VERSION as SDK_V2_LATEST_PROTOCOL_VERSION,
 } from '@modelcontextprotocol/server';
-import { TaskStatusSchema as SdkV2TaskStatusSchema } from '@modelcontextprotocol/core';
+import { TaskStatusSchema as SdkV2TaskStatusSchema, ToolSchema } from '@modelcontextprotocol/core';
 import type {
   Transport as SdkV2Transport,
   Task as SdkV2Task,
@@ -67,6 +67,16 @@ export function createV2McpServer(
   ...args: ConstructorParameters<typeof SdkV2McpServer>
 ): V2McpServer {
   return new SdkV2McpServer(...args);
+}
+
+export function parseV2ToolDefinition(tool: unknown) {
+  return ToolSchema.parse(tool);
+}
+
+export function createV2Server(
+  ...args: ConstructorParameters<typeof SdkV2Server>
+): V2Server {
+  return new SdkV2Server(...args);
 }
 
 export function createV2Client(
