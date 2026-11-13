@@ -86,6 +86,7 @@ import {
   type ScopeGit,
 } from './prepare-scope.js';
 import { commitPreparedCapsule, type PreparedCommit } from './prepared-record.js';
+import { PreparedCapsuleReceiptData } from './schemas.js';
 import { pendingRevisionOf, recompiledSliceOf } from './recompiled-slice.js';
 import { compilableSteps, locateStep, type StepFindingRule } from './step-locator.js';
 import type { PreparedCapsuleReceipt, PreparedRecompile, PrepareRefusal } from './types.js';
@@ -648,7 +649,7 @@ export async function handlePrepare(
     result = refused({ code: 'INTERNAL_ERROR', message: `Cannot commit bootstrap. ${message}` });
   }
   if (result.success) {
-    const receipt = result.data as PreparedCapsuleReceipt;
+    const receipt = PreparedCapsuleReceiptData.parse(result.data);
     try {
       const current = await ctx.eventStore.query(streamId);
       return await replayBootstrap(

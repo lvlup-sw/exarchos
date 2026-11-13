@@ -280,7 +280,7 @@ async function hasDiskState(stateFile: string): Promise<boolean> {
     await fs.lstat(stateFile);
     return true;
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return false;
     throw error;
   }
 }

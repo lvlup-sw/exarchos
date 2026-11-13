@@ -1,5 +1,6 @@
 /** Builds the bootstrap seed and repairs accepted claims from the ledger. */
 import path from 'node:path';
+import { z } from 'zod';
 import { isDeepStrictEqual } from 'node:util';
 import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { ExarchosCapsuleV1Schema, type ExarchosCapsuleV1 } from '../../contract/capsule/exarchos-capsule.js';
@@ -39,7 +40,7 @@ export interface BootstrapRequest {
 }
 
 export function bootstrapRequestOf(streamId: string, repoRoot: string, intent: BootstrapIntent): BootstrapRequest {
-  const normalized = { ...intent, designDepth: intent.designDepth ?? 'standard' } as const;
+  const normalized: BootstrapRequest['intent'] = { ...intent, designDepth: intent.designDepth ?? 'standard' };
   const lexicalRoot = lexicalRepoPath(repoRoot);
   const normalizedRoot = lexicalRoot === '/' || /^[A-Za-z]:\/$/.test(lexicalRoot)
     ? lexicalRoot : lexicalRoot.replace(/\/$/, '');
@@ -86,7 +87,7 @@ export function buildBootstrapPlan(
   const { workflowType, refactor, designDepth, approval, baseRef } = intent;
   const { definition, repository, snapshot, timestamp, profile, skipPhases } = terms;
   if (definition.entryStepId === undefined) {
-    return { ok: false, code: 'BOOTSTRAP_UNSUPPORTED', message: 'The definition needs an entry step.' } as const;
+    return { ok: false, code: 'BOOTSTRAP_UNSUPPORTED', message: 'The definition needs an entry step.' };
   }
   const initialPhaseAttemptId = allocateInitialPhaseAttemptId();
   const startData: WorkflowStartedV11 = {
@@ -126,8 +127,8 @@ export function buildBootstrapPlan(
 /** Bootstrap claims use the historical receipt shape with required typed contents. */
 const BootstrapReceipt = PreparedCapsuleReceiptData.extend({
   capsule: ExarchosCapsuleV1Schema,
-  bundleRefs: BundleRefV1Schema.array().min(1),
-  recompile: PreparedCapsuleReceiptData.shape.recompile.unwrap().optional(),
+  bundleRefs: z.tuple([BundleRefV1Schema], BundleRefV1Schema),
+  recompile: z.undefined().optional(),
 }).strict();
 
 interface AcceptedBootstrap {
@@ -149,7 +150,7 @@ function claimCoversPrefix(
     && rows.length === claim.eventIds.length && rows.length === claim.sequences.length && rows.length === claim.timestamps.length
     && new Set(claim.eventIds).size === rows.length
     && rows.every((row, index) => {
-      const eventId = (row as WorkflowEvent & { eventId?: unknown }).eventId;
+      const eventId = 'eventId' in row ? row.eventId : undefined;
       return row.streamId === streamId && row.sequence === index + 1 && row.sequence === claim.sequences[index]
         && typeof eventId === 'string' && eventId.length > 0 && eventId === claim.eventIds[index]
         && row.timestamp === claim.timestamps[index];
@@ -255,19 +256,22 @@ function readAcceptedBootstrap(
       || ref?.artifactId !== preparedBundleArtifactId(streamId, record.capsuleVersion)) {
     integrity('The stored bootstrap receipt does not match its prepared row and approved source.');
   }
-  const patch = rows[1]?.data?.patch as Record<string, unknown> | undefined;
+  const patch = z.record(z.string(), z.unknown()).parse(rows[1]?.data?.patch);
   const phase = bootstrapTrailPhase(rows.slice(0, index), start, request, capsule);
-  if (patch?.['artifacts.design'] !== intent.designRef || patch['artifacts.plan'] !== intent.designRef
+  if (patch['artifacts.design'] !== intent.designRef || patch['artifacts.plan'] !== intent.designRef
       || patch['synthesis.integrationBranch'] !== intent.baseRef || patch['planReview.approved'] !== true
       || patch.track !== intent.refactor?.track || patch['explore.scopeAssessment'] !== intent.refactor?.scopeAssessment
       || capsule.graph.tasks.some(({ stepId, taskId }) => stepId !== phase
           || settlementContract.taskVerification?.[taskId]?.baseRef !== intent.baseRef)) {
     integrity('The stored bootstrap prefix does not match the approved entry and compiled task batch.');
   }
-  return { start, receipt: claim.result as PreparedCapsuleReceipt };
+  const { recompile: _recompile, ...acceptedReceipt } = receipt;
+  return { start, receipt: acceptedReceipt };
 }
 
-export function bootstrapSyncFailure(receipt: PreparedCapsuleReceipt, error: unknown): ToolResult {
+type BootstrapReceiptIdentity = Pick<PreparedCapsuleReceipt, 'streamId' | 'operationId' | 'capsuleVersion' | 'capsuleDigest'>;
+
+export function bootstrapSyncFailure(receipt: BootstrapReceiptIdentity, error: unknown): ToolResult {
   const { streamId, operationId, capsuleVersion, capsuleDigest: digest } = receipt;
   return failure('STATE_SYNC_FAILED',
     `Bootstrap ${operationId} committed capsule v${capsuleVersion} (${digest}) on '${streamId}'. ` +
@@ -312,7 +316,7 @@ export async function replayBootstrap(
   request: BootstrapRequest,
   rows: readonly WorkflowEvent[],
   onMismatch?: ToolResult,
-  committed?: PreparedCapsuleReceipt,
+  committed?: BootstrapReceiptIdentity,
 ): Promise<ToolResult> {
   const index = rows.findIndex((row) => row.type === WORKFLOW_PREPARED_TYPE);
   const marker = rows[index]?.data?.bootstrapRequestDigest;

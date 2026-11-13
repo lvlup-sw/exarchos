@@ -54,7 +54,7 @@ function withContract(
 }
 
 function bootstrapEmission(event: string, description: string): ActionEmission {
-  return { event, description, condition: 'conditional', owner: 'orchestrate', role: 'primary' };
+  return { event, description, condition: 'conditional', owner: 'workflow', role: 'primary' };
 }
 
 export const prepareActions: readonly BuiltinToolAction[] = [
