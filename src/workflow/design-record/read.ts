@@ -1,7 +1,5 @@
 /**
  * Read one bounded design record and retain the exact source for later validators.
- * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
- * Production consumers follow in the typed plan validators and prepare integration.
  */
 import { createHash } from 'node:crypto';
 import { open } from 'node:fs/promises';
@@ -14,6 +12,7 @@ import {
   type RequirementDefinition,
   type SourceSpan,
 } from './schema.js';
+import { validateDesignRecord, type PlanFinding } from './validate.js';
 
 export interface DesignRecordLimits {
   readonly maxBytes?: number;
@@ -190,7 +189,25 @@ export function readDesignRecord(bytes: Uint8Array, reference: string, limits: D
   }
 }
 
-/** Read at most the byte limit plus one from a lexically contained reference. Symbolic links retain their existing behavior. */
+type ValidatedDesignRecordReadResult =
+  | Exclude<DesignRecordReadResult, { kind: 'invalid' }>
+  | (Extract<DesignRecordReadResult, { kind: 'invalid' }> & { readonly findings?: readonly PlanFinding[] });
+
+/** Classify captured bytes and reject a typed record with any whole-plan finding. */
+export function readValidatedDesignRecord(bytes: Uint8Array, reference: string): ValidatedDesignRecordReadResult {
+  const record = readDesignRecord(bytes, reference);
+  if (record.kind !== 'typed') return record;
+  const { findings } = validateDesignRecord(record.snapshot);
+  if (findings.length === 0) return record;
+  const message = findings.map((finding) => `${finding.code}: ${finding.message}`).join('\n');
+  return { kind: 'invalid', reference, message, findings };
+}
+
+/**
+ * Read at most the byte limit plus one from a lexically contained reference.
+ * RESERVED(issue: #1927, owner: exarchos, expires: 2027-02-28)
+ * Prepare will use this bounded checkout read.
+ */
 export async function readDesignRecordAt(
   checkout: string, reference: string, limits: DesignRecordLimits = {},
 ): Promise<DesignRecordReadResult> {

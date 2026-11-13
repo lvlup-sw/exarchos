@@ -287,6 +287,87 @@ describe('prepare_delegation reads the repository of the caller', () => {
     ]);
   }, CASE_TIMEOUT_MS);
 
+  it('applies typed stamps by exact id through the delegation handler', async () => {
+    const caller = await repository('caller-typed-plan', FEATURE);
+    const featureId = 'typed-plan';
+    const planPath = 'plan.md';
+    const task = {
+      title: 'Read the typed plan', implements: ['DR-1'], blockedBy: [],
+      files: ['src/widget.ts'], testFiles: ['tests/widget.test.ts'], boundaryTouching: false,
+      parallelizable: false, testLayer: 'unit', acceptance: ['Accept.'], instructions: 'Read.',
+    };
+    const tasks = [{ ...task, id: 'T-01', riskTier: 'low' }, { ...task, id: 'T-1', riskTier: 'high' }];
+    const json = JSON.stringify({ version: 1, requirements: ['DR-1'], tasks });
+    await writeTreeFile(caller, planPath, '# Design & Rationale\n### DR-1: Requirement\n## Tasks\n'
+      + '```exarchos-plan-v1\n' + json + '\n```\n'
+      + '### Task 1: Legacy alias\n**Risk Tier:** high\n');
+    await seedReadyStream(featureId, ['T-01', 'T-1', '1']);
+    const result = await handlePrepareDelegation({
+      featureId, repoRoot: caller, planPath,
+      tasks: ['T-01', 'T-1', '1'].map((id) => ({ id, title: 'Reshape the widget' })),
+    }, stateDir, context());
+
+    expect(result).toMatchObject({ success: true, data: { ready: true, taskClassifications: [
+      { taskId: 'T-01', riskTier: 'low', boundaryTouching: false },
+      { taskId: 'T-1', riskTier: 'high', boundaryTouching: false },
+      { taskId: '1', riskTier: 'medium', boundaryTouching: false },
+    ] } });
+  }, CASE_TIMEOUT_MS);
+
+  it('refuses malformed and unsound typed plans before announcing tasks or passing coverage', async () => {
+    const caller = await repository('caller-invalid-plan', FEATURE);
+    const planPath = 'plan.md';
+    const prefix = '# Design & Rationale\n### DR-1: Requirement\n## Tasks\n'
+      + '### Task T-01: Legacy fallback title\n**Risk Tier:** high\n';
+    const unsound = JSON.stringify({ version: 1, requirements: ['DR-1'], tasks: [{
+      id: 'T-01', title: 'Task', implements: ['DR-1', 'DR-99'], blockedBy: ['T-1'],
+      files: ['src/widget.ts'], testFiles: [], riskTier: 'low', boundaryTouching: false,
+      parallelizable: false, testLayer: 'unit', acceptance: ['Accept.'], instructions: 'Read.',
+    }] });
+    const variants = [
+      { id: 'malformed', body: '{', includeTasks: true },
+      { id: 'unsound', body: unsound, includeTasks: true },
+      { id: 'without-tasks', body: '{', includeTasks: false },
+    ];
+    for (const variant of variants) {
+      await writeTreeFile(caller, planPath, prefix + '```exarchos-plan-v1\n' + variant.body + '\n```\n');
+      await seedReadyStream(variant.id, ['T-01']);
+      const result = await handlePrepareDelegation({
+        featureId: variant.id, repoRoot: caller, planPath,
+        ...(variant.includeTasks ? { tasks: [{ id: '99', title: 'Do not announce' }] } : {}),
+      }, stateDir, context());
+
+      expect(result).toMatchObject({ success: false, error: { code: 'INVALID_DESIGN_RECORD' } });
+      expect(dataOf(result)).not.toHaveProperty('taskClassifications');
+      expect(result.warnings ?? []).not.toEqual(expect.arrayContaining([expect.stringContaining('heuristic tiers')]));
+      expect(await store.query(variant.id, { type: 'dispatch.preflight' }))
+        .toEqual([expect.objectContaining({ data: expect.objectContaining({ passed: true }) })]);
+      expect(await store.query(variant.id, { type: 'task.assigned' }))
+        .toEqual([expect.objectContaining({ data: { taskId: 'T-01' } })]);
+      expect(await store.query(variant.id, { type: 'gate.executed' })).toEqual([]);
+      if (variant.id === 'unsound') {
+        expect(result.error?.message).toContain('UNKNOWN_IMPLEMENTS');
+        expect(result.data).toMatchObject({ findings: [{ code: 'UNKNOWN_DEPENDENCY' }, { code: 'UNKNOWN_IMPLEMENTS' }] });
+      }
+    }
+  }, CASE_TIMEOUT_MS);
+
+  it('keeps the heuristic fallback when the plan file cannot be read', async () => {
+    const caller = await repository('caller-unreadable-plan', FEATURE);
+    const featureId = 'unreadable-plan';
+    await seedReadyStream(featureId, ['T-1']);
+    const result = await handlePrepareDelegation({
+      featureId, repoRoot: caller, planPath: 'missing.md', tasks: [{ id: 'T-1', title: 'Reshape the widget' }],
+    }, stateDir, context());
+
+    expect(result).toMatchObject({ success: true, data: {
+      ready: true, taskClassifications: [{ taskId: 'T-1', riskTier: 'medium', boundaryTouching: false }],
+    } });
+    expect(result.warnings).toEqual(expect.arrayContaining([expect.stringContaining('proceeding with heuristic tiers')]));
+    expect(await store.query(featureId, { type: 'gate.executed' }))
+      .toEqual([expect.objectContaining({ data: expect.objectContaining({ gateName: 'plan-coverage', passed: true }) })]);
+  }, CASE_TIMEOUT_MS);
+
   /**
    * The server tree is on `main`, so a git read there blocks the call and records rows.
    * The handler refuses the relative path first, through dispatch and in a direct call.

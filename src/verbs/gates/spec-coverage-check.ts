@@ -13,6 +13,7 @@ import { matchesTestName } from '../../config/verification-profile.js';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
+import { readValidatedDesignRecord } from '../../workflow/design-record/read.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
 import { runPhaseGateWithEvidence } from './gate-runner.js';
@@ -311,12 +312,22 @@ async function executeSpecCoverageCheck(args: SpecCoverageCheckArgs): Promise<To
     return unresolvedGlobsResult(phase, planFile, repoRoot, withProfileRoute(args, globTerm.reason));
   }
 
-  const planContent = readFileSync(planFile, 'utf-8') as string;
-  const testFiles = extractTestFiles(planContent, globTerm.globs);
+  const bytes = readFileSync(planFile);
+  const record = readValidatedDesignRecord(bytes, planFile);
+  if (record.kind === 'invalid') {
+    return {
+      success: false,
+      error: { code: 'INVALID_DESIGN_RECORD', message: record.message },
+      ...(record.findings === undefined ? {} : { data: { findings: record.findings } }),
+    };
+  }
+  const testFiles = record.kind === 'typed'
+    ? [...new Set(record.snapshot.tasks.flatMap((task) => task.testFiles))]
+    : extractTestFiles(bytes.toString('utf8'), globTerm.globs);
 
   return phase === 'plan'
     ? runPlanSyntaxCheck(planFile, repoRoot, testFiles, globTerm.globs)
-    : runImplementationCoverageCheck(args, testFiles, tests.probe);
+    : runImplementationCoverageCheck(args, testFiles, tests.probe, record.kind === 'typed' ? globTerm.globs : undefined);
 }
 
 /** The FAIL of a glob term that is not resolved. No path of the plan can read as a test, so the result declares none. */
@@ -469,11 +480,13 @@ async function runImplementationCoverageCheck(
   args: SpecCoverageCheckArgs,
   testFiles: readonly string[],
   probe: ProbeTerm,
+  typedGlobs: readonly string[] | undefined,
 ): Promise<ToolResult> {
   const { planFile, repoRoot, skipRun = false } = args;
   const checks: CheckEntry[] = [];
   let found = 0;
   const missingList: string[] = [];
+  const malformed: string[] = [];
   let unresolvedReason: string | undefined;
 
   if (testFiles.length === 0) {
@@ -485,6 +498,13 @@ async function runImplementationCoverageCheck(
   }
 
   for (const testFile of testFiles) {
+    const problem = typedGlobs === undefined ? null : testPathWellFormednessError(testFile, typedGlobs);
+    if (problem !== null) {
+      checks.push({ status: 'FAIL', name: `Test path well-formed: ${testFile}`, detail: problem });
+      malformed.push(testFile);
+      continue;
+    }
+
     const fullPath = toPosix(join(repoRoot, testFile));
     if (existsSync(fullPath)) {
       checks.push({ status: 'PASS', name: `Test file exists: ${testFile}` });
@@ -501,7 +521,7 @@ async function runImplementationCoverageCheck(
 
   if (skipRun) {
     checks.push({ status: 'SKIP', name: 'Test execution (--skip-run)' });
-  } else if (testFiles.length > 0 && missingList.length === 0) {
+  } else if (testFiles.length > 0 && missingList.length === 0 && malformed.length === 0) {
     const runs = await runDeclaredTests(args, testFiles, probe);
     checks.push(...runs.checks);
     unresolvedReason = runs.unresolvedReason;
@@ -514,7 +534,7 @@ async function runImplementationCoverageCheck(
     testFiles.length,
     found,
     missingList,
-    [],
+    malformed,
     checks,
   );
 
@@ -527,7 +547,7 @@ async function runImplementationCoverageCheck(
     totalTests: testFiles.length,
     found,
     missing: missingList,
-    malformed: [],
+    malformed,
     report,
     ...(unresolvedReason === undefined ? {} : { discriminant: PROFILE_UNRESOLVED, reason: unresolvedReason }),
   };

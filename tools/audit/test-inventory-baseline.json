@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1469,
-    "parsedFiles": 1424,
+    "testFiles": 1470,
+    "parsedFiles": 1425,
     "shellFiles": 45,
-    "cases": 16248,
+    "cases": 16259,
     "dynamicTitles": 267,
     "unparseableFiles": 0
   },
@@ -67592,6 +67592,21 @@
         },
         {
           "suite": "prepare_delegation reads the repository of the caller",
+          "name": "applies typed stamps by exact id through the delegation handler",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "refuses malformed and unsound typed plans before announcing tasks or passing coverage",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
+          "name": "keeps the heuristic fallback when the plan file cannot be read",
+          "dynamic": false
+        },
+        {
+          "suite": "prepare_delegation reads the repository of the caller",
           "name": "PrepareDelegation_ARelativeRepoRoot_IsRefusedAndRecordsNothing",
           "dynamic": false
         }
@@ -94555,6 +94570,52 @@
           "suite": "typed consumer adoption; prepare remains deferred to its own task",
           "name": "<dynamic-case-3>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/integration/design-record-adapters.test.ts": {
+      "file": "tests/integration/design-record-adapters.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "typed task adapters",
+          "name": "Stamps_TypedT01_UsesExactId",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "Extract_TypedTask_RendersCurrentStringContract",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "SpecCoverage_ForwardDeclaredProfilePath_PassesWithoutExecution",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "uses the resolved probe for each on-disk typed declaration",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "keeps a typed path outside the resolved globs as malformed in both phases",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "Adapter_InvalidTypedRecord_NeverProseFallback",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "rejects an unsound task outside the selected task and keeps the completeness verdict",
+          "dynamic": false
+        },
+        {
+          "suite": "typed task adapters",
+          "name": "preserves generated exact ids and declared fields across task adapters",
+          "dynamic": false
         }
       ]
     }
