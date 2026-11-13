@@ -14,7 +14,7 @@ const reference = 'docs/specs/example.md';
 const task = {
   id: 'T-01', title: 'Read the file', implements: ['DR-1'], blockedBy: [] as string[],
   files: ['docs/plan.md'], testFiles: [], riskTier: 'low', boundaryTouching: false,
-  acceptance: ['Exact bytes survive.'], instructions: 'Keep the source.', parallelizable: false,
+  testLayer: 'unit', acceptance: ['Exact bytes survive.'], instructions: 'Keep the source.', parallelizable: false,
 };
 const plan = { version: 1, requirements: ['DR-1'], tasks: [task] };
 
@@ -63,6 +63,43 @@ describe('design record reader', () => {
       expect(readDesignRecord(Buffer.from(example), reference).kind).toBe('legacy');
       expect(snapshot(Buffer.from(example + '\n' + source)).tasks).toHaveLength(1);
     }
+  });
+
+  it('ends a list fence at container exit before reading a top-level plan', () => {
+    for (const prefix of ['- ```text\n  Example\n\n', '1. ~~~text\n   Example\n', '- Example\n\n  ```text\n  Example\n']) {
+      expect(readDesignRecord(Buffer.from(prefix + record('{').toString()), reference).kind).toBe('invalid');
+      expect(snapshot(Buffer.from(prefix + record(JSON.stringify(plan)).toString())).tasks[0]!.id).toBe('T-01');
+    }
+  });
+
+  it('excludes all HTML block forms from plan and requirement authority', () => {
+    const wrappers = [['<!--', '-->'], ['<script>', '</STYLE>'], ['<?processing', '?>'],
+      ['<!DECLARATION', '>'], ['<![CDATA[', ']]>'], ['<div class=', '\n'], ['<custom data-x="a">', '\n']];
+    for (const [open, close] of wrappers) {
+      const fenced = '```exarchos-plan-v1\n' + JSON.stringify(plan) + '\n```\n';
+      expect(readDesignRecord(Buffer.from(open + '\n' + fenced + close + '\n'), reference).kind).toBe('legacy');
+      const source = '## Design & Rationale\n### DR-1: Real\n\n' + open + '\n### DR-99: Hidden\n## Appendix\n' + close
+        + '\n### DR-2: Real\n\n' + fenced;
+      expect(snapshot(Buffer.from(source)).definitions.map(({ id }) => id)).toEqual(['DR-1', 'DR-2']);
+    }
+  });
+
+  it('resumes Markdown at HTML block endings and container exits', () => {
+    const fenced = '```exarchos-plan-v1\n' + JSON.stringify(plan) + '\n```\n';
+    for (const prefix of ['<!-- same line -->\n', '<div></div>\n\n', '<custom />\n\n', '<pre/>\n', '<SCRIPT/>\n', '<div/invalid\n',
+      '- <!--\n  Hidden\n', '- <div>\n  Hidden\n', '> <!--\n> Hidden\n']) {
+      expect(snapshot(Buffer.from(prefix + fenced)).tasks[0]!.id).toBe('T-01');
+    }
+    expect(snapshot(Buffer.from('Paragraph\n<custom>\n' + fenced)).tasks[0]!.id).toBe('T-01');
+    expect(snapshot(Buffer.from('````text\n<!--\n````\n' + fenced)).tasks[0]!.id).toBe('T-01');
+    expect(readDesignRecord(Buffer.from('<!--\n\n' + fenced), reference).kind).toBe('legacy');
+    expect(readDesignRecord(Buffer.from('<div>\n' + fenced), reference).kind).toBe('legacy');
+  });
+
+  it('refuses a task without its required test layer', () => {
+    const { testLayer, ...withoutLayer } = task;
+    expect(testLayer).toBe('unit');
+    expect(readDesignRecord(record(JSON.stringify({ ...plan, tasks: [withoutLayer] })), reference).kind).toBe('invalid');
   });
 
   it('Read_InvalidUtf8_Refuses', () => {
@@ -136,7 +173,7 @@ describe('design record reader', () => {
 
   it('requires all task keys except testLayer and closes the root keys', () => {
     expect(snapshot(record(JSON.stringify({ ...plan, tasks: [{ ...task, implements: [], files: ['./docs/plan.md', 'docs//other.md'] }] }))).tasks[0]!.files).toEqual(['./docs/plan.md', 'docs//other.md']);
-    for (const key of Object.keys(task)) {
+    for (const key of Object.keys(task).filter((key) => key !== 'testLayer')) {
       const changed: Record<string, unknown> = { ...task };
       delete changed[key];
       expect(readDesignRecord(record(JSON.stringify({ ...plan, tasks: [changed] })), reference).kind).toBe('invalid');

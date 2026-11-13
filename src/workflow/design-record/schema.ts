@@ -25,7 +25,7 @@ export const DesignTaskSchema = z.object({
   testFiles: unique(FileSchema),
   riskTier: z.enum(['low', 'medium', 'high']),
   boundaryTouching: z.boolean(),
-  testLayer: z.enum(['acceptance', 'integration', 'unit', 'property']).optional(),
+  testLayer: z.enum(['acceptance', 'integration', 'unit', 'property']),
   acceptance: unique(TextSchema).min(1),
   instructions: TextSchema,
   parallelizable: z.boolean(),

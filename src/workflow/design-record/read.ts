@@ -44,11 +44,27 @@ function spanFactory(text: string): (start: number, end: number) => SourceSpan {
   return (start, end) => ({ start, end, startLine: lineAt(start), endLine: lineAt(Math.max(start, end - 1)) });
 }
 
+/** CommonMark HTML block endings keep raw HTML outside the plan authority. */
+function htmlBlockEnd(line: string, inParagraph: boolean): RegExp | undefined {
+  if (/^ {0,3}<(pre|script|style|textarea)(?=[ \t>]|$)/i.test(line)) return /<\/(pre|script|style|textarea)>/i;
+  if (/^ {0,3}<!--/.test(line)) return /-->/;
+  if (/^ {0,3}<\?/.test(line)) return /\?>/;
+  if (/^ {0,3}<![A-Za-z]/.test(line)) return />/;
+  if (/^ {0,3}<!\[CDATA\[/.test(line)) return /\]\]>/;
+  const blockTags = 'address|article|aside|base|basefont|blockquote|body|caption|center|col|colgroup|dd|details|dialog|dir|div|dl|dt|fieldset|figcaption|figure|footer|form|frame|frameset|h[1-6]|head|header|hr|html|iframe|legend|li|link|main|menu|menuitem|nav|noframes|ol|optgroup|option|p|param|search|section|summary|table|tbody|td|tfoot|th|thead|title|tr|track|ul';
+  if (new RegExp('^ {0,3}</?(' + blockTags + ')(?=[ \\t>]|/>|$)', 'i').test(line)) return /^[ \t]*$/;
+  if (inParagraph) return undefined;
+  const attribute = '[ \\t]+[a-zA-Z_:][a-zA-Z0-9_.:-]*(?:[ \\t]*=[ \\t]*(?:[^ \\t"\'=<>`]+|"[^"\\n]*"|\'[^\'\\n]*\'))?';
+  const complete = new RegExp('^ {0,3}(?:<(?!(?:pre|script|style|textarea)(?=[ \\t/>]))[A-Za-z][A-Za-z0-9-]*(?:' + attribute + ')*[ \\t]*/?>|</[A-Za-z][A-Za-z0-9-]*[ \\t]*>)[ \\t]*$', 'i');
+  return complete.test(line) ? /^[ \t]*$/ : undefined;
+}
+
 /** Recognize fences before headings so examples cannot define a plan or a requirement. */
 function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
   const blocks: { info: string; start: number; end: number }[] = [];
   const definitions: RequirementDefinition[] = [];
   let fence: { marker: string; length: number; info: string; start: number; indent: number; nested: boolean } | undefined;
+  let html: { end: RegExp; indent: number } | undefined;
   let regionLevel: number | undefined;
   let listIndent: number | undefined;
   let previous: { title: string; offset: number } | undefined;
@@ -58,6 +74,8 @@ function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
     if (raw === '') continue;
     const line = raw.replace(/\r?\n$/, '').replace(match.index === 0 ? /^\uFEFF/ : /$^/, '');
     const offset = match.index;
+    if (fence?.nested && line.trim() !== '' && !line.startsWith(' '.repeat(fence.indent))) fence = undefined;
+    if (html && html.indent > 0 && line.trim() !== '' && !line.startsWith(' '.repeat(html.indent))) html = undefined;
     if (fence !== undefined) {
       previous = undefined;
       const closing = new RegExp('^ {0,' + (fence.indent + 3) + '}(`{3,}|~{3,})[ \t]*$').exec(line);
@@ -67,11 +85,22 @@ function scanMarkdown(text: string, span: ReturnType<typeof spanFactory>) {
       }
       continue;
     }
+    if (html) {
+      if (html.end.test(line)) html = undefined;
+      previous = undefined;
+      continue;
+    }
     const item = /^( {0,3})(?:[-+*]|[0-9]{1,9}[.)])([ \t]+)(.*)$/.exec(line);
     if (item) listIndent = line.length - item[3]!.length;
     else if (line.trim() !== '' && listIndent !== undefined && !line.startsWith(' '.repeat(listIndent))) listIndent = undefined;
     const nested = listIndent !== undefined;
     const content = item ? item[3]! : nested ? line.slice(listIndent) : line;
+    const htmlEnd = htmlBlockEnd(content, previous !== undefined);
+    if (htmlEnd) {
+      if (!htmlEnd.test(content)) html = { end: htmlEnd, indent: listIndent ?? 0 };
+      previous = undefined;
+      continue;
+    }
     const opening = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(content);
     if (opening && !(opening[1]![0] === '`' && opening[2]!.includes('`'))) {
       previous = undefined;

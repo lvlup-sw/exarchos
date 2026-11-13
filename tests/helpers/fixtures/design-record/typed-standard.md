@@ -32,6 +32,7 @@ A shared snapshot supplies all later validators.
       "files": ["docs/identity.md"],
       "testFiles": [],
       "riskTier": "low",
+      "testLayer": "unit",
       "boundaryTouching": false,
       "acceptance": ["The source bytes remain exact."],
       "instructions": "Read the record.\nKeep its original bytes.",

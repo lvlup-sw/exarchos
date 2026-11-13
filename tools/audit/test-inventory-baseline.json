@@ -7,7 +7,7 @@
     "testFiles": 1461,
     "parsedFiles": 1416,
     "shellFiles": 45,
-    "cases": 16078,
+    "cases": 16082,
     "dynamicTitles": 235,
     "unparseableFiles": 0
   },
@@ -93586,6 +93586,26 @@
         {
           "suite": "design record reader",
           "name": "ignores list, blockquote and indented code examples",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "ends a list fence at container exit before reading a top-level plan",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "excludes all HTML block forms from plan and requirement authority",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "resumes Markdown at HTML block endings and container exits",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "refuses a task without its required test layer",
           "dynamic": false
         },
         {
