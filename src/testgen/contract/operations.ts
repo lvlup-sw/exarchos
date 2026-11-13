@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import { statefulInput } from './stateful.js';
+import type { StatefulInput } from './stateful.js';
+import { statefulRequestProblem } from '../generators/histories.js';
+import { emitStateful } from './stateful-dispatch.js';
 import { typedInput } from './typed.js';
 import type { TypedInput, TypedMethod } from './typed.js';
 import { emitTyped, inputWithinBudget, typedRequestProblem } from './typed-dispatch.js';
@@ -24,9 +28,14 @@ export const operations = {
     kind: 'differential',
     input: typedInput,
   },
+  generate_stateful_tests: {
+    description: 'Emit model-based operation histories with native precondition filtering, fresh reset, and replay.',
+    kind: 'stateful',
+    input: statefulInput,
+  },
 } as const;
-
-export type Emitter = (input: TestInput | TypedInput, kind: TypedMethod) => unknown;
+export type GenerationMethod = TypedMethod | 'stateful';
+export type Emitter = (input: TestInput | TypedInput | StatefulInput, kind: GenerationMethod) => unknown;
 
 export function describeOperations() {
   return {
@@ -45,6 +54,8 @@ export function failure(code: ErrorCode, message: string): GenerationResult {
 }
 
 const emitForTarget: Emitter = (input, kind) => {
+  if ('histories' in input) return emitStateful(input);
+  if (kind === 'stateful') throw new Error('Stateful generation requires histories.');
   if ('contractVersion' in input) return emitTyped(input, kind);
   if (kind === 'differential') throw new Error('Differential generation requires contractVersion 2.');
   return input.framework === 'vitest' ? emitVitest(input, kind) : emitTUnit(input);
@@ -79,7 +90,7 @@ export function dispatch(name: string, input: unknown, emit: Emitter = emitForTa
     return failure('INVALID_INPUT', 'The test file and binding module must be different.');
   }
   if ('contractVersion' in request) {
-    const problem = typedRequestProblem(request);
+    const problem = 'histories' in request ? statefulRequestProblem(request) : typedRequestProblem(request);
     if (problem) return failure('INVALID_INPUT', problem);
     return validatedEmission(() => emit(request, operation.kind));
   }
