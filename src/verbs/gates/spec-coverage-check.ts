@@ -7,12 +7,12 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { globToRegExp } from '../../architecture/glob-to-regexp.js';
 import { DEFAULT_TEST_GLOBS } from '../../config/toolchains.js';
 import { matchesTestName } from '../../config/verification-profile.js';
 import { toPosix } from '../../utils/paths.js';
 import type { ToolResult } from '../../format.js';
 import type { EventStore } from '../../events/store.js';
+import { matchesAnyGlob, testPathWellFormednessError as declaredTestPathError } from '../../workflow/design-record/test-path.js';
 import { readValidatedDesignRecord } from '../../workflow/design-record/read.js';
 import { createEvidenceSubject } from '../../workflow/admission/evidence-subject.js';
 import { PROFILE_UNRESOLVED, type VerificationProfile } from '../../workflow/verification/profile.js';
@@ -80,9 +80,6 @@ interface TestRunsResult {
 const TEST_FILE_PATTERN = /\*\*Test file:\*\*\s*`([^`]+)`/;
 const BACKTICK_PATH_PATTERN = /`([^`]+)`/g;
 
-/** A backticked text with whitespace is a command or prose. It is not a test path. */
-const WHITESPACE = /\s/;
-
 /**
  * A declared path holds no whitespace and none of these characters, and it does not end in a dot.
  * A parenthesis stays legal, because `src/app/(auth)/page.test.tsx` is a real path and a quote already refuses a code text.
@@ -132,39 +129,12 @@ export function extractTestFiles(
   return files;
 }
 
-/** True when a glob of `globs` matches the repo-relative path. */
-function matchesAnyGlob(file: string, globs: readonly string[]): boolean {
-  return globs.some((glob) => globToRegExp(glob).test(file));
-}
-
-/**
- * Checks the shape of a declared test path at plan time. It returns `null` for
- * a valid forward declaration, or a reason. The path must be repo-relative,
- * must not escape with `..`, must hold no whitespace, and must match a glob of
- * `globs`. Each glob counts, because the author names the file as a test. It
- * does not check that the file exists.
- */
+/** Checks the shape of a declared test path with the legacy default globs. */
 export function testPathWellFormednessError(
   testPath: string,
   globs: readonly string[] = DEFAULT_TEST_GLOBS,
 ): string | null {
-  const trimmed = testPath.trim();
-  if (trimmed.length === 0) {
-    return 'Empty test path';
-  }
-  if (/^(?:[a-zA-Z]:[\\/]|[\\/])/.test(trimmed)) {
-    return 'Absolute path — declare a repo-relative test path instead';
-  }
-  if (trimmed.split(/[\\/]/).includes('..')) {
-    return 'Path escapes the repo root via a ".." segment';
-  }
-  if (WHITESPACE.test(trimmed)) {
-    return 'Does not name a test file (a test path holds no whitespace)';
-  }
-  if (!matchesAnyGlob(trimmed, globs)) {
-    return 'Does not name a test file (no glob of tests.globs matches the path)';
-  }
-  return null;
+  return declaredTestPathError(testPath, globs);
 }
 
 function generateReport(

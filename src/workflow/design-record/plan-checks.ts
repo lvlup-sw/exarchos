@@ -1,6 +1,9 @@
 /**
  * Source checks share the typed snapshot and its exact implements relation.
  */
+import { checkExplorationDepth } from './exploration-depth.js';
+import { testPathWellFormednessError } from './test-path.js';
+import type { VerificationProfile } from '../verification/profile.js';
 import type { DesignRecordSnapshot } from './schema.js';
 import { validateDesignRecord } from './validate.js';
 import { hasGwtCriteria } from './gwt.js';
@@ -13,11 +16,16 @@ function implementsEdges(snapshot: DesignRecordSnapshot) {
       : a.taskId < b.taskId ? -1 : a.taskId > b.taskId ? 1 : 0);
 }
 
+/** Decode the same captured bytes that produced the typed record. */
+function textOf(snapshot: DesignRecordSnapshot): string {
+  return new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Uint8Array.from(snapshot.rawBytes));
+}
+
 /** Requirement coverage is exact. Missing acceptance-layer coverage is advisory. */
 export function evaluatePlanCoverage(snapshot: DesignRecordSnapshot) {
   const validation = validateDesignRecord(snapshot);
   const edges = implementsEdges(snapshot);
-  const text = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(Uint8Array.from(snapshot.rawBytes));
+  const text = textOf(snapshot);
   const advisories = snapshot.definitions.filter((definition) =>
     hasGwtCriteria(text.slice(definition.bodySpan.start, definition.bodySpan.end))
     && !snapshot.tasks.some((task) => task.testLayer === 'acceptance' && task.implements.includes(definition.id)))
@@ -46,4 +54,22 @@ export function evaluatePlanDecomposition(snapshot: DesignRecordSnapshot) {
     behaviorCount: countBehaviors([task.title, task.instructions, ...task.acceptance].join('\n')),
   })));
   return { ...validation, plausibility };
+}
+
+/** Check typed forward declarations with the resolved profile. */
+export function evaluatePlanTestPaths(snapshot: DesignRecordSnapshot, profile: VerificationProfile) {
+  const globs = profile.tests.globs;
+  if (globs.state === 'unresolved') return { passed: false, reason: globs.reason };
+  const testFiles = new Set(snapshot.tasks.flatMap((task) => task.testFiles));
+  if (testFiles.size === 0) return { passed: false, reason: 'No test files declared in the typed plan.' };
+  for (const file of testFiles) {
+    const problem = testPathWellFormednessError(file, globs.globs);
+    if (problem !== null) return { passed: false, reason: `${file}: ${problem}` };
+  }
+  return { passed: true };
+}
+
+/** Check the exploration citations in the approved bytes. */
+export function evaluatePlanExploration(snapshot: DesignRecordSnapshot) {
+  return checkExplorationDepth(textOf(snapshot));
 }

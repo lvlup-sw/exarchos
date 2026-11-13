@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1471,
-    "parsedFiles": 1426,
+    "testFiles": 1473,
+    "parsedFiles": 1428,
     "shellFiles": 45,
-    "cases": 16276,
-    "dynamicTitles": 267,
+    "cases": 16319,
+    "dynamicTitles": 274,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -10211,6 +10211,72 @@
         {
           "suite": "action replay binding",
           "name": "Replay_ExistingInv8Tests_RemainGreen",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/bootstrap-source-gates.test.ts": {
+      "file": "tests/integration/bootstrap-source-gates.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_Feature_EvaluatesBothPlanSources",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_Overhaul_EvaluatesThreePlanSources",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_SecondSourceFailsAt_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_RequiredSkipIsARefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_DeepRequiresExplorationCitations_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_DeepChecksExplorationOnBothSources",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_ThinChecksTheThinSequenceOnly",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_StandardUsesResolvedCustomGlobs",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_UnresolvedGlobsAndEmptyDeclarationsRefuse",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap source checks",
+          "name": "Bootstrap_WholePlanRefusesBeforeRouting",
           "dynamic": false
         }
       ]
@@ -76370,6 +76436,167 @@
         {
           "suite": "describe(update).reservedFields (#1360)",
           "name": "Describe_ActionUpdate_ReturnsReservedFieldsBlock",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/design-record/bootstrap-plan.test.ts": {
+      "file": "tests/unit/workflow/design-record/bootstrap-plan.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_ZeroHopEntry_FreezesWithoutTransition",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_ReviewPrefix_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UnsupportedPrefix_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_SingleAgentImplement_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_SkipRemovesApproval_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_SkipCannotRemoveInitialOrBatchEntry",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UnrelatedOrderedSkipsPreservePrefix",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_OneAdmittedBranchPasses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_NegatedUnsupportedUserPredicateRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UnsupportedDeniedAlternativeRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_NoAdmittedEdgeRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_LoopRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UniversalOrHistoryTarget_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_NonPlainEdge_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_UnsupportedGroupEffect_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_LogDescriptorsKeepDuplicatesAndOrder",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_GroupExitRefusesWithoutDurableHistory",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap prefix routing",
+          "name": "Bootstrap_AcyclicPrefixesDischargeEverySourceAndRefuseAmbiguity",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_UnknownFrozenGate_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_MalformedInitialEntry_%s_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_DuplicateEntryRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_PrecedingEntryCannotBelongToTheNewAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_StaleSamePhaseEntryCannotProveTheNewAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_ReducedResolverCannotEraseFrozenRequirements",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_FinalEntryIsRequired",
+          "dynamic": false
+        },
+        {
+          "suite": "bootstrap frozen entry association",
+          "name": "Bootstrap_SeedRequiresExactApprovalAndAttempt",
           "dynamic": false
         }
       ]

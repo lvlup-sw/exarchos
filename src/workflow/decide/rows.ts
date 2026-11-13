@@ -110,6 +110,7 @@ export function buildHsmEventData(
         policySource: metadata.policySource ?? 'builtin',
         mode: metadata.mode ?? 'enforce',
         posture: metadata.posture,
+        ...(metadata.designDepth !== undefined ? { designDepth: metadata.designDepth } : {}),
         ...(metadata.riskTier !== undefined ? { riskTier: metadata.riskTier } : {}),
         ...(typeof metadata.boundaryTouching === 'boolean'
           ? { boundaryTouching: metadata.boundaryTouching }
