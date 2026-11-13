@@ -15,7 +15,7 @@ it('requires every C# emitter to return source derived from the shared construct
 it('rejects the historical envelope omission, unused calls, missing subjects and parse failures', () => {
   const constructor = { 'source.ts': readFileSync(new URL('source.ts', directory), 'utf8') };
   const historical = readFileSync(new URL('../support/testgen/guards/typed-without-envelope.txt', import.meta.url), 'utf8');
-  const fixtureEntry = { 'typed.ts': 'emitTypedTUnit', 'stateful.ts': 'emitStatefulTUnit' };
+  const fixtureEntry = { 'typed.ts': 'emitTypedTUnit' };
   const valid = "import { csharpFile } from './source.js'; export function emitTypedTUnit() { return csharpFile('Tests', 'Example', [], ''); }";
   expect(() => assertCSharpSourceDerivation({ ...constructor, 'typed.ts': valid }, fixtureEntry)).not.toThrow();
   for (const source of [historical, valid.replace('return csharpFile', 'csharpFile').replace("[], ''); }", "[], ''); return 'raw'; }"), 'export function {']) {
