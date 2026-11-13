@@ -1,4 +1,5 @@
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -81,6 +82,8 @@ describe('No Console in Production Code', () => {
   ]);
 
   it('NoConsoleInProduction_SourceFilesClean', async () => {
+    expect(consoleCallLines("const generated = `console.error('test output')`; // console.log('comment')")).toEqual([]);
+    expect(consoleCallLines("console.log('runtime');\nconst generated = `text ${console.error('runtime interpolation')}`;")).toEqual([1, 2]);
     const srcDir = fileURLToPath(new URL('../../src/', import.meta.url));
     const files = await getProductionFiles(srcDir);
 
@@ -89,12 +92,8 @@ describe('No Console in Production Code', () => {
       const rel = path.relative(srcDir, file).split(path.sep).join('/');
       if (TERMINAL_OUTPUT_MODULES.has(rel)) continue;
       const content = await fs.readFile(file, 'utf-8');
-      const lines = content.split('\n');
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i];
-        if (/console\.(log|error|warn|info|debug)\s*\(/.test(line) && !line.trimStart().startsWith('//')) {
-          violations.push(`${rel}:${i + 1}: ${line.trim()}`);
-        }
+      for (const line of consoleCallLines(content)) {
+        violations.push(`${rel}:${line}`);
       }
     }
 
@@ -112,7 +111,7 @@ describe('No Console in Production Code', () => {
       const content = await fs.readFile(path.join(srcDir, rel), 'utf-8').catch(() => null);
       expect(content, `exempted module ${rel} does not exist (${reason})`).not.toBeNull();
       expect(
-        /console\.(log|error|warn|info|debug)\s*\(/.test(content ?? ''),
+        consoleCallLines(content ?? '').length > 0,
         `${rel} is exempted but no longer prints — drop the exemption`,
       ).toBe(true);
     }
@@ -145,4 +144,19 @@ async function getProductionFiles(dir: string): Promise<string[]> {
   }
 
   return results;
+}
+
+function consoleCallLines(content: string): number[] {
+  const source = ts.createSourceFile('production.ts', content, ts.ScriptTarget.Latest, true);
+  const lines: number[] = [];
+  function visit(node: ts.Node): void {
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.expression) && node.expression.expression.text === 'console'
+      && ['log', 'error', 'warn', 'info', 'debug'].includes(node.expression.name.text)) {
+      lines.push(source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1);
+    }
+    ts.forEachChild(node, visit);
+  }
+  visit(source);
+  return lines;
 }

@@ -24,7 +24,7 @@ it('carries the same result through the CLI and a connected MCP client', async (
   const [serverTransport, clientTransport] = createV2LinkedTransportPair();
   const emit: Emitter = (input, kind) => input.propertyRef === 'broken-emitter'
     ? { ok: true }
-    : dispatch(kind === 'property' ? 'generate_property_tests' : 'generate_metamorphic_tests', input);
+    : dispatch(`generate_${kind}_tests`, input);
   const server = createTestgenServer(emit);
   const client = createV2Client({ name: 'parity', version: '1' });
   try {
@@ -33,7 +33,7 @@ it('carries the same result through the CLI and a connected MCP client', async (
     const { tools } = await client.listTools();
     expect(tools.map(({ name }) => name)).toEqual(commandMetadata.operations.map(({ name }) => name));
     const propertyTool = tools.find(({ name }) => name === 'generate_property_tests');
-    expect(propertyTool?.inputSchema.oneOf).toMatchObject([
+    expect((propertyTool?.inputSchema.anyOf as Array<{ oneOf: unknown[] }>)[0]?.oneOf).toMatchObject([
       { properties: { framework: { const: 'tunit' }, frameworkVersion: { const: '1.2.11' } } },
       { properties: { framework: { const: 'vitest' }, frameworkVersion: { const: '3.2.7' } } },
     ]);
@@ -42,16 +42,19 @@ it('carries the same result through the CLI and a connected MCP client', async (
       ['advance', 'generate_metamorphic_tests'],
       ['vitest-property', 'generate_property_tests'],
       ['vitest-metamorphic', 'generate_metamorphic_tests'],
+      ['typed-property', 'generate_property_tests'],
+      ['typed-metamorphic', 'generate_metamorphic_tests'],
+      ['typed-differential', 'generate_differential_tests'],
     ] as const) {
       const input = JSON.parse(await readFile(new URL(`../../support/testgen/${fixture}.json`, import.meta.url), 'utf8'));
       for (const [patch, expectedExit] of [
         [{}, 0],
-        [{ cases: [] }, 2],
+        [{ cases: [], generation: undefined }, 2],
         [{ framework: 'TUnit' }, 3],
         [{ frameworkVersion: '1.2.12' }, 3],
         [{ propertyRef: 'broken-emitter' }, 1],
       ] as const) {
-        const payload = { ...input, ...patch };
+        const payload = JSON.parse(JSON.stringify({ ...input, ...patch }));
         await writeFile(file, JSON.stringify(payload));
         let stdout = '';
         let stderr = '';
