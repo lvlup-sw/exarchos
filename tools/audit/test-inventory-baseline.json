@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1434,
-    "parsedFiles": 1389,
+    "testFiles": 1436,
+    "parsedFiles": 1391,
     "shellFiles": 45,
-    "cases": 15801,
-    "dynamicTitles": 209,
+    "cases": 15813,
+    "dynamicTitles": 210,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -92110,6 +92110,78 @@
           "suite": "",
           "name": "<dynamic-case-6>",
           "dynamic": true
+        }
+      ]
+    },
+    "tests/architecture/testgen-source.test.ts": {
+      "file": "tests/architecture/testgen-source.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "requires every C# emitter to return source derived from the shared constructor",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "rejects the historical envelope omission, unused calls, missing subjects and parse failures",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "constructs the required file and public test declaration metadata",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/testgen/domains.test.ts": {
+      "file": "tests/unit/testgen/domains.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "constructs reproducible valid cases across typed domains and exact large integers",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "reports exhausted attempts and duplicates for a finite domain",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "emitted TypeScript guards agree with domain membership, including Unicode and invalid cases",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "rejects reversed bounds and excessive domain materialization",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "dispatches typed %s requests with preserved fixture domains",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "",
+          "name": "fails input validation before emission for malformed typed requests",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "rejects oversized generated fixtures before materializing the case pool",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "rejects lossy raw keys and non-scalar text before schema parsing",
+          "dynamic": false
         }
       ]
     }
