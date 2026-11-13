@@ -27,7 +27,7 @@ import { mapInternalToExternalType } from './events.js';
 import { getRegisteredGuard } from '../config/register.js';
 import { executeGuard } from '../config/guards.js';
 import { buildValidatedEvent } from '../events/event-factory.js';
-import type { EventType } from '../events/schemas.js';
+import type { WorkflowEvent, EventType } from '../events/schemas.js';
 import type { LegacyTransitionObservation } from './admission/shadow-decision.js';
 import { resolveDangerCoordinate } from './admission/requirement-context.js';
 import { readFrozenGateSequence } from './admission/freeze-requirements.js';
@@ -92,6 +92,13 @@ export interface WorkflowTransitionEvent {
  * `tools.ts` or the orchestrator.
  */
 export interface GuardContext {
+  /** An opt-in commit stores the complete successful trail and returns its terminal cursor. */
+  readonly commitSuccess?: (rows: readonly WorkflowEvent[], result: {
+    readonly newPhase: string;
+    readonly historyUpdates: Readonly<Record<string, string>>;
+  }) => Promise<{ readonly sequence: number; readonly owned: boolean }>;
+  /** The complete source snapshot precedes guard, floor and ordinal reads for an opt-in commit. */
+  readonly sourceRows?: readonly WorkflowEvent[];
   /** Live state object — guards read this directly. */
   readonly state: Record<string, unknown>;
   /** Workflow type used to look up the HSM definition. */
@@ -426,7 +433,7 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
       floor,
     );
 
-    await notifyShadowObserver(context, {
+    if (!result.success || context.commitSuccess === undefined) await notifyShadowObserver(context, {
       workflowType: context.workflowType,
       fromPhase: currentPhase,
       toPhase: targetPhase,
@@ -492,7 +499,34 @@ export class DefaultHSMTransitionGuard implements HSMTransitionGuard {
     }
 
     let transitionSequence = -1;
-    if (context.eventStore) {
+    if (context.commitSuccess !== undefined) {
+      const staged: WorkflowEvent[] = [];
+      const source = context.sourceRows ?? [];
+      for (const evt of result.events) {
+        const prefix = [...source, ...staged];
+        const compound = evt.metadata?.compoundStateId;
+        const fixCycleOrdinal = evt.type === 'fix-cycle' ? 1 + prefix.filter(row => row.type === 'workflow.fix-cycle'
+          && (typeof compound !== 'string' || row.data?.compoundStateId === compound)).length : undefined;
+        const planRevisionOrdinal = evt.type === 'plan-revision'
+          ? 1 + prefix.filter(row => row.type === 'workflow.plan-revision').length : undefined;
+        staged.push(buildValidatedEvent(featureId, 1, {
+          type: mapInternalToExternalType(evt.type) as EventType, correlationId: featureId, source: 'workflow',
+          data: buildHsmEventData(evt, featureId, {
+            ...(transition?.guard ? { guardId: transition.guard.id } : {}),
+            ...(fixCycleOrdinal === undefined ? {} : { fixCycleOrdinal }),
+            ...(planRevisionOrdinal === undefined ? {} : { planRevisionOrdinal }),
+          }),
+        }));
+      }
+      const receipt = await context.commitSuccess(staged, {
+        newPhase: result.newPhase ?? targetPhase, historyUpdates: { ...(result.historyUpdates ?? {}) },
+      });
+      transitionSequence = receipt.sequence;
+      if (receipt.owned) await notifyShadowObserver(context, {
+        workflowType: context.workflowType, fromPhase: currentPhase, toPhase: targetPhase,
+        legacyOutcome: 'allow', idempotent: result.idempotent,
+      });
+    } else     if (context.eventStore) {
       for (const evt of result.events) {
         const idempotencyKey = context.idempotencyKeySuffix
           ? `${featureId}:${evt.type}:${evt.from}:${evt.to}:${context.idempotencyKeySuffix}`

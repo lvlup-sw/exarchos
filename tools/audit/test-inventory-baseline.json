@@ -7,8 +7,8 @@
     "testFiles": 1467,
     "parsedFiles": 1422,
     "shellFiles": 45,
-    "cases": 16155,
-    "dynamicTitles": 244,
+    "cases": 16189,
+    "dynamicTitles": 250,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -77902,6 +77902,21 @@
           "suite": "HSM emission boundary schema-validates event data (T-03, #1339)",
           "name": "LegacyAppendPath_SchemaInvalidWorkflowEvent_IsRejected",
           "dynamic": false
+        },
+        {
+          "suite": "atomic legacy success hook",
+          "name": "SuccessHook_StagesPrefixOrdinals_AndObservesOnlyOwned_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "atomic legacy success hook",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "atomic legacy success hook",
+          "name": "SuccessHook_ConflictRunsNoSuccessfulObserver",
+          "dynamic": false
         }
       ]
     },
@@ -93244,6 +93259,161 @@
         {
           "suite": "authoritative patch candidates",
           "name": "HandleSet_NoStartHeldPatchClaim_PreservesLegacyDocumentRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedWholePlan_DroppedPendingTaskDenies_Combined_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "<dynamic-case-11>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedMetadata_UnchangedAuthorityLoadsOnce_AndCommitsOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedAuthority_NewerSameEdgeWithPendingTask_ReloadsAndDenies",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedAuthority_FreshCompletionRows_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "<dynamic-case-12>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared transition authority",
+          "name": "PinnedAuthority_CustodyFailureRefusesWithoutPatch",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedPolicy_EmptySkipsIgnoreNewConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedUserDefinition_PrecedesBuiltInTypeDiscriminator",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedClaim_WinnerBeforeCustodyFailure_Replays_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "<dynamic-case-13>",
+          "dynamic": true
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedOwnMove_DocumentRepairDoesNotReloadMissingCustody",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition policy and retries",
+          "name": "PinnedCompletionProperty_DocumentMembershipAndForgedStatusCannotCompleteMissingIds",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition failure boundaries",
+          "name": "PinnedType_DocumentTypeCannotChangeEntryPolicy",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition failure boundaries",
+          "name": "PinnedAuthority_ChangedEveryPass_ExhaustsWithoutMoveOrPatch",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition failure boundaries",
+          "name": "PinnedClaim_WinnerDuringFailedCustody_RechecksActualClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "prepared transition failure boundaries",
+          "name": "PinnedRawCandidate_InvalidIndexCannotBeSanitizedByMembership",
+          "dynamic": false
+        },
+        {
+          "suite": "kernel operator compatibility",
+          "name": "LegacyKernel_BuiltInOperatorUsesCurrentSkips_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "kernel operator compatibility",
+          "name": "<dynamic-case-14>",
+          "dynamic": true
+        },
+        {
+          "suite": "frozen transition policy",
+          "name": "PinnedOrderedSkips_OverrideCurrentConfig",
+          "dynamic": false
+        },
+        {
+          "suite": "frozen transition policy",
+          "name": "PinnedPendingTasks_DoNotBlockUniversalCancel",
+          "dynamic": false
+        },
+        {
+          "suite": "historical document kernel commits",
+          "name": "KernelCustom_CombinedPatchAndTrailCommitOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "historical document kernel commits",
+          "name": "KernelNoStart_CombinedCommitAndCASRepairUseIncrementalRows",
+          "dynamic": false
+        },
+        {
+          "suite": "historical document kernel commits",
+          "name": "KernelNoStart_AheadCursorRefusesBeforeCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "KernelCustom_NewerTypedPinAtCommit_DeniesWithoutOldTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "KernelNoStart_IncrementalRepairDoesNotRepeatRevisionCounts",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "KernelNoStart_AfterCASLoss_LaterMoveWinsRepair",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel transaction fences",
+          "name": "KernelNoStart_SamePhasePatchRechecksNewAuthority",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel replay boundaries",
+          "name": "KernelClaim_ActualWinnerPrecedesCustodyAndGuard_DifferentPatch_%s",
+          "dynamic": false
+        },
+        {
+          "suite": "legacy kernel replay boundaries",
+          "name": "<dynamic-case-15>",
+          "dynamic": true
+        },
+        {
+          "suite": "legacy kernel replay boundaries",
+          "name": "KernelNoStart_MalformedPresentStartNeverUsesLegacyRepair",
           "dynamic": false
         }
       ]
