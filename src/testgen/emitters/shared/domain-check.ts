@@ -11,7 +11,8 @@ export function typescriptDomainCheck(domain: Domain, value = 'value', depth = 0
     case 'nullable': return `(${value} === null || ${typescriptDomainCheck(domain.value, value, depth + 1)})`;
     case 'array': {
       const item = `item${depth}`;
-      return `(Array.isArray(${value}) && ${value}.length >= ${domain.minLength} && ${value}.length <= ${domain.maxLength} && Array.from(${value}).every((${item}: unknown) => ${typescriptDomainCheck(domain.element, item, depth + 1)}))`;
+      const array = `(${value} as unknown[])`;
+      return `(Array.isArray(${value}) && ${array}.length >= ${domain.minLength} && ${array}.length <= ${domain.maxLength} && Array.from(${array}).every((${item}: unknown) => ${typescriptDomainCheck(domain.element, item, depth + 1)}))`;
     }
     case 'record': {
       const fields = Object.entries(domain.fields).map(([key, field]) => {
