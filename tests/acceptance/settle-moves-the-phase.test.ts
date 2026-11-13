@@ -280,10 +280,10 @@ describe('a settle moves the phase of the stream', () => {
     expect(appended).toHaveLength(1);
     expect(appended[0]).toMatchObject({
       streamId: STREAM, type: 'gate.executed', sequence: before.length + 1,
-      data: {
-        gateName: 'event-emissions', layer: 'observability', passed: false,
-        details: { phase: 'delegate', checked: 5, missing: 5, missingTypes: ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'task.progressed'] },
-      },
+    });
+    expect(appended[0]?.data).toEqual({
+      gateName: 'event-emissions', layer: 'observability', passed: false,
+      details: { phase: 'delegate', checked: 5, missing: 5, missingTypes: ['team.spawned', 'team.task.planned', 'team.teammate.dispatched', 'team.disbanded', 'task.progressed'] },
     });
     expect(appended[0]?.correlationId).toBe(appended[0]?.operationId);
     expect(appended[0]?.idempotencyKey).toBe(`gate.executed:event-emissions:${appended[0]?.operationId}`);
