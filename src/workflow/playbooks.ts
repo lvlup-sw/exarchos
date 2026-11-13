@@ -484,7 +484,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing the fix based on the design. Use exarchos_workflow update to record implementation progress. Verification is risk-proportional — apply the gate ladder resolved for this phase (by task risk tier and boundary), reproducing the bug at a depth that matches its blast radius. Transition to debug-validate when implementation is complete. Key decision: match verification depth to the blast radius of the bug. Anti-pattern: shipping a fix without a regression check proportionate to its risk. Escalate: implementation touches >5 files, consider splitting.',
+    'You are implementing the fix based on the design. Use exarchos_workflow update to record implementation progress. Verification is risk-proportional — apply the gate ladder resolved for this phase (by task risk tier and boundary), reproducing the bug at a depth that matches its blast radius. When implementation is complete, use exarchos_workflow update to set implementation.complete to true, then transition to debug-validate. The edge reads that field. Key decision: match verification depth to the blast radius of the bug. Anti-pattern: shipping a fix without a regression check proportionate to its risk. Escalate: implementation touches >5 files, consider splitting.',
 });
 
 register({
@@ -550,7 +550,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing a hotfix. Use exarchos_workflow update to record implementation progress. This is the fast-track — apply minimal targeted fix within a 15-minute time budget. Verification is risk-proportional: apply the resolved gate ladder for this phase, kept minimal to fit the time budget. Transition to hotfix-validate when implementation is complete. Key decision: stay minimal and targeted within the time budget. Anti-pattern: hotfix growing into a full fix — if scope expands, switch to thorough track via rca. Escalate: time limit exceeded without a working fix.',
+    'You are implementing a hotfix. Use exarchos_workflow update to record implementation progress. This is the fast-track — apply minimal targeted fix within a 15-minute time budget. Verification is risk-proportional: apply the resolved gate ladder for this phase, kept minimal to fit the time budget. When implementation is complete, use exarchos_workflow update to set implementation.complete to true, then transition to hotfix-validate. The edge reads that field. Key decision: stay minimal and targeted within the time budget. Anti-pattern: hotfix growing into a full fix — if scope expands, switch to thorough track via rca. Escalate: time limit exceeded without a working fix.',
 });
 
 register({
@@ -710,7 +710,7 @@ register({
   validationScripts: [],
   humanCheckpoint: false,
   compactGuidance:
-    'You are implementing polish-track refactoring changes directly. Use exarchos_workflow update to record progress. Verification is risk-proportional — apply the gate ladder resolved for this phase to any behavior change, sized to the risk of the change. Stay within brief scope. Transition to polish-validate when implementation is complete. Key decision: stay strictly within the brief scope for each change. Anti-pattern: scope creep beyond the brief — resist adding improvements not in the brief. Escalate: changes cascade beyond the declared scope, consider switching to overhaul track.',
+    'You are implementing polish-track refactoring changes directly. Use exarchos_workflow update to record progress. Verification is risk-proportional — apply the gate ladder resolved for this phase to any behavior change, sized to the risk of the change. Stay within brief scope. When implementation is complete, use exarchos_workflow update to set implementation.complete to true, then transition to polish-validate. The edge reads that field. Key decision: stay strictly within the brief scope for each change. Anti-pattern: scope creep beyond the brief — resist adding improvements not in the brief. Escalate: changes cascade beyond the declared scope, consider switching to overhaul track.',
 });
 
 register({

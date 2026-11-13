@@ -7,6 +7,7 @@ import {
   readStateFile,
   writeStateFile,
   StateStoreError,
+  levelPhaseInStateDocument,
 } from './state-store.js';
 import {
   buildCheckpointMeta,
@@ -17,7 +18,14 @@ import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
 import { executeCompensation, CANCEL_MAX_ATTEMPTS, type CompensationCheckpoint } from './compensation.js';
+import { decide } from './decide/decide.js';
+import { FinalizationChanged, FinalizationReplayFailed, highestPhaseRowSequence, validateFinalization } from './decide/finalization.js';
+import { compileDecideDefinition, type DecideDefinition } from './decide/edges.js';
+import { phaseMoveEvents, type TransitionEvent } from './decide/emit.js';
+import { builtInDefinition, isBuiltInDefinitionType } from './definitions/built-in.js';
 import type { EventStore } from '../events/store.js';
+import type { WorkflowEvent } from '../events/schemas.js';
+import { foldGuardInput, foldWorkflowState } from '../projections/guard-input/fold.js';
 import {
   CancelReadyData,
   CancelRequestedData,
@@ -36,6 +44,91 @@ import * as path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 
 const CURRENT_ES_VERSION = 2;
+
+/** The type of the row that starts a workflow stream. */
+const START_ROW_TYPE = 'workflow.started';
+
+/** The text that starts the warning of a cancel that the state document decided. */
+const DOCUMENT_FALLBACK_WARNING = 'GUARD_INPUT_DOCUMENT_FALLBACK';
+
+/** The most writes of the document level of an idempotent cancel. A conflict reads the document again. */
+const MAX_LEVEL_WRITES = 4;
+
+/**
+ * The route of one cancel. The fold route decides on the ledger fold of the rows of a built-in type.
+ * The document route keeps the path of the state document, with the warnings of a fallback.
+ */
+type CancelRoute =
+  | {
+      readonly kind: 'fold';
+      readonly def: DecideDefinition;
+      /** The guard input of the fold, with no phase attempt id. */
+      readonly input: Readonly<Record<string, unknown>>;
+      /** The full resource projection from the same rows as the guard input. */
+      readonly resources: ReturnType<typeof foldWorkflowState>;
+      readonly from: string;
+      /** The phase attempt id of the fold, the predecessor of the move. */
+      readonly foldAttemptId: string | undefined;
+      /** The highest sequence of the phase rows. A committed move changes it, and a saga row does not. */
+      readonly version: number;
+      /** The highest sequence of the rows. The level of a lagging document covers each row that the cancel read. */
+      readonly eventSequence: number;
+    }
+  | { readonly kind: 'fold-failed'; readonly message: string }
+  | { readonly kind: 'document'; readonly warnings: readonly string[] };
+
+/** Returns the message of a thrown value. */
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Returns the highest sequence of the rows, or 0 when the rows are empty. */
+function highestSequence(rows: readonly WorkflowEvent[]): number {
+  return rows.reduce((highest, row) => Math.max(highest, row.sequence), 0);
+}
+
+/** Returns the document route with one fallback warning that names the reason. */
+function documentFallback(reason: string): CancelRoute {
+  return {
+    kind: 'document',
+    warnings: [`${DOCUMENT_FALLBACK_WARNING}: the state document decided this cancel, because ${reason}.`],
+  };
+}
+
+/**
+ * Picks the route of a cancel. A type that is not a built-in type keeps the document route with no warning.
+ * A built-in type decides on the fold when the store holds its rows: an event store, a document on the ledger and a start row.
+ * Otherwise the document decides, and the route carries one fallback warning. A failed read or fold refuses before compensation.
+ */
+async function cancelRouteOf(state: WorkflowState, featureId: string, eventStore: EventStore | null): Promise<CancelRoute> {
+  const workflowType = state.workflowType;
+  if (!isBuiltInDefinitionType(workflowType)) return { kind: 'document', warnings: [] };
+  if (eventStore === null || eventStore === undefined) return documentFallback('no event store is open');
+  if (state._esVersion !== CURRENT_ES_VERSION) return documentFallback('the state document is not on the ledger');
+  try {
+    const rows = await eventStore.query(featureId);
+    if (!rows.some((row) => row.type === START_ROW_TYPE)) return documentFallback('the stream holds no start row');
+    const input = foldGuardInput(rows);
+    return {
+      kind: 'fold',
+      def: compileDecideDefinition(workflowType, builtInDefinition(workflowType), []),
+      input,
+      resources: foldWorkflowState(rows),
+      from: typeof input.phase === 'string' ? input.phase : '',
+      foldAttemptId: readPhaseAttemptId(input),
+      version: highestPhaseRowSequence(rows),
+      eventSequence: highestSequence(rows),
+    };
+  } catch (err) {
+    return { kind: 'fold-failed', message: messageOf(err) };
+  }
+}
+
+/** Puts the warnings of a route before the warnings of a result. A route with no warning returns the result unchanged. */
+function withRouteWarnings(result: ToolResult, route: CancelRoute): ToolResult {
+  if (route.kind !== 'document' || route.warnings.length === 0) return result;
+  return { ...result, warnings: [...route.warnings, ...(result.warnings ?? [])] };
+}
 
 /** Check whether a workflow state uses the pure event-sourcing path. */
 function isEventSourced(state: Record<string, unknown>): boolean {
@@ -76,16 +169,13 @@ function trustedCancellationProvenance(stateDir: string): Record<string, unknown
 
 /**
  * Cancel a workflow: run compensation, then move the phase to `cancelled`.
+ * The event-first path needs an ES v2 state and a store. It takes ownership under a fencing epoch before it
+ * records intent, and only `buildCancelReadiness` makes the `cancel.ready` proof.
  *
- * The event-first path needs an ES v2 state and a non-nullish store. It takes ownership
- * under a fencing epoch before it records intent. Only `buildCancelReadiness` makes the
- * `cancel.ready` proof, after each compensation has a durable success. The legacy path
- * keeps its checkpoint in the state file and ignores store failures.
- *
- * The guard runs in pure evaluation, so this handler owns emission. The trail commits
- * atomically before the state changes, under a retry-stable operation id. The flag
- * `allowUniversalFinalTransition` admits the `cancelled` edge, which has no HSM definition.
- * The shadow observer gets the real store, because shadow evidence is a separate stream.
+ * A built-in type with a store, a ledger document and a start row decides on the ledger fold.
+ * The fold gives the source phase, the phase attempt id and the terminal check, and `phaseMoveEvents` gives the trail.
+ * The fallback cases keep the path of the state document with one warning. A failed fold refuses before compensation.
+ * A custom type keeps that path with no warning. The trail commits atomically before the state write.
  */
 export async function handleCancel(
   input: CancelInput,
@@ -110,7 +200,168 @@ export async function handleCancel(
     throw err;
   }
 
-  if (state.phase === 'cancelled') {
+  const route = await cancelRouteOf(state, input.featureId, eventStore);
+  const outcome = await cancelOnRoute(input, stateDir, eventStore, stateFile, state, route);
+  if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
+  return cancelAfterAClaimHit(input, stateDir, eventStore, stateFile, outcome.from);
+}
+
+/** The outcome of a cancel whose trail operation another call committed. This call wrote no row. */
+interface TrailClaimHit {
+  readonly claimHit: true;
+  /** The fold phase that this call cancelled from. */
+  readonly from: string;
+}
+
+/** True when the outcome of a cancel is a claim hit of its trail operation. */
+function isTrailClaimHit(outcome: ToolResult | TrailClaimHit): outcome is TrailClaimHit {
+  return 'claimHit' in outcome && outcome.claimHit === true;
+}
+
+/**
+ * Replies to a cancel whose trail operation another call committed. This call wrote no row, so it reads the document
+ * and the rows again. A fold at `cancelled` levels a lagging document and replies `idempotent: true` with no row.
+ * Another read runs the cancel once more on its route. A second claim hit refuses with `EVENT_APPEND_FAILED`.
+ */
+async function cancelAfterAClaimHit(
+  input: CancelInput,
+  stateDir: string,
+  eventStore: EventStore | null,
+  stateFile: string,
+  from: string,
+): Promise<ToolResult> {
+  const state = await readStateFile(stateFile);
+  const route = await cancelRouteOf(state, input.featureId, eventStore);
+  if (route.kind === 'fold' && route.from === 'cancelled') return levelCancelledDocument(stateFile, state, route, eventStore, from);
+  const outcome = await cancelOnRoute(input, stateDir, eventStore, stateFile, state, route);
+  if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
+  return {
+    success: false,
+    error: {
+      code: ErrorCode.EVENT_APPEND_FAILED,
+      message: `Another call committed the cancel trail of '${input.featureId}', and a second read of the rows does not show the phase 'cancelled'`,
+    },
+  };
+}
+
+/** Synchronize a cancelled document from current rows while preserving the reply's original previous phase. */
+async function levelCancelledDocument(
+  stateFile: string,
+  state: WorkflowState,
+  route: Extract<CancelRoute, { kind: 'fold' }>,
+  eventStore: EventStore | null,
+  previousPhase: string = state.phase,
+): Promise<ToolResult> {
+  if (eventStore === null) throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, 'The cancellation ledger is unavailable');
+  const level = await levelPhaseInStateDocument(stateFile, eventStore, state.featureId, MAX_LEVEL_WRITES, (candidate) => {
+    delete candidate._compensationCheckpoint;
+  });
+  if (level.kind === 'failed' || level.kind === 'skipped') {
+    throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, level.kind === 'failed' ? level.error : 'The cancellation document is absent');
+  }
+  return idempotentCancelReply(previousPhase, { ...route, foldAttemptId: readPhaseAttemptId(level.state) }, level.state._checkpoint);
+}
+
+/** The reply of a cancel whose fold is at `cancelled`. Its data fits the cancelled arm of the cancel output schema. */
+function idempotentCancelReply(
+  previousPhase: string,
+  route: Extract<CancelRoute, { kind: 'fold' }>,
+  checkpoint: WorkflowState['_checkpoint'],
+): ToolResult {
+  return {
+    success: true,
+    data: {
+      phase: 'cancelled',
+      actions: [],
+      previousPhase,
+      phaseAttemptId: route.foldAttemptId ?? '',
+      idempotent: true,
+    },
+    _meta: buildCheckpointMeta(checkpoint),
+  };
+}
+
+/** The events of an admitted cancel move and the history that the move records. */
+interface CancelMove {
+  readonly events: readonly TransitionEvent[];
+  readonly historyUpdates: Readonly<Record<string, string>>;
+}
+
+/**
+ * Decides the cancel move on the fold. The legacy guard runs on the same input with no store, so it feeds
+ * only the admission live shadow and the message of a refusal. A throw of the legacy guard changes nothing.
+ */
+async function decideCancelOnTheFold(
+  featureId: string,
+  route: Extract<CancelRoute, { kind: 'fold' }>,
+  phaseAttemptId: string,
+  eventStore: EventStore | null,
+): Promise<{ readonly ok: true; readonly move: CancelMove } | { readonly ok: false; readonly result: ToolResult }> {
+  const input: Record<string, unknown> = { ...route.input, _pendingPhaseAttemptId: phaseAttemptId };
+  let legacyMessage: string | undefined;
+  try {
+    const legacy = await hsmTransitionGuard.attempt(featureId, route.from, 'cancelled', {
+      state: input,
+      workflowType: route.def.workflowType,
+      eventStore: null,
+      allowUniversalFinalTransition: true,
+      shadowObserver: (observation) => recordLiveTransition(observation, input, eventStore),
+    });
+    if (!legacy.ok) legacyMessage = legacy.errorMessage;
+  } catch {
+    legacyMessage = undefined;
+  }
+  const outcome = decide(route.def, input, { kind: 'cancel' });
+  if (outcome.kind !== 'admit') {
+    return {
+      ok: false,
+      result: {
+        success: false,
+        error: {
+          code: ErrorCode.INVALID_TRANSITION,
+          message: legacyMessage ?? `No transition from '${route.from}' to 'cancelled'`,
+        },
+      },
+    };
+  }
+  const moved = phaseMoveEvents(route.def, input, outcome.move);
+  if (!moved.success) {
+    return {
+      ok: false,
+      result: {
+        success: false,
+        error: {
+          code: moved.errorCode === 'PHASE_BLOCKED' ? ErrorCode.PHASE_BLOCKED : ErrorCode.GUARD_FAILED,
+          message: moved.errorMessage ?? legacyMessage ?? `The cancel of '${featureId}' did not move the phase`,
+        },
+      },
+    };
+  }
+  return { ok: true, move: { events: moved.events, historyUpdates: { ...(moved.historyUpdates ?? {}) } } };
+}
+
+/**
+ * Runs one cancel on its route. The caller adds the warnings of the route.
+ * On the fold route, a stored claim of the trail operation gives a claim hit, and this call writes no document.
+ */
+async function cancelOnRoute(
+  input: CancelInput,
+  stateDir: string,
+  eventStore: EventStore | null,
+  stateFile: string,
+  state: WorkflowState,
+  route: CancelRoute,
+): Promise<ToolResult | TrailClaimHit> {
+  if (route.kind === 'fold-failed') return { success: false, error: { code: ErrorCode.PROJECTION_REPLAY_FAILED, message: route.message } };
+  const terminalPhase = route.kind === 'fold' ? route.from : state.phase;
+  if (route.kind === 'fold' && terminalPhase === 'completed') {
+    return { success: false, error: { code: ErrorCode.INVALID_TRANSITION, message: `Cannot cancel completed workflow '${input.featureId}'` } };
+  }
+  if (terminalPhase === 'cancelled') {
+    if (route.kind === 'fold' && state.phase !== 'cancelled') {
+      if (input.dryRun) return { success: true, data: { dryRun: true, actions: [], currentPhase: 'cancelled', wouldTransitionTo: 'cancelled' } };
+      return levelCancelledDocument(stateFile, state, route, eventStore);
+    }
     return {
       success: false,
       error: {
@@ -121,14 +372,19 @@ export async function handleCancel(
   }
 
   const mutableState = structuredClone(state) as Record<string, unknown>;
-  const currentPhase = state.phase;
+  if (route.kind === 'fold') {
+    mutableState.worktrees = structuredClone(route.resources.worktrees);
+    mutableState.tasks = structuredClone(route.resources.tasks);
+    mutableState.synthesis = structuredClone(route.resources.synthesis);
+  }
+  const currentPhase = route.kind === 'fold' ? route.from : state.phase;
   const dryRun = input.dryRun ?? false;
   const phaseAttemptId = allocatePhaseAttemptId(
     input.featureId,
     currentPhase,
     'cancelled',
-    readPhaseAttemptId(state),
-    state._version ?? 1,
+    route.kind === 'fold' ? route.foldAttemptId : readPhaseAttemptId(state),
+    route.kind === 'fold' ? route.version : (state._version ?? 1),
   );
   const cancelId = `cancel:${phaseAttemptId}`;
   const useEventFirst =
@@ -351,35 +607,43 @@ export async function handleCancel(
   }
 
   mutableState._pendingPhaseAttemptId = phaseAttemptId;
-  const attempt = await hsmTransitionGuard.attempt(
-    input.featureId,
-    currentPhase,
-    'cancelled',
-    {
-      state: mutableState,
-      workflowType: state.workflowType,
-      eventStore: null,
-      allowUniversalFinalTransition: true,
-      shadowObserver: (observation) =>
-        recordLiveTransition(observation, mutableState, eventStore),
-    },
-  );
-
-  if (!attempt.ok) {
-    return {
-      success: false,
-      error: {
-        code:
-          attempt.errorCode === 'CIRCUIT_OPEN'
-            ? ErrorCode.CIRCUIT_OPEN
-            : attempt.errorCode === 'PHASE_BLOCKED'
-              ? ErrorCode.PHASE_BLOCKED
-              : attempt.errorCode === 'INVALID_TRANSITION'
-                ? ErrorCode.INVALID_TRANSITION
-                : ErrorCode.GUARD_FAILED,
-        message: attempt.errorMessage,
+  let move: CancelMove;
+  if (route.kind === 'fold') {
+    const decided = await decideCancelOnTheFold(input.featureId, route, phaseAttemptId, eventStore);
+    if (!decided.ok) return decided.result;
+    move = decided.move;
+  } else {
+    const attempt = await hsmTransitionGuard.attempt(
+      input.featureId,
+      currentPhase,
+      'cancelled',
+      {
+        state: mutableState,
+        workflowType: state.workflowType,
+        eventStore: null,
+        allowUniversalFinalTransition: true,
+        shadowObserver: (observation) =>
+          recordLiveTransition(observation, mutableState, eventStore),
       },
-    };
+    );
+
+    if (!attempt.ok) {
+      return {
+        success: false,
+        error: {
+          code:
+            attempt.errorCode === 'CIRCUIT_OPEN'
+              ? ErrorCode.CIRCUIT_OPEN
+              : attempt.errorCode === 'PHASE_BLOCKED'
+                ? ErrorCode.PHASE_BLOCKED
+                : attempt.errorCode === 'INVALID_TRANSITION'
+                  ? ErrorCode.INVALID_TRANSITION
+                  : ErrorCode.GUARD_FAILED,
+          message: attempt.errorMessage,
+        },
+      };
+    }
+    move = { events: attempt.emittedEvents, historyUpdates: attempt.historyUpdates };
   }
 
   const cancelMetadata: Record<string, unknown> = {};
@@ -392,7 +656,7 @@ export async function handleCancel(
 
   if (eventStore) {
     const cancelTrail = [
-      ...attempt.emittedEvents.map((transitionEvent) => ({
+      ...move.events.map((transitionEvent) => ({
         type: mapInternalToExternalType(transitionEvent.type) as import('../events/schemas.js').EventType,
         correlationId: input.featureId,
         source: 'workflow',
@@ -422,16 +686,24 @@ export async function handleCancel(
     const cancelTrailOperationId = `cancel:${input.featureId}:${phaseAttemptId}`;
     if (useEventFirst) {
       try {
-        await eventStore.appendTrailAtomically(
+        const landed = await eventStore.appendTrailAtomically(
           input.featureId,
           cancelTrail,
           cancelTrailOperationId,
+          route.kind === 'fold' ? (snapshot) => {
+            const current = validateFinalization(snapshot, { ...route, phaseSequence: route.version });
+            const admission = decide(route.def, current, { kind: 'cancel' });
+            if (admission.kind !== 'admit' || admission.move.to !== 'cancelled') {
+              throw new FinalizationChanged('The cancellation admission changed before finalization');
+            }
+          } : undefined,
         );
+        if (route.kind === 'fold' && landed === false) return { claimHit: true, from: currentPhase };
       } catch (err) {
         return {
           success: false,
           error: {
-            code: ErrorCode.EVENT_APPEND_FAILED,
+            code: err instanceof FinalizationChanged ? ErrorCode.VERSION_CONFLICT : err instanceof FinalizationReplayFailed ? ErrorCode.PROJECTION_REPLAY_FAILED : ErrorCode.EVENT_APPEND_FAILED,
             message: `Event append failed during cancel: ${err instanceof Error ? err.message : String(err)}`,
           },
         };
@@ -448,13 +720,27 @@ export async function handleCancel(
     }
   }
 
+  if (route.kind === 'fold' && eventStore !== null) {
+    const level = await levelPhaseInStateDocument(stateFile, eventStore, input.featureId, MAX_LEVEL_WRITES, (candidate) => {
+      delete candidate._compensationCheckpoint;
+    });
+    if (level.kind === 'failed' || level.kind === 'skipped') {
+      throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, level.kind === 'failed' ? level.error : 'The cancellation document is absent');
+    }
+    return {
+      success: true,
+      data: { phase: 'cancelled', actions: compensationResult.actions, previousPhase: currentPhase, phaseAttemptId },
+      _meta: buildCheckpointMeta(level.state._checkpoint),
+    };
+  }
+
   mutableState.phase = 'cancelled';
   mutableState.phaseAttemptId = phaseAttemptId;
   delete mutableState._pendingPhaseAttemptId;
 
-  if (Object.keys(attempt.historyUpdates).length > 0) {
+  if (Object.keys(move.historyUpdates).length > 0) {
     const history = { ...(mutableState._history as Record<string, string>) };
-    for (const [key, value] of Object.entries(attempt.historyUpdates)) {
+    for (const [key, value] of Object.entries(move.historyUpdates)) {
       history[key] = value;
     }
     mutableState._history = history;

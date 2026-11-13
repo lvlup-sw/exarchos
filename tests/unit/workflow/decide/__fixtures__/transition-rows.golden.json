@@ -1,0 +1,2511 @@
+[
+  {
+    "call": {
+      "kind": "transition",
+      "to": "plan-review"
+    },
+    "featureId": "transition-rows-feature-plan",
+    "from": "plan",
+    "name": "feature plan -> plan-review",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "plan-review",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "updatedAt": "<timestamp>",
+        "workflowType": "feature"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-feature-plan",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "feature"
+        },
+        "idempotencyKey": "transition-rows-feature-plan:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-plan",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-plan:patch:1:artifacts.plan",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-plan",
+          "from": "plan",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "plan-review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-plan:transition:plan:plan-review:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan"
+        },
+        "idempotencyKey": "transition-rows-feature-plan:phase.exited:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-plan:phase.entered:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.entered"
+      }
+    ],
+    "workflowType": "feature"
+  },
+  {
+    "call": {
+      "kind": "transition",
+      "to": "delegate"
+    },
+    "featureId": "transition-rows-feature-plan-review",
+    "from": "plan-review",
+    "name": "feature plan-review -> delegate",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "delegate",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "updatedAt": "<timestamp>",
+        "workflowType": "feature"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-feature-plan-review",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "feature"
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-plan-review",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:patch:1:artifacts.plan",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-plan-review",
+          "from": "plan",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "plan-review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:transition:plan:plan-review:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan"
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:phase.exited:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:phase.entered:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-plan-review",
+          "fields": [
+            "planReview"
+          ],
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:patch:3:planReview",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-plan-review",
+          "from": "plan-review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "delegate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:transition:plan-review:delegate:4",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "featureId": "transition-rows-feature-plan-review"
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:compound-entry:plan-review:implementation:4",
+        "operationId": null,
+        "type": "workflow.compound-entry"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan-review"
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:phase.exited:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-plan-review:phase.entered:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.entered"
+      }
+    ],
+    "workflowType": "feature"
+  },
+  {
+    "call": {
+      "kind": "transition",
+      "to": "review"
+    },
+    "featureId": "transition-rows-feature-delegate",
+    "from": "delegate",
+    "name": "feature delegate -> review",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "review",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "updatedAt": "<timestamp>",
+        "workflowType": "feature"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-feature-delegate",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "feature"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-delegate",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:patch:1:artifacts.plan",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-delegate",
+          "from": "plan",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "plan-review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:transition:plan:plan-review:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:phase.exited:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:phase.entered:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-delegate",
+          "fields": [
+            "planReview"
+          ],
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:patch:3:planReview",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-delegate",
+          "from": "plan-review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "delegate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:transition:plan-review:delegate:4",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "featureId": "transition-rows-feature-delegate"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:compound-entry:plan-review:implementation:4",
+        "operationId": null,
+        "type": "workflow.compound-entry"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan-review"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:phase.exited:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:phase.entered:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-delegate",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "pending",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:patch:5:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "taskId": "t1"
+        },
+        "idempotencyKey": null,
+        "operationId": null,
+        "type": "task.completed"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-delegate",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "complete",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:patch:6:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-delegate",
+          "from": "delegate",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:transition:delegate:review:7",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "delegate"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:phase.exited:delegate:review:7",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "REVIEW",
+          "mode": "enforce",
+          "phase": "review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "review",
+              "gate": "review"
+            }
+          ],
+          "resolver": "review-contract",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-delegate:phase.entered:delegate:review:7",
+        "operationId": null,
+        "type": "phase.entered"
+      }
+    ],
+    "workflowType": "feature"
+  },
+  {
+    "call": {
+      "kind": "transition",
+      "to": "delegate"
+    },
+    "featureId": "transition-rows-feature-fix-cycle",
+    "from": "review",
+    "name": "feature review -> delegate as a fix cycle",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "delegate",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "updatedAt": "<timestamp>",
+        "workflowType": "feature"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "feature"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:patch:1:artifacts.plan",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "from": "plan",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "plan-review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:transition:plan:plan-review:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:phase.exited:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:phase.entered:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "fields": [
+            "planReview"
+          ],
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:patch:3:planReview",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "from": "plan-review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "delegate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:transition:plan-review:delegate:4",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "featureId": "transition-rows-feature-fix-cycle"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:compound-entry:plan-review:implementation:4",
+        "operationId": null,
+        "type": "workflow.compound-entry"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan-review"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:phase.exited:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:phase.entered:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "pending",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:patch:5:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "taskId": "t1"
+        },
+        "idempotencyKey": null,
+        "operationId": null,
+        "type": "task.completed"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "complete",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:patch:6:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "from": "delegate",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:transition:delegate:review:7",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "delegate"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:phase.exited:delegate:review:7",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "REVIEW",
+          "mode": "enforce",
+          "phase": "review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "review",
+              "gate": "review"
+            }
+          ],
+          "resolver": "review-contract",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:phase.entered:delegate:review:7",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "fields": [
+            "reviews"
+          ],
+          "patch": {
+            "reviews": {
+              "review": {
+                "status": "needs_fixes"
+              }
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:patch:8:reviews",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-fix-cycle",
+          "from": "review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "delegate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:transition:review:delegate:9",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "count": 1,
+          "featureId": "transition-rows-feature-fix-cycle"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:fix-cycle:review:delegate:9",
+        "operationId": null,
+        "type": "workflow.fix-cycle"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": false,
+          "phase": "review"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:phase.exited:review:delegate:9",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-fix-cycle:phase.entered:review:delegate:9",
+        "operationId": null,
+        "type": "phase.entered"
+      }
+    ],
+    "workflowType": "feature"
+  },
+  {
+    "call": {
+      "kind": "transition",
+      "to": "review"
+    },
+    "featureId": "transition-rows-feature-denied",
+    "from": "delegate",
+    "name": "feature delegate -> review denied with a pending task",
+    "result": {
+      "error": {
+        "code": "GUARD_FAILED",
+        "expectedShape": {
+          "tasks": [
+            {
+              "id": "<task-id>",
+              "status": "complete"
+            }
+          ]
+        },
+        "message": "Guard 'all-tasks-complete+team-disbanded' failed: all-tasks-complete not satisfied: 1 task(s) incomplete (t1). Only task_complete or settle marks a task complete. Call exarchos_orchestrate task_complete for each task after its gates pass, or settle its batch.",
+        "suggestedFix": {
+          "params": {
+            "action": "task_complete",
+            "featureId": "transition-rows-feature-denied",
+            "taskId": "t1"
+          },
+          "tool": "exarchos_orchestrate"
+        }
+      },
+      "success": false
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-feature-denied",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "feature"
+        },
+        "idempotencyKey": "transition-rows-feature-denied:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-denied",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-denied:patch:1:artifacts.plan",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-denied",
+          "from": "plan",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "plan-review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-denied:transition:plan:plan-review:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan"
+        },
+        "idempotencyKey": "transition-rows-feature-denied:phase.exited:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-denied:phase.entered:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-denied",
+          "fields": [
+            "planReview"
+          ],
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-denied:patch:3:planReview",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-denied",
+          "from": "plan-review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "delegate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-denied:transition:plan-review:delegate:4",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "featureId": "transition-rows-feature-denied"
+        },
+        "idempotencyKey": "transition-rows-feature-denied:compound-entry:plan-review:implementation:4",
+        "operationId": null,
+        "type": "workflow.compound-entry"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan-review"
+        },
+        "idempotencyKey": "transition-rows-feature-denied:phase.exited:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-denied:phase.entered:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-denied",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "pending",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-denied:patch:5:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-denied",
+          "from": "delegate",
+          "guard": "all-tasks-complete+team-disbanded",
+          "to": "review"
+        },
+        "idempotencyKey": null,
+        "operationId": null,
+        "type": "workflow.guard-failed"
+      }
+    ],
+    "workflowType": "feature"
+  },
+  {
+    "call": {
+      "kind": "transition",
+      "options": {
+        "maxNoCoverage": 2,
+        "mutationEnforcement": "block",
+        "mutationThreshold": 80
+      },
+      "to": "synthesize"
+    },
+    "featureId": "transition-rows-feature-review-high",
+    "from": "review",
+    "name": "feature review -> synthesize at the high tier",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "synthesize",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "updatedAt": "<timestamp>",
+        "workflowType": "feature"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "feature"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:patch:1:artifacts.plan",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "from": "plan",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "plan-review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:transition:plan:plan-review:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:phase.exited:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:phase.entered:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "fields": [
+            "planReview"
+          ],
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:patch:3:planReview",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "from": "plan-review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "delegate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:transition:plan-review:delegate:4",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "featureId": "transition-rows-feature-review-high"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:compound-entry:plan-review:implementation:4",
+        "operationId": null,
+        "type": "workflow.compound-entry"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan-review"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:phase.exited:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:phase.entered:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "pending",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:patch:5:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "taskId": "t1"
+        },
+        "idempotencyKey": null,
+        "operationId": null,
+        "type": "task.completed"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "complete",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:patch:6:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "from": "delegate",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:transition:delegate:review:7",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "delegate"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:phase.exited:delegate:review:7",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "REVIEW",
+          "mode": "enforce",
+          "phase": "review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "review",
+              "gate": "review"
+            }
+          ],
+          "resolver": "review-contract",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:phase.entered:delegate:review:7",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "fields": [
+            "riskTier",
+            "reviews"
+          ],
+          "patch": {
+            "reviews": {
+              "mutation-adequacy": {
+                "mutationScore": 90,
+                "noCoverage": 1,
+                "status": "pass"
+              },
+              "review": {
+                "status": "pass"
+              }
+            },
+            "riskTier": "high"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:patch:8:reviews,riskTier",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-review-high",
+          "from": "review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "synthesize",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:transition:review:synthesize:9",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "featureId": "transition-rows-feature-review-high",
+          "from": "implementation",
+          "to": "synthesize",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:compound-exit:implementation:synthesize:9",
+        "operationId": null,
+        "type": "workflow.compound-exit"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "review"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:phase.exited:review:synthesize:9",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "SYNTHESIZE",
+          "mode": "enforce",
+          "phase": "synthesize",
+          "policySource": "builtin",
+          "posture": "shared-mutating",
+          "resolvedGates": [
+            {
+              "family": "synthesis",
+              "gate": "task-completion"
+            },
+            {
+              "family": "synthesis",
+              "gate": "tests"
+            },
+            {
+              "family": "synthesis",
+              "gate": "typecheck"
+            },
+            {
+              "family": "synthesis",
+              "gate": "document"
+            },
+            {
+              "family": "synthesis",
+              "gate": "stack"
+            }
+          ],
+          "resolver": "synthesis-readiness",
+          "riskTier": "high"
+        },
+        "idempotencyKey": "transition-rows-feature-review-high:phase.entered:review:synthesize:9",
+        "operationId": null,
+        "type": "phase.entered"
+      }
+    ],
+    "workflowType": "feature"
+  },
+  {
+    "call": {
+      "kind": "transition",
+      "to": "synthesize"
+    },
+    "featureId": "transition-rows-oneshot-implementing",
+    "from": "implementing",
+    "name": "oneshot implementing -> synthesize",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "synthesize",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "updatedAt": "<timestamp>",
+        "workflowType": "oneshot"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-oneshot-implementing",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "oneshot"
+        },
+        "idempotencyKey": "transition-rows-oneshot-implementing:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-oneshot-implementing",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          }
+        },
+        "idempotencyKey": "transition-rows-oneshot-implementing:patch:1:artifacts.plan",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-oneshot-implementing",
+          "from": "plan",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "implementing",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-oneshot-implementing:transition:plan:implementing:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan"
+        },
+        "idempotencyKey": "transition-rows-oneshot-implementing:phase.exited:plan:implementing:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "mode": "enforce",
+          "phase": "implementing",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-oneshot-implementing:phase.entered:plan:implementing:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-oneshot-implementing",
+          "timestamp": "<timestamp>"
+        },
+        "idempotencyKey": null,
+        "operationId": null,
+        "type": "synthesize.requested"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-oneshot-implementing",
+          "from": "implementing",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "synthesize",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-oneshot-implementing:transition:implementing:synthesize:3",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "implementing"
+        },
+        "idempotencyKey": "transition-rows-oneshot-implementing:phase.exited:implementing:synthesize:3",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "SYNTHESIZE",
+          "mode": "enforce",
+          "phase": "synthesize",
+          "policySource": "builtin",
+          "posture": "shared-mutating",
+          "resolvedGates": [
+            {
+              "family": "synthesis",
+              "gate": "task-completion"
+            },
+            {
+              "family": "synthesis",
+              "gate": "tests"
+            },
+            {
+              "family": "synthesis",
+              "gate": "typecheck"
+            },
+            {
+              "family": "synthesis",
+              "gate": "document"
+            },
+            {
+              "family": "synthesis",
+              "gate": "stack"
+            }
+          ],
+          "resolver": "synthesis-readiness",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-oneshot-implementing:phase.entered:implementing:synthesize:3",
+        "operationId": null,
+        "type": "phase.entered"
+      }
+    ],
+    "workflowType": "oneshot"
+  },
+  {
+    "call": {
+      "kind": "transition",
+      "to": "investigate"
+    },
+    "featureId": "transition-rows-debug-triage",
+    "from": "triage",
+    "name": "debug triage -> investigate",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "investigate",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "updatedAt": "<timestamp>",
+        "workflowType": "debug"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-debug-triage",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "debug"
+        },
+        "idempotencyKey": "transition-rows-debug-triage:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-triage",
+          "fields": [
+            "triage"
+          ],
+          "patch": {
+            "triage": {
+              "symptom": "the build fails on a clean checkout"
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-debug-triage:patch:1:triage",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-triage",
+          "from": "triage",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "investigate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-debug-triage:transition:triage:investigate:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "triage"
+        },
+        "idempotencyKey": "transition-rows-debug-triage:phase.exited:triage:investigate:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "GATHER",
+          "mode": "enforce",
+          "phase": "investigate",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [],
+          "resolver": null,
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-debug-triage:phase.entered:triage:investigate:2",
+        "operationId": null,
+        "type": "phase.entered"
+      }
+    ],
+    "workflowType": "debug"
+  },
+  {
+    "call": {
+      "kind": "transition",
+      "to": "cancelled"
+    },
+    "featureId": "transition-rows-debug-escalate",
+    "from": "investigate",
+    "name": "debug investigate -> cancelled with investigation.escalate",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "cancelled",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "updatedAt": "<timestamp>",
+        "workflowType": "debug"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-debug-escalate",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "debug"
+        },
+        "idempotencyKey": "transition-rows-debug-escalate:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-escalate",
+          "fields": [
+            "triage"
+          ],
+          "patch": {
+            "triage": {
+              "symptom": "the build fails on a clean checkout"
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-debug-escalate:patch:1:triage",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-escalate",
+          "from": "triage",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "investigate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-debug-escalate:transition:triage:investigate:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "triage"
+        },
+        "idempotencyKey": "transition-rows-debug-escalate:phase.exited:triage:investigate:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "GATHER",
+          "mode": "enforce",
+          "phase": "investigate",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [],
+          "resolver": null,
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-debug-escalate:phase.entered:triage:investigate:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-escalate",
+          "fields": [
+            "investigation"
+          ],
+          "patch": {
+            "investigation": {
+              "escalate": true
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-debug-escalate:patch:3:investigation",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-escalate",
+          "from": "investigate",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "cancelled",
+          "trigger": "user-cancel"
+        },
+        "idempotencyKey": "transition-rows-debug-escalate:cancel:investigate:cancelled:4",
+        "operationId": null,
+        "type": "workflow.cancel"
+      }
+    ],
+    "workflowType": "debug"
+  },
+  {
+    "call": {
+      "kind": "cancel",
+      "reason": "the bug is out of scope"
+    },
+    "featureId": "transition-rows-debug-cancel",
+    "from": "investigate",
+    "name": "cancel of a debug workflow at investigate",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "actions": [
+          {
+            "actionId": "synthesize:close-pr",
+            "message": "Already completed (event replay)",
+            "status": "skipped"
+          },
+          {
+            "actionId": "delegate:delete-integration-branch",
+            "message": "Already completed (event replay)",
+            "status": "skipped"
+          },
+          {
+            "actionId": "delegate:cleanup-worktrees",
+            "message": "Already completed (event replay)",
+            "status": "skipped"
+          },
+          {
+            "actionId": "delegate:delete-feature-branches",
+            "message": "Already completed (event replay)",
+            "status": "skipped"
+          }
+        ],
+        "phase": "cancelled",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "previousPhase": "investigate"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-debug-cancel",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "debug"
+        },
+        "idempotencyKey": "transition-rows-debug-cancel:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-cancel",
+          "fields": [
+            "triage"
+          ],
+          "patch": {
+            "triage": {
+              "symptom": "the build fails on a clean checkout"
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-debug-cancel:patch:1:triage",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-cancel",
+          "from": "triage",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "investigate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-debug-cancel:transition:triage:investigate:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "triage"
+        },
+        "idempotencyKey": "transition-rows-debug-cancel:phase.exited:triage:investigate:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "GATHER",
+          "mode": "enforce",
+          "phase": "investigate",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [],
+          "resolver": null,
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-debug-cancel:phase.entered:triage:investigate:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "acquiredAt": "<timestamp>",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "epoch": 1,
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "instanceId": "cancel-instance:<uuid>",
+          "phaseAttemptId": "<phase-attempt-id>"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.ownership-acquired"
+      },
+      {
+        "data": {
+          "caller": {
+            "principalId": "<principal-id>",
+            "principalKind": "operator",
+            "role": "operator"
+          },
+          "cancelId": "cancel:<phase-attempt-id>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "from": "investigate",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "reason": "the bug is out of scope",
+          "requestedAt": "<timestamp>"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.requested"
+      },
+      {
+        "data": {
+          "actionId": "synthesize:close-pr",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "requestedAt": "<timestamp>"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.compensation-requested"
+      },
+      {
+        "data": {
+          "actionId": "synthesize:close-pr",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "completedAt": "<timestamp>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "message": "No PR to close",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "status": "skipped"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.compensation-completed"
+      },
+      {
+        "data": {
+          "actionId": "delegate:delete-integration-branch",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "requestedAt": "<timestamp>"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.compensation-requested"
+      },
+      {
+        "data": {
+          "actionId": "delegate:delete-integration-branch",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "completedAt": "<timestamp>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "message": "No integration branch to delete",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "status": "skipped"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.compensation-completed"
+      },
+      {
+        "data": {
+          "actionId": "delegate:cleanup-worktrees",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "requestedAt": "<timestamp>"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.compensation-requested"
+      },
+      {
+        "data": {
+          "actionId": "delegate:cleanup-worktrees",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "completedAt": "<timestamp>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "message": "No worktrees to clean up",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "status": "skipped"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.compensation-completed"
+      },
+      {
+        "data": {
+          "actionId": "delegate:delete-feature-branches",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "requestedAt": "<timestamp>"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.compensation-requested"
+      },
+      {
+        "data": {
+          "actionId": "delegate:delete-feature-branches",
+          "cancelId": "cancel:<phase-attempt-id>",
+          "completedAt": "<timestamp>",
+          "eventVersion": "1.0",
+          "featureId": "transition-rows-debug-cancel",
+          "message": "No feature branches to delete",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "status": "skipped"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.compensation-completed"
+      },
+      {
+        "data": {
+          "caller": {
+            "principalId": "<principal-id>",
+            "principalKind": "operator",
+            "role": "operator"
+          },
+          "cancelId": "cancel:<phase-attempt-id>",
+          "completedActionIds": [
+            "synthesize:close-pr",
+            "delegate:delete-integration-branch",
+            "delegate:cleanup-worktrees",
+            "delegate:delete-feature-branches"
+          ],
+          "contentDigest": "<content-digest>",
+          "eventVersion": "1.0",
+          "evidenceId": "cancel-ready:<phase-attempt-id>",
+          "featureId": "transition-rows-debug-cancel",
+          "outcomeSequences": [
+            9,
+            11,
+            13,
+            15
+          ],
+          "phaseAttemptId": "<phase-attempt-id>",
+          "readyAt": "<timestamp>"
+        },
+        "idempotencyKey": "<cancel-key>",
+        "operationId": null,
+        "type": "cancel.ready"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-debug-cancel",
+          "from": "investigate",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "cancelled",
+          "trigger": "user-cancel"
+        },
+        "idempotencyKey": "transition-rows-debug-cancel:cancel:transition:cancel:investigate:cancelled",
+        "operationId": null,
+        "type": "workflow.cancel"
+      },
+      {
+        "data": {
+          "compensationActions": 4,
+          "compensationSuccess": true,
+          "featureId": "transition-rows-debug-cancel",
+          "from": "investigate",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "reason": "the bug is out of scope",
+          "to": "cancelled",
+          "trigger": "user-cancel"
+        },
+        "idempotencyKey": "transition-rows-debug-cancel:cancel:complete",
+        "operationId": null,
+        "type": "workflow.cancel"
+      }
+    ],
+    "workflowType": "debug"
+  },
+  {
+    "call": {
+      "kind": "cleanup",
+      "mergedBranches": [
+        "feat/transition-rows-cleanup"
+      ],
+      "prUrl": "https://example.com/pr/1"
+    },
+    "featureId": "transition-rows-feature-cleanup",
+    "from": "synthesize",
+    "name": "cleanup of a feature at synthesize with merge evidence",
+    "result": {
+      "_meta": {
+        "checkpointAdvised": false
+      },
+      "data": {
+        "phase": "completed",
+        "phaseAttemptId": "<phase-attempt-id>",
+        "previousPhase": "synthesize"
+      },
+      "success": true
+    },
+    "rows": [
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "phaseAttemptId": "<uuid>",
+          "workflowType": "feature"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:workflow.started",
+        "operationId": null,
+        "type": "workflow.started"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "fields": [
+            "artifacts.plan"
+          ],
+          "patch": {
+            "artifacts.plan": "plans/plan.md"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:patch:1:artifacts.plan",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "from": "plan",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "plan-review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:transition:plan:plan-review:2",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:phase.exited:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "PLAN",
+          "mode": "enforce",
+          "phase": "plan-review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "plan",
+              "gate": "check_task_decomposition"
+            },
+            {
+              "family": "plan",
+              "gate": "check_plan_coverage"
+            },
+            {
+              "family": "plan",
+              "gate": "spec_coverage_check"
+            },
+            {
+              "family": "plan",
+              "gate": "check_provenance_chain"
+            },
+            {
+              "family": "plan",
+              "gate": "generate_traceability"
+            }
+          ],
+          "resolver": "plan-structure",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:phase.entered:plan:plan-review:2",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "fields": [
+            "planReview"
+          ],
+          "patch": {
+            "planReview": {
+              "approved": true
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:patch:3:planReview",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "from": "plan-review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "delegate",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:transition:plan-review:delegate:4",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "featureId": "transition-rows-feature-cleanup"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:compound-entry:plan-review:implementation:4",
+        "operationId": null,
+        "type": "workflow.compound-entry"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "plan-review"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:phase.exited:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "IMPLEMENT",
+          "mode": "enforce",
+          "phase": "delegate",
+          "policySource": "builtin",
+          "posture": "task-isolated",
+          "resolvedGates": [],
+          "resolver": "verification-ladder",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:phase.entered:plan-review:delegate:4",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "pending",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:patch:5:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "taskId": "t1"
+        },
+        "idempotencyKey": null,
+        "operationId": null,
+        "type": "task.completed"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "fields": [
+            "tasks"
+          ],
+          "patch": {
+            "tasks": [
+              {
+                "id": "t1",
+                "status": "complete",
+                "title": "the one task"
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:patch:6:tasks",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "from": "delegate",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "review",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:transition:delegate:review:7",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "delegate"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:phase.exited:delegate:review:7",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "REVIEW",
+          "mode": "enforce",
+          "phase": "review",
+          "policySource": "builtin",
+          "posture": "read-only",
+          "resolvedGates": [
+            {
+              "family": "review",
+              "gate": "review"
+            }
+          ],
+          "resolver": "review-contract",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:phase.entered:delegate:review:7",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "fields": [
+            "reviews"
+          ],
+          "patch": {
+            "reviews": {
+              "review": {
+                "status": "approved"
+              }
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:patch:8:reviews",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "from": "review",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "synthesize",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:transition:review:synthesize:9",
+        "operationId": null,
+        "type": "workflow.transition"
+      },
+      {
+        "data": {
+          "compoundStateId": "implementation",
+          "featureId": "transition-rows-feature-cleanup",
+          "from": "implementation",
+          "to": "synthesize",
+          "trigger": "execute-transition"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:compound-exit:implementation:synthesize:9",
+        "operationId": null,
+        "type": "workflow.compound-exit"
+      },
+      {
+        "data": {
+          "allRequiredGatesPassed": true,
+          "phase": "review"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:phase.exited:review:synthesize:9",
+        "operationId": null,
+        "type": "phase.exited"
+      },
+      {
+        "data": {
+          "boundaryTouching": true,
+          "kind": "SYNTHESIZE",
+          "mode": "enforce",
+          "phase": "synthesize",
+          "policySource": "builtin",
+          "posture": "shared-mutating",
+          "resolvedGates": [
+            {
+              "family": "synthesis",
+              "gate": "task-completion"
+            },
+            {
+              "family": "synthesis",
+              "gate": "tests"
+            },
+            {
+              "family": "synthesis",
+              "gate": "typecheck"
+            },
+            {
+              "family": "synthesis",
+              "gate": "document"
+            },
+            {
+              "family": "synthesis",
+              "gate": "stack"
+            }
+          ],
+          "resolver": "synthesis-readiness",
+          "riskTier": "unknown"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:phase.entered:review:synthesize:9",
+        "operationId": null,
+        "type": "phase.entered"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "fields": [
+            "synthesis.prUrl"
+          ],
+          "patch": {
+            "synthesis.prUrl": "https://example.com/pr/1"
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:patch:10:synthesis.prUrl",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "fields": [
+            "synthesis",
+            "artifacts"
+          ],
+          "patch": {
+            "artifacts": {
+              "design": null,
+              "plan": "plans/plan.md",
+              "pr": "https://example.com/pr/1"
+            },
+            "synthesis": {
+              "integrationBranch": null,
+              "mergeOrder": [],
+              "mergedBranches": [
+                "feat/transition-rows-cleanup"
+              ],
+              "prFeedback": [],
+              "prUrl": "https://example.com/pr/1"
+            }
+          }
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:cleanup:patch:synthesize",
+        "operationId": null,
+        "type": "state.patched"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "from": "synthesize",
+          "phaseAttemptId": "<phase-attempt-id>",
+          "to": "completed",
+          "trigger": "cleanup"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:cleanup:transition:synthesize:completed:synthesize",
+        "operationId": null,
+        "type": "workflow.cleanup"
+      },
+      {
+        "data": {
+          "featureId": "transition-rows-feature-cleanup",
+          "from": "synthesize",
+          "mergeArtifact": "https://example.com/pr/1",
+          "mergeVerified": true,
+          "mergedBranches": [
+            "feat/transition-rows-cleanup"
+          ],
+          "phaseAttemptId": "<phase-attempt-id>",
+          "prUrl": "https://example.com/pr/1",
+          "previousPhase": "synthesize",
+          "to": "completed",
+          "trigger": "cleanup"
+        },
+        "idempotencyKey": "transition-rows-feature-cleanup:cleanup:complete",
+        "operationId": null,
+        "type": "workflow.cleanup"
+      }
+    ],
+    "workflowType": "feature"
+  }
+]

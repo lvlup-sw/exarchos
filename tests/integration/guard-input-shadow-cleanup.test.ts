@@ -3,7 +3,7 @@
  * Each case seeds a SQLite store with `configureStateStoreBackend`, so the state document is the `workflow_state` row, as in production.
  * A seed puts a review on the ledger and in the document, with a different status on each side.
  * Another seed appends a row with no document write.
- * The state document still decides each cleanup. A disagreement adds a warning and a line, and it adds no row.
+ * The ledger fold decides each cleanup. A disagreement adds a warning and a line, and it adds no row.
  *
  * @oracle-sources: ../../src/workflow/cleanup.ts, the seeded stores and expected warnings written in this file
  */
@@ -51,6 +51,9 @@ const DIAGNOSTICS_DIRNAME = 'guard-input-diagnostics';
 
 /** The prefix of a disagreement warning. */
 const DISAGREEMENT = 'GUARD_INPUT_DISAGREEMENT: ';
+
+/** The prefix of the warning of a cleanup that the state document decided. */
+const DOCUMENT_FALLBACK = 'GUARD_INPUT_DOCUMENT_FALLBACK: ';
 
 /** The prefix of a shadow-failure warning. */
 const SHADOW_FAILED = 'GUARD_INPUT_SHADOW_FAILED: ';
@@ -118,6 +121,11 @@ async function seedReview(store: ShadowStore, ledgerStatus: string, documentStat
 /** The review is `needs_fixes` on the ledger and `approved` in the document only. */
 function seedForgedApprovedReview(store: ShadowStore): Promise<void> {
   return seedReview(store, 'needs_fixes', 'approved');
+}
+
+/** The review is `approved` on the ledger and `needs_fixes` in the document only. */
+function seedForgedNeedsFixesReview(store: ShadowStore): Promise<void> {
+  return seedReview(store, 'approved', 'needs_fixes');
 }
 
 /** The review is `approved` on the ledger and in the document. */
@@ -193,27 +201,28 @@ function replaceMethod<T extends object, K extends keyof T>(target: T, key: K, r
 }
 
 describe('the guard-input shadow on the cleanup path', () => {
-  /** A review forged `approved` in the document passes `merge-verified` on the document side only. Cleanup completes with the warning. */
-  it('HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndCompletes', async () => {
+  /** A review forged `approved` in the document admits the cleanup move on the document side only. The fold refuses the cleanup with the warning. */
+  it('HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndRefuses', async () => {
     const store = await openStore();
     await seedForgedApprovedReview(store);
     const before = guardInputShadowCounts();
 
     const result = await cleanup(store);
 
-    expect(result.success).toBe(true);
-    expect(phaseOf(result)).toBe('completed');
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GUARD_FAILED');
+    expect((await readStateFile(stateFileOf(store))).phase).toBe('plan');
     expect(oneWarningOf(result).startsWith(DISAGREEMENT)).toBe(true);
     expect(countsSince(before)).toEqual({ compared: 1, disagreeing: 1, failed: 0 });
     const line = await oneLineOf(store);
     expect(line).toMatchObject({ v: 1, featureId: FEATURE_ID, workflowType: 'feature', call: 'cleanup', from: 'plan', to: 'completed', pass: 0 });
-    expect(line.guards).toContainEqual({ guardId: 'merge-verified', to: 'completed', document: 'pass', fold: 'fail' });
+    expect(line.edges).toContainEqual({ transitionId: 'cleanup', to: 'completed', document: 'allow', fold: 'deny' });
   });
 
   /** A dry run returns the warning and moves the counts, and it writes no diagnostics file. */
   it('HandleCleanup_ADryRun_WarnsAndWritesNoFile', async () => {
     const store = await openStore();
-    await seedForgedApprovedReview(store);
+    await seedForgedNeedsFixesReview(store);
     const before = guardInputShadowCounts();
 
     const result = await cleanup(store, true);
@@ -228,7 +237,7 @@ describe('the guard-input shadow on the cleanup path', () => {
   /** A dry run writes no line, so its warning names no diagnostics file and keeps its transition and its keys. */
   it('HandleCleanup_ADryRun_WarnsWithNoDiagnosticsPath', async () => {
     const store = await openStore();
-    await seedForgedApprovedReview(store);
+    await seedForgedNeedsFixesReview(store);
 
     const result = await cleanup(store, true);
 
@@ -257,7 +266,7 @@ describe('the guard-input shadow on the cleanup path', () => {
 
   /**
    * A `synthesize.requested` row after the last transition of a oneshot is not in the stored `_events` of the document.
-   * The cleanup guard reads the stored list, so `synthesis-opted-out` passes on the document side only. Cleanup completes.
+   * The document side reads the stored list, so the edge `implementing -> completed` allows on the document side only. Cleanup completes.
    */
   it('HandleCleanup_AStaleStoredEventList_WarnsOnSynthesisOptedOut', async () => {
     const store = await openStore();
@@ -276,11 +285,14 @@ describe('the guard-input shadow on the cleanup path', () => {
     expect(oneWarningOf(result).startsWith(DISAGREEMENT)).toBe(true);
     const line = await oneLineOf(store);
     expect(differenceKeysOf(line)).toContain('events[synthesize.requested]');
-    expect(line.guards).toContainEqual({ guardId: 'synthesis-opted-out', to: 'completed', document: 'pass', fold: 'fail' });
-    expect(line.guards).toContainEqual({ guardId: 'merge-verified', to: 'completed', document: 'pass', fold: 'pass' });
+    expect(line.edges).toContainEqual({ transitionId: 'implementing->completed', to: 'completed', document: 'allow', fold: 'deny' });
+    expect(line.edges).toContainEqual({ transitionId: 'cleanup', to: 'completed', document: 'allow', fold: 'allow' });
   });
 
-  /** With no event store, the shadow gets no rows, so the start-row check skips the run of the forged-review seed. */
+  /**
+   * With no event store, the shadow gets no rows, so the start-row check skips the run of the forged-review seed.
+   * The state document decides the cleanup, and the result carries the one fallback warning.
+   */
   it('HandleCleanup_NoEventStore_GetsNoComparison', async () => {
     const store = await openStore();
     await seedForgedApprovedReview(store);
@@ -290,13 +302,13 @@ describe('the guard-input shadow on the cleanup path', () => {
 
     expect(result.success).toBe(true);
     expect(phaseOf(result)).toBe('completed');
-    expect(result.warnings).toBeUndefined();
+    expect(oneWarningOf(result).startsWith(DOCUMENT_FALLBACK)).toBe(true);
     expect(existsSync(diagnosticsDirOf(store))).toBe(false);
     expect(countsSince(before)).toEqual({ compared: 0, disagreeing: 0, failed: 0 });
   });
 
-  /** A row that makes the fold throw keeps the cleanup, and the cleanup warns that the shadow failed. */
-  it('HandleCleanup_AFoldThatThrows_KeepsTheCleanupAndWarns', async () => {
+  /** A row that makes the fold throw refuses the cleanup, and the cleanup warns that the shadow failed. */
+  it('HandleCleanup_AFoldThatThrows_RefusesAndWarns', async () => {
     const store = await openStore();
     await seedAgreeingReview(store);
     await store.eventStore.append(FEATURE_ID, {
@@ -307,8 +319,9 @@ describe('the guard-input shadow on the cleanup path', () => {
 
     const result = await cleanup(store);
 
-    expect(result.success).toBe(true);
-    expect(phaseOf(result)).toBe('completed');
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PROJECTION_REPLAY_FAILED');
+    expect((await readStateFile(stateFileOf(store))).phase).toBe('plan');
     expect(oneWarningOf(result).startsWith(SHADOW_FAILED)).toBe(true);
     expect(countsSince(before)).toEqual({ compared: 0, disagreeing: 0, failed: 1 });
   });
@@ -316,7 +329,7 @@ describe('the guard-input shadow on the cleanup path', () => {
   /** A state write that throws follows the record of the run, so the line and the counts land and the call rejects. */
   it('HandleCleanup_AWriteThatThrows_RecordsTheRunBeforeTheThrow', async () => {
     const store = await openStore();
-    await seedForgedApprovedReview(store);
+    await seedForgedNeedsFixesReview(store);
     replaceMethod(store.backend, 'setState', (): void => {
       throw new Error('the test refuses the state write');
     });
@@ -326,7 +339,7 @@ describe('the guard-input shadow on the cleanup path', () => {
 
     expect(existsSync(path.join(diagnosticsDirOf(store), `${FEATURE_ID}.jsonl`))).toBe(true);
     const line = await oneLineOf(store);
-    expect(line.guards).toContainEqual({ guardId: 'merge-verified', to: 'completed', document: 'pass', fold: 'fail' });
+    expect(line.edges).toContainEqual({ transitionId: 'cleanup', to: 'completed', document: 'deny', fold: 'allow' });
     expect(countsSince(before)).toEqual({ compared: 1, disagreeing: 1, failed: 0 });
   });
 
@@ -336,13 +349,13 @@ describe('the guard-input shadow on the cleanup path', () => {
       {
         name: 'guard failure',
         code: 'GUARD_FAILED',
-        seed: (store: ShadowStore): Promise<void> => seedReview(store, 'approved', 'needs_fixes'),
+        seed: seedForgedApprovedReview,
       },
       {
         name: 'append failure',
         code: 'EVENT_APPEND_FAILED',
         seed: async (store: ShadowStore): Promise<void> => {
-          await seedForgedApprovedReview(store);
+          await seedForgedNeedsFixesReview(store);
           replaceMethod(store.eventStore, 'appendTrailAtomically', () => Promise.reject(new Error('the test refuses the cleanup trail')));
         },
       },

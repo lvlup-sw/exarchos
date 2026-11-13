@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1439,
-    "parsedFiles": 1394,
+    "testFiles": 1460,
+    "parsedFiles": 1415,
     "shellFiles": 45,
-    "cases": 15830,
-    "dynamicTitles": 214,
+    "cases": 16060,
+    "dynamicTitles": 233,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -30723,6 +30723,21 @@
         {
           "suite": "EventStore append observation",
           "name": "EventStore_ConcurrentScopes_DoNotCrossTalk_Property",
+          "dynamic": false
+        },
+        {
+          "suite": "Atomic trail validation",
+          "name": "EventStore_AtomicTrailValidation_SeesTheTransactionalSnapshot",
+          "dynamic": false
+        },
+        {
+          "suite": "Atomic trail validation",
+          "name": "EventStore_AtomicTrailValidationThrow_WritesNoRowsClaimOrNotifications",
+          "dynamic": false
+        },
+        {
+          "suite": "Atomic trail validation",
+          "name": "EventStore_AtomicTrailClaimHit_SkipsValidationAndReturnsFalse",
           "dynamic": false
         }
       ]
@@ -76385,7 +76400,7 @@
         },
         {
           "suite": "handleSet_UnifiedHydration",
-          "name": "HandleSet_EventStoreQueryFails_FallsBackToEmptyEvents",
+          "name": "HandleSet_EventStoreQueryFails_RefusesProjectionReplayFailed",
           "dynamic": false
         },
         {
@@ -78512,6 +78527,16 @@
         {
           "suite": "EXIT PROOF — single phase-mutation authority (DR-7)",
           "name": "every declared owner is a real shipped module in the scan root",
+          "dynamic": false
+        },
+        {
+          "suite": "the census of the decide primitive",
+          "name": "PhaseMutationOwnership_TheDecidePrimitive_HasOnlyItsDeclaredOwners",
+          "dynamic": false
+        },
+        {
+          "suite": "the census of the decide primitive",
+          "name": "PhaseMutationOwnership_TheDecidePrimitive_AReferenceOutsideTheOwners_IsUnauthorized",
           "dynamic": false
         }
       ]
@@ -82509,6 +82534,66 @@
         {
           "suite": "temp-file naming and orphan sweep",
           "name": "OrphanSweep_DeadPidWithLivePidCollidingCounter_StillReaps",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "LevelDocument_ProjectionRepair_PreservesOperationalFields",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_TwoConditionalWriters_ExactlyOneSucceeds",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_AnUnconditionalWriter_CannotSplitTheCheckAndPublish",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_AStaleUnconditionalWrite_InvalidatesTheSavedReader",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_StoredVersionFive_OwnsTheSuccessorForCaller%i",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_ReconcileShapedCaller_AdvancesTheCommittedVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_MissingTargets_PreserveCreationAndInitContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_LegacyVersions_UseTheStoredSentinel",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_MalformedTargets_PreserveRecoveryAndConditionalRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_ReadFailures_StayFileIoErrors",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_Validation_UsesThePublishedCandidateAndPreservesPreAppendContract",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "LevelDocument_AFileWithoutEsVersion_PreservesBytesOnReplay",
           "dynamic": false
         }
       ]
@@ -89671,7 +89756,7 @@
       "cases": [
         {
           "suite": "the packaged chain of prepare and settle",
-          "name": "PackagedChain_PrepareFiveThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
+          "name": "PackagedChain_PrepareSixThenSettle_RefusesAHighTierTaskThatBreaksAnotherTest",
           "dynamic": false
         }
       ]
@@ -90748,7 +90833,7 @@
         },
         {
           "suite": "the golden of one feature wave of prepare",
-          "name": "PrepareGolden_AClaimThatTheBaseRecorded_AnswersARetry",
+          "name": "PrepareGolden_AFiveClaim_DoesNotAnswerASixRetry",
           "dynamic": false
         },
         {
@@ -91325,7 +91410,7 @@
         },
         {
           "suite": "prepare compiles a user definition of the checkout",
-          "name": "PrepareUser_AnEditOfTheExtensionOnly_ReplaysTheReceipt",
+          "name": "PrepareUser_AnEditOfTheExtensionOnly_CompilesANewVersion",
           "dynamic": false
         },
         {
@@ -91362,7 +91447,7 @@
         },
         {
           "suite": "a registered definition goes from prepare to settle",
-          "name": "RegisteredDefinitions_ThePreparedRecord_PinsTheKernelOfTheFile",
+          "name": "RegisteredDefinitions_ThePreparedRecord_PinsTheFullFile",
           "dynamic": false
         },
         {
@@ -91511,6 +91596,21 @@
           "suite": "the read-only audit of the guard input",
           "name": "RunGuardInputAudit_ASeededCopy_ExitsZeroAndWritesTheReport",
           "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "GuardInputAudit_Preview_ClassesEachActiveDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "GuardInputAudit_Preview_ANewlyAdmittedEdgeNamesItsKeys",
+          "dynamic": false
+        },
+        {
+          "suite": "the read-only audit of the guard input",
+          "name": "GuardInputAudit_Preview_ANewlyDeniedEdgeNamesItsKeys",
+          "dynamic": false
         }
       ]
     },
@@ -91520,7 +91620,7 @@
       "cases": [
         {
           "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndCompletes",
+          "name": "HandleCleanup_AReviewForgedApprovedInTheDocument_WarnsAndRefuses",
           "dynamic": false
         },
         {
@@ -91550,7 +91650,7 @@
         },
         {
           "suite": "the guard-input shadow on the cleanup path",
-          "name": "HandleCleanup_AFoldThatThrows_KeepsTheCleanupAndWarns",
+          "name": "HandleCleanup_AFoldThatThrows_RefusesAndWarns",
           "dynamic": false
         },
         {
@@ -91576,12 +91676,12 @@
       "cases": [
         {
           "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndTransitions",
+          "name": "HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndFailsTheGuard",
           "dynamic": false
         },
         {
           "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_ARowOnlyPlanArtifact_FailsTheGuardWithTheWarning",
+          "name": "HandleSet_ARowOnlyPlanArtifact_TransitionsWithTheWarning",
           "dynamic": false
         },
         {
@@ -91646,7 +91746,7 @@
         },
         {
           "suite": "the guard-input shadow on the transition path",
-          "name": "HandleSet_AFoldThatThrows_KeepsTheDecisionAndWritesAShadowFailedLine",
+          "name": "HandleSet_AFoldThatThrows_RefusesTheCallAndWritesAShadowFailedLine",
           "dynamic": false
         },
         {
@@ -91839,7 +91939,7 @@
         },
         {
           "suite": "the corpus agreement of the ledger fold and the state document",
-          "name": "CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_DisagreesOnMergeOrchestrator",
+          "name": "CorpusAgreement_AMergeAtDelegateWithoutTheWriterRule_AgreesOnEachDecideVerdict",
           "dynamic": false
         },
         {
@@ -92284,6 +92384,1182 @@
         {
           "suite": "",
           "name": "uses the same scaffold and replay contracts through aliases and MCP",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/acceptance/settle-moves-the-phase.test.ts": {
+      "file": "tests/acceptance/settle-moves-the-phase.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "a settle moves the phase of the stream",
+          "name": "SettleMovesThePhase_ThenTransition_IsIdempotentThroughDispatch",
+          "dynamic": false
+        },
+        {
+          "suite": "a settle moves the phase of the stream",
+          "name": "SettleMovesThePhase_ThenReconcile_KeepsThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "a settle moves the phase of the stream",
+          "name": "SettleMovesThePhase_TheFoldOfTheRows_EndsInReview",
+          "dynamic": false
+        },
+        {
+          "suite": "a settle moves the phase of the stream",
+          "name": "SettleMovesThePhase_AReplayWithNoPhaseMove_ThenTransition_Moves",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/architecture/settle-phase-move-skill-text.test.ts": {
+      "file": "tests/architecture/settle-phase-move-skill-text.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_ReadsPhaseMoveBeforeAnyTransition",
+          "dynamic": false
+        },
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_CallsTransitionWhenPhaseMoveIsAbsent",
+          "dynamic": false
+        },
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_CallsTransitionOnALevelWarning",
+          "dynamic": false
+        },
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_OnStayedFixesTheFalseFactsFirst",
+          "dynamic": false
+        },
+        {
+          "suite": "the delegate skill reads phaseMove from the settle receipt",
+          "name": "SkillText_TheDelegateSkill_LandsAfterTheMoveAndBeforeTheReview",
+          "dynamic": false
+        },
+        {
+          "suite": "each skill text of an implementation-complete edge names the field",
+          "name": "SkillText_EachImplementationCompleteEdge_NamesTheField",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/idempotent-transition-dispatch.test.ts": {
+      "file": "tests/integration/idempotent-transition-dispatch.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "A transition to the current phase through dispatch",
+          "name": "Dispatch_TransitionToTheCurrentPhase_SucceedsIdempotently",
+          "dynamic": false
+        },
+        {
+          "suite": "A transition to the current phase through dispatch",
+          "name": "Dispatch_AMoveThatAppendsItsRow_StillPassesBothChecks",
+          "dynamic": false
+        },
+        {
+          "suite": "A transition to the current phase through dispatch",
+          "name": "Dispatch_CancelWithTheFoldAtCancelled_SucceedsIdempotently",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/integration/transition-commit-race.test.ts": {
+      "file": "tests/integration/transition-commit-race.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the commit of a transition move",
+          "name": "HandleSet_ACommitBetweenReadAndCommit_GivesOneTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "the commit of a transition move",
+          "name": "HandleSet_TwoCallsThatReadTheSameRows_TheSecondRepliesIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "the commit of a transition move",
+          "name": "Dispatch_TwoCallsThatReadTheSameRows_BothSucceedWithOneRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the commit of a transition move",
+          "name": "HandleSet_ReadsThatKeepChanging_ThrowTheConflictAndLeaveNoPartialTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_CombinedTaskRemovalAtTransactionEntry_RefusesBeforeCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_FieldTaskRemovalBeforeAppend_RevalidatesAndRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_FieldUnrelatedAppend_RetriesAgainstFreshTail",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_FieldSequenceConflicts_ExhaustWithoutPublishing",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_CombinedClaimAfterTaskRemoval_DoesNotReapplyPatch",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_CombinedInvalidPreflightWinner_RechecksClaimBeforeRefusal",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/describe/describe-once.test.ts": {
+      "file": "tests/unit/describe/describe-once.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "describe returns each output schema once",
+          "name": "DescribeAction_ReturnsTheOutputSchemaOnce",
+          "dynamic": false
+        },
+        {
+          "suite": "describe returns each output schema once",
+          "name": "DescribeAction_Settle_LeavesRoomUnderTheBudget",
+          "dynamic": false
+        },
+        {
+          "suite": "describe returns each output schema once",
+          "name": "DescribeAction_OutputSchemaJson_EqualsTheSchemaOfTheAction",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/dispatch/core/handler-no-op.test.ts": {
+      "file": "tests/unit/dispatch/core/handler-no-op.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "EmissionVerifier_AnIdempotentNoOpReply_IsNotApplicable",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "EmissionVerifier_ASuccessfulReplyWithoutIdempotent_StaysViolated",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "EmissionVerifier_ARefusedReplyWithIdempotent_StaysHandlerRefused",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "IsHandlerNoOpReply_OnlyTheBooleanTrue_IsANoOp ($row)",
+          "dynamic": false
+        },
+        {
+          "suite": "EmissionVerifier handler no-op reply",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/settle-phase-move.test.ts": {
+      "file": "tests/unit/verbs/settle/settle-phase-move.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_OneAdmittedEdge_AppendsThePhaseRowsBeforeTheRecord",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_TheReceipt_NamesTheEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_TaskBatchSteps_EachGivesExactlyThreeRows ($workflowType $step)",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_AUserDefinition_MovesUnderItsPinnedDefinition",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_ASkipThatNamesNoStepOfThePin_StillMoves",
+          "dynamic": false
+        },
+        {
+          "suite": "settle moves the phase on one plain edge",
+          "name": "Settle_TheDeclaredEmissions_CoverEachRowOfAMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_TwoAdmittedEdges_KeepsThePhase_AndListsTheEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_NoAdmittedEdge_KeepsThePhase_AndListsTheFalseFacts",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_ANotPlainEdge_KeepsThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_ACompilerFiveCapsule_KeepsThePhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_CorrectiveOrHeldOutcome_MovesNoPhase ($name)",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_ADesignRevision_MovesNoPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_TheWorkflowLeftTheStep_MovesNoPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_AConfiguredSkipPhase_DoesNotDecide",
+          "dynamic": false
+        },
+        {
+          "suite": "settle keeps the phase when the decide does not admit one plain edge",
+          "name": "Settle_AFoldThatThrows_CommitsTheVerdictWithNoPhaseMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle decides on the fold of its rows",
+          "name": "Settle_ALaggingDocument_DecidesOnTheFold ($name)",
+          "dynamic": false
+        },
+        {
+          "suite": "settle decides on the fold of its rows",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "settle decides on the fold of its rows",
+          "name": "Settle_AReEntryAfterAFixCycle_KeepsTheFrozenGates",
+          "dynamic": false
+        },
+        {
+          "suite": "settle replays the phase move of its claim",
+          "name": "Settle_AReplay_AppendsNoPhaseRow_AndReturnsThePersistedPhaseMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle replays the phase move of its claim",
+          "name": "Settle_AReplayOfAClaimWithNoPhaseMove_ReturnsNoPhaseMove",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_AMovedPhase_LevelsTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_AReplay_LevelsALaggingDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_AFieldPatchAfterTheMove_RepairsTheOldDocumentPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "LevelDocument_AStaleCursor_RepairsSkippedPatchAndObligation",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "LevelDocument_ASynchronizedSnapshot_WritesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "LevelDocument_AFoldFault_LeavesDocumentAndCursorUnchanged",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "LevelDocument_AMissingDocument_Skips",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_AReplayAfterALaterMove_KeepsTheNewerDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_ADocumentLevelFails_KeepsTheVerdictAndWarns",
+          "dynamic": false
+        },
+        {
+          "suite": "settle levels the state document after a move",
+          "name": "Settle_ACheckpointCounterAtTheThreshold_StillMoves",
+          "dynamic": false
+        },
+        {
+          "suite": "the summary of a settle receipt",
+          "name": "SettleSummary_KeepsThePhaseMoveWithoutItsEdges",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/cancel-decide.test.ts": {
+      "file": "tests/unit/workflow/cancel-decide.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_ADebugWorkflowAtInvestigate_ReachesCancelled",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_TheFoldPhase_IsTheSourceOfTheCancelRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_ALaggingDocument_TakesThePhaseAttemptIdFromTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_ABrokenCompletedLedger_RefusesBeforeCompensation",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_APhaseThatIsNoStep_ReachesCancelled",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_AFallbackCase_WarnsAndKeepsThePathOfMain %s",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_AStubAttemptWithNoEvents_StillWritesTheMoveRows",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "Cancel_AnIdempotentRetry_RepairsSkippedProjectionEffects",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "Cancel_AnIdempotentDryRun_WritesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_AFoldAtCancelledAndALaggingDocument_RepliesIdempotentAndLevels",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_ARetryOnAStreamWithNoAttemptId_KeepsOneCancelId",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_TwoCallsThatReadTheSameRows_TheSecondRepliesIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "the cancel handler decides on the ledger fold",
+          "name": "HandleCancel_BothAtCancelled_RefusesAlreadyCancelled",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_AQueryFailure_RefusesBeforeCompensation",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_ACompletedFold_RefusesBeforeCompensation",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_ACompetingMoveDuringCompensation_RejectsTheFinalTrail (%s)",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_ASamePhaseReturnWithNoAttemptIds_RejectsTheFinalTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_SagaOnlyRows_KeepTheFinalizationEligible",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation finalization",
+          "name": "HandleCancel_ADryRunOnALaggingCancelledDocument_WritesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "HandleCancel_LedgerResources_SelectExactEffectsAndPreserveOperationalInput",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "HandleCancel_LedgerResourceDryRun_ReportsLiteralActionsWithoutWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "HandleCancel_CompensationResourceMutation_DoesNotAliasFoldRowsOrDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        }
+      ]
+    },
+    "tests/unit/workflow/cleanup-decide.test.ts": {
+      "file": "tests/unit/workflow/cleanup-decide.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_ReadsTheRowEvents_NotTheStoredEventsList",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_AStubAttemptWithNoEvents_StillWritesTheMoveRows",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_AFoldAtCompletedAndALaggingDocument_RefusesAlreadyCompleted",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_TwoCallsThatReadTheSameRows_TheSecondRefusesAlreadyCompleted",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_TheFoldPhase_IsTheSourceOfTheCleanupRow",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_ALaggingDocument_TakesThePhaseAttemptIdFromTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_FalseMergeVerified_FallsToTheExplicitEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_EachCapturedScenario_EqualsTheGolden",
+          "dynamic": false
+        },
+        {
+          "suite": "the cleanup handler decides on the ledger fold",
+          "name": "HandleCleanup_AMergeArtifactOnlyInTheDocument_GivesNoCleanupMove",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_ACompetingMoveBeforeAppend_RejectsTheFinalTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_RevokedEvidenceBeforeAppend_RejectsTheFinalTrail (%j)",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_FoldEvidenceSurvivesDocumentSynchronization",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_PartialBackfill_PreservesNewerFoldFields",
+          "dynamic": false
+        },
+        {
+          "suite": "Cleanup finalization",
+          "name": "HandleCleanup_AConcurrentArtifactFill_IsNotOverwritten",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/set-decide.test.ts": {
+      "file": "tests/unit/workflow/set-decide.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AForgedTaskStatus_DoesNotAdmitDelegateToReview",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AStatusInsideTheSameUpdate_IsIgnored",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_TheSixCorpusDefects_DenyOnTheLivePath %s",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AnHonestDelegateToReview_Admits",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ATargetEqualToTheFoldPhase_IsIdempotent_AndLevelsTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ALaggingDocument_TakesTheSourcePhaseFromTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ALaggingDocument_TakesThePhaseAttemptIdFromTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ARiskTierThatOnlyTheDocumentHolds_GatesNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AFallbackCase_UsesTheLegacyPathWithAWarning %s",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AFoldError_RefusesProjectionReplayFailed",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ADenialOfTheSix_GivesTheDecideShape",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ADenialThatTheLegacyGuardShares_KeepsTheLegacyShape",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AMoveUnderALowerDocumentTier_EntersWithTheGatesOfTheFoldTier",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleTransition_ALaggingDocument_GivesTheValidTargetsOfTheFoldPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_OneshotSynthesizeToCompleted_DeniesOnTheFold",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ADocumentConflictAfterAnOwnCommit_RepliesWithTheMove",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AnAdmittedMove_StillFeedsTheAdmissionLiveShadow",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AnIdempotentCall_RecordsNoLiveShadowAttempt",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_ACustomConfigType_KeepsTheLegacyPath",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "FinalizeOneshot_ReadsTheFold_NotTheDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "Playbooks_EachImplementationCompleteStep_NamesTheField",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AReEntryAfterAFixCycle_KeepsTheFrozenGates",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AnUpdateThatDropsAPendingTask_AdmitsDelegateToReview",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "HandleSet_AGenericPhaseRowAppend_SetsTheFoldPhase %s",
+          "dynamic": false
+        },
+        {
+          "suite": "the transition handler decides on the ledger fold",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "complete document projection",
+          "name": "HandleSet_CombinedUpdates_CommitBeforeThePhaseInOneTransaction",
+          "dynamic": false
+        },
+        {
+          "suite": "complete document projection",
+          "name": "HandleSet_InvalidCombinedUpdates_CommitNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "complete document projection",
+          "name": "HandleSet_AFieldUpdateAfterAnUnlevelledMove_PreservesTheMove",
+          "dynamic": false
+        },
+        {
+          "suite": "document synchronization races",
+          "name": "HandleSet_ARealSecondMoveDuringDocumentRetry_KeepsLatestProjection",
+          "dynamic": false
+        },
+        {
+          "suite": "document synchronization races",
+          "name": "HandleSet_ASamePhaseWithANewerAttempt_RepairsTheIdentity",
+          "dynamic": false
+        },
+        {
+          "suite": "document synchronization races",
+          "name": "HandleSet_CombinedUpdates_AClaimHitDoesNotAppendAgain",
+          "dynamic": false
+        },
+        {
+          "suite": "combined patch atomicity",
+          "name": "HandleSet_CombinedUpdates_ATransactionFailureCommitsNothing",
+          "dynamic": false
+        },
+        {
+          "suite": "combined patch atomicity",
+          "name": "HandleSet_CombinedUpdates_ADifferentPatchCannotReplayTheClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "field patch ownership on retry",
+          "name": "HandleSet_ConcurrentSameFieldWithDifferentValues_PersistsBothPatches",
+          "dynamic": false
+        },
+        {
+          "suite": "field patch ownership on retry",
+          "name": "HandleSet_AnOwnPatchBeforeALaterWriter_RetriesWithoutReplacingTheLaterValue",
+          "dynamic": false
+        },
+        {
+          "suite": "field patch ownership on retry",
+          "name": "HandleSet_AnIdenticalPatchClaim_ReplaysWithoutDuplicate",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_AuthoritativeCandidateRefusal_WritesNothing %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_ARepairPatch_ValidatesAfterApplyingRawUpdates %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_AuthoritativeValidPatch_DoesNotUseStaleDocumentChildren %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_RawCandidateValidation_DoesNotUseGuardStatusOverlay %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-7>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_FieldCachedPatchWithChangedTail_ReplaysWithoutAppend",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_FieldCachedPatchAfterTaskRemoval_DoesNotReapplyIt %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-8>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_FieldClaimArrivesDuringInvalidPreflight_ReplaysStoredPatch",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_EmptyUpdates_PreserveNoPatchBehavior %s %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-9>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_AuthoritativeCandidateFault_WritesNothing %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-10>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_NoStartHeldPatchClaim_PreservesLegacyDocumentRoute",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/projections/guard-input/decide-verdicts.test.ts": {
+      "file": "tests/unit/projections/guard-input/decide-verdicts.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the shadow compares decide verdicts",
+          "name": "CompareGuardInputs_ComparesDecideVerdicts",
+          "dynamic": false
+        },
+        {
+          "suite": "the shadow compares decide verdicts",
+          "name": "CompareGuardInputs_ImportsNoLegacyGuardModule",
+          "dynamic": false
+        },
+        {
+          "suite": "the shadow compares decide verdicts",
+          "name": "Shadow_TheWarning_SaysTheFoldDecided",
+          "dynamic": false
+        },
+        {
+          "suite": "the shadow compares decide verdicts",
+          "name": "Shadow_TheDiagnosticsLine_HoldsTheEdgeVerdicts",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/transition-rows.test.ts": {
+      "file": "tests/unit/workflow/decide/transition-rows.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the rows and results of the guarded handlers",
+          "name": "TransitionRows_EachScenario_EqualsTheGolden",
+          "dynamic": false
+        },
+        {
+          "suite": "the rows and results of the guarded handlers",
+          "name": "TransitionRows_TheGolden_HoldsElevenScenariosAndEachRowKind",
+          "dynamic": false
+        },
+        {
+          "suite": "the rows and results of the guarded handlers",
+          "name": "TransitionRows_TheMask_ReplacesEachVolatileField",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/decide.structure.test.ts": {
+      "file": "tests/unit/workflow/decide/decide.structure.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the imports of the decide modules",
+          "name": "DecideModules_ImportNoLegacyGuardModuleNoStateStoreAndNoDispatch",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/decide.test.ts": {
+      "file": "tests/unit/workflow/decide/decide.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_FrozenCorpus_DiffersFromLegacyOnlyOnTheSixAndOnlyToDeny",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_TheThreeEvidenceFixtures_Allow",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Settle_OneTwoAndZeroAdmittedEdges",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Transition_CancelledFromInvestigate_DeniesWithoutEscalation",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Cancel_AdmitsFromEachNonFinalStep",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Cleanup_FalseMergeVerified_FallsToTheExplicitEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_Transition_ToCompletedWithMergeVerified_AdmitsTheCleanupMove",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_AFinalSourceStep_GivesIdempotentOrNoEdge",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_AnIndeterminateCondition_FailsClosed",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_ADenial_NestsEachFalseFactInTheExpectedShape",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_AnUnknownSourcePhase_FollowsTheRuleOfEachRequestKind",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "Decide_ATargetEqualToTheSource_IsIdempotent",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "ValidTargetsOf_EachStepOfEachBuiltIn_EqualsGetValidTransitions",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "CompileDecideDefinition_SkipPhases_EqualApplyPhaseSkipsOnEachBuiltIn",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "CompileDecideDefinition_SkipPhases_ARerouteTakesTheOutgoingRoute",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "PinnedExtensionOf_AKernelOnlyDefinition_GivesNone",
+          "dynamic": false
+        },
+        {
+          "suite": "the pure decide over a definition",
+          "name": "PinnedExtensionOf_ABuiltInDefinition_GivesItsExtension",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/emission-parity.test.ts": {
+      "file": "tests/unit/workflow/decide/emission-parity.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_EachGoldenCase_EqualsTheGolden_ExceptTheSix",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_TheComparedProjection_CoversEachGoldenKey",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_TheDelta_IsExactlyTheSixCorpusIds",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_AFixCycleAtTheLimit_GivesCircuitOpen",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseRowsOf_EachMoveOfTheGolden_ParsesWithItsDataSchema",
+          "dynamic": false
+        },
+        {
+          "suite": "the emission over a definition",
+          "name": "PhaseMoveEvents_ANonEmptyFloor_GivesTheOrderedUnion",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/ordinals.test.ts": {
+      "file": "tests/unit/workflow/decide/ordinals.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the ordinals and the frozen floor of the rows",
+          "name": "FrozenFloorOf_Rows_EqualsReadFrozenFloorForPhase",
+          "dynamic": false
+        },
+        {
+          "suite": "the ordinals and the frozen floor of the rows",
+          "name": "FixCycleOrdinalOf_Rows_EqualsTheStoreCount",
+          "dynamic": false
+        },
+        {
+          "suite": "the ordinals and the frozen floor of the rows",
+          "name": "PlanRevisionOrdinalOf_Rows_EqualsTheStoreCount",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/prepare/pin-definition.test.ts": {
+      "file": "tests/unit/verbs/prepare/pin-definition.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the pin of a full definition",
+          "name": "PinDefinition_TheFiveBuiltIns_GiveThePinnedDigests",
+          "dynamic": false
+        },
+        {
+          "suite": "the pin of a full definition",
+          "name": "PinDefinition_AUserExtensionEdit_MovesTheDefinitionVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "the pin of a full definition",
+          "name": "PinDefinition_ReturnsALoweredDefinition",
+          "dynamic": false
+        },
+        {
+          "suite": "the pin of a full definition",
+          "name": "PreparedBundle_ASixBundle_DecodesWithItsExtension",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/decide/finalization.test.ts": {
+      "file": "tests/unit/workflow/decide/finalization.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "Final lifecycle transaction",
+          "name": "EventStore_FinalValidation_AChangeAtTransactionEntry_RefusesTheStaleTrail",
+          "dynamic": false
+        },
+        {
+          "suite": "Final lifecycle transaction",
+          "name": "Finalization_ABrokenSnapshot_RejectsWithoutClaim",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/core/scripts/guard-input-preview-outcomes.test.ts": {
+      "file": "tests/core/scripts/guard-input-preview-outcomes.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "prospective guard audit outcomes",
+          "name": "GuardInputAudit_Preview_AnExhaustedFixCycle_IsDeniedOnBothSides (%i)",
+          "dynamic": false
+        },
+        {
+          "suite": "prospective guard audit outcomes",
+          "name": "GuardInputAudit_Preview_ABelowLimitFixCycle_IsAllowedOnBothSides",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/scripts/call-shape-fallback.test.ts": {
+      "file": "tests/scripts/call-shape-fallback.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "the complete delegation fallback",
+          "name": "CallShape_ThePhaseFallback_IncludesLandingAndBothBackstops",
+          "dynamic": false
+        },
+        {
+          "suite": "the complete delegation fallback",
+          "name": "CallShape_TheNormalPath_KeepsItsCount",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/verbs/settle/phase-move-summary.test.ts": {
+      "file": "tests/unit/verbs/settle/phase-move-summary.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_TwoAdmittedTargets_SurviveTheCapAndReplay",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_LongTargets_AreWholeAndTheirOmissionIsCounted (%i)",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_DeniedEdges_DoNotBecomeTargets",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_AnOlderReceipt_GainsNoPhaseMove",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_TargetFieldOverhead_UsesABoundedOmissionMarker",
+          "dynamic": false
+        },
+        {
+          "suite": "admitted targets in capped settlement output",
+          "name": "SettleSummary_AnOversizedImmutableCore_KeepsItsIndependentLimit",
           "dynamic": false
         }
       ]

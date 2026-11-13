@@ -5215,7 +5215,8 @@ describe('settle — a claim that records a delegated choice', () => {
 
   /**
    * Both tasks pass their gates, and both claims record a choice. The batch has no finding, so it
-   * is accepted with rationale. The receipt has the fields of a settled receipt and no other.
+   * is accepted with rationale. The receipt has the fields of a settled receipt and no other. The
+   * field `phaseMove` says what the commit did to the phase.
    *
    * The record names each choice as the task and the id of the decision, sorted, and it holds no
    * statement. The bundle keeps each claim whole, with the statement of each choice. A retry
@@ -5242,6 +5243,7 @@ describe('settle — a claim that records a delegated choice', () => {
         'findings',
         'operationId',
         'outcome',
+        'phaseMove',
         'requestDigest',
         'round',
         'streamId',

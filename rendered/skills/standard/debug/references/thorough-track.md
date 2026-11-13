@@ -81,7 +81,7 @@ Update state:
 
 **Record worktree and advance to validate:**
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `debug-implement → debug-validate` guard requirements, then write the required fields (worktrees) with `update` and call `transition` with `target: "debug-validate"`.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `debug-implement → debug-validate` guard requirements. Record the worktree with `update`. When the fix is complete, write `implementation.complete: true` with `update`, then call `transition` with `target: "debug-validate"`. The edge reads that field, and it denies until the field is true.
 
 ### 6. Review Phase
 

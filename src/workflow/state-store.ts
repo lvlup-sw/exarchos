@@ -8,6 +8,7 @@
  */
 import { WorkflowStateSchema, ErrorCode } from './schemas.js';
 import { getInitialPhase } from './state-machine.js';
+import { resetCounter } from './checkpoint.js';
 import {
   StateStoreError,
   isPlainObject,
@@ -31,6 +32,8 @@ import type { WorkflowState, WorkflowType } from './types.js';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
 import { workflowStateProjection, type WorkflowStateView } from '../projections/views/workflow-state-projection.js';
+import { isDeepStrictEqual } from 'node:util';
+import { foldWorkflowState } from '../projections/guard-input/fold.js';
 import { toGuardEvents } from '../projections/guard-input/guard-events.js';
 import type { StorageBackend } from '../storage/backend.js';
 import { mergeSidecarEvents } from '../storage/sidecar-merger.js';
@@ -341,20 +344,19 @@ export function validateStateForWrite(state: WorkflowState): string | undefined 
     ...state,
     _version: getStateVersion(state) + 1,
   } as WorkflowState;
-  const validation = WorkflowStateSchema.safeParse(stateWithVersion);
+  return validatePublishedState(stateWithVersion);
+}
+
+/** Validate the exact candidate without allocating another version. */
+function validatePublishedState(state: WorkflowState): string | undefined {
+  const validation = WorkflowStateSchema.safeParse(state);
   return validation.success ? undefined : `Write-time validation failed: ${validation.error.message}`;
 }
 
-/**
- * Write workflow state atomically through a temp file and a rename.
- *
- * With `expectedVersion`, a compare-and-swap check reads the current `_version`
- * and throws `VersionConflictError` on a mismatch. Invalid JSON gives
- * `STATE_CORRUPT`, and a missing file counts as version 1. The check has a
- * window before the write. That is safe while one process serializes the
- * writes. With a backend, the backend is authoritative, and the function writes
- * no `.state.json`.
- */
+/** Same-process queues cover each file version check through publication. Other processes remain unordered. */
+const stateWriteQueues = new Map<string, Promise<void>>();
+
+/** Write through the backend or serialize the complete file write per normalized target. */
 export async function writeStateFile(
   stateFile: string,
   state: WorkflowState,
@@ -393,43 +395,63 @@ export async function writeStateFile(
     return;
   }
 
-  if (options?.expectedVersion !== undefined) {
-    let currentVersion = 1;
+  const resolved = path.resolve(stateFile);
+  const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved;
+  const result = (stateWriteQueues.get(key) ?? Promise.resolve()).then(() => writeStateFileOnDisk(stateFile, state, options));
+  const tail = result.then(() => undefined, () => undefined);
+  stateWriteQueues.set(key, tail);
+  try {
+    await result;
+  } finally {
+    if (stateWriteQueues.get(key) === tail) stateWriteQueues.delete(key);
+  }
+}
+
+/** Check the version and publish within the outer state-write queue, separate from the publication queue. */
+async function writeStateFileOnDisk(
+  stateFile: string,
+  state: WorkflowState,
+  options?: { expectedVersion?: number; skipValidation?: boolean },
+): Promise<void> {
+  let currentVersion = 1;
+  let committedVersion: number | undefined;
+  try {
+    const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
     try {
-      const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
-      try {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        currentVersion = typeof parsed._version === 'number' ? parsed._version : 1;
-      } catch {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed === null) throw new Error('State is null');
+      currentVersion = typeof parsed === 'object' && '_version' in parsed && typeof parsed._version === 'number'
+        ? parsed._version : 1;
+      if (typeof parsed === 'object' && !Array.isArray(parsed)) committedVersion = currentVersion;
+    } catch {
+      if (options?.expectedVersion !== undefined) {
         throw new StateStoreError(
           ErrorCode.STATE_CORRUPT,
           `Cannot perform CAS check — state file has invalid JSON: ${stateFile}`,
         );
       }
-    } catch (err) {
-      if (err instanceof StateStoreError) throw err;
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        currentVersion = 1;
-      } else {
-        throw new StateStoreError(
-          ErrorCode.FILE_IO_ERROR,
-          `Cannot read state file for CAS check: ${stateFile}`,
-        );
-      }
     }
+  } catch (err) {
+    if (err instanceof StateStoreError) throw err;
+    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) {
+      throw new StateStoreError(
+        ErrorCode.FILE_IO_ERROR,
+        `Cannot read state file for CAS check: ${stateFile}`,
+      );
+    }
+  }
 
-    if (options.expectedVersion !== currentVersion) {
-      throw new VersionConflictError(options.expectedVersion, currentVersion);
-    }
+  if (options?.expectedVersion !== undefined && options.expectedVersion !== currentVersion) {
+    throw new VersionConflictError(options.expectedVersion, currentVersion);
   }
 
   const stateWithVersion = {
     ...state,
-    _version: getStateVersion(state) + 1,
-  } as WorkflowState;
+    _version: (committedVersion ?? getStateVersion(state)) + 1,
+  };
 
   if (!options?.skipValidation) {
-    const invalid = validateStateForWrite(state);
+    const invalid = validatePublishedState(stateWithVersion);
     if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
   }
 
@@ -592,6 +614,85 @@ export async function markTasksCompleteInStateDocument(
       if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) {
         return { kind: 'skipped', reason: 'no-document', missing: [...taskIds] };
       }
+      lastError = err instanceof Error ? err.message : String(err);
+      if (err instanceof VersionConflictError && attempt < maxAttempts) continue;
+      return { kind: 'failed', attempts: attempt, error: lastError };
+    }
+  }
+  return { kind: 'failed', attempts: maxAttempts, error: lastError };
+}
+
+/** Replay all rows and preserve operational root fields and checkpoint controls from the fresh document. */
+export function projectStateDocument(state: WorkflowState, rows: readonly WorkflowEvent[], featureId: string): WorkflowState {
+  if (!rows.some((row) => row.type === 'workflow.started') || rows.some((row) => row.streamId !== featureId)) {
+    throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, 'A complete workflow stream is required for document synchronization');
+  }
+  const view = foldWorkflowState(rows);
+  if (view.featureId !== featureId || state.featureId !== featureId) {
+    throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, 'The workflow stream identity does not match the document');
+  }
+  let checkpoint = { ...state._checkpoint };
+  for (const row of rows) {
+    if (row.type !== 'workflow.checkpoint' || typeof row.data?.phase !== 'string' || row.timestamp <= checkpoint.timestamp) continue;
+    checkpoint = {
+      ...checkpoint,
+      phase: row.data.phase,
+      timestamp: row.timestamp,
+      lastActivityTimestamp: row.timestamp,
+      ...(typeof row.data.counter === 'number' ? { operationsSince: row.data.counter } : {}),
+    };
+  }
+  if (state.phase !== view.phase || state.phaseAttemptId !== view.phaseAttemptId) {
+    checkpoint = resetCounter(checkpoint, view.phase, checkpoint.summary);
+  }
+  const candidate: Record<string, unknown> = {
+    ...state,
+    ...view,
+    _version: state._version,
+    _esVersion: state._esVersion,
+    updatedAt: state.updatedAt,
+    _checkpoint: checkpoint,
+    _events: toGuardEvents(rows),
+    _eventSequence: rows.reduce((highest, row) => Math.max(highest, row.sequence), 0),
+  };
+  if (view.phaseAttemptId === undefined) delete candidate.phaseAttemptId;
+  if (state._esVersion === undefined) delete candidate._esVersion;
+  const parsed = WorkflowStateSchema.safeParse(candidate);
+  if (!parsed.success) throw new StateStoreError(ErrorCode.INVALID_INPUT, `Invalid projected document: ${parsed.error.message}`);
+  parsed.data._checkpoint = checkpoint;
+  if (state._compensationCheckpoint !== undefined) parsed.data._compensationCheckpoint = state._compensationCheckpoint;
+  return parsed.data;
+}
+
+/** The synchronization result includes the current identity for an existing caller reply. */
+export type PhaseLevelOutcome =
+  | { readonly kind: 'levelled' | 'current'; readonly state: WorkflowState }
+  | { readonly kind: 'skipped'; readonly reason: 'no-document' }
+  | { readonly kind: 'failed'; readonly attempts: number; readonly error: string };
+
+/** Each bounded CAS attempt rereads both sources. A missing document stays absent, and a failed fold advances no cursor. */
+export async function levelPhaseInStateDocument(
+  stateFile: string,
+  eventStore: EventStore,
+  featureId: string,
+  maxAttempts = 3,
+  operationalEdit?: (state: Pick<WorkflowState, '_compensationCheckpoint' | '_checkpoint'>) => void,
+): Promise<PhaseLevelOutcome> {
+  let lastError = '';
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const state = await readStateFile(stateFile);
+      const rows = await eventStore.query(featureId);
+      const candidate = projectStateDocument(state, rows, featureId);
+      operationalEdit?.(candidate);
+      const invalid = validateStateForWrite(candidate);
+      if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
+      if (isDeepStrictEqual(candidate, state)) return { kind: 'current', state };
+      candidate.updatedAt = new Date().toISOString();
+      await writeStateFile(stateFile, candidate, { expectedVersion: state._version ?? 1 });
+      return { kind: 'levelled', state: { ...candidate, _version: (state._version ?? 1) + 1 } };
+    } catch (err) {
+      if (err instanceof StateStoreError && err.code === ErrorCode.STATE_NOT_FOUND) return { kind: 'skipped', reason: 'no-document' };
       lastError = err instanceof Error ? err.message : String(err);
       if (err instanceof VersionConflictError && attempt < maxAttempts) continue;
       return { kind: 'failed', attempts: attempt, error: lastError };

@@ -29,8 +29,8 @@ const PLAN_PATH = 'docs/specs/plan.md';
 const OK = 'node -e ""';
 /** The chain runs each call of the drive, one prepare and each git step of the fixture. */
 const CASE_TIMEOUT_MS = 120_000;
-/** The digest of the lowered refactor kernel. It equals the refactor literal of the golden test, and both change together. */
-const REFACTOR_DEFINITION_VERSION = '43026d3d6759b5522666802dcd750bd2939eea9897ff1369dcb1ee1d575b86aa';
+/** The pinned digest of the full refactor definition. It equals the refactor literal of `pin-definition.test.ts`, and both change together. */
+const REFACTOR_DEFINITION_VERSION = '82b8309111effc171d24c8bb7f90e12e962236596b29d980eb18ae69e9e66535';
 
 function git(cwd: string, args: readonly string[]): Promise<string> {
   return execFileAsync('git', args, { cwd, timeout: 30_000 });

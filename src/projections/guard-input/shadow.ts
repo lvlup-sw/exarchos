@@ -4,7 +4,7 @@
  * Before a guarded call, the handler compares the state document with the ledger fold of the same stream.
  * A disagreement gives one warning on the result and one line in a diagnostics file under the state directory.
  * The warning names that file only when this run wrote a line to it.
- * The shadow holds no event store, so it cannot append a row. The state document still decides each call.
+ * The shadow holds no event store, so it cannot append a row. The ledger fold decides each call, and the state document is the compared side.
  *
  * `runGuardInputShadow` is pure and synchronous, and it turns each throw into a failure value.
  * Only `recordGuardInputShadow` moves the counts and writes the file. A failed file write changes no decision and no count.
@@ -35,7 +35,7 @@ export interface GuardInputShadowCall {
   readonly pass: number;
   /** The options of the fold side. */
   readonly fold: GuardInputOptions;
-  /** The skipped phases of the call. The comparator builds the machine of the guard with them. */
+  /** The skipped phases of the call. The comparator compiles the definition of the decide with them. */
   readonly skipPhases?: readonly string[];
 }
 
@@ -208,14 +208,14 @@ function capWarning(text: string): string {
  */
 function warningOf(run: GuardInputShadowRun, written: boolean): string {
   if (run.kind === 'failed') {
-    return capWarning(`GUARD_INPUT_SHADOW_FAILED: ${run.error.slice(0, ERROR_MAX_CHARS)}. The state document decided.`);
+    return capWarning(`GUARD_INPUT_SHADOW_FAILED: ${run.error.slice(0, ERROR_MAX_CHARS)}. The shadow compared nothing.`);
   }
   const { differences } = run.comparison;
   const keys = differences.slice(0, WARNING_KEY_COUNT).map((difference) => difference.key).join(', ');
   const details = written ? `Details: ${GUARD_INPUT_DIAGNOSTICS_DIRNAME}/${run.featureId}.jsonl. ` : '';
   return capWarning(
-    `GUARD_INPUT_DISAGREEMENT: the ledger fold and the state document disagree on ${differences.length} guard inputs ` +
-      `at ${run.from} -> ${run.to}. The state document decided. ${details}Keys: ${keys}.`,
+    `GUARD_INPUT_DISAGREEMENT: the ledger fold decided, and the state document disagrees on ${differences.length} guard inputs ` +
+      `at ${run.from} -> ${run.to}. ${details}Keys: ${keys}.`,
   );
 }
 
@@ -227,17 +227,18 @@ function capList<T>(list: readonly T[]): readonly T[] {
 /**
  * Returns the line of a run with its newline.
  * Each list keeps at most 32 entries, and `error` keeps at most 120 characters. Each cut sets `truncated`.
- * When the line still holds more than 8 KiB, it gets empty `differences` and `guards`, and it keeps `classes` and the read points.
+ * The list `edges` holds the decide verdict of each edge on each input.
+ * When the line still holds more than 8 KiB, it gets empty `differences` and `edges`, and it keeps `classes` and the read points.
  */
 function lineOf(run: GuardInputShadowRun): string {
   const comparison = run.kind === 'compared' ? run.comparison : undefined;
   const differences = comparison?.differences ?? [];
-  const guards = comparison?.guards ?? [];
+  const edges = comparison?.edges ?? [];
   const classes = comparison?.classes ?? [];
   const error = run.kind === 'failed' ? run.error : null;
   const cut =
     differences.length > LINE_LIST_MAX ||
-    guards.length > LINE_LIST_MAX ||
+    edges.length > LINE_LIST_MAX ||
     classes.length > LINE_LIST_MAX ||
     (error !== null && error.length > ERROR_MAX_CHARS);
   const line = {
@@ -251,7 +252,7 @@ function lineOf(run: GuardInputShadowRun): string {
     pass: run.pass,
     phase: comparison?.phase ?? null,
     differences: capList(differences),
-    guards: capList(guards),
+    edges: capList(edges),
     classes: capList(classes),
     ledgerSequence: run.ledgerSequence,
     documentSequence: run.documentSequence,
@@ -262,7 +263,7 @@ function lineOf(run: GuardInputShadowRun): string {
   };
   const text = `${JSON.stringify(line)}\n`;
   if (Buffer.byteLength(text) <= LINE_MAX_BYTES) return text;
-  return `${JSON.stringify({ ...line, differences: [], guards: [], truncated: true })}\n`;
+  return `${JSON.stringify({ ...line, differences: [], edges: [], truncated: true })}\n`;
 }
 
 /** Returns the line that takes the place of a line that does not fit in the file. */

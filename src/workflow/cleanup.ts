@@ -4,6 +4,7 @@ import {
   readStateFile,
   writeStateFile,
   StateStoreError,
+  levelPhaseInStateDocument,
 } from './state-store.js';
 import {
   buildCheckpointMeta,
@@ -13,8 +14,15 @@ import { mapInternalToExternalType } from './events.js';
 import { hsmTransitionGuard } from './hsm-transition-guard.js';
 import { recordLiveTransition } from './admission/live-shadow-observer.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from './phase-attempt-id.js';
+import { decide } from './decide/decide.js';
+import { FinalizationChanged, FinalizationReplayFailed, highestPhaseRowSequence, validateFinalization } from './decide/finalization.js';
+import { isDeepStrictEqual } from 'node:util';
+import { compileDecideDefinition, type DecideDefinition } from './decide/edges.js';
+import { phaseMoveEvents, type TransitionEvent } from './decide/emit.js';
+import { builtInDefinition, isBuiltInDefinitionType } from './definitions/built-in.js';
 import type { EventStore } from '../events/store.js';
 import type { EventType, WorkflowEvent } from '../events/schemas.js';
+import { foldGuardInput } from '../projections/guard-input/fold.js';
 import {
   recordGuardInputShadow,
   runGuardInputShadow,
@@ -33,6 +41,171 @@ function isEventSourced(state: Record<string, unknown>): boolean {
   return state._esVersion === CURRENT_ES_VERSION;
 }
 
+/** The type of the row that starts a workflow stream. */
+const START_ROW_TYPE = 'workflow.started';
+
+/** The text that starts the warning of a cleanup that the state document decided. */
+const DOCUMENT_FALLBACK_WARNING = 'GUARD_INPUT_DOCUMENT_FALLBACK';
+
+/**
+ * The route of one cleanup. The fold route decides on the ledger fold of the rows of a built-in type.
+ * The fold-failed route refuses after the checks of the document. The document route keeps the path of
+ * the state document, with the warnings of a fallback.
+ */
+type CleanupRoute =
+  | {
+      readonly kind: 'fold';
+      readonly def: DecideDefinition;
+      /** The guard input of the fold, with no cleanup evidence and no phase attempt id. */
+      readonly input: Readonly<Record<string, unknown>>;
+      readonly from: string;
+      /** The phase attempt id of the fold, the predecessor of the move. */
+      readonly foldAttemptId: string | undefined;
+      /** The highest sequence of the rows. */
+      readonly version: number;
+      readonly phaseSequence: number;
+    }
+  | { readonly kind: 'fold-failed'; readonly message: string }
+  | { readonly kind: 'document'; readonly warnings: readonly string[] };
+
+/** The rows of the stream, or the error of a failed read. With no event store, both are absent. */
+interface StreamRead {
+  readonly rows?: readonly WorkflowEvent[];
+  readonly error?: unknown;
+}
+
+/** Returns the message of a thrown value. */
+function messageOf(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+/** Returns the highest sequence of the rows, or 0 when the rows are empty. */
+function highestSequence(rows: readonly WorkflowEvent[]): number {
+  return rows.reduce((highest, row) => Math.max(highest, row.sequence), 0);
+}
+
+/** Reads the rows of the stream once. The decide and the guard-input shadow both read them. */
+async function readStream(eventStore: EventStore | null, featureId: string): Promise<StreamRead> {
+  if (!eventStore) return {};
+  try {
+    return { rows: await eventStore.query(featureId) };
+  } catch (err) {
+    return { error: err };
+  }
+}
+
+/** Returns the document route with one fallback warning that names the reason. */
+function documentFallback(reason: string): CleanupRoute {
+  return {
+    kind: 'document',
+    warnings: [`${DOCUMENT_FALLBACK_WARNING}: the state document decided this cleanup, because ${reason}.`],
+  };
+}
+
+/**
+ * Picks the route of a cleanup. A type that is not a built-in type keeps the document route with no warning.
+ * A built-in type decides on the fold when the store holds its rows: an event store, a document on the ledger and a start row.
+ * Otherwise the document decides, and the route carries one fallback warning. A failed read or fold of the rows refuses.
+ */
+function cleanupRouteOf(state: WorkflowState, eventStore: EventStore | null, read: StreamRead): CleanupRoute {
+  const workflowType = state.workflowType;
+  if (!isBuiltInDefinitionType(workflowType)) return { kind: 'document', warnings: [] };
+  if (eventStore === null || eventStore === undefined) return documentFallback('no event store is open');
+  if (state._esVersion !== CURRENT_ES_VERSION) return documentFallback('the state document is not on the ledger');
+  const rows = read.rows;
+  if (rows === undefined) return { kind: 'fold-failed', message: `the rows could not be read: ${messageOf(read.error)}` };
+  if (!rows.some((row) => row.type === START_ROW_TYPE)) return documentFallback('the stream holds no start row');
+  try {
+    const input = foldGuardInput(rows);
+    return {
+      kind: 'fold',
+      def: compileDecideDefinition(workflowType, builtInDefinition(workflowType), []),
+      input,
+      from: typeof input.phase === 'string' ? input.phase : '',
+      foldAttemptId: readPhaseAttemptId(input),
+      version: highestSequence(rows),
+      phaseSequence: highestPhaseRowSequence(rows),
+    };
+  } catch (err) {
+    return { kind: 'fold-failed', message: messageOf(err) };
+  }
+}
+
+/** Puts the warnings of a route before the warnings of a result. A route with no warning returns the result unchanged. */
+function withRouteWarnings(result: ToolResult, route: CleanupRoute): ToolResult {
+  if (route.kind !== 'document' || route.warnings.length === 0) return result;
+  return { ...result, warnings: [...route.warnings, ...(result.warnings ?? [])] };
+}
+
+/** The events of an admitted cleanup move and the history that the move records. */
+interface CleanupMove {
+  readonly events: readonly TransitionEvent[];
+  readonly historyUpdates: Readonly<Record<string, string>>;
+}
+
+/** The outcome of the decide of a cleanup: the move, or the error of a refusal. */
+type CleanupDecision =
+  | { readonly ok: true; readonly move: CleanupMove }
+  | { readonly ok: false; readonly error: NonNullable<ToolResult['error']> };
+
+/**
+ * Decides the cleanup move on the fold. The legacy guard runs on the same input with no store, so it feeds
+ * only the admission live shadow and the message of a refusal. A throw of the legacy guard changes nothing.
+ * A refusal with insufficient evidence names the evidence, as the path of the document does.
+ */
+async function decideCleanupOnTheFold(
+  featureId: string,
+  route: Extract<CleanupRoute, { kind: 'fold' }>,
+  input: Record<string, unknown>,
+  evidence: CleanupEvidence,
+  eventStore: EventStore | null,
+): Promise<CleanupDecision> {
+  let legacyError: NonNullable<ToolResult['error']> | undefined;
+  try {
+    const legacy = await hsmTransitionGuard.attempt(featureId, route.from, 'completed', {
+      state: input,
+      workflowType: route.def.workflowType,
+      eventStore: null,
+      allowUniversalFinalTransition: true,
+      shadowObserver: (observation) => recordLiveTransition(observation, input, eventStore),
+    });
+    if (!legacy.ok) legacyError = { code: mapAttemptErrorCode(legacy.errorCode), message: legacy.errorMessage };
+  } catch {
+    legacyError = undefined;
+  }
+  const outcome = decide(route.def, input, { kind: 'cleanup' });
+  if (outcome.kind === 'admit') {
+    const moved = phaseMoveEvents(route.def, input, outcome.move);
+    if (moved.success) {
+      return { ok: true, move: { events: moved.events, historyUpdates: { ...(moved.historyUpdates ?? {}) } } };
+    }
+    return {
+      ok: false,
+      error: {
+        code: moved.errorCode === 'CIRCUIT_OPEN' ? ErrorCode.CIRCUIT_OPEN : moved.errorCode === 'PHASE_BLOCKED' ? ErrorCode.PHASE_BLOCKED : ErrorCode.GUARD_FAILED,
+        message: moved.errorMessage ?? `The cleanup of '${featureId}' did not move the phase`,
+      },
+    };
+  }
+  if (!evidence.verified) {
+    return {
+      ok: false,
+      error: {
+        code: ErrorCode.GUARD_FAILED,
+        message: `Cleanup guard 'merge-verified' failed — cleanup evidence insufficient: ${evidence.reasons.join('; ')}`,
+      },
+    };
+  }
+  if (legacyError !== undefined) return { ok: false, error: legacyError };
+  return {
+    ok: false,
+    error: {
+      code: outcome.kind === 'deny' ? ErrorCode.GUARD_FAILED : ErrorCode.INVALID_TRANSITION,
+      message: `No cleanup move from '${route.from}' to 'completed' admits`,
+    },
+  };
+}
+
 /** The store whose derived snapshot files cleanup deletes. `null` skips the deletion. */
 let moduleSnapshotStore: SnapshotStore | null = null;
 
@@ -45,9 +218,7 @@ export function configureCleanupSnapshotStore(store: SnapshotStore | null): void
 interface CleanupEventPayload {
   featureId: string;
   currentPhase: string;
-  synthesis: Record<string, unknown>;
-  artifacts: Record<string, unknown>;
-  hasSynthesisBackfill: boolean;
+  backfillPatch: Record<string, unknown>;
   /** The evidence verdict that satisfied `guards.mergeVerified`. */
   mergeVerified: boolean;
   /** The typed artifact reference backing that verdict. */
@@ -69,23 +240,21 @@ interface CleanupEventPayload {
  * The trail is the `state.patched` backfill when present, the HSM transition events, and the `workflow.cleanup` completion event.
  * The whole trail commits in one atomic transaction, so the stream gets the complete trail or nothing.
  * The operation id uses the retry-stable `phaseAttemptId`, so a retry of the same cleanup reuses it.
+ * It returns false when a stored claim of that operation answered the append, so this call wrote no row.
  *
  * @throws When the atomic append fails. The caller then does not write the state.
  */
 async function emitCleanupEvents(
   store: EventStore,
   payload: CleanupEventPayload,
-): Promise<void> {
+  validate?: Parameters<EventStore['appendTrailAtomically']>[3],
+): Promise<boolean> {
   const { featureId, currentPhase } = payload;
   const trail: Array<
     Parameters<EventStore['appendTrailAtomically']>[1][number]
   > = [];
 
-  const backfillPatch: Record<string, unknown> = {};
-  if (payload.hasSynthesisBackfill) {
-    backfillPatch.synthesis = payload.synthesis;
-    backfillPatch.artifacts = payload.artifacts;
-  }
+  const backfillPatch = payload.backfillPatch;
   if (Object.keys(backfillPatch).length > 0) {
     trail.push({
       type: 'state.patched' as EventType,
@@ -135,10 +304,11 @@ async function emitCleanupEvents(
     idempotencyKey: `${featureId}:cleanup:complete`,
   });
 
-  await store.appendTrailAtomically(
+  return store.appendTrailAtomically(
     featureId,
     trail,
     `cleanup:${featureId}:${payload.phaseAttemptId}`,
+    validate,
   );
 }
 
@@ -213,6 +383,11 @@ export interface CleanupEvidence {
   readonly mergeArtifact: string | null;
 }
 
+/** Returns a copied record without accepting arrays or null. */
+function recordOf(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value) ? { ...value } : {};
+}
+
 /** Read the first artifact reference from a state field: a non-empty trimmed string, or the first such string in a list. */
 function firstArtifactRef(value: unknown): string | null {
   if (typeof value === 'string') {
@@ -285,22 +460,6 @@ export function collectCleanupEvidence(
 }
 
 /**
- * Query the rows of the stream for the guard-input shadow.
- * With no event store or after a failed query, the function gives no rows, so the shadow skips the run and cleanup goes on.
- */
-async function queryShadowRows(
-  eventStore: EventStore | null,
-  featureId: string,
-): Promise<readonly WorkflowEvent[] | undefined> {
-  if (!eventStore) return undefined;
-  try {
-    return await eventStore.query(featureId);
-  } catch {
-    return undefined;
-  }
-}
-
-/**
  * Record the guard-input shadow run of the cleanup after the decision, and add its warnings to the result.
  * Each exit after the guard calls it. The success calls it before the state write, so a throw of that write follows the record.
  * The document side of the run keeps the stored `_events`, because the cleanup guard reads that list.
@@ -317,17 +476,15 @@ async function withShadowRecord(
 }
 
 /**
- * Clean up a workflow by moving it to `completed`.
- * The merge guard reads the evidence in the state before cleanup backfills the `prUrl` and `mergedBranches` inputs.
- * Cleanup does not rewrite reviews, and it sets the `_cleanup.mergeVerified` guard input from the evidence verdict.
- * Insufficient evidence gives `GUARD_FAILED`, not the downstream `INVALID_TRANSITION`.
- * The phase change goes through `hsmTransitionGuard.attempt` with `eventStore: null`, so this handler owns the emission.
- * `allowUniversalFinalTransition` admits `completed`, a universal final edge with no explicit HSM definition.
+ * Clean up a workflow by moving it to `completed`. The merge guard reads the evidence before the backfill of
+ * `prUrl` and `mergedBranches`. Insufficient evidence gives `GUARD_FAILED`, not `INVALID_TRANSITION`.
  *
- * With an event store, an event-sourced (v2) workflow appends the whole trail before the state write.
- * When that append fails, the state file stays unchanged.
- * Otherwise cleanup writes the state first, and then emits the events on a best-effort basis when a store exists.
- * A failed deletion of derived snapshot files does not fail cleanup.
+ * A built-in type with a store, a ledger document and a start row decides on the ledger fold.
+ * The fold gives the source phase, the attempt id, the terminal checks, the guard events and the merge evidence.
+ * A fold that throws refuses with `PROJECTION_REPLAY_FAILED`. The fallback cases keep the document path with one warning.
+ *
+ * An event-sourced workflow with a store appends the whole trail before the state write. Otherwise cleanup writes
+ * the state first and emits the events on a best-effort basis. A failed snapshot deletion does not fail cleanup.
  */
 export async function handleCleanup(
   input: CleanupInput,
@@ -352,7 +509,63 @@ export async function handleCleanup(
     throw err;
   }
 
-  if (state.phase === 'completed') {
+  const read = await readStream(eventStore, input.featureId);
+  const route = cleanupRouteOf(state, eventStore, read);
+  const outcome = await cleanupOnRoute(input, stateDir, eventStore, stateFile, state, read, route);
+  if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
+  return cleanupAfterAClaimHit(input, stateDir, eventStore, stateFile);
+}
+
+/** The outcome of a cleanup whose trail operation another call committed. This call wrote no row. */
+interface TrailClaimHit {
+  readonly claimHit: true;
+}
+
+/** True when the outcome of a cleanup is a claim hit of its trail operation. */
+function isTrailClaimHit(outcome: ToolResult | TrailClaimHit): outcome is TrailClaimHit {
+  return 'claimHit' in outcome && outcome.claimHit === true;
+}
+
+/**
+ * Replies to a cleanup whose trail operation another call committed. This call wrote no row and no document.
+ * It reads the document and the rows again and runs the cleanup once more. A fold at `completed` then refuses
+ * with `ALREADY_COMPLETED`. A second claim hit refuses with `EVENT_APPEND_FAILED`.
+ */
+async function cleanupAfterAClaimHit(
+  input: CleanupInput,
+  stateDir: string,
+  eventStore: EventStore | null,
+  stateFile: string,
+): Promise<ToolResult> {
+  const state = await readStateFile(stateFile);
+  const read = await readStream(eventStore, input.featureId);
+  const route = cleanupRouteOf(state, eventStore, read);
+  const outcome = await cleanupOnRoute(input, stateDir, eventStore, stateFile, state, read, route);
+  if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
+  return {
+    success: false,
+    error: {
+      code: ErrorCode.EVENT_APPEND_FAILED,
+      message: `Another call committed the cleanup trail of '${input.featureId}', and a second read of the rows does not show the phase 'completed'`,
+    },
+  };
+}
+
+/**
+ * Runs one cleanup on its route. The caller adds the warnings of the route.
+ * On the fold route, a stored claim of the trail operation gives a claim hit, and this call writes no document.
+ */
+async function cleanupOnRoute(
+  input: CleanupInput,
+  stateDir: string,
+  eventStore: EventStore | null,
+  stateFile: string,
+  state: WorkflowState,
+  read: StreamRead,
+  route: CleanupRoute,
+): Promise<ToolResult | TrailClaimHit> {
+  const terminalPhase = route.kind === 'fold' ? route.from : state.phase;
+  if (terminalPhase === 'completed') {
     return {
       success: false,
       error: {
@@ -362,7 +575,7 @@ export async function handleCleanup(
     };
   }
 
-  if (state.phase === 'cancelled') {
+  if (terminalPhase === 'cancelled') {
     return {
       success: false,
       error: {
@@ -383,11 +596,11 @@ export async function handleCleanup(
   }
 
   const mutableState = structuredClone(state) as Record<string, unknown>;
-  const currentPhase = state.phase;
+  const currentPhase = route.kind === 'fold' ? route.from : state.phase;
   const dryRun = input.dryRun ?? false;
 
-  const evidence = collectCleanupEvidence(mutableState);
-  mutableState._cleanup = { mergeVerified: evidence.verified };
+  const documentEvidence = collectCleanupEvidence(mutableState);
+  mutableState._cleanup = { mergeVerified: documentEvidence.verified };
 
   const phaseAttemptId = dryRun
     ? undefined
@@ -395,8 +608,8 @@ export async function handleCleanup(
         input.featureId,
         currentPhase,
         'completed',
-        readPhaseAttemptId(state),
-        state._version ?? 1,
+        route.kind === 'fold' ? route.foldAttemptId : readPhaseAttemptId(state),
+        route.kind === 'fold' ? route.version : (state._version ?? 1),
       );
   if (phaseAttemptId !== undefined) {
     mutableState._pendingPhaseAttemptId = phaseAttemptId;
@@ -408,43 +621,68 @@ export async function handleCleanup(
     target: 'completed',
     hasUpdates: false,
     document: mutableState,
-    rows: await queryShadowRows(eventStore, input.featureId),
+    rows: read.rows,
     pass: 0,
     fold: { cleanupEvidence: (folded) => collectCleanupEvidence(folded).verified },
   });
   const shadowSink: GuardInputShadowSink = { stateDir };
 
-  const attempt = await hsmTransitionGuard.attempt(
-    input.featureId,
-    currentPhase,
-    'completed',
-    {
-      state: mutableState,
-      workflowType: state.workflowType,
-      eventStore: null,
-      allowUniversalFinalTransition: true,
-      shadowObserver: (observation) =>
-        recordLiveTransition(observation, mutableState, eventStore),
-    },
-  );
-
-  if (!attempt.ok) {
-    if (!evidence.verified) {
-      return withShadowRecord({
-        success: false,
-        error: {
-          code: ErrorCode.GUARD_FAILED,
-          message: `Cleanup guard 'merge-verified' failed — cleanup evidence insufficient: ${evidence.reasons.join('; ')}`,
-        },
-      }, shadowRun, shadowSink);
-    }
+  if (route.kind === 'fold-failed') {
     return withShadowRecord({
       success: false,
       error: {
-        code: mapAttemptErrorCode(attempt.errorCode),
-        message: attempt.errorMessage,
+        code: ErrorCode.PROJECTION_REPLAY_FAILED,
+        message: `The ledger fold of '${input.featureId}' failed, so no guard decided: ${route.message}`,
       },
     }, shadowRun, shadowSink);
+  }
+
+  let evidence = documentEvidence;
+  let move: CleanupMove;
+  if (route.kind === 'fold') {
+    evidence = collectCleanupEvidence(route.input);
+    const foldInput: Record<string, unknown> = {
+      ...route.input,
+      _cleanup: { mergeVerified: evidence.verified },
+      ...(phaseAttemptId === undefined ? {} : { _pendingPhaseAttemptId: phaseAttemptId }),
+    };
+    const decided = await decideCleanupOnTheFold(input.featureId, route, foldInput, evidence, eventStore);
+    if (!decided.ok) return withShadowRecord({ success: false, error: decided.error }, shadowRun, shadowSink);
+    move = decided.move;
+  } else {
+    const attempt = await hsmTransitionGuard.attempt(
+      input.featureId,
+      currentPhase,
+      'completed',
+      {
+        state: mutableState,
+        workflowType: state.workflowType,
+        eventStore: null,
+        allowUniversalFinalTransition: true,
+        shadowObserver: (observation) =>
+          recordLiveTransition(observation, mutableState, eventStore),
+      },
+    );
+
+    if (!attempt.ok) {
+      if (!evidence.verified) {
+        return withShadowRecord({
+          success: false,
+          error: {
+            code: ErrorCode.GUARD_FAILED,
+            message: `Cleanup guard 'merge-verified' failed — cleanup evidence insufficient: ${evidence.reasons.join('; ')}`,
+          },
+        }, shadowRun, shadowSink);
+      }
+      return withShadowRecord({
+        success: false,
+        error: {
+          code: mapAttemptErrorCode(attempt.errorCode),
+          message: attempt.errorMessage,
+        },
+      }, shadowRun, shadowSink);
+    }
+    move = { events: attempt.emittedEvents, historyUpdates: attempt.historyUpdates };
   }
 
   if (dryRun) {
@@ -463,27 +701,33 @@ export async function handleCleanup(
     }, shadowRun, { stateDir, writeLine: false });
   }
 
-  const synthesis = (mutableState.synthesis ?? {}) as Record<string, unknown>;
+  const backfillSource = route.kind === 'fold' ? route.input : mutableState;
+  const backfillPatch: Record<string, unknown> = {};
+  const synthesis = recordOf(backfillSource.synthesis);
   if (input.prUrl !== undefined) {
     synthesis.prUrl = input.prUrl;
+    backfillPatch['synthesis.prUrl'] = input.prUrl;
   }
   if (input.mergedBranches !== undefined) {
     synthesis.mergedBranches = input.mergedBranches;
+    backfillPatch['synthesis.mergedBranches'] = input.mergedBranches;
   }
   mutableState.synthesis = synthesis;
 
-  const artifacts = (mutableState.artifacts ?? {}) as Record<string, unknown>;
+  const artifacts = recordOf(backfillSource.artifacts);
+  const priorArtifact = artifacts.pr;
   if (input.prUrl !== undefined && artifacts.pr == null) {
     artifacts.pr = input.prUrl;
+    backfillPatch['artifacts.pr'] = input.prUrl;
   }
   mutableState.artifacts = artifacts;
 
   mutableState.phase = 'completed';
   mutableState.phaseAttemptId = phaseAttemptId;
 
-  if (Object.keys(attempt.historyUpdates).length > 0) {
+  if (Object.keys(move.historyUpdates).length > 0) {
     const history = { ...(mutableState._history as Record<string, string>) };
-    for (const [key, value] of Object.entries(attempt.historyUpdates)) {
+    for (const [key, value] of Object.entries(move.historyUpdates)) {
       history[key] = value;
     }
     mutableState._history = history;
@@ -509,31 +753,46 @@ export async function handleCleanup(
 
   if (eventFirstStore !== undefined && phaseAttemptId !== undefined) {
     try {
-      await emitCleanupEvents(eventFirstStore, {
+      const landed = await emitCleanupEvents(eventFirstStore, {
         featureId: input.featureId,
         currentPhase,
-        synthesis,
-        artifacts,
-        hasSynthesisBackfill: input.prUrl !== undefined || input.mergedBranches !== undefined,
+        backfillPatch,
         mergeVerified: evidence.verified,
         mergeArtifact: evidence.mergeArtifact,
-        transitionEvents: attempt.emittedEvents,
+        transitionEvents: move.events,
         prUrl: input.prUrl,
         mergedBranches: input.mergedBranches,
         phaseAttemptId,
-      });
+      }, route.kind === 'fold' ? (snapshot) => {
+        const current = validateFinalization(snapshot, route);
+        const currentEvidence = collectCleanupEvidence(current);
+        if (!isDeepStrictEqual(currentEvidence, evidence)) {
+          throw new FinalizationChanged('The cleanup evidence changed before finalization');
+        }
+        if ('artifacts.pr' in backfillPatch && !isDeepStrictEqual(recordOf(current.artifacts).pr, priorArtifact)) {
+          throw new FinalizationChanged('The conditional artifact fill changed before finalization');
+        }
+        const currentInput = { ...current, _cleanup: { mergeVerified: currentEvidence.verified }, _pendingPhaseAttemptId: phaseAttemptId };
+        const admission = decide(route.def, currentInput, { kind: 'cleanup' });
+        if (admission.kind !== 'admit') throw new FinalizationChanged('The cleanup admission changed before finalization');
+        const emitted = phaseMoveEvents(route.def, currentInput, admission.move);
+        if (!emitted.success || !isDeepStrictEqual(emitted.events, move.events) || !isDeepStrictEqual(emitted.historyUpdates ?? {}, move.historyUpdates)) {
+          throw new FinalizationChanged('The cleanup move changed before finalization');
+        }
+      } : undefined);
+      if (route.kind === 'fold' && landed === false) return { claimHit: true };
     } catch (err) {
       return withShadowRecord({
         success: false,
         error: {
-          code: ErrorCode.EVENT_APPEND_FAILED,
+          code: err instanceof FinalizationChanged ? ErrorCode.VERSION_CONFLICT : err instanceof FinalizationReplayFailed ? ErrorCode.PROJECTION_REPLAY_FAILED : ErrorCode.EVENT_APPEND_FAILED,
           message: `Event append failed during cleanup: ${err instanceof Error ? err.message : String(err)}`,
         },
       }, shadowRun, shadowSink);
     }
   }
 
-  const completed = await withShadowRecord({
+  let completed = await withShadowRecord({
     success: true,
     data: {
       phase: 'completed',
@@ -543,14 +802,22 @@ export async function handleCleanup(
     _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
   }, shadowRun, shadowSink);
 
-  await writeStateFile(stateFile, mutableState as WorkflowState);
+  if (route.kind === 'fold' && eventFirstStore !== undefined) {
+    const level = await levelPhaseInStateDocument(stateFile, eventFirstStore, input.featureId, 4);
+    if (level.kind === 'failed' || level.kind === 'skipped') {
+      throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, level.kind === 'failed' ? level.error : 'The cleanup document is absent');
+    }
+    completed = { ...completed, _meta: buildCheckpointMeta(level.state._checkpoint) };
+  } else {
+    await writeStateFile(stateFile, mutableState as WorkflowState);
+  }
 
   if (!useEventFirst && eventStore) {
     await emitLegacyTransitionEvents(
       eventStore,
       input.featureId,
       `cleanup:legacy:${input.featureId}:${phaseAttemptId ?? currentPhase}`,
-      attempt.emittedEvents,
+      move.events,
     );
   }
 

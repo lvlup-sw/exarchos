@@ -1,6 +1,8 @@
 /**
- * A static census that keeps one phase-mutation authority.
- * The scan masks comments and string spans in the shipped source, then finds each `executeTransition` identifier in code.
+ * A static census that keeps the owners of each phase-mutation primitive.
+ * The legacy primitive is `executeTransition`. The decide primitive is `phaseMoveEvents`, which gives the rows of a move.
+ *
+ * The scan masks comments and string spans in the shipped source, then finds each identifier of a primitive in code.
  * It reports `UNAUTHORIZED_PHASE_MUTATION` for a reference outside the declared owners.
  * It reports `STALE_PHASE_MUTATION_OWNER` for an owner that does not reference the primitive.
  * The identifier match also catches a re-export, an aliased import and a dynamic import.
@@ -30,6 +32,22 @@ const PHASE_MUTATION_PRIMITIVE = 'executeTransition';
 const PHASE_MUTATION_OWNERS: readonly string[] = Object.freeze([
   'workflow/hsm-transition-guard.ts',
   'workflow/state-machine.ts',
+]);
+
+/** The decide primitive that gives the rows of an admitted move. */
+const DECIDE_PRIMITIVE = 'phaseMoveEvents';
+
+/**
+ * The modules that can reference the decide primitive in shipped source.
+ * `emit.ts` defines it. The transition, cancel and cleanup handlers each build the rows of their move with it.
+ * The settle commit builds the rows of its phase move with it too.
+ */
+const DECIDE_PRIMITIVE_OWNERS: readonly string[] = Object.freeze([
+  'workflow/decide/emit.ts',
+  'workflow/handlers/set.ts',
+  'workflow/cancel.ts',
+  'workflow/cleanup.ts',
+  'verbs/settle/handler.ts',
 ]);
 
 /** Directories that are not shipped source (test/fixture/bench harnesses). */
@@ -88,11 +106,15 @@ interface PhaseMutationOwnershipResult {
  * Comments and string/template spans are masked first, so only executable
  * mentions count.
  */
-export function detectPhaseMutationRefs(module: string, source: string): PhaseMutationRef[] {
+export function detectPhaseMutationRefs(
+  module: string,
+  source: string,
+  primitive: string = PHASE_MUTATION_PRIMITIVE,
+): PhaseMutationRef[] {
   const masked = maskLiteralsAndComments(source, lexModule);
   const lines = source.split('\n');
   const maskedLines = masked.split('\n');
-  const identifier = new RegExp(`\\b${PHASE_MUTATION_PRIMITIVE}\\b`);
+  const identifier = new RegExp(`\\b${primitive}\\b`);
   const refs: PhaseMutationRef[] = [];
 
   for (let i = 0; i < maskedLines.length; i += 1) {
@@ -111,6 +133,7 @@ export function detectPhaseMutationRefs(module: string, source: string): PhaseMu
 export function runPhaseMutationOwnershipCensus(
   refs: readonly PhaseMutationRef[],
   owners: readonly string[] = PHASE_MUTATION_OWNERS,
+  primitive: string = PHASE_MUTATION_PRIMITIVE,
 ): PhaseMutationOwnershipResult {
   const ownerSet = new Set(owners);
   const diagnostics: PhaseMutationDiagnostic[] = [];
@@ -122,7 +145,7 @@ export function runPhaseMutationOwnershipCensus(
         module: ref.module,
         line: ref.line,
         message:
-          `Module "${ref.module}" references ${PHASE_MUTATION_PRIMITIVE} at line ${ref.line} ` +
+          `Module "${ref.module}" references ${primitive} at line ${ref.line} ` +
           `(${ref.snippet}) outside the phase-mutation authority surface. DR-7 requires exactly ` +
           `one action to mutate a phase: route the transition through the guarded primitive in ` +
           `workflow/hsm-transition-guard.ts (hsmTransitionGuard.attempt) so the mutation is ` +
@@ -138,7 +161,7 @@ export function runPhaseMutationOwnershipCensus(
         module: owner,
         message:
           `Phase-mutation owner rule for "${owner}" claims no live reference to ` +
-          `${PHASE_MUTATION_PRIMITIVE} — stale cover. Remove it from the owner set or restore ` +
+          `${primitive} — stale cover. Remove it from the owner set or restore ` +
           `the reference; a phantom owner would let a real bypass move into it unnoticed.`,
       });
     }
@@ -167,12 +190,13 @@ async function collectShippedFiles(root: string): Promise<string[]> {
 /** Scan the shipped source under `sourceRoot` for every live primitive reference. */
 export async function scanPhaseMutationRefs(
   sourceRoot: string,
+  primitive: string = PHASE_MUTATION_PRIMITIVE,
 ): Promise<readonly PhaseMutationRef[]> {
   const files = await collectShippedFiles(sourceRoot);
   const perFile = await Promise.all(
     files.map(async (file) => {
       const module = relative(sourceRoot, file).replaceAll('\\', '/');
-      return detectPhaseMutationRefs(module, await readFile(file, 'utf8'));
+      return detectPhaseMutationRefs(module, await readFile(file, 'utf8'), primitive);
     }),
   );
   return Object.freeze(perFile.flat());
@@ -334,5 +358,36 @@ describe('EXIT PROOF — single phase-mutation authority (DR-7)', () => {
     for (const owner of PHASE_MUTATION_OWNERS) {
       expect(modules.has(owner)).toBe(true);
     }
+  });
+});
+
+describe('the census of the decide primitive', () => {
+  /** Each owner of `phaseMoveEvents` refers to it, and no other shipped module does. */
+  it('PhaseMutationOwnership_TheDecidePrimitive_HasOnlyItsDeclaredOwners', async () => {
+    const refs = await scanPhaseMutationRefs(SRC_ROOT, DECIDE_PRIMITIVE);
+    const result = runPhaseMutationOwnershipCensus(refs, DECIDE_PRIMITIVE_OWNERS, DECIDE_PRIMITIVE);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.ok).toBe(true);
+    expect([...new Set(refs.map((ref) => ref.module))].sort()).toEqual([...DECIDE_PRIMITIVE_OWNERS].sort());
+  });
+
+  /** A reference to `phaseMoveEvents` outside the owners is an unauthorized phase mutation, and each owner still refers to it. */
+  it('PhaseMutationOwnership_TheDecidePrimitive_AReferenceOutsideTheOwners_IsUnauthorized', async () => {
+    const planted = detectPhaseMutationRefs(
+      'workflow/rogue-decide-bypass.ts',
+      "import { phaseMoveEvents } from './decide/emit.js';\nconst rows = phaseMoveEvents(def, input, move);",
+      DECIDE_PRIMITIVE,
+    );
+    const live = await scanPhaseMutationRefs(SRC_ROOT, DECIDE_PRIMITIVE);
+
+    const result = runPhaseMutationOwnershipCensus([...live, ...planted], DECIDE_PRIMITIVE_OWNERS, DECIDE_PRIMITIVE);
+
+    expect(planted.map((ref) => ref.line)).toEqual([1, 2]);
+    expect(result.ok).toBe(false);
+    expect(result.diagnostics.map((d) => [d.code, d.module])).toEqual([
+      ['UNAUTHORIZED_PHASE_MUTATION', 'workflow/rogue-decide-bypass.ts'],
+      ['UNAUTHORIZED_PHASE_MUTATION', 'workflow/rogue-decide-bypass.ts'],
+    ]);
   });
 });

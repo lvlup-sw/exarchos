@@ -1,3 +1,5 @@
+import { buildEvent } from '../../../src/events/event-factory.js';
+import * as atomicWrite from '../../../src/utils/atomic-write.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
@@ -5,6 +7,9 @@ import * as os from 'node:os';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import {
+  validateStateForWrite,
+  projectStateDocument,
+  levelPhaseInStateDocument,
   applyDotPath,
   deepMerge,
   isPlainObject,
@@ -1099,3 +1104,225 @@ async function findDeadPid(): Promise<number> {
   await new Promise((r) => setTimeout(r, 50));
   return pid;
 }
+
+describe('complete ledger document synchronization', () => {
+  let directory: string;
+  beforeEach(async () => {
+    configureStateStoreBackend(undefined);
+    directory = await mkdtemp(path.join(tmpdir(), 'full-document-'));
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rmrfAsync(directory);
+  });
+
+  it('LevelDocument_ProjectionRepair_PreservesOperationalFields', async () => {
+    const { state } = await initStateFile(directory, 'complete', 'feature');
+    const operational = {
+      ...state,
+      phaseAttemptId: 'stale-attempt',
+      _esVersion: 2,
+      _version: 17,
+      _compensationCheckpoint: { completedActions: ['keep'] },
+      customOperation: { owner: 'caller' },
+      reviews: { discarded: true },
+      _checkpoint: { ...state._checkpoint, timestamp: '2030-01-01T00:00:00.000Z', summary: 'Keep summary', fixCycleCount: 4,
+        staleAfterMinutes: 60, operationsSince: 12, lastActivityTimestamp: '2030-01-01T00:00:00.000Z' },
+    };
+    const rows = [
+      buildEvent('complete', 1, { type: 'workflow.started', timestamp: '2020-01-01T00:00:00.000Z', data: { featureId: 'complete', workflowType: 'feature' } }),
+      buildEvent('complete', 2, { type: 'workflow.checkpoint', timestamp: '2021-01-01T00:00:00.000Z', data: { phase: 'plan', counter: 99 } }),
+      buildEvent('complete', 3, { type: 'state.patched', data: { patch: { reviews: null } } }),
+      buildEvent('complete', 4, { type: 'state.patched', data: { patch: { reviews: { retained: true } } } }),
+    ];
+    const projected = projectStateDocument(operational, rows, 'complete');
+    expect(projected).toMatchObject({ _version: 17, _esVersion: 2, updatedAt: state.updatedAt, customOperation: { owner: 'caller' },
+      _compensationCheckpoint: { completedActions: ['keep'] }, reviews: { retained: true }, _eventSequence: 4,
+      _checkpoint: { phase: 'plan', operationsSince: 0, summary: 'Keep summary', fixCycleCount: 4, staleAfterMinutes: 60 } });
+    expect(projected.reviews).toEqual({ retained: true });
+    expect(projected).not.toHaveProperty('phaseAttemptId');
+    const sameIdentity = projectStateDocument({ ...operational, phaseAttemptId: undefined }, rows, 'complete');
+    expect(sameIdentity._checkpoint).toEqual(operational._checkpoint);
+    const newer = [...rows, buildEvent('complete', 5, { type: 'workflow.checkpoint', timestamp: '2031-01-01T00:00:00.000Z', data: { phase: 'plan', counter: 3 } })];
+    expect(projectStateDocument(sameIdentity, newer, 'complete')._checkpoint).toEqual({ ...operational._checkpoint,
+      timestamp: '2031-01-01T00:00:00.000Z', lastActivityTimestamp: '2031-01-01T00:00:00.000Z', operationsSince: 3 });
+    expect(() => projectStateDocument(operational, rows.slice(1), 'complete')).toThrow('complete workflow stream');
+    expect(() => projectStateDocument(operational, rows, 'other')).toThrow();
+  });
+
+  it('LevelDocument_AFileWithoutEsVersion_PreservesBytesOnReplay', async () => {
+    const store = new EventStore(directory);
+    await store.initialize();
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+      const { stateFile } = await initStateFile(directory, 'file-replay', 'feature');
+      await store.append('file-replay', { type: 'workflow.started', data: { featureId: 'file-replay', workflowType: 'feature' } });
+      await store.append('file-replay', { type: 'state.patched', data: { patch: { tasks: [{ id: 't1', title: 'Task', status: 'pending' }] } } });
+      vi.setSystemTime(new Date('2020-02-01T00:00:00.000Z'));
+      expect((await levelPhaseInStateDocument(stateFile, store, 'file-replay')).kind).toBe('levelled');
+      const before = await fs.readFile(stateFile, 'utf8');
+      expect(JSON.parse(before)).not.toHaveProperty('_esVersion');
+      expect(JSON.parse(before).tasks).toEqual([{ id: 't1', title: 'Task', status: 'pending', blockedBy: [] }]);
+      expect(JSON.parse(before).updatedAt).toBe('2020-02-01T00:00:00.000Z');
+      vi.setSystemTime(new Date('2020-03-01T00:00:00.000Z'));
+      expect((await levelPhaseInStateDocument(stateFile, store, 'file-replay')).kind).toBe('current');
+      expect(await fs.readFile(stateFile, 'utf8')).toBe(before);
+    } finally {
+      vi.useRealTimers();
+      await store.close();
+    }
+  });
+
+  it('FileCas_TwoConditionalWriters_ExactlyOneSucceeds', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'cas', 'feature');
+    let release = (): void => {};
+    let entered = (): void => {};
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const staged = new Promise<void>((resolve) => { entered = resolve; });
+    const publish = atomicWrite.publishTempFile;
+    vi.spyOn(atomicWrite, 'publishTempFile').mockImplementationOnce(async (...args) => {
+      entered();
+      await blocked;
+      return publish(...args);
+    });
+    const first = writeStateFile(stateFile, { ...state, winner: 'first' }, { expectedVersion: 1 });
+    await staged;
+    const second = writeStateFile(stateFile, { ...state, winner: 'second' }, { expectedVersion: 1 });
+    const outcomes = Promise.allSettled([first, second]);
+    release();
+    const results = await outcomes;
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1]).toMatchObject({ status: 'rejected', reason: expect.any(VersionConflictError) });
+    expect(await readStateFile(stateFile)).toMatchObject({ _version: 2, winner: 'first' });
+    await writeStateFile(stateFile, { ...state, _version: 2, winner: 'after-rejection' }, { expectedVersion: 2 });
+    expect(await readStateFile(stateFile)).toMatchObject({ _version: 3, winner: 'after-rejection' });
+  });
+
+  it('FileCas_AnUnconditionalWriter_CannotSplitTheCheckAndPublish', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'cas', 'feature');
+    const other = await initStateFile(directory, 'other', 'feature');
+    let release = (): void => {};
+    let entered = (): void => {};
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const staged = new Promise<void>((resolve) => { entered = resolve; });
+    const publish = atomicWrite.publishTempFile;
+    const order: string[] = [];
+    vi.spyOn(atomicWrite, 'publishTempFile').mockImplementation(async (...args) => {
+      if (args[1] === stateFile && order.length === 0) {
+        order.push('conditional');
+        entered();
+        await blocked;
+      } else order.push(args[1] === stateFile ? 'unconditional' : 'other');
+      return publish(...args);
+    });
+    const first = writeStateFile(stateFile, state, { expectedVersion: 1 });
+    await staged;
+    const second = writeStateFile(path.join(directory, '.', 'cas.state.json'), { ...state, marker: 'unconditional' });
+    await writeStateFile(other.stateFile, other.state, { expectedVersion: 1 });
+    expect(order).toEqual(['conditional', 'other']);
+    release();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['conditional', 'other', 'unconditional']);
+    expect(await readStateFile(stateFile)).toMatchObject({ marker: 'unconditional', _version: 3 });
+  });
+
+  it('FileCas_AStaleUnconditionalWrite_InvalidatesTheSavedReader', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'aba', 'feature');
+    await writeStateFile(stateFile, { ...state, marker: 'A' }, { expectedVersion: 1 });
+    const reader = await readStateFile(stateFile);
+    expect(reader._version).toBe(2);
+    await writeStateFile(stateFile, { ...state, marker: 'B' });
+    const bytes = await fs.readFile(stateFile, 'utf8');
+    await expect(writeStateFile(stateFile, { ...reader, marker: 'stale' }, { expectedVersion: 2 })).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(await fs.readFile(stateFile, 'utf8')).toBe(bytes);
+    expect(JSON.parse(bytes)).toMatchObject({ _version: 3, marker: 'B' });
+  });
+
+  it.each([1, 99])('FileCas_StoredVersionFive_OwnsTheSuccessorForCaller%i', async (callerVersion) => {
+    const { stateFile, state } = await initStateFile(directory, 'authority', 'feature');
+    const successors: number[] = [];
+    for (const options of [undefined, { expectedVersion: 5 }]) {
+      await fs.writeFile(stateFile, JSON.stringify({ ...state, _version: 5 }));
+      await writeStateFile(stateFile, { ...state, _version: callerVersion }, options);
+      successors.push((await readStateFile(stateFile))._version ?? 1);
+    }
+    expect(successors).toEqual([6, 6]);
+    await fs.writeFile(stateFile, JSON.stringify({ ...state, _version: 5 }));
+    const before = await fs.readFile(stateFile, 'utf8');
+    await expect(writeStateFile(stateFile, { ...state, _version: callerVersion }, { expectedVersion: 4 })).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(await fs.readFile(stateFile, 'utf8')).toBe(before);
+  });
+
+  it('FileCas_ReconcileShapedCaller_AdvancesTheCommittedVersion', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'retry', 'feature');
+    await fs.writeFile(stateFile, JSON.stringify({ ...state, _version: 5 }));
+    await writeStateFile(stateFile, state, { expectedVersion: 5 });
+    expect((await readStateFile(stateFile))._version).toBe(6);
+  });
+
+  it('FileCas_MissingTargets_PreserveCreationAndInitContracts', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'creation', 'feature');
+    expect(state._version).toBe(1);
+    await expect(initStateFile(directory, 'creation', 'feature')).rejects.toMatchObject({ code: 'STATE_ALREADY_EXISTS' });
+    await writeStateFile(stateFile, state, { expectedVersion: 1 });
+    expect((await readStateFile(stateFile))._version).toBe(2);
+    for (const version of [undefined, 1, 7]) {
+      for (const options of [undefined, { expectedVersion: 1 }]) {
+        await fs.unlink(stateFile);
+        await writeStateFile(stateFile, { ...state, _version: version }, options);
+        expect((await readStateFile(stateFile))._version).toBe((version ?? 1) + 1);
+      }
+    }
+    await fs.unlink(stateFile);
+    await expect(writeStateFile(stateFile, state, { expectedVersion: 0 })).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    await expect(fs.stat(stateFile)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('FileCas_LegacyVersions_UseTheStoredSentinel', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'legacy', 'feature');
+    for (const version of [undefined, 'old']) {
+      for (const options of [undefined, { expectedVersion: 1 }]) {
+        await fs.writeFile(stateFile, JSON.stringify({ ...state, _version: version }));
+        await writeStateFile(stateFile, { ...state, _version: 99 }, options);
+        expect((await readStateFile(stateFile))._version).toBe(2);
+      }
+    }
+  });
+
+  it('FileCas_MalformedTargets_PreserveRecoveryAndConditionalRefusal', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'corrupt', 'feature');
+    for (const malformed of ['{broken', 'null']) {
+      await fs.writeFile(stateFile, malformed);
+      await expect(writeStateFile(stateFile, state, { expectedVersion: 1 })).rejects.toMatchObject({ code: 'STATE_CORRUPT' });
+      expect(await fs.readFile(stateFile, 'utf8')).toBe(malformed);
+      await writeStateFile(stateFile, { ...state, _version: 7 });
+      expect((await readStateFile(stateFile))._version).toBe(8);
+    }
+  });
+
+  it('FileCas_ReadFailures_StayFileIoErrors', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'io', 'feature');
+    const before = await fs.readFile(stateFile, 'utf8');
+    for (const options of [undefined, { expectedVersion: 1 }]) {
+      vi.spyOn(atomicWrite, 'readPublished').mockRejectedValueOnce(Object.assign(new Error('denied'), { code: 'EACCES' }));
+      await expect(writeStateFile(stateFile, state, options)).rejects.toMatchObject({ code: 'FILE_IO_ERROR' });
+      expect(await fs.readFile(stateFile, 'utf8')).toBe(before);
+    }
+  });
+
+  it('FileCas_Validation_UsesThePublishedCandidateAndPreservesPreAppendContract', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'validation', 'feature');
+    expect(validateStateForWrite({ ...state, _version: -1 })).toContain('Write-time validation failed');
+    await writeStateFile(stateFile, { ...state, _version: -1 });
+    expect((await readStateFile(stateFile))._version).toBe(2);
+    await fs.writeFile(stateFile, JSON.stringify({ ...state, _version: -1 }));
+    const before = await fs.readFile(stateFile, 'utf8');
+    await expect(writeStateFile(stateFile, state)).rejects.toMatchObject({ code: 'INVALID_INPUT' });
+    expect(await fs.readFile(stateFile, 'utf8')).toBe(before);
+    await writeStateFile(stateFile, state, { skipValidation: true, expectedVersion: -1 });
+    expect(JSON.parse(await fs.readFile(stateFile, 'utf8'))._version).toBe(0);
+    await expect(writeStateFile(stateFile, state, { skipValidation: true, expectedVersion: -1 })).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+  });
+
+});

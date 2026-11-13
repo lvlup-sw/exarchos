@@ -219,6 +219,10 @@ describe('handleCancel', () => {
 
       await handleInit({ featureId: 'cancel-comp-keys', workflowType: 'feature' }, tmpDir, eventStore);
 
+      await eventStore.append('cancel-comp-keys', {
+        type: 'workflow.transition',
+        data: { from: 'plan', to: 'delegate', trigger: 'test', featureId: 'cancel-comp-keys' },
+      });
       const rawState = await readRawState('cancel-comp-keys');
       rawState.phase = 'delegate';
       rawState._history = { feature: 'delegate' };
@@ -249,6 +253,10 @@ describe('handleCancel', () => {
 
       await handleInit({ featureId: 'cancel-trans-keys', workflowType: 'feature' }, tmpDir, eventStore);
 
+      await eventStore.append('cancel-trans-keys', {
+        type: 'workflow.transition',
+        data: { from: 'plan', to: 'delegate', trigger: 'test', featureId: 'cancel-trans-keys' },
+      });
       const rawState = await readRawState('cancel-trans-keys');
       rawState.phase = 'delegate';
       rawState._history = { feature: 'delegate' };

@@ -725,4 +725,99 @@ describe('the read-only audit of the guard input', () => {
     const written: unknown = JSON.parse(readFileSync(out, 'utf8'));
     expect(written).toEqual(report);
   });
+
+  /**
+   * `--preview` classes each active compared document by the change of its edges at the switch, and it skips a terminal document.
+   * The honest plan keeps its verdicts. The plan in the rows only is newly admitted. An empty task list at `delegate` is newly denied.
+   * An audit with no `--preview` holds no preview.
+   */
+  it('GuardInputAudit_Preview_ClassesEachActiveDocument', async () => {
+    const store = await openStore();
+    await init(store, 'honest-plan');
+    await update(store, 'honest-plan', { 'artifacts.plan': PLAN_ARTIFACT });
+    await init(store, 'row-only-plan');
+    await appendRow(store, 'row-only-plan', 'state.patched', {
+      featureId: 'row-only-plan',
+      fields: ['artifacts.plan'],
+      patch: { 'artifacts.plan': PLAN_ARTIFACT },
+    });
+    await seedActive(store, 'empty-delegate');
+    await seedTerminal(store, 'agree-terminal');
+    await closeStore(store);
+    const copy = copyStoreInto(path.join(store.stateDir, STORE_FILE), path.join(tempDir('guard-audit-copy-'), 'store'));
+    const home = tempDir('guard-audit-home-');
+
+    const previewed = reportOf(await runGuardInputAudit(['--store', copy, '--preview'], { homedir: home, env: {} }));
+    const plain = reportOf(await runGuardInputAudit(['--store', copy], { homedir: home, env: {} }));
+
+    const classes = (previewed.preview ?? []).map((entry) => [entry.featureId, entry.phase.document, entry.effect]);
+    expect(classes.sort((left, right) => String(left[0]).localeCompare(String(right[0])))).toEqual([
+      ['empty-delegate', 'delegate', 'newly-denied'],
+      ['honest-plan', 'plan', 'no-effect'],
+      ['row-only-plan', 'plan', 'newly-admitted'],
+    ]);
+    expect(previewed.compared).toEqual({ active: 3, terminal: 1 });
+    expect(previewed.clean).toBe(plain.clean);
+    expect(plain).not.toHaveProperty('preview');
+  });
+
+  /** A plan artifact in the rows only admits `plan -> plan-review` on the fold. The legacy guard denies it on the document, and the edge names its keys. */
+  it('GuardInputAudit_Preview_ANewlyAdmittedEdgeNamesItsKeys', async () => {
+    const store = await openStore();
+    await init(store, 'row-only-plan');
+    await appendRow(store, 'row-only-plan', 'state.patched', {
+      featureId: 'row-only-plan',
+      fields: ['artifacts.plan'],
+      patch: { 'artifacts.plan': PLAN_ARTIFACT },
+    });
+
+    const report = await auditGuardInputs(store.backend, { preview: true });
+
+    expect(report.preview).toEqual([
+      {
+        featureId: 'row-only-plan',
+        workflowType: 'feature',
+        phase: { document: 'plan', fold: 'plan' },
+        effect: 'newly-admitted',
+        edges: [
+          {
+            transitionId: 'plan->plan-review',
+            to: 'plan-review',
+            legacy: 'deny',
+            decide: 'allow',
+            change: 'newly-admitted',
+            keys: ['artifacts.plan', 'plan'],
+          },
+        ],
+      },
+    ]);
+  });
+
+  /** A plan artifact in the document only admits `plan -> plan-review` on the document. The decide denies it on the fold, and the edge names its keys. */
+  it('GuardInputAudit_Preview_ANewlyDeniedEdgeNamesItsKeys', async () => {
+    const store = await openStore();
+    await init(store, 'document-only-plan');
+    forge(store, 'document-only-plan', (document) => ({ ...document, artifacts: { ...document.artifacts, plan: PLAN_ARTIFACT } }));
+
+    const report = await auditGuardInputs(store.backend, { preview: true });
+
+    expect(report.preview).toEqual([
+      {
+        featureId: 'document-only-plan',
+        workflowType: 'feature',
+        phase: { document: 'plan', fold: 'plan' },
+        effect: 'newly-denied',
+        edges: [
+          {
+            transitionId: 'plan->plan-review',
+            to: 'plan-review',
+            legacy: 'allow',
+            decide: 'deny',
+            change: 'newly-denied',
+            keys: ['artifacts.plan', 'plan'],
+          },
+        ],
+      },
+    ]);
+  });
 });

@@ -2,7 +2,9 @@
  * These tests check the guard-input shadow on the transition path.
  * Each case seeds a SQLite store with `configureStateStoreBackend`, so the state document is the `workflow_state` row, as in production.
  * A seed writes the document only, the rows only, or both. Then the case calls the handler and reads the result, the diagnostics file and the counts.
- * The state document still decides each call. A disagreement adds a warning and a line, and it adds no row.
+ *
+ * The ledger fold decides each call on a stream with a start row. A disagreement adds a warning and a line, and it adds no row.
+ * So a case that moves the phase with a disagreement holds the fact in the rows only, and the document lacks it.
  *
  * @oracle-sources: ../../src/projections/guard-input/shadow.ts, the seeded stores and expected lines written in this file
  */
@@ -159,6 +161,15 @@ async function seedDocumentOnlyPlan(store: ShadowStore, featureId = FEATURE_ID):
   await forgePlanArtifact(store, featureId);
 }
 
+/** Starts a feature at `plan` whose rows alone hold the plan artifact. The fold admits `plan-review`, and the document disagrees. */
+async function seedRowOnlyPlan(store: ShadowStore, featureId = FEATURE_ID, plan = PLAN_ARTIFACT): Promise<void> {
+  await init(store, featureId);
+  await appendPatchRow(store, featureId, 'artifacts.plan', plan);
+}
+
+/** The prefix of the warning of a transition that the state document decided. */
+const DOCUMENT_FALLBACK = 'GUARD_INPUT_DOCUMENT_FALLBACK: ';
+
 /** Starts a feature at `plan` that holds the plan artifact in the rows and in the document. */
 async function seedHonestPlan(store: ShadowStore, featureId = FEATURE_ID): Promise<void> {
   await init(store, featureId);
@@ -207,13 +218,13 @@ async function oneLineOf(store: ShadowStore, featureId = FEATURE_ID): Promise<Di
   return line;
 }
 
-/** Returns the guard ids and targets of a line. */
-function guardsOf(line: DiagnosticsLine): readonly { readonly guardId: unknown; readonly to: unknown }[] {
-  const guards: unknown = line.guards;
-  if (!Array.isArray(guards)) return [];
-  const list: readonly unknown[] = guards;
-  return list.map((guard) =>
-    typeof guard === 'object' && guard !== null && 'guardId' in guard && 'to' in guard ? { guardId: guard.guardId, to: guard.to } : { guardId: undefined, to: undefined },
+/** Returns the transition ids and targets of the edges of a line. */
+function edgesOf(line: DiagnosticsLine): readonly { readonly transitionId: unknown; readonly to: unknown }[] {
+  const edges: unknown = line.edges;
+  if (!Array.isArray(edges)) return [];
+  const list: readonly unknown[] = edges;
+  return list.map((edge) =>
+    typeof edge === 'object' && edge !== null && 'transitionId' in edge && 'to' in edge ? { transitionId: edge.transitionId, to: edge.to } : { transitionId: undefined, to: undefined },
   );
 }
 
@@ -292,37 +303,37 @@ function oneWarningOf(result: ToolResult): string {
 }
 
 describe('the guard-input shadow on the transition path', () => {
-  /** A plan artifact in the document only warns and writes one line, and the document still moves the phase. */
-  it('HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndTransitions', async () => {
+  /** A plan artifact in the document only warns and writes one line, and the fold of the rows fails the guard. */
+  it('HandleSet_ADocumentOnlyPlanArtifact_WarnsWritesOneLineAndFailsTheGuard', async () => {
     const store = await openStore();
     await seedDocumentOnlyPlan(store);
     const before = guardInputShadowCounts();
 
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
 
-    expect(result.success).toBe(true);
-    expect(phaseOf(result)).toBe('plan-review');
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('GUARD_FAILED');
+    expect((await readStateFile(stateFileOf(store, FEATURE_ID))).phase).toBe('plan');
     expect(oneWarningOf(result).startsWith(DISAGREEMENT)).toBe(true);
     expect(countsSince(before)).toEqual({ compared: 1, disagreeing: 1, failed: 0 });
     const line = await oneLineOf(store);
     expect(line).toMatchObject({ v: 1, featureId: FEATURE_ID, workflowType: 'feature', call: 'transition', from: 'plan', to: 'plan-review' });
     expect(differenceKeysOf(line)).toContain('artifacts.plan');
-    expect(line.guards).toContainEqual({ guardId: 'plan-artifact-exists', to: 'plan-review', document: 'pass', fold: 'fail' });
+    expect(line.edges).toContainEqual({ transitionId: 'plan->plan-review', to: 'plan-review', document: 'allow', fold: 'deny' });
   });
 
-  /** A plan artifact in the rows only fails the guard of the document, and the failure carries the warning. */
-  it('HandleSet_ARowOnlyPlanArtifact_FailsTheGuardWithTheWarning', async () => {
+  /** A plan artifact in the rows only passes the guard on the fold, so the call transitions, and the result carries the warning. */
+  it('HandleSet_ARowOnlyPlanArtifact_TransitionsWithTheWarning', async () => {
     const store = await openStore();
-    await init(store, FEATURE_ID);
-    await appendPatchRow(store, FEATURE_ID, 'artifacts.plan', PLAN_ARTIFACT);
+    await seedRowOnlyPlan(store);
 
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
 
-    expect(result.success).toBe(false);
-    expect(result.error?.code).toBe('GUARD_FAILED');
+    expect(result.success).toBe(true);
+    expect(phaseOf(result)).toBe('plan-review');
     expect(oneWarningOf(result).startsWith(DISAGREEMENT)).toBe(true);
     const line = await oneLineOf(store);
-    expect(line.guards).toContainEqual({ guardId: 'plan-artifact-exists', to: 'plan-review', document: 'fail', fold: 'pass' });
+    expect(line.edges).toContainEqual({ transitionId: 'plan->plan-review', to: 'plan-review', document: 'deny', fold: 'allow' });
   });
 
   /** An honest workflow compares and agrees, so it gives no warning and no diagnostics directory. */
@@ -359,7 +370,7 @@ describe('the guard-input shadow on the transition path', () => {
   it('HandleSet_ADisagreeingCall_AddsTheRowsOfItsAgreeingTwin', async () => {
     const store = await openStore();
     await seedHonestPlan(store, 'guard-shadow-agreeing');
-    await seedDocumentOnlyPlan(store, 'guard-shadow-disagreeing');
+    await seedRowOnlyPlan(store, 'guard-shadow-disagreeing');
 
     const agreeing = await rowDelta(store, 'guard-shadow-agreeing', () =>
       handleSet({ featureId: 'guard-shadow-agreeing', phase: 'plan-review' }, store.stateDir, store.eventStore),
@@ -395,7 +406,7 @@ describe('the guard-input shadow on the transition path', () => {
     expect(line.phase).toEqual({ document: 'plan', fold: 'plan-review' });
   });
 
-  /** A call that skips `plan-review` lists the guards of the skipped machine: `plan` gets the guards of `plan-review`. */
+  /** A call that skips `plan-review` lists the edges of the skipped definition: `plan` gets the rerouted edges of `plan-review`. */
   it('HandleSet_ASkippedPhase_ListsTheGuardsOfTheSkippedMachine', async () => {
     const store = await openStore();
     await init(store, FEATURE_ID);
@@ -411,9 +422,9 @@ describe('the guard-input shadow on the transition path', () => {
 
     expect(result.success).toBe(true);
     expect(phaseOf(result)).toBe('delegate');
-    const guards = guardsOf(await oneLineOf(store));
-    expect(guards).toContainEqual({ guardId: 'plan-review-complete', to: 'delegate' });
-    expect(guards.map((guard) => guard.guardId)).not.toContain('plan-artifact-exists');
+    const edges = edgesOf(await oneLineOf(store));
+    expect(edges).toContainEqual({ transitionId: 'plan->delegate', to: 'delegate' });
+    expect(edges.map((edge) => edge.transitionId)).not.toContain('plan->plan-review');
   });
 
   /** One CAS retry records only the last pass. The first pass appended the transition rows, so the fold leads the document. */
@@ -451,21 +462,26 @@ describe('the guard-input shadow on the transition path', () => {
     expect(line.classes).toEqual(['phase']);
   });
 
-  /** Each row skips the comparison by one check. Each seed holds the document-only plan artifact, which warns when the check is absent. */
+  /**
+   * Each row skips the comparison by one check. Each seed holds a plan artifact on one side only, which warns when the check is absent.
+   * The rows off the ledger, with no start row and with no store keep the legacy guard on the document, with one fallback warning.
+   */
   it.each(
     [
       {
         name: 'updates',
-        seed: (store: ShadowStore) => seedDocumentOnlyPlan(store),
+        seed: (store: ShadowStore) => seedRowOnlyPlan(store),
         call: (store: ShadowStore) =>
           handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.design': 'plans/design.md' } }, store.stateDir, store.eventStore),
         phase: 'plan-review',
+        fallback: false,
       },
       {
         name: 'a self-transition',
         seed: (store: ShadowStore) => seedDocumentOnlyPlan(store),
         call: (store: ShadowStore) => handleSet({ featureId: FEATURE_ID, phase: 'plan' }, store.stateDir, store.eventStore),
         phase: 'plan',
+        fallback: false,
       },
       {
         name: 'off the ledger',
@@ -475,6 +491,7 @@ describe('the guard-input shadow on the transition path', () => {
         },
         call: (store: ShadowStore) => handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore),
         phase: 'plan-review',
+        fallback: true,
       },
       {
         name: 'no start row',
@@ -485,6 +502,7 @@ describe('the guard-input shadow on the transition path', () => {
         },
         call: (store: ShadowStore) => handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore),
         phase: 'plan-review',
+        fallback: true,
       },
       {
         name: 'no store',
@@ -494,9 +512,10 @@ describe('the guard-input shadow on the transition path', () => {
         },
         call: (store: ShadowStore) => handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, null),
         phase: 'plan-review',
+        fallback: true,
       },
     ].map((row): [string, typeof row] => [row.name, row]),
-  )('HandleSet_%s_GetsNoComparison', async (_name, { seed, call, phase }) => {
+  )('HandleSet_%s_GetsNoComparison', async (_name, { seed, call, phase, fallback }) => {
     const store = await openStore();
     await seed(store);
     const before = guardInputShadowCounts();
@@ -505,7 +524,8 @@ describe('the guard-input shadow on the transition path', () => {
 
     expect(result.success).toBe(true);
     expect(phaseOf(result)).toBe(phase);
-    expect(result.warnings).toBeUndefined();
+    if (fallback) expect(oneWarningOf(result).startsWith(DOCUMENT_FALLBACK)).toBe(true);
+    else expect(result.warnings).toBeUndefined();
     expect(existsSync(diagnosticsDirOf(store))).toBe(false);
     expect(countsSince(before)).toEqual({ compared: 0, disagreeing: 0, failed: 0 });
   });
@@ -559,6 +579,7 @@ describe('the guard-input shadow on the transition path', () => {
         target: 'plan-review',
         code: 'INVALID_INPUT',
         prepare: async (store: ShadowStore): Promise<void> => {
+          await appendPatchRow(store, FEATURE_ID, 'artifacts.plan', PLAN_ARTIFACT);
           const document = await readStateFile(stateFileOf(store, FEATURE_ID));
           store.backend.setState(FEATURE_ID, { ...document, tasks: [{ id: 't1', status: 'pending' }] });
         },
@@ -579,8 +600,8 @@ describe('the guard-input shadow on the transition path', () => {
     expect(countsSince(before)).toEqual({ compared: 1, disagreeing: 1, failed: 0 });
   });
 
-  /** A fold that throws keeps the decision. The warning and the line hold the first 120 characters of the error message. */
-  it('HandleSet_AFoldThatThrows_KeepsTheDecisionAndWritesAShadowFailedLine', async () => {
+  /** A fold that throws refuses the call, as no guard decides. The warning and the line hold the first 120 characters of the error message. */
+  it('HandleSet_AFoldThatThrows_RefusesTheCallAndWritesAShadowFailedLine', async () => {
     const key = `artifacts[0].${'x'.repeat(200)}`;
     let expectedMessage = '';
     try {
@@ -597,9 +618,10 @@ describe('the guard-input shadow on the transition path', () => {
 
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
 
-    expect(result.success).toBe(true);
-    expect(phaseOf(result)).toBe('plan-review');
-    expect(oneWarningOf(result)).toBe(`${SHADOW_FAILED}${expectedMessage.slice(0, 120)}. The state document decided.`);
+    expect(result.success).toBe(false);
+    expect(result.error?.code).toBe('PROJECTION_REPLAY_FAILED');
+    expect((await readStateFile(stateFileOf(store, FEATURE_ID))).phase).toBe('plan');
+    expect(oneWarningOf(result)).toBe(`${SHADOW_FAILED}${expectedMessage.slice(0, 120)}. The shadow compared nothing.`);
     expect(countsSince(before)).toEqual({ compared: 0, disagreeing: 0, failed: 1 });
     const line = await oneLineOf(store);
     expect(line.error).toBe(expectedMessage.slice(0, 120));
@@ -609,7 +631,7 @@ describe('the guard-input shadow on the transition path', () => {
   /** A regular file at the path of the diagnostics directory fails the write, and the call keeps its transition and its warning. */
   it('HandleSet_AFailedFileWrite_KeepsTheTransitionAndTheWarning', async () => {
     const store = await openStore();
-    await seedDocumentOnlyPlan(store);
+    await seedRowOnlyPlan(store);
     const blocker = 'a regular file where the directory goes\n';
     await writeFile(diagnosticsDirOf(store), blocker, 'utf8');
     const before = guardInputShadowCounts();
@@ -626,7 +648,7 @@ describe('the guard-input shadow on the transition path', () => {
   /** A failed file write leaves no line, so the warning of the call names no diagnostics file. */
   it('HandleSet_AFailedFileWrite_WarnsWithNoDiagnosticsPath', async () => {
     const store = await openStore();
-    await seedDocumentOnlyPlan(store);
+    await seedRowOnlyPlan(store);
     await writeFile(diagnosticsDirOf(store), 'a regular file where the directory goes\n', 'utf8');
 
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
@@ -641,13 +663,14 @@ describe('the guard-input shadow on the transition path', () => {
   /** A line that takes the file past 1 MiB becomes one capped line. A file that ends with a capped line gets no more lines. */
   it('HandleSet_AtTheFileCap_WritesOneCappedLineAndThenNothing', async () => {
     const store = await openStore();
-    await seedDocumentOnlyPlan(store);
+    await seedRowOnlyPlan(store);
     await mkdir(diagnosticsDirOf(store), { recursive: true });
     const filler = `${'f'.repeat(FILE_MAX_BYTES - 101)}\n`;
     await writeFile(diagnosticsFileOf(store), filler, 'utf8');
 
     const first = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
     const afterFirst = await readFile(diagnosticsFileOf(store), 'utf8');
+    await forgeDocument(store, FEATURE_ID, (document) => ({ ...document, phase: 'delegate', tasks: [{ id: 'cap-task', title: 'Task', status: 'complete', blockedBy: [] }] }));
     const second = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
 
     expect(first.success).toBe(true);
@@ -680,15 +703,15 @@ describe('the guard-input shadow on the transition path', () => {
 
   /** A warning over 300 characters keeps its first 297 characters and `...`, so it keeps the whole details path. */
   it('HandleSet_AWarning_HoldsAtMost300Characters', async () => {
-    const featureId = `guard-shadow-${'w'.repeat(70)}`;
-    expect(featureId).toHaveLength(83);
+    const featureId = `guard-shadow-${'w'.repeat(87)}`;
+    expect(featureId).toHaveLength(100);
     const store = await openStore();
     await seedDocumentOnlyPlan(store, featureId);
     const raw =
-      'GUARD_INPUT_DISAGREEMENT: the ledger fold and the state document disagree on 2 guard inputs at plan -> plan-review. ' +
-      `The state document decided. Details: guard-input-diagnostics/${featureId}.jsonl. Keys: artifacts.plan, artifacts.planNonEmpty.`;
+      'GUARD_INPUT_DISAGREEMENT: the ledger fold decided, and the state document disagrees on 2 guard inputs at plan -> plan-review. ' +
+      `Details: guard-input-diagnostics/${featureId}.jsonl. Keys: artifacts.plan, artifacts.planNonEmpty.`;
     expect(raw.length).toBeGreaterThan(300);
-    expect(raw).toHaveLength(313);
+    expect(raw).toHaveLength(312);
 
     const result = await handleSet({ featureId, phase: 'plan-review' }, store.stateDir, store.eventStore);
 
@@ -698,7 +721,7 @@ describe('the guard-input shadow on the transition path', () => {
     expect(warning).toContain(`guard-input-diagnostics/${featureId}.jsonl`);
   });
 
-  /** Forty tasks forged complete in the document give 41 differences. The warning counts 41, and the line keeps 32. */
+  /** Forty tasks complete in the rows and pending in the document give 41 differences. The warning counts 41, and the line keeps 32. */
   it('HandleSet_MoreThan32Differences_KeepsEachListAt32', async () => {
     const store = await openStore();
     const ids = Array.from({ length: 40 }, (_, index) => `t${String(index + 1).padStart(2, '0')}`);
@@ -707,15 +730,14 @@ describe('the guard-input shadow on the transition path', () => {
     await update(store, FEATURE_ID, { planReview: { approved: true } });
     await transition(store, FEATURE_ID, 'delegate');
     await update(store, FEATURE_ID, { tasks: ids.map((id) => ({ id, title: `task ${id}`, status: 'pending' })) });
-    await forgeDocument(store, FEATURE_ID, (document) => ({
-      ...document,
-      tasks: ids.map((id) => ({ id, title: `task ${id}`, status: 'complete' })),
-    }));
+    for (const id of ids) {
+      await store.eventStore.append(FEATURE_ID, { type: 'task.completed', data: { taskId: id } });
+    }
 
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
 
     expect(phaseOf(result)).toBe('review');
-    expect(oneWarningOf(result)).toContain('disagree on 41 guard inputs');
+    expect(oneWarningOf(result)).toContain('disagrees on 41 guard inputs');
     const line = await oneLineOf(store);
     expect(differenceKeysOf(line)).toHaveLength(32);
     expect(differenceKeysOf(line)[0]).toBe('tasks.allComplete');
@@ -725,8 +747,7 @@ describe('the guard-input shadow on the transition path', () => {
   /** A plan path of 9000 characters makes a line over 8 KiB, so the line empties its lists and keeps its classes. */
   it('HandleSet_ALineOver8KiB_EmptiesItsLists', async () => {
     const store = await openStore();
-    await init(store, FEATURE_ID);
-    await forgePlanArtifact(store, FEATURE_ID, `plans/${'p'.repeat(8991)}.md`);
+    await seedRowOnlyPlan(store, FEATURE_ID, `plans/${'p'.repeat(8991)}.md`);
 
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
 
@@ -735,7 +756,7 @@ describe('the guard-input shadow on the transition path', () => {
     expect(Buffer.byteLength(text)).toBeLessThanOrEqual(8192);
     const line = await oneLineOf(store);
     expect(line.differences).toEqual([]);
-    expect(line.guards).toEqual([]);
+    expect(line.edges).toEqual([]);
     expect(line.classes).toEqual(['unexplained']);
     expect(line.truncated).toBe(true);
   });
@@ -743,8 +764,7 @@ describe('the guard-input shadow on the transition path', () => {
   /** The enriched guard failure of `transition` keeps the warning of the set result. */
   it('HandleTransition_AGuardFailure_KeepsTheWarningInTheEnrichedError', async () => {
     const store = await openStore();
-    await init(store, FEATURE_ID);
-    await appendPatchRow(store, FEATURE_ID, 'artifacts.plan', PLAN_ARTIFACT);
+    await seedDocumentOnlyPlan(store);
 
     const result = await handleTransition({ featureId: FEATURE_ID, target: 'plan-review' }, store.stateDir, store.eventStore);
 

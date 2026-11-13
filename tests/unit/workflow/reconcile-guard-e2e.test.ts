@@ -62,6 +62,7 @@ describe('ReconcileGuardE2E', () => {
       stateDir,
       eventStore,
     );
+    await eventStore.append(featureId, { type: 'task.completed', data: { taskId: 't1' } });
   }
 
   /**

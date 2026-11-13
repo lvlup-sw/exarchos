@@ -5,6 +5,7 @@
  */
 
 import type { BundleRefV1 } from '../../events/bundle/digest-references.js';
+import type { EdgeVerdict } from '../../workflow/decide/decide.js';
 import type { GateAdvisorySkip } from '../gates/gate-utils.js';
 import type { SettlementFinding, SettlementCensus, SettlementOutcome, UnresolvedTask } from './adjudicate.js';
 
@@ -95,6 +96,39 @@ export interface SettlementDesignRevision {
   readonly deviationIds: readonly string[];
 }
 
+/**
+ * What the commit of a batch did to the phase.
+ * - `moved`: exactly one plain explicit edge admitted, and the commit appended its rows before the record.
+ *   `phaseAttemptId` names the attempt of the new phase.
+ * - `stayed`: the commit decided and kept the phase. `edges` holds the verdict of each explicit edge out of the phase.
+ * - `not-decided`: a condition before the decide did not hold, so the commit did not decide.
+ */
+export type PhaseMove =
+  | {
+      readonly kind: 'moved';
+      readonly from: string;
+      readonly to: string;
+      readonly transitionId: string;
+      readonly guardId?: string;
+      readonly phaseAttemptId: string;
+    }
+  | {
+      readonly kind: 'stayed';
+      readonly phase: string;
+      readonly reason: 'no-edge-admits' | 'edges-admit' | 'edge-not-plain' | 'phase-blocked';
+      readonly edges: readonly EdgeVerdict[];
+    }
+  | {
+      readonly kind: 'not-decided';
+      readonly reason:
+        | 'outcome-does-not-move'
+        | 'design-revision'
+        | 'unpinned-definition'
+        | 'skip-phases-config'
+        | 'fold-failed'
+        | 'off-batch-step';
+    };
+
 /** What one `settle` call returns, on every outcome. */
 export interface SettlementReceipt {
   readonly operationId: string;
@@ -147,4 +181,9 @@ export interface SettlementReceipt {
    * present exactly when the round committed a `design.revised` row, whatever the outcome.
    */
   readonly designRevision?: SettlementDesignRevision;
+  /**
+   * What the commit did to the phase. Every commit of this build sets it. A replay returns the receipt stored in the
+   * operation claim, and a claim from an earlier build does not carry the field.
+   */
+  readonly phaseMove?: PhaseMove;
 }

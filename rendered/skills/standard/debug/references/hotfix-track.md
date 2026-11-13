@@ -70,7 +70,7 @@ Apply minimal fix directly (no worktree):
 - No new features or refactoring
 - Record fix approach in state
 
-Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `hotfix-implement → hotfix-validate` guard requirements, then write the required fields (artifacts) with `update` and call `transition` with `target: "hotfix-validate"`.
+Call `exarchos_workflow({ action: "describe", playbook: "debug" })` for the `hotfix-implement → hotfix-validate` guard requirements. When the fix is complete, write `implementation.complete: true` with `update`, then call `transition` with `target: "hotfix-validate"`. The edge reads that field, and it denies until the field is true.
 
 ### 4. Validate Phase
 

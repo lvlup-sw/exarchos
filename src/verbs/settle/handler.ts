@@ -1,28 +1,25 @@
 /**
- * `settle`: the adjudication endpoint. One call judges one batch of claims
- * against the capsule that the batch ran under, and records one verdict.
+ * `settle`: the adjudication endpoint. One call judges one batch of claims against the capsule that the batch ran under,
+ * and records one verdict. A refused batch is still a settlement: it returns success with `outcome: 'rejected'`.
  *
- * The adjudication bundle goes into content-addressed custody first. Only then
- * does the ledger record that names it commit. A failed bundle write fails the
- * whole settlement, with no settlement claim and no settlement record.
+ * The adjudication bundle goes into content-addressed custody first, and only then does the record that names it commit.
+ * A failed bundle write fails the whole settlement, with no settlement claim and no record. Settlement reads the pinned
+ * capsule back from custody, and it only compares a submitted capsule with the record.
  *
- * Settlement reads the pinned capsule back from custody. A submitted capsule is
- * only compared with the record. A refused batch is still a settlement: it
- * returns success with `outcome: 'rejected'` and appends the record.
+ * A batch that the shape pass does not stop is verified task by task. Of the halts of a segment, only one at a gate leaf
+ * leaves its task unresolved, also if the gate did not run. Completion wins. A decision round that accepts a material
+ * deviation also commits one design revision, numbered inside the write transaction.
  *
- * A batch that the shape pass does not stop is verified task by task. Of the halts of a segment,
- * only one at a gate leaf leaves its task unresolved, also if the gate did not run. Completion wins.
- *
- * A decision round that accepts a material deviation also commits one design
- * revision. The revision takes its number inside the write transaction.
- *
- * The operation claim derives from the batch identity, not from the caller. A
- * resubmitted batch gets its existing verdict. A correction under a new
- * `batchId` is a new settlement. Settlement does not move the phase.
+ * The operation claim derives from the batch identity, so a resubmitted batch gets its existing verdict. The commit can
+ * also move the phase. It decides on the ledger fold of its own rows, under the pinned definition. It moves only on one
+ * plain explicit edge out of the batch step. The rows of the move come before the record, and settle then levels the
+ * state document.
  */
 
 import { createHash } from 'node:crypto';
 import * as path from 'node:path';
+
+import type { WorkflowDefinitionV1 } from '@lvlup-sw/strategos-contracts';
 
 import { capsuleDigest } from '../../contract/capsule/capsule-digest.js';
 import { resolveCapsuleReferences } from '../../contract/capsule/capsule-references.js';
@@ -39,7 +36,7 @@ import { runExclusivePerOperation } from '../../dispatch/core/operation-serializ
 import { outerCorrelation, stampFromAmbient } from '../../dispatch/core/outer-correlation.js';
 import { resolveSubjectStream } from '../../dispatch/core/subject-stream.js';
 import { runWithDispatchContext } from '../../dispatch/dispatch-context.js';
-import { OperationDigestMismatchError, type EventInput } from '../../events/atomic-appender.js';
+import { OperationDigestMismatchError, type DecideOnceStoredEvent, type EventInput } from '../../events/atomic-appender.js';
 import { EXECUTION_SETTLED_SETTLEMENT, type BundleRefV1 } from '../../events/bundle/digest-references.js';
 import type { RunBundleStore } from '../../events/bundle/run-bundle-store.js';
 import { migrateEvents } from '../../events/event-migration.js';
@@ -50,12 +47,25 @@ import {
   DeviationProposedData,
   ExecutionSettledData,
   type ExecutionSettled,
+  type WorkflowEvent,
 } from '../../events/schemas.js';
 import type { ToolResult } from '../../format.js';
 import { orchestrateLogger } from '../../logger.js';
+import { foldGuardInput, foldWorkflowState } from '../../projections/guard-input/fold.js';
 import { canonicalPath, observeClaimedTree } from '../../utils/git-tree.js';
 import { evidenceArtifactResolver } from '../../workflow/admission/evidence-artifact.js';
-import { markTasksCompleteInStateDocument, type TaskStatusSyncOutcome } from '../../workflow/state-store.js';
+import { decide, type EdgeVerdict } from '../../workflow/decide/decide.js';
+import { compileDecideDefinition, type DecideDefinition, type DecideEdge } from '../../workflow/decide/edges.js';
+import { frozenFloorOf, mergeFloors, phaseMoveEvents, statedCoordinate } from '../../workflow/decide/emit.js';
+import { phaseRowsOf } from '../../workflow/decide/rows.js';
+import { pinnedExtensionOf, transitionOptionsOf } from '../../workflow/decide/pinned.js';
+import { validateExtension } from '../../workflow/definitions/extension.js';
+import { allocatePhaseAttemptId, readPhaseAttemptId } from '../../workflow/phase-attempt-id.js';
+import {
+  levelPhaseInStateDocument,
+  markTasksCompleteInStateDocument,
+  type TaskStatusSyncOutcome,
+} from '../../workflow/state-store.js';
 import type { VerificationProfile } from '../../workflow/verification/profile.js';
 import { compileIntent } from '../execute/compile.js';
 import { handleExecuteIntent, type ExecuteIntentDeps } from '../execute/executor.js';
@@ -104,6 +114,7 @@ import {
   MAX_AFFECTED_TASKS_PER_DEVIATION,
   MAX_DEVIATIONS_PER_BATCH,
   type PendingDeviation,
+  type PhaseMove,
   type SettledCapsuleIdentity,
   type SettlementDecision,
   type SettlementDesignRevision,
@@ -1081,6 +1092,10 @@ interface SettlementCall {
   readonly deps: SettleDeps;
   readonly streamId: string;
   readonly identity: SettledCapsuleIdentity;
+  /** The workflow type of the prepared record. The gates of a phase move resolve for it. */
+  readonly workflowType: string;
+  /** The definition that the capsule pins. The commit decides the phase move under it. */
+  readonly pinnedDefinition: WorkflowDefinitionV1;
   readonly operationId: string;
   readonly requestDigest: string;
   readonly batchLabel: string;
@@ -1355,6 +1370,167 @@ async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
   return commitJudgement(call, judgement, warnings);
 }
 
+/** The trigger of each row of a settle move. */
+const SETTLE_TRIGGER = 'settle';
+
+/** The prefix of the warning when the state document cannot follow a settle move. */
+const PHASE_LEVEL_FAILED = 'PHASE_LEVEL_FAILED';
+
+/** The reason of a commit that did not decide the phase. */
+type NotDecidedReason = Extract<PhaseMove, { readonly kind: 'not-decided' }>['reason'];
+
+/** The reason of a commit that decided and kept the phase. */
+type StayedReason = Extract<PhaseMove, { readonly kind: 'stayed' }>['reason'];
+
+/** The phase decision of one settle commit: the receipt field, and the rows of a move with no stamp. */
+interface PhaseDecision {
+  readonly phaseMove: PhaseMove;
+  readonly rows: readonly EventInput[];
+}
+
+/** The decision of a commit that did not decide. It appends no row. */
+function notDecided(reason: NotDecidedReason): PhaseDecision {
+  return { phaseMove: { kind: 'not-decided', reason }, rows: [] };
+}
+
+/** The decision of a commit that decided and kept the phase. It appends no row, and it lists each edge verdict. */
+function stayed(phase: string, reason: StayedReason, edges: readonly EdgeVerdict[]): PhaseDecision {
+  return { phaseMove: { kind: 'stayed', phase, reason, edges: [...edges] }, rows: [] };
+}
+
+/**
+ * Compiles the definition that a capsule pins into its decide form. A kernel-only pin of an earlier compiler,
+ * an extension that breaks a reference rule and a condition that does not compile each give `undefined`.
+ */
+function pinnedDecideDefinition(workflowType: string, definition: WorkflowDefinitionV1): DecideDefinition | undefined {
+  const extension = pinnedExtensionOf(definition);
+  if (extension === undefined) return undefined;
+  if (validateExtension(definition, definition, extension).length > 0) return undefined;
+  try {
+    return compileDecideDefinition(workflowType, { ...definition, exarchos: extension });
+  } catch {
+    return undefined;
+  }
+}
+
+/** True when the configured skip list names a step or a group of the pinned definition. */
+function skipsAPinnedStep(def: DecideDefinition, skipPhases: readonly string[] | undefined): boolean {
+  return (skipPhases ?? []).some(
+    (skip) => def.steps.some((step) => step.stepId === skip) || def.groups.some((group) => group.groupId === skip),
+  );
+}
+
+/**
+ * True when an edge is plain. A plain edge keeps its source and its target in the same groups, and it has no fix-cycle
+ * flag and no revision flag. An edge into the cancel target is not plain, because its move gives the cancel trail.
+ */
+function isPlainEdge(def: DecideDefinition, edge: DecideEdge): boolean {
+  const groupOf = (phase: string): string | undefined => def.steps.find((step) => step.stepId === phase)?.groupId;
+  return (
+    groupOf(edge.from) === groupOf(edge.to) &&
+    edge.isFixCycle !== true &&
+    edge.isRevision !== true &&
+    edge.to !== def.cancel?.to
+  );
+}
+
+/** Returns a stored row of a commit snapshot as a workflow event. The fold reads only the identity, the type and the data. */
+function workflowEventOf(stored: DecideOnceStoredEvent): WorkflowEvent {
+  return {
+    streamId: stored.streamId,
+    sequence: stored.sequence,
+    type: stored.type,
+    timestamp: stored.timestamp,
+    schemaVersion: typeof stored.schemaVersion === 'string' ? stored.schemaVersion : '1.0',
+    ...(stored.data === undefined ? {} : { data: stored.data }),
+  };
+}
+
+/** The inputs of the phase decision of one settle commit: the outcome, the revision and the rows of the write transaction. */
+interface PhaseDecisionInput {
+  readonly call: SettlementCall;
+  readonly outcome: SettlementOutcome;
+  readonly revised: boolean;
+  readonly events: readonly DecideOnceStoredEvent[];
+  readonly version: number;
+}
+
+/**
+ * Decides the phase move of one settle commit. Seven conditions apply in this order. The outcome moves the phase, and
+ * the commit writes no design revision. The capsule pins an extension, and the config skips no pinned step. The fold of
+ * the rows does not throw, and the fold phase is the step of each batch task. Exactly one plain explicit edge admits.
+ *
+ * The input is the ledger fold of the rows of the write transaction, never the state document. The floor of the move
+ * joins the coordinate of the fold and the gates that the last entry of the target froze. The rows carry the trigger
+ * `settle`. A refused gate set keeps the phase.
+ */
+function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
+  const { call, outcome, revised, events, version } = input;
+  if (!SETTLEMENT_OUTCOME_RULES[outcome].movesPhase) return notDecided('outcome-does-not-move');
+  if (revised) return notDecided('design-revision');
+  const def = pinnedDecideDefinition(call.workflowType, call.pinnedDefinition);
+  if (def === undefined) return notDecided('unpinned-definition');
+  const options = transitionOptionsOf(call.ctx.projectConfig);
+  if (skipsAPinnedStep(def, options?.skipPhases)) return notDecided('skip-phases-config');
+  let rows: readonly WorkflowEvent[];
+  let prior: Readonly<Record<string, unknown>>;
+  let guardInput: Record<string, unknown>;
+  try {
+    rows = migrateEvents(events).map(workflowEventOf);
+    prior = { ...foldWorkflowState(rows) };
+    guardInput = { ...foldGuardInput(rows, { config: options ?? {} }) };
+  } catch {
+    return notDecided('fold-failed');
+  }
+  const from = typeof prior.phase === 'string' ? prior.phase : '';
+  if (!call.inputs.capsule.graph.tasks.every((task) => task.stepId === from)) return notDecided('off-batch-step');
+  const decided = decide(def, guardInput, { kind: 'settle' });
+  if (decided.kind === 'stay') {
+    const admitted = decided.verdicts.filter((verdict) => verdict.verdict === 'allow').length;
+    return stayed(from, admitted === 0 ? 'no-edge-admits' : 'edges-admit', decided.verdicts);
+  }
+  if (decided.kind !== 'admit') return stayed(from, 'no-edge-admits', []);
+  const move = decided.move;
+  if (move.edgeKind !== 'explicit' || !isPlainEdge(def, move)) return stayed(from, 'edge-not-plain', decided.verdicts);
+  const phaseAttemptId = allocatePhaseAttemptId(call.streamId, from, move.to, readPhaseAttemptId(prior), version);
+  const priorCoordinate = statedCoordinate(prior);
+  const floor = mergeFloors([
+    priorCoordinate === null ? null : { coordinates: [priorCoordinate] },
+    frozenFloorOf(rows, move.to),
+  ]);
+  const result = phaseMoveEvents(def, { ...guardInput, _pendingPhaseAttemptId: phaseAttemptId }, move, floor);
+  if (!result.success) return stayed(from, 'phase-blocked', decided.verdicts);
+  const moveEvents = result.events.map((event) => ({ ...event, trigger: SETTLE_TRIGGER }));
+  return {
+    phaseMove: {
+      kind: 'moved',
+      from,
+      to: move.to,
+      transitionId: move.transitionId,
+      ...(move.guardId === undefined ? {} : { guardId: move.guardId }),
+      phaseAttemptId,
+    },
+    rows: phaseRowsOf(moveEvents, call.streamId, { guardId: move.guardId, rows }).map((row) => ({ ...row })),
+  };
+}
+
+/**
+ * Levels the state document with the phase that a commit moved, and returns the warnings of the level. A receipt with no
+ * move levels nothing. A stream with no document gets no level and no warning. A failed level gives one warning that
+ * starts with `PHASE_LEVEL_FAILED`, and the verdict and the rows stand.
+ */
+async function levelMovedPhase(stateDir: string, streamId: string, receipt: SettlementReceipt, eventStore: EventStore): Promise<string[]> {
+  const move = receipt.phaseMove;
+  if (move?.kind !== 'moved') return [];
+  const level = await levelPhaseInStateDocument(path.join(stateDir, `${streamId}.state.json`), eventStore, streamId);
+  if (level.kind !== 'failed') return [];
+  orchestrateLogger.warn({ streamId, phase: move.to, level }, 'settle: the state document did not follow the phase move');
+  return [
+    `${PHASE_LEVEL_FAILED}: the stream moved the phase to '${move.to}', and the state document did not follow after ` +
+      `${level.attempts} attempt(s): ${level.error}. Call transition to '${move.to}' to level the document.`,
+  ];
+}
+
 /**
  * Puts the bundle of a judgement in custody, then commits its record. The commit folds the rows of its
  * write transaction after the event migration, as each read before it does, and judges the batch
@@ -1362,8 +1538,9 @@ async function settleAttempt(call: SettlementCall): Promise<ToolResult> {
  * Then the transaction appends nothing, and the bundle stays as an orphan blob.
  *
  * The revision of a decision round takes its content from the judgement inside the commit, and its
- * number from the same rows. The record is the last event, and the tail sequence comes from a read
- * inside the write lock.
+ * number from the same rows. The rows of a phase move come after the revision, from the same rows. The
+ * record is the last event, and the tail sequence comes from a read inside the write lock. After the
+ * commit, a moved phase levels the state document.
  */
 async function commitJudgement(
   call: SettlementCall,
@@ -1493,10 +1670,19 @@ async function commitJudgement(
               revised === undefined
                 ? undefined
                 : designRevisionOf(snapshot.events, revised, revisionStamp, settlement, ref);
+            const phase = phaseDecisionOf({
+              call,
+              outcome: verdict.outcome,
+              revised: revision !== undefined,
+              events: snapshot.events,
+              version: snapshot.version,
+            });
+            const phaseRows = phase.rows.map((row) => stampFromAmbient({ ...row, timestamp: settledAt }));
             const events = [
               ...proposals,
               ...decidedRows,
               ...(revision !== undefined ? [revision.row] : []),
+              ...phaseRows,
               record,
             ];
             return {
@@ -1519,10 +1705,11 @@ async function commitJudgement(
                 ...(pending.length > 0 ? { pendingDeviations: pending } : {}),
                 ...(deciding ? { decisions } : {}),
                 ...(revision !== undefined ? { designRevision: revision.receipt } : {}),
+                phaseMove: phase.phaseMove,
               },
             };
           });
-        return receiptResult(persisted, warnings);
+        return receiptResult(persisted, [...warnings, ...(await levelMovedPhase(call.stateDir, streamId, persisted, ctx.eventStore))]);
       } catch (error) {
         if (error instanceof OperationDigestMismatchError) {
           return refused(
@@ -1737,6 +1924,7 @@ export async function handleSettle(
           }
         }
       }
+      replayWarnings.push(...(await levelMovedPhase(stateDir, streamId, claim.result, ctx.eventStore)));
       return receiptResult(claim.result, replayWarnings);
     }
     if (!deciding && submittedClaims.length === 0) return claimlessBatch(batchLabel);
@@ -1801,6 +1989,8 @@ export async function handleSettle(
       deps,
       streamId,
       identity,
+      workflowType: pinned.record.workflowType,
+      pinnedDefinition: pinned.definition,
       operationId,
       requestDigest,
       batchLabel,

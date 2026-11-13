@@ -122,15 +122,20 @@ exarchos_orchestrate({
   claims: [ /* task-002 as before */ ],
 })
 // → { "outcome": "settled", "acceptedTasks": ["task-002"],
-//     "verification": [{ "taskId": "task-001", "outcome": "already-complete" }, { "taskId": "task-002", "outcome": "verified", ... }] }
+//     "verification": [{ "taskId": "task-001", "outcome": "already-complete" }, { "taskId": "task-002", "outcome": "verified", ... }],
+//     "phaseMove": { "kind": "moved", "from": "delegate", "to": "review", "transitionId": "delegate->review", ... } }
 ```
 
 ## 5. Land and transition
 
-Both tasks complete. Land each worktree through `serialize_merge` (the merge-pending detour), run `check_integration_suite` once at the wave boundary, then auto-continue:
+Both tasks complete. Read `phaseMove` of the receipt first. It is `moved`, so settlement moved the workflow from `delegate` to `review` in its commit, and no `transition` call follows. Land each worktree and run the integration suite after the move, before the review: land each worktree through `serialize_merge`, then run `check_integration_suite` once at the wave boundary. Then auto-continue:
+```typescript
+Skill({ skill: "exarchos:review", args: "docs/plans/add-email-validation.md" })
+```
+
+When `phaseMove` is absent, `stayed` or `not-decided`, or a warning of the receipt starts with `PHASE_LEVEL_FAILED`, call `transition` before the review. On `stayed`, first fix each false fact of `phaseMove.edges` that an agent writes, and check that each task is complete:
 ```typescript
 exarchos_workflow({ action: "transition", featureId: "add-email-validation", target: "review" })
-Skill({ skill: "exarchos:review", args: "docs/plans/add-email-validation.md" })
 ```
 
 ## Variations

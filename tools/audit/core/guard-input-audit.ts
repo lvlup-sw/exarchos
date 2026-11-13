@@ -9,7 +9,11 @@
  * The open also moves a copy from an older schema to the current one, and that step can add `migration.workflow_type_unknown` rows to the copy.
  * The projection ignores those rows, and both sides of each comparison read them, so they change no count, class or verdict.
  *
- * Usage: `bun tools/audit/core/guard-input-audit.ts --store <dir> [--out <file>]`.
+ * With `--preview`, the report also previews the switch of the guards to the ledger fold for each active compared document.
+ * For each explicit edge out of the document phase, it gives the legacy verdict on the document and the decide verdict on the fold.
+ * A `newly-admitted` or `newly-denied` edge names the fact keys that the decide found false. The preview changes no count and no `clean` verdict.
+ *
+ * Usage: `bun tools/audit/core/guard-input-audit.ts --store <dir> [--out <file>] [--preview]`.
  * Exit 0 means that the audit ran, not that the store is clean. Exit 2 is a refusal, and stderr names its code.
  * An `--out` that names a store file of the copy or of a live state directory is a usage refusal. So the report never overwrites a store.
  */
@@ -26,12 +30,21 @@ import { compareGuardInputs, type GuardInputComparison } from '../../../src/proj
 import {
   documentGuardInput,
   foldGuardInput,
+  type GuardInput,
   type GuardInputOptions,
 } from '../../../src/projections/guard-input/fold.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import { resolveStateDir, STORE_DB_FILENAME, type StorePathResolutionInputs } from '../../../src/utils/paths.js';
 import { collectCleanupEvidence } from '../../../src/workflow/cleanup.js';
-import { getHSMDefinition, isBuiltInWorkflowType, type HSMDefinition } from '../../../src/workflow/state-machine.js';
+import { frozenFloorOf, mergeFloors, phaseMoveEvents, statedCoordinate } from '../../../src/workflow/decide/emit.js';
+import { decide, type DecideOutcome } from '../../../src/workflow/decide/decide.js';
+import { compileDecideDefinition, type DecideDefinition, type DecideEdge } from '../../../src/workflow/decide/edges.js';
+import {
+  builtInDefinition,
+  isBuiltInDefinitionType,
+  type BuiltInWorkflowType,
+} from '../../../src/workflow/definitions/built-in.js';
+import { executeTransition, getHSMDefinition, type HSMDefinition } from '../../../src/workflow/state-machine.js';
 import { isPlainObject } from '../../../src/workflow/state-mutation.js';
 
 /** The reads of the audit. A `SqliteBackend` satisfies this port, and a test can wrap one. */
@@ -79,6 +92,43 @@ interface CleanBlocker {
   readonly phase?: string | null;
 }
 
+/** The change of one edge at the switch. `same` means that the legacy guard and the decide both admit, or both do not admit. */
+type PreviewChange = 'same' | 'newly-admitted' | 'newly-denied';
+
+/** The class of one previewed document. `mixed` means that one edge is newly admitted and another edge is newly denied. */
+type PreviewEffect = 'no-effect' | 'newly-admitted' | 'newly-denied' | 'mixed';
+
+/** The two verdicts of one explicit edge out of the document phase. */
+interface PreviewEdge {
+  readonly transitionId: string;
+  readonly to: string;
+  /** The verdict of the legacy transition on the document. */
+  readonly legacy: 'allow' | 'deny' | 'throw';
+  /** The verdict of the decide on the fold, from the document phase. */
+  readonly decide: 'allow' | 'deny' | 'indeterminate' | 'throw';
+  readonly change: PreviewChange;
+  /**
+   * The fact keys of a changed edge. A newly denied edge names the false facts of the decide on the fold.
+   * A newly admitted edge names the false facts of the decide on the document. An edge with no change names no key.
+   */
+  readonly keys: readonly string[];
+}
+
+/** The preview of the switch for one active compared document. */
+interface PreviewDocument {
+  readonly featureId: string;
+  readonly workflowType: string;
+  readonly phase: { readonly document: string; readonly fold: string };
+  readonly effect: PreviewEffect;
+  readonly edges: readonly PreviewEdge[];
+}
+
+/** The options of one audit. */
+export interface GuardAuditOptions {
+  /** True when the report previews the switch for each active compared document. */
+  readonly preview?: boolean;
+}
+
 /** The report of one audit. Each count by class and by key counts disagreeing documents, not differences. */
 export interface GuardAuditReport extends Readonly<Record<DocumentKind, StandingCounts>> {
   /** The documents of a type that is not built in. The audit does not compare them, and they stay outside `clean`. */
@@ -100,6 +150,8 @@ export interface GuardAuditReport extends Readonly<Record<DocumentKind, Standing
   readonly blockers: readonly CleanBlocker[];
   /** True only when the audit compared one or more documents and no document blocks it. */
   readonly clean: boolean;
+  /** The preview of the switch, in the order of the documents. Only an audit with the preview option holds it. */
+  readonly preview?: readonly PreviewDocument[];
 }
 
 /** The result of one command-line run. A refusal holds its code and its message, and a run that completed holds its report. */
@@ -119,7 +171,7 @@ class GuardAuditError extends Error {
 }
 
 /** The usage text of the command line. */
-const USAGE = 'usage: bun tools/audit/core/guard-input-audit.ts --store <dir> [--out <file>]';
+const USAGE = 'usage: bun tools/audit/core/guard-input-audit.ts --store <dir> [--out <file>] [--preview]';
 
 /** The `_esVersion` of a document that is on the ledger. */
 const LEDGER_ES_VERSION = 2;
@@ -149,10 +201,19 @@ type DocumentOutcome =
   | { readonly kind: DocumentKind; readonly standing: Standing }
   | {
       readonly kind: 'compared';
+      readonly workflowType: BuiltInWorkflowType;
       readonly standing: Standing;
-      readonly comparison: GuardInputComparison;
+      readonly sides: ComparedSides;
+      readonly rows: readonly WorkflowEvent[];
       readonly ledgerSequence: number;
     };
+
+/** The two guard inputs of one document and their comparison. */
+interface ComparedSides {
+  readonly document: GuardInput;
+  readonly fold: GuardInput;
+  readonly comparison: GuardInputComparison;
+}
 
 /** A count of documents for each standing, as the audit builds it. */
 interface StandingTally {
@@ -220,13 +281,129 @@ function standingOf(machine: HSMDefinition, phase: unknown): Standing | undefine
 }
 
 /** Compares the document side with the fold side of the rows. A throw of either side gives no comparison. */
-function compareSides(document: Record<string, unknown>, rows: readonly WorkflowEvent[]): GuardInputComparison | undefined {
+function compareSides(document: Record<string, unknown>, rows: readonly WorkflowEvent[]): ComparedSides | undefined {
   try {
     const fold = foldGuardInput(rows, SIDE_OPTIONS);
-    return compareGuardInputs(documentGuardInput(document, rows, SIDE_OPTIONS), fold);
+    const documentSide = documentGuardInput(document, rows, SIDE_OPTIONS);
+    const comparison = compareGuardInputs(documentSide, fold);
+    return comparison === undefined ? undefined : { document: documentSide, fold, comparison };
   } catch {
     return undefined;
   }
+}
+
+/** Combines the stated coordinate with the frozen obligations of the target. */
+function previewFloor(input: GuardInput, rows: readonly WorkflowEvent[], target: string) {
+  const coordinate = statedCoordinate(input);
+  return mergeFloors([coordinate === null ? null : { coordinates: [coordinate] }, frozenFloorOf(rows, target)]);
+}
+
+/** Runs the pure emitter after admission so its refusals also deny the preview. */
+function prospectiveVerdict(def: DecideDefinition, input: GuardInput, phase: string, outcome: DecideOutcome | undefined, rows: readonly WorkflowEvent[]): PreviewEdge['decide'] {
+  if (outcome?.kind !== 'admit') return decideVerdictOf(outcome);
+  try {
+    return phaseMoveEvents(def, { ...input, phase }, outcome.move, previewFloor(input, rows, outcome.move.to)).success ? 'allow' : 'deny';
+  } catch {
+    return 'throw';
+  }
+}
+
+/** Returns the verdict of the legacy transition to `to` on the document side. A throw gives `throw`. */
+function legacyVerdictOf(machine: HSMDefinition, document: GuardInput, to: string, rows: readonly WorkflowEvent[]): PreviewEdge['legacy'] {
+  try {
+    return executeTransition(machine, { ...document }, to, undefined, previewFloor(document, rows, to)).success ? 'allow' : 'deny';
+  } catch {
+    return 'throw';
+  }
+}
+
+/** Returns the outcome of a transition request to `to` on one input, from `phase`. A throw gives no outcome. */
+function decideOutcomeOf(def: DecideDefinition, input: GuardInput, phase: string, to: string): DecideOutcome | undefined {
+  try {
+    return decide(def, { ...input, phase }, { kind: 'transition', target: to });
+  } catch {
+    return undefined;
+  }
+}
+
+/** Returns the verdict of a decide outcome. An idempotent request admits. A request with no edge and a throw do not admit. */
+function decideVerdictOf(outcome: DecideOutcome | undefined): PreviewEdge['decide'] {
+  if (outcome === undefined) return 'throw';
+  switch (outcome.kind) {
+    case 'admit':
+    case 'idempotent':
+      return 'allow';
+    case 'deny':
+      return outcome.verdict.verdict;
+    case 'no-edge':
+    case 'stay':
+      return 'deny';
+  }
+}
+
+/** Returns the false facts of a denied outcome, and no fact for each other outcome. */
+function falseFactsOf(outcome: DecideOutcome | undefined): readonly string[] {
+  return outcome?.kind === 'deny' ? outcome.verdict.falseFacts : [];
+}
+
+/** Returns the change of one edge from its two verdicts. Only `allow` admits, so `indeterminate` and `throw` do not admit. */
+function changeOf(legacy: PreviewEdge['legacy'], decided: PreviewEdge['decide']): PreviewChange {
+  const legacyAdmits = legacy === 'allow';
+  const decideAdmits = decided === 'allow';
+  if (legacyAdmits === decideAdmits) return 'same';
+  return decideAdmits ? 'newly-admitted' : 'newly-denied';
+}
+
+/** Returns the class of a document from the changes of its edges. */
+function effectOf(edges: readonly PreviewEdge[]): PreviewEffect {
+  const admitted = edges.some((edge) => edge.change === 'newly-admitted');
+  const denied = edges.some((edge) => edge.change === 'newly-denied');
+  if (admitted && denied) return 'mixed';
+  if (admitted) return 'newly-admitted';
+  return denied ? 'newly-denied' : 'no-effect';
+}
+
+/** Returns the preview of one explicit edge out of the document phase. */
+function previewEdgeOf(
+  def: DecideDefinition,
+  machine: HSMDefinition,
+  sides: ComparedSides,
+  phase: string,
+  edge: DecideEdge,
+  rows: readonly WorkflowEvent[],
+): PreviewEdge {
+  const legacy = legacyVerdictOf(machine, sides.document, edge.to, rows);
+  const onFold = decideOutcomeOf(def, sides.fold, phase, edge.to);
+  const decided = prospectiveVerdict(def, sides.fold, phase, onFold, rows);
+  const change = changeOf(legacy, decided);
+  const keys =
+    change === 'newly-denied'
+      ? falseFactsOf(onFold)
+      : change === 'newly-admitted'
+        ? falseFactsOf(decideOutcomeOf(def, sides.document, phase, edge.to))
+        : [];
+  return { transitionId: edge.transitionId, to: edge.to, legacy, decide: decided, change, keys };
+}
+
+/**
+ * Returns the preview of the switch for one compared document.
+ * Each explicit edge out of the document phase gives one verdict pair, in edge order. The decide reads the fold from the document phase.
+ */
+function previewOf(
+  featureId: string,
+  workflowType: BuiltInWorkflowType,
+  sides: ComparedSides,
+  definitions: Map<string, DecideDefinition>,
+  rows: readonly WorkflowEvent[],
+): PreviewDocument {
+  const def = definitions.get(workflowType) ?? compileDecideDefinition(workflowType, builtInDefinition(workflowType));
+  definitions.set(workflowType, def);
+  const machine = getHSMDefinition(workflowType);
+  const { phase } = sides.comparison;
+  const edges = def.edges
+    .filter((edge) => edge.from === phase.document)
+    .map((edge) => previewEdgeOf(def, machine, sides, phase.document, edge, rows));
+  return { featureId, workflowType, phase, effect: effectOf(edges), edges };
 }
 
 /**
@@ -236,7 +413,7 @@ function compareSides(document: Record<string, unknown>, rows: readonly Workflow
 function auditDocument(reader: GuardAuditReader, featureId: string, state: unknown): DocumentOutcome {
   const document = isPlainObject(state) ? state : {};
   const workflowType = document.workflowType;
-  if (typeof workflowType !== 'string' || !isBuiltInWorkflowType(workflowType)) return { kind: 'customType' };
+  if (!isBuiltInDefinitionType(workflowType)) return { kind: 'customType' };
   const standing = standingOf(getHSMDefinition(workflowType), document.phase);
   if (standing === undefined) {
     return { kind: 'unknownPhase', phase: typeof document.phase === 'string' ? document.phase : null };
@@ -246,9 +423,9 @@ function auditDocument(reader: GuardAuditReader, featureId: string, state: unkno
   if (!read.ok) return { kind: 'foldError', standing };
   if (read.rows.length === 0) return { kind: 'noRows', standing };
   if (!hasStartRow(read.rows)) return { kind: 'noStartRow', standing };
-  const comparison = compareSides(document, read.rows);
-  if (comparison === undefined) return { kind: 'foldError', standing };
-  return { kind: 'compared', standing, comparison, ledgerSequence: highestSequence(read.rows) };
+  const sides = compareSides(document, read.rows);
+  if (sides === undefined) return { kind: 'foldError', standing };
+  return { kind: 'compared', workflowType, standing, sides, rows: read.rows, ledgerSequence: highestSequence(read.rows) };
 }
 
 /** Calls a listing of the reader. A throw refuses the audit as unreadable. */
@@ -262,10 +439,10 @@ function listOrRefuse<T>(name: string, list: () => T): T {
 
 /**
  * Folds each stream of a store and compares each state document with the fold of its stream.
- * The function reads only through the reader, so it changes no row.
+ * The function reads only through the reader, so it changes no row. With `options.preview`, the report also holds the preview of the switch.
  * @throws a refusal with the code `GUARD_AUDIT_UNREADABLE` when a listing throws, or `GUARD_AUDIT_EMPTY_STORE` for a store with no document and no stream.
  */
-export async function auditGuardInputs(reader: GuardAuditReader): Promise<GuardAuditReport> {
+export async function auditGuardInputs(reader: GuardAuditReader, options: GuardAuditOptions = {}): Promise<GuardAuditReport> {
   const states = listOrRefuse('listStates', () => reader.listStates());
   const streams = listOrRefuse('listStreams', () => reader.listStreams());
   if (states.length === 0 && streams.length === 0) {
@@ -280,6 +457,8 @@ export async function auditGuardInputs(reader: GuardAuditReader): Promise<GuardA
   const byKey = new Map<string, StandingTally>();
   const activeDisagreements: ActiveDisagreement[] = [];
   const blockers: CleanBlocker[] = [];
+  const preview: PreviewDocument[] = [];
+  const definitions = new Map<string, DecideDefinition>();
   let customType = 0;
   let unknownPhase = 0;
 
@@ -294,8 +473,12 @@ export async function auditGuardInputs(reader: GuardAuditReader): Promise<GuardA
       addTo(kinds, outcome.kind, outcome.standing);
       if (outcome.standing === 'active') blockers.push({ featureId, kind: outcome.kind });
     } else {
-      const { standing, comparison } = outcome;
+      const { standing, sides } = outcome;
+      const { comparison } = sides;
       compared[standing] += 1;
+      if (options.preview === true && standing === 'active') {
+        preview.push(previewOf(featureId, outcome.workflowType, sides, definitions, outcome.rows));
+      }
       if (comparison.agrees) {
         agreeing[standing] += 1;
         continue;
@@ -365,6 +548,7 @@ export async function auditGuardInputs(reader: GuardAuditReader): Promise<GuardA
     activeDisagreements,
     blockers,
     clean,
+    ...(options.preview === true ? { preview } : {}),
   };
 }
 
@@ -372,28 +556,31 @@ export async function auditGuardInputs(reader: GuardAuditReader): Promise<GuardA
 interface AuditArgs {
   readonly store: string;
   readonly out: string | undefined;
+  readonly preview: boolean;
 }
 
 /** Parses the arguments. A call with no `--store` or with an unknown argument is a usage refusal. */
 function parseAuditArgs(argv: readonly string[]): AuditArgs {
   let store: string | undefined;
   let out: string | undefined;
+  let preview = false;
   try {
     const { values } = parseArgs({
       args: [...argv],
-      options: { store: { type: 'string' }, out: { type: 'string' } },
+      options: { store: { type: 'string' }, out: { type: 'string' }, preview: { type: 'boolean' } },
       strict: true,
       allowPositionals: false,
     });
     store = values.store;
     out = values.out;
+    preview = values.preview === true;
   } catch (err) {
     throw new GuardAuditError('GUARD_AUDIT_USAGE', `${messageOf(err)}. ${USAGE}`);
   }
   if (store === undefined || store.length === 0) {
     throw new GuardAuditError('GUARD_AUDIT_USAGE', `the call holds no --store. ${USAGE}`);
   }
-  return { store: path.resolve(store), out: out === undefined ? undefined : path.resolve(out) };
+  return { store: path.resolve(store), out: out === undefined ? undefined : path.resolve(out), preview };
 }
 
 /** Returns the real path of a path, or `undefined` when the path does not exist. A missing path matches no other path. */
@@ -478,7 +665,7 @@ function refuseStoreFileOut(out: string | undefined, store: string, inputs: Stor
 }
 
 /** Opens the store at the path, audits it and closes it. A failed open refuses the audit as unreadable. */
-async function auditStoreFile(dbPath: string): Promise<GuardAuditReport> {
+async function auditStoreFile(dbPath: string, options: GuardAuditOptions): Promise<GuardAuditReport> {
   const backend = new SqliteBackend(dbPath);
   try {
     try {
@@ -486,7 +673,7 @@ async function auditStoreFile(dbPath: string): Promise<GuardAuditReport> {
     } catch (err) {
       throw new GuardAuditError('GUARD_AUDIT_UNREADABLE', `the store does not open: ${messageOf(err)}`);
     }
-    return await auditGuardInputs(backend);
+    return await auditGuardInputs(backend, options);
   } finally {
     backend.close();
   }
@@ -495,7 +682,7 @@ async function auditStoreFile(dbPath: string): Promise<GuardAuditReport> {
 /**
  * Runs the audit of the command line. Four refusals run before any open: the usage, the live store, an `--out` that names a store file and the missing store.
  * The `inputs` give the paths of the live state directory, so a test can pass a temporary home.
- * With `--out`, the report also goes to that file.
+ * With `--out`, the report also goes to that file. With `--preview`, the report also holds the preview of the switch.
  */
 export async function runGuardInputAudit(
   argv: readonly string[],
@@ -509,7 +696,7 @@ export async function runGuardInputAudit(
     if (!existsSync(dbPath)) {
       throw new GuardAuditError('GUARD_AUDIT_NO_STORE', `${args.store} holds no ${STORE_DB_FILENAME}`);
     }
-    const report = await auditStoreFile(dbPath);
+    const report = await auditStoreFile(dbPath, { preview: args.preview });
     if (args.out !== undefined) await writeFile(args.out, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
     return { exitCode: 0, report };
   } catch (err) {

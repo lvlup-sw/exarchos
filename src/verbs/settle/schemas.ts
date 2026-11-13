@@ -79,6 +79,55 @@ const ReceiptUnresolvedTaskSchema = z
   })
   .passthrough();
 
+/** The verdict of one explicit edge out of the phase that a commit kept. */
+const ReceiptEdgeVerdictSchema = z
+  .object({
+    transitionId: z.string().min(1),
+    to: z.string().min(1),
+    verdict: z.enum(['allow', 'deny', 'indeterminate']),
+    falseFacts: z.array(z.string()),
+  })
+  .passthrough();
+
+/**
+ * What the commit did to the phase. A receipt of an earlier build has no field. The text names the call that follows.
+ */
+const ReceiptPhaseMoveSchema = z
+  .union([
+    z
+      .object({
+        kind: z.literal('moved'),
+        from: z.string().min(1),
+        to: z.string().min(1),
+        transitionId: z.string().min(1),
+        guardId: z.string().min(1).optional(),
+        phaseAttemptId: z.string().min(1),
+      })
+      .passthrough(),
+    z
+      .object({
+        kind: z.literal('stayed'),
+        phase: z.string(),
+        reason: z.enum(['no-edge-admits', 'edges-admit', 'edge-not-plain', 'phase-blocked']),
+        edges: z.array(ReceiptEdgeVerdictSchema),
+      })
+      .passthrough(),
+    z
+      .object({
+        kind: z.literal('not-decided'),
+        reason: z.enum([
+          'outcome-does-not-move',
+          'design-revision',
+          'unpinned-definition',
+          'skip-phases-config',
+          'fold-failed',
+          'off-batch-step',
+        ]),
+      })
+      .passthrough(),
+  ])
+  .describe('The outcome next-call instruction takes priority. `moved`: the phase moved. Absent, `stayed` or `not-decided`: call `transition` after required work, with no earlier outcome call');
+
 /** The call after one outcome, from the rule of the outcome, as the start of a sentence. */
 function nextCallSentence(outcome: SettlementOutcome): string {
   const { next } = SETTLEMENT_OUTCOME_RULES[outcome];
@@ -160,6 +209,7 @@ const SettlementReceiptData = z
       })
       .passthrough()
       .optional(),
+    phaseMove: ReceiptPhaseMoveSchema.optional(),
   })
   .passthrough();
 

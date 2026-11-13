@@ -43,6 +43,7 @@ import {
   emissionIndeterminacyWarning,
   emissionViolationBlocks,
   EMISSION_INDETERMINATE_ERROR_CODE,
+  isHandlerNoOpReply,
   observationStreamId,
   runEmissionVerifierInterceptor,
   verifierDeclaredEmissions,
@@ -78,7 +79,7 @@ import {
 import type { EventSourcedTaskStore } from '../../projections/task-store/event-sourced-task-store.js';
 import type { TreeObserver } from '../../utils/git-tree.js';
 import type { PinnedVerificationProfile } from '../../workflow/verification/profile.js';
-import type { ActionContract } from '../../registry/action-contract.js';
+import type { ActionContract, ActionPostcondition, DeclaredSet } from '../../registry/action-contract.js';
 import { evaluateDispatchAdmission, readActionContract } from './dispatch-admission.js';
 import {
   applicableEnsures,
@@ -194,6 +195,22 @@ function isReadOnlyReasonedAbstention(
   const contract = readActionContract(action);
   if (contract === undefined) return false;
   return contract.ensures.kind === 'none';
+}
+
+/**
+ * The ensures that one dispatch owes. A successful no-op reply did no work, so it owes no `success`
+ * ensure. The other ensures stay, and a `failure` ensure is not affected.
+ */
+function owedEnsures(
+  ensures: DeclaredSet<ActionPostcondition>,
+  handlerNoOp: boolean,
+): DeclaredSet<ActionPostcondition> {
+  if (!handlerNoOp || ensures.kind === 'none') return ensures;
+  const [first, ...rest] = ensures.values.filter((item) => item.when !== 'success');
+  if (first === undefined) {
+    return { kind: 'none', because: 'a successful no-op reply did no work, so it owes no success ensure' };
+  }
+  return { kind: 'declared', values: [first, ...rest] };
 }
 
 function formatMissingEnsures(missing: readonly { readonly source: string }[]): string {
@@ -855,8 +872,12 @@ export async function dispatch(
     !STUBBED_COMPOSITES.has(tool) &&
     !readOnlyAbstention
   ) {
-    const applicable = applicableEnsures(
+    const ensures = owedEnsures(
       dispatchedContract.ensures,
+      result.success && isHandlerNoOpReply(result.data),
+    );
+    const applicable = applicableEnsures(
+      ensures,
       result.success ? 'success' : 'failure',
     );
     if (applicable.length === 0) {
@@ -875,7 +896,7 @@ export async function dispatch(
     let observation: ActionPostconditionObservation;
     try {
       observation = await observeActionPostconditions({
-        ensures: dispatchedContract.ensures,
+        ensures,
         store: ctx.eventStore,
         evidence: ctx.eventStore,
         streamId: observedStreamId,

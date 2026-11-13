@@ -9,19 +9,19 @@
 import type { Guard, GuardResult } from './guards.js';
 import { guards } from './guards.js';
 import { PHASE_EVENT_CONTRACTS, assertContractPhasesAreRegistered } from './topology/phase-events.js';
-import { resolveGateSetFailClosed, KIND_OBLIGATIONS } from './phase-kind.js';
 import type {
   PhaseKind,
-  PhaseObligationOutcome,
   ResolvedGate,
   ResolveGateSetCtx,
 } from './phase-kind.js';
+import { resolveDangerCoordinate } from './admission/requirement-context.js';
 import {
-  dangerBoundaryTouching,
-  joinDangerCoordinates,
-  resolveDangerCoordinate,
-  type DangerCoordinate,
-} from './admission/requirement-context.js';
+  phaseEntryOf,
+  type TransitionEvent,
+  type TransitionObligationFloor,
+  type TransitionResult,
+  type ValidTransitionTarget,
+} from './decide/emit.js';
 import type { DesignDepth } from './plan-depth-policy.js';
 import {
   createFeatureHSM,
@@ -34,6 +34,7 @@ import { BUILT_IN_WORKFLOW_TYPES, builtInDefinition, type BuiltInWorkflowType } 
 import type { Effect } from './definitions/extension.js';
 
 export type { Guard, GuardResult };
+export type { TransitionEvent, TransitionObligationFloor, TransitionResult, ValidTransitionTarget };
 
 /**
  * The fields that every state variant shares, so a read of `.initial`, `.maxFixCycles` or `.parent` needs no narrowing.
@@ -71,55 +72,6 @@ export interface HSMDefinition {
   readonly id: string;
   readonly states: Record<string, State>;
   readonly transitions: readonly Transition[];
-}
-
-export interface TransitionEvent {
-  readonly type: string;
-  readonly from: string;
-  readonly to: string;
-  readonly trigger: string;
-  readonly metadata?: Record<string, unknown>;
-}
-
-export interface ValidTransitionTarget {
-  readonly phase: string;
-  readonly guard?: { readonly id: string; readonly description: string };
-  readonly universal?: boolean;
-}
-
-/**
- * The obligation floor of a transition. Both members are lower bounds, so they can only add gates.
- * The transition resolves at each coordinate and unions the results.
- * No single coordinate dominates, because the ladder escalates an unknown tier and the review roster treats it as no tier claim.
- */
-export interface TransitionObligationFloor {
-  /** Danger coordinates to ALSO resolve at, unioning the results. */
-  readonly coordinates?: readonly DangerCoordinate[];
-  /** Gates that a prior freeze of this phase recorded. They lead the union, so a policy edit between attempts cannot remove a frozen gate. */
-  readonly gates?: readonly ResolvedGate[];
-}
-
-export interface TransitionResult {
-  readonly success: boolean;
-  readonly idempotent: boolean;
-  readonly newPhase?: string;
-  readonly effects: readonly Effect[];
-  readonly events: readonly TransitionEvent[];
-  readonly historyUpdates?: Record<string, string> | undefined;
-  readonly errorCode?: string;
-  readonly errorMessage?: string;
-  readonly guardDescription?: string;
-  readonly validTargets?: readonly ValidTransitionTarget[];
-  readonly guardExpectedShape?: Record<string, unknown>;
-  readonly guardSuggestedFix?: {
-    readonly tool: string;
-    readonly params: Record<string, unknown>;
-  };
-  /**
-   * The gate-set of the target kind. It is present after an advance into an atomic state with a kind, and empty for IMPLEMENT.
-   * The `phase.entered` event freezes the same list.
-   */
-  readonly resolvedGates?: readonly ResolvedGate[];
 }
 
 export interface SerializedTopology {
@@ -870,83 +822,22 @@ export function executeTransition(
 
   let resolvedGates: readonly ResolvedGate[] | undefined;
   if (targetState?.type === 'atomic' && targetState.kind) {
-    const resolvedDesignDepth: DesignDepth =
-      (state.designDepth as DesignDepth | undefined) ?? 'standard';
-    const stateCoordinate = resolveDangerCoordinate({
-      risk: state.riskTier,
-      boundary: state.boundaryTouching,
-    });
-    const resolutionCoordinates: readonly DangerCoordinate[] = [
-      stateCoordinate,
-      ...(floor?.coordinates ?? []),
-    ];
-    const unioned: ResolvedGate[] = [];
-    const seenGateKeys = new Set<string>();
-    let frozenCoordinate: DangerCoordinate = stateCoordinate;
-    for (const gate of floor?.gates ?? []) {
-      const key = `${gate.family}\u0000${gate.gate}`;
-      if (seenGateKeys.has(key)) continue;
-      seenGateKeys.add(key);
-      unioned.push(gate);
-    }
-    for (const coordinate of resolutionCoordinates) {
-      const resolved = resolveGateSetFailClosed(
-        targetState.kind,
-        {
-          riskTier: coordinate.risk,
-          boundaryTouching: dangerBoundaryTouching(coordinate),
-          workflowType: hsm.id,
-          designDepth: resolvedDesignDepth,
-        },
-        resolveGatesFn,
-      );
-      if (!resolved.ok) {
-        return {
-          success: false,
-          idempotent: false,
-          effects: [],
-          events: [
-            {
-              type: 'phase.blocked',
-              from: currentPhase,
-              to: targetPhase,
-              trigger: 'execute-transition',
-              metadata: { kind: targetState.kind, reason: resolved.reason },
-            },
-          ],
-          errorCode: 'PHASE_BLOCKED',
-          errorMessage: `Gate-set resolution failed for ${targetState.kind} phase '${targetPhase}': ${resolved.reason}`,
-        };
-      }
-      for (const gate of resolved.gates) {
-        const key = `${gate.family}\u0000${gate.gate}`;
-        if (seenGateKeys.has(key)) continue;
-        seenGateKeys.add(key);
-        unioned.push(gate);
-      }
-      frozenCoordinate = joinDangerCoordinates(frozenCoordinate, coordinate);
-    }
-    const obligation: PhaseObligationOutcome = { ok: true, gates: unioned };
-    resolvedGates = targetState.kind === 'IMPLEMENT' ? [] : obligation.gates;
-
-    transitionEvents.push({
-      type: 'phase.entered',
+    const entry = phaseEntryOf({
+      workflowType: hsm.id,
       from: currentPhase,
       to: targetPhase,
-      trigger: 'execute-transition',
-      metadata: {
-        phase: targetPhase,
-        kind: targetState.kind,
-        resolver: KIND_OBLIGATIONS[targetState.kind].gates?.resolver ?? null,
-        resolvedGates: resolvedGates.map((g) => ({ family: g.family, gate: g.gate })),
-        riskTier: frozenCoordinate.risk,
-        boundaryTouching: dangerBoundaryTouching(frozenCoordinate),
-        posture: KIND_OBLIGATIONS[targetState.kind].posture,
-        policySource: 'builtin',
-        mode: 'enforce',
-        ...(targetState.kind === 'PLAN' ? { designDepth: resolvedDesignDepth } : {}),
-      },
+      kind: targetState.kind,
+      stateCoordinate: resolveDangerCoordinate({
+        risk: state.riskTier,
+        boundary: state.boundaryTouching,
+      }),
+      designDepth: (state.designDepth as DesignDepth | undefined) ?? 'standard',
+      floor,
+      resolveGatesFn,
     });
+    if (!entry.ok) return entry.result;
+    resolvedGates = entry.resolvedGates;
+    transitionEvents.push(entry.event);
   }
 
   return {

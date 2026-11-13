@@ -16,6 +16,7 @@ import { mkdir, mkdtemp, readdir, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 
+import { WorkflowDefinitionV1Schema } from '@lvlup-sw/strategos-contracts';
 import { z } from 'zod';
 
 import { WIN32_SPAWN_HEADROOM } from '../../vitest.config.js';
@@ -114,7 +115,7 @@ const ReceiptView = z.object({ capsuleVersion: z.number().int(), capsule: Exarch
 type Receipt = z.infer<typeof ReceiptView>;
 
 /** The fields of a settle answer that the cases read. */
-const SettledView = z.object({ outcome: z.string(), acceptedTasks: z.array(z.string()) });
+const SettledView = z.object({ outcome: z.string(), acceptedTasks: z.array(z.string()), phaseMove: z.unknown().optional() });
 
 /** One `prepare` call for the stream at the checkout of the repository. */
 async function prepare(): Promise<CallResult> {
@@ -181,12 +182,6 @@ function recordAt(value: unknown, at: string): Record<string, unknown> {
   return value;
 }
 
-/** The fixture with the `exarchos` extension removed, which is the kernel part of the file. */
-function kernelOfFixture(): Record<string, unknown> {
-  const { exarchos: _extension, ...kernel } = releaseCheckDefinition();
-  return kernel;
-}
-
 /** The rows of one type on the stream, in commit order. */
 async function rowsOf(type: string): Promise<unknown[]> {
   return (await eventStore.query(STREAM)).filter((event) => event.type === type).map((event) => event.data);
@@ -230,7 +225,7 @@ async function blobCount(): Promise<number> {
 describe('a registered definition goes from prepare to settle', () => {
   /**
    * The capsule names the task-batch step `build` of the file for each task. The batch settles, and each task gets one completion row.
-   * Settlement moves no phase, so the stream holds only its seeded transition row.
+   * The edge `build->verify` of the pinned file admits when each task is complete, so the commit moves the phase to `verify`.
    */
   it('RegisteredDefinitions_AUserDefinition_PreparesAndSettles', async () => {
     await commitDefinition(releaseCheckDefinition());
@@ -249,14 +244,18 @@ describe('a registered definition goes from prepare to settle', () => {
     expect(await completedTaskIds()).toStrictEqual([...TASK_IDS]);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
     expect(await rowsOf('workflow.prepared')).toHaveLength(1);
-    expect(await rowsOf('workflow.transition')).toStrictEqual([{ from: 'scope', to: 'build' }]);
+    expect(settled.phaseMove).toMatchObject({ kind: 'moved', from: 'build', to: 'verify', transitionId: 'build->verify' });
+    expect((await rowsOf('workflow.transition')).map((data) => [recordAt(data, 'row').from, recordAt(data, 'row').to])).toStrictEqual([
+      ['scope', 'build'],
+      ['build', 'verify'],
+    ]);
   }, CASE_TIMEOUT_MS);
 
   /**
-   * The prepared record pins the user type and the digest of the kernel part of the file. The bundle in custody holds that kernel.
-   * The test builds the kernel from the fixture itself, so the digest does not come from the lowering of `prepare`.
+   * The prepared record pins the user type and the digest of the full file, with its extension. The bundle in custody holds that file.
+   * The test parses the fixture itself with the kernel schema, so the digest does not come from the pin of `prepare`.
    */
-  it('RegisteredDefinitions_ThePreparedRecord_PinsTheKernelOfTheFile', async () => {
+  it('RegisteredDefinitions_ThePreparedRecord_PinsTheFullFile', async () => {
     await commitDefinition(releaseCheckDefinition());
     await seed(USER_TYPE, 'scope', 'build');
 
@@ -265,20 +264,21 @@ describe('a registered definition goes from prepare to settle', () => {
     expect(records.map((record) => record.workflowType)).toStrictEqual([USER_TYPE]);
     const [record] = records;
     if (record === undefined) throw new Error('the stream holds no prepared record');
-    const kernelDigest = contentDigest(kernelOfFixture());
-    expect(record.definitionVersion).toBe(kernelDigest);
-    expect(receipt.capsule.identity.definitionVersion).toBe(kernelDigest);
+    const fileDigest = contentDigest(WorkflowDefinitionV1Schema.parse(releaseCheckDefinition()));
+    expect(record.definitionVersion).toBe(fileDigest);
+    expect(receipt.capsule.identity.definitionVersion).toBe(fileDigest);
 
     const pinned = record.bundleRefs[0];
     if (pinned === undefined) throw new Error('the prepared record names no bundle');
     const inCustody = decodePreparedBundle(await eventStore.bundleStore.resolve(pinned.digest));
-    expect(contentDigest(inCustody.definition)).toBe(kernelDigest);
+    expect(contentDigest(inCustody.definition)).toBe(fileDigest);
     expect(inCustody.definition.name).toBe(USER_TYPE);
+    expect(inCustody.definition.exarchos).toStrictEqual(releaseCheckDefinition().exarchos);
   }, CASE_TIMEOUT_MS);
 
   /**
    * A refactor workflow in `overhaul-delegate` compiles that step, and the capsule names `overhaul-review` as its non-goal.
-   * The batch settles, each task gets one completion row, and the phase stays.
+   * The batch settles, each task gets one completion row, and the commit moves the phase to `overhaul-review`.
    */
   it('RegisteredDefinitions_ARefactorOverhaulWave_PreparesAndSettles', async () => {
     await seed('refactor', 'overhaul-plan-review', 'overhaul-delegate');
@@ -297,7 +297,11 @@ describe('a registered definition goes from prepare to settle', () => {
     expect(settled.outcome).toBe('settled');
     expect(await completedTaskIds()).toStrictEqual([...TASK_IDS]);
     expect(await rowsOf('execution.settled')).toHaveLength(1);
-    expect(await rowsOf('workflow.transition')).toStrictEqual([{ from: 'overhaul-plan-review', to: 'overhaul-delegate' }]);
+    expect(settled.phaseMove).toMatchObject({ kind: 'moved', from: 'overhaul-delegate', to: 'overhaul-review' });
+    expect((await rowsOf('workflow.transition')).map((data) => [recordAt(data, 'row').from, recordAt(data, 'row').to])).toStrictEqual([
+      ['overhaul-plan-review', 'overhaul-delegate'],
+      ['overhaul-delegate', 'overhaul-review'],
+    ]);
   }, CASE_TIMEOUT_MS);
 
   /**

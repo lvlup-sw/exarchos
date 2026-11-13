@@ -166,7 +166,7 @@ const DELEGATION: IntentModel = {
   source: 'delegate',
   boundary: {
     label: 'transition delegate -> review',
-    cite: { source: 'delegate', needle: 'The `delegate` → `review` transition requires guard `all-tasks-complete`' },
+    cite: { source: 'delegate', needle: 'The `delegate` → `review` edge admits on the ledger fold when the stream holds at least one task' },
   },
   normal: [
     { kind: 'site', ref: at('delegate', `${O}.runbook`, 'id: "task-classification"'), why: 'pre-dispatch decision runbook, prescribed before dispatching' },
@@ -198,7 +198,7 @@ const DELEGATION: IntentModel = {
       call: `${O}.serialize_merge`,
       cite: { source: 'delegate', needle: '**Land it through `serialize_merge`.**' },
       per: 'perTask',
-      why: 'each task works in its own worktree, a worktree-bearing completion detours through merge-pending, and the skill names this action as the merge path. The plane compiles and settles the work; it does not land it',
+      why: 'each task works in its own worktree, and the skill names this action as the merge path of each landing. The plane compiles and settles the work, and it moves the phase; it does not land it',
     },
     {
       kind: 'site',
@@ -206,13 +206,23 @@ const DELEGATION: IntentModel = {
       why: 'the wave-boundary backstop, once per wave after the merges land',
     },
     { kind: 'site', ref: at('delegate', `${O}.check_operational_resilience`, 'action: "check_operational_resilience",') },
-    {
-      kind: 'site',
-      ref: at('delegate', `${W}.transition`, 'target: "review" })'),
-      why: 'the phase change, as a transition: settlement leaves the tasks complete and the guard admits it',
-    },
   ],
   exceptions: [
+    {
+      id: 'phase-not-moved',
+      label: 'the settle receipt holds no moved phaseMove, or a level warning, so the coordinator calls transition',
+      trigger: { source: 'delegate', needle: 'Call `transition` when `phaseMove` is absent, `stayed` or `not-decided`.' },
+      through: null,
+      extra: [
+        {
+          kind: 'site',
+          ref: at('delegate', `${W}.transition`, 'target: "review" })'),
+          why: 'the fallback phase change: settlement did not move the phase, or the state document did not follow the move',
+        },
+      ],
+      reentersNormalPath: false,
+      why: 'The fallback path: prepare, the settle whose receipt holds no moved phaseMove, and the transition. A receipt of an earlier build holds no phaseMove. A stayed receipt names the false facts of each edge, and the coordinator fixes them before the call. A moved receipt with a PHASE_LEVEL_FAILED warning takes the same idempotent call, which levels the document. The count includes landing and both backstops before transition.',
+    },
     {
       id: 'corrective-capsule',
       label: 'a task is unresolved after settlement, so a fixer is dispatched and the task is settled in a new batch on the same capsule',
@@ -227,7 +237,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The corrective path: prepare, the settle that leaves a task unresolved, and the settle of the correction. Counted to the correction that settles. A task is unresolved when its verification fails, or when its claim reports it as failed, blocked or skipped. The Exarchos calls are the same for each cause. The fixer is the harness call of a failed task. A blocked or skipped task takes another harness step, which the count does not show. Settlement compiles no capsule on this path, so no prepare follows. Landing, the backstop and the transition then follow as on the normal path. Reading the receipt of the halted segment names no call. A summary that omits unresolved entries claims every required task in the same call. A receipt that also carries a design revision prepares first, which is the material-revision path. A second correction is a re-run that the prose names with no call site and no limit, so the count is a lower bound.',
+      why: 'The corrective path: prepare, the settle that leaves a task unresolved, and the settle of the correction. Counted to the correction that settles. A task is unresolved when its verification fails, or when its claim reports it as failed, blocked or skipped. The Exarchos calls are the same for each cause. The fixer is the harness call of a failed task. A blocked or skipped task takes another harness step, which the count does not show. Settlement compiles no capsule on this path, so no prepare follows. Landing and the backstop then follow as on the normal path. Reading the receipt of the halted segment names no call. A summary that omits unresolved entries claims every required task in the same call. A receipt that also carries a design revision prepares first, which is the material-revision path. A second correction is a re-run that the prose names with no call site and no limit, so the count is a lower bound.',
     },
     {
       id: 'settlement-rejected',
@@ -242,7 +252,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'A request error only: a fault in the shape of a claim, a rationale that names a decision that the capsule does not delegate, a deviation that cannot be held, or a refused deviation. Counted to the corrected request that settles. The correction is to the request, so no fixer is dispatched: a task that fails its verification is the corrective-capsule path. A refused deviation whose rework task leaves the plan prepares again first, which is the normal path. Landing, the backstop and the transition follow as on the normal path.',
+      why: 'A request error only: a fault in the shape of a claim, a rationale that names a decision that the capsule does not delegate, a deviation that cannot be held, or a refused deviation. Counted to the corrected request that settles. The correction is to the request, so no fixer is dispatched: a task that fails its verification is the corrective-capsule path. A refused deviation whose rework task leaves the plan prepares again first, which is the normal path. Landing and the backstop follow as on the normal path.',
     },
     {
       id: 'recompile-required',
@@ -262,7 +272,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The stale path: prepare, the settle that finds the capsule stale, the second prepare, and the settle under its capsule. Nothing was verified under the stale batch. The second prepare and its settle have no call site of their own, because each is the call that the normal path already shows, so each is counted at that site. Dispatching a named task again from the new packet is a harness call that the branch does not name, so the harness count is a lower bound. The revision that made the capsule stale belongs to another batch, and its calls are not counted here. Landing, the backstop and the transition follow as on the normal path.',
+      why: 'The stale path: prepare, the settle that finds the capsule stale, the second prepare, and the settle under its capsule. Nothing was verified under the stale batch. The second prepare and its settle have no call site of their own, because each is the call that the normal path already shows, so each is counted at that site. Dispatching a named task again from the new packet is a harness call that the branch does not name, so the harness count is a lower bound. The revision that made the capsule stale belongs to another batch, and its calls are not counted here. Landing and the backstop follow as on the normal path.',
     },
     {
       id: 'deviation-pending',
@@ -277,7 +287,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing and the transition follow as on the normal path. An accepted one that leaves a task unresolved goes on to the correction of the corrective-capsule path, one call more. The task is unresolved after a failed verification, or because its held claim reports it as not completed. A rejected one rejects the batch, and the settle of the corrected work is the settlement-rejected path. An accepted deviation of a material kind also records a design revision on that call. The design-revised path counts to that call, and the material-revision path counts the continuation that follows it.',
+      why: 'The decision is recorded as its own fact on that call, and an accepted one verifies the held work and settles the batch, after which landing follows as on the normal path. An accepted one that leaves a task unresolved goes on to the correction of the corrective-capsule path, one call more. The task is unresolved after a failed verification, or because its held claim reports it as not completed. A rejected one rejects the batch, and the settle of the corrected work is the settlement-rejected path. An accepted deviation of a material kind also records a design revision on that call. The design-revised path counts to that call, and the material-revision path counts the continuation that follows it.',
     },
     {
       id: 'design-revised',
@@ -317,7 +327,7 @@ const DELEGATION: IntentModel = {
         },
       ],
       reentersNormalPath: false,
-      why: 'The whole path of a material deviation with a human decision, counted to the settlement of the recompiled capsule: prepare, the settle that is held, the settle that carries the decision and records the revision, the continuation prepare, and the settle of the capsule it compiled. The continuation and its settle have no call site of their own, because each is the call the normal path already shows, so each is counted at that site. The design-revised path stops at the decision call; this path counts on from it. The own-task path has the same five calls: the held batch reports a task as blocked and its deviation names that task, the decision round needs a correction and records the revision, and the continuation compiles the task. Dispatching and collecting the recompiled tasks are harness calls the branch does not name again, so the harness count is a lower bound. Landing, the backstop and the transition follow as on the normal path. An invalidated task that is not ready yet waits for a later prepare, which is the normal path. A retry of the continuation replays its receipt and is not a second continuation.',
+      why: 'The whole path of a material deviation with a human decision, counted to the settlement of the recompiled capsule: prepare, the settle that is held, the settle that carries the decision and records the revision, the continuation prepare, and the settle of the capsule it compiled. The continuation and its settle have no call site of their own, because each is the call the normal path already shows, so each is counted at that site. The design-revised path stops at the decision call; this path counts on from it. The own-task path has the same five calls: the held batch reports a task as blocked and its deviation names that task, the decision round needs a correction and records the revision, and the continuation compiles the task. Dispatching and collecting the recompiled tasks are harness calls the branch does not name again, so the harness count is a lower bound. Landing and the backstop follow as on the normal path. An invalidated task that is not ready yet waits for a later prepare, which is the normal path. A retry of the continuation replays its receipt and is not a second continuation.',
     },
     {
       id: 'context-compaction',
@@ -391,7 +401,7 @@ const DELEGATION: IntentModel = {
     {
       kind: 'site',
       ref: at('delegate', `${E}.query`, 'The call `exarchos_event({ action: "query"'),
-      why: 'a read of the settlement record when the transition to review is refused, to find the task that is not complete',
+      why: 'a read of the settlement record when the edge to review does not admit, to find the task that is not complete',
     },
     {
       kind: 'site',
@@ -406,9 +416,9 @@ const DELEGATION: IntentModel = {
       why: 'restates the pre-dispatch decision runbook already fetched',
     },
     {
-      ref: at('delegate', `${W}.transition`, '`exarchos_workflow transition` to `review`'),
+      ref: at('delegate', `${W}.transition`, 'then on the fallback run `exarchos_workflow transition` to `review`'),
       kind: 'restatement',
-      why: 'the landing checklist names the transition the Transition section spells',
+      why: 'the landing checklist names the fallback transition that the Transition section spells',
     },
     {
       ref: at('delegate', 'exarchos_view.delegation_timeline', 'delegation_timeline'),

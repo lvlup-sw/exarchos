@@ -233,6 +233,10 @@ describe('handleCancel saga paths', () => {
       const eventStore = new EventStore(tmpDir);
       await handleInit({ featureId: 'dry-run', workflowType: 'feature' }, tmpDir, eventStore);
 
+      await eventStore.append('dry-run', {
+        type: 'workflow.transition',
+        data: { from: 'plan', to: 'delegate', trigger: 'test', featureId: 'dry-run' },
+      });
       const rawState = await readRawState('dry-run');
       rawState.phase = 'delegate';
       rawState._history = { feature: 'delegate' };
