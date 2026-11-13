@@ -69,7 +69,7 @@ paths = [
   "tests/support/testgen/**",
   "content/review/skills/test-campaign/**",
   "tools/release/codegen-testgen.ts",
-  "tools/release/testgen-smoke.mjs",
+  "tools/release/testgen-*.mjs",
   "package.json",
   "package-lock.json",
   ".bun-version",
@@ -100,4 +100,14 @@ expect = { root = false, mcp = false, testgen = false, always = true }
 [[fixtures]]
 name = "testgen-source"
 files = ["src/testgen/contract/schemas.ts"]
+expect = { root = true, mcp = true, testgen = true, always = true }
+
+[[fixtures]]
+name = "testgen-native-smoke-helper"
+files = ["tools/release/testgen-native-smoke.mjs"]
+expect = { root = true, mcp = true, testgen = true, always = true }
+
+[[fixtures]]
+name = "testgen-mcp-smoke-helper"
+files = ["tools/release/testgen-mcp-smoke.mjs"]
 expect = { root = true, mcp = true, testgen = true, always = true }
