@@ -6,9 +6,10 @@
  *
  * @oracle-sources: ../../../src/workflow/phase-attempt-id.ts, hand-seeded stream rows
  */
+import { OperationDigestMismatchError, type DecideOnceContext, type DecideOnceDecision } from '../../../src/events/atomic-appender.js';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { WorkflowEvent } from '../../../src/events/schemas.js';
 import { EventStore } from '../../../src/events/store.js';
@@ -67,6 +68,7 @@ const MOVE_ROW_TYPES: readonly string[] = ['workflow.transition', 'phase.exited'
 const releases: (() => Promise<void> | void)[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await flushLiveShadowEvidence();
   for (const release of releases.splice(0).reverse()) await release();
   configureStateStoreBackend(undefined);
@@ -646,4 +648,159 @@ describe('the transition handler decides on the ledger fold', () => {
       expect((await documentOf(store, FEATURE_ID)).phase).toBe('review');
     },
   );
+});
+
+
+describe('complete document projection', () => {
+  it('HandleSet_CombinedUpdates_CommitBeforeThePhaseInOneTransaction', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const before = (await rowsOf(store, FEATURE_ID)).length;
+    failSetState(store, 1);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    const added = (await rowsOf(store, FEATURE_ID)).slice(before);
+    expect(added.map((row) => row.type)).toEqual(['state.patched', 'workflow.transition', 'phase.exited', 'phase.entered']);
+    expect(added[0]?.data).toMatchObject({ patch: { 'artifacts.plan': PLAN_ARTIFACT } });
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phase: 'plan-review', artifacts: { plan: PLAN_ARTIFACT }, _eventSequence: added.at(-1)?.sequence });
+  });
+
+  it('HandleSet_InvalidCombinedUpdates_CommitNothing', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const rows = await rowsOf(store, FEATURE_ID);
+    const document = await documentOf(store, FEATURE_ID);
+    await expect(handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT, 'integration.passed': 'invalid' } }, store.stateDir, store.eventStore)).resolves.toMatchObject({ success: false, error: { code: 'INVALID_INPUT' } });
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(rows);
+    expect(await documentOf(store, FEATURE_ID)).toEqual(document);
+  });
+
+  it('HandleSet_AFieldUpdateAfterAnUnlevelledMove_PreservesTheMove', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const old = await documentOf(store, FEATURE_ID);
+    await update(store, FEATURE_ID, { 'artifacts.plan': PLAN_ARTIFACT });
+    await transition(store, FEATURE_ID, 'plan-review');
+    const current = await documentOf(store, FEATURE_ID);
+    await forgeDocument(store, FEATURE_ID, (document) => ({ ...old, _version: document._version }));
+    const before = (await rowsOf(store, FEATURE_ID)).length;
+    await update(store, FEATURE_ID, { 'planReview.approved': true });
+    const rows = await rowsOf(store, FEATURE_ID);
+    expect(rows.slice(before).map((row) => row.type)).toEqual(['state.patched']);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phase: 'plan-review', phaseAttemptId: current.phaseAttemptId,
+      phaseObligation: current.phaseObligation, _eventSequence: rows.at(-1)?.sequence, artifacts: { plan: PLAN_ARTIFACT }, planReview: { approved: true } });
+  });
+});
+
+
+describe('document synchronization races', () => {
+  it('HandleSet_ARealSecondMoveDuringDocumentRetry_KeepsLatestProjection', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    await update(store, FEATURE_ID, { 'artifacts.plan': PLAN_ARTIFACT, 'planReview.approved': true });
+    const query = store.eventStore.query.bind(store.eventStore);
+    let fired = false;
+    let later: Record<string, unknown> | undefined;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (...args) => {
+      const rows = await query(...args);
+      if (!fired && args[0] === FEATURE_ID && rows.some((row) => row.type === 'workflow.transition' && row.data?.to === 'plan-review')) {
+        fired = true;
+        await transition(store, FEATURE_ID, 'delegate');
+        later = await documentOf(store, FEATURE_ID);
+      }
+      return rows;
+    });
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(recordOf(result.data)).toMatchObject({ phase: 'plan-review' });
+    expect(recordOf(result.data)).not.toHaveProperty('idempotent');
+    const document = await documentOf(store, FEATURE_ID);
+    expect(document).toMatchObject({ phase: 'delegate', phaseAttemptId: later?.phaseAttemptId, phaseObligation: later?.phaseObligation });
+    expect(recordOf(document._checkpoint).phase).toBe('delegate');
+    const rows = await rowsOf(store, FEATURE_ID);
+    expect(rows.filter((row) => MOVE_ROW_TYPES.includes(row.type)).map((row) => [row.type, row.data?.to ?? row.data?.phase])).toEqual([
+      ['workflow.transition', 'plan-review'], ['phase.exited', 'plan'], ['phase.entered', 'plan-review'],
+      ['workflow.transition', 'delegate'], ['phase.exited', 'plan-review'], ['phase.entered', 'delegate'],
+    ]);
+    expect(document._eventSequence).toBe(rows.at(-1)?.sequence);
+  });
+
+  it('HandleSet_ASamePhaseWithANewerAttempt_RepairsTheIdentity', async () => {
+    const store = await openStore();
+    await featureAtDelegate(store, ['t1'], ['t1']);
+    await transition(store, FEATURE_ID, 'review');
+    const old = await documentOf(store, FEATURE_ID);
+    await update(store, FEATURE_ID, { reviews: { bugbot: { passed: false } } });
+    await transition(store, FEATURE_ID, 'delegate');
+    await transition(store, FEATURE_ID, 'review');
+    const current = await documentOf(store, FEATURE_ID);
+    expect(current.phaseAttemptId).not.toBe(old.phaseAttemptId);
+    await forgeDocument(store, FEATURE_ID, (document) => ({ ...old, _version: document._version }));
+    const rows = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
+    expect(recordOf(result.data)).toMatchObject({ phase: 'review', phaseAttemptId: current.phaseAttemptId, idempotent: true });
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(rows);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ phaseAttemptId: current.phaseAttemptId, _eventSequence: rows.at(-1)?.sequence });
+  });
+
+  it('HandleSet_CombinedUpdates_AClaimHitDoesNotAppendAgain', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const query = store.eventStore.query.bind(store.eventStore);
+    const input = { featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } };
+    let fired = false;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (...args) => {
+      const rows = await query(...args);
+      if (!fired && args[0] === FEATURE_ID) {
+        fired = true;
+        requireSuccess('inner combined', await handleSet(input, store.stateDir, store.eventStore));
+      }
+      return rows;
+    });
+    const result = await handleSet(input, store.stateDir, store.eventStore);
+    expect(recordOf(result.data)).toMatchObject({ idempotent: true, phase: 'plan-review' });
+    const rows = await rowsOf(store, FEATURE_ID);
+    expect(rows.filter((row) => row.type === 'state.patched')).toHaveLength(1);
+    expect(rows.filter((row) => MOVE_ROW_TYPES.includes(row.type)).map((row) => row.type)).toEqual(MOVE_ROW_TYPES);
+  });
+});
+
+
+describe('combined patch atomicity', () => {
+  it('HandleSet_CombinedUpdates_ATransactionFailureCommitsNothing', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const before = await rowsOf(store, FEATURE_ID);
+    const document = await documentOf(store, FEATURE_ID);
+    const appender = store.eventStore.getAppender();
+    const original = appender.decideOnce.bind(appender);
+    vi.spyOn(appender, 'decideOnce').mockImplementation(<TResult>(operationId: string, digest: string, closure: (tx: DecideOnceContext) => DecideOnceDecision<TResult>): Promise<TResult> =>
+      original(operationId, digest, (tx) => {
+        const decision = closure(tx);
+        expect(decision.events.map((row) => row.type)).toEqual(['state.patched', 'workflow.transition', 'phase.exited', 'phase.entered']);
+        throw new Error('transaction fault');
+      }));
+    const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code: 'EVENT_APPEND_FAILED' } });
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    expect(await documentOf(store, FEATURE_ID)).toEqual(document);
+  });
+
+  it('HandleSet_CombinedUpdates_ADifferentPatchCannotReplayTheClaim', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const query = store.eventStore.query.bind(store.eventStore);
+    let fired = false;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (...args) => {
+      const rows = await query(...args);
+      if (!fired && args[0] === FEATURE_ID) {
+        fired = true;
+        requireSuccess('other patch', await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': 'other-plan.md' } }, store.stateDir, store.eventStore));
+      }
+      return rows;
+    });
+    await expect(handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore)).rejects.toBeInstanceOf(OperationDigestMismatchError);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ artifacts: { plan: 'other-plan.md' } });
+    expect((await rowsOf(store, FEATURE_ID)).filter((row) => row.type === 'state.patched')).toHaveLength(1);
+  });
 });

@@ -7,7 +7,7 @@ import {
   readStateFile,
   writeStateFile,
   StateStoreError,
-  VersionConflictError,
+  levelPhaseInStateDocument,
 } from './state-store.js';
 import {
   buildCheckpointMeta,
@@ -239,7 +239,7 @@ async function cancelAfterAClaimHit(
 ): Promise<ToolResult> {
   const state = await readStateFile(stateFile);
   const route = await cancelRouteOf(state, input.featureId, eventStore);
-  if (route.kind === 'fold' && route.from === 'cancelled') return levelCancelledDocument(stateFile, state, route, from);
+  if (route.kind === 'fold' && route.from === 'cancelled') return levelCancelledDocument(stateFile, state, route, eventStore, from);
   const outcome = await cancelOnRoute(input, stateDir, eventStore, stateFile, state, route);
   if (!isTrailClaimHit(outcome)) return withRouteWarnings(outcome, route);
   return {
@@ -251,39 +251,22 @@ async function cancelAfterAClaimHit(
   };
 }
 
-/**
- * Levels a document that lags behind a fold at `cancelled`, and replies `idempotent: true` with no row.
- * The level writes the phase and the attempt id of the fold, the checkpoint reset and the event sequence of
- * the rows. A version conflict reads the document again, and a document that reached `cancelled` needs no write.
- * The previous phase of the reply is the document phase, or the phase that the caller names.
- */
+/** Synchronize a cancelled document from current rows while preserving the reply's original previous phase. */
 async function levelCancelledDocument(
   stateFile: string,
   state: WorkflowState,
   route: Extract<CancelRoute, { kind: 'fold' }>,
+  eventStore: EventStore | null,
   previousPhase: string = state.phase,
 ): Promise<ToolResult> {
-  let current = state;
-  for (let write = 1; write <= MAX_LEVEL_WRITES; write++) {
-    if (current.phase === 'cancelled') break;
-    const checkpoint = resetCounter(current._checkpoint, 'cancelled', 'Workflow cancelled');
-    const levelled: WorkflowState = {
-      ...current,
-      phase: 'cancelled',
-      _checkpoint: checkpoint,
-      _eventSequence: route.eventSequence,
-      updatedAt: new Date().toISOString(),
-    };
-    if (route.foldAttemptId !== undefined) levelled.phaseAttemptId = route.foldAttemptId;
-    try {
-      await writeStateFile(stateFile, levelled, { expectedVersion: current._version ?? 1 });
-      return idempotentCancelReply(previousPhase, route, checkpoint);
-    } catch (err) {
-      if (!(err instanceof VersionConflictError) || write === MAX_LEVEL_WRITES) throw err;
-      current = await readStateFile(stateFile);
-    }
+  if (eventStore === null) throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, 'The cancellation ledger is unavailable');
+  const level = await levelPhaseInStateDocument(stateFile, eventStore, state.featureId, MAX_LEVEL_WRITES, (candidate) => {
+    delete candidate._compensationCheckpoint;
+  });
+  if (level.kind === 'failed' || level.kind === 'skipped') {
+    throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, level.kind === 'failed' ? level.error : 'The cancellation document is absent');
   }
-  return idempotentCancelReply(previousPhase, route, current._checkpoint);
+  return idempotentCancelReply(previousPhase, { ...route, foldAttemptId: readPhaseAttemptId(level.state) }, level.state._checkpoint);
 }
 
 /** The reply of a cancel whose fold is at `cancelled`. Its data fits the cancelled arm of the cancel output schema. */
@@ -379,7 +362,8 @@ async function cancelOnRoute(
   const terminalPhase = route.kind === 'fold' ? route.from : state.phase;
   if (terminalPhase === 'cancelled') {
     if (route.kind === 'fold' && state.phase !== 'cancelled') {
-      return levelCancelledDocument(stateFile, state, route);
+      if (input.dryRun) return { success: true, data: { dryRun: true, actions: [], currentPhase: 'cancelled', wouldTransitionTo: 'cancelled' } };
+      return levelCancelledDocument(stateFile, state, route, eventStore);
     }
     return {
       success: false,

@@ -1,3 +1,5 @@
+import { buildEvent } from '../../../src/events/event-factory.js';
+import * as atomicWrite from '../../../src/utils/atomic-write.js';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as fs from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
@@ -5,6 +7,8 @@ import * as os from 'node:os';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import {
+  projectStateDocument,
+  levelPhaseInStateDocument,
   applyDotPath,
   deepMerge,
   isPlainObject,
@@ -1099,3 +1103,126 @@ async function findDeadPid(): Promise<number> {
   await new Promise((r) => setTimeout(r, 50));
   return pid;
 }
+
+describe('complete ledger document synchronization', () => {
+  let directory: string;
+  beforeEach(async () => {
+    configureStateStoreBackend(undefined);
+    directory = await mkdtemp(path.join(tmpdir(), 'full-document-'));
+  });
+  afterEach(async () => {
+    vi.restoreAllMocks();
+    await rmrfAsync(directory);
+  });
+
+  it('LevelDocument_ProjectionRepair_PreservesOperationalFields', async () => {
+    const { state } = await initStateFile(directory, 'complete', 'feature');
+    const operational = {
+      ...state,
+      phaseAttemptId: 'stale-attempt',
+      _esVersion: 2,
+      _version: 17,
+      _compensationCheckpoint: { completedActions: ['keep'] },
+      customOperation: { owner: 'caller' },
+      reviews: { discarded: true },
+      _checkpoint: { ...state._checkpoint, timestamp: '2030-01-01T00:00:00.000Z', summary: 'Keep summary', fixCycleCount: 4,
+        staleAfterMinutes: 60, operationsSince: 12, lastActivityTimestamp: '2030-01-01T00:00:00.000Z' },
+    };
+    const rows = [
+      buildEvent('complete', 1, { type: 'workflow.started', timestamp: '2020-01-01T00:00:00.000Z', data: { featureId: 'complete', workflowType: 'feature' } }),
+      buildEvent('complete', 2, { type: 'workflow.checkpoint', timestamp: '2021-01-01T00:00:00.000Z', data: { phase: 'plan', counter: 99 } }),
+      buildEvent('complete', 3, { type: 'state.patched', data: { patch: { reviews: null } } }),
+      buildEvent('complete', 4, { type: 'state.patched', data: { patch: { reviews: { retained: true } } } }),
+    ];
+    const projected = projectStateDocument(operational, rows, 'complete');
+    expect(projected).toMatchObject({ _version: 17, _esVersion: 2, updatedAt: state.updatedAt, customOperation: { owner: 'caller' },
+      _compensationCheckpoint: { completedActions: ['keep'] }, reviews: { retained: true }, _eventSequence: 4,
+      _checkpoint: { phase: 'plan', operationsSince: 0, summary: 'Keep summary', fixCycleCount: 4, staleAfterMinutes: 60 } });
+    expect(projected.reviews).toEqual({ retained: true });
+    expect(projected).not.toHaveProperty('phaseAttemptId');
+    const sameIdentity = projectStateDocument({ ...operational, phaseAttemptId: undefined }, rows, 'complete');
+    expect(sameIdentity._checkpoint).toEqual(operational._checkpoint);
+    const newer = [...rows, buildEvent('complete', 5, { type: 'workflow.checkpoint', timestamp: '2031-01-01T00:00:00.000Z', data: { phase: 'plan', counter: 3 } })];
+    expect(projectStateDocument(sameIdentity, newer, 'complete')._checkpoint).toEqual({ ...operational._checkpoint,
+      timestamp: '2031-01-01T00:00:00.000Z', lastActivityTimestamp: '2031-01-01T00:00:00.000Z', operationsSince: 3 });
+    expect(() => projectStateDocument(operational, rows.slice(1), 'complete')).toThrow('complete workflow stream');
+    expect(() => projectStateDocument(operational, rows, 'other')).toThrow();
+  });
+
+  it('LevelDocument_AFileWithoutEsVersion_PreservesBytesOnReplay', async () => {
+    const store = new EventStore(directory);
+    await store.initialize();
+    try {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2020-01-01T00:00:00.000Z'));
+      const { stateFile } = await initStateFile(directory, 'file-replay', 'feature');
+      await store.append('file-replay', { type: 'workflow.started', data: { featureId: 'file-replay', workflowType: 'feature' } });
+      await store.append('file-replay', { type: 'state.patched', data: { patch: { tasks: [{ id: 't1', title: 'Task', status: 'pending' }] } } });
+      vi.setSystemTime(new Date('2020-02-01T00:00:00.000Z'));
+      expect((await levelPhaseInStateDocument(stateFile, store, 'file-replay')).kind).toBe('levelled');
+      const before = await fs.readFile(stateFile, 'utf8');
+      expect(JSON.parse(before)).not.toHaveProperty('_esVersion');
+      expect(JSON.parse(before).tasks).toEqual([{ id: 't1', title: 'Task', status: 'pending', blockedBy: [] }]);
+      expect(JSON.parse(before).updatedAt).toBe('2020-02-01T00:00:00.000Z');
+      vi.setSystemTime(new Date('2020-03-01T00:00:00.000Z'));
+      expect((await levelPhaseInStateDocument(stateFile, store, 'file-replay')).kind).toBe('current');
+      expect(await fs.readFile(stateFile, 'utf8')).toBe(before);
+    } finally {
+      vi.useRealTimers();
+      await store.close();
+    }
+  });
+
+  it('FileCas_TwoConditionalWriters_ExactlyOneSucceeds', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'cas', 'feature');
+    let release = (): void => {};
+    let entered = (): void => {};
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const staged = new Promise<void>((resolve) => { entered = resolve; });
+    const publish = atomicWrite.publishTempFile;
+    vi.spyOn(atomicWrite, 'publishTempFile').mockImplementationOnce(async (...args) => {
+      entered();
+      await blocked;
+      return publish(...args);
+    });
+    const first = writeStateFile(stateFile, { ...state, winner: 'first' }, { expectedVersion: 1 });
+    await staged;
+    const second = writeStateFile(stateFile, { ...state, winner: 'second' }, { expectedVersion: 1 });
+    const outcomes = Promise.allSettled([first, second]);
+    release();
+    const results = await outcomes;
+    expect(results[0].status).toBe('fulfilled');
+    expect(results[1]).toMatchObject({ status: 'rejected', reason: expect.any(VersionConflictError) });
+    expect(await readStateFile(stateFile)).toMatchObject({ _version: 2, winner: 'first' });
+    await writeStateFile(stateFile, { ...state, _version: 2, winner: 'after-rejection' }, { expectedVersion: 2 });
+    expect(await readStateFile(stateFile)).toMatchObject({ _version: 3, winner: 'after-rejection' });
+  });
+
+  it('FileCas_AnUnconditionalWriter_CannotSplitTheCheckAndPublish', async () => {
+    const { stateFile, state } = await initStateFile(directory, 'cas', 'feature');
+    const other = await initStateFile(directory, 'other', 'feature');
+    let release = (): void => {};
+    let entered = (): void => {};
+    const blocked = new Promise<void>((resolve) => { release = resolve; });
+    const staged = new Promise<void>((resolve) => { entered = resolve; });
+    const publish = atomicWrite.publishTempFile;
+    const order: string[] = [];
+    vi.spyOn(atomicWrite, 'publishTempFile').mockImplementation(async (...args) => {
+      if (args[1] === stateFile && order.length === 0) {
+        order.push('conditional');
+        entered();
+        await blocked;
+      } else order.push(args[1] === stateFile ? 'unconditional' : 'other');
+      return publish(...args);
+    });
+    const first = writeStateFile(stateFile, state, { expectedVersion: 1 });
+    await staged;
+    const second = writeStateFile(path.join(directory, '.', 'cas.state.json'), { ...state, marker: 'unconditional' });
+    await writeStateFile(other.stateFile, other.state, { expectedVersion: 1 });
+    expect(order).toEqual(['conditional', 'other']);
+    release();
+    await Promise.all([first, second]);
+    expect(order).toEqual(['conditional', 'other', 'unconditional']);
+    expect(await readStateFile(stateFile)).toMatchObject({ marker: 'unconditional', _version: 2 });
+  });
+});

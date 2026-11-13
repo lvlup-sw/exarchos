@@ -44,8 +44,8 @@ import type { SettlementReceipt } from '../../../../src/verbs/settle/types.js';
 import { createInMemoryResolver } from '../../../../src/workflow/capabilities/resolver.js';
 import { builtInDefinition } from '../../../../src/workflow/definitions/built-in.js';
 import { readPhaseAttemptId } from '../../../../src/workflow/phase-attempt-id.js';
-import { configureStateStoreBackend, levelPhaseInStateDocument } from '../../../../src/workflow/state-store.js';
-import { handleInit } from '../../../../src/workflow/tools.js';
+import { configureStateStoreBackend, levelPhaseInStateDocument, reconcileFromEvents } from '../../../../src/workflow/state-store.js';
+import { handleInit, handleSet } from '../../../../src/workflow/tools.js';
 import { makeTempDir, rmrfAsync } from '../../../../tools/test-helpers/temp-dir.js';
 import { releaseCheckDefinition } from '../../../helpers/definitions/user-definition.js';
 import { inScopeObserver, scopeOfCheckout, withScope } from '../../../helpers/scoped-capsule.js';
@@ -890,6 +890,7 @@ describe('settle levels the state document after a move', () => {
     const document = documentOf(store);
     expect(receipt.phaseMove?.kind).toBe('moved');
     expect(document.phase).toBe('review');
+    expect(document.phaseObligation).toMatchObject({ phase: 'review', kind: 'REVIEW' });
     expect(document.phaseAttemptId).toBe(receipt.phaseMove?.kind === 'moved' ? receipt.phaseMove.phaseAttemptId : undefined);
     expect(document._eventSequence).toBe(receipt.tailSequence);
   });
@@ -915,32 +916,92 @@ describe('settle levels the state document after a move', () => {
     expect(replayed.phaseMove?.kind).toBe('moved');
     const document = documentOf(store);
     expect(document.phase).toBe('review');
+    expect(document.phaseObligation).toMatchObject({ phase: 'review', kind: 'REVIEW' });
     expect(document._eventSequence).toBe(replayed.tailSequence);
   });
 
-  /**
-   * A document whose `_eventSequence` is past the sequence of the level already holds the rows of the move.
-   * The level gives `current` and writes nothing: the phase, the attempt id and the version stay.
-   * The SQLite backend keys the document by the base name of the path, so the path is the stream id in the state directory.
-   */
-  it('LevelPhaseInStateDocument_ADocumentPastTheLevel_WritesNothing', async () => {
+  it('Settle_AFieldPatchAfterTheMove_RepairsTheOldDocumentPhase', async () => {
+    const store = await openStore();
+    const capsuleVersion = await featureBatchAtDelegate(store, { document: true });
+    const query = store.eventStore.query.bind(store.eventStore);
+    let fired = false;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (...args) => {
+      const rows = await query(...args);
+      if (!fired && args[0] === STREAM && rows.some((row) => row.type === RECORD_TYPE)) {
+        fired = true;
+        expect((await handleSet({ featureId: STREAM, updates: { 'artifacts.plan': 'later-plan.md' } }, store.stateDir, store.eventStore)).success).toBe(true);
+      }
+      return rows;
+    });
+    const receipt = receiptOf(await settle(store, { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] }));
+    const document = documentOf(store);
+    expect(fired).toBe(true);
+    expect(document).toMatchObject({ phase: 'review', artifacts: { plan: 'later-plan.md' }, phaseObligation: { phase: 'review', kind: 'REVIEW' } });
+    expect(document.phaseAttemptId).toBe(receipt.phaseMove?.kind === 'moved' ? receipt.phaseMove.phaseAttemptId : undefined);
+    expect(document._eventSequence).toBeGreaterThan(receipt.tailSequence);
+    expect(document._eventSequence).toBe(await tailOf(store));
+  });
+
+  it('LevelDocument_AStaleCursor_RepairsSkippedPatchAndObligation', async () => {
+    const store = await openStore();
+    const capsuleVersion = await featureBatchAtDelegate(store, { document: true });
+    const first = receiptOf(await settle(store, { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] }));
+    const expected = documentOf(store);
+    forgeDocument(store, () => ({ phase: 'delegate', artifacts: { design: null, plan: 'stale-plan.md', pr: null }, phaseObligation: null, _history: { stale: 'stale' }, _eventSequence: 500 }));
+    const outcome = await levelPhaseInStateDocument(path.join(store.stateDir, STREAM), store.eventStore, STREAM);
+    expect(outcome.kind).toBe('levelled');
+    expect(documentOf(store)).toMatchObject({ phase: 'review', phaseObligation: expected.phaseObligation,
+      artifacts: expected.artifacts, _history: expected._history, _eventSequence: first.tailSequence });
+    await reconcileFromEvents(store.stateDir, STREAM, store.eventStore);
+    expect(documentOf(store)).toMatchObject({ artifacts: expected.artifacts, phaseObligation: expected.phaseObligation, _history: expected._history });
+  });
+
+  it('LevelDocument_ASynchronizedSnapshot_WritesNothing', async () => {
+    const store = await openStore();
+    const capsuleVersion = await featureBatchAtDelegate(store, { document: true });
+    receiptOf(await settle(store, { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] }));
+    const before = documentOf(store);
+    const write = vi.spyOn(store.backend, 'setState');
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2040-01-01T00:00:00Z'));
+    try {
+      const outcome = await levelPhaseInStateDocument(path.join(store.stateDir, STREAM), store.eventStore, STREAM);
+      expect(outcome.kind).toBe('current');
+      expect(documentOf(store)).toEqual(before);
+      expect(write).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it.each(['query', 'fold', 'validation'])('LevelDocument_AFoldFault_LeavesDocumentAndCursorUnchanged', async (fault) => {
     const store = await openStore();
     await seedStream(store, { phase: 'delegate', tasks: [pending('task-a')], document: true });
-    forgeDocument(store, () => ({ phase: 'delegate', _eventSequence: 50 }));
     const before = documentOf(store);
+    if (fault === 'query') vi.spyOn(store.eventStore, 'query').mockRejectedValue(new Error('ledger unavailable'));
+    else await store.eventStore.append(STREAM, { type: 'state.patched', data: { patch: fault === 'fold' ? { 'tasks[id=invalid].title': 'invalid' } : { integration: { passed: 'invalid' } } } });
+    expect(await levelPhaseInStateDocument(path.join(store.stateDir, STREAM), store.eventStore, STREAM)).toMatchObject({ kind: 'failed' });
+    expect(documentOf(store)).toEqual(before);
+  });
 
-    const outcome = await levelPhaseInStateDocument(path.join(store.stateDir, STREAM), {
-      phase: 'review',
-      phaseAttemptId: 'phase-attempt:a-level-that-is-behind',
-      eventSequence: 40,
-    });
+  it('LevelDocument_AMissingDocument_Skips', async () => {
+    const store = await openStore();
+    expect(await levelPhaseInStateDocument(path.join(store.stateDir, STREAM), store.eventStore, STREAM)).toEqual({ kind: 'skipped', reason: 'no-document' });
+  });
 
-    expect(outcome).toEqual({ kind: 'current' });
-    const after = documentOf(store);
-    expect(after.phase).toBe('delegate');
-    expect(after.phaseAttemptId).toBe(before.phaseAttemptId);
-    expect(after._eventSequence).toBe(50);
-    expect(after._version).toBe(before._version);
+  it('Settle_AReplayAfterALaterMove_KeepsTheNewerDocument', async () => {
+    const store = await openStore();
+    const capsuleVersion = await featureBatchAtDelegate(store, { document: true });
+    const args = { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] };
+    const first = receiptOf(await settle(store, args));
+    expect((await handleSet({ featureId: STREAM, updates: { reviews: { bugbot: { passed: false } } } }, store.stateDir, store.eventStore)).success).toBe(true);
+    expect((await handleSet({ featureId: STREAM, phase: 'delegate' }, store.stateDir, store.eventStore)).success).toBe(true);
+    const later = documentOf(store);
+    const tail = await tailOf(store);
+    const replayed = receiptOf(await settle(store, args));
+    expect(replayed).toEqual(first);
+    expect(documentOf(store)).toMatchObject({ phase: 'delegate', phaseAttemptId: later.phaseAttemptId, _history: later._history, phaseObligation: later.phaseObligation, _eventSequence: tail });
+    expect(await tailOf(store)).toBe(tail);
   });
 
   /** A document write that fails keeps the verdict and the rows, and the call returns one `PHASE_LEVEL_FAILED` warning. */

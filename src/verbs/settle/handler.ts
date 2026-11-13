@@ -1519,14 +1519,10 @@ function phaseDecisionOf(input: PhaseDecisionInput): PhaseDecision {
  * move levels nothing. A stream with no document gets no level and no warning. A failed level gives one warning that
  * starts with `PHASE_LEVEL_FAILED`, and the verdict and the rows stand.
  */
-async function levelMovedPhase(stateDir: string, streamId: string, receipt: SettlementReceipt): Promise<string[]> {
+async function levelMovedPhase(stateDir: string, streamId: string, receipt: SettlementReceipt, eventStore: EventStore): Promise<string[]> {
   const move = receipt.phaseMove;
   if (move?.kind !== 'moved') return [];
-  const level = await levelPhaseInStateDocument(path.join(stateDir, `${streamId}.state.json`), {
-    phase: move.to,
-    phaseAttemptId: move.phaseAttemptId,
-    eventSequence: receipt.tailSequence,
-  });
+  const level = await levelPhaseInStateDocument(path.join(stateDir, `${streamId}.state.json`), eventStore, streamId);
   if (level.kind !== 'failed') return [];
   orchestrateLogger.warn({ streamId, phase: move.to, level }, 'settle: the state document did not follow the phase move');
   return [
@@ -1713,7 +1709,7 @@ async function commitJudgement(
               },
             };
           });
-        return receiptResult(persisted, [...warnings, ...(await levelMovedPhase(call.stateDir, streamId, persisted))]);
+        return receiptResult(persisted, [...warnings, ...(await levelMovedPhase(call.stateDir, streamId, persisted, ctx.eventStore))]);
       } catch (error) {
         if (error instanceof OperationDigestMismatchError) {
           return refused(
@@ -1928,7 +1924,7 @@ export async function handleSettle(
           }
         }
       }
-      replayWarnings.push(...(await levelMovedPhase(stateDir, streamId, claim.result)));
+      replayWarnings.push(...(await levelMovedPhase(stateDir, streamId, claim.result, ctx.eventStore)));
       return receiptResult(claim.result, replayWarnings);
     }
     if (!deciding && submittedClaims.length === 0) return claimlessBatch(batchLabel);

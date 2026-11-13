@@ -2997,7 +2997,7 @@ describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
     const stateFile = path.join(tmpDir, 'es-set-snap.state.json');
     const rawState = JSON.parse(await fs.readFile(stateFile, 'utf-8'));
 
-    expect(rawState.tasks).toEqual([{ id: 'task-1', title: 'Build API', status: 'pending' }]);
+    expect(rawState.tasks).toEqual([{ id: 'task-1', title: 'Build API', status: 'pending', blockedBy: [] }]);
 
     const events = await eventStore.query('es-set-snap');
     const freshMaterializer = new ViewMaterializer();
@@ -3010,7 +3010,7 @@ describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
 
     expect(rawState.featureId).toBe(materialized.featureId);
     expect(rawState.phase).toBe(materialized.phase);
-    expect(rawState.tasks).toEqual(materialized.tasks);
+    expect(materialized.tasks).toEqual([{ id: 'task-1', title: 'Build API', status: 'pending' }]);
   });
 });
 

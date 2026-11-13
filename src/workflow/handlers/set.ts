@@ -22,15 +22,14 @@ import { phaseRowsOf, type PhaseRow } from '../decide/rows.js';
 import { builtInDefinition, isBuiltInDefinitionType } from '../definitions/built-in.js';
 import { hsmTransitionGuard, type TransitionResult as LegacyResult } from '../hsm-transition-guard.js';
 import { allocatePhaseAttemptId, readPhaseAttemptId } from '../phase-attempt-id.js';
-import { isPlainObject } from '../state-mutation.js';
-import { ErrorCode } from '../schemas.js';
-import { applyDotPath, readStateFile, StateStoreError, validateStateForWrite, VersionConflictError, writeStateFile } from '../state-store.js';
+import { ErrorCode, WorkflowStateSchema } from '../schemas.js';
+import { applyDotPath, projectStateDocument, levelPhaseInStateDocument, readStateFile, StateStoreError, validateStateForWrite, VersionConflictError, writeStateFile } from '../state-store.js';
 import type { SetInput, WorkflowState } from '../types.js';
 import { CURRENT_ES_VERSION, isEventSourced } from './shared.js';
 
 /**
  * The CAS retry limit. A retry re-reads the state and gets a new `expectedVersion`.
- * Thus a retry that appends `state.patched` adds a second event and does not collapse onto the first.
+ * A committed patch keeps its sequence across retries, so a document conflict appends no duplicate patch.
  * After the last retry, the handler appends `workflow.cas-failed` to an event store on a best-effort basis and rethrows.
  * The same limit bounds the passes whose reads change before the commit of a move.
  */
@@ -237,9 +236,9 @@ function workflowEventOf(stored: DecideOnceStoredEvent): WorkflowEvent {
   };
 }
 
-/** Returns the request digest of a transition: the feature, the source phase and the target. */
-function requestDigestOf(featureId: string, from: string, target: string): string {
-  const digest = createHash('sha256').update(JSON.stringify({ featureId, from, to: target })).digest('hex');
+/** The request digest binds the source, target and combined patch, so a different patch cannot replay another claim. */
+function requestDigestOf(featureId: string, from: string, target: string, updates?: Record<string, unknown>): string {
+  const digest = createHash('sha256').update(JSON.stringify({ featureId, from, to: target, updates })).digest('hex');
   return `sha256:${digest}`;
 }
 
@@ -309,7 +308,7 @@ function denialErrorOf(outcome: Extract<DecideOutcome, { kind: 'deny' }>, legacy
 /** The outcome of the decide section of one pass on the fold. */
 type FoldPass =
   | { readonly kind: 'reply'; readonly result: ToolResult }
-  | { readonly kind: 'reads-changed' }
+  | { readonly kind: 'reads-changed'; readonly patchSequence?: number }
   | { readonly kind: 'idempotent'; readonly read: FoldRead }
   | { readonly kind: 'moved'; readonly move: CommittedMove };
 
@@ -417,7 +416,7 @@ async function commitMove(
   try {
     const committed = await eventStore
       .getAppender()
-      .decideOnce<CommittedMove>(`transition:${featureId}:${attemptId}`, requestDigestOf(featureId, read.from, target), (tx) => {
+      .decideOnce<CommittedMove>(`transition:${featureId}:${attemptId}`, requestDigestOf(featureId, read.from, target, updates), (tx) => {
         closureRan = true;
         const snapshot = tx.readStream(featureId);
         const snapshotRows = migrateEvents(snapshot.events).map(workflowEventOf);
@@ -434,9 +433,16 @@ async function commitMove(
         }
         const result = phaseMoveEvents(def, inner.input, innerOutcome.move, floorOf(inner, target));
         if (!result.success || result.newPhase === undefined) throw new TransitionReadsChanged(featureId, target);
-        const events = phaseRowsOf(result.events, featureId, { guardId: guardIdOf(move), rows: snapshotRows }).map((row) =>
+        const phaseEvents = phaseRowsOf(result.events, featureId, { guardId: guardIdOf(move), rows: snapshotRows }).map((row) =>
           stampFromAmbient({ ...row }),
         );
+        const patch = pendingPatchRow(featureId, updates, snapshotRows);
+        const events = patch === undefined ? phaseEvents : [stampFromAmbient({
+          type: patch.type,
+          source: 'workflow',
+          correlationId: featureId,
+          data: patch.data,
+        }), ...phaseEvents];
         return {
           streamId: featureId,
           events,
@@ -448,7 +454,7 @@ async function commitMove(
           },
         };
       });
-    if (!closureRan) return { kind: 'reads-changed' };
+    if (!closureRan) return { kind: 'reads-changed', ...(updates === undefined ? {} : { patchSequence: committed.eventSequence }) };
     return { kind: 'moved', move: committed };
   } catch (err) {
     if (err instanceof TransitionReadsChanged) return { kind: 'reads-changed' };
@@ -461,16 +467,6 @@ async function commitMove(
     }
     return reply({ code: ErrorCode.EVENT_APPEND_FAILED, message: `Event append failed: ${messageOf(err)}` });
   }
-}
-
-/** Sets the four level fields on a document: the phase and the attempt id of the fold, the checkpoint reset and the event sequence. */
-function levelDocument(document: Record<string, unknown>, state: WorkflowState, read: FoldRead): WorkflowState['_checkpoint'] {
-  const checkpoint = resetCounter(state._checkpoint, read.from);
-  document.phase = read.from;
-  if (read.foldAttemptId !== undefined) document.phaseAttemptId = read.foldAttemptId;
-  document._checkpoint = checkpoint;
-  document._eventSequence = read.version;
-  return checkpoint;
 }
 
 /**
@@ -569,7 +565,7 @@ export async function handleSet(
 
     const expectedVersion = state._version ?? 1;
 
-    const mutableState = structuredClone(state) as Record<string, unknown>;
+    let mutableState: Record<string, unknown> = structuredClone(state);
 
     if (input.updates) {
       try {
@@ -591,10 +587,13 @@ export async function handleSet(
       }
     }
 
-    let pendingTransitionEventsCount = 0;
+    const validated = WorkflowStateSchema.safeParse(mutableState);
+    if (!validated.success) {
+      return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: validated.error.message } };
+    }
+
+    let ledgerBacked = false;
     let transitionTopSequence: number | undefined;
-    let levelSequence: number | undefined;
-    let levelOnly: { readonly read: FoldRead; readonly checkpoint: WorkflowState['_checkpoint'] } | undefined;
 
     if (input.phase) {
       injectGuardConfig(mutableState, options);
@@ -618,6 +617,7 @@ export async function handleSet(
       }
 
       const route = routeOf(state, eventStore, rows);
+      ledgerBacked = route.kind === 'fold';
       routeWarnings = route.kind === 'legacy' ? route.warnings : [];
       const fromPhase = state.phase;
       if (
@@ -673,27 +673,24 @@ export async function handleSet(
           eventStore,
         });
         if (pass.kind === 'reply') return withShadowRecord(pass.result, shadowRun, stateDir);
-        if (pass.kind === 'reads-changed') continue;
+        if (pass.kind === 'reads-changed') {
+          patchSequence = pass.patchSequence ?? patchSequence;
+          continue;
+        }
         if (pass.kind === 'moved') {
           committed = pass.move;
         } else {
-          const lagging = state.phase !== pass.read.from;
-          if (!lagging && !input.updates) {
+          if (!input.updates || patchSequence !== undefined) {
+            const level = await levelPhaseInStateDocument(stateFile, eventStore, input.featureId);
+            if (level.kind === 'failed' || level.kind === 'skipped') {
+              return withShadowRecord({ success: false, error: { code: ErrorCode.PROJECTION_REPLAY_FAILED,
+                message: level.kind === 'failed' ? level.error : 'The state document is absent' } }, shadowRun, stateDir);
+            }
             return withShadowRecord({
               success: true,
-              data: {
-                phase: state.phase,
-                updatedAt: state.updatedAt,
-                idempotent: true,
-                phaseAttemptId: readPhaseAttemptId(state),
-              },
-              _meta: buildCheckpointMeta(state._checkpoint),
+              data: { phase: level.state.phase, updatedAt: level.state.updatedAt, idempotent: true, phaseAttemptId: readPhaseAttemptId(level.state) },
+              _meta: buildCheckpointMeta(level.state._checkpoint),
             }, shadowRun, stateDir);
-          }
-          if (lagging) {
-            const levelCheckpoint = levelDocument(mutableState, state, pass.read);
-            levelSequence = pass.read.version;
-            if (!input.updates) levelOnly = { read: pass.read, checkpoint: levelCheckpoint };
           }
         }
       } else {
@@ -793,7 +790,6 @@ export async function handleSet(
             attemptResult.newPhase,
           );
 
-          pendingTransitionEventsCount = attemptResult.emittedEvents.length;
           if (attemptResult.transitionEvent.sequence > 0) {
             transitionTopSequence = attemptResult.transitionEvent.sequence;
           }
@@ -809,20 +805,11 @@ export async function handleSet(
     }
 
     if (committed !== undefined) {
-      mutableState.phase = committed.newPhase;
-      mutableState.phaseAttemptId = committed.phaseAttemptId;
-      if (Object.keys(committed.historyUpdates).length > 0) {
-        const priorHistory = mutableState._history;
-        mutableState._history = {
-          ...(isPlainObject(priorHistory) ? priorHistory : {}),
-          ...committed.historyUpdates,
-        };
-      }
-      mutableState._checkpoint = resetCounter(state._checkpoint, committed.newPhase);
       transitionTopSequence = committed.eventSequence;
+      if (input.updates && Object.keys(input.updates).length > 0) patchSequence = committed.eventSequence;
     }
 
-    let highestEventSequence: number | undefined = transitionTopSequence ?? levelSequence;
+    let highestEventSequence: number | undefined = transitionTopSequence;
 
     const updateKeys = input.updates ? Object.keys(input.updates) : [];
     if (
@@ -852,7 +839,7 @@ export async function handleSet(
         const event = await eventStore.appendValidated(input.featureId, validatedEvent, { idempotencyKey });
 
         highestEventSequence = Math.max(highestEventSequence ?? 0, event.sequence);
-        if (committed !== undefined) patchSequence = event.sequence;
+        patchSequence = event.sequence;
       } catch (err) {
         return withShadowRecord({
           success: false,
@@ -866,15 +853,17 @@ export async function handleSet(
       highestEventSequence = Math.max(highestEventSequence ?? 0, patchSequence);
     }
 
-    if (highestEventSequence !== undefined) {
+    if (eventStore && isEventSourced(state)) {
+      const rows = await eventStore.query(input.featureId);
+      ledgerBacked = ledgerBacked || routeOf(state, eventStore, rows).kind === 'fold';
+      if (ledgerBacked) mutableState = { ...projectStateDocument(state, rows, input.featureId) };
+    }
+
+    if (!ledgerBacked && highestEventSequence !== undefined) {
       mutableState._eventSequence = highestEventSequence;
     }
 
-    if (levelOnly === undefined) {
-      mutableState._checkpoint = incrementOperations(
-        mutableState._checkpoint as WorkflowState['_checkpoint'],
-      );
-    }
+    mutableState._checkpoint = incrementOperations(WorkflowStateSchema.parse(mutableState)._checkpoint);
 
     const updatedAt = new Date().toISOString();
     mutableState.updatedAt = updatedAt;
@@ -920,26 +909,13 @@ export async function handleSet(
       throw err;
     }
 
-    if (levelOnly !== undefined) {
-      return withShadowRecord({
-        success: true,
-        data: {
-          phase: levelOnly.read.from,
-          updatedAt,
-          idempotent: true,
-          phaseAttemptId: levelOnly.read.foldAttemptId,
-        },
-        _meta: buildCheckpointMeta(levelOnly.checkpoint),
-      }, shadowRun, stateDir);
-    }
-
     return withShadowRecord({
       success: true,
       data: {
-        phase: mutableState.phase as string,
+        phase: committed?.newPhase ?? mutableState.phase as string,
         workflowType: mutableState.workflowType as string,
         updatedAt: mutableState.updatedAt as string,
-        phaseAttemptId: mutableState.phaseAttemptId as string,
+        phaseAttemptId: committed?.phaseAttemptId ?? mutableState.phaseAttemptId as string,
       },
       _meta: buildCheckpointMeta(mutableState._checkpoint as WorkflowState['_checkpoint']),
     }, shadowRun, stateDir, routeWarnings);

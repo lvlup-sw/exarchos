@@ -347,6 +347,34 @@ describe('the cancel handler decides on the ledger fold', () => {
   });
 
   /** The rows end with a cancel row and the document lags. The cancel appends no row, levels the document and replies idempotent. */
+  it('Cancel_AnIdempotentRetry_RepairsSkippedProjectionEffects', async () => {
+    const store = await openStore();
+    await debugAtInvestigate(store);
+    await appendRow(store, 'state.patched', { patch: { 'artifacts.plan': 'ledger-plan.md', reviews: { gate: { passed: true } } } });
+    await appendRow(store, 'workflow.cancel', { from: 'investigate', to: 'cancelled', trigger: 'test', featureId: FEATURE_ID, phaseAttemptId: SEEDED_ATTEMPT_ID });
+    const rows = await rowsOf(store);
+    const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(await documentOf(store)).toMatchObject({ phase: 'cancelled', phaseAttemptId: SEEDED_ATTEMPT_ID,
+      artifacts: { plan: 'ledger-plan.md' }, reviews: { gate: { passed: true } }, _eventSequence: rows.at(-1)?.sequence });
+    expect(await rowsOf(store)).toEqual(rows);
+    const current = await documentOf(store);
+    expect((await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore)).error?.code).toBe('ALREADY_CANCELLED');
+    expect(await documentOf(store)).toEqual(current);
+  });
+
+  it('Cancel_AnIdempotentDryRun_WritesNothing', async () => {
+    const store = await openStore();
+    await debugAtInvestigate(store);
+    await appendRow(store, 'workflow.cancel', { from: 'investigate', to: 'cancelled', trigger: 'test', featureId: FEATURE_ID, phaseAttemptId: SEEDED_ATTEMPT_ID });
+    const before = await documentOf(store);
+    const rows = await rowsOf(store);
+    const result = await handleCancel({ featureId: FEATURE_ID, dryRun: true }, store.stateDir, store.eventStore);
+    expect(result.data).toEqual({ dryRun: true, actions: [], currentPhase: 'cancelled', wouldTransitionTo: 'cancelled' });
+    expect(await documentOf(store)).toEqual(before);
+    expect(await rowsOf(store)).toEqual(rows);
+  });
+
   it('HandleCancel_AFoldAtCancelledAndALaggingDocument_RepliesIdempotentAndLevels', async () => {
     const store = await openStore();
     await debugAtInvestigate(store);
