@@ -37,8 +37,7 @@
         "src/contract/capsule/exarchos-capsule-schema-cli.ts",
         "tests/evals/native-baseline/emit-baseline-csv.ts",
         "tests/core/integration/suite-invariants/regenerate-baseline.ts",
-        "tests/support/testgen/*-binding.ts",
-        "tests/support/testgen/native/*.ts"
+        "tests/support/testgen/*-binding.ts"
       ],
       "project": [
         "src/**/*.ts",
