@@ -344,7 +344,12 @@ export function validateStateForWrite(state: WorkflowState): string | undefined 
     ...state,
     _version: getStateVersion(state) + 1,
   } as WorkflowState;
-  const validation = WorkflowStateSchema.safeParse(stateWithVersion);
+  return validatePublishedState(stateWithVersion);
+}
+
+/** Validate the exact candidate without allocating another version. */
+function validatePublishedState(state: WorkflowState): string | undefined {
+  const validation = WorkflowStateSchema.safeParse(state);
   return validation.success ? undefined : `Write-time validation failed: ${validation.error.message}`;
 }
 
@@ -408,43 +413,45 @@ async function writeStateFileOnDisk(
   state: WorkflowState,
   options?: { expectedVersion?: number; skipValidation?: boolean },
 ): Promise<void> {
-  if (options?.expectedVersion !== undefined) {
-    let currentVersion = 1;
+  let currentVersion = 1;
+  let committedVersion: number | undefined;
+  try {
+    const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
     try {
-      const raw = await readPublished(stateFile, () => fs.readFile(stateFile, 'utf-8'));
-      try {
-        const parsed = JSON.parse(raw) as Record<string, unknown>;
-        currentVersion = typeof parsed._version === 'number' ? parsed._version : 1;
-      } catch {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed === null) throw new Error('State is null');
+      currentVersion = typeof parsed === 'object' && '_version' in parsed && typeof parsed._version === 'number'
+        ? parsed._version : 1;
+      if (typeof parsed === 'object' && !Array.isArray(parsed)) committedVersion = currentVersion;
+    } catch {
+      if (options?.expectedVersion !== undefined) {
         throw new StateStoreError(
           ErrorCode.STATE_CORRUPT,
           `Cannot perform CAS check — state file has invalid JSON: ${stateFile}`,
         );
       }
-    } catch (err) {
-      if (err instanceof StateStoreError) throw err;
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        currentVersion = 1;
-      } else {
-        throw new StateStoreError(
-          ErrorCode.FILE_IO_ERROR,
-          `Cannot read state file for CAS check: ${stateFile}`,
-        );
-      }
     }
+  } catch (err) {
+    if (err instanceof StateStoreError) throw err;
+    if (!(err instanceof Error && 'code' in err && err.code === 'ENOENT')) {
+      throw new StateStoreError(
+        ErrorCode.FILE_IO_ERROR,
+        `Cannot read state file for CAS check: ${stateFile}`,
+      );
+    }
+  }
 
-    if (options.expectedVersion !== currentVersion) {
-      throw new VersionConflictError(options.expectedVersion, currentVersion);
-    }
+  if (options?.expectedVersion !== undefined && options.expectedVersion !== currentVersion) {
+    throw new VersionConflictError(options.expectedVersion, currentVersion);
   }
 
   const stateWithVersion = {
     ...state,
-    _version: getStateVersion(state) + 1,
-  } as WorkflowState;
+    _version: (committedVersion ?? getStateVersion(state)) + 1,
+  };
 
   if (!options?.skipValidation) {
-    const invalid = validateStateForWrite(state);
+    const invalid = validatePublishedState(stateWithVersion);
     if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
   }
 

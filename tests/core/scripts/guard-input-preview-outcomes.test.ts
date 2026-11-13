@@ -31,6 +31,7 @@ async function preview(cycles: number) {
   copyFileSync(source, copy);
   const before = readFileSync(copy);
   const copied: WorkflowEvent[] = JSON.parse(before.toString());
+  const rowsBefore = structuredClone(copied);
   const report = await auditGuardInputs({
     listStates: () => [{ featureId: 'preview', state: { _esVersion: 2, workflowType: 'feature', phase: 'review', reviews: { bugbot: { status: 'failed' } } } }],
     listStreams: () => ['preview'],
@@ -38,6 +39,7 @@ async function preview(cycles: number) {
   }, { preview: true });
   expect(readFileSync(copy)).toEqual(before);
   expect(readFileSync(source)).toEqual(before);
+  expect(copied).toEqual(rowsBefore);
   return report.preview?.[0]?.edges.find((edge) => edge.to === 'delegate');
 }
 

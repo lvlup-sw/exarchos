@@ -7,7 +7,7 @@
     "testFiles": 1460,
     "parsedFiles": 1415,
     "shellFiles": 45,
-    "cases": 16024,
+    "cases": 16032,
     "dynamicTitles": 224,
     "unparseableFiles": 0
   },
@@ -82549,6 +82549,46 @@
         {
           "suite": "complete ledger document synchronization",
           "name": "FileCas_AnUnconditionalWriter_CannotSplitTheCheckAndPublish",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_AStaleUnconditionalWrite_InvalidatesTheSavedReader",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_StoredVersionFive_OwnsTheSuccessorForCaller%i",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_ReconcileShapedCaller_AdvancesTheCommittedVersion",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_MissingTargets_PreserveCreationAndInitContracts",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_LegacyVersions_UseTheStoredSentinel",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_MalformedTargets_PreserveRecoveryAndConditionalRefusal",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_ReadFailures_StayFileIoErrors",
+          "dynamic": false
+        },
+        {
+          "suite": "complete ledger document synchronization",
+          "name": "FileCas_Validation_UsesThePublishedCandidateAndPreservesPreAppendContract",
           "dynamic": false
         },
         {
