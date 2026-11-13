@@ -14,6 +14,7 @@ const common = {
   domain: domainSchema,
   cases: z.array(jsonValueSchema).max(256),
   generation: generation.optional(),
+  reduction: z.strictObject({ maxAttempts: z.number().int().min(0).max(256) }).optional(),
 };
 export const typedInput = z.discriminatedUnion('framework', [
   z.strictObject({
