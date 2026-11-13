@@ -4,10 +4,10 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1437,
-    "parsedFiles": 1392,
+    "testFiles": 1438,
+    "parsedFiles": 1393,
     "shellFiles": 45,
-    "cases": 15820,
+    "cases": 15825,
     "dynamicTitles": 213,
     "unparseableFiles": 0
   },
@@ -92222,6 +92222,37 @@
         {
           "suite": "",
           "name": "shrinks compound values without leaving structural domains",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/testgen/stateful.test.ts": {
+      "file": "tests/unit/testgen/stateful.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "",
+          "name": "creates a fresh model and system for each reduced history and preserves the failing operation",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "rejects explicit disabled operations and still disposes the system",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "reports generated-history exhaustion without a passing assertion",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "disposes after observation errors and retains the error",
+          "dynamic": false
+        },
+        {
+          "suite": "",
+          "name": "validates operation names, argument domains, and generation budgets before emission",
           "dynamic": false
         }
       ]
