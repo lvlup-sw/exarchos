@@ -1,3 +1,4 @@
+// @oracle-sources: ../../../src/testgen/domains/schema.ts, hand-written-domain-boundaries
 import fc from 'fast-check';
 import ts from 'typescript';
 import { expect, it } from 'vitest';
