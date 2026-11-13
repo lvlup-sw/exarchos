@@ -7,8 +7,8 @@
     "testFiles": 1460,
     "parsedFiles": 1415,
     "shellFiles": 45,
-    "cases": 16032,
-    "dynamicTitles": 224,
+    "cases": 16037,
+    "dynamicTitles": 226,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -92828,6 +92828,31 @@
           "suite": "Cancellation finalization",
           "name": "HandleCancel_ADryRunOnALaggingCancelledDocument_WritesNothing",
           "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "HandleCancel_LedgerResources_SelectExactEffectsAndPreserveOperationalInput",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "<dynamic-case-3>",
+          "dynamic": true
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "HandleCancel_LedgerResourceDryRun_ReportsLiteralActionsWithoutWrites",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "HandleCancel_CompensationResourceMutation_DoesNotAliasFoldRowsOrDocument",
+          "dynamic": false
+        },
+        {
+          "suite": "Cancellation resource authority",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
         }
       ]
     },

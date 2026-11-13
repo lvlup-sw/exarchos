@@ -4,17 +4,18 @@
  * A seed writes the rows and the document through the handlers. A forge then changes the document only, or appends a row only.
  * The fold gives the source phase, the phase attempt id and the terminal check. `phaseMoveEvents` gives the trail of the move.
  *
- * The `child_process` mock runs the real `execFile` unless a case gives it a fake. The fake makes a compensation command fail.
+ * The subprocess mock refuses unexpected commands. Resource cases supply explicit responses without external effects.
  *
  * @oracle-sources: ../../../src/workflow/phase-attempt-id.ts, hand-seeded stream rows
  */
 import path from 'node:path';
+import { readFile } from 'node:fs/promises';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('child_process', async () => {
   const actual = await vi.importActual<typeof import('child_process')>('child_process');
-  return { ...actual, execFile: vi.fn((...args: Parameters<typeof actual.execFile>) => actual.execFile(...args)) };
+  return { ...actual, execFile: vi.fn(() => { throw new Error('Unexpected subprocess'); }) };
 });
 
 import { ChildProcess, execFile } from 'child_process';
@@ -25,6 +26,7 @@ import { toEnvelope, type ToolResult } from '../../../src/format.js';
 import { WorkflowCancelOutputSchema } from '../../../src/registry/output-schemas.js';
 import { SqliteBackend } from '../../../src/storage/sqlite-backend.js';
 import { flushLiveShadowEvidence } from '../../../src/workflow/admission/live-shadow-observer.js';
+import * as folds from '../../../src/projections/guard-input/fold.js';
 import * as compensation from '../../../src/workflow/compensation.js';
 import { handleCancel } from '../../../src/workflow/cancel.js';
 import { hsmTransitionGuard } from '../../../src/workflow/hsm-transition-guard.js';
@@ -51,9 +53,6 @@ const SEEDED_ATTEMPT_ID = `phase-attempt:${'c4'.repeat(32)}`;
 
 /** The result type of the legacy guard. */
 type LegacyAttempt = Awaited<ReturnType<typeof hsmTransitionGuard.attempt>>;
-
-/** The real `execFile`. The teardown gives it back to the mock after a case that uses a fake. */
-const actualExecFile = (await vi.importActual<typeof import('child_process')>('child_process')).execFile;
 
 /** The integration branch of the saga case. Its delete fails in the fake `execFile`. */
 const INTEGRATION_BRANCH = 'integrate/cancel-decide';
@@ -174,7 +173,7 @@ function cancelInsideTheFirstRead(store: CancelStore): () => ToolResult | undefi
 
 /**
  * Gives `execFile` a fake for one case. A branch lookup finds each branch, and each branch delete fails.
- * Each other command succeeds with no output. The result gives the count of the branch deletes.
+ * A remote lookup reports no branch. Each other command fails. The result gives the count of the branch deletes.
  */
 function failEachBranchDelete(): () => number {
   let branchDeletes = 0;
@@ -183,6 +182,7 @@ function failEachBranchDelete(): () => number {
     const argv: readonly unknown[] = Array.isArray(args) ? args : [];
     let error: Error | null = null;
     let stdout = '';
+    if (_file !== 'git' || !['rev-parse', 'ls-remote', 'branch'].includes(String(argv[0]))) throw new Error('Unexpected subprocess');
     if (argv.includes('rev-parse') && argv.includes('--verify')) stdout = 'abc123\n';
     if (argv.includes('branch') && argv.includes('-D')) {
       branchDeletes += 1;
@@ -193,19 +193,20 @@ function failEachBranchDelete(): () => number {
   };
   vi.mocked(execFile).mockImplementation(fake);
   releases.push(() => {
-    vi.mocked(execFile).mockImplementation((...args: Parameters<typeof actualExecFile>) => actualExecFile(...args));
+    vi.mocked(execFile).mockImplementation(() => { throw new Error('Unexpected subprocess'); });
   });
   return () => branchDeletes;
 }
 
 /**
  * Seeds a feature at `delegate` whose rows and document hold no phase attempt id. The start row and the transition row
- * carry none, and the document has none. The document names an integration branch, so the cancel saga deletes it.
+ * carry none, and the document has none. Both sources name an integration branch, so the cancel saga deletes it.
  */
 async function featureAtDelegateWithNoAttemptId(store: CancelStore): Promise<void> {
   await init(store, 'feature', false);
   await appendRow(store, 'workflow.started', { featureId: FEATURE_ID, workflowType: 'feature' });
   await appendRow(store, 'workflow.transition', { from: 'plan', to: 'delegate', trigger: 'test', featureId: FEATURE_ID });
+  await appendRow(store, 'state.patched', { patch: { 'synthesis.integrationBranch': INTEGRATION_BRANCH } });
   await forgeDocument(store, (document) => {
     const { phaseAttemptId: _noAttemptId, ...rest } = document;
     return {
@@ -562,5 +563,167 @@ describe('Cancellation finalization', () => {
     expect(effects).not.toHaveBeenCalled();
     expect(await rowsOf(store)).toEqual(before);
     expect(await documentOf(store)).toEqual(document);
+  });
+});
+
+/** Literal resources distinguish the workflow projection from the guard task overlay. */
+const LEDGER_RESOURCES = {
+  worktrees: { live: { path: '/absent-cancel-ledger/worktree', branch: 'task/ledger', taskId: 'live', status: 'active', detail: { owner: 'ledger' } } },
+  tasks: [{ id: 'live', title: 'Ledger task', status: 'complete', branch: 'task/ledger', detail: { owner: 'ledger' } }],
+  synthesis: { integrationBranch: 'integrate/ledger', prUrl: 'https://example.invalid/pull/17', mergeOrder: ['live'], mergedBranches: [], prFeedback: [] },
+};
+
+/** Creates a synthesize stream with a resource patch that the document does not contain. */
+async function seedLedgerResources(store: CancelStore): Promise<void> {
+  await init(store, 'feature');
+  await appendRow(store, 'workflow.transition', { from: 'plan', to: 'synthesize', featureId: FEATURE_ID });
+  await appendRow(store, 'state.patched', { patch: structuredClone(LEDGER_RESOURCES) });
+}
+
+/** Emulates only the resource commands of these fixtures and records each command. No subprocess runs. */
+function stubResourceCommands(): string[][] {
+  const calls: string[][] = [];
+  vi.mocked(execFile).mockImplementation((file: string, args?: unknown, options?: unknown, callback?: unknown) => {
+    const argv = Array.isArray(args) ? args.map(String) : [];
+    calls.push([file, ...argv]);
+    const done = typeof options === 'function' ? options : callback;
+    let stdout: string;
+    if (file === 'gh' && argv[0] === 'pr' && argv[1] === 'view') stdout = 'OPEN';
+    else if (file === 'gh' && argv[0] === 'pr' && argv[1] === 'close') stdout = '';
+    else if (file === 'git' && argv[0] === 'rev-parse' && argv[1] === '--verify') stdout = 'abc123';
+    else if (file === 'git' && argv[0] === 'ls-remote' && argv[1] === '--heads') stdout = '';
+    else if (file === 'git' && argv[0] === 'branch' && argv[1] === '-D') stdout = '';
+    else if (file === 'git' && argv.join(' ') === 'worktree list') stdout = '/absent-cancel-ledger/worktree abc123 [task/ledger]';
+    else if (file === 'git' && argv[0] === 'worktree' && argv[1] === 'remove') stdout = '';
+    else throw new Error(`Unexpected subprocess: ${file} ${argv.join(' ')}`);
+    if (typeof done !== 'function') throw new Error('Missing subprocess callback');
+    Reflect.apply(done, undefined, [null, stdout, '']);
+    return new ChildProcess();
+  });
+  releases.push(() => vi.mocked(execFile).mockImplementation(() => { throw new Error('Unexpected subprocess'); }));
+  return calls;
+}
+
+/** Returns exactly the resource containers from a compensation input. */
+function resourcesOf(state: Record<string, unknown>): Record<string, unknown> {
+  return { worktrees: state.worktrees, tasks: state.tasks, synthesis: state.synthesis };
+}
+
+describe('Cancellation resource authority', () => {
+  it('HandleCancel_LedgerResources_SelectExactEffectsAndPreserveOperationalInput', async () => {
+    const store = await openStore();
+    await seedLedgerResources(store);
+    await forgeDocument(store, (document) => ({ ...document, operatorNote: { owner: 'document' }, _compensationCheckpoint: { completedActions: ['kept-operational-marker'] } }));
+    const before = await documentOf(store);
+    const calls = stubResourceCommands();
+    const original = compensation.executeCompensation;
+    let selected: Record<string, unknown> | undefined;
+    vi.spyOn(compensation, 'executeCompensation').mockImplementation(async (...args) => {
+      selected = structuredClone(args[0]);
+      expect(await documentOf(store)).toEqual(before);
+      return original(...args);
+    });
+    const result = await handleCancel({ featureId: FEATURE_ID }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(resourcesOf(selected!)).toEqual(LEDGER_RESOURCES);
+    for (const key of ['_checkpoint', '_compensationCheckpoint', '_version', '_esVersion', '_eventSequence', 'updatedAt', 'operatorNote']) {
+      expect(selected![key]).toEqual(before[key]);
+    }
+    expect(selected!._events).toEqual(before._events);
+    expect(calls.filter((call) => call.includes('-D') || call.includes('close') || call.includes('remove'))).toEqual([
+      ['gh', 'pr', 'close', 'https://example.invalid/pull/17', '--comment', 'Cancelled via compensation'],
+      ['git', 'branch', '-D', 'integrate/ledger'],
+      ['git', 'worktree', 'remove', '/absent-cancel-ledger/worktree', '--force'],
+      ['git', 'branch', '-D', 'task/ledger'],
+    ]);
+    expect(closingCancelRowOf(await rowsOf(store))).toMatchObject({ from: 'synthesize', to: 'cancelled' });
+    expect(resourcesOf(await documentOf(store))).toEqual({ ...LEDGER_RESOURCES, tasks: [{ id: 'live', title: 'Ledger task', status: 'complete', branch: 'task/ledger', blockedBy: [] }] });
+    expect((await documentOf(store))._compensationCheckpoint).toBeUndefined();
+    expect((await documentOf(store))._eventSequence).toBe((await rowsOf(store)).at(-1)?.sequence);
+  });
+
+  it.each([false, true])('HandleCancel_EmptyLedgerContainers_ExcludeObsoleteDocumentResources (%s)', async (dryRun) => {
+    const store = await openStore();
+    await init(store, 'feature');
+    await appendRow(store, 'workflow.transition', { from: 'plan', to: 'synthesize', featureId: FEATURE_ID });
+    await forgeDocument(store, (document) => ({ ...document, ...structuredClone(LEDGER_RESOURCES), synthesis: { ...LEDGER_RESOURCES.synthesis, obsolete: { branch: 'obsolete' } } }));
+    await appendRow(store, 'state.patched', { patch: { worktrees: {}, tasks: [], synthesis: {} } });
+    const calls = stubResourceCommands();
+    const capture = vi.spyOn(compensation, 'executeCompensation');
+    const result = await handleCancel({ featureId: FEATURE_ID, dryRun }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(resourcesOf(capture.mock.calls[0]![0])).toEqual({ worktrees: {}, tasks: [], synthesis: { integrationBranch: null, prUrl: null, mergeOrder: [], mergedBranches: [], prFeedback: [] } });
+    expect(calls).toEqual([]);
+    expect(recordOf(result.data).actions).toEqual([
+      { actionId: 'synthesize:close-pr', status: 'skipped', message: dryRun ? 'No PR to close' : 'Already completed (event replay)' },
+      { actionId: 'delegate:delete-integration-branch', status: 'skipped', message: dryRun ? 'No integration branch to delete' : 'Already completed (event replay)' },
+      { actionId: 'delegate:cleanup-worktrees', status: 'skipped', message: dryRun ? 'No worktrees to clean up' : 'Already completed (event replay)' },
+      { actionId: 'delegate:delete-feature-branches', status: 'skipped', message: dryRun ? 'No feature branches to delete' : 'Already completed (event replay)' },
+    ]);
+  });
+
+  it('HandleCancel_LedgerResourceDryRun_ReportsLiteralActionsWithoutWrites', async () => {
+    const store = await openStore();
+    await seedLedgerResources(store);
+    const document = await documentOf(store);
+    configureStateStoreBackend(undefined);
+    await writeStateFile(stateFileOf(store), document);
+    const before = await readFile(stateFileOf(store), 'utf8');
+    const rows = await rowsOf(store);
+    const calls = stubResourceCommands();
+    const result = await handleCancel({ featureId: FEATURE_ID, dryRun: true }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(recordOf(result.data).actions).toEqual([
+      { actionId: 'synthesize:close-pr', status: 'dry-run', message: 'Would close PR: https://example.invalid/pull/17' },
+      { actionId: 'delegate:delete-integration-branch', status: 'dry-run', message: 'Would delete branch: integrate/ledger' },
+      { actionId: 'delegate:cleanup-worktrees', status: 'dry-run', message: 'Would remove worktrees for branches: task/ledger' },
+      { actionId: 'delegate:delete-feature-branches', status: 'dry-run', message: 'Would delete branches: task/ledger' },
+    ]);
+    expect(await readFile(stateFileOf(store), 'utf8')).toBe(before);
+    expect(await rowsOf(store)).toEqual(rows);
+    expect(calls).toEqual([]);
+  });
+
+  it('HandleCancel_CompensationResourceMutation_DoesNotAliasFoldRowsOrDocument', async () => {
+    const store = await openStore();
+    await seedLedgerResources(store);
+    const before = await documentOf(store);
+    const rows = await rowsOf(store);
+    const views: { live: ReturnType<typeof folds.foldWorkflowState>; saved: ReturnType<typeof folds.foldWorkflowState> }[] = [];
+    const originalFold = folds.foldWorkflowState;
+    vi.spyOn(folds, 'foldWorkflowState').mockImplementation((input) => {
+      const live = originalFold(input);
+      views.push({ live, saved: structuredClone(live) });
+      return live;
+    });
+    vi.spyOn(compensation, 'executeCompensation').mockImplementationOnce(async (state) => {
+      expect(resourcesOf(state)).toEqual(LEDGER_RESOURCES);
+      const resources = state as unknown as typeof LEDGER_RESOURCES;
+      resources.worktrees.live.detail.owner = 'mutated';
+      resources.tasks[0]!.detail.owner = 'mutated';
+      resources.synthesis.mergeOrder.push('mutated');
+      return { success: true, actions: [], events: [] };
+    });
+    await handleCancel({ featureId: FEATURE_ID, dryRun: true }, store.stateDir, store.eventStore);
+    expect(views.length).toBeGreaterThan(0);
+    for (const view of views) expect(view.live).toEqual(view.saved);
+    expect(await rowsOf(store)).toEqual(rows);
+    expect(await documentOf(store)).toEqual(before);
+  });
+
+  it.each(['no-store', 'off-ledger', 'no-start', 'custom'])('HandleCancel_FallbackResources_KeepDocumentContainers (%s)', async (route) => {
+    const store = await openStore();
+    await init(store, 'feature', route !== 'no-start');
+    await forgeDocument(store, (document) => ({ ...document, ...structuredClone(LEDGER_RESOURCES), phase: 'synthesize',
+      ...(route === 'off-ledger' ? { _esVersion: 1 } : {}) }));
+    if (route === 'custom') await writeStateFile(stateFileOf(store), { ...(await documentOf(store)), workflowType: 'custom' }, { skipValidation: true });
+    const before = await documentOf(store);
+    const capture = vi.spyOn(compensation, 'executeCompensation');
+    const calls = stubResourceCommands();
+    const result = await handleCancel({ featureId: FEATURE_ID, dryRun: true }, store.stateDir, route === 'no-store' ? null : store.eventStore);
+    expect(result.success).toBe(true);
+    expect(resourcesOf(capture.mock.calls[0]![0])).toEqual(LEDGER_RESOURCES);
+    expect(await documentOf(store)).toEqual(before);
+    expect(calls).toEqual([]);
   });
 });

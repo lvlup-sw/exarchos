@@ -25,7 +25,7 @@ import { phaseMoveEvents, type TransitionEvent } from './decide/emit.js';
 import { builtInDefinition, isBuiltInDefinitionType } from './definitions/built-in.js';
 import type { EventStore } from '../events/store.js';
 import type { WorkflowEvent } from '../events/schemas.js';
-import { foldGuardInput } from '../projections/guard-input/fold.js';
+import { foldGuardInput, foldWorkflowState } from '../projections/guard-input/fold.js';
 import {
   CancelReadyData,
   CancelRequestedData,
@@ -64,6 +64,8 @@ type CancelRoute =
       readonly def: DecideDefinition;
       /** The guard input of the fold, with no phase attempt id. */
       readonly input: Readonly<Record<string, unknown>>;
+      /** The full resource projection from the same rows as the guard input. */
+      readonly resources: ReturnType<typeof foldWorkflowState>;
       readonly from: string;
       /** The phase attempt id of the fold, the predecessor of the move. */
       readonly foldAttemptId: string | undefined;
@@ -111,6 +113,7 @@ async function cancelRouteOf(state: WorkflowState, featureId: string, eventStore
       kind: 'fold',
       def: compileDecideDefinition(workflowType, builtInDefinition(workflowType), []),
       input,
+      resources: foldWorkflowState(rows),
       from: typeof input.phase === 'string' ? input.phase : '',
       foldAttemptId: readPhaseAttemptId(input),
       version: highestPhaseRowSequence(rows),
@@ -369,6 +372,11 @@ async function cancelOnRoute(
   }
 
   const mutableState = structuredClone(state) as Record<string, unknown>;
+  if (route.kind === 'fold') {
+    mutableState.worktrees = structuredClone(route.resources.worktrees);
+    mutableState.tasks = structuredClone(route.resources.tasks);
+    mutableState.synthesis = structuredClone(route.resources.synthesis);
+  }
   const currentPhase = route.kind === 'fold' ? route.from : state.phase;
   const dryRun = input.dryRun ?? false;
   const phaseAttemptId = allocatePhaseAttemptId(
