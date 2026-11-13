@@ -139,7 +139,7 @@ export function scaffold(input: ScaffoldInput): ScaffoldSuccess | { problem: str
   const bindingPath = posix.join(folder, `${input.name}Binding.${input.framework === 'tunit' ? 'cs' : 'ts'}`);
   const requestPath = posix.join(folder, `${input.name}.testgen.json`);
   const base = {
-    contractVersion: 2 as const,
+    contractVersion: 2,
     framework: input.framework,
     frameworkVersion: input.frameworkVersion,
     propertyRef: input.propertyRef,
