@@ -7,6 +7,8 @@
  * The transition handler decides on the ledger fold and commits each move through one operation claim.
  * So the capture differs from the golden by a named delta. A phase row of a transition move holds no idempotency key.
  * Each move has one operation claim. The one denial gains the valid targets of the fold phase.
+ *
+ * Cleanup backfill patches only the supplied synthesis fields and the absent PR artifact.
  * The six corpus defects are no scenario here.
  *
  * @oracle-sources: ./__fixtures__/transition-rows.golden.json, ../../../../src/workflow/handlers/set.ts
@@ -99,15 +101,38 @@ const DeltaEntrySchema = z.looseObject({
 });
 
 /**
- * Applies the named delta of the decide on the fold to the golden. A phase row of a transition move holds no idempotency key,
- * and the one denial gains the valid targets of the fold phase. No other value changes.
+ * Applies the named deltas to the golden. Transition phase rows lose their keys, and the denial gains valid targets.
+ * Cleanup backfill uses exact supplied dot paths. No other value changes.
  */
 function goldenWithTheDelta(golden: unknown): unknown {
   return z.array(DeltaEntrySchema).parse(golden).map((entry) => ({
     ...entry,
-    rows: entry.rows.map((row) =>
-      row.idempotencyKey !== null && LEGACY_TRANSITION_KEY.test(row.idempotencyKey) ? { ...row, idempotencyKey: null } : row,
-    ),
+    rows: entry.rows.map((row) => {
+      if (row.idempotencyKey === 'transition-rows-feature-cleanup:cleanup:patch:synthesize') {
+        const data = z.record(z.string(), z.unknown()).parse(row.data);
+        expect(data.fields).toEqual(['synthesis', 'artifacts']);
+        expect(data.patch).toEqual({
+          synthesis: {
+            integrationBranch: null,
+            mergeOrder: [],
+            mergedBranches: ['feat/transition-rows-cleanup'],
+            prFeedback: [],
+            prUrl: 'https://example.com/pr/1',
+          },
+          artifacts: { design: null, plan: 'plans/plan.md', pr: 'https://example.com/pr/1' },
+        });
+        return { ...row, data: {
+          ...data,
+          fields: ['synthesis.prUrl', 'synthesis.mergedBranches', 'artifacts.pr'],
+          patch: {
+            'synthesis.prUrl': 'https://example.com/pr/1',
+            'synthesis.mergedBranches': ['feat/transition-rows-cleanup'],
+            'artifacts.pr': 'https://example.com/pr/1',
+          },
+        } };
+      }
+      return row.idempotencyKey !== null && LEGACY_TRANSITION_KEY.test(row.idempotencyKey) ? { ...row, idempotencyKey: null } : row;
+    }),
     ...(entry.name === DENIED_SCENARIO && entry.result.error !== undefined
       ? { result: { ...entry.result, error: { ...entry.result.error, validTargets: DELEGATE_VALID_TARGETS } } }
       : {}),
