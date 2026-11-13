@@ -4,7 +4,7 @@ import { assertCSharpSourceDerivation } from '../helpers/testgen/csharp-source-g
 import { csharpFile } from '../../src/testgen/emitters/tunit/source.js';
 
 const directory = new URL('../../src/testgen/emitters/tunit/', import.meta.url);
-const entries = { 'emit.ts': 'emitTUnit', 'typed.ts': 'emitTypedTUnit' };
+const entries = { 'emit.ts': 'emitTUnit', 'typed.ts': 'emitTypedTUnit', 'stateful.ts': 'emitStatefulTUnit' };
 
 it('requires every C# emitter to return source derived from the shared constructor', () => {
   const sources = Object.fromEntries(readdirSync(directory).filter((path) => /\.[cm]?[jt]s$/.test(path))

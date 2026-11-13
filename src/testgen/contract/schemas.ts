@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { statefulSuccess } from './stateful.js';
 import { typedSuccess } from './typed.js';
 import { binding, tunit, tsPath, frameworkVersions } from './targets.js';
 export { frameworkSelection, frameworkVersions } from './targets.js';
@@ -69,7 +70,7 @@ const legacyResultSchema = z.discriminatedUnion('ok', [
   }),
 ]);
 
-export const resultSchema = z.union([legacyResultSchema, typedSuccess]);
+export const resultSchema = z.union([legacyResultSchema, typedSuccess, statefulSuccess]);
 
 export type GenerationResult = z.infer<typeof resultSchema>;
 export type Success = Extract<z.infer<typeof legacyResultSchema>, { ok: true }>;

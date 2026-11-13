@@ -17,6 +17,10 @@ export const commandMetadata = {
     {
       "name": "generate_differential_tests",
       "description": "Compare independent implementations using reviewed equivalence and typed-domain cases."
+    },
+    {
+      "name": "generate_stateful_tests",
+      "description": "Emit model-based operation histories with native precondition filtering, fresh reset, and replay."
     }
   ]
 } as const;

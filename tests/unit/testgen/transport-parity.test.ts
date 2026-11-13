@@ -45,6 +45,7 @@ it('carries the same result through the CLI and a connected MCP client', async (
       ['typed-property', 'generate_property_tests'],
       ['typed-metamorphic', 'generate_metamorphic_tests'],
       ['typed-differential', 'generate_differential_tests'],
+      ['stateful-ledger', 'generate_stateful_tests'],
     ] as const) {
       const input = JSON.parse(await readFile(new URL(`../../support/testgen/${fixture}.json`, import.meta.url), 'utf8'));
       for (const [patch, expectedExit] of [
