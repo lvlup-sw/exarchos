@@ -6,7 +6,7 @@ import { OperationDigestMismatchError, type DecideOnceStoredEvent } from '../../
 import { buildEvent, buildValidatedEvent } from '../../events/event-factory.js';
 import { migrateEvents } from '../../events/event-migration.js';
 import type { WorkflowEvent } from '../../events/schemas.js';
-import type { EventStore } from '../../events/store.js';
+import { SequenceConflictError, type EventStore } from '../../events/store.js';
 import type { ToolResult } from '../../format.js';
 import { workflowLogger } from '../../logger.js';
 import { injectGuardConfig } from '../../projections/guard-input/config.js';
@@ -86,6 +86,18 @@ class TransitionFoldFailed extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'TransitionFoldFailed';
+  }
+}
+
+/** Validates the raw pending patch over the complete ledger and the document's operational roots. */
+function validatePatchCandidate(state: WorkflowState, rows: readonly WorkflowEvent[], featureId: string, updates: Record<string, unknown> | undefined): void {
+  const pending = pendingPatchRow(featureId, updates, rows);
+  if (pending === undefined) return;
+  try {
+    projectStateDocument(state, [...rows, pending], featureId);
+  } catch (err) {
+    if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) throw err;
+    throw new TransitionFoldFailed(messageOf(err));
   }
 }
 
@@ -321,6 +333,7 @@ interface FoldPassInput {
   readonly rows: readonly WorkflowEvent[];
   readonly options: SetOptions | undefined;
   readonly eventStore: EventStore;
+  readonly state: WorkflowState;
 }
 
 /**
@@ -349,6 +362,28 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
       message: `The ledger fold of '${featureId}' failed, so no guard decided: ${messageOf(err)}`,
     });
   }
+  try {
+    if (read.attemptId !== undefined) {
+      const replay = await replayClaim(pass, read);
+      if (replay !== undefined) return replay;
+    }
+    if (outcome.kind !== 'idempotent') {
+      try {
+        validatePatchCandidate(pass.state, rows, featureId, updates);
+      } catch (err) {
+        if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) {
+          const replay = await replayClaim(pass, read);
+          if (replay !== undefined) return replay;
+          return reply({ code: ErrorCode.INVALID_INPUT, message: err.message });
+        }
+        throw err;
+      }
+    }
+  } catch (err) {
+    if (err instanceof OperationDigestMismatchError) throw err;
+    return reply({ code: err instanceof TransitionFoldFailed ? ErrorCode.PROJECTION_REPLAY_FAILED : ErrorCode.EVENT_APPEND_FAILED,
+      message: messageOf(err) });
+  }
   const legacy = await legacyOutcomeOf(featureId, read, target, workflowType, options, eventStore);
   const { from } = read;
   switch (outcome.kind) {
@@ -376,6 +411,19 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
     default:
       return outcome satisfies never;
   }
+}
+
+/** Replays an actual held operation claim without validating its patch as a new write. */
+async function replayClaim(pass: FoldPassInput, read: FoldRead): Promise<FoldPass | undefined> {
+  if (read.attemptId === undefined) return undefined;
+  const appender = pass.eventStore.getAppender();
+  const operationId = `transition:${pass.featureId}:${read.attemptId}`;
+  if (appender.ensureSqliteBackendSync().lookupOperationClaim(operationId) === undefined) return undefined;
+  const committed = await appender.decideOnce<CommittedMove>(operationId,
+    requestDigestOf(pass.featureId, read.from, pass.target, pass.updates), () => {
+      throw new Error('A held operation claim disappeared');
+    });
+  return { kind: 'reads-changed', ...(pass.updates === undefined ? {} : { patchSequence: committed.eventSequence }) };
 }
 
 /** Returns a failure reply of the decide section. */
@@ -420,6 +468,7 @@ async function commitMove(
         closureRan = true;
         const snapshot = tx.readStream(featureId);
         const snapshotRows = migrateEvents(snapshot.events).map(workflowEventOf);
+        validatePatchCandidate(pass.state, snapshotRows, featureId, updates);
         let inner: FoldRead;
         let innerOutcome: DecideOutcome;
         try {
@@ -458,6 +507,7 @@ async function commitMove(
     return { kind: 'moved', move: committed };
   } catch (err) {
     if (err instanceof TransitionReadsChanged) return { kind: 'reads-changed' };
+    if (err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT) return reply({ code: err.code, message: err.message });
     if (err instanceof OperationDigestMismatchError) throw err;
     if (err instanceof TransitionFoldFailed) {
       return reply({
@@ -588,7 +638,7 @@ export async function handleSet(
     }
 
     const validated = WorkflowStateSchema.safeParse(mutableState);
-    if (!input.phase && !validated.success) {
+    if (!input.phase && routeOf(state, eventStore, undefined).kind === 'legacy' && !validated.success) {
       return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${validated.error.message}` } };
     }
 
@@ -648,7 +698,7 @@ export async function handleSet(
         ...(options?.skipPhases !== undefined ? { skipPhases: options.skipPhases } : {}),
       });
 
-      if (!validated.success) {
+      if (route.kind === 'legacy' && !validated.success) {
         return withShadowRecord({ success: false, error: {
           code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${validated.error.message}`,
         } }, shadowRun, stateDir, routeWarnings);
@@ -672,7 +722,8 @@ export async function handleSet(
         const pass = await decideOnTheFold({
           featureId: input.featureId,
           target: input.phase,
-          updates: input.updates,
+          updates: patchSequence === undefined ? input.updates : undefined,
+          state,
           workflowType: route.workflowType,
           rows,
           options,
@@ -824,14 +875,41 @@ export async function handleSet(
       && updateKeys.length > 0
       && patchSequence === undefined
     ) {
-      const invalid = validateStateForWrite(mutableState as WorkflowState);
-      if (invalid !== undefined) {
-        return withShadowRecord({ success: false, error: { code: ErrorCode.INVALID_INPUT, message: invalid } }, shadowRun, stateDir, routeWarnings);
-      }
-
       try {
         const fieldsHash = [...updateKeys].sort().join(',');
         const idempotencyKey = `${input.featureId}:patch:${expectedVersion}:${fieldsHash}`;
+        let expectedSequence: number | undefined;
+        if (routeOf(state, eventStore, undefined).kind === 'fold') {
+          const backend = eventStore.getAppender().ensureSqliteBackendSync();
+          if (backend.lookupIdempotencyClaim(input.featureId, idempotencyKey) === undefined) {
+            let rows: readonly WorkflowEvent[];
+            try {
+              rows = await eventStore.query(input.featureId);
+            } catch (err) {
+              throw new TransitionFoldFailed(messageOf(err));
+            }
+            ledgerBacked = routeOf(state, eventStore, rows).kind === 'fold';
+            if (ledgerBacked) {
+              try {
+                validatePatchCandidate(state, rows, input.featureId, input.updates);
+              } catch (err) {
+                if (!(err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT)
+                  || backend.lookupIdempotencyClaim(input.featureId, idempotencyKey) === undefined) throw err;
+              }
+              expectedSequence = highestSequence(rows);
+            }
+          } else {
+            try {
+              ledgerBacked = routeOf(state, eventStore, await eventStore.query(input.featureId)).kind === 'fold';
+            } catch (err) {
+              throw new TransitionFoldFailed(messageOf(err));
+            }
+          }
+        }
+        if (!ledgerBacked) {
+          const invalid = validateStateForWrite(mutableState as WorkflowState);
+          if (invalid !== undefined) throw new StateStoreError(ErrorCode.INVALID_INPUT, invalid);
+        }
         const validatedEvent = buildValidatedEvent(input.featureId, 1, {
           type: 'state.patched',
           correlationId: input.featureId,
@@ -842,16 +920,18 @@ export async function handleSet(
             patch: input.updates,
           },
         });
-        const event = await eventStore.appendValidated(input.featureId, validatedEvent, { idempotencyKey });
+        const event = await eventStore.appendValidated(input.featureId, validatedEvent, { idempotencyKey, ...(expectedSequence === undefined ? {} : { expectedSequence }) });
         if (JSON.stringify(event.data?.patch) !== JSON.stringify(input.updates)) continue;
 
         highestEventSequence = Math.max(highestEventSequence ?? 0, event.sequence);
         patchSequence = event.sequence;
       } catch (err) {
+        if (err instanceof SequenceConflictError) continue;
         return withShadowRecord({
           success: false,
           error: {
-            code: ErrorCode.EVENT_APPEND_FAILED,
+            code: err instanceof TransitionFoldFailed ? ErrorCode.PROJECTION_REPLAY_FAILED
+              : err instanceof StateStoreError && err.code === ErrorCode.INVALID_INPUT ? ErrorCode.INVALID_INPUT : ErrorCode.EVENT_APPEND_FAILED,
             message: `Event append failed: ${err instanceof Error ? err.message : String(err)}`,
           },
         }, shadowRun, stateDir, routeWarnings);

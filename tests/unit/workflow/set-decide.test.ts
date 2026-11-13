@@ -8,6 +8,8 @@
  */
 import { OperationDigestMismatchError, type DecideOnceContext, type DecideOnceDecision } from '../../../src/events/atomic-appender.js';
 import path from 'node:path';
+import { Database } from 'bun:sqlite';
+import * as stateStore from '../../../src/workflow/state-store.js';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -871,5 +873,210 @@ describe('field patch ownership on retry', () => {
     expect(patches.map((row) => row.data?.patch)).toEqual([{ 'artifacts.plan': 'own.md' }, { 'artifacts.plan': 'later.md' }]);
     expect(patches[0]).toEqual(ownPatch);
     expect(await documentOf(store, FEATURE_ID)).toMatchObject({ artifacts: { plan: 'later.md' }, _eventSequence: patches[1]?.sequence });
+  });
+});
+
+/** Captures exact persisted document text and every durable claim in this isolated database. */
+function persistenceOf(store: DecideStore): { document: unknown; claims: unknown } {
+  const db = new Database(path.join(store.stateDir, 'exarchos.db'));
+  try {
+    return {
+      document: db.prepare('SELECT state FROM workflow_state WHERE featureId = ?').get(FEATURE_ID),
+      claims: db.prepare('SELECT * FROM idempotency_claims ORDER BY streamId, idempotencyKey').all(),
+    };
+  } finally {
+    db.close();
+  }
+}
+
+/** Seeds agreeing valid tasks, then optionally clears only the ledger container. */
+async function taskCandidateStore(clear = true): Promise<DecideStore> {
+  const store = await openStore();
+  await init(store, FEATURE_ID);
+  await update(store, FEATURE_ID, { tasks: [{ id: 't1', title: 'old', status: 'pending' }] });
+  if (clear) await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['tasks'], patch: { tasks: [] } });
+  return store;
+}
+
+/** Resolves the existing patch key from the document version and raw field names. */
+async function candidatePatchKey(store: DecideStore, patch: Record<string, unknown>): Promise<string> {
+  return `${FEATURE_ID}:patch:${(await documentOf(store, FEATURE_ID))._version}:${Object.keys(patch).sort().join(',')}`;
+}
+
+describe('authoritative patch candidates', () => {
+  it.each([
+    ['HandleSet_CombinedDocumentValidLedgerInvalid_RefusesBeforeCommit', 'plan-review', true],
+    ['HandleSet_InvalidCandidateBeforeDeniedMove_WritesNoDiagnostic', 'plan-review', false],
+    ['HandleSet_FieldDocumentValidLedgerInvalid_RefusesBeforeAppend', undefined, false],
+    ['HandleSet_SamePhaseInvalidPatch_RefusesBeforeAppend', 'plan', false],
+  ])('HandleSet_AuthoritativeCandidateRefusal_WritesNothing %s', async (_name, phase, plan) => {
+    const store = await taskCandidateStore();
+    const before = await rowsOf(store, FEATURE_ID);
+    const raw = persistenceOf(store);
+    const result = await handleSet({ featureId: FEATURE_ID, ...(typeof phase === 'string' ? { phase } : {}),
+      updates: { 'tasks[0].title': 'renamed', ...(plan ? { 'artifacts.plan': PLAN_ARTIFACT } : {}) } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code: 'INVALID_INPUT' } });
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    expect(persistenceOf(store)).toEqual(raw);
+  });
+
+  it.each([undefined, 'plan-review'])('HandleSet_ARepairPatch_ValidatesAfterApplyingRawUpdates %s', async (phase) => {
+    const store = await taskCandidateStore();
+    await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['tasks[0].title'], patch: { 'tasks[0].title': 'partial' } });
+    await forgeDocument(store, FEATURE_ID, (document) => ({ ...document, customOperational: { retained: true },
+      _compensationCheckpoint: { cancellationId: 'keep', completedActions: [], pendingActions: [], startedAt: '2026-01-01T00:00:00.000Z' } }));
+    const before = await rowsOf(store, FEATURE_ID);
+    const document = await documentOf(store, FEATURE_ID);
+    const tasks = [{ id: 't2', title: 'repaired', status: 'pending' }];
+    const result = await handleSet({ featureId: FEATURE_ID, phase, updates: { tasks, 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    const added = (await rowsOf(store, FEATURE_ID)).slice(before.length);
+    expect(added.map((row) => row.type)).toEqual(phase ? ['state.patched', ...MOVE_ROW_TYPES] : ['state.patched']);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ tasks, customOperational: { retained: true }, _esVersion: document._esVersion,
+      _version: Number(document._version) + 1, _compensationCheckpoint: document._compensationCheckpoint, _eventSequence: added.at(-1)?.sequence });
+    expect(recordOf((await documentOf(store, FEATURE_ID))._checkpoint).summary).toEqual(recordOf(document._checkpoint).summary);
+  });
+
+  it.each([undefined, 'plan-review'])('HandleSet_AuthoritativeValidPatch_DoesNotUseStaleDocumentChildren %s', async (phase) => {
+    const store = await taskCandidateStore(false);
+    await forgeDocument(store, FEATURE_ID, (document) => ({ ...document, tasks: [] }));
+    const result = await handleSet({ featureId: FEATURE_ID, phase, updates: { 'tasks[0].title': 'renamed', 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ tasks: [{ id: 't1', title: 'renamed', status: 'pending' }] });
+  });
+
+  it.each([undefined, 'plan-review'])('HandleSet_RawCandidateValidation_DoesNotUseGuardStatusOverlay %s', async (phase) => {
+    const store = await taskCandidateStore(false);
+    await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['tasks[0].status'], patch: { 'tasks[0].status': 'invalid' } });
+    const before = await rowsOf(store, FEATURE_ID);
+    const raw = persistenceOf(store);
+    const result = await handleSet({ featureId: FEATURE_ID, phase, updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code: 'INVALID_INPUT' } });
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    expect(persistenceOf(store)).toEqual(raw);
+  });
+
+  it('HandleSet_FieldCachedPatchWithChangedTail_ReplaysWithoutAppend', async () => {
+    const store = await taskCandidateStore(false);
+    const patch = { 'tasks[0].title': 'renamed' };
+    const append = store.eventStore.appendValidated.bind(store.eventStore);
+    let fired = false;
+    let expected: number | undefined;
+    vi.spyOn(store.eventStore, 'appendValidated').mockImplementation(async (...args) => {
+      if (!fired && args[1].type === 'state.patched') {
+        fired = true;
+        expected = args[2]?.expectedSequence;
+        await append(args[0], args[1], { idempotencyKey: args[2]?.idempotencyKey });
+        await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['artifacts.plan'], patch: { 'artifacts.plan': 'later.md' } });
+      }
+      return append(...args);
+    });
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, updates: patch }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(expected).toBe(before.at(-1)?.sequence);
+    const after = await rowsOf(store, FEATURE_ID);
+    expect(after.slice(before.length)).toHaveLength(2);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ tasks: [{ id: 't1', title: 'renamed', status: 'pending' }], artifacts: { plan: 'later.md' }, _eventSequence: after.at(-1)?.sequence });
+  });
+
+  it.each([true, false])('HandleSet_FieldCachedPatchAfterTaskRemoval_DoesNotReapplyIt %s', async (claim) => {
+    const store = await taskCandidateStore(false);
+    const patch = { 'tasks[0].title': 'renamed' };
+    const key = await candidatePatchKey(store, patch);
+    await store.eventStore.append(FEATURE_ID, { type: 'state.patched', data: { featureId: FEATURE_ID, fields: Object.keys(patch), patch } }, { idempotencyKey: key });
+    if (!claim) {
+      const db = new Database(path.join(store.stateDir, 'exarchos.db'));
+      db.prepare('DELETE FROM idempotency_claims WHERE streamId = ? AND idempotencyKey = ?').run(FEATURE_ID, key);
+      db.close();
+    }
+    await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['tasks'], patch: { tasks: [] } });
+    const before = await rowsOf(store, FEATURE_ID);
+    const raw = persistenceOf(store);
+    const result = await handleSet({ featureId: FEATURE_ID, updates: patch }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(claim);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    if (claim) expect(await documentOf(store, FEATURE_ID)).toMatchObject({ tasks: [], _eventSequence: before.at(-1)?.sequence });
+    else {
+      expect(result.error?.code).toBe('INVALID_INPUT');
+      expect(persistenceOf(store)).toEqual(raw);
+    }
+  });
+
+  it('HandleSet_FieldClaimArrivesDuringInvalidPreflight_ReplaysStoredPatch', async () => {
+    const store = await taskCandidateStore(false);
+    const patch = { 'tasks[0].title': 'renamed' };
+    const key = await candidatePatchKey(store, patch);
+    const query = store.eventStore.query.bind(store.eventStore);
+    let fired = false;
+    vi.spyOn(store.eventStore, 'query').mockImplementation(async (...args) => {
+      if (!fired && args[0] === FEATURE_ID) {
+        fired = true;
+        await store.eventStore.append(FEATURE_ID, { type: 'state.patched', data: { featureId: FEATURE_ID, fields: Object.keys(patch), patch } }, { idempotencyKey: key });
+        await appendRow(store, FEATURE_ID, 'state.patched', { featureId: FEATURE_ID, fields: ['tasks'], patch: { tasks: [] } });
+      }
+      return query(...args);
+    });
+    const lookup = vi.spyOn(store.eventStore.getAppender().ensureSqliteBackendSync(), 'lookupIdempotencyClaim');
+    const before = (await query(FEATURE_ID)).length;
+    const result = await handleSet({ featureId: FEATURE_ID, updates: patch }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(lookup.mock.results[0]?.value).toBeUndefined();
+    expect(lookup.mock.results.some((entry) => entry.value !== undefined)).toBe(true);
+    const after = await query(FEATURE_ID);
+    expect(after.slice(before)).toHaveLength(2);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ tasks: [], _eventSequence: after.at(-1)?.sequence });
+  });
+
+  it.each([[undefined, undefined], [undefined, {}], ['plan', undefined], ['plan', {}]])('HandleSet_EmptyUpdates_PreserveNoPatchBehavior %s %s', async (phase, updates) => {
+    const store = await taskCandidateStore(false);
+    const before = await rowsOf(store, FEATURE_ID);
+    const raw = persistenceOf(store);
+    const result = await handleSet({ featureId: FEATURE_ID, ...(typeof phase === 'string' ? { phase } : {}), ...(typeof updates === 'object' ? { updates } : {}) }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    expect(persistenceOf(store).claims).toEqual(raw.claims);
+    if (phase === 'plan' && updates === undefined) expect(persistenceOf(store)).toEqual(raw);
+  });
+
+  it.each([
+    ['HandleSet_FieldInitialClaimReadFault_ReturnsAppendFailureWithoutWrites', 'initial', 'EVENT_APPEND_FAILED'],
+    ['HandleSet_FieldRefusalClaimReadFault_ReturnsAppendFailureWithoutWrites', 'recheck', 'EVENT_APPEND_FAILED'],
+    ['HandleSet_FieldStreamReadFault_ReturnsProjectionFailureWithoutWrites', 'query', 'PROJECTION_REPLAY_FAILED'],
+    ['HandleSet_FieldReplayFault_ReturnsProjectionFailureWithoutWrites', 'fold', 'PROJECTION_REPLAY_FAILED'],
+  ])('HandleSet_AuthoritativeCandidateFault_WritesNothing %s', async (_name, fault, code) => {
+    const store = await taskCandidateStore(fault === 'recheck');
+    const before = await rowsOf(store, FEATURE_ID);
+    const raw = persistenceOf(store);
+    const claimBackend = store.eventStore.getAppender().ensureSqliteBackendSync();
+    const lookup = claimBackend.lookupIdempotencyClaim.bind(claimBackend);
+    let calls = 0;
+    const claimSpy = vi.spyOn(store.eventStore.getAppender().ensureSqliteBackendSync(), 'lookupIdempotencyClaim').mockImplementation((...args) => {
+      calls++;
+      if ((fault === 'initial' && calls === 1) || (fault === 'recheck' && calls === 2)) throw new Error('claim read fault');
+      return lookup(...args);
+    });
+    if (fault === 'query') vi.spyOn(store.eventStore, 'query').mockRejectedValueOnce(new Error('query fault'));
+    if (fault === 'fold') vi.spyOn(stateStore, 'projectStateDocument').mockImplementationOnce(() => { throw new Error('projection fault'); });
+    const result = await handleSet({ featureId: FEATURE_ID, updates: { 'tasks[0].title': 'renamed' } }, store.stateDir, store.eventStore);
+    expect(result).toMatchObject({ success: false, error: { code } });
+    expect(calls).toBe(fault === 'recheck' ? 2 : 1);
+    claimSpy.mockRestore();
+    vi.restoreAllMocks();
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    expect(persistenceOf(store)).toEqual(raw);
+  });
+
+  it('HandleSet_NoStartHeldPatchClaim_PreservesLegacyDocumentRoute', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID, 'feature', false);
+    await forgeDocument(store, FEATURE_ID, (document) => ({ ...document, _esVersion: 2 }));
+    const patch = { 'artifacts.plan': PLAN_ARTIFACT };
+    await store.eventStore.append(FEATURE_ID, { type: 'state.patched', data: { featureId: FEATURE_ID, fields: Object.keys(patch), patch } }, { idempotencyKey: await candidatePatchKey(store, patch) });
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, updates: patch }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ artifacts: { plan: PLAN_ARTIFACT } });
   });
 });

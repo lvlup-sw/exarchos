@@ -7,8 +7,8 @@
     "testFiles": 1460,
     "parsedFiles": 1415,
     "shellFiles": 45,
-    "cases": 16037,
-    "dynamicTitles": 226,
+    "cases": 16060,
+    "dynamicTitles": 233,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -92494,6 +92494,36 @@
           "suite": "the commit of a transition move",
           "name": "HandleSet_ReadsThatKeepChanging_ThrowTheConflictAndLeaveNoPartialTrail",
           "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_CombinedTaskRemovalAtTransactionEntry_RefusesBeforeCommit",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_FieldTaskRemovalBeforeAppend_RevalidatesAndRefuses",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_FieldUnrelatedAppend_RetriesAgainstFreshTail",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_FieldSequenceConflicts_ExhaustWithoutPublishing",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_CombinedClaimAfterTaskRemoval_DoesNotReapplyPatch",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative candidate commit races",
+          "name": "HandleSet_CombinedInvalidPreflightWinner_RechecksClaimBeforeRefusal",
+          "dynamic": false
         }
       ]
     },
@@ -93129,6 +93159,91 @@
         {
           "suite": "field patch ownership on retry",
           "name": "HandleSet_AnIdenticalPatchClaim_ReplaysWithoutDuplicate",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_AuthoritativeCandidateRefusal_WritesNothing %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-4>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_ARepairPatch_ValidatesAfterApplyingRawUpdates %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-5>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_AuthoritativeValidPatch_DoesNotUseStaleDocumentChildren %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-6>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_RawCandidateValidation_DoesNotUseGuardStatusOverlay %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-7>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_FieldCachedPatchWithChangedTail_ReplaysWithoutAppend",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_FieldCachedPatchAfterTaskRemoval_DoesNotReapplyIt %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-8>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_FieldClaimArrivesDuringInvalidPreflight_ReplaysStoredPatch",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_EmptyUpdates_PreserveNoPatchBehavior %s %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-9>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_AuthoritativeCandidateFault_WritesNothing %s",
+          "dynamic": false
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "<dynamic-case-10>",
+          "dynamic": true
+        },
+        {
+          "suite": "authoritative patch candidates",
+          "name": "HandleSet_NoStartHeldPatchClaim_PreservesLegacyDocumentRoute",
           "dynamic": false
         }
       ]
