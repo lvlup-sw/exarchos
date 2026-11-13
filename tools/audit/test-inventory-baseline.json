@@ -4,11 +4,11 @@
   "identity": "(suite path within the file, test name, runner) — path is metadata, never identity",
   "countingSemantics": "Cases are CALL SITES, not expanded executions. A table-driven `it.each([...])` is one entry here and N tests at runtime, so this total is not comparable to any runner's expanded count and no runner totals are pinned here — a pinned pair went stale the first time the tree grew. The call site is the right unit for reconciliation: it survives a move, whereas an expansion index depends on the table contents and would churn on any data edit. A drop in call sites is the signal this oracle exists to catch.",
   "totals": {
-    "testFiles": 1460,
-    "parsedFiles": 1415,
+    "testFiles": 1461,
+    "parsedFiles": 1416,
     "shellFiles": 45,
-    "cases": 16060,
-    "dynamicTitles": 233,
+    "cases": 16078,
+    "dynamicTitles": 235,
     "unparseableFiles": 0
   },
   "unparseable": [],
@@ -93560,6 +93560,102 @@
         {
           "suite": "admitted targets in capped settlement output",
           "name": "SettleSummary_AnOversizedImmutableCore_KeepsItsIndependentLimit",
+          "dynamic": false
+        }
+      ]
+    },
+    "tests/unit/workflow/design-record/read.test.ts": {
+      "file": "tests/unit/workflow/design-record/read.test.ts",
+      "runner": "vitest:root",
+      "cases": [
+        {
+          "suite": "design record reader",
+          "name": "Read_T01AndT1_PreservesDistinctIds",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "Read_EquivalentEscapedDuplicateKeys_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "Read_NestedFenceExample_IsNotPlan",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "ignores list, blockquote and indented code examples",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "Read_InvalidUtf8_Refuses",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "Read_MalformedTypedBlock_NeverLegacy: %s",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "<dynamic-case-1>",
+          "dynamic": true
+        },
+        {
+          "suite": "design record reader",
+          "name": "refuses ambiguous, unsupported and unterminated typed blocks",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "retains spans across Unicode and CRLF without normalizing the digest",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "recognizes setext requirements and ignores headings outside their region",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "owns frozen bytes and deeply frozen task arrays",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "refuses invalid task structure %j",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "<dynamic-case-2>",
+          "dynamic": true
+        },
+        {
+          "suite": "design record reader",
+          "name": "requires all task keys except testLayer and closes the root keys",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "enforces exact byte and depth limits and explicit overrides",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "reads a mounted reference once and rejects lexical escape or missing files",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "preserves generated exact IDs and edges",
+          "dynamic": false
+        },
+        {
+          "suite": "design record reader",
+          "name": "refuses generated escape-equivalent duplicate keys",
           "dynamic": false
         }
       ]
