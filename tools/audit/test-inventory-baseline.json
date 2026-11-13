@@ -7,7 +7,7 @@
     "testFiles": 1456,
     "parsedFiles": 1411,
     "shellFiles": 45,
-    "cases": 15993,
+    "cases": 15996,
     "dynamicTitles": 222,
     "unparseableFiles": 0
   },
@@ -92969,6 +92969,21 @@
         {
           "suite": "combined patch atomicity",
           "name": "HandleSet_CombinedUpdates_ADifferentPatchCannotReplayTheClaim",
+          "dynamic": false
+        },
+        {
+          "suite": "field patch ownership on retry",
+          "name": "HandleSet_ConcurrentSameFieldWithDifferentValues_PersistsBothPatches",
+          "dynamic": false
+        },
+        {
+          "suite": "field patch ownership on retry",
+          "name": "HandleSet_AnOwnPatchBeforeALaterWriter_RetriesWithoutReplacingTheLaterValue",
+          "dynamic": false
+        },
+        {
+          "suite": "field patch ownership on retry",
+          "name": "HandleSet_AnIdenticalPatchClaim_ReplaysWithoutDuplicate",
           "dynamic": false
         }
       ]

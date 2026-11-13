@@ -349,7 +349,7 @@ describe('handleSet_UnifiedHydration', () => {
     expect(disbanded!.tasksFailed).toBe(0);
   });
 
-  /** The transition must call `eventStore.query` for the stream once, not twice. */
+  /** A transition reads admission rows, then fresh rows for the complete document projection after its commit. */
   it('HandleSet_PhaseTransition_DoesNotDoubleQuery', async () => {
     const eventStore = new EventStore(tmpDir);
 
@@ -388,7 +388,13 @@ describe('handleSet_UnifiedHydration', () => {
       data: { featureId: 'query-count', totalDurationMs: 1000, tasksCompleted: 1, tasksFailed: 0 },
     });
 
-    const querySpy = vi.spyOn(eventStore, 'query');
+    const originalQuery = eventStore.query.bind(eventStore);
+    const snapshots: Awaited<ReturnType<EventStore['query']>>[] = [];
+    const querySpy = vi.spyOn(eventStore, 'query').mockImplementation(async (...args) => {
+      const rows = await originalQuery(...args);
+      if (args[0] === 'query-count' && args[1] === undefined) snapshots.push(rows);
+      return rows;
+    });
 
     await handleSet(
       { featureId: 'query-count', phase: 'review' },
@@ -399,7 +405,11 @@ describe('handleSet_UnifiedHydration', () => {
     const queryCalls = querySpy.mock.calls.filter(
       (call) => call[0] === 'query-count' && !call[1],
     );
-    expect(queryCalls.length).toBe(1);
+    expect(queryCalls.length).toBe(2);
+    expect(snapshots[0]?.filter((row) => row.type === 'workflow.transition').at(-1)?.data).toMatchObject({ to: 'delegate' });
+    const committedRows = snapshots[1]?.slice(snapshots[0]?.length ?? 0);
+    expect(committedRows?.map((row) => row.type)).toEqual(['workflow.transition', 'phase.exited', 'phase.entered']);
+    expect(committedRows?.[0]?.data).toMatchObject({ from: 'delegate', to: 'review', phaseAttemptId: expect.any(String) });
 
     querySpy.mockRestore();
   });

@@ -670,6 +670,7 @@ describe('the guard-input shadow on the transition path', () => {
 
     const first = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review' }, store.stateDir, store.eventStore);
     const afterFirst = await readFile(diagnosticsFileOf(store), 'utf8');
+    await forgeDocument(store, FEATURE_ID, (document) => ({ ...document, phase: 'delegate', tasks: [{ id: 'cap-task', title: 'Task', status: 'complete', blockedBy: [] }] }));
     const second = await handleSet({ featureId: FEATURE_ID, phase: 'review' }, store.stateDir, store.eventStore);
 
     expect(first.success).toBe(true);

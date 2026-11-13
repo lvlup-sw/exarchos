@@ -3017,7 +3017,7 @@ describe('HandleSet_EsVersion2_AfterEmit_StateFileReflectsEvents', () => {
 describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
   /**
    * The test pre-seeds a `state.patched` event with the key that `handleSet` builds,
-   * `<featureId>:patch:<version>:<field names>`.
+   * `<featureId>:patch:<version>:<field names>`. A different payload cannot claim that row, so the bounded retry refuses without a write.
    */
   it('should not emit duplicate state.patched events with the same idempotency key', async () => {
     const eventStore = new EventStore(tmpDir);
@@ -3043,7 +3043,8 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
       },
     }, { idempotencyKey });
 
-    await handleSet(
+    const beforeDocument = await fs.readFile(stateFile, 'utf-8');
+    await expect(handleSet(
       {
         featureId: 'es-set-idemp',
         updates: {
@@ -3052,7 +3053,8 @@ describe('HandleSet_EsVersion2_IdempotencyKey_PreventsDuplicates', () => {
       },
       tmpDir,
       eventStore,
-    );
+    )).rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(await fs.readFile(stateFile, 'utf-8')).toBe(beforeDocument);
 
     const events = await eventStore.query('es-set-idemp');
     const patchedEvents = events.filter(e => e.type === 'state.patched');

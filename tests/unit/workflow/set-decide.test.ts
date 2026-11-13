@@ -774,14 +774,16 @@ describe('combined patch atomicity', () => {
     const document = await documentOf(store, FEATURE_ID);
     const appender = store.eventStore.getAppender();
     const original = appender.decideOnce.bind(appender);
+    let attemptedTypes: readonly string[] = [];
     vi.spyOn(appender, 'decideOnce').mockImplementation(<TResult>(operationId: string, digest: string, closure: (tx: DecideOnceContext) => DecideOnceDecision<TResult>): Promise<TResult> =>
       original(operationId, digest, (tx) => {
         const decision = closure(tx);
-        expect(decision.events.map((row) => row.type)).toEqual(['state.patched', 'workflow.transition', 'phase.exited', 'phase.entered']);
+        attemptedTypes = decision.events.map((row) => row.type);
         throw new Error('transaction fault');
       }));
     const result = await handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore);
-    expect(result).toMatchObject({ success: false, error: { code: 'EVENT_APPEND_FAILED' } });
+    expect(attemptedTypes).toEqual(['state.patched', 'workflow.transition', 'phase.exited', 'phase.entered']);
+    expect(result).toMatchObject({ success: false, error: { code: 'EVENT_APPEND_FAILED', message: expect.stringContaining('transaction fault') } });
     expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
     expect(await documentOf(store, FEATURE_ID)).toEqual(document);
   });
@@ -802,5 +804,72 @@ describe('combined patch atomicity', () => {
     await expect(handleSet({ featureId: FEATURE_ID, phase: 'plan-review', updates: { 'artifacts.plan': PLAN_ARTIFACT } }, store.stateDir, store.eventStore)).rejects.toBeInstanceOf(OperationDigestMismatchError);
     expect(await documentOf(store, FEATURE_ID)).toMatchObject({ artifacts: { plan: 'other-plan.md' } });
     expect((await rowsOf(store, FEATURE_ID)).filter((row) => row.type === 'state.patched')).toHaveLength(1);
+  });
+});
+
+
+describe('field patch ownership on retry', () => {
+  it('HandleSet_AnIdenticalPatchClaim_ReplaysWithoutDuplicate', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const state = await documentOf(store, FEATURE_ID);
+    const patch = { 'artifacts.plan': 'same.md' };
+    await store.eventStore.append(FEATURE_ID, { type: 'state.patched', data: { featureId: FEATURE_ID, fields: ['artifacts.plan'], patch } },
+      { idempotencyKey: `${FEATURE_ID}:patch:${state._version}:artifacts.plan` });
+    const before = await rowsOf(store, FEATURE_ID);
+    const result = await handleSet({ featureId: FEATURE_ID, updates: patch }, store.stateDir, store.eventStore);
+    expect(result.success).toBe(true);
+    expect(await rowsOf(store, FEATURE_ID)).toEqual(before);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ artifacts: { plan: 'same.md' }, _eventSequence: before.at(-1)?.sequence });
+  });
+
+  it('HandleSet_ConcurrentSameFieldWithDifferentValues_PersistsBothPatches', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const append = store.eventStore.appendValidated.bind(store.eventStore);
+    let fired = false;
+    let inner: ToolResult | undefined;
+    vi.spyOn(store.eventStore, 'appendValidated').mockImplementation(async (...args) => {
+      if (!fired && args[1].type === 'state.patched') {
+        fired = true;
+        inner = await handleSet({ featureId: FEATURE_ID, updates: { 'artifacts.plan': 'inner.md' } }, store.stateDir, store.eventStore);
+      }
+      return append(...args);
+    });
+    const outer = await handleSet({ featureId: FEATURE_ID, updates: { 'artifacts.plan': 'outer.md' } }, store.stateDir, store.eventStore);
+    expect(inner?.success).toBe(true);
+    expect(outer.success).toBe(true);
+    const patches = (await rowsOf(store, FEATURE_ID)).filter((row) => row.type === 'state.patched');
+    expect(patches.map((row) => row.data?.patch)).toEqual([{ 'artifacts.plan': 'inner.md' }, { 'artifacts.plan': 'outer.md' }]);
+    expect(patches[1]?.sequence).toBeGreaterThan(patches[0]?.sequence ?? 0);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ artifacts: { plan: 'outer.md' }, _eventSequence: patches[1]?.sequence });
+  });
+
+  it('HandleSet_AnOwnPatchBeforeALaterWriter_RetriesWithoutReplacingTheLaterValue', async () => {
+    const store = await openStore();
+    await init(store, FEATURE_ID);
+    const append = store.eventStore.appendValidated.bind(store.eventStore);
+    let ownPatch: WorkflowEvent | undefined;
+    let later: ToolResult | undefined;
+    let synchronized: ToolResult | undefined;
+    let fired = false;
+    vi.spyOn(store.eventStore, 'appendValidated').mockImplementation(async (...args) => {
+      const event = await append(...args);
+      if (!fired && args[1].type === 'state.patched') {
+        fired = true;
+        ownPatch = structuredClone((await rowsOf(store, FEATURE_ID)).find((row) => row.sequence === event.sequence));
+        synchronized = await handleSet({ featureId: FEATURE_ID, phase: 'plan' }, store.stateDir, store.eventStore);
+        later = await handleSet({ featureId: FEATURE_ID, updates: { 'artifacts.plan': 'later.md' } }, store.stateDir, store.eventStore);
+      }
+      return event;
+    });
+    const outer = await handleSet({ featureId: FEATURE_ID, updates: { 'artifacts.plan': 'own.md' } }, store.stateDir, store.eventStore);
+    expect(synchronized?.success).toBe(true);
+    expect(later?.success).toBe(true);
+    expect(outer.success).toBe(true);
+    const patches = (await rowsOf(store, FEATURE_ID)).filter((row) => row.type === 'state.patched');
+    expect(patches.map((row) => row.data?.patch)).toEqual([{ 'artifacts.plan': 'own.md' }, { 'artifacts.plan': 'later.md' }]);
+    expect(patches[0]).toEqual(ownPatch);
+    expect(await documentOf(store, FEATURE_ID)).toMatchObject({ artifacts: { plan: 'later.md' }, _eventSequence: patches[1]?.sequence });
   });
 });

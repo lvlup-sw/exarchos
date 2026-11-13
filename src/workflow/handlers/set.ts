@@ -588,8 +588,8 @@ export async function handleSet(
     }
 
     const validated = WorkflowStateSchema.safeParse(mutableState);
-    if (!validated.success) {
-      return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: validated.error.message } };
+    if (!input.phase && !validated.success) {
+      return { success: false, error: { code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${validated.error.message}` } };
     }
 
     let ledgerBacked = false;
@@ -647,6 +647,12 @@ export async function handleSet(
         fold: { config: options ?? {} },
         ...(options?.skipPhases !== undefined ? { skipPhases: options.skipPhases } : {}),
       });
+
+      if (!validated.success) {
+        return withShadowRecord({ success: false, error: {
+          code: ErrorCode.INVALID_INPUT, message: `Write-time validation failed: ${validated.error.message}`,
+        } }, shadowRun, stateDir, routeWarnings);
+      }
 
       if (committed !== undefined) {
         workflowLogger.debug(
@@ -837,6 +843,7 @@ export async function handleSet(
           },
         });
         const event = await eventStore.appendValidated(input.featureId, validatedEvent, { idempotencyKey });
+        if (JSON.stringify(event.data?.patch) !== JSON.stringify(input.updates)) continue;
 
         highestEventSequence = Math.max(highestEventSequence ?? 0, event.sequence);
         patchSequence = event.sequence;
