@@ -61,9 +61,11 @@ export function inputWithinBudget(input: unknown): boolean {
   let nodes = 0;
   let textLength = 0;
   while (pending.length > 0) {
-    const { value, depth, leave } = pending.pop()!;
+    const item = pending.pop();
+    if (!item) break;
+    const { value, depth, leave } = item;
     if (leave) {
-      seen.delete(value as object);
+      if (value !== null && typeof value === 'object') seen.delete(value);
       continue;
     }
     if (++nodes > 100_000 || depth > 32) return false;

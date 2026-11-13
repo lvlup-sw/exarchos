@@ -25,6 +25,12 @@ function chooseInteger(min: bigint, max: bigint, random: () => number): bigint {
   return min + value % width;
 }
 
+function select<T>(values: readonly T[], index: number): T {
+  const value = values[index];
+  if (value === undefined) throw new Error('Expected a value from a nonempty domain.');
+  return value;
+}
+
 export function sample(domain: Domain, random: () => number): JsonValue {
   switch (domain.kind) {
     case 'boolean': return random() < 0.5;
@@ -34,11 +40,11 @@ export function sample(domain: Domain, random: () => number): JsonValue {
       const value = domain.min * (1 - fraction) + domain.max * fraction;
       return Math.max(domain.min, Math.min(domain.max, value)) || 0;
     }
-    case 'enum': return domain.values[Math.floor(random() * domain.values.length)]!;
+    case 'enum': return select(domain.values, Math.floor(random() * domain.values.length));
     case 'string': {
       const alphabet = [...domain.alphabet];
       const size = Number(chooseInteger(BigInt(domain.minLength), BigInt(domain.maxLength), random));
-      return Array.from({ length: size }, () => alphabet[Math.floor(random() * alphabet.length)]!).join('');
+      return Array.from({ length: size }, () => select(alphabet, Math.floor(random() * alphabet.length))).join('');
     }
     case 'nullable': return random() < 0.25 ? null : sample(domain.value, random);
     case 'array': {
@@ -54,8 +60,8 @@ export function simplest(domain: Domain): JsonValue {
     case 'boolean': return false;
     case 'integer': return (BigInt(domain.min) > 0n ? BigInt(domain.min) : BigInt(domain.max) < 0n ? BigInt(domain.max) : 0n).toString();
     case 'number': return Math.max(domain.min, Math.min(domain.max, 0)) || 0;
-    case 'string': return [...domain.alphabet][0]!.repeat(domain.minLength);
-    case 'enum': return domain.values[0]!;
+    case 'string': return select([...domain.alphabet], 0).repeat(domain.minLength);
+    case 'enum': return select(domain.values, 0);
     case 'nullable': return null;
     case 'array': return Array.from({ length: domain.minLength }, () => simplest(domain.element));
     case 'record': return Object.fromEntries(Object.entries(domain.fields).map(([key, field]) => [key, simplest(field)]));
@@ -87,7 +93,7 @@ export function* boundaries(domain: Domain): Generator<JsonValue> {
       break;
     case 'record':
       for (const [key, field] of Object.entries(domain.fields)) {
-        for (const value of boundaries(field)) yield { ...simplest(domain) as Record<string, JsonValue>, [key]: value };
+        for (const value of boundaries(field)) yield Object.fromEntries(Object.entries(domain.fields).map(([name, child]) => [name, name === key ? value : simplest(child)]));
       }
       break;
   }

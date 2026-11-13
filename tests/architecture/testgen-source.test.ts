@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { expect, it } from 'vitest';
-import { assertCSharpSourceDerivation } from '../helpers/csharp-source-guard.js';
+import { assertCSharpSourceDerivation } from '../helpers/testgen/csharp-source-guard.js';
 import { csharpFile } from '../../src/testgen/emitters/tunit/source.js';
 
 const directory = new URL('../../src/testgen/emitters/tunit/', import.meta.url);
