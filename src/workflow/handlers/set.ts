@@ -110,7 +110,10 @@ function projectLegacyDocument(state: WorkflowState, rows: readonly WorkflowEven
   const tail = highestSequence(rows);
   const cursor = state._eventSequence === undefined ? 0 : state._eventSequence;
   if (state.featureId !== featureId || typeof cursor !== 'number' || !Number.isSafeInteger(cursor) || cursor < 0 || cursor > tail
-    || rows.some((row, index) => row.streamId !== featureId || (index > 0 && row.sequence <= rows[index - 1]!.sequence))) {
+    || rows.some((row, index) => {
+      const previous = rows[index - 1];
+      return row.streamId !== featureId || (previous !== undefined && row.sequence <= previous.sequence);
+    })) {
     throw new StateStoreError(ErrorCode.PROJECTION_REPLAY_FAILED, 'The legacy document cursor does not match its stream');
   }
   let view = structuredClone(state) as unknown as WorkflowStateView;
@@ -424,10 +427,12 @@ async function decideOnTheFold(pass: FoldPassInput): Promise<FoldPass> {
       if (winner !== undefined) return winner;
       return { kind: 'legacy', authority };
     }
-    if (definition === undefined && !isBuiltInDefinitionType(workflowType)) {
+    const policyType = authority?.selection.record.workflowType ?? workflowType;
+    const selectedDefinition = definition ?? (isBuiltInDefinitionType(policyType) ? builtInDefinition(policyType) : undefined);
+    if (selectedDefinition === undefined) {
       return reply({ code: ErrorCode.INVALID_TRANSITION, message: 'The workflow has no prepared definition' });
     }
-    def = compileDecideDefinition(authority?.selection.record.workflowType ?? workflowType, definition ?? builtInDefinition((authority?.selection.record.workflowType ?? workflowType) as Parameters<typeof builtInDefinition>[0]),
+    def = compileDecideDefinition(policyType, selectedDefinition,
       definition === undefined ? options?.skipPhases ?? [] : authority?.skipPhases ?? options?.skipPhases ?? []);
     read = foldRead(featureId, target, rows, updates, options, undefined, authority);
     outcome = decide(def, read.input, { kind: 'transition', target });
@@ -760,6 +765,7 @@ export async function handleSet(
     let transitionTopSequence: number | undefined;
 
     if (input.phase) {
+      const targetPhase = input.phase;
       injectGuardConfig(mutableState, options);
 
       let rows: readonly WorkflowEvent[] | undefined;
@@ -886,7 +892,7 @@ export async function handleSet(
         let attemptResult;
         const replayLegacyWinner = async (): Promise<boolean> => {
           if (legacyAuthority === undefined || eventStore === null || rows === undefined || committed !== undefined) return false;
-          const winner = await replayClaim({ featureId: input.featureId, target: input.phase!, updates: input.updates,
+          const winner = await replayClaim({ featureId: input.featureId, target: targetPhase, updates: input.updates,
             workflowType: legacyAuthority.selection.record.workflowType, rows, options, eventStore, state },
           { from: fromPhase, attemptId: transitionPhaseAttemptId });
           if (winner?.kind !== 'reads-changed') return false;
@@ -917,18 +923,18 @@ export async function handleSet(
                   const attemptId = transitionPhaseAttemptId;
                   let owned = false;
                   const receipt = await eventStore.getAppender().decideOnce<CommittedMove>(`transition:${input.featureId}:${attemptId}`,
-                    requestDigestOf(input.featureId, fromPhase, input.phase!, input.updates), tx => {
+                    requestDigestOf(input.featureId, fromPhase, targetPhase, input.updates), tx => {
                       owned = true;
                       const snapshot = tx.readStream(input.featureId);
                       const migrated = migrateEvents(snapshot.events);
                       if (snapshot.version !== highestSequence(sourceRows) || !recheckPreparedAuthority(authority.selection, migrated)) {
-                        throw new TransitionReadsChanged(input.featureId, input.phase!);
+                        throw new TransitionReadsChanged(input.featureId, targetPhase);
                       }
                       const snapshotRows = migrated.map(workflowEventOf);
                       if (!legacyNoStart) {
                         const prior = foldWorkflowState(snapshotRows);
                         if (prior.phase !== fromPhase || readPhaseAttemptId(prior) !== readPhaseAttemptId(state)) {
-                          throw new TransitionReadsChanged(input.featureId, input.phase!);
+                          throw new TransitionReadsChanged(input.featureId, targetPhase);
                         }
                       }
                       projectLegacyDocument(state, snapshotRows, input.featureId);

@@ -296,7 +296,8 @@ async function prepareBatch(
 ): Promise<number> {
   const featureId = options.featureId ?? STREAM;
   const capsuleVersion = options.capsuleVersion ?? 1;
-  const capsule = capsuleOf(store, options.definition, options.taskIds, options.stepId, capsuleVersion, options.materialKinds);
+  const batch = capsuleOf(store, options.definition, options.taskIds, options.stepId, capsuleVersion, options.materialKinds);
+  const capsule = { ...batch, identity: { ...batch.identity, workflowId: featureId } };
   await runWithDispatchContext(correlation(), () =>
     commitPreparedCapsule(wiring(store), {
       streamId: featureId,
@@ -1008,7 +1009,8 @@ describe('settle levels the state document after a move', () => {
     const args = { capsuleVersion, batchId: 'batch-1', claims: [completedClaim('task-a')] };
     const first = receiptOf(await settle(store, args));
     expect((await handleSet({ featureId: STREAM, updates: { reviews: { bugbot: { passed: false } } } }, store.stateDir, store.eventStore)).success).toBe(true);
-    expect((await handleSet({ featureId: STREAM, phase: 'delegate' }, store.stateDir, store.eventStore)).success).toBe(true);
+    const laterMove = await handleSet({ featureId: STREAM, phase: 'delegate' }, store.stateDir, store.eventStore);
+    expect(laterMove.success, JSON.stringify(laterMove.error)).toBe(true);
     const later = documentOf(store);
     const tail = await tailOf(store);
     const replayed = receiptOf(await settle(store, args));
